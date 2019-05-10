@@ -11,17 +11,15 @@ int main(int argc, char *argv[])
     if (!CommandLine_process(argc, argv))
         return 1;
 
+    init_kseq(read_file_name);
 
-    if (!initiReadAllReads(read_file_name))
-    {
-        fprintf(stdout, "Cannot open read files. \n");
-        return 1;
-    }
 
 
     Counting();
 
-    
+
+
+    destory_kseq();
 
 
     return 1;

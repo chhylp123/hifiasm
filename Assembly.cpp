@@ -1,28 +1,31 @@
 #include "Assembly.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <zlib.h>
 #include "Process_Read.h"
+
+
+
+
 
 void Counting()
 {
-    Read r;
-    init_Read(&r);
+
+
+    kseq_t *seq = (kseq_t*)calloc(1, sizeof(kseq_t));	
+
 
     long long read_number = 0;
 
-    while (inputRead(&r))
+    while (get_read(seq))
     {
-        
-        fprintf(stderr,"%s\n",r.name);
-        
-        fprintf(stderr,"%s\n",r.seq);
+
+        fprintf(stderr,"@%s\n",seq->name.s);
+        fprintf(stderr,"%s\n",seq->seq.s);
         fprintf(stderr,"+\n");
-        fprintf(stderr,"%s\n",r.qual);
-        
+        fprintf(stderr,"%s\n",seq->qual.s);
 
         read_number++;
-
-        clear_read(&r);
     }
     
     fprintf(stdout, "read_number: %lld\n",read_number);
