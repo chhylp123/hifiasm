@@ -4,5 +4,6 @@
 
 
 void Counting();
+void Counting_multiple_thr();
 
 #endif

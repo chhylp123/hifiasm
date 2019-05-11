@@ -15,7 +15,8 @@ int main(int argc, char *argv[])
 
 
 
-    Counting();
+    ///Counting();
+    Counting_multiple_thr();
 
 
 
