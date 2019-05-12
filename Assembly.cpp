@@ -75,7 +75,6 @@ void Verify_Counting()
 
 
 }
-/********************************for debug***************************************/
 
 
 
@@ -83,6 +82,10 @@ void Verify_Counting()
 void* Perform_Counting(void* arg)
 {
     int thr_ID = *((int*)arg);
+
+    ///debug_mode(101, thr_ID, thread_num);
+
+
     int i = 0;
     HPC_seq HPC_read;
 
@@ -91,6 +94,7 @@ void* Perform_Counting(void* arg)
     init_R_buffer_block(&curr_sub_block);
 
     long long read_number = 0;
+    long long select_k_mer_number = 0 ;
     long long k_mer_number = 0 ;
 
 	int file_flag = 1;
@@ -126,8 +130,13 @@ void* Perform_Counting(void* arg)
                     if (avalible_k>=k_mer_length)
                     {
                         ///插入
-                        insert_Total_Count_Table(&TCB, &k_code, k_mer_length);
+                        if(insert_Total_Count_Table(&TCB, &k_code, k_mer_length))
+                        {
+                            select_k_mer_number++;
+                        }
+
                         k_mer_number++;
+                        
                     }
                     
                 }
@@ -148,10 +157,10 @@ void* Perform_Counting(void* arg)
     destory_R_buffer_block(&curr_sub_block);
     free(arg);
 
-    fprintf(stdout, "thr_ID: %d, read_number: %lld, k_mer_number: %lld\n",thr_ID, read_number, k_mer_number);
+    fprintf(stdout, "thr_ID: %d, read_number: %lld, select_k_mer_number: %lld, k_mer_number: %lld\n",
+    thr_ID, read_number, select_k_mer_number, k_mer_number);
 
 }
-
 
 
 
