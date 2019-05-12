@@ -8,7 +8,7 @@
 #include "kseq.h"
 
 #define READ_BLOCK_SIZE 64
-#define READ_BLOCK_NUM_PRE_THR 32
+#define READ_BLOCK_NUM_PRE_THR 100
 
 #define IS_FULL(buffer) ((buffer.num >= buffer.size)?1:0)
 #define IS_EMPTY(buffer) ((buffer.num == 0)?1:0)
@@ -46,5 +46,7 @@ void init_R_buffer_block(R_buffer_block* curr_sub_block);
 int get_reads_mul_thread(R_buffer_block* curr_sub_block);
 
 void Counting_block();
+void destory_R_buffer_block(R_buffer_block* curr_sub_block);
+void destory_R_buffer();
 
 #endif

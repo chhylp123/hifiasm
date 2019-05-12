@@ -65,13 +65,8 @@ int get_read(kseq_t *s)
 
 void init_R_buffer_block(R_buffer_block* curr_sub_block)
 {
-	int i;
-
-	for (i = 0; i < RDB.size; i++)
-	{
-		curr_sub_block->read = (kseq_t*)calloc(RDB.block_inner_size, sizeof(kseq_t));	
-		curr_sub_block->num = 0;
-	}	
+	curr_sub_block->read = (kseq_t*)calloc(RDB.block_inner_size, sizeof(kseq_t));	
+	curr_sub_block->num = 0;
 }
 
 
@@ -90,6 +85,27 @@ void init_R_buffer(int thread_num)
 	{
 		init_R_buffer_block(&RDB.sub_block[i]);
 	}
+	
+}
+
+
+void destory_R_buffer_block(R_buffer_block* curr_sub_block)
+{
+
+	free(curr_sub_block->read);
+}
+
+
+void destory_R_buffer()
+{
+	int i = 0;
+
+	for (i = 0; i < RDB.size; i++)
+	{
+		destory_R_buffer_block(&RDB.sub_block[i]);
+	}
+
+	free(RDB.sub_block);
 	
 }
 
@@ -214,6 +230,8 @@ void* input_reads_muti_threads(void*)
 	RDB.all_read_end = 1;
 	pthread_cond_signal(&i_readinputstallCond);  //important
 	pthread_mutex_unlock(&i_readinputMutex);
+
+	destory_R_buffer_block(&tmp_buf);
 
 }
 
