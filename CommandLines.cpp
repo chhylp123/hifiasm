@@ -6,6 +6,7 @@
 char* read_file_name = NULL;
 char* output_file_name = NULL;
 int thread_num = 1;
+int k_mer_length = 40;
 
 void Print_H()
 {
@@ -29,11 +30,12 @@ int CommandLine_process (int argc, char *argv[])
     ketopt_t opt = KETOPT_INIT;
 
     int i, c;
-    while ((c = ketopt(&opt, argc, argv, 1, "ht:o:q:", longopts)) >= 0) {
+    while ((c = ketopt(&opt, argc, argv, 1, "ht:o:q:k:", longopts)) >= 0) {
         if (c == 100 || c == 'h') Print_H();
         else if (c == 103 || c == 't') thread_num = atoi(opt.arg); 
         else if (c == 102 || c == 'o') output_file_name = opt.arg;
         else if (c == 101 || c == 'q') read_file_name = opt.arg;
+        else if (c == 'k') k_mer_length = atoi(opt.arg); 
         else if (c == '?') printf("unknown opt: -%c\n", opt.opt? opt.opt : ':');
         else if (c == ':') printf("missing arg: -%c\n", opt.opt? opt.opt : ':');
     }

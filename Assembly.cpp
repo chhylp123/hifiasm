@@ -4,11 +4,15 @@
 #include <zlib.h>
 #include "Process_Read.h"
 #include "CommandLines.h"
+#include "kmer.h"
+#include "Hash_Table.h"
+
+Total_Count_Table TCB;
 
 
 
-
-void Counting()
+/********************************for debug***************************************/
+void Verify_Counting()
 {
 
 
@@ -17,46 +21,87 @@ void Counting()
 
     long long read_number = 0;
 
+    HPC_seq HPC_read;
+    uint64_t code;
+    Hash_code k_code;
+    int avalible_k = 0;
+
+    fprintf(stdout, "Start Verifying ...\n");
+
     while (get_read(seq))
     {
 
-        fprintf(stderr,"@%s\n",seq->name.s);
-        fprintf(stderr,"%s\n",seq->seq.s);
-        fprintf(stderr,"+\n");
-        fprintf(stderr,"%s\n",seq->qual.s);
+        init_HPC_seq(&HPC_read, seq->seq.s, seq->seq.l);
+        init_Hash_code(&k_code);
+
+        avalible_k = 0;
+
+        while ((code = get_HPC_code(&HPC_read)) != 6)
+        {
+            if(code < 4)
+            {
+                k_mer_append(&k_code,code,k_mer_length);
+                avalible_k++;
+                if (avalible_k>=k_mer_length)
+                {
+                    if(verify_Total_Count_Table(&TCB, &k_code, k_mer_length) == -1)
+                    {
+                        fprintf(stderr, "ERROR when subtracting!\n");
+                    }
+                }
+                
+            }
+            else
+            {
+                avalible_k = 0;
+                init_Hash_code(&k_code);
+            }
+            
+        }
+
+
+
 
         read_number++;
     }
     
     fprintf(stdout, "read_number: %lld\n",read_number);
 
+    fprintf(stdout, "Start Traversing ...\n");
+
+    Traverse_Total_Count_Table(&TCB);
+
+    fprintf(stdout, "Finish Traversing!\n");
 
 
 }
-
-
-
-
-
-
-
-
-
-
-
+/********************************for debug***************************************/
 
 
 
 
 void* Perform_Counting(void* arg)
 {
+    int thr_ID = *((int*)arg);
+    int i = 0;
+    HPC_seq HPC_read;
+
     R_buffer_block curr_sub_block;
 
     init_R_buffer_block(&curr_sub_block);
 
     long long read_number = 0;
-    
+    long long k_mer_number = 0 ;
+
 	int file_flag = 1;
+
+    uint64_t code;
+
+    Hash_code k_code;
+
+    int avalible_k = 0;
+
+
 	while (file_flag != 0)
 	{
 
@@ -64,10 +109,46 @@ void* Perform_Counting(void* arg)
 
         read_number = read_number + curr_sub_block.num; 
 
+        for (i = 0; i < curr_sub_block.num; i++)
+        {
+
+            init_HPC_seq(&HPC_read, curr_sub_block.read[i].seq.s, curr_sub_block.read[i].seq.l);
+            init_Hash_code(&k_code);
+
+            avalible_k = 0;
+
+            while ((code = get_HPC_code(&HPC_read)) != 6)
+            {
+                if(code < 4)
+                {
+                    k_mer_append(&k_code,code,k_mer_length);
+                    avalible_k++;
+                    if (avalible_k>=k_mer_length)
+                    {
+                        ///插入
+                        insert_Total_Count_Table(&TCB, &k_code, k_mer_length);
+                        k_mer_number++;
+                    }
+                    
+                }
+                else
+                {
+                    avalible_k = 0;
+                    init_Hash_code(&k_code);
+                }
+                
+            }
+            
+
+        }
+        
+
     }
 
-    fprintf(stdout, "#########read_number: %lld\n",read_number);
-    fflush(stdout);
+    destory_R_buffer_block(&curr_sub_block);
+    free(arg);
+
+    fprintf(stdout, "thr_ID: %d, read_number: %lld, k_mer_number: %lld\n",thr_ID, read_number, k_mer_number);
 
 }
 
@@ -89,6 +170,15 @@ void* Perform_Counting(void* arg)
 
 void Counting_multiple_thr()
 {
+
+    init_Total_Count_Table(k_mer_length, &TCB);
+
+    fprintf(stdout, "TCB.prefix_bits: %d\n", TCB.prefix_bits);
+    fprintf(stdout, "TCB.suffix_bits: %d\n", TCB.suffix_bits);
+    fprintf(stdout, "TCB.size: %d\n", TCB.size);
+
+
+
     pthread_t inputReadsHandle;
     
     init_R_buffer(thread_num);
@@ -120,8 +210,21 @@ void Counting_multiple_thr()
 
     free(_r_threads);
 
+    destory_R_buffer();
+
+
+    destory_Total_Count_Table(&TCB);
+    
 
 }
+
+
+
+
+
+
+
+
 
 
 
