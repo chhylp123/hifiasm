@@ -58,7 +58,27 @@ void destory_Total_Count_Table(Total_Count_Table* TCB)
 }
 
 
+/********************************for debug***************************************/
+void debug_mode(uint64_t d, uint64_t thread_ID, uint64_t thread_num)
+{
+    fprintf(stderr, "#%llu: Start debug_mode...\n", thread_ID);
 
+    uint64_t i;
+
+    for (i = thread_ID; i < 4,294,967,296; i = i + thread_num)
+    {
+        if(i%d != mod_d(0, i, d))
+        {
+            fprintf(stderr, "ERROR mode, i: %llu\n", i);
+            fprintf(stderr, "i mod d: %llu\n", i%d);
+            fprintf(stderr, "mod_d(0, i, d): %llu\n", mod_d(0, i, d));
+        }
+
+    }
+
+    fprintf(stderr, "#%llu: Finish debug_mode\n", thread_ID);
+    
+}
 
 
 /********************************for debug***************************************/
@@ -111,4 +131,3 @@ void test_COUNT64()
     
 
 }
-/********************************for debug***************************************/

@@ -9,6 +9,7 @@ typedef khash_t(COUNT64) Count_Table;
 
 #define PREFIX_BITS 16
 #define MAX_SUFFIX_BITS 64
+#define MODE_VALUE 101
 
 typedef struct
 {
@@ -40,9 +41,20 @@ inline void print_64bit(uint64_t x)
 
     fprintf(stderr, "\n");
 }
-/********************************for debug***************************************/
 
-inline void get_sub_table(uint64_t* get_sub_ID, uint64_t* get_sub_key, Total_Count_Table* TCB, Hash_code* code, int k)
+inline uint64_t mod_d(uint64_t h_key, uint64_t low_key, uint64_t d)
+{
+    uint64_t result = (h_key >> 32) % d;
+    result = ((result << 32) + (h_key & (uint64_t)0xffffffff)) % d;
+    result = ((result << 32) + (low_key >> 32)) % d;
+    result = ((result << 32) + (low_key & (uint64_t)0xffffffff)) % d;
+
+    return result;
+}
+
+
+
+inline int get_sub_table(uint64_t* get_sub_ID, uint64_t* get_sub_key, Total_Count_Table* TCB, Hash_code* code, int k)
 {
     uint64_t h_key, low_key;
     ///k有可能是64，所以可能会有问题
@@ -50,6 +62,12 @@ inline void get_sub_table(uint64_t* get_sub_ID, uint64_t* get_sub_key, Total_Cou
     low_key = code->x[0] | (code->x[1] << SAFE_SHIFT(k));
     //k不可能为0, 所以这个右移不会有问题
     h_key = code->x[1] >> (64 - k);
+
+    if(mod_d(h_key, low_key, MODE_VALUE) > 3)
+    {
+        return 0;
+    }
+
 
     ///注意suffix_bits最大就是64
     ///前一个右移不安全，因为TCB->suffix_bits有可能为64
@@ -61,13 +79,18 @@ inline void get_sub_table(uint64_t* get_sub_ID, uint64_t* get_sub_key, Total_Cou
     *get_sub_ID = sub_ID;
     *get_sub_key = sub_key;
 
+     return 1;
+
 }
 
 
-inline void insert_Total_Count_Table(Total_Count_Table* TCB, Hash_code* code, int k)
+inline int insert_Total_Count_Table(Total_Count_Table* TCB, Hash_code* code, int k)
 {
     uint64_t sub_ID, sub_key;
-    get_sub_table(&sub_ID, &sub_key, TCB, code, k);
+    if(!get_sub_table(&sub_ID, &sub_key, TCB, code, k))
+    {
+        return 0;
+    }
 
     khint_t t;  ///这就是个迭代器
     int absent;
@@ -90,13 +113,18 @@ inline void insert_Total_Count_Table(Total_Count_Table* TCB, Hash_code* code, in
     }
 
     __sync_lock_release(&TCB->sub_h_lock[sub_ID].lock);
+
+    return 1;
 }
 
 inline int get_Total_Count_Table(Total_Count_Table* TCB, Hash_code* code, int k)
 {
 
     uint64_t sub_ID, sub_key;
-    get_sub_table(&sub_ID, &sub_key, TCB, code, k);
+    if(!get_sub_table(&sub_ID, &sub_key, TCB, code, k))
+    {
+        return 0;
+    }
 
     khint_t t;  ///这就是个迭代器
     int absent;
@@ -113,13 +141,18 @@ inline int get_Total_Count_Table(Total_Count_Table* TCB, Hash_code* code, int k)
         return -1;
     }
 
+    return 1;
+
 }
 
 /********************************for debug***************************************/
 inline int verify_Total_Count_Table(Total_Count_Table* TCB, Hash_code* code, int k)
 {
     uint64_t sub_ID, sub_key;
-    get_sub_table(&sub_ID, &sub_key, TCB, code, k);
+    if(!get_sub_table(&sub_ID, &sub_key, TCB, code, k))
+    {
+        return 0;
+    }
 
     khint_t t;  ///这就是个迭代器
     int absent;
@@ -144,7 +177,6 @@ inline int verify_Total_Count_Table(Total_Count_Table* TCB, Hash_code* code, int
         return -1;
     }
 }
-/********************************for debug***************************************/
 
 /********************************for debug***************************************/
 inline int Traverse_Total_Count_Table(Total_Count_Table* TCB)
@@ -174,7 +206,6 @@ inline int Traverse_Total_Count_Table(Total_Count_Table* TCB)
     
     fprintf(stdout, "non_empty_k_mer: %lld\n", non_empty_k_mer);
 }
-/********************************for debug***************************************/
 
 
 void init_Total_Count_Table(int k, Total_Count_Table* TCB);
@@ -184,6 +215,9 @@ void init_Count_Table(Count_Table** table);
 
 /********************************for debug***************************************/
 void test_COUNT64();
+
 /********************************for debug***************************************/
+void debug_mode(uint64_t d, uint64_t thread_ID, uint64_t thread_num);
+
 
 #endif
