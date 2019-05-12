@@ -13,7 +13,6 @@ void debug_Counting()
     fprintf(stderr, "debug over!\n");
     destory_kseq();
 }
-/********************************for debug***************************************/
 
 
 int main(int argc, char *argv[])
