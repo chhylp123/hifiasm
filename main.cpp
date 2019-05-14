@@ -21,14 +21,18 @@ int main(int argc, char *argv[])
     if (!CommandLine_process(argc, argv))
         return 1;
 
-    init_kseq(read_file_name);
+    ///init_kseq(read_file_name);
 
     fprintf(stdout, "k-mer length: %d\n",k_mer_length);
 
     ///Counting();
     Counting_multiple_thr();
 
-    destory_kseq();
+    Build_hash_table_multiple_thr();
+
+    ///verify_Position_hash_table();
+
+    ///destory_kseq();
 
     ///debug_Counting();
 

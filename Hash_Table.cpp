@@ -9,6 +9,11 @@ void init_Count_Table(Count_Table** table)
     *table = kh_init(COUNT64);
 }
 
+void init_Pos_Table(Pos_Table** table)
+{
+    *table = kh_init(POS64);
+}
+
 void init_Total_Count_Table(int k, Total_Count_Table* TCB)
 {
     if(k>64)
@@ -34,6 +39,7 @@ void init_Total_Count_Table(int k, Total_Count_Table* TCB)
     TCB->size = (1ULL<<TCB->prefix_bits);
     TCB->sub_h = (Count_Table**)malloc(sizeof(Count_Table*)*TCB->size);
     TCB->sub_h_lock = (Hash_table_spin_lock*)malloc(sizeof(Hash_table_spin_lock)*TCB->size);
+    memset(TCB->sub_h_lock, 0, sizeof(Hash_table_spin_lock)*TCB->size);
 
     int i = 0;
     for (i = 0; i < TCB->size; i++)
@@ -41,10 +47,34 @@ void init_Total_Count_Table(int k, Total_Count_Table* TCB)
         init_Count_Table(&(TCB->sub_h[i]));
         TCB->sub_h_lock[i].lock = 0;
     }
-
-
-
+    TCB->non_unique_k_mer = 0;
 }
+
+
+
+void init_Total_Pos_Table(Total_Pos_Table* TCB, Total_Count_Table* pre_TCB)
+{
+
+    TCB->prefix_bits = pre_TCB->prefix_bits;
+    TCB->suffix_bits = pre_TCB->suffix_bits;
+    TCB->suffix_mode = pre_TCB->suffix_mode;
+    TCB->size = pre_TCB->size;
+    TCB->useful_k_mer = 0;
+    TCB->total_occ = 0;
+    TCB->k_mer_index = NULL;
+    TCB->sub_h_lock = (Hash_table_spin_lock*)malloc(sizeof(Hash_table_spin_lock)*TCB->size);
+    memset(TCB->sub_h_lock, 0, sizeof(Hash_table_spin_lock)*TCB->size);
+    TCB->sub_h = (Pos_Table**)malloc(sizeof(Pos_Table*)*TCB->size);
+    TCB->pos = NULL;
+
+    int i = 0;
+    for (i = 0; i < TCB->size; i++)
+    {
+        init_Pos_Table(&(TCB->sub_h[i]));
+        TCB->sub_h_lock[i].lock = 0;
+    }
+}
+
 
 void destory_Total_Count_Table(Total_Count_Table* TCB)
 {
@@ -56,6 +86,116 @@ void destory_Total_Count_Table(Total_Count_Table* TCB)
     free(TCB->sub_h);
     free(TCB->sub_h_lock);
 }
+
+
+void Traverse_Counting_Table(Total_Count_Table* TCB, Total_Pos_Table* PCB, int k_mer_min_freq, int k_mer_max_freq)
+{
+    int i;
+    Count_Table* h;
+    khint_t k;
+    uint64_t sub_key;
+    uint64_t sub_ID;
+    PCB->useful_k_mer = 0;
+    PCB->total_occ = 0;
+
+    init_Total_Pos_Table(PCB, TCB);
+
+    khint_t t;  ///这就是个迭代器
+    int absent;
+
+    for (i = 0; i < TCB->size; i++)
+    {
+        h = TCB->sub_h[i];
+        for (k = kh_begin(h); k != kh_end(h); ++k)
+        {
+            if (kh_exist(h, k))            // test if a bucket contains data
+            {
+                ///只有符合频率范围要求的k-mer，才会被加入到pos table中
+                if (kh_value(h, k)>=k_mer_min_freq && kh_value(h, k)<=k_mer_max_freq)
+                {
+
+                    sub_ID = i;
+                    sub_key = kh_key(h, k);
+
+                    t = kh_put(POS64, PCB->sub_h[sub_ID], sub_key, &absent);
+    
+                    if (absent)
+                    {
+                        ///kh_value(PCB->sub_h[sub_ID], t) = useful_k_mer + total_occ;
+                        kh_value(PCB->sub_h[sub_ID], t) = PCB->useful_k_mer;
+                    }
+                    else   ///哈希表中已有的元素
+                    {
+                        ///kh_value(PCB->sub_h[sub_ID], t)++;
+                        fprintf(stderr, "ERROR\n");
+                    }
+
+                   
+                    PCB->useful_k_mer++;
+                    PCB->total_occ = PCB->total_occ + kh_value(h, k);
+                }
+            }
+        }
+    }
+
+
+    fprintf(stdout, "useful_k_mer: %lld\n",PCB->useful_k_mer);
+    fprintf(stdout, "total_occ: %lld\n",PCB->total_occ);
+
+    PCB->k_mer_index = (uint64_t*)malloc(sizeof(uint64_t)*(PCB->useful_k_mer+1));
+
+    PCB->k_mer_index[0] = 0;
+
+    PCB->total_occ = 0;
+    PCB->useful_k_mer = 0;
+
+    for (i = 0; i < TCB->size; i++)
+    {
+        h = TCB->sub_h[i];
+        for (k = kh_begin(h); k != kh_end(h); ++k)
+        {
+            if (kh_exist(h, k))            // test if a bucket contains data
+            {
+                if (kh_value(h, k)>=k_mer_min_freq && kh_value(h, k)<=k_mer_max_freq)
+                {
+                    PCB->useful_k_mer++;
+                    PCB->total_occ = PCB->total_occ + kh_value(h, k);
+                    PCB->k_mer_index[PCB->useful_k_mer] = PCB->total_occ;
+                }
+            }
+        }
+    }
+
+    PCB->pos = (k_mer_pos*)malloc(sizeof(k_mer_pos)*PCB->total_occ);
+    memset(PCB->pos, 0, sizeof(k_mer_pos)*PCB->total_occ);
+    
+    
+}
+
+
+
+
+int cmp_k_mer_pos(const void * a, const void * b)
+{
+    if ((*(k_mer_pos*)a).readID != (*(k_mer_pos*)b).readID)
+    {
+        return (*(k_mer_pos*)a).readID > (*(k_mer_pos*)b).readID ? 1 : -1; 
+    }
+    else
+    {
+        if ((*(k_mer_pos*)a).offset != (*(k_mer_pos*)b).offset)
+        {
+            return (*(k_mer_pos*)a).offset > (*(k_mer_pos*)b).offset ? 1 : -1; 
+        }
+        else
+        {
+            return 0;
+        }
+    }
+}
+
+
+
 
 
 /********************************for debug***************************************/

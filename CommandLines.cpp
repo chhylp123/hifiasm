@@ -2,11 +2,22 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include "ketopt.h"
+#include <sys/time.h>
+
 
 char* read_file_name = NULL;
 char* output_file_name = NULL;
 int thread_num = 1;
 int k_mer_length = 40;
+int k_mer_min_freq = 9;
+int k_mer_max_freq = 66;
+
+double Get_T(void)
+{
+  struct timeval t;
+  gettimeofday(&t, NULL);
+  return t.tv_sec+t.tv_usec/1000000.0;
+}
 
 void Print_H()
 {
