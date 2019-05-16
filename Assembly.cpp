@@ -48,6 +48,7 @@ void* Perform_Counting(void* arg)
         for (i = 0; i < curr_sub_block.num; i++)
         {
 
+            ///forward strand
             init_HPC_seq(&HPC_read, curr_sub_block.read[i].seq.s, curr_sub_block.read[i].seq.l);
             init_Hash_code(&k_code);
 
@@ -79,7 +80,44 @@ void* Perform_Counting(void* arg)
                 }
                 
             }
-            
+
+
+            /**
+            ///reverse complement strand
+            reverse_complement(curr_sub_block.read[i].seq.s, curr_sub_block.read[i].seq.l);
+            init_HPC_seq(&HPC_read, curr_sub_block.read[i].seq.s, curr_sub_block.read[i].seq.l);
+            init_Hash_code(&k_code);
+
+            avalible_k = 0;
+
+            while ((code = get_HPC_code(&HPC_read)) != 6)
+            {
+                if(code < 4)
+                {
+                    k_mer_append(&k_code,code,k_mer_length);
+                    avalible_k++;
+                    if (avalible_k>=k_mer_length)
+                    {
+                        ///插入
+                        if(insert_Total_Count_Table(&TCB, &k_code, k_mer_length))
+                        {
+                            select_k_mer_number++;
+                        }
+
+                        k_mer_number++;
+                        
+                    }
+                    
+                }
+                else
+                {
+                    avalible_k = 0;
+                    init_Hash_code(&k_code);
+                }
+                
+            }
+            **/
+
 
         }
         
@@ -117,7 +155,6 @@ void* Build_hash_table(void* arg)
 
     int avalible_k = 0;
 
-    char* dest;
 
 	while (file_flag != 0)
 	{
@@ -127,15 +164,57 @@ void* Build_hash_table(void* arg)
 
         for (i = 0; i < curr_sub_block.num; i++)
         {
+ 
+            ///forward strand
+            init_HPC_seq(&HPC_read, curr_sub_block.read[i].seq.s, curr_sub_block.read[i].seq.l);
+            init_Hash_code(&k_code);
 
-           dest = R_INF.read+R_INF.index[curr_sub_block.read[i].ID];
-           memcpy(dest, curr_sub_block.read[i].seq.s, curr_sub_block.read[i].seq.l);
+            avalible_k = 0;
 
-           dest = R_INF.name+R_INF.name_index[curr_sub_block.read[i].ID];
-           memcpy(dest, curr_sub_block.read[i].name.s, curr_sub_block.read[i].name.l);
+            HPC_base = 0;
+
+            while ((code = get_HPC_code(&HPC_read)) != 6)
+            {
+                if(code < 4)
+                {
+                    k_mer_append(&k_code,code,k_mer_length);
+                    avalible_k++;
+                    if (avalible_k>=k_mer_length)
+                    {
+
+                       ///选取的k-mer满足两个要求
+                       ///1. hash(k-mer) % 101 <= 3
+                       ///2. occ(k-mer)要满足范围
+                       ///TCB表中的元素仅满足第一个要求，而PCB表中的元素满足两个要求
+                       ///所以如果当前k-mer在PCB表中存在，则他的位置一定要加入到候选位置中去
+                        ///insert_Total_Pos_Table(&PCB, &k_code, k_mer_length, curr_sub_block.read[i].ID, HPC_base - k_mer_length + 1, FORWARD);
+                        insert_Total_Pos_Table(&PCB, &k_code, k_mer_length, 
+                            curr_sub_block.read[i].ID, HPC_base - k_mer_length + 1);
+                    }
+                    
+                }
+                else
+                {
+                    avalible_k = 0;
+                    init_Hash_code(&k_code);
+                }
+
+                HPC_base++;
+            }
+
             
-            
-            
+            ///load read
+            compress_base(Get_READ(R_INF, curr_sub_block.read[i].ID),
+            curr_sub_block.read[i].seq.s, curr_sub_block.read[i].seq.l, 
+            &R_INF.N_site[curr_sub_block.read[i].ID], HPC_read.N_occ);
+
+            memcpy(R_INF.name+R_INF.name_index[curr_sub_block.read[i].ID], 
+            curr_sub_block.read[i].name.s, curr_sub_block.read[i].name.l);
+
+            /**
+            ///reverse complement strand
+            reverse_complement(curr_sub_block.read[i].seq.s, curr_sub_block.read[i].seq.l);
+
             init_HPC_seq(&HPC_read, curr_sub_block.read[i].seq.s, curr_sub_block.read[i].seq.l);
             init_Hash_code(&k_code);
 
@@ -158,7 +237,7 @@ void* Build_hash_table(void* arg)
                        ///TCB表中的元素仅满足第一个要求，而PCB表中的元素满足两个要求
                        ///所以如果当前k-mer在PCB表中存在，则他的位置一定要加入到候选位置中去
                         insert_Total_Pos_Table(&PCB, &k_code, k_mer_length, 
-                            curr_sub_block.read[i].ID, HPC_base - k_mer_length + 1);
+                            curr_sub_block.read[i].ID, HPC_base - k_mer_length + 1, REVERSE_COMPLEMENT);
                     }
                     
                 }
@@ -170,8 +249,7 @@ void* Build_hash_table(void* arg)
 
                 HPC_base++;
             }
-            
-            
+            **/
 
         }
         
@@ -269,6 +347,7 @@ void Build_hash_table_multiple_thr()
     Traverse_Counting_Table(&TCB, &PCB, k_mer_min_freq, k_mer_max_freq);
 
     fprintf(stdout, "%-30s%18.2f\n\n", "Traverse time:", Get_T() - T_start_time);
+    fflush(stdout);
    
 
 
@@ -408,6 +487,9 @@ void verify_Position_hash_table()
     k_mer_pos* list;
     uint64_t sub_ID;
 
+    UC_Read g_read;
+    init_UC_Read(&g_read);
+
     fprintf(stdout, "Start Verifying Position Table...\n");
 
     while (get_read(seq))
@@ -419,9 +501,13 @@ void verify_Position_hash_table()
             fprintf(stderr, "seq error\n");
         }
 
-        if(memcmp(seq->seq.s, Get_READ(R_INF, read_number), seq->seq.l))
+        recover_UC_Read(&g_read, &R_INF, read_number);
+
+
+        if(memcmp(seq->seq.s, g_read.seq, seq->seq.l))
         {
-            fprintf(stderr, "seq error\n");
+            fprintf(stderr, "\nseq error ID: %llu, length: %llu\n",read_number, seq->seq.l);
+            
         }
 
         if (seq->name.l

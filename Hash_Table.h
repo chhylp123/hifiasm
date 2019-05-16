@@ -234,6 +234,7 @@ inline uint64_t locate_Total_Pos_Table(Total_Pos_Table* PCB, Hash_code* code, k_
 int cmp_k_mer_pos(const void * a, const void * b);
 
 
+//inline uint64_t insert_Total_Pos_Table(Total_Pos_Table* PCB, Hash_code* code, int k, uint64_t readID, uint64_t pos, uint64_t direction)
 inline uint64_t insert_Total_Pos_Table(Total_Pos_Table* PCB, Hash_code* code, int k, uint64_t readID, uint64_t pos)
 {
     k_mer_pos* list;
@@ -253,11 +254,13 @@ inline uint64_t insert_Total_Pos_Table(Total_Pos_Table* PCB, Hash_code* code, in
         {
             list[0].offset++;
             list[list[0].offset].readID = readID;
+            ///list[list[0].offset].readID = readID|direction;
             list[list[0].offset].offset = pos;
         }
         else
         {
             list[0].readID = readID;
+            ///list[0].readID = readID|direction;
             list[0].offset = pos;
             flag = 1;
         }

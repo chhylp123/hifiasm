@@ -27,6 +27,7 @@ void init_All_reads(All_reads* r)
 	r->index = (uint64_t*)malloc(sizeof(uint64_t)*r->index_size);
 	r->index[0] = 0;
 	r->read = NULL;
+	r->N_site = NULL;
 	r->total_reads_bases = 0;
 
 
@@ -57,14 +58,141 @@ inline void insert_read(All_reads* r, kstring_t* read, kstring_t* name)
 		r->name_index = (uint64_t*)realloc(r->name_index,sizeof(uint64_t)*(r->name_index_size));
 	}
 	r->index[r->total_reads] = r->index[r->total_reads-1] + read->l;
+	//r->index[r->total_reads] = r->index[r->total_reads-1] + read->l/4 + 1;
 	r->name_index[r->total_reads] = r->name_index[r->total_reads-1] + name->l;
 
 }
 
 void malloc_All_reads(All_reads* r)
 {
-	r->read = (char*)malloc(sizeof(char)*r->total_reads_bases);
+	///必须加r->total_reads
+	r->read = (uint8_t*)malloc(sizeof(uint8_t)*(r->total_reads_bases/4 + r->total_reads + 5));
 	r->name = (char*)malloc(sizeof(char)*r->total_name_length);
+	r->N_site = (uint64_t**)malloc(sizeof(uint64_t*)*r->total_reads);
+}
+
+void init_UC_Read(UC_Read* r)
+{
+	r->length = 0;
+	r->size = 0;
+	r->seq = NULL;
+	if (bit_t_seq_table[0][0] == 0)
+	{
+		uint64_t i = 0;
+
+		for (i = 0; i < 256; i++)
+		{
+			bit_t_seq_table[i][0] = s_H[((i >> 6)&(uint64_t)3)];
+			bit_t_seq_table[i][1] = s_H[((i >> 4)&(uint64_t)3)];
+			bit_t_seq_table[i][2] = s_H[((i >> 2)&(uint64_t)3)];
+			bit_t_seq_table[i][3] = s_H[(i&(uint64_t)3)];
+		}
+		
+	}
+	
+}
+
+
+void recover_UC_Read(UC_Read* r, All_reads* R_INF, uint64_t ID)
+{
+	r->length = Get_READ_LENGTH((*R_INF), ID);
+	uint8_t* src = Get_READ((*R_INF), ID);
+
+	if (r->length + 4 > r->size)
+	{
+		r->size = r->length + 4;
+		r->seq = (char*)realloc(r->seq,sizeof(char)*(r->size));
+	}
+
+	uint64_t i = 0;
+
+	while (i < r->length)
+	{
+		memcpy(r->seq+i, bit_t_seq_table[src[i>>2]], 4);
+		i = i + 4;
+	}
+
+
+	if (R_INF->N_site[ID])
+	{
+		for (i = 1; i <= R_INF->N_site[ID][0]; i++)
+		{
+			r->seq[R_INF->N_site[ID][i]] = 'N';
+		}
+	}
+		
+}
+
+
+
+#define COMPRESS_BASE {c = seq_nt6_table[src[i]];\
+		if (c >= 4)\
+		{\
+			c = 0;\
+			(*N_site_lis)[N_site_i] = i;\
+			N_site_i++;\
+		}\
+		i++;}\
+
+void compress_base(uint8_t* dest, char* src, uint64_t src_l, uint64_t** N_site_lis, uint64_t N_site_occ)
+{
+
+
+	if (N_site_occ)
+	{
+		(*N_site_lis) = (uint64_t*)malloc(sizeof(uint64_t)*(N_site_occ + 1));
+		(*N_site_lis)[0] = N_site_occ;
+	}
+	else
+	{
+		(*N_site_lis) = NULL;
+	}
+
+	uint64_t i = 0;
+	uint64_t N_site_i = 1;
+	uint64_t dest_i = 0;
+	uint8_t tmp = 0;
+	uint8_t c = 0;
+
+	
+
+	while (i + 4 <= src_l)
+	{
+		tmp = 0;
+
+		COMPRESS_BASE;
+		tmp = tmp | (c<<6);
+
+		COMPRESS_BASE;
+		tmp = tmp | (c<<4);
+
+		COMPRESS_BASE;
+		tmp = tmp | (c<<2);
+
+		COMPRESS_BASE;
+		tmp = tmp | c;
+
+		dest[dest_i] = tmp;
+		dest_i++;
+	}
+
+	//最多还剩3个字符
+	uint64_t shift = 6;
+	if (i < src_l)
+	{
+		tmp = 0;
+
+		while (i < src_l)
+		{
+			COMPRESS_BASE;
+			tmp = tmp | (c << shift);
+			shift = shift -2;
+		}
+		
+		dest[dest_i] = tmp;
+		dest_i++;
+	}
+
 }
 
 void init_kseq(char* file)
@@ -346,6 +474,34 @@ int get_reads_mul_thread(R_buffer_block* curr_sub_block)
 
 }
 
+
+
+
+
+
+
+
+void reverse_complement(char* pattern, uint64_t length)
+{
+	int i = 0;
+	uint64_t end = length / 2;
+	char k;
+	uint64_t index;
+
+	for (i = 0; i < end; i++)
+	{
+		index = length - i - 1;
+		k = pattern[index];
+		pattern[index] = RC_CHAR(pattern[i]);
+		pattern[i] = RC_CHAR(k);
+	}
+
+	if(length&(uint64_t)1)
+	{
+		pattern[end] = RC_CHAR(pattern[end]);
+	}
+
+}
 
 
 void Counting_block()
