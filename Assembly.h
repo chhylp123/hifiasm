@@ -1,6 +1,9 @@
 #ifndef __ASSEMBLY__
 #define __ASSEMBLY__
 
+#define FORWARD 0
+#define REVERSE_COMPLEMENT (0x8000000000000000)
+
 
 
 void Counting_multiple_thr();
