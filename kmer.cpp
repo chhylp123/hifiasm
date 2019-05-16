@@ -6,6 +6,7 @@ void init_HPC_seq(HPC_seq* seq, char* str, long long l)
 {
     seq->i = 0;
     seq->l = l;
+    seq->N_occ = 0;
     seq->str = str;
 }
 
