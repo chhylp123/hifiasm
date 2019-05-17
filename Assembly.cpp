@@ -399,11 +399,11 @@ void Build_hash_table_multiple_thr()
     if (write_index_to_disk)
     {
         write_Total_Pos_Table(&PCB, read_file_name);
-        destory_Total_Pos_Table(&PCB);
+        ///destory_Total_Pos_Table(&PCB);
         ///load_Total_Pos_Table(&PCB, read_file_name);
 
         write_All_reads(&R_INF, read_file_name);
-        destory_All_reads(&R_INF);
+        ///destory_All_reads(&R_INF);
         ///load_All_reads(&R_INF, read_file_name);
     }
     
