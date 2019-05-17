@@ -292,6 +292,11 @@ void destory_Total_Count_Table(Total_Count_Table* TCB);
 
 void init_Count_Table(Count_Table** table);
 void init_Pos_Table(Count_Table** pre_table, Pos_Table** table);
+void destory_Total_Pos_Table(Total_Pos_Table* TCB);
+void write_Total_Pos_Table(Total_Pos_Table* TCB, char* read_file_name);
+void load_Total_Pos_Table(Total_Pos_Table* TCB, char* read_file_name);
+
+
 
 void Traverse_Counting_Table(Total_Count_Table* TCB, Total_Pos_Table* PCB, int k_mer_min_freq, int k_mer_max_freq);
 

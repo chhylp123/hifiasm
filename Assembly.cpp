@@ -396,6 +396,19 @@ void Build_hash_table_multiple_thr()
     fprintf(stdout, "%-30s%18.2f\n\n", "Build hash table time:", Get_T() - start_time);
 
     ///destory_Total_Count_Table(&TCB);
+    if (write_index_to_disk)
+    {
+        write_Total_Pos_Table(&PCB, read_file_name);
+        destory_Total_Pos_Table(&PCB);
+        load_Total_Pos_Table(&PCB, read_file_name);
+
+        write_All_reads(&R_INF, read_file_name);
+        destory_All_reads(&R_INF);
+        load_All_reads(&R_INF, read_file_name);
+    }
+    
+
+    
 }
 
 

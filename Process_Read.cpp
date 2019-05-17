@@ -41,6 +41,130 @@ void init_All_reads(All_reads* r)
 	
 }
 
+void destory_All_reads(All_reads* r)
+{
+	uint64_t i = 0;
+	for (i = 0; i < r->total_reads; i++)
+	{
+		if (r->N_site[i] != NULL)
+		{
+			free(r->N_site[i]);
+		}
+	}
+	free(r->N_site);
+	free(r->read);
+	free(r->name);
+	free(r->name_index);
+}
+
+
+void write_All_reads(All_reads* r, char* read_file_name)
+{
+    fprintf(stdout, "Writing reads to disk ...... \n");
+    char* index_name = (char*)malloc(strlen(read_file_name)+5);
+    sprintf(index_name, "%s.bin", read_file_name);
+    FILE* fp = fopen(index_name, "w");
+    fwrite(&r->index_size, sizeof(r->index_size), 1, fp);
+	fwrite(&r->name_index_size, sizeof(r->name_index_size), 1, fp);
+	fwrite(&r->total_reads, sizeof(r->total_reads), 1, fp);
+	fwrite(&r->total_reads_bases, sizeof(r->total_reads_bases), 1, fp);
+	fwrite(&r->total_name_length, sizeof(r->total_name_length), 1, fp);
+
+	uint64_t i = 0;
+	uint64_t zero = 0;
+	for (i = 0; i < r->total_reads; i++)
+	{
+		if (r->N_site[i] != NULL)
+		{
+			///这个实际上是N的个数
+			fwrite(&r->N_site[i][0], sizeof(r->N_site[i][0]), 1, fp);
+			if (r->N_site[i][0])
+			{
+				///r->N_site[i]这实际是个长为r->N_site[i][0]+1
+				///这里从r->N_site[i] + 1写入了r->N_site[i][0]个元素
+				fwrite(r->N_site[i]+1, sizeof(r->N_site[i][0]), r->N_site[i][0], fp);
+			}
+		}
+		else
+		{
+			fwrite(&zero, sizeof(zero), 1, fp);
+		}
+		
+		
+		
+	}
+
+	fwrite(r->read, sizeof(uint8_t), (r->total_reads_bases/4 + r->total_reads + 5), fp);
+	fwrite(r->name, sizeof(char), r->total_name_length, fp);
+	fwrite(r->index, sizeof(uint64_t), r->index_size, fp);
+	fwrite(r->name_index, sizeof(uint64_t), r->name_index_size, fp);
+
+
+    free(index_name);    
+    fclose(fp);
+    fprintf(stdout, "Reads has been written.\n");
+}
+
+
+
+void load_All_reads(All_reads* r, char* read_file_name)
+{
+    fprintf(stdout, "Loading reads to disk ...... \n");
+    char* index_name = (char*)malloc(strlen(read_file_name)+5);
+    sprintf(index_name, "%s.bin", read_file_name);
+    FILE* fp = fopen(index_name, "r");
+    fread(&r->index_size, sizeof(r->index_size), 1, fp);
+	fread(&r->name_index_size, sizeof(r->name_index_size), 1, fp);
+	fread(&r->total_reads, sizeof(r->total_reads), 1, fp);
+	fread(&r->total_reads_bases, sizeof(r->total_reads_bases), 1, fp);
+	fread(&r->total_name_length, sizeof(r->total_name_length), 1, fp);
+
+	uint64_t i = 0;
+	uint64_t zero = 0;
+	r->N_site = (uint64_t**)malloc(sizeof(uint64_t*)*r->total_reads);
+	for (i = 0; i < r->total_reads; i++)
+	{
+
+		fread(&zero, sizeof(zero), 1, fp);
+
+		if (zero)
+		{
+
+			r->N_site[i] = (uint64_t*)malloc(sizeof(uint64_t)*(zero + 1));
+			r->N_site[i][0] = zero;
+			if (r->N_site[i][0])
+			{
+				///r->N_site[i]这实际是个长为r->N_site[i][0]+1
+				///这里从r->N_site[i] + 1写入了r->N_site[i][0]个元素
+				fread(r->N_site[i]+1, sizeof(r->N_site[i][0]), r->N_site[i][0], fp);
+			}
+		}
+		else
+		{
+			r->N_site[i] = NULL;
+		}
+
+	}
+
+	r->read = (uint8_t*)malloc(sizeof(uint8_t)*(r->total_reads_bases/4 + r->total_reads + 5));
+	fread(r->read, sizeof(uint8_t), (r->total_reads_bases/4 + r->total_reads + 5), fp);
+
+	r->name = (char*)malloc(sizeof(char)*r->total_name_length);
+	fread(r->name, sizeof(char), r->total_name_length, fp);
+
+	r->index = (uint64_t*)malloc(sizeof(uint64_t)*r->index_size);
+	fread(r->index, sizeof(uint64_t), r->index_size, fp);
+
+	r->name_index = (uint64_t*)malloc(sizeof(uint64_t)*r->name_index_size);
+	fread(r->name_index, sizeof(uint64_t), r->name_index_size, fp);
+
+
+    free(index_name);    
+    fclose(fp);
+    fprintf(stdout, "Reads has been loaded.\n");
+}
+
+
 
 inline void insert_read(All_reads* r, kstring_t* read, kstring_t* name)
 {
@@ -68,7 +192,8 @@ void malloc_All_reads(All_reads* r)
 	///必须加r->total_reads
 	r->read = (uint8_t*)malloc(sizeof(uint8_t)*(r->total_reads_bases/4 + r->total_reads + 5));
 	r->name = (char*)malloc(sizeof(char)*r->total_name_length);
-	r->N_site = (uint64_t**)malloc(sizeof(uint64_t*)*r->total_reads);
+	r->N_site = (uint64_t**)calloc(r->total_reads, sizeof(uint64_t*));
+	
 }
 
 void init_UC_Read(UC_Read* r)

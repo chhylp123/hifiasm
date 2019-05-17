@@ -88,6 +88,105 @@ void destory_Total_Count_Table(Total_Count_Table* TCB)
 }
 
 
+void destory_Total_Pos_Table(Total_Pos_Table* TCB)
+{
+    free(TCB->k_mer_index);
+    free(TCB->sub_h_lock);
+    free(TCB->pos);
+
+    int i;
+    for (i = 0; i < TCB->size; i++)
+    {
+        kh_destroy(POS64, TCB->sub_h[i]);
+    }
+    free(TCB->sub_h);
+}
+
+
+void write_Total_Pos_Table(Total_Pos_Table* TCB, char* read_file_name)
+{
+    fprintf(stdout, "Writing index to disk ...... \n");
+    char* index_name = (char*)malloc(strlen(read_file_name)+5);
+    sprintf(index_name, "%s.idx", read_file_name);
+    FILE* fp = fopen(index_name, "w");
+    fwrite(&TCB->prefix_bits, sizeof(TCB->prefix_bits), 1, fp);
+    fwrite(&TCB->suffix_bits, sizeof(TCB->suffix_bits), 1, fp);
+    fwrite(&TCB->suffix_mode, sizeof(TCB->suffix_mode), 1, fp);
+    fwrite(&TCB->size, sizeof(TCB->size), 1, fp);
+    fwrite(&TCB->useful_k_mer, sizeof(TCB->useful_k_mer), 1, fp);
+    fwrite(&TCB->total_occ, sizeof(TCB->total_occ), 1, fp);
+    fwrite(TCB->k_mer_index, sizeof(uint64_t), TCB->useful_k_mer+1, fp);
+    fwrite(TCB->pos, sizeof(k_mer_pos), TCB->total_occ, fp);
+
+
+    int i;
+    for (i = 0; i < TCB->size; i++)
+    {
+        kh_write(POS64, TCB->sub_h[i], fp);
+    }
+
+    free(index_name);    
+    fclose(fp);
+    fprintf(stdout, "Index has been written.\n");
+}
+
+
+void load_Total_Pos_Table(Total_Pos_Table* TCB, char* read_file_name)
+{
+    fprintf(stdout, "Loading index to disk ...... \n");
+    char* index_name = (char*)malloc(strlen(read_file_name)+5);
+    sprintf(index_name, "%s.idx", read_file_name);
+    FILE* fp = fopen(index_name, "r");
+    
+    fread(&TCB->prefix_bits, sizeof(TCB->prefix_bits), 1, fp);
+    fread(&TCB->suffix_bits, sizeof(TCB->suffix_bits), 1, fp);
+    fread(&TCB->suffix_mode, sizeof(TCB->suffix_mode), 1, fp);
+    fread(&TCB->size, sizeof(TCB->size), 1, fp);
+    fread(&TCB->useful_k_mer, sizeof(TCB->useful_k_mer), 1, fp);
+    fread(&TCB->total_occ, sizeof(TCB->total_occ), 1, fp);
+
+
+    if (TCB->useful_k_mer+1)
+    {
+        TCB->k_mer_index = (uint64_t*)malloc(sizeof(uint64_t)*(TCB->useful_k_mer+1));
+        fread(TCB->k_mer_index, sizeof(uint64_t), TCB->useful_k_mer+1, fp);
+    }
+    else
+    {
+        TCB->k_mer_index = NULL;
+    }
+    
+    
+    if (TCB->total_occ)
+    {
+        TCB->pos = (k_mer_pos*)malloc(sizeof(k_mer_pos)*TCB->total_occ);
+        fread(TCB->pos, sizeof(k_mer_pos), TCB->total_occ, fp);
+    }
+    else
+    {
+        TCB->pos = NULL;
+    }
+    
+    TCB->sub_h_lock = (Hash_table_spin_lock*)malloc(sizeof(Hash_table_spin_lock)*TCB->size);
+    memset(TCB->sub_h_lock, 0, sizeof(Hash_table_spin_lock)*TCB->size);
+
+    TCB->sub_h = (Pos_Table**)malloc(sizeof(Pos_Table*)*TCB->size);
+
+    int i;
+    for (i = 0; i < TCB->size; i++)
+    {
+        init_Pos_Table(&(TCB->sub_h[i]));
+        TCB->sub_h_lock[i].lock = 0;
+        kh_load(POS64, TCB->sub_h[i], fp);
+    }
+
+    free(index_name);    
+    fclose(fp);
+    fprintf(stdout, "Index has been loaded.\n");
+
+}
+
+
 void Traverse_Counting_Table(Total_Count_Table* TCB, Total_Pos_Table* PCB, int k_mer_min_freq, int k_mer_max_freq)
 {
     int i;
@@ -98,7 +197,7 @@ void Traverse_Counting_Table(Total_Count_Table* TCB, Total_Pos_Table* PCB, int k
     PCB->useful_k_mer = 0;
     PCB->total_occ = 0;
 
-    init_Total_Pos_Table(PCB, TCB);
+    ///init_Total_Pos_Table(PCB, TCB);
 
     khint_t t;  ///这就是个迭代器
     int absent;
