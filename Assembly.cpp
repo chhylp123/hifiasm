@@ -400,18 +400,29 @@ void Build_hash_table_multiple_thr()
     {
         write_Total_Pos_Table(&PCB, read_file_name);
         destory_Total_Pos_Table(&PCB);
-        load_Total_Pos_Table(&PCB, read_file_name);
+        ///load_Total_Pos_Table(&PCB, read_file_name);
 
         write_All_reads(&R_INF, read_file_name);
         destory_All_reads(&R_INF);
-        load_All_reads(&R_INF, read_file_name);
+        ///load_All_reads(&R_INF, read_file_name);
     }
     
 
     
 }
 
-
+int load_pre_cauculated_index()
+{
+    if(load_Total_Pos_Table(&PCB, read_file_name) && load_All_reads(&R_INF, read_file_name))
+    {
+        return 1;
+    }
+    else
+    {
+        return 0;
+    }
+    
+}
 
 
 /********************************for debug***************************************/
@@ -508,13 +519,16 @@ void verify_Position_hash_table()
     while (get_read(seq))
     {
 
+
         if (seq->seq.l
             != Get_READ_LENGTH(R_INF, read_number))
         {
             fprintf(stderr, "seq error\n");
         }
 
+
         recover_UC_Read(&g_read, &R_INF, read_number);
+
 
 
         if(memcmp(seq->seq.s, g_read.seq, seq->seq.l))
@@ -536,7 +550,6 @@ void verify_Position_hash_table()
         }
 
 
-
         init_HPC_seq(&HPC_read, seq->seq.s, seq->seq.l);
         init_Hash_code(&k_code);
 
@@ -545,6 +558,8 @@ void verify_Position_hash_table()
 
         while ((code = get_HPC_code(&HPC_read)) != 6)
         {
+
+
             if(code < 4)
             {
                 k_mer_append(&k_code,code,k_mer_length);
@@ -552,14 +567,17 @@ void verify_Position_hash_table()
                 if (avalible_k>=k_mer_length)
                 {
 
-                    uint64_t count1 = get_Total_Count_Table(&TCB, &k_code, k_mer_length);
+                    ///uint64_t count1 = get_Total_Count_Table(&TCB, &k_code, k_mer_length);
                     uint64_t count2 = count_Total_Pos_Table(&PCB, &k_code, k_mer_length);
+                    /**
                     if(count1>=k_mer_min_freq && count1<= k_mer_max_freq && count1!=count2)
                     {
                         fprintf(stderr, "count1: %lld\n",count1);
                         fprintf(stderr, "count2: %lld\n",count2);
                     }
-                    
+                    **/
+
+
 
                     if(locate_Total_Pos_Table(&PCB, &k_code, &list, k_mer_length, &sub_ID) == count2)
                     {
