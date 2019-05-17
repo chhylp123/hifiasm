@@ -21,20 +21,26 @@ int main(int argc, char *argv[])
     if (!CommandLine_process(argc, argv))
         return 1;
 
-    ///init_kseq(read_file_name);
 
     fprintf(stdout, "k-mer length: %d\n",k_mer_length);
 
-    ///Counting();
-    Counting_multiple_thr();
+    if (load_index_from_disk && load_pre_cauculated_index())
+    {
+        ;
+    }
+    else
+    {
+        Counting_multiple_thr();
 
-    Build_hash_table_multiple_thr();
+        Build_hash_table_multiple_thr();
+    }
+    
+
+    
 
     ///verify_Position_hash_table();
 
-    ///destory_kseq();
 
-    ///debug_Counting();
 
 
     return 1;

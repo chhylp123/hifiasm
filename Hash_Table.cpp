@@ -131,12 +131,17 @@ void write_Total_Pos_Table(Total_Pos_Table* TCB, char* read_file_name)
 }
 
 
-void load_Total_Pos_Table(Total_Pos_Table* TCB, char* read_file_name)
+int load_Total_Pos_Table(Total_Pos_Table* TCB, char* read_file_name)
 {
     fprintf(stdout, "Loading index to disk ...... \n");
     char* index_name = (char*)malloc(strlen(read_file_name)+5);
     sprintf(index_name, "%s.idx", read_file_name);
     FILE* fp = fopen(index_name, "r");
+    if (!fp)
+    {
+        return 0;
+    }
+    
     
     fread(&TCB->prefix_bits, sizeof(TCB->prefix_bits), 1, fp);
     fread(&TCB->suffix_bits, sizeof(TCB->suffix_bits), 1, fp);
@@ -184,6 +189,7 @@ void load_Total_Pos_Table(Total_Pos_Table* TCB, char* read_file_name)
     fclose(fp);
     fprintf(stdout, "Index has been loaded.\n");
 
+    return 1;
 }
 
 
