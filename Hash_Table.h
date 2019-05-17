@@ -294,7 +294,7 @@ void init_Count_Table(Count_Table** table);
 void init_Pos_Table(Count_Table** pre_table, Pos_Table** table);
 void destory_Total_Pos_Table(Total_Pos_Table* TCB);
 void write_Total_Pos_Table(Total_Pos_Table* TCB, char* read_file_name);
-void load_Total_Pos_Table(Total_Pos_Table* TCB, char* read_file_name);
+int load_Total_Pos_Table(Total_Pos_Table* TCB, char* read_file_name);
 
 
 

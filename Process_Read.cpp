@@ -107,12 +107,18 @@ void write_All_reads(All_reads* r, char* read_file_name)
 
 
 
-void load_All_reads(All_reads* r, char* read_file_name)
+int load_All_reads(All_reads* r, char* read_file_name)
 {
     fprintf(stdout, "Loading reads to disk ...... \n");
     char* index_name = (char*)malloc(strlen(read_file_name)+5);
     sprintf(index_name, "%s.bin", read_file_name);
     FILE* fp = fopen(index_name, "r");
+	if (!fp)
+    {
+        return 0;
+    }
+
+
     fread(&r->index_size, sizeof(r->index_size), 1, fp);
 	fread(&r->name_index_size, sizeof(r->name_index_size), 1, fp);
 	fread(&r->total_reads, sizeof(r->total_reads), 1, fp);
@@ -162,6 +168,8 @@ void load_All_reads(All_reads* r, char* read_file_name)
     free(index_name);    
     fclose(fp);
     fprintf(stdout, "Reads has been loaded.\n");
+
+	return 1;
 }
 
 

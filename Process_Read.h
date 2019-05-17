@@ -111,7 +111,7 @@ void init_UC_Read(UC_Read* r);
 void recover_UC_Read(UC_Read* r, All_reads* R_INF, uint64_t ID);
 void reverse_complement(char* pattern, uint64_t length);
 void write_All_reads(All_reads* r, char* read_file_name);
-void load_All_reads(All_reads* r, char* read_file_name);
+int load_All_reads(All_reads* r, char* read_file_name);
 void destory_All_reads(All_reads* r);
 
 void Counting_block();
