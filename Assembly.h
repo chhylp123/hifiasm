@@ -9,7 +9,7 @@
 void Counting_multiple_thr();
 void Build_hash_table_multiple_thr();
 int load_pre_cauculated_index();
-
+void Overlap_calculate_multipe_thr();
 /********************************for debug***************************************/
 void Verify_Counting();
 

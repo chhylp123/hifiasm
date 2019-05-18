@@ -33,6 +33,8 @@ void* Perform_Counting(void* arg)
 
     uint64_t code;
 
+    uint64_t end_pos;
+
     Hash_code k_code;
 
     int avalible_k = 0;
@@ -54,7 +56,7 @@ void* Perform_Counting(void* arg)
 
             avalible_k = 0;
 
-            while ((code = get_HPC_code(&HPC_read)) != 6)
+            while ((code = get_HPC_code(&HPC_read, &end_pos)) != 6)
             {
                 if(code < 4)
                 {
@@ -90,7 +92,7 @@ void* Perform_Counting(void* arg)
 
             avalible_k = 0;
 
-            while ((code = get_HPC_code(&HPC_read)) != 6)
+            while ((code = get_HPC_code(&HPC_read, &end_pos)) != 6)
             {
                 if(code < 4)
                 {
@@ -148,8 +150,9 @@ void* Build_hash_table(void* arg)
 	int file_flag = 1;
 
     uint64_t code;
+    uint64_t end_pos;
 
-    long long HPC_base;
+    ///long long HPC_base;
 
     Hash_code k_code;
 
@@ -171,9 +174,9 @@ void* Build_hash_table(void* arg)
 
             avalible_k = 0;
 
-            HPC_base = 0;
+            ///HPC_base = 0;
 
-            while ((code = get_HPC_code(&HPC_read)) != 6)
+            while ((code = get_HPC_code(&HPC_read, &end_pos)) != 6)
             {
                 if(code < 4)
                 {
@@ -189,7 +192,7 @@ void* Build_hash_table(void* arg)
                        ///所以如果当前k-mer在PCB表中存在，则他的位置一定要加入到候选位置中去
                         ///insert_Total_Pos_Table(&PCB, &k_code, k_mer_length, curr_sub_block.read[i].ID, HPC_base - k_mer_length + 1, FORWARD);
                         insert_Total_Pos_Table(&PCB, &k_code, k_mer_length, 
-                            curr_sub_block.read[i].ID, HPC_base - k_mer_length + 1);
+                            curr_sub_block.read[i].ID, end_pos);
                     }
                     
                 }
@@ -199,7 +202,7 @@ void* Build_hash_table(void* arg)
                     init_Hash_code(&k_code);
                 }
 
-                HPC_base++;
+                ///HPC_base++;
             }
 
             
@@ -222,7 +225,7 @@ void* Build_hash_table(void* arg)
 
             HPC_base = 0;
 
-            while ((code = get_HPC_code(&HPC_read)) != 6)
+            while ((code = get_HPC_code(&HPC_read, &end_pos)) != 6)
             {
                 if(code < 4)
                 {
@@ -411,6 +414,145 @@ void Build_hash_table_multiple_thr()
     
 }
 
+
+void* Overlap_calculate(void* arg)
+{
+
+    int thr_ID = *((int*)arg);
+
+    long long i = 0;
+    int avalible_k = 0;
+
+    UC_Read g_read;
+    init_UC_Read(&g_read);
+    HPC_seq HPC_read;
+    Hash_code k_code;
+    uint64_t code;
+    uint64_t end_pos;
+    k_mer_pos* list;
+    uint64_t list_length;
+    uint64_t sub_ID;
+    Candidates_list l;
+
+    k_mer_pos_list* merge_list;
+
+    init_Candidates_list(&l);
+
+    for (i = thr_ID; i < R_INF.total_reads; i = i + thread_num)
+    ///for (i = thr_ID; i < R_INF.total_reads/50; i = i + thread_num)
+    {
+        /**
+        if (i % 1000 == 0)
+        {
+            fprintf(stderr, "i: %llu\n", i);
+        }
+        **/
+        
+        
+
+        clear_Candidates_list(&l);
+        recover_UC_Read(&g_read, &R_INF, i);
+
+
+        ///forward strand
+        init_HPC_seq(&HPC_read, g_read.seq, g_read.length);
+        init_Hash_code(&k_code);
+        avalible_k = 0;
+
+        while ((code = get_HPC_code(&HPC_read, &end_pos)) != 6)
+        {
+            if(code < 4)
+            {
+                k_mer_append(&k_code,code,k_mer_length);
+                avalible_k++;
+                if (avalible_k>=k_mer_length)
+                {
+                    list_length = locate_Total_Pos_Table(&PCB, &k_code, &list, k_mer_length, &sub_ID);
+                    merge_Candidates_list(&l, list, list_length, end_pos, 0);
+                    //merge_Candidates_list_version(&l, list, list_length, end_pos, 0);
+                }
+            }
+            else
+            {
+                avalible_k = 0;
+                init_Hash_code(&k_code);
+            }
+
+            ///HPC_base++;
+        }
+
+
+
+        ///reverse complement strand
+        reverse_complement(g_read.seq, g_read.length);
+        init_HPC_seq(&HPC_read, g_read.seq, g_read.length);
+        init_Hash_code(&k_code);
+        avalible_k = 0;
+
+        while ((code = get_HPC_code(&HPC_read, &end_pos)) != 6)
+        {
+            if(code < 4)
+            {
+                k_mer_append(&k_code,code,k_mer_length);
+                avalible_k++;
+                if (avalible_k>=k_mer_length)
+                {
+                    list_length = locate_Total_Pos_Table(&PCB, &k_code, &list, k_mer_length, &sub_ID);
+                    merge_Candidates_list(&l, list, list_length, end_pos, 1);
+                    //merge_Candidates_list_version(&l, list, list_length, end_pos, 1);
+                }
+            }
+            else
+            {
+                avalible_k = 0;
+                init_Hash_code(&k_code);
+            }
+
+            ///HPC_base++;
+        }
+
+    }
+    
+    destory_Candidates_list(&l);
+}
+
+
+void Overlap_calculate_multipe_thr()
+{
+    double start_time = Get_T();
+
+
+    fprintf(stdout, "Begin Overlap Calculate ...... \n");
+
+    pthread_t *_r_threads;
+
+	_r_threads = (pthread_t *)malloc(sizeof(pthread_t)*thread_num);
+
+    int i = 0;
+
+	for (i = 0; i < thread_num; i++)
+	{
+		int *arg = (int*)malloc(sizeof(*arg));
+		*arg = i;
+
+		pthread_create(_r_threads + i, NULL, Overlap_calculate, (void*)arg);
+
+	}
+    
+
+    for (i = 0; i<thread_num; i++)
+		pthread_join(_r_threads[i], NULL);
+
+    free(_r_threads);
+
+    
+
+    fprintf(stdout, "Finish Overlap Calculate.\n");
+
+    fprintf(stdout, "%-30s%18.2f\n\n", "Calculate Overlap time:", Get_T() - start_time);    
+}
+
+
 int load_pre_cauculated_index()
 {
     if(load_Total_Pos_Table(&PCB, read_file_name) && load_All_reads(&R_INF, read_file_name))
@@ -437,6 +579,7 @@ void Verify_Counting()
 
     HPC_seq HPC_read;
     uint64_t code;
+    uint64_t end_pos;
     Hash_code k_code;
     int avalible_k = 0;
 
@@ -450,7 +593,7 @@ void Verify_Counting()
 
         avalible_k = 0;
 
-        while ((code = get_HPC_code(&HPC_read)) != 6)
+        while ((code = get_HPC_code(&HPC_read, &end_pos)) != 6)
         {
             if(code < 4)
             {
@@ -502,10 +645,11 @@ void verify_Position_hash_table()
 
 
     long long read_number = 0;
-    long long HPC_base;
+    ///long long HPC_base;
 
     HPC_seq HPC_read;
     uint64_t code;
+    uint64_t end_pos;
     Hash_code k_code;
     int avalible_k = 0;
     k_mer_pos* list;
@@ -554,9 +698,9 @@ void verify_Position_hash_table()
         init_Hash_code(&k_code);
 
         avalible_k = 0;
-        HPC_base = 0;
+        ///HPC_base = 0;
 
-        while ((code = get_HPC_code(&HPC_read)) != 6)
+        while ((code = get_HPC_code(&HPC_read, &end_pos)) != 6)
         {
 
 
@@ -601,7 +745,7 @@ void verify_Position_hash_table()
                         {
                             for(j=0; j<count2; j++)
                             {   
-                                if(list[j].readID == read_number && list[j].offset == HPC_base - k_mer_length + 1)
+                                if(list[j].readID == read_number && list[j].offset == end_pos)
                                 {
                                     break;
                                 }
@@ -610,7 +754,7 @@ void verify_Position_hash_table()
                             if(j == count2)
                             {
                                 fprintf(stderr, "locate error, read_number: %llu, pos: %llu\n", 
-                                read_number, HPC_base - k_mer_length + 1);
+                                read_number, end_pos);
 
                                 for(j=0; j<count2; j++)
                                 {   
@@ -637,7 +781,7 @@ void verify_Position_hash_table()
                 init_Hash_code(&k_code);
             }
 
-            HPC_base++;
+            ///HPC_base++;
             
         }
 

@@ -4,6 +4,39 @@
 #include "Hash_Table.h"
 
 
+
+
+void init_k_mer_pos_list_alloc(k_mer_pos_list_alloc* list)
+{
+    list->size = 1000;
+    list->length = 0;
+    list->list = (k_mer_pos_list*)malloc(sizeof(k_mer_pos_list)*list->size);
+}
+
+void destory_k_mer_pos_list_alloc(k_mer_pos_list_alloc* list)
+{
+    free(list->list);
+}
+
+void clear_k_mer_pos_list_alloc(k_mer_pos_list_alloc* list)
+{
+    list->length = 0;
+}
+
+
+void append_k_mer_pos_list_alloc(k_mer_pos_list_alloc* list, k_mer_pos* n_list, uint64_t n_length)
+{
+    list->length++;
+    if (list->length > list->size)
+    {
+        list->size = list->size * 2;
+        list->list = (k_mer_pos_list*)realloc(list->list, sizeof(k_mer_pos_list)*list->size);
+    }
+    
+    list->list[list->length - 1].list = n_list;
+    list->list[list->length - 1].length = n_length;
+}
+
 void init_Count_Table(Count_Table** table)
 {
     *table = kh_init(COUNT64);
@@ -298,6 +331,386 @@ int cmp_k_mer_pos(const void * a, const void * b)
         }
     }
 }
+
+
+void init_Candidates_list(Candidates_list* l)
+{
+    l->length = 0;
+    l->size = 0;
+    l->list = NULL;
+    l->tmp = NULL;
+    l->foward_pos = 0;
+    l->rc_pos = 0;
+}
+
+void clear_Candidates_list(Candidates_list* l)
+{
+    l->length = 0;
+    l->foward_pos = 0;
+    l->rc_pos = 0;
+}
+
+void destory_Candidates_list(Candidates_list* l)
+{
+    free(l->list);
+    free(l->tmp);
+}
+
+///1是x小，2是y小，0是相等
+inline int cmp_pos(k_mer_hit* x, k_mer_pos* y, uint64_t y_pos, uint8_t strand)
+{
+    if (x->strand < strand)
+    {
+        return 1;
+    }
+    else if (x->strand > strand)
+    {
+        return 2;
+    }
+    else
+    {
+        if (x->readID < y->readID)
+        {
+            return 1;
+        }
+        else if (x->readID > y->readID)
+        {
+            return 2;
+        }
+        else
+        {
+            if (x->offset < y->offset)
+            {
+                return 1;
+            }
+            else if (x->offset > y->offset)
+            {
+                return 2;
+            }
+            else
+            {
+                if (x->self_offset < y_pos)
+                {
+                    return 1;
+                }
+                else  if (x->self_offset > y_pos)
+                {
+                    return 2;
+                }
+                else
+                {
+                    return 0;
+                }
+                
+            }   
+        }    
+    }
+    
+}
+
+void debug_merge_Candidates_list(Candidates_list* l, k_mer_pos* n_list, uint64_t n_lengh, uint64_t end_pos, uint64_t i,
+uint64_t i_1, uint64_t i_2, uint64_t len1, uint64_t len2, uint64_t strand)
+{
+    if (i != l->length)
+    {
+        fprintf(stderr, "ERROR\n");
+        fprintf(stderr, "i: %llu, l->length: %llu\n", i , l->length);
+        fprintf(stderr, "i_1: %llu, len1: %llu\n", i_1 , len1);
+        fprintf(stderr, "i_2: %llu, len2: %llu\n", i_2 , len2);
+        fprintf(stderr, "strand: %llu\n", strand);
+        
+    }
+
+    for (i = 1; i < l->length; i++)
+    {
+        if (l->list[i].strand < l->list[i-1].strand)
+        {
+            fprintf(stderr, "ERROR -1\n");
+        }
+        else if (l->list[i].strand == l->list[i-1].strand)
+        {
+            if (l->list[i].readID < l->list[i-1].readID)
+            {
+                fprintf(stderr, "ERROR 0\n");
+            }
+            else if (l->list[i].readID == l->list[i-1].readID)
+            {
+                if (l->list[i].offset < l->list[i-1].offset)
+                {
+                    fprintf(stderr, "ERROR 1\n");
+                }
+                else if (l->list[i].offset == l->list[i-1].offset)
+                {
+                    if (l->list[i].self_offset < l->list[i-1].self_offset)
+                    {
+                        fprintf(stderr, "ERROR 2\n");
+                    }
+                }
+            } 
+        }
+    }
+
+    for (i = 0; i < n_lengh; i++)
+    {
+        int j = 0;
+        for (j = 0; j < l->length; j++)
+        {
+            if (
+                n_list[i].offset == l->list[j].offset
+                &&
+                n_list[i].readID == l->list[j].readID
+                &&
+                end_pos == l->list[j].self_offset
+                &&
+                strand == l->list[j].strand
+            )
+            {
+                break;
+            }   
+        }
+
+        if (j == l->length)
+        {
+            fprintf(stderr, "ERROR 4\n");
+        }
+    }
+
+
+    for (i = 0; i < l->length - n_lengh; i++)
+    {
+        int j = 0;
+        for (j = 0; j < l->length; j++)
+        {
+            if (
+                l->tmp[i].offset == l->list[j].offset
+                &&
+                l->tmp[i].readID == l->list[j].readID
+                &&
+                l->tmp[i].self_offset == l->list[j].self_offset
+                &&
+                l->tmp[i].strand == l->list[j].strand
+            )
+            {
+                break;
+            }   
+        }
+
+        if (j == l->length)
+        {
+            fprintf(stderr, "ERROR 5\n");
+        }
+    }
+}
+
+void merge_Candidates_list(Candidates_list* l, k_mer_pos* n_list, uint64_t n_lengh, uint64_t end_pos, int strand)
+{
+    if (n_lengh == 0) ///不加这个就会巨慢
+    {
+        return;
+    }
+    
+
+    if(l->length + n_lengh > l->size)
+    {
+        l->size = l->length + n_lengh;
+        l->list = (k_mer_hit*)realloc(l->list, sizeof(k_mer_hit)*l->size);
+        l->tmp = (k_mer_hit*)realloc(l->tmp, sizeof(k_mer_hit)*l->size);
+    }
+
+    int flag;
+    uint64_t len1, len2, i_1, i_2, i;
+    k_mer_hit *l_1;
+    k_mer_pos *l_2;
+
+    l_1 = l->list;
+    if (strand == 0)
+    {
+        ///由于标号全是0，则标号为1的位置不受影响(数组后半部分)，可以直接复制过去
+        ///需要从l_1 + l->rc_pos开始，复制l->length-l->rc_pos个元素，到l->tmp + l->rc_pos + n_lengh处
+        memcpy(l->tmp + l->rc_pos + n_lengh, l_1 + l->rc_pos, sizeof(k_mer_hit)*(l->length-l->rc_pos));
+        ///l_1只需要从0扫描到l->rc_pos就好了
+        len1 = l->rc_pos; 
+        i_1 = 0;
+        ///此时目标数组没数据，
+        i = 0;
+        ///更新l->rc_pos
+        l->rc_pos = l->rc_pos + n_lengh;
+    }
+    else
+    {
+        ///如果strand==1，则标号为0的位置不受影响(数组前半部分)，可以直接复制过去
+        ///从l_1开始，复制l->rc_pos个元素，到l->tmp
+        memcpy(l->tmp, l_1, sizeof(k_mer_hit)*l->rc_pos);
+        ///l_1只需要从l->rc_pos扫描到末尾就好了
+        i_1 = l->rc_pos;
+        len1 = l->length; 
+        ///此时目标数组已经有了l->rc_pos
+        i = i_1;
+        ///l->rc_pos不用更新
+    }
+    
+    
+    
+
+    l_2 = n_list;
+    len2 = n_lengh;
+    i_2 = 0;
+
+
+    while (i_1<len1 && i_2<len2)
+    {
+        flag = cmp_pos(&l_1[i_1], &l_2[i_2], end_pos, strand); 
+        ///l_1小
+        if (flag == 1)
+        {
+            l->tmp[i].readID = l_1[i_1].readID;
+            l->tmp[i].offset = l_1[i_1].offset;
+            l->tmp[i].self_offset = l_1[i_1].self_offset;
+            l->tmp[i].strand = l_1[i_1].strand;
+            i_1++;
+            i++;
+        }
+        else  ///l_2小或者l_1 == l_2
+        {
+            l->tmp[i].readID = l_2[i_2].readID;
+            l->tmp[i].offset = l_2[i_2].offset;
+            l->tmp[i].self_offset = end_pos;
+            l->tmp[i].strand = strand;
+            i_2++;
+            i++;
+        }        
+    }
+
+
+    while (i_1<len1)
+    {
+        memcpy(l->tmp + i, l_1 + i_1, sizeof(k_mer_hit)*(len1-i_1));
+        i = i + len1-i_1;
+        i_1 = len1;
+    }
+
+    while (i_2<len2)
+    {
+        l->tmp[i].readID = l_2[i_2].readID;
+        l->tmp[i].offset = l_2[i_2].offset;
+        l->tmp[i].self_offset = end_pos;
+        l->tmp[i].strand = strand;
+        i_2++;
+        i++;
+    }
+    
+    
+
+    k_mer_hit* k;
+    k = l->list;
+    l->list = l->tmp;
+    l->tmp = k;
+    l->length = l->length + n_lengh;
+
+    
+    /**
+    if (strand == 0)
+    {
+        i = l->length;
+        len1 = l->length - n_lengh;
+    }
+    debug_merge_Candidates_list(l, n_list, n_lengh, end_pos, i, i_1, i_2, len1, len2, strand);
+    **/
+    
+}
+
+
+
+
+
+
+
+/********************************for debug***************************************/
+void merge_Candidates_list_version(Candidates_list* l, k_mer_pos* n_list, uint64_t n_lengh, uint64_t end_pos, int strand)
+{
+    if (n_lengh == 0) ///不加这个就会巨慢
+    {
+        return;
+    }
+    
+
+    if(l->length + n_lengh > l->size)
+    {
+        l->size = l->length + n_lengh;
+        l->list = (k_mer_hit*)realloc(l->list, sizeof(k_mer_hit)*l->size);
+        l->tmp = (k_mer_hit*)realloc(l->tmp, sizeof(k_mer_hit)*l->size);
+    }
+
+    int flag;
+    uint64_t len1, len2, i_1, i_2, i;
+    k_mer_hit *l_1;
+    k_mer_pos *l_2;
+
+    l_1 = l->list;
+    len1 = l->length; 
+    i_1 = 0;
+
+    l_2 = n_list;
+    len2 = n_lengh;
+    i_2 = 0;
+
+    i = 0;
+
+    while (i_1<len1 && i_2<len2)
+    {
+        flag = cmp_pos(&l_1[i_1], &l_2[i_2], end_pos, strand); 
+        ///l_1小
+        if (flag == 1)
+        {
+            l->tmp[i].readID = l_1[i_1].readID;
+            l->tmp[i].offset = l_1[i_1].offset;
+            l->tmp[i].self_offset = l_1[i_1].self_offset;
+            l->tmp[i].strand = l_1[i_1].strand;
+            i_1++;
+            i++;
+        }
+        else  ///l_2小或者l_1 == l_2
+        {
+            l->tmp[i].readID = l_2[i_2].readID;
+            l->tmp[i].offset = l_2[i_2].offset;
+            l->tmp[i].self_offset = end_pos;
+            l->tmp[i].strand = strand;
+            i_2++;
+            i++;
+        }        
+    }
+
+
+    while (i_1<len1)
+    {
+        l->tmp[i].readID = l_1[i_1].readID;
+        l->tmp[i].offset = l_1[i_1].offset;
+        l->tmp[i].self_offset = l_1[i_1].self_offset;
+        l->tmp[i].strand = l_1[i_1].strand;
+        i_1++;
+        i++;
+    }
+
+    while (i_2<len2)
+    {
+        l->tmp[i].readID = l_2[i_2].readID;
+        l->tmp[i].offset = l_2[i_2].offset;
+        l->tmp[i].self_offset = end_pos;
+        l->tmp[i].strand = strand;
+        i_2++;
+        i++;
+    }
+    
+    k_mer_hit* k;
+    k = l->list;
+    l->list = l->tmp;
+    l->tmp = k;
+    l->length = l->length + n_lengh;
+
+    ///debug_merge_Candidates_list(l, n_list, n_lengh, end_pos, i, i_1, i_2, len1, len2, strand);
+}
+
+
 
 
 
