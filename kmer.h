@@ -33,12 +33,14 @@ typedef struct
 } HPC_seq;
 
 
-inline uint64_t get_HPC_code(HPC_seq* seq)
+inline uint64_t get_HPC_code(HPC_seq* seq, uint64_t* end_pos)
 {
 
     if(seq->i < seq ->l)
     {
         uint8_t code = seq_nt6_table[(uint8_t)seq->str[seq->i]];
+
+        (*end_pos) = seq->i;
 
         for (; seq->i < seq->l; seq->i++)
         {

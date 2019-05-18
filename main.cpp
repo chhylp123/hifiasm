@@ -35,11 +35,9 @@ int main(int argc, char *argv[])
         Build_hash_table_multiple_thr();
     }
     
-
-    
-
     ///verify_Position_hash_table();
 
+    Overlap_calculate_multipe_thr();
 
 
 

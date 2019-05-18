@@ -39,6 +39,39 @@ typedef struct
 
 typedef struct
 {
+    k_mer_pos* list;
+    uint64_t length;
+} k_mer_pos_list;
+
+typedef struct
+{
+    k_mer_pos_list* list;
+    uint64_t size;
+    uint64_t length;
+} k_mer_pos_list_alloc;
+
+
+
+typedef struct
+{
+    uint64_t offset;
+    uint64_t readID;
+    uint64_t self_offset;
+    uint8_t strand;
+} k_mer_hit;
+
+typedef struct
+{
+    k_mer_hit* list;
+    k_mer_hit* tmp;
+    long long length;
+    long long size;
+    uint64_t foward_pos;
+    uint64_t rc_pos;
+} Candidates_list;
+
+typedef struct
+{
 	Pos_Table** sub_h;
     Hash_table_spin_lock* sub_h_lock;
     int prefix_bits;
@@ -273,8 +306,8 @@ inline uint64_t insert_Total_Pos_Table(Total_Pos_Table* PCB, Hash_code* code, in
         {
             qsort(list, occ, sizeof(k_mer_pos), cmp_k_mer_pos);
         }
-        
 
+        
         return 1;
     }
     else
@@ -300,6 +333,10 @@ int load_Total_Pos_Table(Total_Pos_Table* TCB, char* read_file_name);
 
 void Traverse_Counting_Table(Total_Count_Table* TCB, Total_Pos_Table* PCB, int k_mer_min_freq, int k_mer_max_freq);
 
+void init_Candidates_list(Candidates_list* l);
+void clear_Candidates_list(Candidates_list* l);
+void destory_Candidates_list(Candidates_list* l);
+void merge_Candidates_list(Candidates_list* l, k_mer_pos* n_list, uint64_t n_lengh, uint64_t end_pos, int strand);
 
 
 
@@ -428,5 +465,9 @@ void test_COUNT64();
 /********************************for debug***************************************/
 void debug_mode(uint64_t d, uint64_t thread_ID, uint64_t thread_num);
 
+
+
+/********************************for debug***************************************/
+void merge_Candidates_list_version(Candidates_list* l, k_mer_pos* n_list, uint64_t n_lengh, uint64_t end_pos, int strand);
 
 #endif
