@@ -415,7 +415,7 @@ void Build_hash_table_multiple_thr()
 }
 
 
-void* Overlap_calculate(void* arg)
+void* Overlap_calculate_version1(void* arg)
 {
 
     int thr_ID = *((int*)arg);
@@ -515,6 +515,169 @@ void* Overlap_calculate(void* arg)
     
     destory_Candidates_list(&l);
 }
+
+
+
+
+void debug_merge_result(Candidates_list* x, Candidates_list* y)
+{
+    uint64_t i;
+    if (x->length != y->length)
+    {
+        fprintf(stderr, "ERROR: different list\n");
+        fprintf(stderr, "x->length: %llu, y->length: %llu\n", x->length, y->length);
+    }
+    
+    for (i = 0; i < x->length; i++)
+    {
+        if (x->list[i].offset != y->list[i].offset 
+            ||
+            x->list[i].readID != y->list[i].readID
+            ||
+            x->list[i].self_offset != y->list[i].self_offset
+            ||
+            x->list[i].strand != y->list[i].strand
+        )
+        {
+            fprintf(stderr, "ERROR: different pos\n");
+        }
+        
+    }
+    
+}
+
+
+
+void* Overlap_calculate(void* arg)
+{
+
+    int thr_ID = *((int*)arg);
+
+    long long i = 0;
+    int avalible_k = 0;
+
+    UC_Read g_read;
+    init_UC_Read(&g_read);
+    HPC_seq HPC_read;
+    Hash_code k_code;
+    uint64_t code;
+    uint64_t end_pos;
+    k_mer_pos* list;
+    uint64_t list_length;
+    uint64_t sub_ID;
+
+    Candidates_list l;
+    //Candidates_list debug_l;
+
+    init_Candidates_list(&l);
+    //init_Candidates_list(&debug_l);
+
+    k_mer_pos_list_alloc array_list;
+    init_k_mer_pos_list_alloc(&array_list);
+
+    for (i = thr_ID; i < R_INF.total_reads; i = i + thread_num)
+    ///for (i = thr_ID; i < R_INF.total_reads/50; i = i + thread_num)
+    {
+        /**
+        if (i % 1000 == 0)
+        {
+            fprintf(stderr, "i: %llu\n", i);
+        }
+        **/
+        
+        
+
+        clear_Candidates_list(&l);
+        ///clear_Candidates_list(&debug_l);
+
+        clear_k_mer_pos_list_alloc(&array_list);
+        recover_UC_Read(&g_read, &R_INF, i);
+
+
+        ///forward strand
+        init_HPC_seq(&HPC_read, g_read.seq, g_read.length);
+        init_Hash_code(&k_code);
+        avalible_k = 0;
+
+        while ((code = get_HPC_code(&HPC_read, &end_pos)) != 6)
+        {
+            if(code < 4)
+            {
+                k_mer_append(&k_code,code,k_mer_length);
+                avalible_k++;
+                if (avalible_k>=k_mer_length)
+                {
+                    list_length = locate_Total_Pos_Table(&PCB, &k_code, &list, k_mer_length, &sub_ID);
+
+                    if (list_length != 0)
+                    {
+                        append_k_mer_pos_list_alloc(&array_list, list, list_length, end_pos, 0);
+                    }
+                    ///merge_Candidates_list(&l, list, list_length, end_pos, 0);
+                    ///merge_Candidates_list_version(&debug_l, list, list_length, end_pos, 0);
+                }
+            }
+            else
+            {
+                avalible_k = 0;
+                init_Hash_code(&k_code);
+            }
+
+            ///HPC_base++;
+        }
+
+
+
+        ///reverse complement strand
+        reverse_complement(g_read.seq, g_read.length);
+        init_HPC_seq(&HPC_read, g_read.seq, g_read.length);
+        init_Hash_code(&k_code);
+        avalible_k = 0;
+
+        while ((code = get_HPC_code(&HPC_read, &end_pos)) != 6)
+        {
+            if(code < 4)
+            {
+                k_mer_append(&k_code,code,k_mer_length);
+                avalible_k++;
+                if (avalible_k>=k_mer_length)
+                {
+                    list_length = locate_Total_Pos_Table(&PCB, &k_code, &list, k_mer_length, &sub_ID);
+                    if (list_length != 0)
+                    {
+                        append_k_mer_pos_list_alloc(&array_list, list, list_length, end_pos, 1);
+                    }
+                    ///merge_Candidates_list(&l, list, list_length, end_pos, 1);
+                    ///merge_Candidates_list_version(&debug_l, list, list_length, end_pos, 1);
+                }
+            }
+            else
+            {
+                avalible_k = 0;
+                init_Hash_code(&k_code);
+            }
+
+            ///HPC_base++;
+        }
+
+        merge_k_mer_pos_list_alloc(&array_list, &l);
+
+        ///debug_merge_result(&l, &debug_l);
+
+    }
+    
+    destory_Candidates_list(&l);
+    ///destory_Candidates_list(&debug_l);
+
+
+    destory_k_mer_pos_list_alloc(&array_list);
+}
+
+
+
+
+
+
 
 
 void Overlap_calculate_multipe_thr()

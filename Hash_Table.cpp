@@ -24,17 +24,60 @@ void clear_k_mer_pos_list_alloc(k_mer_pos_list_alloc* list)
 }
 
 
-void append_k_mer_pos_list_alloc(k_mer_pos_list_alloc* list, k_mer_pos* n_list, uint64_t n_length)
+void append_k_mer_pos_list_alloc(k_mer_pos_list_alloc* list, k_mer_pos* n_list, uint64_t n_length, 
+uint64_t n_end_pos, uint8_t n_direction)
 {
-    list->length++;
-    if (list->length > list->size)
+   
+    if (list->length + 1 > list->size)
     {
         list->size = list->size * 2;
         list->list = (k_mer_pos_list*)realloc(list->list, sizeof(k_mer_pos_list)*list->size);
     }
     
-    list->list[list->length - 1].list = n_list;
-    list->list[list->length - 1].length = n_length;
+    list->list[list->length].list = n_list;
+    list->list[list->length].length = n_length;
+    list->list[list->length].direction = n_direction;
+    list->list[list->length].end_pos = n_end_pos;
+
+    list->length++;
+}
+
+int cmp_k_mer_pos_list(const void * a, const void * b)
+{
+    if ((*(k_mer_pos_list*)a).length > (*(k_mer_pos_list*)b).length)
+    {
+        return 1;
+    }
+    else if ((*(k_mer_pos_list*)a).length < (*(k_mer_pos_list*)b).length)
+    {
+        return -1;
+    }
+    else
+    {
+        return 0;
+    }
+    
+}
+
+
+void merge_k_mer_pos_list_alloc(k_mer_pos_list_alloc* list, Candidates_list* candidates)
+{
+    qsort(list->list, list->length, sizeof(k_mer_pos_list), cmp_k_mer_pos_list);
+
+    uint64_t i;
+    for (i = 0; i < list->length; i++)
+    {
+        /**
+        if (i > 0 && (list->list[i].length < list->list[i-1].length || list->list[i].length == 0 || list->list[i-1].length == 0))
+        {
+            fprintf(stderr, "ERROR\n");
+        }
+        **/
+        
+        merge_Candidates_list(candidates, list->list[i].list, list->list[i].length, 
+        list->list[i].end_pos, list->list[i].direction);
+    }
+    
 }
 
 void init_Count_Table(Count_Table** table)
