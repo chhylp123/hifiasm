@@ -41,6 +41,8 @@ typedef struct
 {
     k_mer_pos* list;
     uint64_t length;
+    uint8_t direction;
+    uint64_t end_pos;
 } k_mer_pos_list;
 
 typedef struct
@@ -338,6 +340,13 @@ void clear_Candidates_list(Candidates_list* l);
 void destory_Candidates_list(Candidates_list* l);
 void merge_Candidates_list(Candidates_list* l, k_mer_pos* n_list, uint64_t n_lengh, uint64_t end_pos, int strand);
 
+
+void init_k_mer_pos_list_alloc(k_mer_pos_list_alloc* list);
+void destory_k_mer_pos_list_alloc(k_mer_pos_list_alloc* list);
+void clear_k_mer_pos_list_alloc(k_mer_pos_list_alloc* list);
+void append_k_mer_pos_list_alloc(k_mer_pos_list_alloc* list, k_mer_pos* n_list, uint64_t n_length, 
+uint64_t n_end_pos, uint8_t n_direction);
+void merge_k_mer_pos_list_alloc(k_mer_pos_list_alloc* list, Candidates_list* candidates);
 
 
 
