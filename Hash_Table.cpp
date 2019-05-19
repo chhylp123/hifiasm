@@ -4,6 +4,147 @@
 #include "Hash_Table.h"
 
 
+void Init_Heap(HeapSq* HBT)
+{
+    HBT->MaxSize = 1000;
+    HBT->heap = (ElemType*)malloc(HBT->MaxSize*sizeof(ElemType));
+    HBT->index_i = (uint64_t*)malloc(HBT->MaxSize*sizeof(uint64_t));
+    HBT->len = 0;
+}
+
+void destory_Heap(HeapSq* HBT)
+{
+    free(HBT->heap);
+    free(HBT->index_i);
+}
+
+void clear_Heap(HeapSq* HBT)
+{
+    HBT->len = 0;
+}
+
+
+inline int cmp_ElemType(ElemType* x, ElemType* y)
+{
+    if (x->node.strand < y->node.strand)
+    {
+        return 1;
+    }
+    else if (x->node.strand > y->node.strand)
+    {
+        return 2;
+    }
+    else
+    {
+        if (x->node.readID < y->node.readID)
+        {
+            return 1;
+        }
+        else if (x->node.readID > y->node.readID)
+        {
+            return 2;
+        }
+        else
+        {
+            if (x->node.offset < y->node.offset)
+            {
+                return 1;
+            }
+            else if (x->node.offset > y->node.offset)
+            {
+                return 2;
+            }
+            else
+            {
+                if (x->node.self_offset < y->node.self_offset)
+                {
+                    return 1;
+                }
+                else  if (x->node.self_offset > y->node.self_offset)
+                {
+                    return 2;
+                }
+                else
+                {
+                    return 0;
+                }
+                
+            }   
+        }    
+    }
+    
+    
+
+    
+}
+
+
+inline void Insert_Heap(HeapSq* HBT, ElemType* x)
+{
+    long long i, j;
+    if (HBT->len == HBT->MaxSize) //若堆满，将数组空间扩展为原来的2倍
+    {
+        HBT->MaxSize = 2*HBT->MaxSize;
+        HBT->heap = (ElemType*)realloc(HBT->heap, HBT->MaxSize*sizeof(ElemType));
+        HBT->index_i = (uint64_t*)realloc(HBT->index_i,HBT->MaxSize*sizeof(uint64_t));
+    }
+    HBT->heap[HBT->len] = *x; //向堆尾添加新元素
+    HBT->len++; //堆长度加1
+    i = HBT->len - 1; //i指向待调整元素的位置，即其数组下标，初始指向新元素所在的堆尾位置
+    while (i != 0)
+    {
+        j = (i - 1) / 2; //j指向下标为i的元素的双亲
+        ///if (x >= HBT->heap[j]) //若新元素大于待调整元素的双亲，则比较调整结束，退出循环
+        ///1: x<y
+        if (cmp_ElemType(x, &HBT->heap[j])!=1)
+            break;
+        HBT->heap[i] = HBT->heap[j]; //将双亲元素下移到待调整元素的位置
+        i = j; //使待调整位置变为其双亲位置，进行下一次循环
+    }
+    HBT->heap[i] = *x;//把新元素调整到最终位置
+}
+
+
+inline int DeleteHeap(HeapSq* HBT, ElemType* get)
+{
+    ElemType temp, x;
+    int i, j;
+    if (HBT->len == 0)
+    {
+        return 0;
+    }
+    temp = HBT->heap[0]; //暂存堆顶元素
+    HBT->len--;
+    if (HBT->len == 0) //若删除操作后堆为空则返回
+    {
+        *get = temp;
+        return 2;
+    }
+
+    x = HBT->heap[HBT->len]; //将待调整的原堆尾元素暂存x中，以便放入最终位置
+    i = 0; //用i指向待调整元素的位置，初始指向堆顶位置
+    j = 2 * i + 1;//用j指向i的左孩子位置，初始指向下标为1的位置
+    while (j <= HBT->len - 1)//寻找待调整元素的最终位置，每次使孩子元素上移一层，调整到孩子为空时止
+    {
+        ///if (j < HBT->len - 1 && HBT->heap[j] > HBT->heap[j+1])//若存在右孩子且较小，使j指向右孩子
+        if (j < HBT->len - 1 && cmp_ElemType(&HBT->heap[j], &HBT->heap[j + 1]) == 2)
+            j++;
+        ///if (x <= HBT->heap[j]) //若x比其较小的孩子还小，则调整结束，退出循环
+        if (cmp_ElemType(&x, &HBT->heap[j])!=2)
+            break;
+        HBT->heap[i] = HBT->heap[j];//否则，将孩子元素移到双亲位置
+        i = j; //将待调整位置变为其较小的孩子位置
+        j = 2 * i + 1;//将j变为新的待调整位置的左孩子位置，继续下一次循环
+    }
+    HBT->heap[i] = x; //把x放到最终位置
+
+    //返回原堆顶元素
+    *get = temp;
+    return 1;
+}
+
+
+
 
 
 void init_k_mer_pos_list_alloc(k_mer_pos_list_alloc* list)
@@ -57,6 +198,396 @@ int cmp_k_mer_pos_list(const void * a, const void * b)
         return 0;
     }
     
+}
+
+inline void append_pos_to_Candidates_list(Candidates_list* candidates, ElemType* x)
+{
+    candidates->list[candidates->length] = x->node;
+    candidates->length++;
+}
+
+
+void test_single_list(Candidates_list* candidates, k_mer_pos* n_list, uint64_t n_lengh, uint64_t end_pos, uint64_t strand)
+{
+    uint64_t i;
+
+    int j = 0;
+
+    for (i = 0; i < n_lengh; i++)
+    {
+        
+        for (; j < candidates->length; j++)
+        {
+            if (
+                n_list[i].offset == candidates->list[j].offset
+                &&
+                n_list[i].readID == candidates->list[j].readID
+                &&
+                end_pos == candidates->list[j].self_offset
+                &&
+                strand == candidates->list[j].strand
+            )
+            {
+                break;
+            }   
+        }
+
+        if (j == candidates->length)
+        {
+            fprintf(stderr, "ERROR 4\n");
+        }
+    }
+
+}
+
+void verify_merge_result(k_mer_pos_list_alloc* list, Candidates_list* candidates)
+{
+    uint64_t total_length = 0;
+    uint64_t i = 0;
+    for (i = 0; i < list->length; i++)
+    {
+        total_length = total_length + list->list[i].length;
+    }
+
+    if (total_length!=candidates->length)
+    {
+        fprintf(stderr, "ERROR length & size.\n");
+    }
+
+    for (i = 1; i < candidates->length; i++)
+    {
+        if (candidates->list[i].strand < candidates->list[i-1].strand)
+        {
+            fprintf(stderr, "ERROR -1\n");
+        }
+        else if (candidates->list[i].strand == candidates->list[i-1].strand)
+        {
+            if (candidates->list[i].readID < candidates->list[i-1].readID)
+            {
+                fprintf(stderr, "ERROR 0\n");
+            }
+            else if (candidates->list[i].readID == candidates->list[i-1].readID)
+            {
+                if (candidates->list[i].offset < candidates->list[i-1].offset)
+                {
+                    fprintf(stderr, "ERROR 1\n");
+                }
+                else if (candidates->list[i].offset == candidates->list[i-1].offset)
+                {
+                    if (candidates->list[i].self_offset < candidates->list[i-1].self_offset)
+                    {
+                        fprintf(stderr, "ERROR 2\n");
+                    }
+                }
+            } 
+        }
+    }
+
+    
+    uint64_t j = 0;
+    for (i = 0; i < list->length; i++)
+    {
+        test_single_list(candidates, list->list[i].list, list->list[i].length, list->list[i].end_pos, list->list[i].direction);
+    }
+    
+    
+    
+}
+
+
+
+void merge_k_mer_pos_list_alloc_heap_sort_back(k_mer_pos_list_alloc* list, Candidates_list* candidates, HeapSq* HBT)
+{
+    clear_Heap(HBT);
+
+    uint64_t total_length = 0;
+    uint64_t i;
+    ElemType x, y;
+    ///所有list的长度都不是0
+    ///把各个表第一个元素加入到堆中
+    for (i = 0; i < list->length; i++)
+    {
+        x.ID = i;
+        x.node.offset = list->list[i].list[0].offset;
+        x.node.readID = list->list[i].list[0].readID;
+        x.node.self_offset = list->list[i].end_pos;
+        x.node.strand = list->list[i].direction;
+
+        Insert_Heap(HBT, &x);
+
+        HBT->index_i[i] = 1;
+
+        total_length = total_length + list->list[i].length;
+    }
+
+
+    candidates->length = 0;
+    if(total_length > candidates->size)
+    {
+        candidates->size = total_length;
+        candidates->list = (k_mer_hit*)realloc(candidates->list, sizeof(k_mer_hit)*candidates->size);
+        candidates->tmp = (k_mer_hit*)realloc(candidates->tmp, sizeof(k_mer_hit)*candidates->size);
+    }
+
+    uint64_t ID;
+    while (DeleteHeap(HBT, &x))
+    {
+        append_pos_to_Candidates_list(candidates, &x);
+        ///x.ID说明是从第x.ID个列表中的这个节点已经从堆里出来了
+        ///HBT->index_i[x.ID]是第x.ID个列表的当前元素的下标
+        i = HBT->index_i[x.ID];
+        ID = x.ID;
+        ///fprintf(stderr, "x.ID: %llu, i: %llu, length: %llu\n", x.ID, i, list->list[x.ID].length);
+
+
+        if (i < list->list[x.ID].length)
+        {
+            y.ID = ID;
+            y.node.offset = list->list[x.ID].list[i].offset;
+            y.node.readID = list->list[x.ID].list[i].readID;
+            y.node.self_offset = list->list[x.ID].end_pos;
+            y.node.strand = list->list[x.ID].direction;
+            Insert_Heap(HBT, &y);
+            HBT->index_i[ID]++;
+        }
+    } 
+
+    ///verify_merge_result(list, candidates);
+    
+     
+}
+
+
+void merge_k_mer_pos_list_alloc_heap_sort(k_mer_pos_list_alloc* list, Candidates_list* candidates, HeapSq* HBT)
+{
+    clear_Heap(HBT);
+
+    uint64_t total_length = 0;
+    uint64_t i;
+    ElemType x, y;
+    ///所有list的长度都不是0
+    ///把各个表第一个元素加入到堆中
+    for (i = 0; i < list->length; i++)
+    {
+
+        x.ID = i;
+        x.node.offset = list->list[i].list[0].offset;
+        x.node.readID = list->list[i].list[0].readID;
+        x.node.self_offset = list->list[i].end_pos;
+        x.node.strand = list->list[i].direction;
+
+        Insert_Heap(HBT, &x);
+
+        HBT->index_i[i] = 1;
+        
+
+        total_length = total_length + list->list[i].length;
+    }
+
+
+    candidates->length = 0;
+    if(total_length > candidates->size)
+    {
+        candidates->size = total_length;
+        candidates->list = (k_mer_hit*)realloc(candidates->list, sizeof(k_mer_hit)*candidates->size);
+        candidates->tmp = (k_mer_hit*)realloc(candidates->tmp, sizeof(k_mer_hit)*candidates->size);
+    }
+
+    uint64_t ID;
+    int flag;
+    while (flag = DeleteHeap(HBT, &x))
+    {
+        append_pos_to_Candidates_list(candidates, &x);
+        ///x.ID说明是从第x.ID个列表中的这个节点已经从堆里出来了
+        ///HBT->index_i[x.ID]是第x.ID个列表的当前元素的下标
+        i = HBT->index_i[x.ID];
+        ID = x.ID;
+
+        if (flag == 2)
+        {
+            for (; i < list->list[x.ID].length; i++)
+            {
+                y.ID = ID;
+                y.node.offset = list->list[x.ID].list[i].offset;
+                y.node.readID = list->list[x.ID].list[i].readID;
+                y.node.self_offset = list->list[x.ID].end_pos;
+                y.node.strand = list->list[x.ID].direction;
+                append_pos_to_Candidates_list(candidates, &y);
+            }
+            
+            break;
+        }
+
+        if (i < list->list[x.ID].length)
+        {
+            y.ID = ID;
+            y.node.offset = list->list[x.ID].list[i].offset;
+            y.node.readID = list->list[x.ID].list[i].readID;
+            y.node.self_offset = list->list[x.ID].end_pos;
+            y.node.strand = list->list[x.ID].direction;
+            Insert_Heap(HBT, &y);
+            HBT->index_i[ID]++;
+        }
+    }
+
+
+    ///verify_merge_result(list, candidates);
+    
+     
+}
+
+
+///有bug，找时间排一下
+void merge_k_mer_pos_list_alloc_heap_sort_advance(k_mer_pos_list_alloc* list, Candidates_list* candidates, HeapSq* HBT)
+{
+
+    uint64_t total_length = 0;
+    uint64_t i;
+    ElemType x, y;
+
+    /************************************forward*************************************************/
+    clear_Heap(HBT);
+
+    ///所有list的长度都不是0
+    ///把各个表第一个元素加入到堆中
+    for (i = 0; i < list->length; i++)
+    {
+        if (list->list[i].direction == 0)
+        {
+            x.ID = i;
+            x.node.offset = list->list[i].list[0].offset;
+            x.node.readID = list->list[i].list[0].readID;
+            x.node.self_offset = list->list[i].end_pos;
+            x.node.strand = list->list[i].direction;
+
+            Insert_Heap(HBT, &x);
+
+            HBT->index_i[i] = 1;
+
+            total_length = total_length + list->list[i].length;
+        }
+    }
+
+
+    candidates->length = 0;
+    if(total_length > candidates->size)
+    {
+        candidates->size = total_length;
+        candidates->list = (k_mer_hit*)realloc(candidates->list, sizeof(k_mer_hit)*candidates->size);
+        candidates->tmp = (k_mer_hit*)realloc(candidates->tmp, sizeof(k_mer_hit)*candidates->size);
+    }
+
+
+    uint64_t ID;
+    int flag;
+    while (flag = DeleteHeap(HBT, &x))
+    {
+        append_pos_to_Candidates_list(candidates, &x);
+        ///x.ID说明是从第x.ID个列表中的这个节点已经从堆里出来了
+        ///HBT->index_i[x.ID]是第x.ID个列表的当前元素的下标
+        i = HBT->index_i[x.ID];
+        ID = x.ID;
+        ///fprintf(stderr, "x.ID: %llu, i: %llu, length: %llu\n", x.ID, i, list->list[x.ID].length);
+        /**
+        if (flag == 2)
+        {
+            for (; i < list->list[x.ID].length; i++)
+            {
+                y.ID = ID;
+                y.node.offset = list->list[x.ID].list[i].offset;
+                y.node.readID = list->list[x.ID].list[i].readID;
+                y.node.self_offset = list->list[x.ID].end_pos;
+                y.node.strand = list->list[x.ID].direction;
+                append_pos_to_Candidates_list(candidates, &y);
+            }
+            
+            break;
+        }
+        **/
+        
+        
+        if (i < list->list[x.ID].length)
+        {
+            y.ID = ID;
+            y.node.offset = list->list[x.ID].list[i].offset;
+            y.node.readID = list->list[x.ID].list[i].readID;
+            y.node.self_offset = list->list[x.ID].end_pos;
+            y.node.strand = list->list[x.ID].direction;
+            Insert_Heap(HBT, &y);
+            HBT->index_i[ID]++;
+        }
+    } 
+
+
+
+    /************************************reverse complement*************************************************/
+
+    clear_Heap(HBT);
+    ///所有list的长度都不是0
+    ///把各个表第一个元素加入到堆中
+    for (i = 0; i < list->length; i++)
+    {
+        if (list->list[i].direction == 1)
+        {
+            x.ID = i;
+            x.node.offset = list->list[i].list[0].offset;
+            x.node.readID = list->list[i].list[0].readID;
+            x.node.self_offset = list->list[i].end_pos;
+            x.node.strand = list->list[i].direction;
+
+            Insert_Heap(HBT, &x);
+
+            HBT->index_i[i] = 1;
+
+            total_length = total_length + list->list[i].length;
+        }
+    }
+
+    if(total_length > candidates->size)
+    {
+        candidates->size = total_length;
+        candidates->list = (k_mer_hit*)realloc(candidates->list, sizeof(k_mer_hit)*candidates->size);
+        candidates->tmp = (k_mer_hit*)realloc(candidates->tmp, sizeof(k_mer_hit)*candidates->size);
+    }
+
+    while (flag = DeleteHeap(HBT, &x))
+    {
+        append_pos_to_Candidates_list(candidates, &x);
+        ///x.ID说明是从第x.ID个列表中的这个节点已经从堆里出来了
+        ///HBT->index_i[x.ID]是第x.ID个列表的当前元素的下标
+        i = HBT->index_i[x.ID];
+        ID = x.ID;
+        ///fprintf(stderr, "x.ID: %llu, i: %llu, length: %llu\n", x.ID, i, list->list[x.ID].length);
+        /**
+        if (flag == 2)
+        {
+            for (; i < list->list[x.ID].length; i++)
+            {
+                y.ID = ID;
+                y.node.offset = list->list[x.ID].list[i].offset;
+                y.node.readID = list->list[x.ID].list[i].readID;
+                y.node.self_offset = list->list[x.ID].end_pos;
+                y.node.strand = list->list[x.ID].direction;
+                append_pos_to_Candidates_list(candidates, &y);
+            }
+            
+            break;
+        }
+        **/
+        
+
+        if (i < list->list[x.ID].length)
+        {
+            y.ID = ID;
+            y.node.offset = list->list[x.ID].list[i].offset;
+            y.node.readID = list->list[x.ID].list[i].readID;
+            y.node.self_offset = list->list[x.ID].end_pos;
+            y.node.strand = list->list[x.ID].direction;
+            Insert_Heap(HBT, &y);
+            HBT->index_i[ID]++;
+        }
+    } 
+
 }
 
 
