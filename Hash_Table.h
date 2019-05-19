@@ -62,6 +62,24 @@ typedef struct
     uint8_t strand;
 } k_mer_hit;
 
+
+typedef struct
+{
+  k_mer_hit node;
+  uint64_t ID;
+} ElemType;
+
+
+typedef struct 
+{
+    ElemType* heap; 
+    uint64_t* index_i;
+    int len; 
+    int MaxSize;    
+} HeapSq;
+
+
+
 typedef struct
 {
     k_mer_hit* list;
@@ -347,6 +365,12 @@ void clear_k_mer_pos_list_alloc(k_mer_pos_list_alloc* list);
 void append_k_mer_pos_list_alloc(k_mer_pos_list_alloc* list, k_mer_pos* n_list, uint64_t n_length, 
 uint64_t n_end_pos, uint8_t n_direction);
 void merge_k_mer_pos_list_alloc(k_mer_pos_list_alloc* list, Candidates_list* candidates);
+void merge_k_mer_pos_list_alloc_heap_sort(k_mer_pos_list_alloc* list, Candidates_list* candidates, HeapSq* HBT);
+void merge_k_mer_pos_list_alloc_heap_sort_advance(k_mer_pos_list_alloc* list, Candidates_list* candidates, HeapSq* HBT);
+
+void Init_Heap(HeapSq* HBT);
+void destory_Heap(HeapSq* HBT);
+void clear_Heap(HeapSq* HBT);
 
 
 
