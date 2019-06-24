@@ -2,6 +2,9 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include "Hash_Table.h"
+#include "Process_Read.h"
+#include <pthread.h>
+pthread_mutex_t output_mutex;
 
 
 void Init_Heap(HeapSq* HBT)
@@ -23,8 +26,7 @@ void clear_Heap(HeapSq* HBT)
     HBT->len = 0;
 }
 
-
-inline int cmp_ElemType(ElemType* x, ElemType* y)
+inline int cmp_ElemType_back(ElemType* x, ElemType* y)
 {
     if (x->node.strand < y->node.strand)
     {
@@ -65,6 +67,64 @@ inline int cmp_ElemType(ElemType* x, ElemType* y)
                     return 2;
                 }
                 else
+                {
+                    return 0;
+                }
+                
+            }   
+        }    
+    }
+}
+
+
+inline int cmp_ElemType(ElemType* x, ElemType* y)
+{
+    long long r_pos_x, r_pos_y;
+    if (x->node.strand < y->node.strand)
+    {
+        return 1;
+    }
+    else if (x->node.strand > y->node.strand)
+    {
+        return 2;
+    }
+    else
+    {
+        if (x->node.readID < y->node.readID)
+        {
+            return 1;
+        }
+        else if (x->node.readID > y->node.readID)
+        {
+            return 2;
+        }
+        else
+        {
+
+            r_pos_x = x->node.offset - x->node.self_offset;
+            r_pos_y = y->node.offset - y->node.self_offset;
+
+            ///if (x->node.offset < y->node.offset)
+            if (r_pos_x < r_pos_y)
+            {
+                return 1;
+            }
+            ///else if (x->node.offset > y->node.offset)
+            else if (r_pos_x > r_pos_y)
+            {
+                return 2;
+            }
+            else
+            {
+                if (x->node.self_offset < y->node.self_offset)
+                {
+                    return 1;
+                }
+                else  if (x->node.self_offset > y->node.self_offset)
+                {
+                    return 2;
+                }
+                else  ///如果r_pos_x和self_offset都相等，那么offset肯定也相等，也没必要再比了
                 {
                     return 0;
                 }
@@ -142,6 +202,366 @@ inline int DeleteHeap(HeapSq* HBT, ElemType* get)
     *get = temp;
     return 1;
 }
+
+
+
+
+
+void init_overlap_region_alloc(overlap_region_alloc* list)
+{
+    list->size = 1000;
+    list->length = 0;
+    list->list = (overlap_region*)malloc(sizeof(overlap_region)*list->size);
+}
+void clear_overlap_region_alloc(overlap_region_alloc* list)
+{
+    list->length = 0;
+}
+
+void destory_overlap_region_alloc(overlap_region_alloc* list)
+{
+    free(list->list);
+}
+
+
+
+
+///r->length = Get_READ_LENGTH((*R_INF), ID);
+void append_overlap_region_alloc(overlap_region_alloc* list, overlap_region* tmp, All_reads* R_INF)
+{
+   
+    if (list->length + 1 > list->size)
+    {
+        list->size = list->size * 2;
+        list->list = (overlap_region*)realloc(list->list, sizeof(overlap_region)*list->size);
+    }
+
+    if (list->length!=0 && 
+    list->list[list->length - 1].y_id==tmp->y_id
+    )
+    {    
+        if(list->list[list->length - 1].shared_seed >= tmp->shared_seed)
+        {
+            return;
+        }
+        else
+        {
+            list->length--;
+        }
+        
+        
+    }
+    
+
+
+
+
+    if(tmp->x_pos_s <= tmp->y_pos_s)
+    {
+        tmp->y_pos_s = tmp->y_pos_s - tmp->x_pos_s;
+        tmp->x_pos_s = 0;
+    }
+    else
+    {
+        tmp->x_pos_s = tmp->x_pos_s - tmp->y_pos_s;
+        tmp->y_pos_s = 0;        
+    }
+    
+    tmp->x_pos_e = Get_READ_LENGTH((*R_INF), tmp->x_id) - tmp->x_pos_s - 1;
+    tmp->y_pos_e = Get_READ_LENGTH((*R_INF), tmp->y_id) - tmp->y_pos_s - 1;
+
+    if(tmp->x_pos_e <= tmp->y_pos_e)
+    {
+        tmp->y_pos_e = tmp->y_pos_s + tmp->x_pos_e;
+        tmp->x_pos_e = tmp->x_pos_s + tmp->x_pos_e;
+    }
+    else
+    {
+        tmp->x_pos_e = tmp->x_pos_s + tmp->y_pos_e;
+        tmp->y_pos_e = tmp->y_pos_s + tmp->y_pos_e;
+    }
+    
+
+
+    
+    
+    
+    list->list[list->length].x_id = tmp->x_id;
+    list->list[list->length].x_pos_e = tmp->x_pos_e;
+    list->list[list->length].x_pos_s = tmp->x_pos_s;
+    list->list[list->length].x_pos_strand = tmp->x_pos_strand;
+
+    list->list[list->length].y_id = tmp->y_id;
+    list->list[list->length].y_pos_e = tmp->y_pos_e;
+    list->list[list->length].y_pos_s = tmp->y_pos_s;
+    list->list[list->length].y_pos_strand = tmp->y_pos_strand;
+
+    list->list[list->length].shared_seed = tmp->shared_seed;
+
+    list->length++;
+}
+
+
+void append_overlap_region_alloc_debug(overlap_region_alloc* list, overlap_region* tmp)
+{
+   
+    if (list->length + 1 > list->size)
+    {
+        list->size = list->size * 2;
+        list->list = (overlap_region*)realloc(list->list, sizeof(overlap_region)*list->size);
+    }
+
+    
+    list->list[list->length].x_id = tmp->x_id;
+    list->list[list->length].x_pos_e = tmp->x_pos_e;
+    list->list[list->length].x_pos_s = tmp->x_pos_s;
+    list->list[list->length].x_pos_strand = tmp->x_pos_strand;
+
+    list->list[list->length].y_id = tmp->y_id;
+    list->list[list->length].y_pos_e = tmp->y_pos_e;
+    list->list[list->length].y_pos_s = tmp->y_pos_s;
+    list->list[list->length].y_pos_strand = tmp->y_pos_strand;
+
+    list->list[list->length].shared_seed = tmp->shared_seed;
+
+    list->length++;
+}
+
+
+void debug_overlap_region(Candidates_list* candidates, overlap_region_alloc* overlap_list, uint64_t readID)
+{
+    uint64_t i = 0;
+    uint64_t total_length = 0;
+    uint64_t pre_total_length = 0;
+    uint64_t current_ID;
+    uint64_t current_stand;
+    long long current_pos_diff;
+    long long current_self_pos;
+    long long tmp_pos_distance;
+    long long tmp_self_pos_distance;
+    long long constant_distance = 5;
+    double error_rate = 0.05;
+
+
+
+    for ( i = 0; i < overlap_list->length; i++)
+    {
+        pre_total_length = total_length;
+        total_length = total_length + overlap_list->list[i].shared_seed;
+
+        uint64_t j = 0;
+        current_ID = candidates->list[pre_total_length].readID;
+        current_stand = candidates->list[pre_total_length].strand;
+        current_pos_diff = candidates->list[pre_total_length].offset - candidates->list[pre_total_length].self_offset;
+        current_self_pos = candidates->list[pre_total_length].self_offset;
+        for (j = pre_total_length; j < total_length; j++)
+        {
+            if(current_ID != candidates->list[j].readID || 
+            current_stand != candidates->list[j].strand)
+            {
+                fprintf(stderr, "ERROR Overlap 1!\n");
+            }
+
+
+            ///这个一定是正值
+            tmp_pos_distance = candidates->list[j].offset - candidates->list[j].self_offset - current_pos_diff;
+            ///这个不一定是正值
+            tmp_self_pos_distance = candidates->list[j].self_offset - current_self_pos;
+            if (tmp_self_pos_distance < 0)
+            {
+                fprintf(stderr, "ERROR Overlap 3!\n");
+            }
+
+            if (tmp_self_pos_distance >= 0)
+            {
+                tmp_self_pos_distance = tmp_self_pos_distance * error_rate + constant_distance;
+                if (tmp_pos_distance >= tmp_self_pos_distance)
+                {
+                    fprintf(stderr, "ERROR Overlap 4!\n");
+                }
+            }
+            
+            
+        }
+
+        if (total_length < candidates->length)
+        {
+            j = total_length;
+
+            if (current_ID == candidates->list[j].readID && 
+            current_stand == candidates->list[j].strand)
+            {
+                ///这个一定是正值
+                tmp_pos_distance = candidates->list[j].offset - candidates->list[j].self_offset - current_pos_diff;
+                ///这个不一定是正值
+                tmp_self_pos_distance = candidates->list[j].self_offset - current_self_pos;
+                if (tmp_self_pos_distance >= 0)
+                {
+                    tmp_self_pos_distance = tmp_self_pos_distance * error_rate + constant_distance;
+                    if (tmp_pos_distance < tmp_self_pos_distance)
+                    {
+                       fprintf(stderr, "ERROR Overlap 5!\n");
+                    }
+                }
+            }
+        }
+        
+        
+    }
+
+    if (total_length != candidates->length)
+    {
+        fprintf(stderr, "ERROR Overlap 2!\n");
+        fprintf(stderr, "total_length: %llu\n", total_length);
+        fprintf(stderr, "candidates->length: %llu\n", candidates->length);
+    }
+}
+
+
+
+void print_overlap_region(Candidates_list* candidates, overlap_region_alloc* overlap_list, All_reads* R_INF)
+{
+
+    pthread_mutex_lock(&output_mutex);
+
+
+    uint64_t i = 0;
+    for ( i = 0; i < overlap_list->length; i++)
+    {
+        fprintf(stderr, "************i: %llu***********\n", i);
+        fprintf(stderr, "x: %llu, %llu, %llu, %llu, %llu\n",
+        overlap_list->list[i].x_id,overlap_list->list[i].x_pos_s, 
+        overlap_list->list[i].x_pos_e, overlap_list->list[i].x_pos_strand,
+        Get_READ_LENGTH((*R_INF), overlap_list->list[i].x_id)
+        );
+
+        fprintf(stderr, "y: %llu, %llu, %llu, %llu, %llu\n",
+        overlap_list->list[i].y_id,overlap_list->list[i].y_pos_s, 
+        overlap_list->list[i].y_pos_e, overlap_list->list[i].y_pos_strand,
+        Get_READ_LENGTH((*R_INF), overlap_list->list[i].y_id)
+        );
+        
+    }
+
+		
+		
+
+    fprintf(stderr, "#######################\nLength: %llu\n", candidates->length);
+
+    
+    for (i = 0; i < candidates->length; i++)
+    {
+        fprintf(stderr, "\ni: %llu\n", i);
+        fprintf(stderr, "strand: %llu\n", candidates->list[i].strand);
+        fprintf(stderr, "readID: %llu\n", candidates->list[i].readID);
+        fprintf(stderr, "diff: %lld\n", candidates->list[i].offset - candidates->list[i].self_offset);
+        fprintf(stderr, "offset: %lld\n", candidates->list[i].offset);
+        fprintf(stderr, "self_offset: %lld\n", candidates->list[i].self_offset);
+
+    }
+
+    pthread_mutex_unlock(&output_mutex);
+}
+
+
+
+	///r->length = Get_READ_LENGTH((*R_INF), ID);
+
+void calculate_overlap_region(Candidates_list* candidates, overlap_region_alloc* overlap_list, 
+uint64_t readID, uint64_t readLength, All_reads* R_INF)
+{
+    overlap_region tmp_region;
+    uint64_t i = 0;
+    long long current_pos_diff;
+    long long current_self_pos;
+    uint64_t current_ID;
+    uint64_t current_stand;
+    long long tmp_pos_distance;
+    long long tmp_self_pos_distance;
+    long long constant_distance = 5;
+    double error_rate = 0.05;
+
+    if (candidates->length == 0)
+    {
+        return;
+    }
+    
+
+    i = 0;
+    while (i < candidates->length)
+    {
+        current_pos_diff = candidates->list[i].offset - candidates->list[i].self_offset;
+        current_self_pos = candidates->list[i].self_offset;
+        current_ID = candidates->list[i].readID;
+        current_stand = candidates->list[i].strand;
+
+        tmp_region.shared_seed = 1;
+        ///这个是查询read的信息
+        tmp_region.x_id = readID;
+        tmp_region.x_pos_s = candidates->list[i].self_offset;
+        tmp_region.x_pos_e = candidates->list[i].self_offset;
+        tmp_region.x_pos_strand = current_stand;
+
+        ///这个是被查询的read的信息
+        tmp_region.y_id = current_ID;
+        tmp_region.y_pos_s = candidates->list[i].offset;
+        tmp_region.y_pos_e = candidates->list[i].offset;
+        tmp_region.y_pos_strand = 0;  ///永远是0
+
+        i++;
+
+        while (i < candidates->length)
+        {
+            if (current_ID == candidates->list[i].readID && 
+            current_stand == candidates->list[i].strand)
+            {
+                ///这个一定是正值
+                tmp_pos_distance = candidates->list[i].offset - candidates->list[i].self_offset - current_pos_diff;
+                ///这个不一定是正值
+                tmp_self_pos_distance = candidates->list[i].self_offset - current_self_pos;
+                if (tmp_self_pos_distance >= 0)
+                {
+                    tmp_self_pos_distance = tmp_self_pos_distance * error_rate + constant_distance;
+                    if (tmp_pos_distance < tmp_self_pos_distance)
+                    {
+                        i++;
+                        tmp_region.shared_seed++;
+                        tmp_region.x_pos_e = candidates->list[i].self_offset;
+                        tmp_region.y_pos_e = candidates->list[i].offset;
+                        continue;
+                    }
+                }
+            }
+            ///i++;
+            break;
+        }
+
+        append_overlap_region_alloc(overlap_list, &tmp_region, R_INF);
+    }
+
+
+    ///debug_overlap_region(candidates, overlap_list, readID);
+    ///print_overlap_region(candidates, overlap_list, R_INF);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -244,6 +664,7 @@ void verify_merge_result(k_mer_pos_list_alloc* list, Candidates_list* candidates
 {
     uint64_t total_length = 0;
     uint64_t i = 0;
+    long long r_dis_x, r_dis_y;
     for (i = 0; i < list->length; i++)
     {
         total_length = total_length + list->list[i].length;
@@ -268,11 +689,16 @@ void verify_merge_result(k_mer_pos_list_alloc* list, Candidates_list* candidates
             }
             else if (candidates->list[i].readID == candidates->list[i-1].readID)
             {
-                if (candidates->list[i].offset < candidates->list[i-1].offset)
+                r_dis_x = candidates->list[i].offset - candidates->list[i].self_offset;
+                r_dis_y = candidates->list[i-1].offset - candidates->list[i-1].self_offset;
+
+                ///if (candidates->list[i].offset < candidates->list[i-1].offset)
+                if (r_dis_x < r_dis_y)
                 {
                     fprintf(stderr, "ERROR 1\n");
                 }
-                else if (candidates->list[i].offset == candidates->list[i-1].offset)
+                ///else if (candidates->list[i].offset == candidates->list[i-1].offset)
+                else if (r_dis_x == r_dis_y)
                 {
                     if (candidates->list[i].self_offset < candidates->list[i-1].self_offset)
                     {
@@ -294,6 +720,33 @@ void verify_merge_result(k_mer_pos_list_alloc* list, Candidates_list* candidates
     
 }
 
+
+void output_to_stderr(Candidates_list* candidates)
+{
+    uint64_t i = 0;
+
+    pthread_mutex_lock(&output_mutex);
+		
+		
+
+    fprintf(stderr, "************************\nLength: %llu\n", candidates->length);
+
+    
+    for (i = 0; i < candidates->length; i++)
+    {
+        fprintf(stderr, "\ni: %llu\n", i);
+        fprintf(stderr, "strand: %llu\n", candidates->list[i].strand);
+        fprintf(stderr, "readID: %llu\n", candidates->list[i].readID);
+        fprintf(stderr, "diff: %lld\n", candidates->list[i].offset - candidates->list[i].self_offset);
+        fprintf(stderr, "offset: %lld\n", candidates->list[i].offset);
+        fprintf(stderr, "self_offset: %lld\n", candidates->list[i].self_offset);
+
+    }
+
+    pthread_mutex_unlock(&output_mutex);
+
+    
+}
 
 
 void merge_k_mer_pos_list_alloc_heap_sort_back(k_mer_pos_list_alloc* list, Candidates_list* candidates, HeapSq* HBT)
@@ -353,6 +806,7 @@ void merge_k_mer_pos_list_alloc_heap_sort_back(k_mer_pos_list_alloc* list, Candi
     } 
 
     ///verify_merge_result(list, candidates);
+    
     
      
 }
@@ -432,7 +886,7 @@ void merge_k_mer_pos_list_alloc_heap_sort(k_mer_pos_list_alloc* list, Candidates
 
 
     ///verify_merge_result(list, candidates);
-    
+    ///output_to_stderr(candidates);
      
 }
 
