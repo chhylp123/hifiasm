@@ -52,13 +52,36 @@ typedef struct
     uint64_t length;
 } k_mer_pos_list_alloc;
 
+typedef struct
+{
+    uint64_t x_id;
+    uint64_t x_pos_s;
+    uint64_t x_pos_e;
+    uint64_t x_pos_strand;
+
+    uint64_t y_id;
+    uint64_t y_pos_s;
+    uint64_t y_pos_e;
+    uint64_t y_pos_strand;
+
+    uint64_t shared_seed;
+} overlap_region;
 
 
 typedef struct
 {
-    uint64_t offset;
+    overlap_region* list;
+    uint64_t size;
+    uint64_t length;
+} overlap_region_alloc;
+
+typedef struct
+{
+    ///uint64_t offset;
+    long long offset;
+    ///uint64_t self_offset;
+    long long self_offset;
     uint64_t readID;
-    uint64_t self_offset;
     uint8_t strand;
 } k_mer_hit;
 
@@ -372,12 +395,14 @@ void Init_Heap(HeapSq* HBT);
 void destory_Heap(HeapSq* HBT);
 void clear_Heap(HeapSq* HBT);
 
-
-
-
-
-
-
+void init_overlap_region_alloc(overlap_region_alloc* list);
+void clear_overlap_region_alloc(overlap_region_alloc* list);
+void destory_overlap_region_alloc(overlap_region_alloc* list);
+void append_overlap_region_alloc(overlap_region_alloc* list,
+uint64_t x_id, uint64_t x_pos_s, uint64_t x_pos_e, uint64_t x_pos_strand,
+uint64_t y_id, uint64_t y_pos_s, uint64_t y_pos_e, uint64_t y_pos_strand);
+void calculate_overlap_region(Candidates_list* candidates, overlap_region_alloc* overlap_list, 
+uint64_t readID, uint64_t readLength, All_reads* R_INF);
 
 
 

@@ -702,6 +702,9 @@ void* Overlap_calculate_heap_merge(void* arg)
     k_mer_pos_list_alloc array_list;
     init_k_mer_pos_list_alloc(&array_list);
 
+    overlap_region_alloc overlap_list;
+    init_overlap_region_alloc(&overlap_list);
+
     HeapSq heap;
 
     Init_Heap(&heap);
@@ -714,6 +717,8 @@ void* Overlap_calculate_heap_merge(void* arg)
         ///clear_Candidates_list(&debug_l);
 
         clear_k_mer_pos_list_alloc(&array_list);
+        clear_overlap_region_alloc(&overlap_list);
+
         recover_UC_Read(&g_read, &R_INF, i);
 
 
@@ -795,6 +800,9 @@ void* Overlap_calculate_heap_merge(void* arg)
             merge_k_mer_pos_list_alloc_heap_sort_advance(&array_list, &l, &heap);
         }
         **/
+
+       calculate_overlap_region(&l, &overlap_list, i, g_read.length, &R_INF);
+
         
 
         ///merge_k_mer_pos_list_alloc_heap_sort_advance(&array_list, &l, &heap);
@@ -806,6 +814,7 @@ void* Overlap_calculate_heap_merge(void* arg)
     }
     
     destory_Candidates_list(&l);
+    destory_overlap_region_alloc(&overlap_list);
     //destory_Candidates_list(&debug_l);
 
     destory_Heap(&heap);
