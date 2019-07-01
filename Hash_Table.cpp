@@ -256,6 +256,7 @@ void append_overlap_region_alloc(overlap_region_alloc* list, overlap_region* tmp
 
 
 
+
     if(tmp->x_pos_s <= tmp->y_pos_s)
     {
         tmp->y_pos_s = tmp->y_pos_s - tmp->x_pos_s;
@@ -283,18 +284,36 @@ void append_overlap_region_alloc(overlap_region_alloc* list, overlap_region* tmp
     
 
 
-    
-    
-    
-    list->list[list->length].x_id = tmp->x_id;
-    list->list[list->length].x_pos_e = tmp->x_pos_e;
-    list->list[list->length].x_pos_s = tmp->x_pos_s;
-    list->list[list->length].x_pos_strand = tmp->x_pos_strand;
 
-    list->list[list->length].y_id = tmp->y_id;
-    list->list[list->length].y_pos_e = tmp->y_pos_e;
-    list->list[list->length].y_pos_s = tmp->y_pos_s;
-    list->list[list->length].y_pos_strand = tmp->y_pos_strand;
+    ///y的区间方向永远是0
+    ///x有可能是1
+    ///如果x是1，那我们把它逆过来
+    if (tmp->x_pos_strand == 1)
+    {
+       list->list[list->length].x_id = tmp->x_id;
+        list->list[list->length].x_pos_e = Get_READ_LENGTH((*R_INF), tmp->x_id) - tmp->x_pos_s - 1;
+        list->list[list->length].x_pos_s = Get_READ_LENGTH((*R_INF), tmp->x_id) - tmp->x_pos_e - 1;
+        list->list[list->length].x_pos_strand = 0;
+
+        list->list[list->length].y_id = tmp->y_id;
+        list->list[list->length].y_pos_e = Get_READ_LENGTH((*R_INF), tmp->y_id) - tmp->y_pos_s - 1;
+        list->list[list->length].y_pos_s = Get_READ_LENGTH((*R_INF), tmp->y_id) - tmp->y_pos_e - 1;
+        list->list[list->length].y_pos_strand = 1;
+    }
+    else
+    {
+        list->list[list->length].x_id = tmp->x_id;
+        list->list[list->length].x_pos_e = tmp->x_pos_e;
+        list->list[list->length].x_pos_s = tmp->x_pos_s;
+        list->list[list->length].x_pos_strand = tmp->x_pos_strand;
+
+        list->list[list->length].y_id = tmp->y_id;
+        list->list[list->length].y_pos_e = tmp->y_pos_e;
+        list->list[list->length].y_pos_s = tmp->y_pos_s;
+        list->list[list->length].y_pos_strand = tmp->y_pos_strand;
+    }
+    
+    
 
     list->list[list->length].shared_seed = tmp->shared_seed;
 
@@ -536,7 +555,13 @@ uint64_t readID, uint64_t readLength, All_reads* R_INF)
             break;
         }
 
-        append_overlap_region_alloc(overlap_list, &tmp_region, R_INF);
+        ///自己和自己重叠的要排除
+        if (tmp_region.x_id != tmp_region.y_id)
+        {
+            append_overlap_region_alloc(overlap_list, &tmp_region, R_INF);
+        }
+        
+        
     }
 
 

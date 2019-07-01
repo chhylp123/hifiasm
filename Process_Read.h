@@ -45,6 +45,7 @@ static uint8_t seq_nt6_table[256] = {
 };
 
 static char bit_t_seq_table[256][4] = {0};
+static char bit_t_seq_table_rc[256][4] = {0};
 static char s_H[4] = {'A', 'C', 'G', 'T'};
 static char rc_Table[4] = {'T', 'G', 'C', 'A'};
 
@@ -109,6 +110,8 @@ int get_reads_mul_thread(R_buffer_block* curr_sub_block);
 void compress_base(uint8_t* dest, char* src, uint64_t src_l, uint64_t** N_site_lis, uint64_t N_site_occ);
 void init_UC_Read(UC_Read* r);
 void recover_UC_Read(UC_Read* r, All_reads* R_INF, uint64_t ID);
+void recover_UC_Read_RC(UC_Read* r, All_reads* R_INF, uint64_t ID);
+void destory_UC_Read(UC_Read* r);
 void reverse_complement(char* pattern, uint64_t length);
 void write_All_reads(All_reads* r, char* read_file_name);
 int load_All_reads(All_reads* r, char* read_file_name);
