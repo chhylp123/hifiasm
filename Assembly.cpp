@@ -6,6 +6,7 @@
 #include "CommandLines.h"
 #include "kmer.h"
 #include "Hash_Table.h"
+#include "POA.h"
 
 Total_Count_Table TCB;
 Total_Pos_Table PCB;
@@ -679,7 +680,7 @@ void* Overlap_calculate_heap_merge(void* arg)
 {
 
     int thr_ID = *((int*)arg);
-
+    uint64_t POA_i;
     long long i = 0;
     int avalible_k = 0;
 
@@ -695,7 +696,9 @@ void* Overlap_calculate_heap_merge(void* arg)
 
     Candidates_list l;
     //Candidates_list debug_l;
+    Graph POA_Graph;
 
+    init_Graph(&POA_Graph);
     init_Candidates_list(&l);
     //init_Candidates_list(&debug_l);
 
@@ -711,6 +714,13 @@ void* Overlap_calculate_heap_merge(void* arg)
 
     for (i = thr_ID; i < R_INF.total_reads; i = i + thread_num)
     {
+        /**
+        if (thr_ID == 0 && i % 1000 == 0)
+        {
+            fprintf(stderr, "i: %llu\n", i);
+        }
+        **/
+        
         
         clear_Heap(&heap);
         clear_Candidates_list(&l);
@@ -756,8 +766,30 @@ void* Overlap_calculate_heap_merge(void* arg)
 
 
 
+
+        
+
+
+
         ///reverse complement strand
         reverse_complement(g_read.seq, g_read.length);
+        /**
+        UC_Read rc_read;
+        init_UC_Read(&rc_read);
+        recover_UC_Read_RC(&rc_read, &R_INF, i);
+        uint64_t j = 0;
+        for (j = 0; j < g_read.length; j++)
+        {
+            if (g_read.seq[j] != rc_read.seq[j])
+            {
+                fprintf(stderr, "j error: %llu, i: %llu\n", j, i);
+                fprintf(stderr, "g_read.seq[j]: %c\n", g_read.seq[j]);
+                fprintf(stderr, "rc_read.seq[j]: %c\n", rc_read.seq[j]);
+            }
+            
+        }
+        destory_UC_Read(&rc_read);
+        **/
         init_HPC_seq(&HPC_read, g_read.seq, g_read.length);
         init_Hash_code(&k_code);
         avalible_k = 0;
@@ -811,6 +843,37 @@ void* Overlap_calculate_heap_merge(void* arg)
 
         ///debug_merge_result(&l, &debug_l);
 
+        clear_Graph(&POA_Graph);
+
+
+        Perform_POA(&POA_Graph, &overlap_list, &R_INF, &g_read);
+
+        ///fprintf(stderr, "i: %u\n", i);
+
+
+        /**
+        POA_i = 0;
+
+        if (overlap_list.length > 0)
+        {
+            
+        }
+        
+
+        for (POA_i = 1; POA_i < overlap_list.length; POA_i++)
+        {
+            if(overlap_list.list[POA_i].x_pos_strand == 1)
+            {
+                fprintf(stderr, "sbsbsbsbs\n");
+            }
+
+        }
+        **/
+        
+
+
+
+
     }
     
     destory_Candidates_list(&l);
@@ -819,6 +882,9 @@ void* Overlap_calculate_heap_merge(void* arg)
 
     destory_Heap(&heap);
     destory_k_mer_pos_list_alloc(&array_list);
+
+    destory_Graph(&POA_Graph);
+    destory_UC_Read(&g_read);
 }
 
 
@@ -831,6 +897,8 @@ void* Overlap_calculate_heap_merge(void* arg)
 void Overlap_calculate_multipe_thr()
 {
     double start_time = Get_T();
+
+    fprintf(stdout, "R_INF.total_reads: %llu\n", R_INF.total_reads);
 
 
     fprintf(stdout, "Begin Overlap Calculate ...... \n");
