@@ -398,9 +398,7 @@ void clear_Heap(HeapSq* HBT);
 void init_overlap_region_alloc(overlap_region_alloc* list);
 void clear_overlap_region_alloc(overlap_region_alloc* list);
 void destory_overlap_region_alloc(overlap_region_alloc* list);
-void append_overlap_region_alloc(overlap_region_alloc* list,
-uint64_t x_id, uint64_t x_pos_s, uint64_t x_pos_e, uint64_t x_pos_strand,
-uint64_t y_id, uint64_t y_pos_s, uint64_t y_pos_e, uint64_t y_pos_strand);
+void append_overlap_region_alloc(overlap_region_alloc* list, overlap_region* tmp, All_reads* R_INF);
 void calculate_overlap_region(Candidates_list* candidates, overlap_region_alloc* overlap_list, 
 uint64_t readID, uint64_t readLength, All_reads* R_INF);
 

@@ -204,6 +204,12 @@ void malloc_All_reads(All_reads* r)
 	
 }
 
+void destory_UC_Read(UC_Read* r)
+{
+	free(r->seq);
+}
+
+
 void init_UC_Read(UC_Read* r)
 {
 	r->length = 0;
@@ -219,6 +225,11 @@ void init_UC_Read(UC_Read* r)
 			bit_t_seq_table[i][1] = s_H[((i >> 4)&(uint64_t)3)];
 			bit_t_seq_table[i][2] = s_H[((i >> 2)&(uint64_t)3)];
 			bit_t_seq_table[i][3] = s_H[(i&(uint64_t)3)];
+
+			bit_t_seq_table_rc[i][0] = RC_CHAR(bit_t_seq_table[i][3]);
+			bit_t_seq_table_rc[i][1] = RC_CHAR(bit_t_seq_table[i][2]);
+			bit_t_seq_table_rc[i][2] = RC_CHAR(bit_t_seq_table[i][1]);
+			bit_t_seq_table_rc[i][3] = RC_CHAR(bit_t_seq_table[i][0]);
 		}
 		
 	}
@@ -251,6 +262,46 @@ void recover_UC_Read(UC_Read* r, All_reads* R_INF, uint64_t ID)
 		for (i = 1; i <= R_INF->N_site[ID][0]; i++)
 		{
 			r->seq[R_INF->N_site[ID][i]] = 'N';
+		}
+	}
+		
+}
+
+void recover_UC_Read_RC(UC_Read* r, All_reads* R_INF, uint64_t ID)
+{
+	r->length = Get_READ_LENGTH((*R_INF), ID);
+	uint8_t* src = Get_READ((*R_INF), ID);
+
+	if (r->length + 4 > r->size)
+	{
+		r->size = r->length + 4;
+		r->seq = (char*)realloc(r->seq,sizeof(char)*(r->size));
+	}
+
+	long long last_chr = r->length % 4;
+	long long i = r->length / 4 - 1 + (last_chr != 0);
+	long long index = 0;
+
+	if(last_chr!=0)
+	{
+		memcpy(r->seq + index, bit_t_seq_table_rc[src[i]] + 4 - last_chr, last_chr);
+		index = last_chr;
+		i--;
+	}
+
+	while (i >= 0)
+	{
+		memcpy(r->seq + index, bit_t_seq_table_rc[src[i]], 4);
+		i--;
+		index = index + 4;
+	}
+
+
+	if (R_INF->N_site[ID])
+	{
+		for (i = 1; i <= R_INF->N_site[ID][0]; i++)
+		{
+			r->seq[r->length - R_INF->N_site[ID][i] - 1] = 'N';
 		}
 	}
 		
