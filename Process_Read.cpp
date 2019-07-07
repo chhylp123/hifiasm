@@ -237,6 +237,111 @@ void init_UC_Read(UC_Read* r)
 }
 
 
+void recover_UC_Read_sub_region(char* r, long long start_pos, long long length, uint8_t strand, All_reads* R_INF, long long ID)
+{
+
+
+
+	long long readLen = Get_READ_LENGTH((*R_INF), ID);
+	uint8_t* src = Get_READ((*R_INF), ID);
+
+	long long i;
+	long long copyLen;
+	long long end_pos = start_pos + length - 1;
+
+	if (strand == 0)
+	{
+		
+		i = start_pos;
+		copyLen = 0;
+
+		long long initLen = start_pos % 4;
+
+		if (initLen != 0)
+		{
+			memcpy(r, bit_t_seq_table[src[i>>2]] + initLen, 4 - initLen);
+			copyLen = copyLen + 4 - initLen;
+			i = i + copyLen;
+		}
+		
+		
+		while (copyLen < length)
+		{
+			memcpy(r+copyLen, bit_t_seq_table[src[i>>2]], 4);
+			copyLen = copyLen + 4;
+			i = i + 4;
+		}
+
+		
+		if (R_INF->N_site[ID])
+		{
+			for (i = 1; i <= R_INF->N_site[ID][0]; i++)
+			{
+				if (R_INF->N_site[ID][i] >= start_pos && R_INF->N_site[ID][i] <= end_pos)
+				{
+					r[R_INF->N_site[ID][i] - start_pos] = 'N';
+				}
+				else if(R_INF->N_site[ID][i] > end_pos)
+				{
+					break;
+				}
+			}
+		}
+		
+		
+	}
+	else
+	{
+		
+		start_pos = readLen - start_pos - 1;
+		end_pos = readLen - end_pos - 1;
+
+
+
+		///start_pos > end_pos
+		i = start_pos;
+		copyLen = 0;
+		long long initLen = (start_pos + 1) % 4;
+
+		if (initLen != 0)
+		{
+			memcpy(r, bit_t_seq_table_rc[src[i>>2]] + 4 - initLen, initLen);
+			copyLen = copyLen + initLen;
+			i = i - initLen;
+		}
+
+		while (copyLen < length)
+		{
+			memcpy(r+copyLen, bit_t_seq_table_rc[src[i>>2]], 4);
+			copyLen = copyLen + 4;
+			i = i - 4;
+		}
+
+		if (R_INF->N_site[ID])
+		{
+			long long offset = readLen - start_pos - 1;
+
+			for (i = 1; i <= R_INF->N_site[ID][0]; i++)
+			{
+
+				if (R_INF->N_site[ID][i] >= end_pos && R_INF->N_site[ID][i] <= start_pos)
+				{
+					r[readLen - R_INF->N_site[ID][i] - 1 - offset] = 'N';
+				}
+				else if(R_INF->N_site[ID][i] > start_pos)
+				{
+					break;
+				}
+			}
+		}
+		
+
+		
+	}
+		
+}
+
+
 void recover_UC_Read(UC_Read* r, All_reads* R_INF, uint64_t ID)
 {
 	r->length = Get_READ_LENGTH((*R_INF), ID);

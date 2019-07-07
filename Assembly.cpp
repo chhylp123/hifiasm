@@ -7,6 +7,7 @@
 #include "kmer.h"
 #include "Hash_Table.h"
 #include "POA.h"
+#include "Correct.h"
 
 Total_Count_Table TCB;
 Total_Pos_Table PCB;
@@ -693,6 +694,9 @@ void* Overlap_calculate_heap_merge(void* arg)
     k_mer_pos* list;
     uint64_t list_length;
     uint64_t sub_ID;
+    long long total_shared_seed = 0;
+    long long candidate_overlap_reads = 0;
+    
 
     Candidates_list l;
     //Candidates_list debug_l;
@@ -712,14 +716,25 @@ void* Overlap_calculate_heap_merge(void* arg)
 
     Init_Heap(&heap);
 
+    Correct_dumy correct;
+    init_Correct_dumy(&correct);
+
     for (i = thr_ID; i < R_INF.total_reads; i = i + thread_num)
     {
         /**
-        if (thr_ID == 0 && i % 1000 == 0)
+        if (i < 4)
         {
-            fprintf(stderr, "i: %llu\n", i);
+            continue;
         }
+
+        if (i > 4)
+        {
+            break;
+        }
+        fprintf(stderr, "i: %u\n", i);
+        fflush(stderr);
         **/
+        
         
         
         clear_Heap(&heap);
@@ -833,7 +848,47 @@ void* Overlap_calculate_heap_merge(void* arg)
         }
         **/
 
+       ///以x_pos_e，即结束位置为主元排序
        calculate_overlap_region(&l, &overlap_list, i, g_read.length, &R_INF);
+
+
+       correct_overlap(&overlap_list, &R_INF, &g_read, &correct);
+
+        
+        
+        /**
+        POA_i = 0;
+        fprintf(stderr, "\n\n**************\ni: %u\n", i);
+
+        for (POA_i = 0; POA_i < overlap_list.length; POA_i++)
+        {
+            fprintf(stderr, "x_id: %u, y_id: %u\n", overlap_list.list[POA_i].x_id, overlap_list.list[POA_i].y_id);
+            fprintf(stderr, "x_strand: %u, y_strand: %u\n", overlap_list.list[POA_i].x_pos_strand, overlap_list.list[POA_i].y_pos_strand);
+            fprintf(stderr, "x_pos_s: %u\n", overlap_list.list[POA_i].x_pos_s);
+
+        }
+        **/
+        
+       /**
+       POA_i = 0;
+
+        for (POA_i = 1; POA_i < overlap_list.length; POA_i++)
+        {
+            if(overlap_list.list[POA_i].x_pos_s < overlap_list.list[POA_i - 1].x_pos_s)
+            {
+                fprintf(stderr, "1 sbsbsbsbs\n");
+            }
+            else if(overlap_list.list[POA_i].x_pos_s == overlap_list.list[POA_i - 1].x_pos_s &&
+            overlap_list.list[POA_i].x_pos_e > overlap_list.list[POA_i - 1].x_pos_e)
+            {
+                 fprintf(stderr, "2 sbsbsbsbs\n");
+            }
+            
+
+        }
+        **/
+
+
 
         
 
@@ -843,10 +898,12 @@ void* Overlap_calculate_heap_merge(void* arg)
 
         ///debug_merge_result(&l, &debug_l);
 
+        /**
         clear_Graph(&POA_Graph);
 
 
         Perform_POA(&POA_Graph, &overlap_list, &R_INF, &g_read);
+        **/
 
         ///fprintf(stderr, "i: %u\n", i);
 
@@ -875,7 +932,11 @@ void* Overlap_calculate_heap_merge(void* arg)
 
 
     }
-    
+
+    /**
+    fprintf(stderr, "candidate_overlap_reads: %llu\n", candidate_overlap_reads);
+    fprintf(stderr, "total_shared_seed: %llu\n", total_shared_seed);
+    **/
     destory_Candidates_list(&l);
     destory_overlap_region_alloc(&overlap_list);
     //destory_Candidates_list(&debug_l);
@@ -885,6 +946,8 @@ void* Overlap_calculate_heap_merge(void* arg)
 
     destory_Graph(&POA_Graph);
     destory_UC_Read(&g_read);
+
+    destory_Correct_dumy(&correct);
 }
 
 

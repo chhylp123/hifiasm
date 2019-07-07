@@ -3,7 +3,7 @@ CC=g++
 CFLAGS = -w -c -msse4.2 -mpopcnt -fomit-frame-pointer -Winline -O3 -lz
 LDFLAGS = -lm -lz -lpthread -O3 -mpopcnt -msse4.2 -lz -w
 
-SOURCES = main.cpp CommandLines.cpp Process_Read.cpp Assembly.cpp kmer.cpp Hash_Table.cpp POA.cpp
+SOURCES = main.cpp CommandLines.cpp Process_Read.cpp Assembly.cpp kmer.cpp Hash_Table.cpp POA.cpp Correct.cpp Levenshtein_distance.cpp edlib.cpp
 OBJECTS = $(SOURCES:.c=.o)
 EXECUTABLE = ccs_assembly
 

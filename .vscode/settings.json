@@ -1,3 +1,8 @@
 {
-    "C_Cpp.errorSquiggles": "Enabled"
+    "C_Cpp.errorSquiggles": "Enabled",
+    "files.associations": {
+        "limits": "cpp",
+        "random": "cpp",
+        "functional": "cpp"
+    }
 }
