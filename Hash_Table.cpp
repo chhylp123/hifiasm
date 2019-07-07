@@ -483,6 +483,64 @@ void print_overlap_region(Candidates_list* candidates, overlap_region_alloc* ove
 }
 
 
+int cmp_by_x_pos_s(const void * a, const void * b)
+{
+    if ((*(overlap_region*)a).x_pos_s > (*(overlap_region*)b).x_pos_s)
+    {
+        return 1;
+    }
+    else if ((*(overlap_region*)a).x_pos_s < (*(overlap_region*)b).x_pos_s)
+    {
+        return -1;
+    }
+    else
+    {
+
+        if ((*(overlap_region*)a).x_pos_e > (*(overlap_region*)b).x_pos_e)
+        {
+            return 1;
+        }
+        else if ((*(overlap_region*)a).x_pos_e < (*(overlap_region*)b).x_pos_e)
+        {
+            return -1;
+        }
+        else
+        {
+            return 0;
+        }
+        
+    }
+}
+
+
+int cmp_by_x_pos_e(const void * a, const void * b)
+{
+    if ((*(overlap_region*)a).x_pos_e > (*(overlap_region*)b).x_pos_e)
+    {
+        return 1;
+    }
+    else if ((*(overlap_region*)a).x_pos_e < (*(overlap_region*)b).x_pos_e)
+    {
+        return -1;
+    }
+    else
+    {
+
+        if ((*(overlap_region*)a).x_pos_s > (*(overlap_region*)b).x_pos_s)
+        {
+            return 1;
+        }
+        else if ((*(overlap_region*)a).x_pos_s < (*(overlap_region*)b).x_pos_s)
+        {
+            return -1;
+        }
+        else
+        {
+            return 0;
+        }
+        
+    }
+}
 
 	///r->length = Get_READ_LENGTH((*R_INF), ID);
 
@@ -499,6 +557,7 @@ uint64_t readID, uint64_t readLength, All_reads* R_INF)
     long long tmp_self_pos_distance;
     long long constant_distance = 5;
     double error_rate = 0.05;
+
 
     if (candidates->length == 0)
     {
@@ -556,14 +615,19 @@ uint64_t readID, uint64_t readLength, All_reads* R_INF)
         }
 
         ///自己和自己重叠的要排除
+        ///if (tmp_region.x_id != tmp_region.y_id && tmp_region.shared_seed > 1)
         if (tmp_region.x_id != tmp_region.y_id)
         {
+            
             append_overlap_region_alloc(overlap_list, &tmp_region, R_INF);
         }
         
         
     }
 
+    ///以x_pos_e，即结束位置为主元排序
+    ///qsort(overlap_list->list, overlap_list->length, sizeof(overlap_region), cmp_by_x_pos_e);
+    qsort(overlap_list->list, overlap_list->length, sizeof(overlap_region), cmp_by_x_pos_s);
 
     ///debug_overlap_region(candidates, overlap_list, readID);
     ///print_overlap_region(candidates, overlap_list, R_INF);
