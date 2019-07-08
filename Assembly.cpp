@@ -721,22 +721,7 @@ void* Overlap_calculate_heap_merge(void* arg)
 
     for (i = thr_ID; i < R_INF.total_reads; i = i + thread_num)
     {
-        /**
-        if (i < 4)
-        {
-            continue;
-        }
 
-        if (i > 4)
-        {
-            break;
-        }
-        fprintf(stderr, "i: %u\n", i);
-        fflush(stderr);
-        **/
-        
-        
-        
         clear_Heap(&heap);
         clear_Candidates_list(&l);
         ///clear_Candidates_list(&debug_l);
