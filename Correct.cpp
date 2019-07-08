@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <pthread.h>
 #include "Correct.h"
 #include "Levenshtein_distance.h"
 #include "edlib.h"
@@ -8,6 +9,7 @@
 long long T_total_match=0;
 long long T_total_unmatch=0;
 long long T_total_mis=0;
+pthread_mutex_t debug_statistics ;
 
 
 #define MAX(x, y) ((x >= y)?x:y)
@@ -286,7 +288,6 @@ long long o_len, int threashold, int error, long long* total_mis)
 
     if (result.status == EDLIB_STATUS_OK) {
         if (result.editDistance != error)
-        ///if (result.editDistance != error && result.endLocations[0] > x_len)
         {   
             
             (*total_mis)++;
@@ -310,36 +311,61 @@ long long o_len, int threashold, int error, long long* total_mis)
             char* cigar = edlibAlignmentToCigar(result.alignment, result.alignmentLength, EDLIB_CIGAR_STANDARD);
             int cigar_length = strlen(cigar);
 
-            /**
-            for (int i = cigar_length - 1; i >= 0; i--)
+            int i = cigar_length - 1;
+            int j = 0;
+            char tmp;
+           
+
+            while (i >= 0)
             {
-                switch (cigar[i])
+                if (up_length < 0 || left_length < 0)
                 {
-                case 'I':
-                    
-                    break;
-                
-                default:
                     break;
                 }
-            }
-            **/
-            
-            ///fprintf(stderr,"%s\n", cigar);
-            free(cigar);
-            
-            /**
-            fprintf(stderr, "****\ni: %u, edlib: %d, alignmentLength: %d, startLocations: %d, endLocations: %d\n", 
-            i, result.editDistance, result.alignmentLength, result.startLocations[0], result.endLocations[0]);
-            char* cigar = edlibAlignmentToCigar(result.alignment, result.alignmentLength, EDLIB_CIGAR_STANDARD);
-            fprintf(stderr,"%s\n", cigar);
-            free(cigar);
-            print_string(x_string, x_len);
-            print_string(y_string, o_len);
 
-            fprintf(stderr, "BPM: %d\n", error);
-            **/
+                if (cigar[i] == 'I' || cigar[i] == 'D')
+                {
+                    tmp = cigar[i];
+                    cigar[i] = '\0';
+                    j = i - 1;
+                    while (cigar[j] <= '9' && cigar[j] >= '0' && j >= 0)
+                    {
+                        j--;
+                    }
+                    j++;
+                    int Len = atoi(cigar + j);
+                    cigar[i] = tmp;
+                    i = j - 1;
+
+                    if (tmp == 'I')
+                    {
+                        up_length = up_length - Len;
+                        left_length = left_length + Len;
+                    }
+                    else
+                    {
+                        left_length = left_length - Len;
+                        up_length = up_length + Len;
+                    }
+                }
+                else
+                {
+                    i--;
+                }
+            }
+
             
+            if (up_length >= 0 && left_length >= 0)
+            {
+                fprintf(stderr, "****\nedlib: %d, alignmentLength: %d, startLocations: %d, endLocations: %d\n", 
+                result.editDistance, result.alignmentLength, result.startLocations[0], result.endLocations[0]);
+                fprintf(stderr,"%s\n", cigar);
+                print_string(x_string, x_len);
+                print_string(y_string, o_len);
+                fprintf(stderr, "BPM: %d\n", error);
+            }
+
+            free(cigar);
         }
     }
     edlibFreeAlignResult(result);
@@ -358,10 +384,14 @@ char* r_string)
     long long x_end, x_len;
     int end_site;
     unsigned int error;
-    long long total_match=0;
-    long long total_unmatch=0;
-    long long total_mis=0;
-
+    /************需要注释掉********* */ 
+    // long long total_match=0;
+    // long long total_unmatch=0;
+    // long long total_mis=0;
+    /************需要注释掉********* */
+    int groupLen = 0;
+    int return_sites[GROUP_SIZE];
+	unsigned int return_sites_error[GROUP_SIZE];
 
     ///这些是整个window被完全覆盖的
     for (i = 0; i < dumy->length; i++)
@@ -383,53 +413,135 @@ char* r_string)
         ///不能超过y的剩余长度
         o_len = MIN(Window_Len, currentIDLen - y_start);
         
-        recover_UC_Read_sub_region(dumy->overlap_region, y_start, o_len, overlap_list->list[currentID].y_pos_strand, 
-                R_INF, overlap_list->list[currentID].y_id);
-
-        x_string = r_string + x_start;
-        y_string = dumy->overlap_region;
-
         
-
-
         ///这个长度足够，可以用来一起比
         if (Window_Len == o_len)
         {
-            
-            end_site = Reserve_Banded_BPM(y_string, o_len, x_string, x_len, THRESHOLD, &error);
 
+            recover_UC_Read_sub_region(dumy->overlap_region_group[groupLen], y_start, o_len, overlap_list->list[currentID].y_pos_strand, 
+                R_INF, overlap_list->list[currentID].y_id);
 
-            if (error!=(unsigned int)-1)
+            x_string = r_string + x_start;
+
+            groupLen++;
+            if (groupLen == GROUP_SIZE)
             {
-                total_match++;
-            }
-            else
-            {
-                total_unmatch++;
-            }
-
             
-            test_edit_distance_by_edlib(x_string, y_string, x_len, 
-            o_len, THRESHOLD, error, &total_mis);
+                Reserve_Banded_BPM_4_SSE_only(dumy->overlap_region_group[0], dumy->overlap_region_group[1], 
+                dumy->overlap_region_group[2], dumy->overlap_region_group[3], o_len, x_string, x_len,
+			        return_sites, return_sites_error, THRESHOLD, dumy->Peq_SSE);
+                groupLen = 0;
+
+
+                // end_site = Reserve_Banded_BPM(dumy->overlap_region_group[0], o_len, x_string, x_len, THRESHOLD, &error);
+                // if (error!=return_sites_error[0])
+                // {
+                //     fprintf(stderr, "error\n");
+                // }
+                // end_site = Reserve_Banded_BPM(dumy->overlap_region_group[1], o_len, x_string, x_len, THRESHOLD, &error); 
+                // if (error!=return_sites_error[1])
+                // {
+                //     fprintf(stderr, "error\n");
+                // }
+                // end_site = Reserve_Banded_BPM(dumy->overlap_region_group[2], o_len, x_string, x_len, THRESHOLD, &error);
+                // if (error!=return_sites_error[2])
+                // {
+                //     fprintf(stderr, "error\n");
+                // } 
+                // end_site = Reserve_Banded_BPM(dumy->overlap_region_group[3], o_len, x_string, x_len, THRESHOLD, &error);
+                // if (error!=return_sites_error[3])
+                // {
+                //     fprintf(stderr, "error\n");
+                // }  
+                
+               
+            //    /************需要注释掉**********/
+            //    for (size_t ijk = 0; ijk < GROUP_SIZE; ijk++)
+            //    {
+            //        if (return_sites_error[ijk]!=(unsigned int)-1)
+            //         {
+            //             total_match++;
+            //         }
+            //         else
+            //         {
+            //             total_unmatch++;
+            //         }
+            //         test_edit_distance_by_edlib(x_string, dumy->overlap_region_group[ijk], x_len, o_len, THRESHOLD, 
+            //         return_sites_error[ijk], &total_mis);
+            //    }
+            //     /************需要注释掉********* */
+                
+            }
 
         }
         else  ///这个不够，只能单个比 ///不够的地方要置N
         {
-            /**
+
+            recover_UC_Read_sub_region(dumy->overlap_region, y_start, o_len, overlap_list->list[currentID].y_pos_strand, 
+                R_INF, overlap_list->list[currentID].y_id);
+
+            x_string = r_string + x_start;
+            y_string = dumy->overlap_region;
+
+            ///o_len < Window_Len, 说明y的长度不够，需要在y后面补N
+            memset (y_string + o_len, 0, Window_Len - o_len);
             end_site = Reserve_Banded_BPM(y_string, o_len, x_string, x_len, THRESHOLD, &error);
-
-
-            if (error!=-1)
-            {
-                total_match++;
-            }
-            else
-            {
-                total_unmatch++;
-            }
-            **/
+            
+            // /************需要注释掉**********/
+            // if (error!=(unsigned int)-1)
+            // {
+            //     total_match++;
+            // }
+            // else
+            // {
+            //     total_unmatch++;
+            // }
+            // test_edit_distance_by_edlib(x_string, y_string, x_len, o_len, THRESHOLD, error, &total_mis);
+            // /************需要注释掉********* */
         }
     }
+
+
+
+    if (groupLen == 1)
+    {
+        end_site = Reserve_Banded_BPM(dumy->overlap_region_group[0], o_len, x_string, x_len, THRESHOLD, &error);
+        // /************需要注释掉**********/
+        // if (error!=(unsigned int)-1)
+        // {
+        //     total_match++;
+        // }
+        // else
+        // {
+        //     total_unmatch++;
+        // }
+        // test_edit_distance_by_edlib(x_string, dumy->overlap_region_group[0], x_len, o_len, THRESHOLD, error, &total_mis);
+        // /************需要注释掉********* */
+    }
+    else if (groupLen > 1)
+    {
+        Reserve_Banded_BPM_4_SSE_only(dumy->overlap_region_group[0], dumy->overlap_region_group[1], 
+                dumy->overlap_region_group[2], dumy->overlap_region_group[3], o_len, x_string, x_len,
+			        return_sites, return_sites_error, THRESHOLD, dumy->Peq_SSE);
+        // /************需要注释掉**********/
+        // for (size_t ijk = 0; ijk < groupLen; ijk++)
+        // {
+        //     if (return_sites_error[ijk]!=(unsigned int)-1)
+        //     {
+        //         total_match++;
+        //     }
+        //     else
+        //     {
+        //         total_unmatch++;
+        //     }
+        //     test_edit_distance_by_edlib(x_string, dumy->overlap_region_group[ijk], x_len, o_len, THRESHOLD, 
+        //     return_sites_error[ijk], &total_mis);
+        // }
+        // /************需要注释掉**********/
+        groupLen = 0;
+    }
+    
+    
 
     long long reverse_i = dumy->size - 1;
     
@@ -471,41 +583,38 @@ char* r_string)
         y_string = dumy->overlap_region;
 
         ///不够的地方要置N
-
+        if (Window_Len != o_len)
+        {
+            ///o_len < Window_Len, 说明y的长度不够，需要在y后面补N
+            memset (y_string + o_len, 0, Window_Len - o_len);
+        }
         end_site = Reserve_Banded_BPM(y_string, o_len, x_string, x_len, THRESHOLD, &error);
 
-        /**
-        if (error!=-1)
-        {
-            total_match++;
-        }
-        else
-        {
-            total_unmatch++;
-        }
-        **/
+
+        // /************需要注释掉********* */
+        // if (error!=(unsigned int)-1)
+        // {
+        //     total_match++;
+        // }
+        // else
+        // {
+        //     total_unmatch++;
+        // }
+        // test_edit_distance_by_edlib(x_string, y_string, x_len, o_len, THRESHOLD, error, &total_mis);
+        // /************需要注释掉********* */
     }
     
-    /**
-    if (total_match!=0)
-    {
+
+
+
+    // /************需要注释掉********* */
+    // pthread_mutex_lock(&debug_statistics);
+    // T_total_match = T_total_match + total_match;
+    // T_total_unmatch = T_total_unmatch + total_unmatch;
+    // T_total_mis = T_total_mis + total_mis;
+	// pthread_mutex_unlock(&debug_statistics);
+    // /************需要注释掉********* */
         
-        fprintf(stderr, "total_match: %u\n", total_match);
-        fprintf(stderr, "total_unmatch: %u\n", total_unmatch);
-        fprintf(stderr, "total_mis: %u\n", total_mis);
-        
-    }
-    **/
-
-    T_total_match = T_total_match + total_match;
-    T_total_unmatch = T_total_unmatch + total_unmatch;
-    T_total_mis = T_total_mis + total_mis;
-    
-    
-
-
-    
-    
 }
 
 void correct_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF, UC_Read* g_read, Correct_dumy* dumy)
@@ -522,90 +631,6 @@ void correct_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF, UC_Re
 
     window_start = 0;
     window_end = WINDOW - 1;
-
-
-
-    /**
-    UC_Read debug_read;
-    init_UC_Read(&debug_read);
-
-    for (i = 0; i < overlap_list->length; i++)
-    {
-        
-        if (overlap_list->list[i].y_pos_strand)
-        {
-            recover_UC_Read_RC(&debug_read, R_INF, overlap_list->list[i].y_id);
-        }
-        else
-        {
-            recover_UC_Read(&debug_read, R_INF, overlap_list->list[i].y_id);
-        }
-        
-        
-        long long x_length = overlap_list->list[i].x_pos_e - overlap_list->list[i].x_pos_s + 1;
-        long long y_length = overlap_list->list[i].y_pos_e - overlap_list->list[i].y_pos_s + 1;
-
-        EdlibAlignResult result = edlibAlign(g_read->seq+overlap_list->list[i].x_pos_s, 
-        x_length, 
-        debug_read.seq + overlap_list->list[i].y_pos_s, 
-        y_length, 
-            edlibNewAlignConfig(-1, EDLIB_MODE_NW, EDLIB_TASK_DISTANCE, NULL, 0));
-            
-
-        if (result.status == EDLIB_STATUS_OK) {
-            if (result.editDistance>0 && result.editDistance < x_length*0.02)
-            {
-                fprintf(stderr, "inner_i: %u, x_length: %u, y_length: %u, editDistance: %u\n", 
-                i, x_length, y_length, result.editDistance);
-                fprintf(stderr, "x_pos_s: %u, x_pos_e: %u\n", 
-                overlap_list->list[i].x_pos_s, overlap_list->list[i].x_pos_e);
-                fprintf(stderr, "y_pos_s: %u, y_pos_e: %u, y_pos_strand: %u\n", 
-                overlap_list->list[i].y_pos_s, overlap_list->list[i].y_pos_e, overlap_list->list[i].y_pos_strand);
-
-
-                EdlibAlignResult n_result = edlibAlign(g_read->seq+overlap_list->list[i].x_pos_s, 
-                350, 
-                debug_read.seq + overlap_list->list[i].y_pos_s - 15, 
-                380, 
-                    edlibNewAlignConfig(-1, EDLIB_MODE_HW, EDLIB_TASK_DISTANCE, NULL, 0));
-                
-                fprintf(stderr, "n_editDistance: %u\n", 
-                n_result.editDistance);
-
-
-                
-
-                edlibFreeAlignResult(n_result);
-            }
-            
-            
-        }
-        edlibFreeAlignResult(result);
-        
-
-    }
-
-    destory_UC_Read(&debug_read);
-    **/
-    ///return;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     int flag;
 
     for (i = 0; i < window_num; i++)
@@ -641,18 +666,16 @@ void correct_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF, UC_Re
         {
             window_end = g_read->length - 1;
         }
-
-        ///break;
-
     }
 
+
     
-    fprintf(stderr, "total_match: %u, total_unmatch: %u, total_mis: %u\n", 
-    T_total_match, T_total_unmatch, T_total_mis);
-    
-
-
-
+    // /************需要注释掉********* */
+    // pthread_mutex_lock(&debug_statistics);
+    // fprintf(stderr, "total_match: %u, total_unmatch: %u, total_mis: %u\n", 
+    // T_total_match, T_total_unmatch, T_total_mis);
+	// pthread_mutex_unlock(&debug_statistics);
+    // /************需要注释掉********* */
 }
 
 
@@ -663,6 +686,11 @@ void init_Correct_dumy(Correct_dumy* list)
     list->lengthNT = 0;
     list->start_i = 0;
     list->overlapID = NULL;
+    int i;
+    for (i = 0; i < 256; i++)
+	{
+		list->Peq_SSE[i] = _mm_setzero_si128();
+	}
 }
 
 void destory_Correct_dumy(Correct_dumy* list)

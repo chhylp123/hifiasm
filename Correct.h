@@ -2,9 +2,11 @@
 #define __CORRECT__
 #include <stdint.h>
 #include "Hash_Table.h"
+#include "Levenshtein_distance.h"
 
 #define WINDOW 350
 #define THRESHOLD  15
+#define GROUP_SIZE 4
 
 typedef struct
 {
@@ -14,6 +16,8 @@ typedef struct
     uint64_t size;
     uint64_t start_i;
     char overlap_region[WINDOW + THRESHOLD*2 + 10];
+    char overlap_region_group[GROUP_SIZE][WINDOW + THRESHOLD*2 + 10];
+    __m128i Peq_SSE[256];
 } Correct_dumy;
 
 
