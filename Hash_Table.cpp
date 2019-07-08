@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include "Hash_Table.h"
 #include "Process_Read.h"
+#include "Correct.h"
 #include <pthread.h>
 pthread_mutex_t output_mutex;
 
@@ -713,6 +714,19 @@ inline void append_pos_to_Candidates_list(Candidates_list* candidates, ElemType*
 {
     candidates->list[candidates->length] = x->node;
     candidates->length++;
+}
+
+void pre_filter_by_nearby(k_mer_pos* n_list, uint64_t n_length, uint64_t n_end_pos, uint8_t n_direction, UC_Read* g_read)
+{
+    char* x_string = NULL;
+    char* y_string = NULL;
+    
+    long long i = 0;
+    for (i = 0; i < n_length; i++)
+    {
+        /* code */
+    }
+    
 }
 
 
