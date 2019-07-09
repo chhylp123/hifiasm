@@ -317,6 +317,7 @@ void append_overlap_region_alloc(overlap_region_alloc* list, overlap_region* tmp
     
 
     list->list[list->length].shared_seed = tmp->shared_seed;
+    list->list[list->length].align_length = 0;
 
     list->length++;
 }
@@ -661,12 +662,8 @@ void init_k_mer_pos_list_alloc(k_mer_pos_list_alloc* list)
 {
     list->size = 1000;
     list->length = 0;
-    list->list = (k_mer_pos_list*)malloc(sizeof(k_mer_pos_list)*list->size);
-}
-
-void destory_k_mer_pos_list_alloc(k_mer_pos_list_alloc* list)
-{
-    free(list->list);
+    //list->list = (k_mer_pos_list*)malloc(sizeof(k_mer_pos_list)*list->size);
+    list->list = (k_mer_pos_list*)calloc(list->size, sizeof(k_mer_pos_list)); 
 }
 
 void clear_k_mer_pos_list_alloc(k_mer_pos_list_alloc* list)
@@ -674,6 +671,10 @@ void clear_k_mer_pos_list_alloc(k_mer_pos_list_alloc* list)
     list->length = 0;
 }
 
+void destory_k_mer_pos_list_alloc(k_mer_pos_list_alloc* list)
+{
+    free(list->list);
+}
 
 void append_k_mer_pos_list_alloc(k_mer_pos_list_alloc* list, k_mer_pos* n_list, uint64_t n_length, 
 uint64_t n_end_pos, uint8_t n_direction)
@@ -692,6 +693,9 @@ uint64_t n_end_pos, uint8_t n_direction)
 
     list->length++;
 }
+
+
+
 
 int cmp_k_mer_pos_list(const void * a, const void * b)
 {
@@ -716,18 +720,7 @@ inline void append_pos_to_Candidates_list(Candidates_list* candidates, ElemType*
     candidates->length++;
 }
 
-void pre_filter_by_nearby(k_mer_pos* n_list, uint64_t n_length, uint64_t n_end_pos, uint8_t n_direction, UC_Read* g_read)
-{
-    char* x_string = NULL;
-    char* y_string = NULL;
-    
-    long long i = 0;
-    for (i = 0; i < n_length; i++)
-    {
-        /* code */
-    }
-    
-}
+
 
 
 void test_single_list(Candidates_list* candidates, k_mer_pos* n_list, uint64_t n_lengh, uint64_t end_pos, uint64_t strand)
