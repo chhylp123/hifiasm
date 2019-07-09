@@ -41,6 +41,7 @@ typedef struct
 {
     k_mer_pos* list;
     uint64_t length;
+    uint64_t size;
     uint8_t direction;
     uint64_t end_pos;
 } k_mer_pos_list;
@@ -65,6 +66,7 @@ typedef struct
     uint64_t y_pos_strand;
 
     uint64_t shared_seed;
+    uint64_t align_length;
 } overlap_region;
 
 
@@ -387,6 +389,9 @@ void destory_k_mer_pos_list_alloc(k_mer_pos_list_alloc* list);
 void clear_k_mer_pos_list_alloc(k_mer_pos_list_alloc* list);
 void append_k_mer_pos_list_alloc(k_mer_pos_list_alloc* list, k_mer_pos* n_list, uint64_t n_length, 
 uint64_t n_end_pos, uint8_t n_direction);
+
+
+
 void merge_k_mer_pos_list_alloc(k_mer_pos_list_alloc* list, Candidates_list* candidates);
 void merge_k_mer_pos_list_alloc_heap_sort(k_mer_pos_list_alloc* list, Candidates_list* candidates, HeapSq* HBT);
 void merge_k_mer_pos_list_alloc_heap_sort_advance(k_mer_pos_list_alloc* list, Candidates_list* candidates, HeapSq* HBT);
@@ -401,6 +406,9 @@ void destory_overlap_region_alloc(overlap_region_alloc* list);
 void append_overlap_region_alloc(overlap_region_alloc* list, overlap_region* tmp, All_reads* R_INF);
 void calculate_overlap_region(Candidates_list* candidates, overlap_region_alloc* overlap_list, 
 uint64_t readID, uint64_t readLength, All_reads* R_INF);
+
+
+
 
 
 

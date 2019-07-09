@@ -8,6 +8,11 @@
 #define THRESHOLD  15
 #define GROUP_SIZE 4
 
+#define MAX(x, y) ((x >= y)?x:y)
+#define MIN(x, y) ((x <= y)?x:y)
+#define OVERLAP(x_start, x_end, y_start, y_end) (MIN(x_end, y_end) - MAX(x_start, y_start) + 1) 
+///#define OVERLAP(x_start, x_end, y_start, y_end) MIN(x_end, y_end) - MAX(x_start, y_start) + 1 
+
 typedef struct
 {
     uint64_t* overlapID;
@@ -26,6 +31,15 @@ void correct_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF, UC_Re
 void init_Correct_dumy(Correct_dumy* list);
 void destory_Correct_dumy(Correct_dumy* list);
 void clear_Correct_dumy(Correct_dumy* list, overlap_region_alloc* overlap_list);
+void pre_filter_by_nearby(k_mer_pos* new_n_list, k_mer_pos* old_n_list, uint64_t n_length, uint64_t n_end_pos, UC_Read* g_read, 
+All_reads* R_INF, Correct_dumy* dumy, uint64_t* new_n_length);
+void pre_filter_by_nearby_single(k_mer_pos* new_n_list, k_mer_pos* old_n_list, uint64_t n_length, uint64_t n_end_pos, UC_Read* g_read, 
+All_reads* R_INF, Correct_dumy* dumy, uint64_t* new_n_length);
 
+/**********************for prefilter************************ */
+void destory_k_mer_pos_list_alloc_prefilter(k_mer_pos_list_alloc* list);
+void append_k_mer_pos_list_alloc_prefilter(k_mer_pos_list_alloc* list, k_mer_pos* n_list, uint64_t n_length, 
+uint64_t n_end_pos, uint8_t n_direction, UC_Read* g_read, All_reads* R_INF, Correct_dumy* dumy);
+/**********************for prefilter************************ */
 
 #endif
