@@ -26,8 +26,10 @@ typedef struct
 } Correct_dumy;
 
 
-void correct_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF, UC_Read* g_read, Correct_dumy* dumy);
-
+void correct_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF, 
+                        UC_Read* g_read, Correct_dumy* dumy, UC_Read* overlap_read, 
+                        long long* matched_overlap_0, long long* matched_overlap_1, 
+                        long long* potiental_matched_overlap_0, long long* potiental_matched_overlap_1);
 void init_Correct_dumy(Correct_dumy* list);
 void destory_Correct_dumy(Correct_dumy* list);
 void clear_Correct_dumy(Correct_dumy* list, overlap_region_alloc* overlap_list);
