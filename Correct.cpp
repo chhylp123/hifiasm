@@ -674,7 +674,11 @@ char* r_string)
         
 }
 
-void correct_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF, UC_Read* g_read, Correct_dumy* dumy)
+
+void correct_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF, 
+                        UC_Read* g_read, Correct_dumy* dumy, UC_Read* overlap_read, 
+                        long long* matched_overlap_0, long long* matched_overlap_1, 
+                        long long* potiental_matched_overlap_0, long long* potiental_matched_overlap_1)
 {
     reverse_complement(g_read->seq, g_read->length);
 
@@ -733,6 +737,86 @@ void correct_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF, UC_Re
     // T_total_match, T_total_unmatch, T_total_mis);
 	// pthread_mutex_unlock(&debug_statistics);
     /************需要注释掉********* */
+    /**
+    long long j;
+    long long Len_x;
+    int threshold;
+    long long y_start;
+    long long Len_y;
+    long long currentIDLen;
+    for (j = 0; j < overlap_list->length; j++)
+    {
+        Len_x = overlap_list->list[j].x_pos_e -  overlap_list->list[j].x_pos_s + 1;
+
+        if (Len_x * 0.6 <=  overlap_list->list[j].align_length)
+        {
+            threshold = Len_x * 0.04;
+
+            y_start = overlap_list->list[j].y_pos_s - threshold;
+            if (y_start < 0)
+            {
+                y_start = 0;
+            }
+
+            
+            ///当前y的长度
+            currentIDLen = Get_READ_LENGTH((*R_INF), overlap_list->list[j].y_id);
+            ///不能超过y的剩余长度
+            Len_y = MIN(Len_x + 2 * threshold, currentIDLen - y_start);
+            
+            
+            if (overlap_list->list[j].y_pos_strand == 0)
+            {
+                recover_UC_Read(overlap_read, R_INF, overlap_list->list[j].y_id);
+                (*matched_overlap_0)++;
+            }
+            else
+            {
+                recover_UC_Read_RC(overlap_read, R_INF, overlap_list->list[j].y_id);
+                (*matched_overlap_1)++;
+            }
+        
+
+            
+
+            EdlibAlignResult result = edlibAlign(g_read->seq + overlap_list->list[j].x_pos_s, Len_x, 
+            overlap_read->seq + y_start, Len_y, 
+            edlibNewAlignConfig(threshold, EDLIB_MODE_HW, EDLIB_TASK_PATH, NULL, 0));
+            
+
+            if (result.status == EDLIB_STATUS_OK && result.editDistance != -1) {
+                char* cigar = edlibAlignmentToCigar(result.alignment, result.alignmentLength, EDLIB_CIGAR_STANDARD);
+                int cigar_length = strlen(cigar);
+                free(cigar);
+
+                
+                if (overlap_list->list[j].y_pos_strand == 0)
+                {
+                    (*potiental_matched_overlap_0)++;
+                }
+                else
+                {
+                    (*potiental_matched_overlap_1)++;
+                }
+                
+                // if (overlap_list->list[j].shared_seed == 1 && Len_x >= 1000)
+                // {
+                //     (*matched_overlap_0)++;
+                // }
+
+                // if (overlap_list->list[j].shared_seed == 2 && Len_x >= 1000)
+                // {
+                //     (*matched_overlap_1)++;
+                // }
+            
+                
+            }
+
+            edlibFreeAlignResult(result);
+        }
+    }
+    **/
+    
 }
 
 

@@ -16,6 +16,9 @@ All_reads R_INF;
 pthread_mutex_t statistics;
 long long total_matched_overlap_0 = 0;
 long long total_matched_overlap_1 = 0;
+long long total_potiental_matched_overlap_0 = 0;
+long long total_potiental_matched_overlap_1 = 0;
+
 long long complete_threads = 0;
 
 
@@ -689,6 +692,8 @@ void* Overlap_calculate_heap_merge(void* arg)
 
     long long matched_overlap_0 = 0;
     long long matched_overlap_1 = 0;
+    long long potiental_matched_overlap_0 = 0;
+    long long potiental_matched_overlap_1 = 0;
     long long j;
 
     int thr_ID = *((int*)arg);
@@ -698,6 +703,10 @@ void* Overlap_calculate_heap_merge(void* arg)
 
     UC_Read g_read;
     init_UC_Read(&g_read);
+
+    UC_Read overlap_read;
+    init_UC_Read(&overlap_read);
+
     HPC_seq HPC_read;
     Hash_code k_code;
     uint64_t code;
@@ -852,29 +861,30 @@ void* Overlap_calculate_heap_merge(void* arg)
         
         ///merge_k_mer_pos_list_alloc(&array_list, &l);
         merge_k_mer_pos_list_alloc_heap_sort(&array_list, &l, &heap);
-        /**
-        if (array_list.length < 3)
-        {
-            merge_k_mer_pos_list_alloc(&array_list, &l);
-        }
-        else
-        {
-            merge_k_mer_pos_list_alloc_heap_sort_advance(&array_list, &l, &heap);
-        }
-        **/
+        
+        // if (array_list.length < 3)
+        // {
+        //     merge_k_mer_pos_list_alloc(&array_list, &l);
+        // }
+        // else
+        // {
+        //     merge_k_mer_pos_list_alloc_heap_sort_advance(&array_list, &l, &heap);
+        // }
+        
 
        ///以x_pos_e，即结束位置为主元排序
        calculate_overlap_region(&l, &overlap_list, i, g_read.length, &R_INF);
 
 
-       correct_overlap(&overlap_list, &R_INF, &g_read, &correct);
-
-        
+       correct_overlap(&overlap_list, &R_INF, &g_read, &correct, &overlap_read,
+       &matched_overlap_0, &matched_overlap_1, &potiental_matched_overlap_0, &potiental_matched_overlap_1);
+      
+        /**
         for (j = 0; j < overlap_list.length; j++)
         {
             long long Len_x = overlap_list.list[j].x_pos_e -  overlap_list.list[j].x_pos_s + 1;
 
-            if (Len_x * 0.6 <=  overlap_list.list[j].align_length)
+            if (Len_x * 0.9 <=  overlap_list.list[j].align_length)
             {
                 if (overlap_list.list[j].y_pos_strand == 0)
                 {
@@ -886,6 +896,7 @@ void* Overlap_calculate_heap_merge(void* arg)
                 }
             }
         }
+        **/
         
         /**
         POA_i = 0;
@@ -988,6 +999,8 @@ void* Overlap_calculate_heap_merge(void* arg)
 
     destory_Graph(&POA_Graph);
     destory_UC_Read(&g_read);
+    destory_UC_Read(&overlap_read);
+    
 
     destory_Correct_dumy(&correct);
 
@@ -995,11 +1008,15 @@ void* Overlap_calculate_heap_merge(void* arg)
     pthread_mutex_lock(&statistics);
     total_matched_overlap_0 += matched_overlap_0;
     total_matched_overlap_1 += matched_overlap_1;
+    total_potiental_matched_overlap_0 += potiental_matched_overlap_0;
+    total_potiental_matched_overlap_1 += potiental_matched_overlap_1;
     complete_threads++;
     if(complete_threads == thread_num)
     {
         fprintf(stderr, "total_matched_overlap_0: %llu\n", total_matched_overlap_0);
         fprintf(stderr, "total_matched_overlap_1: %llu\n", total_matched_overlap_1);
+        fprintf(stderr, "total_potiental_matched_overlap_0: %llu\n", total_potiental_matched_overlap_0);
+        fprintf(stderr, "total_potiental_matched_overlap_1: %llu\n", total_potiental_matched_overlap_1);
     }
 	pthread_mutex_unlock(&statistics);
 }
