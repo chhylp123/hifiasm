@@ -228,6 +228,386 @@ inline int Reserve_Banded_BPM
 
 }
 
+
+
+
+inline int Reserve_Banded_BPM_PATH
+(char *pattern, int p_length, char *text, int t_length, unsigned short errthold, 
+		unsigned int* return_err, int* return_start_site, int* return_path_length, Word* matrix_bit, char* path)
+{
+	(*return_err) = (unsigned int)-1;
+
+	Word Peq[256];
+
+	int band_length = (errthold << 1) + 1;
+	int i = 0;
+	Word tmp_Peq_1 = (Word)1;
+
+	Peq['A'] = (Word)0;
+	Peq['T'] = (Word)0;
+	Peq['G'] = (Word)0;
+	Peq['C'] = (Word)0;
+
+
+	Word Peq_A;
+	Word Peq_T;
+	Word Peq_C;
+	Word Peq_G;
+
+	///band_length = 2k + 1
+	for (i = 0; i<band_length; i++)
+	{
+		Peq[pattern[i]] = Peq[pattern[i]] | tmp_Peq_1;
+		tmp_Peq_1 = tmp_Peq_1 << 1;
+	}
+
+	///Peq['T'] = Peq['T'] | Peq['C'];
+
+	Peq_A = Peq['A'];
+	Peq_C = Peq['C'];
+	Peq_T = Peq['T'];
+	Peq_G = Peq['G'];
+
+
+	memset(Peq, 0, sizeof(Word)* 256);
+
+
+	Peq['A'] = Peq_A;
+	Peq['C'] = Peq_C;
+	Peq['T'] = Peq_T;
+	Peq['G'] = Peq_G;
+
+
+	
+
+	Word Mask = ((Word)1 << (errthold << 1));
+
+	Word VP = 0;
+	Word VN = 0;
+	Word X = 0;
+	Word D0 = 0;
+	Word HN = 0;
+	Word HP = 0;
+
+
+	i = 0;
+
+	Word column_start;
+
+	int err = 0;
+
+	Word err_mask = (Word)1;
+
+
+	///band_down = 2k
+	///i_bd = 2k
+	///int i_bd = i + band_down;
+	int i_bd = (errthold << 1);
+
+
+	int last_high = (errthold << 1);
+
+
+	/// t_length_1 = SEQ_LENGTH - 1
+	int t_length_1 = t_length - 1;
+	//while(i<t_length)
+
+	while (i<t_length_1)
+	{
+		///pattern[0]ÔÚPeq[2k], ¶øpattern[2k]ÔÚPeq[0]
+		X = Peq[text[i]] | VN;
+
+		D0 = ((VP + (X&VP)) ^ VP) | X;
+
+		HN = VP&D0;
+		HP = VN | ~(VP | D0);
+
+		X = D0 >> 1;
+		VN = X&HP;
+		VP = HN | ~(X | HP);
+
+		if (!(D0&err_mask))
+		{
+			++err;
+
+			///¼´Ê¹È«²¿µÝ¼õ£¬Ò²¾Í¼õ2k
+			if ((err - last_high)>errthold)
+			{
+				///fprintf(stderr, "0 ######, i: %u\n", i);
+				return -1;
+			}
+				
+		}
+
+
+		Peq['A'] = Peq['A'] >> 1;
+		Peq['C'] = Peq['C'] >> 1;
+		Peq['G'] = Peq['G'] >> 1;
+		Peq['T'] = Peq['T'] >> 1;
+
+
+		++i;
+		++i_bd;
+		Peq[pattern[i_bd]] = Peq[pattern[i_bd]] | Mask;
+
+
+		///Peq['T'] = Peq['T'] | Peq['C'];
+
+		column_start = i << 3;
+		matrix_bit[column_start] = D0;
+		matrix_bit[column_start + 1] = VP;
+		matrix_bit[column_start + 2] = VN;
+		matrix_bit[column_start + 3] = HP;
+		matrix_bit[column_start + 4] = HN;
+	}
+
+
+
+
+
+	X = Peq[text[i]] | VN;
+	D0 = ((VP + (X&VP)) ^ VP) | X;
+	HN = VP&D0;
+	HP = VN | ~(VP | D0);
+	X = D0 >> 1;
+	VN = X&HP;
+	VP = HN | ~(X | HP);
+	if (!(D0&err_mask))
+	{
+		++err;
+		if ((err - last_high)>errthold)
+			return -1;
+	}
+
+
+	column_start = (i + 1) << 3;
+	matrix_bit[column_start] = D0;
+	matrix_bit[column_start + 1] = VP;
+	matrix_bit[column_start + 2] = VN;
+	matrix_bit[column_start + 3] = HP;
+	matrix_bit[column_start + 4] = HN;
+
+
+	////fprintf(stderr, "sucess(2)\n");
+
+	/// last_high = 2k
+	/// site = (SEQ_LENGTH + 2k) - 2k -1
+	/// site = SEQ_LENGTH - 1
+	///int site = p_length - last_high - 1;
+	int site = t_length - 1;
+	int return_site = -1;
+	if ((err <= errthold) && (err<=*return_err))
+	{
+		*return_err = err;
+		return_site = site;
+	}
+	int i_last = i;
+	i = 0;
+
+
+
+
+	while (i<errthold)
+	{
+		err = err + ((VP >> i)&(Word)1);
+		err = err - ((VN >> i)&(Word)1);
+		++i;
+
+		if ((err <= errthold) && (err <= *return_err))
+		{
+			*return_err = err;
+			return_site = site + i;
+		}
+	}
+
+
+	unsigned int ungap_err;
+	ungap_err = err;
+
+
+	while (i<last_high)
+	{
+		err = err + ((VP >> i)&(Word)1);
+		err = err - ((VN >> i)&(Word)1);
+		++i;
+
+		if ((err <= errthold) && (err<=*return_err))
+		{
+			*return_err = err;
+			return_site = site + i;
+		}
+
+
+
+
+	}
+
+
+	if ((ungap_err <= errthold) && (ungap_err == *return_err))
+	{
+		return_site = site + errthold;
+	}
+
+	if ((*return_err) == (unsigned int)-1)
+	{
+		return return_site;
+	}
+	
+
+
+	///end_site是正确的
+	int end_site = return_site;
+	int start_site = end_site;
+	///这个是各个bit-vector里面，end_site对应bit所在的位置
+	int back_track_site = band_length - (p_length - end_site);
+
+	Word v_value, h_value, delta_value, min_value, current_value;
+	Word direction, is_mismatch; ///0 is match, 1 is mismatch, 2 is up, 3 is left
+
+	///代表pattern到哪了，就是短的那个到哪了
+	i = t_length;
+	int path_length = 0;
+
+	///到0就结束了，后面的路径可以直接match
+	current_value = *return_err;
+
+
+	int low_bound = band_length - 1;
+
+
+	while (i>0)
+	{
+		if (current_value == 0)
+		{
+			break;
+		}
+
+		column_start = i << 3;
+
+		delta_value = current_value -
+			((~(matrix_bit[column_start] >> back_track_site))&err_mask);
+
+
+		if (back_track_site == 0)
+		{
+			///HP
+			h_value = current_value - ((matrix_bit[column_start + 3] >> back_track_site)&err_mask);
+			//HN
+			h_value = h_value + ((matrix_bit[column_start + 4] >> back_track_site)&err_mask);
+
+
+			min_value = delta_value;
+			direction = 0;
+
+			if (h_value < min_value)
+			{
+				min_value = h_value;
+				direction = 3;
+			}
+
+		}
+		else if (back_track_site == low_bound)
+		{
+			v_value = current_value - ((matrix_bit[column_start + 1] >> (back_track_site - 1))&err_mask);
+			v_value = v_value + ((matrix_bit[column_start + 2] >> (back_track_site - 1))&err_mask);
+
+			min_value = delta_value;
+			direction = 0;
+
+			if (v_value < min_value)
+			{
+				min_value = v_value;
+				direction = 2;
+			}
+
+		}
+		else
+		{
+
+			h_value = current_value - ((matrix_bit[column_start + 3] >> back_track_site)&(Word)1);
+
+
+			h_value = h_value + ((matrix_bit[column_start + 4] >> back_track_site)&(Word)1);
+
+
+			v_value = current_value - ((matrix_bit[column_start + 1] >> (back_track_site - 1))&err_mask);
+			v_value = v_value + ((matrix_bit[column_start + 2] >> (back_track_site - 1))&err_mask);
+
+
+			min_value = delta_value;
+			direction = 0;
+
+			if (v_value < min_value)
+			{
+				min_value = v_value;
+				direction = 2;
+			}
+
+
+			if (h_value < min_value)
+			{
+				min_value = h_value;
+				direction = 3;
+			}
+
+		}
+
+
+		if (direction == 0)
+		{
+
+			if (delta_value != current_value)
+			{
+				direction = 1;
+			}
+
+			i--;
+
+			start_site--;
+
+		}
+		if (direction == 2)///ru guo xiang shang yi dong, bing bu huan lie
+		{
+			back_track_site--;
+			start_site--;
+		}
+		else if (direction == 3)///ru guo xiang zuo yi dong
+		{
+			i--;
+			back_track_site++;
+		}
+
+
+		path[path_length++] = direction;
+
+
+		current_value = min_value;
+
+	}
+
+
+	if (i > 0)
+	{
+		memset(path + path_length, 0, i);
+		start_site = start_site - i;
+		direction = 0;
+		path_length = path_length + i;
+	}
+
+	if (direction != 3)
+	{
+		start_site++;
+	}
+	(*return_start_site) = start_site;
+	(*return_path_length) = path_length;
+
+
+
+
+	return return_site;
+
+}
+
 inline int Reserve_Banded_BPM_4_SSE_only(char *pattern1, char *pattern2, char *pattern3, char *pattern4, int p_length, char *text, int t_length,
 	int* return_sites, unsigned int* return_sites_error, unsigned short errthold, __m128i* Peq_SSE)
 
