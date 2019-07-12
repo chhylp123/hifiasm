@@ -13,6 +13,14 @@ typedef khash_t(POS64) Pos_Table;
 #define MAX_SUFFIX_BITS 64
 #define MODE_VALUE 101
 
+///#define WINDOW 350
+///#define THRESHOLD  14
+#define WINDOW 375
+#define THRESHOLD  15
+#define THRESHOLD_RATE 0.04
+#define GROUP_SIZE 4
+///最长是10M10D10M10D10M这种
+#define CIGAR_MAX_LENGTH THRESHOLD*2+2
 
 typedef struct
 {
@@ -53,6 +61,26 @@ typedef struct
     uint64_t length;
 } k_mer_pos_list_alloc;
 
+
+typedef struct
+{
+  int C_L[CIGAR_MAX_LENGTH];
+  char C_C[CIGAR_MAX_LENGTH];
+  int length;
+} CIGAR;
+
+typedef struct
+{
+  uint64_t x_start;
+  uint64_t x_end;
+  int y_end;
+  int y_start;
+  ///int y_pre_start;
+  ///error小于等于0都要重新算
+  int error;
+  CIGAR cigar;
+} window_list;
+
 typedef struct
 {
     uint64_t x_id;
@@ -67,6 +95,10 @@ typedef struct
 
     uint64_t shared_seed;
     uint64_t align_length;
+
+    window_list* w_list;
+    uint64_t w_list_size;
+    uint64_t w_list_length;
 } overlap_region;
 
 
@@ -406,8 +438,7 @@ void destory_overlap_region_alloc(overlap_region_alloc* list);
 void append_overlap_region_alloc(overlap_region_alloc* list, overlap_region* tmp, All_reads* R_INF);
 void calculate_overlap_region(Candidates_list* candidates, overlap_region_alloc* overlap_list, 
 uint64_t readID, uint64_t readLength, All_reads* R_INF);
-
-
+void append_window_list(overlap_region* region, uint64_t x_start, uint64_t x_end, int y_start, int y_end, int error);
 
 
 

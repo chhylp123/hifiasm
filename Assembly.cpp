@@ -773,8 +773,8 @@ void* Overlap_calculate_heap_merge(void* arg)
                         /************需要注释掉**********/
                         // debug_overlap = debug_overlap + list_length;
                         /************需要注释掉**********/
-                        ///append_k_mer_pos_list_alloc(&array_list, list, list_length, end_pos, 0);
-                        append_k_mer_pos_list_alloc_prefilter(&array_list, list, list_length, end_pos, 0, &g_read, &R_INF, &correct);
+                        append_k_mer_pos_list_alloc(&array_list, list, list_length, end_pos, 0);
+                        ///append_k_mer_pos_list_alloc_prefilter(&array_list, list, list_length, end_pos, 0, &g_read, &R_INF, &correct);
                     }
                     ///merge_Candidates_list(&l, list, list_length, end_pos, 0);
                     ///merge_Candidates_list_version(&debug_l, list, list_length, end_pos, 0);
@@ -833,8 +833,8 @@ void* Overlap_calculate_heap_merge(void* arg)
                         /************需要注释掉**********/
                         // debug_overlap = debug_overlap + list_length;
                         /************需要注释掉**********/
-                        ///append_k_mer_pos_list_alloc(&array_list, list, list_length, end_pos, 1);
-                        append_k_mer_pos_list_alloc_prefilter(&array_list, list, list_length, end_pos, 1, &g_read, &R_INF, &correct);
+                        append_k_mer_pos_list_alloc(&array_list, list, list_length, end_pos, 1);
+                        ///append_k_mer_pos_list_alloc_prefilter(&array_list, list, list_length, end_pos, 1, &g_read, &R_INF, &correct);
                     }
                     ///merge_Candidates_list(&l, list, list_length, end_pos, 1);
                     //merge_Candidates_list_version(&debug_l, list, list_length, end_pos, 1);
@@ -879,24 +879,6 @@ void* Overlap_calculate_heap_merge(void* arg)
        correct_overlap(&overlap_list, &R_INF, &g_read, &correct, &overlap_read,
        &matched_overlap_0, &matched_overlap_1, &potiental_matched_overlap_0, &potiental_matched_overlap_1);
       
-        /**
-        for (j = 0; j < overlap_list.length; j++)
-        {
-            long long Len_x = overlap_list.list[j].x_pos_e -  overlap_list.list[j].x_pos_s + 1;
-
-            if (Len_x * 0.9 <=  overlap_list.list[j].align_length)
-            {
-                if (overlap_list.list[j].y_pos_strand == 0)
-                {
-                    matched_overlap_0++;
-                }
-                else
-                {
-                    matched_overlap_1++;
-                }
-            }
-        }
-        **/
         
         /**
         POA_i = 0;
@@ -994,8 +976,8 @@ void* Overlap_calculate_heap_merge(void* arg)
     //destory_Candidates_list(&debug_l);
 
     destory_Heap(&heap);
-    ///destory_k_mer_pos_list_alloc(&array_list);
-    destory_k_mer_pos_list_alloc_prefilter(&array_list);
+    destory_k_mer_pos_list_alloc(&array_list);
+    ///destory_k_mer_pos_list_alloc_prefilter(&array_list);
 
     destory_Graph(&POA_Graph);
     destory_UC_Read(&g_read);

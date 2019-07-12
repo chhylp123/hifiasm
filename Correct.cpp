@@ -390,6 +390,7 @@ char* r_string)
     int return_sites[GROUP_SIZE];
 	unsigned int return_sites_error[GROUP_SIZE];
     uint64_t overlapID[GROUP_SIZE];
+    uint64_t y_startGroup[GROUP_SIZE];
 
     ///这些是整个window被完全覆盖的
     for (i = 0; i < dumy->length; i++)
@@ -434,6 +435,7 @@ char* r_string)
                 R_INF, overlap_list->list[currentID].y_id);
             
             overlapID[groupLen] = currentID;
+            y_startGroup[groupLen] = y_start;
 
             x_string = r_string + x_start;
 
@@ -446,25 +448,58 @@ char* r_string)
 			        return_sites, return_sites_error, THRESHOLD, dumy->Peq_SSE);
                 groupLen = 0;
 
+                
                 if (return_sites_error[0]!=(unsigned int)-1)
                 {
                     overlap_list->list[overlapID[0]].align_length += x_len;
+
+                    append_window_list(&overlap_list->list[overlapID[0]], window_start, window_end, 
+                                y_startGroup[0], y_startGroup[0] + return_sites[0], (int)return_sites_error[0]);
                 }
+                else
+                {
+                    append_window_list(&overlap_list->list[overlapID[0]], window_start, window_end, y_startGroup[0], -1, -1);
+                }
+                
 
                 if (return_sites_error[1]!=(unsigned int)-1)
                 {
                     overlap_list->list[overlapID[1]].align_length += x_len;
+
+                    append_window_list(&overlap_list->list[overlapID[1]], window_start, window_end, 
+                                y_startGroup[1], y_startGroup[1] + return_sites[1], (int)return_sites_error[1]);
                 }
+                else
+                {
+                    append_window_list(&overlap_list->list[overlapID[1]], window_start, window_end, y_startGroup[1], -1, -1);
+                }
+                
 
                 if (return_sites_error[2]!=(unsigned int)-1)
                 {
                     overlap_list->list[overlapID[2]].align_length += x_len;
+
+                    append_window_list(&overlap_list->list[overlapID[2]], window_start, window_end, 
+                                y_startGroup[2], y_startGroup[2] + return_sites[2], (int)return_sites_error[2]);
                 }
+                else
+                {
+                    append_window_list(&overlap_list->list[overlapID[2]], window_start, window_end, y_startGroup[2], -1, -1);
+                }
+                
 
                 if (return_sites_error[3]!=(unsigned int)-1)
                 {
                     overlap_list->list[overlapID[3]].align_length += x_len;
+
+                    append_window_list(&overlap_list->list[overlapID[3]], window_start, window_end, 
+                                y_startGroup[3], y_startGroup[3] + return_sites[3], (int)return_sites_error[3]);
                 }
+                else
+                {
+                    append_window_list(&overlap_list->list[overlapID[3]], window_start, window_end, y_startGroup[3], -1, -1);
+                }
+                
 
                 
                
@@ -500,11 +535,20 @@ char* r_string)
             memset (y_string + o_len, 0, Window_Len - o_len);
             end_site = Reserve_Banded_BPM(y_string, o_len, x_string, x_len, THRESHOLD, &error);
 
+            
+
 
             if (error!=(unsigned int)-1)
             {
                 overlap_list->list[currentID].align_length += x_len;
+                append_window_list(&overlap_list->list[currentID], window_start, window_end, y_start, y_start + end_site, 
+                (int)error);
             }
+            else
+            {
+                append_window_list(&overlap_list->list[currentID], window_start, window_end, y_start, -1, -1);
+            }
+            
             
             /************需要注释掉**********/
             // if (error!=(unsigned int)-1)
@@ -526,10 +570,20 @@ char* r_string)
     {
         end_site = Reserve_Banded_BPM(dumy->overlap_region_group[0], o_len, x_string, x_len, THRESHOLD, &error);
 
+        
+
         if (error!=(unsigned int)-1)
         {
             overlap_list->list[overlapID[0]].align_length += x_len;
+
+            append_window_list(&overlap_list->list[overlapID[0]], window_start, window_end, 
+                                y_startGroup[0], y_startGroup[0] + end_site, (int)error);
         }
+        else
+        {
+            append_window_list(&overlap_list->list[overlapID[0]], window_start, window_end, y_startGroup[0], -1, -1);
+        }
+        
 
         /************需要注释掉**********/
         // if (error!=(unsigned int)-1)
@@ -554,8 +608,17 @@ char* r_string)
             if (return_sites_error[i]!=(unsigned int)-1)
             {
                 overlap_list->list[overlapID[i]].align_length += x_len;
+                append_window_list(&overlap_list->list[overlapID[i]], window_start, window_end, 
+                                y_startGroup[i], y_startGroup[i] + return_sites[i], (int)return_sites_error[i]);
             }
+            else
+            {
+                append_window_list(&overlap_list->list[overlapID[i]], window_start, window_end, y_startGroup[i], -1, -1);
+            }
+            
         }
+
+
         /************需要注释掉**********/
         // for (size_t ijk = 0; ijk < groupLen; ijk++)
         // {
@@ -577,6 +640,7 @@ char* r_string)
     
 
     long long reverse_i = dumy->size - 1;
+    int threshold;
     
     ///这些是整个window被部分覆盖的
     for (i = 0; i < dumy->lengthNT; i++)
@@ -586,6 +650,7 @@ char* r_string)
         x_end = MIN(window_end, overlap_list->list[currentID].x_pos_e);
         ///这个是和当前窗口重叠的长度
         x_len = x_end - x_start + 1;
+        threshold = x_len * THRESHOLD_RATE;
 
         // /************需要注释掉**********/
         // if (x_len <= 0)
@@ -604,8 +669,10 @@ char* r_string)
         // }
         // /************需要注释掉**********/
 
+
         ///y上的起始
-        y_start = y_start - THRESHOLD;
+        ///y_start = y_start - THRESHOLD;
+        y_start = y_start - threshold;
         if (y_start < 0)
         {
             y_start = 0;
@@ -616,7 +683,8 @@ char* r_string)
 
         
         ///不能超过y的剩余长度
-        Window_Len = x_len + (THRESHOLD << 1);
+        ///Window_Len = x_len + (THRESHOLD << 1);
+        Window_Len = x_len + (threshold << 1);
         o_len = MIN(Window_Len, currentIDLen - y_start);
 
 
@@ -640,12 +708,21 @@ char* r_string)
             ///o_len < Window_Len, 说明y的长度不够，需要在y后面补N
             memset (y_string + o_len, 0, Window_Len - o_len);
         }
-        end_site = Reserve_Banded_BPM(y_string, o_len, x_string, x_len, THRESHOLD, &error);
+        ///end_site = Reserve_Banded_BPM(y_string, o_len, x_string, x_len, THRESHOLD, &error);
+        end_site = Reserve_Banded_BPM(y_string, o_len, x_string, x_len, threshold, &error);
+
 
         if (error!=(unsigned int)-1)
         {
             overlap_list->list[currentID].align_length += x_len;
+            append_window_list(&overlap_list->list[currentID], x_start, x_end, y_start, y_start + end_site, (int)error);
         }
+        else
+        {
+            append_window_list(&overlap_list->list[currentID], x_start, x_end, y_start, -1, -1);
+        }
+
+
 
 
         /************需要注释掉********* */
@@ -657,7 +734,8 @@ char* r_string)
         // {
         //     total_unmatch++;
         // }
-        // test_edit_distance_by_edlib(x_string, y_string, x_len, o_len, THRESHOLD, error, &total_mis);
+        // //test_edit_distance_by_edlib(x_string, y_string, x_len, o_len, THRESHOLD, error, &total_mis);
+        // test_edit_distance_by_edlib(x_string, y_string, x_len, o_len, threshold, error, &total_mis);
         /************需要注释掉********* */
     }
     
@@ -672,6 +750,767 @@ char* r_string)
 	// pthread_mutex_unlock(&debug_statistics);
     /************需要注释掉********* */
         
+}
+
+void debug_stats(overlap_region_alloc* overlap_list, All_reads* R_INF, 
+                        UC_Read* g_read, Correct_dumy* dumy, UC_Read* overlap_read, 
+                        long long* matched_overlap_0, long long* matched_overlap_1)
+{
+    long long j;
+    long long Len_x;
+    int threshold;
+    long long y_start;
+    long long Len_y;
+    long long currentIDLen;
+    for (j = 0; j < overlap_list->length; j++)
+    {
+        Len_x = overlap_list->list[j].x_pos_e -  overlap_list->list[j].x_pos_s + 1;
+
+        if (Len_x * 0.90 <=  overlap_list->list[j].align_length)
+        {
+            if (overlap_list->list[j].y_pos_strand == 0)
+            {
+                (*matched_overlap_0)++;
+                ///(*matched_overlap_0) = (*matched_overlap_0) + overlap_list->list[j].align_length;
+                ///(*matched_overlap_0) = (*matched_overlap_0) + Len_x;
+            }
+            else
+            {
+                (*matched_overlap_1)++;
+                ///(*matched_overlap_1) = (*matched_overlap_1) + overlap_list->list[j].align_length;
+                ///(*matched_overlap_1) = (*matched_overlap_1) + Len_x;
+            }
+
+            /**
+            threshold = Len_x * 0.04;
+
+            y_start = overlap_list->list[j].y_pos_s - threshold;
+            if (y_start < 0)
+            {
+                y_start = 0;
+            }
+
+            
+            ///当前y的长度
+            currentIDLen = Get_READ_LENGTH((*R_INF), overlap_list->list[j].y_id);
+            ///不能超过y的剩余长度
+            Len_y = MIN(Len_x + 2 * threshold, currentIDLen - y_start);
+            
+            
+            if (overlap_list->list[j].y_pos_strand == 0)
+            {
+                recover_UC_Read(overlap_read, R_INF, overlap_list->list[j].y_id);
+                (*matched_overlap_0)++;
+            }
+            else
+            {
+                recover_UC_Read_RC(overlap_read, R_INF, overlap_list->list[j].y_id);
+                (*matched_overlap_1)++;
+            }
+        
+
+            
+            
+            EdlibAlignResult result = edlibAlign(g_read->seq + overlap_list->list[j].x_pos_s, Len_x, 
+            overlap_read->seq + y_start, Len_y, 
+            edlibNewAlignConfig(threshold, EDLIB_MODE_HW, EDLIB_TASK_PATH, NULL, 0));
+            
+
+            if (result.status == EDLIB_STATUS_OK && result.editDistance != -1) {
+                char* cigar = edlibAlignmentToCigar(result.alignment, result.alignmentLength, EDLIB_CIGAR_STANDARD);
+                int cigar_length = strlen(cigar);
+                free(cigar);
+
+                
+                if (overlap_list->list[j].y_pos_strand == 0)
+                {
+                    (*potiental_matched_overlap_0)++;
+                }
+                else
+                {
+                    (*potiental_matched_overlap_1)++;
+                }
+                
+                // if (overlap_list->list[j].shared_seed == 1 && Len_x >= 1000)
+                // {
+                //     (*matched_overlap_0)++;
+                // }
+
+                // if (overlap_list->list[j].shared_seed == 2 && Len_x >= 1000)
+                // {
+                //     (*matched_overlap_1)++;
+                // }
+            
+                
+            }
+
+            edlibFreeAlignResult(result);
+            **/
+        }
+    }
+
+}
+
+
+
+
+inline void generate_cigar(
+	char* path, int path_length, window_list* result)
+{
+
+    if (result->error == 0)
+    {
+        result->cigar.C_L[0] = result->x_end - result->x_start + 1;
+        result->cigar.C_C[0] = 0;
+        result->cigar.length = 1;
+
+        return;
+    }
+    
+
+	int i = 0;
+    result->cigar.length = 0;
+    ///0 is match, 1 is mismatch, 2 is up, 3 is left
+    char pre_ciga = 5;
+    int pre_ciga_length = 0;
+
+    for (i = path_length - 1; i >= 0; i--)
+    {
+
+        if (pre_ciga != path[i])
+        {
+            if (pre_ciga_length != 0)
+            {
+                result->cigar.C_L[result->cigar.length] = pre_ciga_length;
+                result->cigar.C_C[result->cigar.length] = pre_ciga;
+                result->cigar.length++;
+            }
+
+            pre_ciga = path[i];
+            pre_ciga_length = 1;
+        }
+        else
+        {
+            pre_ciga_length++;
+        }
+    }
+
+    if (pre_ciga_length != 0)
+    {
+        result->cigar.C_L[result->cigar.length] = pre_ciga_length;
+        result->cigar.C_C[result->cigar.length] = pre_ciga;
+        result->cigar.length++;
+    }
+}
+
+
+int verify_cigar(char* x, int x_len, char* y, int y_len, CIGAR* cigar, int error)
+{
+    int x_i, y_i, cigar_i;
+    x_i = 0;
+    y_i = 0;
+    cigar_i = 0;
+    int operation;
+    int operationLen;
+    int i;
+    int cigar_error = 0;
+    int flag_error = 0;
+
+    ///0 is match, 1 is mismatch, 2 is up, 3 is left
+    ///2是x缺字符（y多字符），而3是y缺字符（x多字符）
+    ///while (x_i < x_len && y_i < y_len && cigar_i < cigar->length)
+    while (cigar_i < cigar->length)
+    {
+        operation = cigar->C_C[cigar_i];
+        operationLen = cigar->C_L[cigar_i];
+
+        if (operation == 0)
+        {
+            for (i = 0; i < operationLen; i++)
+            {
+
+                if (x[x_i]!=y[y_i])
+                {
+                    fprintf(stderr, "error match\n");
+                    flag_error = 1;
+                }
+                x_i++;
+                y_i++;
+            }
+        }
+        else if (operation == 1)
+        {
+            cigar_error += operationLen;
+            for (i = 0; i < operationLen; i++)
+            {
+
+                if (x[x_i]==y[y_i])
+                {
+                    fprintf(stderr, "error mismatch, cigar_i: %d, x_i: %d, y_i: %d\n",
+                    cigar_i, x_i, y_i);
+                    flag_error = 1;
+                }
+                x_i++;
+                y_i++;
+            }
+        }///2是x缺字符（y多字符）
+        else if (operation == 2)
+        {
+            cigar_error += operationLen;
+            y_i += operationLen;
+        }///3是y缺字符（x多字符）
+        else if (operation == 3)
+        {
+            cigar_error += operationLen;
+            x_i += operationLen;
+        }
+        
+        cigar_i++;
+    }
+
+
+    endloop: 
+    ///return;
+    
+    if (cigar_error != error)
+    {
+        fprintf(stderr, "error cigar_error: cigar_error: %d, error: %d\n", cigar_error, error);
+        for (i = 0; i < cigar->length; i++)
+        {
+            fprintf(stderr, "%u: %u\n", cigar->C_L[i], cigar->C_C[i]);
+        }
+        
+    }
+    
+   
+    if (flag_error == 1)
+    {
+        print_string(x, x_len);
+        print_string(y, y_len);
+        fprintf(stderr, "x_len: %d, y_len: %d, cigar_len: %d, error: %d\n", x_len, y_len, cigar->length, error);
+        for (i = 0; i < cigar->length; i++)
+        {
+            fprintf(stderr, "%u: %u\n", cigar->C_L[i], cigar->C_C[i]);
+        }
+    }
+    
+    return flag_error;
+    
+}
+
+/**
+///记住等于0也要重算，虽然意义不那么大就是了
+#define NEED_START_POS(x) (x.error<=0)
+#define GET_ERROR(x) ((x.error>=0)? x.error : x.error*-1)
+**/
+
+inline void recalcate_window(overlap_region_alloc* overlap_list, All_reads* R_INF, 
+                        UC_Read* g_read, Correct_dumy* dumy, UC_Read* overlap_read)
+{
+    long long j, k, i;
+    long long Len_x;
+    int threshold;
+    long long y_len;
+    long long currentIDLen;
+    long long matches;
+    long long y_id;
+    int y_strand;
+    long long y_readLen;
+    long long x_start;
+    long long x_end;
+    long long x_len;
+    long long total_y_start;
+    long long total_y_end;
+    long long y_start;
+    long long y_end;
+    long long Window_Len;
+    char* x_string;
+    char* y_string;
+    int end_site;
+    unsigned int error;
+    int real_y_start;
+    long long overlap_length;
+
+
+    ///j负责遍历整个overlap list
+    for (j = 0; j < overlap_list->length; j++)
+    {
+        
+        y_id = overlap_list->list[j].y_id;
+        y_strand = overlap_list->list[j].y_pos_strand;
+        y_readLen = Get_READ_LENGTH((*R_INF), y_id);
+
+        
+        
+        //i负责每个overlap里面的window
+        //倒着找
+        //倒着用结束位置矫正
+        for (i = overlap_list->list[j].w_list_length - 1; i >= 0; i--)
+        {
+            ///找到第一个匹配的window
+            if(overlap_list->list[j].w_list[i].y_end != -1)
+            {
+                total_y_start = overlap_list->list[j].w_list[i].y_end + 1;
+                ///k遍历匹配window右侧所有不匹配的window
+                ///如果i匹配，则k从i+1开始
+                ///知道第一个匹配的window结束
+                for (k = i + 1; k < overlap_list->list[j].w_list_length && overlap_list->list[j].w_list[k].y_end == -1; k++)
+                {   
+                    ///y_start有可能大于y_readLen
+                    ///这多发于最后一个window长度仅为几，而前面一个window的结束位置也超过了y_readLen-1
+                    ///这个时候做动态规划会给超过的部分补N
+                    if (total_y_start >= y_readLen)
+                    {
+                        break;
+                    }
+                    
+                    x_start = overlap_list->list[j].w_list[k].x_start;
+                    x_end = overlap_list->list[j].w_list[k].x_end;
+                    x_len = x_end - x_start + 1;
+                    ///if(x_len == )
+                    threshold = x_len * THRESHOLD_RATE;
+                    y_start = total_y_start - threshold;
+                    if (y_start < 0)
+                    {
+                        y_start = 0;
+                    }
+                    Window_Len = x_len + (threshold << 1);
+                    ///y_start有可能大于y_readLen
+                    ///这多发于最后一个window长度仅为几，而前面一个window的结束位置也超过了y_readLen-1
+                    ///这个时候做动态规划会给超过的部分补N
+                    y_len = MIN(Window_Len, y_readLen - y_start);
+                    ///这说明已经到y的结尾了
+                    if (y_len < x_len)
+                    {
+                        break;
+                    }
+                    
+                    
+
+                    recover_UC_Read_sub_region(dumy->overlap_region, y_start, y_len, y_strand, R_INF, y_id);
+                    
+                    x_string = g_read->seq + x_start;
+                    y_string = dumy->overlap_region;
+                    if (Window_Len != y_len)
+                    {
+                        ///o_len < Window_Len, 说明y的长度不够，需要在y后面补N
+                        memset (y_string + y_len, 0, Window_Len - y_len);
+                    }
+                    
+                    end_site = Reserve_Banded_BPM(y_string, y_len, x_string, x_len, threshold, &error);
+                    
+                    ///error等于-1说明没匹配
+                    if (error!=(unsigned int)-1)
+                    {
+                        overlap_list->list[j].w_list[k].cigar.length = -1;
+                        overlap_list->list[j].w_list[k].y_start = y_start;
+                        overlap_list->list[j].w_list[k].y_end = y_start + end_site;
+                        overlap_list->list[j].w_list[k].error = (int)error;
+                        overlap_list->list[j].align_length += x_len;
+                    }
+                    else
+                    {
+                        break;
+                    }
+                    
+                    total_y_start = y_start + end_site + 1;
+
+                }
+                
+            }
+            
+        }
+        
+
+
+
+        
+        ///continue;
+        ///i负责每个overlap里面的window
+        ///正着找
+        ///用起始位置矫正
+        for (i = 0; i < overlap_list->list[j].w_list_length; i++)
+        {
+            ///找到第一个匹配的window
+            ///首先这个window要匹配
+            ///其次不要是第一个window，这没意义
+            ///最后他之前的那个window必须是不匹配，如果之前那个window匹配，也没意义
+            if(overlap_list->list[j].w_list[i].y_end != -1 && i != 0 && overlap_list->list[j].w_list[i - 1].y_end == -1)
+            {
+                
+                ///判断这个匹配的window的起始位置有没有被计算出来
+                ///如果没有，就需要重新计算
+                if(overlap_list->list[j].w_list[i].cigar.length == -1)
+                {
+                    x_start = overlap_list->list[j].w_list[i].x_start;
+                    x_end = overlap_list->list[j].w_list[i].x_end;
+                    x_len = x_end - x_start + 1;
+                    threshold = x_len * THRESHOLD_RATE;
+                    y_start = overlap_list->list[j].w_list[i].y_start;
+                    Window_Len = x_len + (threshold << 1);
+                    y_len = MIN(Window_Len, y_readLen - y_start);
+
+                    recover_UC_Read_sub_region(dumy->overlap_region, y_start, y_len, y_strand, R_INF, y_id);
+
+                    x_string = g_read->seq + x_start;
+                    y_string = dumy->overlap_region;
+                    if (Window_Len != y_len)
+                    {
+                        ///o_len < Window_Len, 说明y的长度不够，需要在y后面补N
+                        memset (y_string + y_len, 0, Window_Len - y_len);
+                    }
+
+                    end_site = Reserve_Banded_BPM_PATH(y_string, y_len, x_string, x_len, threshold, &error, &real_y_start,
+                    &(dumy->path_length), dumy->matrix_bit, dumy->path, 
+                    overlap_list->list[j].w_list[i].error, overlap_list->list[j].w_list[i].y_end - y_start);
+
+                    
+                    
+
+                    ///到这里y_start已经被正确计算出来了
+                    if (error != (unsigned int)-1)
+                    {
+                        real_y_start = y_start + real_y_start;
+                        overlap_list->list[j].w_list[i].y_start = real_y_start;
+                        generate_cigar(dumy->path, dumy->path_length, &(overlap_list->list[j].w_list[i]));                                
+                    }
+                        
+                }
+                else
+                {
+                    real_y_start = overlap_list->list[j].w_list[i].y_start;
+                }
+
+
+                
+                ///再次矫正的基础位置就是real_y_start
+                total_y_end = real_y_start - 1;
+                ///k遍历匹配window左侧所有不匹配的window
+                ///如果i匹配，则k从i-1开始
+                ///直到第一个匹配的window结束
+                ///因为i!=0，所以k的大小不用担心
+                for (k = i - 1; k >= 0 && overlap_list->list[j].w_list[k].y_end == -1; k--)
+                {  
+                    x_start = overlap_list->list[j].w_list[k].x_start;
+                    x_end = overlap_list->list[j].w_list[k].x_end;
+                    x_len = x_end - x_start + 1;
+                    threshold = x_len * THRESHOLD_RATE;
+                    ///这个和上面不同，先求y_end
+                    y_end = total_y_end + threshold;
+                    ///y_end不能大于y的总长度
+                    if(y_end >= y_readLen)
+                    {
+                        y_end = y_readLen - 1;
+                    }
+                    Window_Len = x_len + (threshold << 1);
+                    y_len = MIN(Window_Len, y_end + 1);
+                    ///这说明已经到y的开始了，因为是倒着算的，没必要接着算了
+                    if (y_len < x_len)
+                    {
+                        break;
+                    }
+                    y_start = y_end - y_len + 1;
+                    recover_UC_Read_sub_region(dumy->overlap_region, y_start, y_len, y_strand, R_INF, y_id);
+                    x_string = g_read->seq + x_start;
+                    y_string = dumy->overlap_region;
+                    
+                    ///不要在前面补补，补了有可能触发剪纸
+                    ///还是像上面一样在后面随便补点就好了
+                    if (Window_Len != y_len)
+                    {
+                        ///o_len < Window_Len, 说明y的长度不够，需要在y后面补N
+                        ///memset (y_string, 0, Window_Len - y_len);
+                        memset (y_string + y_len, 0, Window_Len - y_len);
+                    }
+                    
+
+                    end_site = Reserve_Banded_BPM_PATH(y_string, y_len, x_string, x_len, threshold, &error, &real_y_start,
+                    &(dumy->path_length), dumy->matrix_bit, dumy->path, -1, -1);
+
+                    ///error等于-1说明没匹配
+                    if (error!=(unsigned int)-1)
+                    {
+                        
+                        ///overlap_list->list[j].w_list[k].y_pre_start = overlap_list->list[j].w_list[k].y_start;
+                        overlap_list->list[j].w_list[k].y_start = y_start + real_y_start;
+                        overlap_list->list[j].w_list[k].y_end = y_start + end_site;
+                        overlap_list->list[j].w_list[k].error = error;
+                        overlap_list->list[j].align_length += x_len;
+                        generate_cigar(dumy->path, dumy->path_length, &(overlap_list->list[j].w_list[k]));
+                    }
+                    else
+                    {
+                        break;
+                    }
+
+                    total_y_end = y_start + real_y_start - 1;
+                }
+            
+            }
+        }
+        
+        
+    }
+
+
+
+
+    /**
+    ///j负责遍历整个overlap list
+    for (j = 0; j < overlap_list->length; j++)
+    {
+        y_id = overlap_list->list[j].y_id;
+        y_strand = overlap_list->list[j].y_pos_strand;
+        y_readLen = Get_READ_LENGTH((*R_INF), y_id);
+        overlap_length = overlap_list->list[j].x_pos_e - overlap_list->list[j].x_pos_s + 1;
+
+        ///if (overlap_length * 0.90 <=  overlap_list->list[j].align_length)
+        {
+            for (i = 0; i < overlap_list->list[j].w_list_length; i++)
+            {
+                ///判断cigar是否被计算
+                ///没被计算过就重算
+                ///第一个条件是判断这个窗口是否匹配
+                if(overlap_list->list[j].w_list[i].y_end != -1 && overlap_list->list[j].w_list[i].cigar.length == -1)
+                {
+                    x_start = overlap_list->list[j].w_list[i].x_start;
+                    x_end = overlap_list->list[j].w_list[i].x_end;
+                    x_len = x_end - x_start + 1;
+                    threshold = x_len * THRESHOLD_RATE;
+                    y_start = overlap_list->list[j].w_list[i].y_start;
+                    Window_Len = x_len + (threshold << 1);
+                    y_len = MIN(Window_Len, y_readLen - y_start);
+
+                    recover_UC_Read_sub_region(dumy->overlap_region, y_start, y_len, y_strand, R_INF, y_id);
+
+                    x_string = g_read->seq + x_start;
+                    y_string = dumy->overlap_region;
+                    if (Window_Len != y_len)
+                    {
+                        ///o_len < Window_Len, 说明y的长度不够，需要在y后面补N
+                        memset (y_string + y_len, 0, Window_Len - y_len);
+                    }
+
+                    end_site = Reserve_Banded_BPM_PATH(y_string, y_len, x_string, x_len, threshold, &error, &real_y_start,
+                    &(dumy->path_length), dumy->matrix_bit, dumy->path, 
+                    overlap_list->list[j].w_list[i].error, overlap_list->list[j].w_list[i].y_end - y_start);
+
+                    ///到这里y_start已经被正确计算出来了
+                    if (error != (unsigned int)-1)
+                    {
+                        real_y_start = y_start + real_y_start;
+                        overlap_list->list[j].w_list[i].y_start = real_y_start;
+                        generate_cigar(dumy->path, dumy->path_length, &(overlap_list->list[j].w_list[i]));                                
+                    }
+                }
+            }
+        }
+    }
+    **/
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    
+
+    
+    // for (j = 0; j < overlap_list->length; j++)
+    // {
+        
+    //     y_id = overlap_list->list[j].y_id;
+    //     y_strand = overlap_list->list[j].y_pos_strand;
+    //     y_readLen = Get_READ_LENGTH((*R_INF), y_id);
+
+    //     matches = 0;
+    //     for (i = 0; i < overlap_list->list[j].w_list_length; i++)
+    //     {
+    //         x_start = overlap_list->list[j].w_list[i].x_start;
+    //         x_end = overlap_list->list[j].w_list[i].x_end;
+    //         x_len = x_end - x_start + 1;
+    //         ///if(x_len == )
+    //         threshold = x_len * THRESHOLD_RATE;   
+    //         y_start = overlap_list->list[j].w_list[i].y_start;
+
+
+            
+    //         if (overlap_list->list[j].w_list[i].y_end != -1)
+    //         {
+    //             matches += x_len;
+    //         }
+
+    //         if (i + 1 < overlap_list->list[j].w_list_length)
+    //         {
+    //             if (
+    //                 overlap_list->list[j].w_list[i + 1].x_end <= overlap_list->list[j].w_list[i].x_end
+    //                 ||
+    //                 overlap_list->list[j].w_list[i + 1].x_start <= overlap_list->list[j].w_list[i].x_start
+    //                 )
+    //             {
+    //                 fprintf(stderr, "ERROR 1\n");
+    //             }
+                
+    //         }
+
+
+    //         ///当起始位置还没求出来的时候
+    //         if(overlap_list->list[j].w_list[i].cigar.length == -1)
+    //         {
+                
+    //             Window_Len = x_len + (threshold << 1);
+    //             y_len = MIN(Window_Len, y_readLen - y_start);
+
+    //             recover_UC_Read_sub_region(dumy->overlap_region, y_start, y_len, y_strand, R_INF, y_id);
+                    
+    //             x_string = g_read->seq + x_start;
+    //             y_string = dumy->overlap_region;
+    //             if (Window_Len != y_len)
+    //             {
+    //                 ///o_len < Window_Len, 说明y的长度不够，需要在y后面补N
+    //                 memset (y_string + y_len, 0, Window_Len - y_len);
+    //             }
+
+    //             ///匹配
+    //             if (overlap_list->list[j].w_list[i].y_end != -1)
+    //             {
+    //                 ///fprintf(stderr, "hahah\n");
+    //                 end_site = Reserve_Banded_BPM(y_string, y_len, x_string, x_len, threshold, &error);
+
+    //                 if (error == (unsigned int)-1)
+    //                 {
+    //                     fprintf(stderr, "1 ERROR, y_start: %u, y_end: %u\n", 
+    //                     overlap_list->list[j].w_list[i].y_start, overlap_list->list[j].w_list[i].y_end);
+    //                 }
+                    
+    //                 if (end_site + y_start != overlap_list->list[j].w_list[i].y_end)
+    //                 {
+    //                     fprintf(stderr, "ERROR, y_end: %u, end_site: %u, y_start: %u, +: %u\n", 
+    //                     overlap_list->list[j].w_list[i].y_end, end_site, y_start, end_site + y_start);
+    //                 }
+
+    //                 int old_error = overlap_list->list[j].w_list[i].error;
+
+    //                 if (error != old_error)
+    //                 {
+                        
+    //                     fprintf(stderr, "ERROR new error: %d, old error: %d\n", error, overlap_list->list[j].w_list[i].error);
+    //                 }
+                    
+                    
+
+    //             }
+    //             else
+    //             {
+    //                 end_site = Reserve_Banded_BPM(y_string, y_len, x_string, x_len, threshold, &error);
+
+    //                 if (error != (unsigned int)-1)
+    //                 {
+    //                     fprintf(stderr, "2 ERROR\n");
+    //                 }
+    //             }
+                
+
+    //         }
+    //         else
+    //         {
+                
+
+    //             y_start = overlap_list->list[j].w_list[i].y_start;
+    //             ///此时y_start是真正匹配的起始位置，所以要减去threshold
+    //             y_start = y_start - threshold;
+    //             if(y_start < 0)
+    //             {
+    //                 y_start = 0;
+    //             }
+
+    //             Window_Len = x_len + (threshold << 1);
+    //             y_len = MIN(Window_Len, y_readLen - y_start);
+
+    //             recover_UC_Read_sub_region(dumy->overlap_region, y_start, y_len, y_strand, R_INF, y_id);
+                    
+    //             x_string = g_read->seq + x_start;
+    //             y_string = dumy->overlap_region;
+
+    //             if (Window_Len != y_len)
+    //             {
+    //                 ///o_len < Window_Len, 说明y的长度不够，需要在y后面补N
+    //                 memset (y_string + y_len, 0, Window_Len - y_len);
+    //             }
+
+
+                
+    //             end_site = Reserve_Banded_BPM_PATH(y_string, y_len, x_string, x_len, threshold, &error, &real_y_start,
+    //                     &(dumy->path_length), dumy->matrix_bit, dumy->path, 
+    //                     overlap_list->list[j].w_list[i].error, overlap_list->list[j].w_list[i].y_end - y_start);
+                        
+    //             ///end_site = Reserve_Banded_BPM(y_string, y_len, x_string, x_len, threshold, &error);
+                
+
+    //             if (error == (unsigned int)-1)
+    //             {
+    //                 fprintf(stderr, "3 ERROR, y_start: %d, y_end: %d, x_len: %d, pre_error: %d, y_strand: %u\n", 
+    //                 overlap_list->list[j].w_list[i].y_start, overlap_list->list[j].w_list[i].y_end, x_len, overlap_list->list[j].w_list[i].error, y_strand);
+
+    //                 fprintf(stderr, "Window_Len: %d, y_len: %d, y_readLen: %d\n", 
+    //                 Window_Len, y_len, y_readLen);
+
+    //                 print_string(g_read->seq+overlap_list->list[j].w_list[i].x_start, 
+    //                 overlap_list->list[j].w_list[i].x_end-overlap_list->list[j].w_list[i].x_start+1);
+
+    //                 recover_UC_Read_sub_region(dumy->overlap_region, overlap_list->list[j].w_list[i].y_start, 
+    //                 overlap_list->list[j].w_list[i].y_end-overlap_list->list[j].w_list[i].y_start + 1, y_strand, R_INF, y_id);
+
+    //                 print_string(dumy->overlap_region, 
+    //                 overlap_list->list[j].w_list[i].y_end-overlap_list->list[j].w_list[i].y_start + 1);
+    //             }
+
+    //             ////检验cigar是否正确
+    //             x_start = overlap_list->list[j].w_list[i].x_start;
+    //             x_end = overlap_list->list[j].w_list[i].x_end;
+    //             x_len = x_end - x_start + 1;
+    //             x_string = g_read->seq + x_start;
+
+    //             y_start = overlap_list->list[j].w_list[i].y_start;
+    //             y_end = overlap_list->list[j].w_list[i].y_end;
+    //             y_len = y_end - y_start + 1;
+    //             recover_UC_Read_sub_region(dumy->overlap_region, y_start, y_len, y_strand, R_INF, y_id);
+    //             y_string = dumy->overlap_region;
+                
+                
+    //             if(verify_cigar(x_string, x_len, y_string, y_len, &overlap_list->list[j].w_list[i].cigar, 
+    //             overlap_list->list[j].w_list[i].error))
+    //             {
+    //                 fprintf(stderr, "j: %d, i: %d, y_id: %d, y_start: %d, y_end: %d\n", j, i, y_id, y_start, y_end);
+    //             }
+                
+                
+                
+            
+                
+
+    //         }
+            
+    //     }
+
+    //     if (matches != overlap_list->list[j].align_length)
+    //     {
+    //         fprintf(stderr, "ERROR 2: matches: %d, align_length: %d\n", 
+    //                                 matches, overlap_list->list[j].align_length);
+    //     }
+    // }
+    
+    
 }
 
 
@@ -729,7 +1568,13 @@ void correct_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF,
         }
     }
 
-
+    
+    debug_stats(overlap_list, R_INF, g_read, dumy, overlap_read, potiental_matched_overlap_0, potiental_matched_overlap_1);
+    
+    recalcate_window(overlap_list, R_INF, g_read, dumy, overlap_read);
+    
+    debug_stats(overlap_list, R_INF, g_read, dumy, overlap_read, matched_overlap_0, matched_overlap_1);
+    
     
     /************需要注释掉********* */
     // pthread_mutex_lock(&debug_statistics);
@@ -737,85 +1582,7 @@ void correct_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF,
     // T_total_match, T_total_unmatch, T_total_mis);
 	// pthread_mutex_unlock(&debug_statistics);
     /************需要注释掉********* */
-    /**
-    long long j;
-    long long Len_x;
-    int threshold;
-    long long y_start;
-    long long Len_y;
-    long long currentIDLen;
-    for (j = 0; j < overlap_list->length; j++)
-    {
-        Len_x = overlap_list->list[j].x_pos_e -  overlap_list->list[j].x_pos_s + 1;
 
-        if (Len_x * 0.6 <=  overlap_list->list[j].align_length)
-        {
-            threshold = Len_x * 0.04;
-
-            y_start = overlap_list->list[j].y_pos_s - threshold;
-            if (y_start < 0)
-            {
-                y_start = 0;
-            }
-
-            
-            ///当前y的长度
-            currentIDLen = Get_READ_LENGTH((*R_INF), overlap_list->list[j].y_id);
-            ///不能超过y的剩余长度
-            Len_y = MIN(Len_x + 2 * threshold, currentIDLen - y_start);
-            
-            
-            if (overlap_list->list[j].y_pos_strand == 0)
-            {
-                recover_UC_Read(overlap_read, R_INF, overlap_list->list[j].y_id);
-                (*matched_overlap_0)++;
-            }
-            else
-            {
-                recover_UC_Read_RC(overlap_read, R_INF, overlap_list->list[j].y_id);
-                (*matched_overlap_1)++;
-            }
-        
-
-            
-
-            EdlibAlignResult result = edlibAlign(g_read->seq + overlap_list->list[j].x_pos_s, Len_x, 
-            overlap_read->seq + y_start, Len_y, 
-            edlibNewAlignConfig(threshold, EDLIB_MODE_HW, EDLIB_TASK_PATH, NULL, 0));
-            
-
-            if (result.status == EDLIB_STATUS_OK && result.editDistance != -1) {
-                char* cigar = edlibAlignmentToCigar(result.alignment, result.alignmentLength, EDLIB_CIGAR_STANDARD);
-                int cigar_length = strlen(cigar);
-                free(cigar);
-
-                
-                if (overlap_list->list[j].y_pos_strand == 0)
-                {
-                    (*potiental_matched_overlap_0)++;
-                }
-                else
-                {
-                    (*potiental_matched_overlap_1)++;
-                }
-                
-                // if (overlap_list->list[j].shared_seed == 1 && Len_x >= 1000)
-                // {
-                //     (*matched_overlap_0)++;
-                // }
-
-                // if (overlap_list->list[j].shared_seed == 2 && Len_x >= 1000)
-                // {
-                //     (*matched_overlap_1)++;
-                // }
-            
-                
-            }
-
-            edlibFreeAlignResult(result);
-        }
-    }
-    **/
     
 }
 
