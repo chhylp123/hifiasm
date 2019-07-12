@@ -4,9 +4,8 @@
 #include "Hash_Table.h"
 #include "Levenshtein_distance.h"
 
-#define WINDOW 350
-#define THRESHOLD  15
-#define GROUP_SIZE 4
+
+
 
 #define MAX(x, y) ((x >= y)?x:y)
 #define MIN(x, y) ((x <= y)?x:y)
@@ -22,6 +21,9 @@ typedef struct
     uint64_t start_i;
     char overlap_region[WINDOW + THRESHOLD*2 + 10];
     char overlap_region_group[GROUP_SIZE][WINDOW + THRESHOLD*2 + 10];
+    char path[WINDOW + THRESHOLD*2 + 10];
+    int path_length;
+    Word matrix_bit[((WINDOW + 10)<<3)];
     __m128i Peq_SSE[256];
 } Correct_dumy;
 

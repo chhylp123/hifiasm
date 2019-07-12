@@ -172,6 +172,10 @@ inline int Reserve_Banded_BPM
 	///int site = p_length - last_high - 1;
 	int site = t_length - 1;
 	int return_site = -1;
+	///p_length大部分情况下应该是t_length + 2 * errthold，这是i要小于last_high = 2 * errthold
+	///也就是p_length - t_length
+	///那么当p_length < t_length + 2 * errthold, available_i也应该是这个值
+	int available_i = p_length - t_length;
 	if ((err <= errthold) && (err<=*return_err))
 	{
 		*return_err = err;
@@ -181,9 +185,7 @@ inline int Reserve_Banded_BPM
 	i = 0;
 
 
-
-
-	while (i<errthold)
+	while (i < available_i)
 	{
 		err = err + ((VP >> i)&(Word)1);
 		err = err - ((VN >> i)&(Word)1);
@@ -196,45 +198,85 @@ inline int Reserve_Banded_BPM
 		}
 	}
 
-
-	unsigned int ungap_err;
-	ungap_err = err;
-
-
-	while (i<last_high)
-	{
-		err = err + ((VP >> i)&(Word)1);
-		err = err - ((VN >> i)&(Word)1);
-		++i;
-
-		if ((err <= errthold) && (err<=*return_err))
-		{
-			*return_err = err;
-			return_site = site + i;
-		}
-
-
-
-
-	}
-
-
-	if ((ungap_err <= errthold) && (ungap_err == *return_err))
-	{
-		return_site = site + errthold;
-	}
-
 	return return_site;
 
 }
 
 
 
+inline int try_cigar(char *pattern, int p_length,
+	char *text, int t_length, int end_site, char* path,
+	int error, 
+	int* return_start_site, 
+	int* return_path_length)
+{
+	int i = 0;
+	int tmp_err = 0;
+	///y上的起始位置
+	int start_site = end_site - t_length + 1;
 
+	if (start_site >= 0)
+	{
+
+		for (i = 0; i < t_length; i++)
+		{
+			///path[i] = 0;
+			///path倒着存
+			path[t_length - i - 1] = 0;
+			if (text[i] != pattern[i + start_site])
+			{
+				path[t_length - i - 1] = 1;
+				tmp_err++;
+
+				if (tmp_err > error)
+				{
+					return 0;
+				}
+			}
+		}
+
+		if (tmp_err == error)
+		{
+			(*return_path_length) = t_length;
+
+			(*return_start_site) = start_site;
+
+			return 6;
+		}
+	}
+
+
+	return 0;
+}
+
+
+///p_length有可能不够，但是t_length总是够的
+///就是p_length有可能小于t_length + 2 * errthold
 inline int Reserve_Banded_BPM_PATH
 (char *pattern, int p_length, char *text, int t_length, unsigned short errthold, 
-		unsigned int* return_err, int* return_start_site, int* return_path_length, Word* matrix_bit, char* path)
+		unsigned int* return_err, int* return_start_site, int* return_path_length, Word* matrix_bit, char* path, 
+		int old_error, int old_end_site)
 {
+	if (old_error != -1 && old_end_site != -1)
+	{
+		if (old_error == 0)
+		{
+			///fprintf(stderr, "0 error\n");
+			(*return_err) = old_error;
+			(*return_start_site) = old_end_site - t_length + 1;
+			return old_end_site;
+		}
+
+		if (try_cigar(pattern, p_length, text, t_length, old_end_site, path,
+		old_error, return_start_site, return_path_length))
+		{
+			///fprintf(stderr, "no gap error\n");
+			(*return_err) = old_error;
+			return old_end_site;
+		}
+		
+	}
+	
 	(*return_err) = (unsigned int)-1;
 
 	Word Peq[256];
@@ -330,10 +372,8 @@ inline int Reserve_Banded_BPM_PATH
 		{
 			++err;
 
-			///¼´Ê¹È«²¿µÝ¼õ£¬Ò²¾Í¼õ2k
 			if ((err - last_high)>errthold)
 			{
-				///fprintf(stderr, "0 ######, i: %u\n", i);
 				return -1;
 			}
 				
@@ -396,6 +436,10 @@ inline int Reserve_Banded_BPM_PATH
 	///int site = p_length - last_high - 1;
 	int site = t_length - 1;
 	int return_site = -1;
+	///p_length大部分情况下应该是t_length + 2 * errthold，这是i要小于last_high = 2 * errthold
+	///也就是p_length - t_length
+	///那么当p_length < t_length + 2 * errthold, available_i也应该是这个值
+	int available_i = p_length - t_length;
 	if ((err <= errthold) && (err<=*return_err))
 	{
 		*return_err = err;
@@ -404,10 +448,7 @@ inline int Reserve_Banded_BPM_PATH
 	int i_last = i;
 	i = 0;
 
-
-
-
-	while (i<errthold)
+	while (i < available_i)
 	{
 		err = err + ((VP >> i)&(Word)1);
 		err = err - ((VN >> i)&(Word)1);
@@ -421,40 +462,15 @@ inline int Reserve_Banded_BPM_PATH
 	}
 
 
-	unsigned int ungap_err;
-	ungap_err = err;
-
-
-	while (i<last_high)
-	{
-		err = err + ((VP >> i)&(Word)1);
-		err = err - ((VN >> i)&(Word)1);
-		++i;
-
-		if ((err <= errthold) && (err<=*return_err))
-		{
-			*return_err = err;
-			return_site = site + i;
-		}
-
-
-
-
-	}
-
-
-	if ((ungap_err <= errthold) && (ungap_err == *return_err))
-	{
-		return_site = site + errthold;
-	}
-
 	if ((*return_err) == (unsigned int)-1)
 	{
 		return return_site;
 	}
 	
-
-
+    ////注意，这里p_length要矫正啊啊
+	///不矫正会出错
+	///因为p_length有可能不够
+	p_length = t_length + 2 * errthold;
 	///end_site是正确的
 	int end_site = return_site;
 	int start_site = end_site;
@@ -608,6 +624,8 @@ inline int Reserve_Banded_BPM_PATH
 
 }
 
+
+////这个p_length四个是一样的
 inline int Reserve_Banded_BPM_4_SSE_only(char *pattern1, char *pattern2, char *pattern3, char *pattern4, int p_length, char *text, int t_length,
 	int* return_sites, unsigned int* return_sites_error, unsigned short errthold, __m128i* Peq_SSE)
 
@@ -829,8 +847,12 @@ inline int Reserve_Banded_BPM_4_SSE_only(char *pattern1, char *pattern2, char *p
 	i = 0;
 
 
+	///p_length大部分情况下应该是t_length + 2 * errthold，这是i要小于last_high = 2 * errthold
+	///也就是p_length - t_length
+	///那么当p_length < t_length + 2 * errthold, available_i也应该是这个值
+	int available_i = p_length - t_length;
 
-	while (i<errthold)
+	while (i < available_i)
 	{
 		///err = err + ((VP >> i)&(Word_32)1);
 		tmp_process = _mm_srli_epi32(VP, i);
@@ -869,89 +891,9 @@ inline int Reserve_Banded_BPM_4_SSE_only(char *pattern1, char *pattern2, char *p
 			return_sites[3] = site + i;
 			return_sites_error[3] = err4;
 		}
-	}
-
-
-	unsigned int ungap_err1;
-	unsigned int ungap_err2;
-	unsigned int ungap_err3;
-	unsigned int ungap_err4;
-	ungap_err1 = err1;
-	ungap_err2 = err2;
-	ungap_err3 = err3;
-	ungap_err4 = err4;
-
-
-
-
-	while (i<last_high)
-	{
-		///err = err + ((VP >> i)&(Word_32)1);
-		tmp_process = _mm_srli_epi32(VP, i);
-		tmp_process = _mm_and_si128(tmp_process, err_mask);
-		Err_4 = _mm_add_epi32(Err_4, tmp_process);
-
-		///err = err - ((VN >> i)&(Word_32)1);
-		tmp_process1 = _mm_srli_epi32(VN, i);
-		tmp_process1 = _mm_and_si128(tmp_process1, err_mask);
-		Err_4 = _mm_sub_epi32(Err_4, tmp_process1);
-		++i;
-
-		err1 = _mm_extract_epi32(Err_4, 0);
-		err2 = _mm_extract_epi32(Err_4, 1);
-		err3 = _mm_extract_epi32(Err_4, 2);
-		err4 = _mm_extract_epi32(Err_4, 3);
-
-
-		if ((err1 <= errthold) && (err1 <= return_sites_error[0]))
-		{
-			return_sites[0] = site + i;
-			return_sites_error[0] = err1;
-		}
-		if ((err2 <= errthold) && (err2 <= return_sites_error[1]))
-		{
-			return_sites[1] = site + i;
-			return_sites_error[1] = err2;
-		}
-		if ((err3 <= errthold) && (err3 <= return_sites_error[2]))
-		{
-			return_sites[2] = site + i;
-			return_sites_error[2] = err3;
-		}
-		if ((err4 <= errthold) && (err4 <= return_sites_error[3]))
-		{
-			return_sites[3] = site + i;
-			return_sites_error[3] = err4;
-		}
-	}
-
-
-	if ((ungap_err1 <= errthold) && ungap_err1 == return_sites_error[0])
-	{
-		return_sites[0] = site + errthold;
-	}
-
-
-	if ((ungap_err2 <= errthold) && ungap_err2 == return_sites_error[1])
-	{
-		return_sites[1] = site + errthold;
-	}
-
-
-	if ((ungap_err3 <= errthold) && ungap_err3 == return_sites_error[2])
-	{
-		return_sites[2] = site + errthold;
-	}
-
-
-	if ((ungap_err4 <= errthold) && ungap_err4 == return_sites_error[3])
-	{
-		return_sites[3] = site + errthold;
 	}
 
 	return 1;
-	
-
 }
 
 

@@ -212,15 +212,29 @@ void init_overlap_region_alloc(overlap_region_alloc* list)
 {
     list->size = 1000;
     list->length = 0;
-    list->list = (overlap_region*)malloc(sizeof(overlap_region)*list->size);
+    ///list->list = (overlap_region*)malloc(sizeof(overlap_region)*list->size);
+    list->list = (overlap_region*)calloc(list->size, sizeof(overlap_region));
 }
 void clear_overlap_region_alloc(overlap_region_alloc* list)
 {
     list->length = 0;
+    int i = 0;
+    for (i = 0; i < list->size; i++)
+    {   
+        list->list[i].w_list_length = 0;
+    }
 }
 
 void destory_overlap_region_alloc(overlap_region_alloc* list)
 {
+    int i = 0;
+    for (i = 0; i < list->size; i++)
+    {
+        if (list->list[i].w_list_size != 0)
+        {
+            free(list->list[i].w_list);
+        }
+    }
     free(list->list);
 }
 
@@ -235,6 +249,8 @@ void append_overlap_region_alloc(overlap_region_alloc* list, overlap_region* tmp
     {
         list->size = list->size * 2;
         list->list = (overlap_region*)realloc(list->list, sizeof(overlap_region)*list->size);
+        ///新分配空间要初始化
+        memset(list->list + (list->size/2), 0, sizeof(overlap_region)*(list->size/2));
     }
 
     if (list->length!=0 && 
@@ -641,6 +657,28 @@ uint64_t readID, uint64_t readLength, All_reads* R_INF)
 
 
 
+void append_window_list(overlap_region* region, uint64_t x_start, uint64_t x_end, int y_start, int y_end, int error)
+{
+    
+    long long length = region->x_pos_e - region->x_pos_s + 1;
+    long long num_windows = length / WINDOW + 2;
+
+    ///w_list_length会在clear_overlap_region_alloc中定时清空
+    if (num_windows > region->w_list_size)
+    {
+        region->w_list_size = num_windows;
+        region->w_list = (window_list*)realloc(region->w_list, region->w_list_size*sizeof(window_list));
+    }
+    
+
+    region->w_list[region->w_list_length].x_start = x_start;
+    region->w_list[region->w_list_length].x_end = x_end;
+    region->w_list[region->w_list_length].y_start = y_start;
+    region->w_list[region->w_list_length].y_end = y_end;
+    region->w_list[region->w_list_length].error = error;
+    region->w_list[region->w_list_length].cigar.length = -1;
+    region->w_list_length++;
+}
 
 
 
