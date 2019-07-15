@@ -1,5 +1,6 @@
 #include "POA.h"
 #include <stdlib.h>
+#include "Correct.h"
 #define INIT_EDGE_SIZE 50
 #define INCREASE_EDGE_SIZE 5
 #define INIT_NODE_SIZE 16000
@@ -142,6 +143,10 @@ void init_Node_alloc(Node_alloc* list)
         list->list[i].outcome_edges.list=NULL;
         list->list[i].alignedTo_Nodes.list=NULL;
     }
+
+    list->total_start.income_edges.list = NULL;
+    list->total_start.outcome_edges.list = NULL;
+    list->total_start.alignedTo_Nodes.list = NULL;
     
 }
 
@@ -154,6 +159,10 @@ void destory_Node_alloc(Node_alloc* list)
         destory_Edge_alloc(&list->list[i].outcome_edges);
         destory_Edge_alloc(&list->list[i].alignedTo_Nodes);
     }
+    destory_Edge_alloc(&list->total_start.income_edges);
+    destory_Edge_alloc(&list->total_start.outcome_edges);
+    destory_Edge_alloc(&list->total_start.alignedTo_Nodes);
+
     free(list->list);
     free(list->sort.list);
     free(list->sort.visit);
@@ -171,6 +180,9 @@ void clear_Node_alloc(Node_alloc* list)
         clear_Edge_alloc(&list->list[i].outcome_edges);
         clear_Edge_alloc(&list->list[i].alignedTo_Nodes);
     }
+    clear_Edge_alloc(&list->total_start.income_edges);
+    clear_Edge_alloc(&list->total_start.outcome_edges);
+    clear_Edge_alloc(&list->total_start.alignedTo_Nodes);
     list->length = 0;
 }
 
@@ -198,6 +210,7 @@ uint64_t append_Node_alloc(Node_alloc* list, char base)
     
     list->list[list->length].ID = list->length;
     list->list[list->length].base = base;
+    list->list[list->length].weight = 1;
     init_Edge_alloc(&list->list[list->length].income_edges);
     init_Edge_alloc(&list->list[list->length].outcome_edges);
     init_Edge_alloc(&list->list[list->length].alignedTo_Nodes);
@@ -292,7 +305,8 @@ void addUnmatchedSeqToGraph(Graph* g, char* g_read_seq, long long g_read_length,
         }
         if (lastID != -1)
         {
-            add_Edge_Graph(g, lastID, nodeID, 1);
+            ///0是match边
+            add_Edge_Graph(g, lastID, nodeID, 0);
         }
 
         lastID = nodeID; 
@@ -302,6 +316,441 @@ void addUnmatchedSeqToGraph(Graph* g, char* g_read_seq, long long g_read_length,
     *endID = lastID;
     
 }
+
+inline long long get_alignToNode(Graph* backbone, long long currentNodeID, char base)
+{
+    if(backbone->g_nodes.list[currentNodeID].alignedTo_Nodes.length == 0)
+    {
+        return -1;
+    }
+
+    long long i = 0;
+    long long nodeID;
+    for (i = 0; i < backbone->g_nodes.list[currentNodeID].alignedTo_Nodes.length; i++)
+    {
+        nodeID = backbone->g_nodes.list[currentNodeID].alignedTo_Nodes.list[i].out_node;
+        if(backbone->g_nodes.list[nodeID].base == base)
+        {
+            return nodeID;
+        }
+    }
+
+    return -1;
+    
+}
+
+
+inline void add_mismatch_to_backbone(Graph* backbone, long long* alignNodeID, char* mis_base, long long mis_base_length)
+{
+    long long i;
+    long long mismatch_nodeID;
+    char base;
+    
+    for (i = 0; i < mis_base_length; i++, (*alignNodeID)++)
+    {
+        base = mis_base[i];
+        mismatch_nodeID = get_alignToNode(backbone, *alignNodeID, base);
+
+        ///如果已经存在一个误配节点，那么给误配节点的权重+1
+        if (mismatch_nodeID != -1)
+        {
+            backbone->g_nodes.list[mismatch_nodeID].weight++;
+        }
+        else
+        {
+            mismatch_nodeID = add_Node_Graph(backbone, base);
+            ///1代表是mismatch边
+            append_Edge_alloc(&backbone->g_nodes.list[*alignNodeID].alignedTo_Nodes, 
+                    *alignNodeID, mismatch_nodeID, 1);
+        }
+    }
+
+}
+
+inline void add_deletion_to_backbone(Graph* backbone, long long* alignNodeID, long long deletion_length)
+{
+    long long i;
+    long long mismatch_nodeID;
+    char base;
+    
+    for (i = 0; i < deletion_length; i++, (*alignNodeID)++)
+    {
+        base = 'D';
+        mismatch_nodeID = get_alignToNode(backbone, *alignNodeID, base);
+
+        ///如果已经存在一个误配节点，那么给误配节点的权重+1
+        if (mismatch_nodeID != -1)
+        {
+            backbone->g_nodes.list[mismatch_nodeID].weight++;
+        }
+        else
+        {
+            mismatch_nodeID = add_Node_Graph(backbone, base);
+            ///3代表是deletion边
+            append_Edge_alloc(&backbone->g_nodes.list[*alignNodeID].alignedTo_Nodes, 
+                    *alignNodeID, mismatch_nodeID, 3);
+        }
+    }
+
+}
+
+
+
+///注意这里返回的有可能是新加的节点，也有可能返回的是backbone上的节点
+inline long long get_insertion_Node(Graph* backbone, long long currentNodeID, char base)
+{
+    ///看出边数量
+    if(backbone->g_nodes.list[currentNodeID].outcome_edges.length == 0)
+    {
+        return -1;
+    }
+
+    long long i = 0;
+    long long nodeID;
+    int type;
+    ///遍历所有出边
+    for (i = 0; i < backbone->g_nodes.list[currentNodeID].outcome_edges.length; i++)
+    {
+        ///出边类型
+        type = backbone->g_nodes.list[currentNodeID].outcome_edges.list[i].weight;
+
+        ///为2的时候才是deletion边
+        ///这个边有可能是match边，也就是type = 0
+        ///这个似乎不需要...，加上反而坏事
+        ///也不一定
+        if (type == 2)
+        {
+            nodeID = backbone->g_nodes.list[currentNodeID].outcome_edges.list[i].out_node;
+            if(backbone->g_nodes.list[nodeID].base == base)
+            {
+                return nodeID;
+            }
+        }
+    }
+
+    return -1;
+}
+
+
+
+///注意这里返回的有可能是新加的节点，也有可能返回的是backbone上的节点
+inline void link_insertion_Node(Graph* backbone, long long currentNodeID, long long backboneNodeID)
+{
+    ///如果出边数量为0，那这就是个新节点
+    if(backbone->g_nodes.list[currentNodeID].outcome_edges.length == 0)
+    {
+
+        ///2代表是insertion边
+        add_Edge_Graph(backbone, currentNodeID, backboneNodeID, 2);
+    }
+    else  ////如果不为0，backboneNodeID应该一定在出边中
+    {
+        long long i = 0;
+        long long nodeID;
+        int type;
+        ///遍历所有出边
+        for (i = 0; i < backbone->g_nodes.list[currentNodeID].outcome_edges.length; i++)
+        {
+            ///出边类型
+            type = backbone->g_nodes.list[currentNodeID].outcome_edges.list[i].weight;
+
+            nodeID = backbone->g_nodes.list[currentNodeID].outcome_edges.list[i].out_node;
+            if(backboneNodeID == nodeID)
+            {
+                break;
+            }
+            
+        }
+
+        ///如果这个节点没有被连到backboneNodeID上，就要处理
+        if (i >= backbone->g_nodes.list[currentNodeID].outcome_edges.length)
+        {
+            ///2代表是insertion边
+            add_Edge_Graph(backbone, currentNodeID, backboneNodeID, 2);
+        }
+        
+    }
+    
+}
+
+
+inline void add_insertion_to_backbone(Graph* backbone, long long alignNodeID, char* insertion_base, long long insertion_length, 
+long long backbone_start, long long backbone_end)
+{
+    long long i;
+    long long insertion_nodeID;
+    long long backboneID = alignNodeID + 1;
+    char base;
+    
+    for (i = 0; i < insertion_length; i++)
+    {
+        base = insertion_base[i];
+        insertion_nodeID = get_insertion_Node(backbone, alignNodeID, base);
+
+        ///如果已经存在一个insertion节点，那么给insertion节点的权重+1
+        ///注意这里返回的有可能是新加的节点，也有可能返回的是backbone上的节点
+        ///不可能，这里要是返回了backbone上的节点就错了，最后要验证下
+        if (insertion_nodeID != -1)
+        {
+            /**
+            if (insertion_nodeID >= backbone_start && insertion_nodeID <= backbone_end)
+            {
+                fprintf(stderr, "error\n");
+            }
+            **/
+            
+            backbone->g_nodes.list[insertion_nodeID].weight++;
+        }
+        else
+        {
+            insertion_nodeID = add_Node_Graph(backbone, base);
+            ///2代表是insertion边
+            add_Edge_Graph(backbone, alignNodeID, insertion_nodeID, 2);
+        }
+
+        alignNodeID = insertion_nodeID;   
+    }
+
+    ///最后要把节点接回到backbone上去
+    link_insertion_Node(backbone, alignNodeID, backboneID);
+}
+
+
+
+void addmatchedSeqToGraph(Graph* backbone, long long currentNodeID, char* x_string, long long x_length, 
+        char* y_string, long long y_length, CIGAR* cigar, long long backbone_start, long long backbone_end)
+{
+    int x_i, y_i, cigar_i;
+    x_i = 0;
+    y_i = 0;
+    cigar_i = 0;
+    int operation;
+    int operationLen;
+    int i;
+
+    
+    
+
+    ///0 is match, 1 is mismatch, 2 is up, 3 is left
+    ///2是x缺字符（y多字符），而3是y缺字符（x多字符）
+    ///while (x_i < x_len && y_i < y_len && cigar_i < cigar->length)
+    while (cigar_i < cigar->length)
+    {
+        operation = cigar->C_C[cigar_i];
+        operationLen = cigar->C_L[cigar_i];
+
+        ///这种情况代表匹配
+        if (operation == 0)
+        {
+            
+            for (i = 0; i < operationLen; i++)
+            {
+                backbone->g_nodes.list[currentNodeID].weight++;
+
+                x_i++;
+                y_i++;
+                currentNodeID++;
+            }
+        }
+        else if (operation == 1)
+        {
+            add_mismatch_to_backbone(backbone, &currentNodeID, y_string + y_i, operationLen);
+            x_i = x_i + operationLen;
+            y_i = y_i + operationLen;   
+        }
+        else if (operation == 2)
+        {
+            ///记住要传currentNodeID - 1而不是currentNodeID
+            ///cigar的起始和结尾不可能是2，所以这里-1没问题
+            add_insertion_to_backbone(backbone, currentNodeID - 1, y_string + y_i, operationLen, backbone_start, backbone_end);
+            y_i += operationLen;
+        }
+        else if (operation == 3)
+        {
+            ///3是y缺字符（x多字符），也就是backbone多字符
+            ///这个相当于在backbone对应字符处变成了‘——’
+            ///因此可以用mismatch类似的方法处理
+            add_deletion_to_backbone(backbone, &currentNodeID, operationLen);
+            x_i += operationLen;
+        }
+        
+        cigar_i++;
+    }
+
+
+    /**
+    ///cigar的起始和结尾不可能是2
+    if (cigar->C_C[0] == 2 || cigar->C_C[cigar->length - 1] == 2)
+    {
+        fprintf(stderr, "error\n");
+    }
+    
+
+    if (x_i != x_length)
+    {
+        fprintf(stderr, "x_i: %d, x_length: %d\n", x_i, x_length);
+    }
+
+    if (y_i != y_length)
+    {
+        fprintf(stderr, "y_i: %d, y_length: %d\n", y_i, y_length);
+    }
+    **/
+    
+}
+
+void Graph_debug(Graph* backbone, long long currentNodeID, char* x_string, long long x_length, 
+        char* y_string, long long y_length, CIGAR* cigar, long long backbone_start, long long backbone_end)
+{
+    int x_i, y_i, cigar_i;
+    x_i = 0;
+    y_i = 0;
+    cigar_i = 0;
+    int operation;
+    int operationLen;
+    int i;
+
+    
+    
+
+    ///0 is match, 1 is mismatch, 2 is up, 3 is left
+    ///2是x缺字符（y多字符），而3是y缺字符（x多字符）
+    ///while (x_i < x_len && y_i < y_len && cigar_i < cigar->length)
+    while (cigar_i < cigar->length)
+    {
+        operation = cigar->C_C[cigar_i];
+        operationLen = cigar->C_L[cigar_i];
+
+        ///这种情况代表匹配
+        if (operation == 0)
+        {
+            
+            for (i = 0; i < operationLen; i++)
+            {
+                if (backbone->g_nodes.list[currentNodeID].base != y_string[y_i])
+                {
+                    fprintf(stderr, "error match\n");
+                }
+
+                backbone->g_nodes.list[currentNodeID].weight--;
+            
+                x_i++;
+                y_i++;
+                currentNodeID++;
+            }
+        }
+        else if (operation == 1)
+        {
+            for (i = 0; i < operationLen; i++)
+            {
+                if (backbone->g_nodes.list[currentNodeID].base == y_string[y_i])
+                {
+                    fprintf(stderr, "error mismatch 1\n");
+                }
+
+                long long mismatchID = get_alignToNode(backbone, currentNodeID, y_string[y_i]);
+
+
+
+                if(mismatchID == -1)
+                {
+                    fprintf(stderr, "error mismatch 2\n");
+                }
+                else
+                {
+                    backbone->g_nodes.list[mismatchID].weight--;
+                }
+                
+
+                x_i++;
+                y_i++;
+                currentNodeID++;
+            } 
+        }
+        else if (operation == 2)
+        {
+            long long nodeID = currentNodeID - 1;
+            long long mismatchID;
+
+            for (i = 0; i < operationLen; i++)
+            {
+                mismatchID = get_insertion_Node(backbone, nodeID, y_string[y_i]);
+
+                if (mismatchID == -1)
+                {
+                    fprintf(stderr, "error insertion 1, i: %d\n", i);
+                }
+                else
+                {
+                    backbone->g_nodes.list[mismatchID].weight--;
+                }
+
+                nodeID = mismatchID;
+                
+                y_i++;
+            }
+            ///注意这里是x_string[x_i]而不是x_string[currentNodeID]
+            mismatchID = get_insertion_Node(backbone, nodeID, x_string[x_i]);
+            if (mismatchID == -1)
+            {
+                fprintf(stderr, "error insertion 2, i: %d, x_i: %d\n", i, x_i);
+            }
+
+            
+            if (mismatchID != currentNodeID)
+            {
+                fprintf(stderr, "error insertion 3, i: mismatchID: %d, currentNodeID: %d\n", mismatchID, currentNodeID);
+            }
+            
+            
+
+
+        }
+        else if (operation == 3)
+        {
+            for (i = 0; i < operationLen; i++)
+            {
+ 
+                long long mismatchID = get_alignToNode(backbone, currentNodeID, 'D');
+
+                if(mismatchID == -1)
+                {
+                    fprintf(stderr, "error deletion 2\n");
+                }
+                else
+                {
+                    backbone->g_nodes.list[mismatchID].weight--;
+                }
+
+                x_i++;
+                currentNodeID++;
+            } 
+        }
+        
+        cigar_i++;
+    }
+
+
+    if (cigar->C_C[0] == 2 || cigar->C_C[cigar->length - 1] == 2)
+    {
+        fprintf(stderr, "error\n");
+    }
+    
+
+    if (x_i != x_length)
+    {
+        fprintf(stderr, "x_i: %d, x_length: %d\n", x_i, x_length);
+    }
+
+    if (y_i != y_length)
+    {
+        fprintf(stderr, "y_i: %d, y_length: %d\n", y_i, y_length);
+    }
+    
+}
+
+
+
 
 
 void Perform_POA(Graph* g, overlap_region_alloc* overlap_list, All_reads* R_INF, UC_Read* g_read)

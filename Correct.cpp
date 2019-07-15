@@ -194,7 +194,6 @@ inline int get_interval_back(long long window_start, long long window_end, overl
 }
 
 
-
 inline int get_interval(long long window_start, long long window_end, overlap_region_alloc* overlap_list, Correct_dumy* dumy)
 {
     long long i;
@@ -255,6 +254,84 @@ inline int get_interval(long long window_start, long long window_end, overlap_re
     }
 
     if ( dumy->length + dumy->lengthNT == 0)
+    {
+        return 0;
+    }
+    else
+    {
+        return 1;
+    }
+}
+
+
+inline int get_available_interval(long long window_start, long long window_end, overlap_region_alloc* overlap_list, Correct_dumy* dumy)
+{
+    long long i;
+    int flag = 0;
+    long long Begin, End, Len;
+    long long overlap_length;
+
+
+    for (i = dumy->start_i; i < overlap_list->length; i++)
+    {
+        ///只会发生在这个interval比list里所有元素都小的情况
+        ///这种情况下一个interval需要从0开始
+        if (window_end < overlap_list->list[i].x_pos_s)
+        {
+            dumy->start_i = 0;
+            dumy->length = 0;
+            dumy->lengthNT = 0;
+            return 0;
+        }
+        else ///只要window_end >= overlap_list->list[i].x_pos_s，就有可能重叠
+        {
+            dumy->start_i = i;
+            break;
+        }
+    }
+
+    ///只会发生在这个window比list里所有元素都大的情况
+    ///这种情况下一个window也无需遍历了
+    if (i >= overlap_list->length)
+    {
+        dumy->start_i = overlap_list->length;
+        dumy->length = 0;
+        dumy->lengthNT = 0;
+        return -2;
+    }
+    
+    dumy->length = 0;
+    dumy->lengthNT = 0;
+
+
+    
+    long long fake_length = 0;
+
+    for (; i < overlap_list->length; i++)
+    {
+        ///是否重叠   
+        if((Len = OVERLAP(window_start, window_end, overlap_list->list[i].x_pos_s, overlap_list->list[i].x_pos_e)) > 0)
+        {
+            ///重叠数量
+            fake_length++;
+
+            ///重叠是否有效
+            overlap_length = overlap_list->list[i].x_pos_e - overlap_list->list[i].x_pos_s + 1;
+            if (overlap_length * OVERLAP_THRESHOLD <=  overlap_list->list[i].align_length)
+            {
+                dumy->overlapID[dumy->length] = i;
+                dumy->length++; 
+            }
+        }
+        
+        if(overlap_list->list[i].x_pos_s > window_end)
+        {
+            break;
+        }
+    }
+
+    ///fake_length是重叠的数量，而不是有效重叠的数量
+    if (fake_length == 0)
     {
         return 0;
     }
@@ -648,6 +725,7 @@ char* r_string)
         currentID = dumy->overlapID[reverse_i--];
         x_start = MAX(window_start, overlap_list->list[currentID].x_pos_s);
         x_end = MIN(window_end, overlap_list->list[currentID].x_pos_e);
+
         ///这个是和当前窗口重叠的长度
         x_len = x_end - x_start + 1;
         threshold = x_len * THRESHOLD_RATE;
@@ -766,7 +844,7 @@ void debug_stats(overlap_region_alloc* overlap_list, All_reads* R_INF,
     {
         Len_x = overlap_list->list[j].x_pos_e -  overlap_list->list[j].x_pos_s + 1;
 
-        if (Len_x * 0.90 <=  overlap_list->list[j].align_length)
+        if (Len_x * OVERLAP_THRESHOLD <=  overlap_list->list[j].align_length)
         {
             if (overlap_list->list[j].y_pos_strand == 0)
             {
@@ -997,6 +1075,8 @@ int verify_cigar(char* x, int x_len, char* y, int y_len, CIGAR* cigar, int error
     return flag_error;
     
 }
+
+
 
 /**
 ///记住等于0也要重算，虽然意义不那么大就是了
@@ -1255,7 +1335,7 @@ inline void recalcate_window(overlap_region_alloc* overlap_list, All_reads* R_IN
 
 
 
-    /**
+    
     ///j负责遍历整个overlap list
     for (j = 0; j < overlap_list->length; j++)
     {
@@ -1264,7 +1344,7 @@ inline void recalcate_window(overlap_region_alloc* overlap_list, All_reads* R_IN
         y_readLen = Get_READ_LENGTH((*R_INF), y_id);
         overlap_length = overlap_list->list[j].x_pos_e - overlap_list->list[j].x_pos_s + 1;
 
-        ///if (overlap_length * 0.90 <=  overlap_list->list[j].align_length)
+        if (overlap_length * OVERLAP_THRESHOLD <=  overlap_list->list[j].align_length)
         {
             for (i = 0; i < overlap_list->list[j].w_list_length; i++)
             {
@@ -1306,7 +1386,7 @@ inline void recalcate_window(overlap_region_alloc* overlap_list, All_reads* R_IN
             }
         }
     }
-    **/
+    
     
 
 
@@ -1513,9 +1593,505 @@ inline void recalcate_window(overlap_region_alloc* overlap_list, All_reads* R_IN
     
 }
 
+inline void add_base_to_correct_read(Correct_dumy* dumy, char base, int is_error)
+{
+    ///deletion就不要管
+    if (base != 'D')
+    {
+        
+        if (dumy->corrected_read_length + 2 > dumy->corrected_read_size)
+        {
+            dumy->corrected_read_size = dumy->corrected_read_size * 2;
+            dumy->corrected_read = (char*)realloc(dumy->corrected_read, dumy->corrected_read_size);
+        }
+        
+        dumy->corrected_read[dumy->corrected_read_length] = base;
+        dumy->corrected_read_length++;
+        dumy->corrected_read[dumy->corrected_read_length] = '\0';
+    }
+
+    if (is_error)
+    {
+        dumy->corrected_base++;
+    }
+    
+}
+
+
+inline void add_segment_to_correct_read(Correct_dumy* dumy, char* segment, long long segment_length)
+{
+
+    if (dumy->corrected_read_length + segment_length + 2 > dumy->corrected_read_size)
+    {
+        dumy->corrected_read_size = dumy->corrected_read_length + segment_length + 2;
+        dumy->corrected_read = (char*)realloc(dumy->corrected_read, dumy->corrected_read_size);
+    }
+
+    memcpy(dumy->corrected_read + dumy->corrected_read_length, segment, segment_length);
+    dumy->corrected_read_length += segment_length;
+    dumy->corrected_read[dumy->corrected_read_length] = '\0';
+}
+
+///从backbone_start遍历到backbone_end节点，生成出来的seq要接着放到dumy->corrected_read中
+void get_seq_from_Graph(Graph* backbone, long long backbone_start, long long backbone_end, Correct_dumy* dumy)
+{
+    long long new_seq_length = 0;
+    long long currentNodeID;
+    long long i;
+    // 总共有以下几种情况: 
+    // 1. match 2. mismatch (A, C, G, T, N) 3. deletion 4. insertion (A, C, G, T)
+    // 其实就是 1. 自己本身的weight 2. alignToNode的weight 3. insertion节点的weight
+    long long max_count;
+    int max_type;
+    long long  max_node;
+    long long total_count;
+    long long nodeID;
+    char current_base;
+
+    currentNodeID = backbone_start;
+    while (currentNodeID != backbone_end)
+    {
+        total_count = 0;
+        max_count = -1;
+        ///图上能够被遍历到的有两种节点
+        ///1. backbone节点 2. insertion节点
+        ///backbone节点才有match/mismatch/deletion
+        ///insertion这些都没有，就是无脑看出边
+
+        ///假如这是个backbone节点
+        if (currentNodeID >= backbone_start && currentNodeID <= backbone_end)
+        {
+            ///match
+            total_count += backbone->g_nodes.list[currentNodeID].weight;
+            max_count = backbone->g_nodes.list[currentNodeID].weight;
+            max_type = 0;
+            max_node = currentNodeID;
+            ///mismatch和deletion (A, C, G, T, N, D, 除了自己的那个字符)
+            for (i = 0; i < backbone->g_nodes.list[currentNodeID].alignedTo_Nodes.length; i++)
+            {
+                nodeID = backbone->g_nodes.list[currentNodeID].alignedTo_Nodes.list[i].out_node;
+                total_count += backbone->g_nodes.list[nodeID].weight;
+
+                if (backbone->g_nodes.list[nodeID].weight > max_count)
+                {
+                    max_count = backbone->g_nodes.list[nodeID].weight;
+                    max_type = 1;
+                    max_node = nodeID;
+                }
+            }
+            ///insertion (A, C, G, T, N)
+            ///注意这个出边还得避开下一个backbone节点
+            for (i = 0; i < backbone->g_nodes.list[currentNodeID].outcome_edges.length; i++)
+            {
+                if (backbone->g_nodes.list[currentNodeID].outcome_edges.list[i].weight == 2)
+                {
+                    
+                    nodeID = backbone->g_nodes.list[currentNodeID].outcome_edges.list[i].out_node;
+                    total_count += backbone->g_nodes.list[nodeID].weight;
+
+                    if (backbone->g_nodes.list[nodeID].weight > max_count)
+                    {
+                        max_count = backbone->g_nodes.list[nodeID].weight;
+                        max_type = 2;
+                        max_node = nodeID;
+                    }
+
+                    ///拿到的nodeID应该一定不是backbone上的，如果是就错了
+                    if (nodeID >= backbone_start && nodeID <= backbone_end)
+                    {
+                        fprintf(stderr, "error\n");
+                    }
+                    
+                }
+            }
+        }
+        else  ///如果是insertion节点，就无脑看出边
+        {
+            ///insertion (A, C, G, T, N)
+            ///注意这个出边不用避开下一个backbone节点
+            for (i = 0; i < backbone->g_nodes.list[currentNodeID].outcome_edges.length; i++)
+            {
+                if (backbone->g_nodes.list[currentNodeID].outcome_edges.list[i].weight == 2)
+                {
+                    
+                    nodeID = backbone->g_nodes.list[currentNodeID].outcome_edges.list[i].out_node;
+                    total_count += backbone->g_nodes.list[nodeID].weight;
+
+                    if (backbone->g_nodes.list[nodeID].weight > max_count)
+                    {
+                        max_count = backbone->g_nodes.list[nodeID].weight;
+                        max_type = 2;
+                        max_node = nodeID;
+                    }
+                    
+                }
+                else  ///如果边不是2就不对了
+                {
+                    fprintf(stderr, "error\n");
+                }
+                
+            }
+        }
+        
+        
+
+
+
+
+
+        if(max_count >= total_count*CORRECT_THRESHOLD)
+        {
+            current_base = backbone->g_nodes.list[max_node].base;
+            ///说明是insertion
+            if (max_type == 2)
+            {
+                currentNodeID = max_node;
+            }
+            else ///其他情况依然沿着backbone向前
+            {
+                currentNodeID++;
+            }
+        }
+        else
+        {
+            ///假如这是个backbone节点, 不矫正
+            if (currentNodeID >= backbone_start && currentNodeID <= backbone_end)
+            {
+                current_base = backbone->g_nodes.list[currentNodeID].base;
+                currentNodeID++;
+            }
+            else///如果在insertion节点上不达标很麻烦...,只能选最大的了
+            {
+                current_base = backbone->g_nodes.list[max_node].base;
+                ///说明是insertion
+                if (max_type == 2)
+                {
+                    currentNodeID = max_node;
+                }
+                else ///insertion节点不可能出现这种情况
+                {
+                    fprintf(stderr, "error\n");
+                }
+            }
+        }
+
+
+        if (max_count <= 0)
+        {
+            fprintf(stderr, "error\n");
+        }
+
+
+        add_base_to_correct_read(dumy, current_base, max_type);
+        
+    }
+
+
+
+    
+    ///最后还要处理backbone_end这个节点
+    total_count = 0;
+    max_count = -1;
+    ///这个节点肯定是backbone上的节点啊
+    ///match
+    total_count += backbone->g_nodes.list[currentNodeID].weight;
+    max_count = backbone->g_nodes.list[currentNodeID].weight;
+    max_type = 0;
+    max_node = currentNodeID;
+    ///mismatch和deletion (A, C, G, T, N, D, 除了自己的那个字符)
+    for (i = 0; i < backbone->g_nodes.list[currentNodeID].alignedTo_Nodes.length; i++)
+    {
+        nodeID = backbone->g_nodes.list[currentNodeID].alignedTo_Nodes.list[i].out_node;
+        total_count += backbone->g_nodes.list[nodeID].weight;
+
+        if (backbone->g_nodes.list[nodeID].weight > max_count)
+        {
+            max_count = backbone->g_nodes.list[nodeID].weight;
+            max_type = 1;
+            max_node = nodeID;
+        }
+    }
+    ///这个节点不应该有任何出边了
+    if(backbone->g_nodes.list[currentNodeID].outcome_edges.length)
+    {
+        fprintf(stderr, "haha\n");
+    }
+
+
+    if(max_count >= total_count*CORRECT_THRESHOLD)
+    {
+        current_base = backbone->g_nodes.list[max_node].base;
+    }
+    else
+    {
+        current_base = backbone->g_nodes.list[currentNodeID].base;
+    }
+
+
+    if (max_count <= 0)
+    {
+        fprintf(stderr, "error\n");
+    }
+    
+    add_base_to_correct_read(dumy, current_base, max_type);
+    
+}
+
+
+
+void window_consensus(char* r_string, long long window_start, long long window_end, 
+overlap_region_alloc* overlap_list, Correct_dumy* dumy, All_reads* R_INF, Graph* g)
+{
+    clear_Graph(g);
+
+    long long x_start;
+    long long x_length; 
+    char* x_string;
+    char* y_string;
+    char* backbone;
+    long long backbone_length;
+    long long i;
+    long long y_start, y_length;
+    long long overlapID, windowID;
+    long long startNodeID, endNodeID, currentNodeID;
+
+    ///这个和前面算alignment还不一样
+    ///那个时候x_start和x_end是当前窗口内的overlap的起始和结束位置
+    ///这个window就是要做consensus啊，所以起始和结束就是window本身，固定的
+    backbone = r_string + window_start;
+    backbone_length = window_end - window_start + 1;
+
+    addUnmatchedSeqToGraph(g, backbone, backbone_length, &startNodeID, &endNodeID);
+
+    
+    long long correct_x_pos_s;
+    ///与当前window重叠的所有overlap
+    for (i = 0; i < dumy->length; i++)
+    {
+        ///这个是那个overlap的ID，而不是overlap里对应窗口的ID
+        overlapID = dumy->overlapID[i];
+
+        correct_x_pos_s = (overlap_list->list[overlapID].x_pos_s / WINDOW) * WINDOW;
+        windowID = (window_start - correct_x_pos_s) / WINDOW;
+
+        ///如果这个window不匹配，跳过
+        if (overlap_list->list[overlapID].w_list[windowID].y_end == -1)
+        {
+            continue;
+        }
+        
+
+        x_start = overlap_list->list[overlapID].w_list[windowID].x_start;
+        x_length = overlap_list->list[overlapID].w_list[windowID].x_end 
+                - overlap_list->list[overlapID].w_list[windowID].x_start + 1;
+
+        y_start = overlap_list->list[overlapID].w_list[windowID].y_start;
+        y_length = overlap_list->list[overlapID].w_list[windowID].y_end
+                - overlap_list->list[overlapID].w_list[windowID].y_start + 1;
+
+        recover_UC_Read_sub_region(dumy->overlap_region, y_start, y_length, overlap_list->list[overlapID].y_pos_strand, 
+                R_INF, overlap_list->list[overlapID].y_id);
+
+        x_string = r_string + x_start;
+        y_string = dumy->overlap_region;
+        ///这个是比对上的起始base在backbone上对应的位置，也就是节点ID
+        currentNodeID = x_start - window_start;
+        ///这个是要用的cigar: overlap_list->list[overlapID].w_list[windowID].cigar;
+
+        addmatchedSeqToGraph(g, currentNodeID, x_string, x_length, 
+                    y_string, y_length, &(overlap_list->list[overlapID].w_list[windowID].cigar), startNodeID, endNodeID);
+    }
+
+
+    get_seq_from_Graph(g, startNodeID, endNodeID, dumy);
+
+
+    /**
+    if (startNodeID != 0 || endNodeID != backbone_length - 1)
+    {
+        fprintf(stderr, "error\n");
+    }
+    
+
+    for (i = startNodeID; i <= backbone_length; i++)
+    {
+        if(g->g_nodes.list[i].alignedTo_Nodes.length > 5)
+        {
+            fprintf(stderr, "error 1\n");
+        }
+
+        if(g->g_nodes.list[i].outcome_edges.length > 4)
+        {
+            fprintf(stderr, "error 2\n");
+        }
+    }
+
+    
+    for (i = 0; i < dumy->length; i++)
+    {
+        ///这个是那个overlap的ID，而不是overlap里对应窗口的ID
+        overlapID = dumy->overlapID[i];
+
+        correct_x_pos_s = (overlap_list->list[overlapID].x_pos_s / WINDOW) * WINDOW;
+        windowID = (window_start - correct_x_pos_s) / WINDOW;
+
+        ///如果这个window不匹配，跳过
+        if (overlap_list->list[overlapID].w_list[windowID].y_end == -1)
+        {
+            continue;
+        }
+        
+
+        x_start = overlap_list->list[overlapID].w_list[windowID].x_start;
+        x_length = overlap_list->list[overlapID].w_list[windowID].x_end 
+                - overlap_list->list[overlapID].w_list[windowID].x_start + 1;
+
+        y_start = overlap_list->list[overlapID].w_list[windowID].y_start;
+        y_length = overlap_list->list[overlapID].w_list[windowID].y_end
+                - overlap_list->list[overlapID].w_list[windowID].y_start + 1;
+
+        recover_UC_Read_sub_region(dumy->overlap_region, y_start, y_length, overlap_list->list[overlapID].y_pos_strand, 
+                R_INF, overlap_list->list[overlapID].y_id);
+
+        x_string = r_string + x_start;
+        y_string = dumy->overlap_region;
+        ///这个是比对上的起始base在backbone上对应的位置，也就是节点ID
+        currentNodeID = x_start - window_start;
+        ///这个是要用的cigar: overlap_list->list[overlapID].w_list[windowID].cigar;
+
+        Graph_debug(g, currentNodeID, x_string, x_length, 
+                    y_string, y_length, &(overlap_list->list[overlapID].w_list[windowID].cigar), startNodeID, endNodeID);
+    }
+
+    for (i = 0; i < g->g_nodes.length; i++)
+    {
+        if (i >= startNodeID && i <= endNodeID)
+        {
+            if (g->g_nodes.list[i].weight != 1)
+            {
+                fprintf(stderr, "error 1\n");
+            }
+        }
+        else
+        {
+            if (g->g_nodes.list[i].weight != 0)
+            {
+                fprintf(stderr, "error 2\n");
+            }
+
+            if (g->g_nodes.list[i].alignedTo_Nodes.length != 0)
+            {
+                fprintf(stderr, "error 3\n");
+            }
+
+            ///节点入边不为0，说明这个不是alignTO节点，而是insert节点
+            if (g->g_nodes.list[i].income_edges.length != 0 && g->g_nodes.list[i].outcome_edges.length != 0)
+            {
+                fprintf(stderr, "error 4\n");
+            }
+        }
+    }
+    **/
+    
+    
+
+
+}
+
+
+void generate_consensus(overlap_region_alloc* overlap_list, All_reads* R_INF, 
+                        UC_Read* g_read, Correct_dumy* dumy, Graph* g)
+{
+
+    long long window_num = (g_read->length + WINDOW - 1) / WINDOW;
+    long long i, j, overlap_length;
+    long long window_start, window_end;
+
+    long long num_availiable_win = 0;
+    
+
+    window_start = 0;
+    window_end = WINDOW - 1;
+    if (window_end >= g_read->length)
+    {
+        window_end = g_read->length - 1;
+    }
+    int flag;
+    for (i = 0; i < window_num; i++)
+    {
+        dumy->length = 0;
+        dumy->lengthNT = 0;
+        ///flag返回的是重叠数量
+        ///dumy->length返回的是有效完全重叠的数量
+        ///dumy->lengthNT返回的是有效不完全重叠的数量
+        flag = get_available_interval(window_start, window_end, overlap_list, dumy);
+        switch (flag)
+        {
+            case 1:    ///找到匹配
+                break;
+            case 0:    ///没找到匹配
+                break;
+            case -2: ///下一个window也不会存在匹配, 直接跳出
+                i = window_num;
+                break;
+        }
+
+
+        ///这个是available overlap里所有window的数量...
+        ///num_availiable_win = num_availiable_win + dumy->length + dumy->lengthNT;
+        num_availiable_win = num_availiable_win + dumy->length;
+
+        ///重叠窗口数，也就是coverage大小
+        if(dumy->length >= MIN_COVERAGE_THRESHOLD)
+        {
+            window_consensus(g_read->seq, window_start, window_end, overlap_list, dumy, R_INF, g);
+        }
+        else
+        {
+            add_segment_to_correct_read(dumy, g_read->seq + window_start, window_end - window_start + 1);
+        }
+        
+        window_start = window_start + WINDOW;
+        window_end = window_end + WINDOW;
+        if (window_end >= g_read->length)
+        {
+            window_end = g_read->length - 1;
+        }
+        
+    }
+
+    if (window_start < g_read->length)
+    {
+        add_segment_to_correct_read(dumy, g_read->seq + window_start, g_read->length - window_start);
+    }
+    
+
+
+
+
+
+    /***********************要注释掉*************************/
+    // long long debug_num_availiable_win = 0;
+    // for (j = 0; j < overlap_list->length; j++)
+    // {
+    //     overlap_length = overlap_list->list[j].x_pos_e - overlap_list->list[j].x_pos_s + 1;
+
+    //     if (overlap_length * OVERLAP_THRESHOLD <=  overlap_list->list[j].align_length)
+    //     {
+    //         debug_num_availiable_win = debug_num_availiable_win + overlap_list->list[j].w_list_length;
+    //     }
+    // }
+
+    // if (debug_num_availiable_win != num_availiable_win)
+    // {
+    //     fprintf(stderr, "error, debug_num_availiable_win: %d, num_availiable_win: %d\n",
+    //     debug_num_availiable_win, num_availiable_win);
+    // }
+    /***********************要注释掉*************************/
+}
 
 void correct_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF, 
-                        UC_Read* g_read, Correct_dumy* dumy, UC_Read* overlap_read, 
+                        UC_Read* g_read, Correct_dumy* dumy, UC_Read* overlap_read, Graph* g,
                         long long* matched_overlap_0, long long* matched_overlap_1, 
                         long long* potiental_matched_overlap_0, long long* potiental_matched_overlap_1)
 {
@@ -1531,6 +2107,11 @@ void correct_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF,
 
     window_start = 0;
     window_end = WINDOW - 1;
+    if (window_end >= g_read->length)
+    {
+        window_end = g_read->length - 1;
+    }
+
     int flag;
 
     for (i = 0; i < window_num; i++)
@@ -1574,7 +2155,45 @@ void correct_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF,
     recalcate_window(overlap_list, R_INF, g_read, dumy, overlap_read);
     
     debug_stats(overlap_list, R_INF, g_read, dumy, overlap_read, matched_overlap_0, matched_overlap_1);
+
+
+    generate_consensus(overlap_list, R_INF, g_read, dumy, g);
+
+
+    ///fprintf(stderr, "length: %lld, corrected_base: %lld\n", g_read->length, dumy->corrected_base);
+    /**
+    EdlibAlignResult result = edlibAlign(g_read->seq, g_read->length, dumy->corrected_read, dumy->corrected_read_length, 
+            edlibNewAlignConfig(-1, EDLIB_MODE_NW, EDLIB_TASK_PATH, NULL, 0));
+
+    if (result.status == EDLIB_STATUS_OK) {
+        if (dumy->corrected_base == 0 && result.editDistance!= 0)
+        {
+            fprintf(stderr, "error 0\n");
+        }
+
+
+        if (dumy->corrected_base < result.editDistance)
+        {
+            fprintf(stderr, "error 1\n");
+        }
+        
     
+        // fprintf(stderr, "****\n distance: %d, alignmentLength: %d, startLocations: %d, endLocations: %d, corrected_base: %d\n", 
+        // result.editDistance, result.alignmentLength, result.startLocations[0], result.endLocations[0], dumy->corrected_base);
+        
+        
+        // char* cigar = edlibAlignmentToCigar(result.alignment, result.alignmentLength, EDLIB_CIGAR_STANDARD);
+        // fprintf(stderr,"%s\n", cigar);
+        // free(cigar);
+        
+    }
+    else
+    {
+        fprintf(stderr, "error\n");
+    }
+    
+    edlibFreeAlignResult(result);
+    **/
     
     /************需要注释掉********* */
     // pthread_mutex_lock(&debug_statistics);
@@ -1599,11 +2218,19 @@ void init_Correct_dumy(Correct_dumy* list)
 	{
 		list->Peq_SSE[i] = _mm_setzero_si128();
 	}
+
+
+    list->corrected_read_size = 1000;
+    list->corrected_read_length = 0;
+    list->corrected_read = (char*)malloc(sizeof(char)*list->corrected_read_size);
+    list->corrected_base = 0;
+
 }
 
 void destory_Correct_dumy(Correct_dumy* list)
 {
     free(list->overlapID);
+    free(list->corrected_read);
 }
 
 void clear_Correct_dumy(Correct_dumy* list, overlap_region_alloc* overlap_list)
@@ -1617,6 +2244,9 @@ void clear_Correct_dumy(Correct_dumy* list, overlap_region_alloc* overlap_list)
         list->size = overlap_list->length;
         list->overlapID = (uint64_t*)realloc(list->overlapID, list->size*sizeof(uint64_t));
     }
+
+    list->corrected_read_length = 0;
+    list->corrected_base = 0;
     
 }
 

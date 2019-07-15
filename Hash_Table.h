@@ -17,10 +17,12 @@ typedef khash_t(POS64) Pos_Table;
 ///#define THRESHOLD  14
 #define WINDOW 375
 #define THRESHOLD  15
+///#define THRESHOLD_RATE 0.04
 #define THRESHOLD_RATE 0.04
 #define GROUP_SIZE 4
 ///最长是10M10D10M10D10M这种
 #define CIGAR_MAX_LENGTH THRESHOLD*2+2
+#define OVERLAP_THRESHOLD 0.9
 
 typedef struct
 {
