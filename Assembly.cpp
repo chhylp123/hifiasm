@@ -8,6 +8,7 @@
 #include "Hash_Table.h"
 #include "POA.h"
 #include "Correct.h"
+#include "Output.h"
 
 Total_Count_Table TCB;
 Total_Pos_Table PCB;
@@ -18,6 +19,9 @@ long long total_matched_overlap_0 = 0;
 long long total_matched_overlap_1 = 0;
 long long total_potiental_matched_overlap_0 = 0;
 long long total_potiental_matched_overlap_1 = 0;
+long long total_num_read_base = 0;
+long long total_num_correct_base = 0;
+
 
 long long complete_threads = 0;
 
@@ -682,6 +686,37 @@ void* Overlap_calculate(void* arg)
     destory_k_mer_pos_list_alloc(&array_list);
 }
 
+inline void output_read_to_buffer(long long readID, All_reads* R_INF, char* corrected_read, long long correct_read_length,
+Output_buffer_sub_block* current_sub_buffer)
+{
+    /**
+    if (seq->name.l
+            != Get_NAME_LENGTH(R_INF, read_number))
+        {
+            fprintf(stderr, "name error\n");
+        }
+
+
+         if(memcmp(seq->name.s, Get_NAME(R_INF, read_number), seq->name.l))
+        {
+            fprintf(stderr, "name error\n");
+        }
+        **/
+
+
+    ///先清空
+    current_sub_buffer->length = 0;
+    
+    ///一个是>一个是\n
+    add_base_to_sub_buffer(current_sub_buffer, '>');
+    add_segment_to_sub_buffer(current_sub_buffer, Get_NAME((*R_INF), readID), Get_NAME_LENGTH((*R_INF), readID));
+    add_base_to_sub_buffer(current_sub_buffer, '\n');
+    add_segment_to_sub_buffer(current_sub_buffer, corrected_read, correct_read_length);
+    add_base_to_sub_buffer(current_sub_buffer, '\n');
+    push_results_to_buffer(current_sub_buffer);
+    
+}
+
 
 void* Overlap_calculate_heap_merge(void* arg)
 {
@@ -694,6 +729,8 @@ void* Overlap_calculate_heap_merge(void* arg)
     long long matched_overlap_1 = 0;
     long long potiental_matched_overlap_0 = 0;
     long long potiental_matched_overlap_1 = 0;
+    long long num_read_base = 0;
+    long long num_correct_base = 0;
     long long j;
 
     int thr_ID = *((int*)arg);
@@ -739,10 +776,14 @@ void* Overlap_calculate_heap_merge(void* arg)
     Correct_dumy correct;
     init_Correct_dumy(&correct);
 
+
+    Output_buffer_sub_block current_sub_buffer;
+
+    init_buffer_sub_block(&current_sub_buffer);
+
     for (i = thr_ID; i < R_INF.total_reads; i = i + thread_num)
     {
         
-
         clear_Heap(&heap);
         clear_Candidates_list(&l);
         ///clear_Candidates_list(&debug_l);
@@ -875,10 +916,17 @@ void* Overlap_calculate_heap_merge(void* arg)
        ///以x_pos_e，即结束位置为主元排序
        calculate_overlap_region(&l, &overlap_list, i, g_read.length, &R_INF);
 
+       ///clear_Graph(&POA_Graph);
 
-       correct_overlap(&overlap_list, &R_INF, &g_read, &correct, &overlap_read,
+       correct_overlap(&overlap_list, &R_INF, &g_read, &correct, &overlap_read, &POA_Graph,
        &matched_overlap_0, &matched_overlap_1, &potiental_matched_overlap_0, &potiental_matched_overlap_1);
       
+        num_read_base = num_read_base + g_read.length;
+        num_correct_base = num_correct_base + correct.corrected_base;
+
+        output_read_to_buffer(i, &R_INF, correct.corrected_read, correct.corrected_read_length, &current_sub_buffer);
+        ///output_read_to_buffer(i, &R_INF, g_read.seq, g_read.length, &current_sub_buffer);
+
         
         /**
         POA_i = 0;
@@ -963,7 +1011,9 @@ void* Overlap_calculate_heap_merge(void* arg)
     // fprintf(stderr, "filtered_debug_overlap: %llu\n", filtered_debug_overlap);
     /************需要注释掉**********/
 
-    
+    finish_output_buffer();
+
+    destory_buffer_sub_block(&current_sub_buffer);
     
         
 
@@ -992,6 +1042,9 @@ void* Overlap_calculate_heap_merge(void* arg)
     total_matched_overlap_1 += matched_overlap_1;
     total_potiental_matched_overlap_0 += potiental_matched_overlap_0;
     total_potiental_matched_overlap_1 += potiental_matched_overlap_1;
+    total_num_read_base += num_read_base;
+    total_num_correct_base += num_correct_base;
+
     complete_threads++;
     if(complete_threads == thread_num)
     {
@@ -999,6 +1052,8 @@ void* Overlap_calculate_heap_merge(void* arg)
         fprintf(stderr, "total_matched_overlap_1: %llu\n", total_matched_overlap_1);
         fprintf(stderr, "total_potiental_matched_overlap_0: %llu\n", total_potiental_matched_overlap_0);
         fprintf(stderr, "total_potiental_matched_overlap_1: %llu\n", total_potiental_matched_overlap_1);
+        fprintf(stderr, "total_num_read_base: %llu\n", total_num_read_base);
+        fprintf(stderr, "total_num_correct_base: %llu\n", total_num_correct_base);
     }
 	pthread_mutex_unlock(&statistics);
 }
@@ -1013,6 +1068,14 @@ void* Overlap_calculate_heap_merge(void* arg)
 void Overlap_calculate_multipe_thr()
 {
     double start_time = Get_T();
+
+    init_output_buffer(thread_num);
+
+    pthread_t outputResultSinkHandle;
+
+    pthread_create(&outputResultSinkHandle, NULL, pop_buffer, NULL);
+
+
 
     fprintf(stdout, "R_INF.total_reads: %llu\n", R_INF.total_reads);
 
@@ -1039,7 +1102,11 @@ void Overlap_calculate_multipe_thr()
     for (i = 0; i<thread_num; i++)
 		pthread_join(_r_threads[i], NULL);
 
+    pthread_join(outputResultSinkHandle, NULL);
+
     free(_r_threads);
+
+    destory_output_buffer();
 
     
 

@@ -3,7 +3,10 @@
 #include <stdint.h>
 #include "Hash_Table.h"
 #include "Levenshtein_distance.h"
+#include "POA.h"
 
+#define CORRECT_THRESHOLD 0.6
+#define MIN_COVERAGE_THRESHOLD 4
 
 
 
@@ -14,6 +17,11 @@
 
 typedef struct
 {
+    char* corrected_read;
+    long long corrected_read_length;
+    long long corrected_read_size;
+    long long corrected_base;
+
     uint64_t* overlapID;
     uint64_t length;
     uint64_t lengthNT;
@@ -29,7 +37,7 @@ typedef struct
 
 
 void correct_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF, 
-                        UC_Read* g_read, Correct_dumy* dumy, UC_Read* overlap_read, 
+                        UC_Read* g_read, Correct_dumy* dumy, UC_Read* overlap_read, Graph* g,
                         long long* matched_overlap_0, long long* matched_overlap_1, 
                         long long* potiental_matched_overlap_0, long long* potiental_matched_overlap_1);
 void init_Correct_dumy(Correct_dumy* list);
