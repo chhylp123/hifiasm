@@ -3,6 +3,9 @@
     "files.associations": {
         "limits": "cpp",
         "random": "cpp",
-        "functional": "cpp"
+        "functional": "cpp",
+        "deque": "cpp",
+        "vector": "cpp",
+        "initializer_list": "cpp"
     }
 }
