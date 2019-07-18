@@ -783,6 +783,8 @@ void* Overlap_calculate_heap_merge(void* arg)
 
     for (i = thr_ID; i < R_INF.total_reads; i = i + thread_num)
     {
+
+        
         
         clear_Heap(&heap);
         clear_Candidates_list(&l);
