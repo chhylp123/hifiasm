@@ -1593,6 +1593,22 @@ inline void recalcate_window(overlap_region_alloc* overlap_list, All_reads* R_IN
     
 }
 
+
+inline void add_base_to_correct_read_directly(Correct_dumy* dumy, char base)
+{
+  
+    if (dumy->corrected_read_length + 2 > dumy->corrected_read_size)
+    {
+        dumy->corrected_read_size = dumy->corrected_read_size * 2;
+        dumy->corrected_read = (char*)realloc(dumy->corrected_read, dumy->corrected_read_size);
+    }
+    
+    dumy->corrected_read[dumy->corrected_read_length] = base;
+    dumy->corrected_read_length++;
+    dumy->corrected_read[dumy->corrected_read_length] = '\0';
+
+}
+
 inline void add_base_to_correct_read(Correct_dumy* dumy, char base, int is_error)
 {
     ///deletion就不要管
@@ -1632,6 +1648,223 @@ inline void add_segment_to_correct_read(Correct_dumy* dumy, char* segment, long 
     dumy->corrected_read[dumy->corrected_read_length] = '\0';
 }
 
+
+
+
+
+///返回下一个backbone节点上的ID
+long long inline add_path_to_correct_read(Graph* backbone, Correct_dumy* dumy, long long currentNodeID, 
+long long type, long long edgeID)
+{
+    //long long i;
+    long long nodeID;
+
+    ///包括匹配和误配两种情况
+    if (type == MISMATCH)
+    {
+        ///这是match的情况
+        if(backbone->g_nodes.list[currentNodeID].mismatch_edges.list[edgeID].length == 0)
+        {
+            nodeID = backbone->g_nodes.list[currentNodeID].mismatch_edges.list[edgeID].out_node;
+            add_base_to_correct_read_directly(dumy, backbone->g_nodes.list[nodeID].base);
+            ///match所以dumy->corrected_base不要+1
+
+            /***********需要注释掉********* */
+            if (nodeID != currentNodeID + 1)
+            {
+                fprintf(stderr, "error match\n");
+            }
+            /***********需要注释掉********* */
+
+            return nodeID;
+        }
+        else ///这是mismatch的情况
+        {
+            nodeID = backbone->g_nodes.list[currentNodeID].mismatch_edges.list[edgeID].out_node;
+            add_base_to_correct_read_directly(dumy, backbone->g_nodes.list[nodeID].base);
+            dumy->corrected_base++;
+
+            ///这种中间节点只有一个元素，所以直接list[0]
+            nodeID = backbone->g_nodes.list[nodeID].mismatch_edges.list[0].out_node;
+            /***********需要注释掉********* */
+            if (nodeID != currentNodeID + 1)
+            {
+                fprintf(stderr, "error mismatch\n");
+            }
+            /***********需要注释掉********* */
+
+            return nodeID;
+        }
+    }
+    else if (type == DELETION)
+    {
+        nodeID = backbone->g_nodes.list[currentNodeID].deletion_edges.list[edgeID].out_node;
+
+        /***********需要注释掉********* */
+        if (!(nodeID >= backbone->s_start_nodeID && nodeID <= backbone->s_end_nodeID))
+        {
+            fprintf(stderr, "error deletion 1\n");
+        }
+        if (nodeID <= currentNodeID)
+        {
+            fprintf(stderr, "error deletion 2\n");
+        }
+        
+        /***********需要注释掉********* */
+        dumy->corrected_base += nodeID - currentNodeID;
+        return nodeID;
+    }
+    else if (type == INSERTION)
+    {
+        ///这个一定要变成0
+        backbone->g_nodes.list[currentNodeID].num_insertions = 0;
+
+        nodeID = backbone->g_nodes.list[currentNodeID].insertion_edges.list[edgeID].out_node;
+        long long step = backbone->g_nodes.list[currentNodeID].insertion_edges.list[edgeID].length;
+        long long i;
+        for (i = 0; i < step; i++)
+        {
+            add_base_to_correct_read_directly(dumy, backbone->g_nodes.list[nodeID].base);
+            ///只有一条边
+            nodeID = backbone->g_nodes.list[nodeID].insertion_edges.list[0].out_node;
+        }
+        dumy->corrected_base += step;
+
+        /***********需要注释掉********* */
+        if (nodeID != currentNodeID)
+        {
+            fprintf(stderr, "error insertion\n");
+        }
+        /***********需要注释掉********* */
+        return nodeID;
+    }
+    else
+    {
+        fprintf(stderr, "error type\n");
+    }
+    
+}
+
+void get_seq_from_Graph(Graph* backbone, Correct_dumy* dumy)
+{
+    long long new_seq_length = 0;
+    long long currentNodeID;
+    long long i;
+    // 总共有以下几种情况: 
+    // 1. match 2. mismatch (A, C, G, T, N) 3. deletion 4. insertion (A, C, G, T)
+    // 其实就是 1. 自己本身的weight 2. alignToNode的weight 3. insertion节点的weight
+    long long max_count;
+    int max_type;
+    long long  max_edge;
+    long long total_count;
+    long long nodeID;
+    char current_base;
+    long long current_weight;
+
+    currentNodeID = backbone->s_start_nodeID;
+
+    while (currentNodeID != backbone->s_end_nodeID)
+    {
+        total_count = 0;
+        max_count = -1;
+        max_type = -1;
+        max_edge = -1;
+
+
+        ///假如这是个backbone节点
+        ///有三类出边
+        ///1. mismatch_edges 2. insertion_edges 3. deletion_edges
+        if (currentNodeID >= backbone->s_start_nodeID && currentNodeID <= backbone->s_end_nodeID)
+        {
+
+            ///mismatch_edges
+            for (i = 0; i < backbone->g_nodes.list[currentNodeID].mismatch_edges.length; i++)
+            {
+                if (backbone->g_nodes.list[currentNodeID].num_insertions != 0)
+                {
+                    current_weight = backbone->g_nodes.list[currentNodeID].mismatch_edges.list[i].weight -
+                        backbone->g_nodes.list[currentNodeID].mismatch_edges.list[i].num_insertions;
+                }
+                else
+                {
+                    current_weight = backbone->g_nodes.list[currentNodeID].mismatch_edges.list[i].weight;
+                }
+                
+                
+                total_count = total_count + current_weight;
+
+                ///match
+                ///match要处理插入的情况
+                ///如果这里有insertion, 这个节点会过两遍
+                ///第一遍num_insertions > 0, 第二遍num_insertions=0
+                if (current_weight > max_count)
+                {
+                    max_count = current_weight;
+                    max_edge = i;
+                    max_type = MISMATCH;
+                }
+            }
+
+            ///insertion_edges
+            if (backbone->g_nodes.list[currentNodeID].num_insertions != 0)
+            {
+                for (i = 0; i < backbone->g_nodes.list[currentNodeID].insertion_edges.length; i++)
+                {
+                    total_count = total_count + backbone->g_nodes.list[currentNodeID].insertion_edges.list[i].weight;
+
+                    if (backbone->g_nodes.list[currentNodeID].insertion_edges.list[i].weight > max_count)
+                    {
+                        max_count = backbone->g_nodes.list[currentNodeID].insertion_edges.list[i].weight;
+                        max_edge = i;
+                        max_type = INSERTION;
+                    }
+                }
+            }
+            
+            
+
+            ///deletion_edges
+            for (i = 0; i < backbone->g_nodes.list[currentNodeID].deletion_edges.length; i++)
+            {
+                total_count = total_count + backbone->g_nodes.list[currentNodeID].deletion_edges.list[i].weight;
+
+                if (backbone->g_nodes.list[currentNodeID].deletion_edges.list[i].weight > max_count)
+                {
+                    max_count = backbone->g_nodes.list[currentNodeID].deletion_edges.list[i].weight;
+                    max_edge = i;
+                    max_type = DELETION;
+                }
+            }
+            
+            ///这种情况下矫正
+            if(max_count >= total_count*CORRECT_THRESHOLD)
+            {
+                currentNodeID = add_path_to_correct_read(backbone, dumy, currentNodeID, max_type, max_edge);
+            }
+            else  ///不矫正, 直接取下一个backbone节点
+            {
+                currentNodeID++;
+                add_base_to_correct_read_directly(dumy, backbone->g_nodes.list[currentNodeID].base);
+            }
+            
+
+            ///fprintf(stderr, "currentNodeID: %d, max_type: %d\n", currentNodeID, max_type);
+
+
+        }
+        else  ///非backbone节点就会出错了
+        {
+            fprintf(stderr, "error\n");
+        }
+        
+    }
+
+}
+
+
+
+
+/**
 ///从backbone_start遍历到backbone_end节点，生成出来的seq要接着放到dumy->corrected_read中
 void get_seq_from_Graph(Graph* backbone, long long backbone_start, long long backbone_end, Correct_dumy* dumy)
 {
@@ -1836,7 +2069,230 @@ void get_seq_from_Graph(Graph* backbone, long long backbone_start, long long bac
     add_base_to_correct_read(dumy, current_base, max_type);
     
 }
+**/
 
+
+
+
+
+
+
+
+
+
+/**
+///从backbone_start遍历到backbone_end节点，生成出来的seq要接着放到dumy->corrected_read中
+void get_seq_from_Graph_Len2(Graph* backbone, long long backbone_start, long long backbone_end, Correct_dumy* dumy)
+{
+    long long new_seq_length = 0;
+    long long currentNodeID;
+    long long i;
+    // 总共有以下几种情况: 
+    // 1. match 2. mismatch (A, C, G, T, N) 3. deletion 4. insertion (A, C, G, T)
+    // 其实就是 1. 自己本身的weight 2. alignToNode的weight 3. insertion节点的weight
+    long long max_count;
+    int max_type;
+    long long  max_node;
+    long long total_count;
+    long long nodeID;
+    char current_base;
+    char buffer[2];
+
+    currentNodeID = backbone_start;
+    while (currentNodeID != backbone_end)
+    {
+        total_count = 0;
+        max_count = -1;
+        ///图上能够被遍历到的有两种节点
+        ///1. backbone节点 2. insertion节点
+        ///backbone节点才有match/mismatch/deletion
+        ///insertion这些都没有，就是无脑看出边
+
+        ///假如这是个backbone节点
+        if (currentNodeID >= backbone_start && currentNodeID <= backbone_end)
+        {
+            ///match
+            total_count += backbone->g_nodes.list[currentNodeID].weight;
+            max_count = backbone->g_nodes.list[currentNodeID].weight;
+            max_type = 0;
+            max_node = currentNodeID;
+            ///mismatch和deletion (A, C, G, T, N, D, 除了自己的那个字符)
+            for (i = 0; i < backbone->g_nodes.list[currentNodeID].alignedTo_Nodes.length; i++)
+            {
+                nodeID = backbone->g_nodes.list[currentNodeID].alignedTo_Nodes.list[i].out_node;
+                total_count += backbone->g_nodes.list[nodeID].weight;
+
+                if (backbone->g_nodes.list[nodeID].weight > max_count)
+                {
+                    max_count = backbone->g_nodes.list[nodeID].weight;
+                    max_type = 1;
+                    max_node = nodeID;
+                }
+            }
+            ///insertion (A, C, G, T, N)
+            ///注意这个出边还得避开下一个backbone节点
+            for (i = 0; i < backbone->g_nodes.list[currentNodeID].outcome_edges.length; i++)
+            {
+                if (backbone->g_nodes.list[currentNodeID].outcome_edges.list[i].weight == 2)
+                {
+                    ///fprintf(stderr, "error\n");
+                    nodeID = backbone->g_nodes.list[currentNodeID].outcome_edges.list[i].out_node;
+                    total_count += backbone->g_nodes.list[nodeID].weight;
+
+                    if (backbone->g_nodes.list[nodeID].weight > max_count)
+                    {
+                        max_count = backbone->g_nodes.list[nodeID].weight;
+                        max_type = 2;
+                        max_node = nodeID;
+                    }
+
+                    ///拿到的nodeID应该一定不是backbone上的，如果是就错了
+                    if (nodeID >= backbone_start && nodeID <= backbone_end)
+                    {
+                        fprintf(stderr, "error\n");
+                    }
+                    
+                }
+            }
+        }
+        else  ///如果是insertion节点，就无脑看出边
+        {
+            if (backbone->g_nodes.list[currentNodeID].outcome_edges.length!=1)
+            {
+                fprintf(stderr, "error000\n");
+            }
+            
+            ///insertion (A, C, G, T, N)
+            ///注意这个出边不用避开下一个backbone节点
+            for (i = 0; i < backbone->g_nodes.list[currentNodeID].outcome_edges.length; i++)
+            {
+                if (backbone->g_nodes.list[currentNodeID].outcome_edges.list[i].weight == 2)
+                {
+                    
+                    nodeID = backbone->g_nodes.list[currentNodeID].outcome_edges.list[i].out_node;
+                    total_count += backbone->g_nodes.list[nodeID].weight;
+
+                    if (backbone->g_nodes.list[nodeID].weight > max_count)
+                    {
+                        max_count = backbone->g_nodes.list[nodeID].weight;
+                        max_type = 2;
+                        max_node = nodeID;
+                    }
+                    
+                }
+                else  ///如果边不是2就不对了
+                {
+                    fprintf(stderr, "error\n");
+                }
+                
+            }
+        }
+        
+        
+
+
+
+
+
+        if(max_count >= total_count*CORRECT_THRESHOLD)
+        {
+            current_base = backbone->g_nodes.list[max_node].base;
+            ///说明是insertion
+            if (max_type == 2)
+            {
+                currentNodeID = max_node;
+            }
+            else ///其他情况依然沿着backbone向前
+            {
+                currentNodeID++;
+            }
+        }
+        else
+        {
+            ///假如这是个backbone节点, 不矫正
+            if (currentNodeID >= backbone_start && currentNodeID <= backbone_end)
+            {
+                current_base = backbone->g_nodes.list[currentNodeID].base;
+                currentNodeID++;
+            }  ///应该不存在这个问题
+            else///如果在insertion节点上不达标很麻烦...,只能选最大的了
+            {
+                ///因为现在每个insert节点只有一个出边，且这个出边到backbone
+                fprintf(stderr, "error111\n");
+            }
+        }
+
+
+        if (max_count <= 0)
+        {
+            fprintf(stderr, "error\n");
+        }
+
+        if (current_base < 'A')
+        {
+            buffer[0] = s_H[(current_base >> 2) & ((uint8_t)3)];
+            buffer[1] = s_H[current_base & ((uint8_t)3)];
+            add_base_to_correct_read(dumy, buffer[0], max_type);
+            add_base_to_correct_read(dumy, buffer[1], max_type);
+        }
+        else
+        {
+            add_base_to_correct_read(dumy, current_base, max_type);
+        }
+        
+    }
+
+
+
+    
+    ///最后还要处理backbone_end这个节点
+    total_count = 0;
+    max_count = -1;
+    ///这个节点肯定是backbone上的节点啊
+    ///match
+    total_count += backbone->g_nodes.list[currentNodeID].weight;
+    max_count = backbone->g_nodes.list[currentNodeID].weight;
+    max_type = 0;
+    max_node = currentNodeID;
+    ///mismatch和deletion (A, C, G, T, N, D, 除了自己的那个字符)
+    for (i = 0; i < backbone->g_nodes.list[currentNodeID].alignedTo_Nodes.length; i++)
+    {
+        nodeID = backbone->g_nodes.list[currentNodeID].alignedTo_Nodes.list[i].out_node;
+        total_count += backbone->g_nodes.list[nodeID].weight;
+
+        if (backbone->g_nodes.list[nodeID].weight > max_count)
+        {
+            max_count = backbone->g_nodes.list[nodeID].weight;
+            max_type = 1;
+            max_node = nodeID;
+        }
+    }
+    ///这个节点不应该有任何出边了
+    if(backbone->g_nodes.list[currentNodeID].outcome_edges.length)
+    {
+        fprintf(stderr, "haha\n");
+    }
+
+
+    if(max_count >= total_count*CORRECT_THRESHOLD)
+    {
+        current_base = backbone->g_nodes.list[max_node].base;
+    }
+    else
+    {
+        current_base = backbone->g_nodes.list[currentNodeID].base;
+    }
+
+
+    if (max_count <= 0)
+    {
+        fprintf(stderr, "error\n");
+    }
+    
+    add_base_to_correct_read(dumy, current_base, max_type);
+    
+}
+**/
 
 
 void window_consensus(char* r_string, long long window_start, long long window_end, 
@@ -1902,31 +2358,19 @@ overlap_region_alloc* overlap_list, Correct_dumy* dumy, All_reads* R_INF, Graph*
                     y_string, y_length, &(overlap_list->list[overlapID].w_list[windowID].cigar), startNodeID, endNodeID);
     }
 
+    get_seq_from_Graph(g, dumy);
 
-    get_seq_from_Graph(g, startNodeID, endNodeID, dumy);
 
+    ///get_seq_from_Graph(g, startNodeID, endNodeID, dumy);
+    ///get_seq_from_Graph_Len2(g, startNodeID, endNodeID, dumy);
+
+
+    
+    ///debug_graph(g, backbone_length);
+    
+    
 
     /**
-    if (startNodeID != 0 || endNodeID != backbone_length - 1)
-    {
-        fprintf(stderr, "error\n");
-    }
-    
-
-    for (i = startNodeID; i <= backbone_length; i++)
-    {
-        if(g->g_nodes.list[i].alignedTo_Nodes.length > 5)
-        {
-            fprintf(stderr, "error 1\n");
-        }
-
-        if(g->g_nodes.list[i].outcome_edges.length > 4)
-        {
-            fprintf(stderr, "error 2\n");
-        }
-    }
-
-    
     for (i = 0; i < dumy->length; i++)
     {
         ///这个是那个overlap的ID，而不是overlap里对应窗口的ID
@@ -2160,10 +2604,13 @@ void correct_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF,
     generate_consensus(overlap_list, R_INF, g_read, dumy, g);
 
 
-    ///fprintf(stderr, "length: %lld, corrected_base: %lld\n", g_read->length, dumy->corrected_base);
     /**
+    ///fprintf(stderr, "length: %lld, corrected_base: %lld\n", g_read->length, dumy->corrected_base);
+    
     EdlibAlignResult result = edlibAlign(g_read->seq, g_read->length, dumy->corrected_read, dumy->corrected_read_length, 
             edlibNewAlignConfig(-1, EDLIB_MODE_NW, EDLIB_TASK_PATH, NULL, 0));
+
+    
 
     if (result.status == EDLIB_STATUS_OK) {
         if (dumy->corrected_base == 0 && result.editDistance!= 0)
@@ -2193,6 +2640,15 @@ void correct_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF,
     }
     
     edlibFreeAlignResult(result);
+
+    for (i = 0; i < dumy->corrected_read_length; i++)
+    {
+        if (dumy->corrected_read[i] != 'A' && dumy->corrected_read[i] != 'C' && dumy->corrected_read[i] != 'G' && dumy->corrected_read[i] != 'T')
+        {
+            fprintf(stderr, "error\n");
+        }
+        
+    }
     **/
     
     /************需要注释掉********* */
