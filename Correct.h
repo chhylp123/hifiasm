@@ -5,10 +5,12 @@
 #include "Levenshtein_distance.h"
 #include "POA.h"
 
-#define CORRECT_THRESHOLD 0.6
+#define CORRECT_THRESHOLD 0.65
 #define MIN_COVERAGE_THRESHOLD 4
-
-
+#define CORRECT_INDEL_LENGTH 2
+#define MISMATCH 1
+#define INSERTION 2
+#define DELETION 3
 
 #define MAX(x, y) ((x >= y)?x:y)
 #define MIN(x, y) ((x <= y)?x:y)
@@ -47,6 +49,7 @@ void pre_filter_by_nearby(k_mer_pos* new_n_list, k_mer_pos* old_n_list, uint64_t
 All_reads* R_INF, Correct_dumy* dumy, uint64_t* new_n_length);
 void pre_filter_by_nearby_single(k_mer_pos* new_n_list, k_mer_pos* old_n_list, uint64_t n_length, uint64_t n_end_pos, UC_Read* g_read, 
 All_reads* R_INF, Correct_dumy* dumy, uint64_t* new_n_length);
+void get_seq_from_Graph(Graph* backbone, Correct_dumy* dumy);
 
 /**********************for prefilter************************ */
 void destory_k_mer_pos_list_alloc_prefilter(k_mer_pos_list_alloc* list);

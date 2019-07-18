@@ -15,14 +15,22 @@ typedef khash_t(POS64) Pos_Table;
 
 ///#define WINDOW 350
 ///#define THRESHOLD  14
+
 #define WINDOW 375
 #define THRESHOLD  15
-///#define THRESHOLD_RATE 0.04
 #define THRESHOLD_RATE 0.04
+#define OVERLAP_THRESHOLD 0.9
+
+/**
+#define WINDOW 500
+#define THRESHOLD  15
+#define THRESHOLD_RATE 0.03
+#define OVERLAP_THRESHOLD 0.95
+**/
+
 #define GROUP_SIZE 4
 ///最长是10M10D10M10D10M这种
 #define CIGAR_MAX_LENGTH THRESHOLD*2+2
-#define OVERLAP_THRESHOLD 0.9
 
 typedef struct
 {
