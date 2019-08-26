@@ -207,7 +207,8 @@ int main(int argc, char *argv[])
     return 1;
     **/
     
-
+   fprintf(stdout, "defined k_mer_min_freq by user: %d\n", k_mer_min_freq);
+   fprintf(stdout, "defined k_mer_max_freq by user: %d\n", k_mer_max_freq);
 
 
     fprintf(stdout, "k-mer length: %d\n",k_mer_length);
@@ -222,6 +223,11 @@ int main(int argc, char *argv[])
 
         Build_hash_table_multiple_thr();
     }
+
+    fprintf(stdout, "k_mer_min_freq in hashtable: %d\n", k_mer_min_freq);
+    fprintf(stdout, "k_mer_max_freq in hashtable: %d\n", k_mer_max_freq);
+
+    
     
     ///verify_Position_hash_table();
 

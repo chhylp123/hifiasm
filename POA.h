@@ -203,9 +203,10 @@ inline void add_deletionEdge_weight(Graph* g, long long alignNodeID, long long d
         add_single_deletionEdge_weight(g, alignNodeID, alignNodeID + 2, 0);
         add_single_deletionEdge_weight(g, alignNodeID + 1, alignNodeID + 2, 0);
     }
-    else
+    else if (deletion_length > 2)
     {
-        fprintf(stderr, "too long deletion!\n");
+        ///fprintf(stderr, "too long deletion!\n");
+        add_single_deletionEdge_weight(g, alignNodeID, alignNodeID + deletion_length, 0);
     }
 }
 
@@ -385,9 +386,21 @@ inline void add_insertionEdge_weight(Graph* g, long long alignNodeID, char* inse
         
         /**********************两个字符******************* */
     }
-    else
+    else if (insert_length > 2)
     {
-        fprintf(stderr, "too long insertion\n");
+        ////fprintf(stderr, "too long insertion\n");
+        /*************************大于2个字符************************** */
+
+        edgeID = get_insertion_Edges(g, edge, insert_length, insert);
+        if (edgeID != -1)
+        {
+            ///这条路均只有一个出度
+            edge->list[edgeID].weight++;
+        }
+        else
+        {
+            create_insertion_Edges(g, alignNodeID, insert_length, insert);
+        }
     }
     
     

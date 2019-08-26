@@ -4,6 +4,7 @@
 #include "Hash_Table.h"
 #include "Process_Read.h"
 #include "Correct.h"
+#include "CommandLines.h"
 #include <pthread.h>
 pthread_mutex_t output_mutex;
 
@@ -1304,6 +1305,8 @@ void write_Total_Pos_Table(Total_Pos_Table* TCB, char* read_file_name)
     char* index_name = (char*)malloc(strlen(read_file_name)+5);
     sprintf(index_name, "%s.idx", read_file_name);
     FILE* fp = fopen(index_name, "w");
+    fwrite(&k_mer_min_freq, sizeof(k_mer_min_freq), 1, fp);
+    fwrite(&k_mer_max_freq, sizeof(k_mer_max_freq), 1, fp);
     fwrite(&TCB->prefix_bits, sizeof(TCB->prefix_bits), 1, fp);
     fwrite(&TCB->suffix_bits, sizeof(TCB->suffix_bits), 1, fp);
     fwrite(&TCB->suffix_mode, sizeof(TCB->suffix_mode), 1, fp);
@@ -1337,7 +1340,9 @@ int load_Total_Pos_Table(Total_Pos_Table* TCB, char* read_file_name)
         return 0;
     }
     
-    
+
+    fread(&k_mer_min_freq, sizeof(k_mer_min_freq), 1, fp);
+    fread(&k_mer_max_freq, sizeof(k_mer_max_freq), 1, fp);
     fread(&TCB->prefix_bits, sizeof(TCB->prefix_bits), 1, fp);
     fread(&TCB->suffix_bits, sizeof(TCB->suffix_bits), 1, fp);
     fread(&TCB->suffix_mode, sizeof(TCB->suffix_mode), 1, fp);
@@ -1403,6 +1408,9 @@ void Traverse_Counting_Table(Total_Count_Table* TCB, Total_Pos_Table* PCB, int k
     khint_t t;  ///这就是个迭代器
     int absent;
 
+    /********************************************
+     hash_table(key) ----> PCB->k_mer_index ------> PCB->pos
+     ********************************************/
     for (i = 0; i < TCB->size; i++)
     {
         h = TCB->sub_h[i];

@@ -24,9 +24,15 @@ pthread_mutex_t i_doneMutex;
 void init_All_reads(All_reads* r)
 {
 	r->index_size = READ_INIT_NUMBER;
-	r->index = (uint64_t*)malloc(sizeof(uint64_t)*r->index_size);
-	r->index[0] = 0;
-	r->read = NULL;
+	/**********should remove**********/
+	///r->index = (uint64_t*)malloc(sizeof(uint64_t)*r->index_size);
+	///r->index[0] = 0;
+	///r->read = NULL;
+	/**********should remove**********/
+	r->read_length = (uint64_t*)malloc(sizeof(uint64_t)*r->index_size);
+	r->read_sperate = NULL;
+
+
 	r->N_site = NULL;
 	r->total_reads_bases = 0;
 
@@ -50,11 +56,18 @@ void destory_All_reads(All_reads* r)
 		{
 			free(r->N_site[i]);
 		}
+		free(r->read_sperate[i]);
 	}
 	free(r->N_site);
-	free(r->read);
+	free(r->read_sperate);
+
+	
+
+	///free(r->read);
 	free(r->name);
 	free(r->name_index);
+	free(r->read_length);
+	
 }
 
 
@@ -94,9 +107,22 @@ void write_All_reads(All_reads* r, char* read_file_name)
 		
 	}
 
-	fwrite(r->read, sizeof(uint8_t), (r->total_reads_bases/4 + r->total_reads + 5), fp);
+	/**********should remove**********/
+	///fwrite(r->index, sizeof(uint64_t), r->index_size, fp);
+	/**********should remove**********/
+	fwrite(r->read_length, sizeof(uint64_t), r->total_reads, fp);
+
+	/**********should remove**********/
+	///fwrite(r->read, sizeof(uint8_t), (r->total_reads_bases/4 + r->total_reads + 5), fp);
+	/**********should remove**********/
+	for (i = 0; i < r->total_reads; i++)
+	{
+		fwrite(r->read_sperate[i], sizeof(uint8_t), r->read_length[i]/4+1, fp);
+	}
+	
+
+
 	fwrite(r->name, sizeof(char), r->total_name_length, fp);
-	fwrite(r->index, sizeof(uint64_t), r->index_size, fp);
 	fwrite(r->name_index, sizeof(uint64_t), r->name_index_size, fp);
 
 
@@ -152,14 +178,28 @@ int load_All_reads(All_reads* r, char* read_file_name)
 
 	}
 
-	r->read = (uint8_t*)malloc(sizeof(uint8_t)*(r->total_reads_bases/4 + r->total_reads + 5));
-	fread(r->read, sizeof(uint8_t), (r->total_reads_bases/4 + r->total_reads + 5), fp);
+
+	/**********should remove**********/
+	///r->index = (uint64_t*)malloc(sizeof(uint64_t)*r->index_size);
+	///fread(r->index, sizeof(uint64_t), r->index_size, fp);
+	/**********should remove**********/
+	r->read_length = (uint64_t*)malloc(sizeof(uint64_t)*r->total_reads);
+	fread(r->read_length, sizeof(uint64_t), r->total_reads, fp);
+
+	/**********should remove**********/
+	///r->read = (uint8_t*)malloc(sizeof(uint8_t)*(r->total_reads_bases/4 + r->total_reads + 5));
+	///fread(r->read, sizeof(uint8_t), (r->total_reads_bases/4 + r->total_reads + 5), fp);
+	/**********should remove**********/
+	r->read_sperate = (uint8_t**)malloc(sizeof(uint8_t*)*r->total_reads);
+	for (i = 0; i < r->total_reads; i++)
+    {
+		r->read_sperate[i] = (uint8_t*)malloc(sizeof(uint8_t)*(r->read_length[i]/4+1));
+		fread(r->read_sperate[i], sizeof(uint8_t), r->read_length[i]/4+1, fp);
+	}
+
 
 	r->name = (char*)malloc(sizeof(char)*r->total_name_length);
 	fread(r->name, sizeof(char), r->total_name_length, fp);
-
-	r->index = (uint64_t*)malloc(sizeof(uint64_t)*r->index_size);
-	fread(r->index, sizeof(uint64_t), r->index_size, fp);
 
 	r->name_index = (uint64_t*)malloc(sizeof(uint64_t)*r->name_index_size);
 	fread(r->name_index, sizeof(uint64_t), r->name_index_size, fp);
@@ -184,12 +224,20 @@ inline void insert_read(All_reads* r, kstring_t* read, kstring_t* name)
 	if (r->index_size < r->total_reads + 2)
 	{
 		r->index_size = r->index_size * 2 + 2;
-		r->index = (uint64_t*)realloc(r->index,sizeof(uint64_t)*(r->index_size));
+		/**********should remove**********/
+		///r->index = (uint64_t*)realloc(r->index,sizeof(uint64_t)*(r->index_size));
+		/**********should remove**********/
+		r->read_length = (uint64_t*)realloc(r->read_length,sizeof(uint64_t)*(r->index_size));
 
 		r->name_index_size = r->name_index_size * 2 + 2;
 		r->name_index = (uint64_t*)realloc(r->name_index,sizeof(uint64_t)*(r->name_index_size));
 	}
-	r->index[r->total_reads] = r->index[r->total_reads-1] + read->l;
+	/**********should remove**********/
+	///r->index[r->total_reads] = r->index[r->total_reads-1] + read->l;
+	/**********should remove**********/
+	r->read_length[r->total_reads - 1] = read->l;
+
+
 	//r->index[r->total_reads] = r->index[r->total_reads-1] + read->l/4 + 1;
 	r->name_index[r->total_reads] = r->name_index[r->total_reads-1] + name->l;
 
@@ -197,11 +245,24 @@ inline void insert_read(All_reads* r, kstring_t* read, kstring_t* name)
 
 void malloc_All_reads(All_reads* r)
 {
+
 	///必须加r->total_reads
-	r->read = (uint8_t*)malloc(sizeof(uint8_t)*(r->total_reads_bases/4 + r->total_reads + 5));
+	/**********should remove**********/
+	///r->read = (uint8_t*)malloc(sizeof(uint8_t)*(r->total_reads_bases/4 + r->total_reads + 5));
+	/**********should remove**********/
+	r->read_sperate = (uint8_t**)malloc(sizeof(uint8_t*)*r->total_reads);
+	long long i = 0;
+	for (i = 0; i < r->total_reads; i++)
+	{
+		r->read_sperate[i] = (uint8_t*)malloc(sizeof(uint8_t)*(r->read_length[i]/4+1));
+	}
+
+
+
+
 	r->name = (char*)malloc(sizeof(char)*r->total_name_length);
 	r->N_site = (uint64_t**)calloc(r->total_reads, sizeof(uint64_t*));
-	
+
 }
 
 void destory_UC_Read(UC_Read* r)
@@ -369,6 +430,8 @@ void recover_UC_Read(UC_Read* r, All_reads* R_INF, uint64_t ID)
 			r->seq[R_INF->N_site[ID][i]] = 'N';
 		}
 	}
+
+	r->RID = ID;
 		
 }
 
@@ -426,7 +489,8 @@ void recover_UC_Read_RC(UC_Read* r, All_reads* R_INF, uint64_t ID)
 void compress_base(uint8_t* dest, char* src, uint64_t src_l, uint64_t** N_site_lis, uint64_t N_site_occ)
 {
 
-
+	///N_site_lis saves the pos of all Ns in this read
+	///N_site_lis[0] is the number of Ns
 	if (N_site_occ)
 	{
 		(*N_site_lis) = (uint64_t*)malloc(sizeof(uint64_t)*(N_site_occ + 1));
@@ -442,7 +506,10 @@ void compress_base(uint8_t* dest, char* src, uint64_t src_l, uint64_t** N_site_l
 	uint64_t dest_i = 0;
 	uint8_t tmp = 0;
 	uint8_t c = 0;
-
+	/**
+	fprintf(stderr, "src_l: %lld\n", src_l);
+    fflush(stderr);
+	**/
 	
 
 	while (i + 4 <= src_l)
@@ -596,6 +663,8 @@ inline void load_read_block(R_buffer_block* read_batch, int batch_read_size,
 		{
 			read_batch->read[inner_i].ID = total_reads;
 			total_reads++;
+
+			///fprintf(stderr, "is_insert: %d\n", is_insert);
 
 			if (is_insert)
 			{

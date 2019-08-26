@@ -217,14 +217,17 @@ void* Build_hash_table(void* arg)
                 ///HPC_base++;
             }
 
+
+
             
             ///load read
             compress_base(Get_READ(R_INF, curr_sub_block.read[i].ID),
             curr_sub_block.read[i].seq.s, curr_sub_block.read[i].seq.l, 
             &R_INF.N_site[curr_sub_block.read[i].ID], HPC_read.N_occ);
-
+            
             memcpy(R_INF.name+R_INF.name_index[curr_sub_block.read[i].ID], 
             curr_sub_block.read[i].name.s, curr_sub_block.read[i].name.l);
+        
 
             /**
             ///reverse complement strand
@@ -342,6 +345,7 @@ void Counting_multiple_thr()
 
     fprintf(stdout, "%-30s%18.2f\n\n", "Counting time:", Get_T() - start_time);
    
+    free(is_insert);
 
 }
 
@@ -421,8 +425,10 @@ void Build_hash_table_multiple_thr()
         ///destory_All_reads(&R_INF);
         ///load_All_reads(&R_INF, read_file_name);
     }
-    
 
+    destory_Total_Count_Table(&TCB);
+    
+    free(is_insert);
     
 }
 
@@ -717,6 +723,69 @@ Output_buffer_sub_block* current_sub_buffer)
     
 }
 
+int get_required_read(const char *required_name, long long RID, All_reads* R_INF)
+{
+    
+
+
+    int required_name_length = strlen(required_name);
+    char* debug_name = Get_NAME((*R_INF), RID);
+    int debug_name_length = Get_NAME_LENGTH((*R_INF), RID);
+    int i;
+
+
+    if (required_name_length == debug_name_length)
+    {
+        for (i = 0; i < debug_name_length; i++)
+        {
+            if (required_name[i] != debug_name[i])
+            {
+                break;
+            }
+        }
+
+        if (i == debug_name_length)
+        {
+            fprintf(stderr, "required_name: %s\n", required_name);
+
+            return 1;
+            ///fprintf(stderr, "read_length: %d\n", R_INF->g_read->length);
+            
+            /**
+            int aviable_overlap_name = 0;
+            for (i = 0; i < overlap_list->length; i++)
+            {
+                long long Len_x = overlap_list->list[i].x_pos_e -  overlap_list->list[i].x_pos_s + 1;
+
+                if (Len_x * OVERLAP_THRESHOLD <=  overlap_list->list[i].align_length)
+                {
+                    fprintf(stderr, "a_i: %d\n", aviable_overlap_name);
+                    fprintf(stderr, "x_pos_s: %d, x_pos_e: %d\n", 
+                    overlap_list->list[i].x_pos_s, overlap_list->list[i].x_pos_e);
+                    aviable_overlap_name++;
+
+                    debug_name = Get_NAME((*R_INF), overlap_list->list[i].y_id);
+                    debug_name_length = Get_NAME_LENGTH((*R_INF), overlap_list->list[i].y_id);
+
+                    int j = 0;
+                    for (j = 0; j < debug_name_length; j++)
+                    {
+                        fprintf(stderr, "%c", debug_name[j]);
+                    }
+                    fprintf(stderr, "\n");
+                    
+                }
+            }
+            **/
+        }
+        
+    }
+
+
+    return 0;
+
+}
+
 
 void* Overlap_calculate_heap_merge(void* arg)
 {
@@ -781,10 +850,16 @@ void* Overlap_calculate_heap_merge(void* arg)
 
     init_buffer_sub_block(&current_sub_buffer);
 
+    
+
     for (i = thr_ID; i < R_INF.total_reads; i = i + thread_num)
     {
-
-        
+        /**
+        if(!get_required_read("m54238_180916_191625\/43253934\/ccs", i, &R_INF))
+        {
+            continue;
+        }
+        **/
         
         clear_Heap(&heap);
         clear_Candidates_list(&l);
@@ -1069,6 +1144,9 @@ void* Overlap_calculate_heap_merge(void* arg)
 
 void Overlap_calculate_multipe_thr()
 {
+
+    fprintf(stderr, "k_mer_min_freq: %lld, CORRECT_THRESHOLD: %f\n", k_mer_min_freq, CORRECT_THRESHOLD);
+    
     double start_time = Get_T();
 
     init_output_buffer(thread_num);
