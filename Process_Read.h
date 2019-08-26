@@ -14,9 +14,11 @@
 
 #define IS_FULL(buffer) ((buffer.num >= buffer.size)?1:0)
 #define IS_EMPTY(buffer) ((buffer.num == 0)?1:0)
-#define Get_READ_LENGTH(R_INF, ID) (R_INF.index[ID+1] - R_INF.index[ID])
+///#define Get_READ_LENGTH(R_INF, ID) (R_INF.index[ID+1] - R_INF.index[ID])
+#define Get_READ_LENGTH(R_INF, ID) R_INF.read_length[ID]
 #define Get_NAME_LENGTH(R_INF, ID) (R_INF.name_index[ID+1] - R_INF.name_index[ID])
-#define Get_READ(R_INF, ID) R_INF.read + (R_INF.index[ID]>>2) + ID
+///#define Get_READ(R_INF, ID) R_INF.read + (R_INF.index[ID]>>2) + ID
+#define Get_READ(R_INF, ID) R_INF.read_sperate[ID]
 #define Get_NAME(R_INF, ID) R_INF.name + R_INF.name_index[ID]
 
 
@@ -61,10 +63,20 @@ int get_read(kseq_t *s);
 typedef struct
 {
 	uint64_t** N_site;
-	uint8_t* read;
+	///uint8_t* read;
 	char* name;
-	uint64_t* index;
+
+
+	uint8_t** read_sperate;
+	uint64_t* read_length;
+
+	///seq start pos in uint8_t* read
+	///do not need it
+	///uint64_t* index;
 	uint64_t index_size;
+
+
+    ///name start pos in char* name
 	uint64_t* name_index;
 	uint64_t name_index_size;
 	uint64_t total_reads;
@@ -100,6 +112,7 @@ typedef struct
 	char* seq;
 	long long length;
 	long long size;
+	long long RID;
 } UC_Read;
 
 void init_R_buffer(int thread_num);

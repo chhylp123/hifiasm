@@ -2604,6 +2604,20 @@ void correct_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF,
     generate_consensus(overlap_list, R_INF, g_read, dumy, g);
 
 
+
+
+
+
+
+
+
+    
+    
+
+    
+    
+
+
     /**
     ///fprintf(stderr, "length: %lld, corrected_base: %lld\n", g_read->length, dumy->corrected_base);
     

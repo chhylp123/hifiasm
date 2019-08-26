@@ -10,8 +10,8 @@ char* output_file_name = NULL;
 int thread_num = 1;
 int k_mer_length = 40;
 //int k_mer_min_freq = 9;
-//int k_mer_min_freq = 3;
-int k_mer_min_freq = 2;
+int k_mer_min_freq = 3;
+//int k_mer_min_freq = 2;
 int k_mer_max_freq = 66;
 int load_index_from_disk = 0;
 int write_index_to_disk = 0;
@@ -36,21 +36,25 @@ int CommandLine_process (int argc, char *argv[])
 {
 
     static ko_longopt_t longopts[] = {
-        { "help", ko_no_argument,       100},
+        { "help", ko_no_argument,  100},
         { "seq", ko_required_argument, 101},
         { "output", ko_required_argument, 102},
         { "thread", ko_required_argument, 103},
+        { "k_mer_min_freq", ko_required_argument, 104},
+        { "k_mer_max_freq", ko_required_argument, 105},
         { NULL, 0, 0 }
     };
 
     ketopt_t opt = KETOPT_INIT;
 
     int i, c;
-    while ((c = ketopt(&opt, argc, argv, 1, "ht:o:q:k:lw", longopts)) >= 0) {
+    while ((c = ketopt(&opt, argc, argv, 1, "ht:o:q:k:lwm:n:", longopts)) >= 0) {
         if (c == 100 || c == 'h') Print_H();
         else if (c == 103 || c == 't') thread_num = atoi(opt.arg); 
         else if (c == 102 || c == 'o') output_file_name = opt.arg;
         else if (c == 101 || c == 'q') read_file_name = opt.arg;
+        else if (c == 104 || c == 'n') k_mer_min_freq = atoi(opt.arg);
+        else if (c == 105 || c == 'm') k_mer_max_freq = atoi(opt.arg);
         else if (c == 'k') k_mer_length = atoi(opt.arg); 
         else if (c == 'l') load_index_from_disk = 1; 
         else if (c == 'w') write_index_to_disk = 1; 

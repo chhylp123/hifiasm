@@ -7,6 +7,9 @@
         "deque": "cpp",
         "vector": "cpp",
         "initializer_list": "cpp",
-        "*.tcc": "cpp"
+        "*.tcc": "cpp",
+        "bitset": "cpp",
+        "algorithm": "cpp",
+        "hashtable": "cpp"
     }
 }
