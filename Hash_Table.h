@@ -44,6 +44,7 @@ typedef struct
     Hash_table_spin_lock* sub_h_lock;
     int prefix_bits;
     int suffix_bits;
+    ///number of subtable
 	int size;
     uint64_t suffix_mode;
     uint64_t non_unique_k_mer;
@@ -163,6 +164,7 @@ typedef struct
     Hash_table_spin_lock* sub_h_lock;
     int prefix_bits;
     int suffix_bits;
+    ///number of subtable
 	int size;
     uint64_t suffix_mode;
     k_mer_pos* pos;

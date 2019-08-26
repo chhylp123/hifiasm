@@ -283,7 +283,7 @@ void addmatchedSeqToGraph(Graph* backbone, long long currentNodeID, char* x_stri
         else if (operation == 2)
         {
             ///cigar的起始和结尾不可能是2，所以这里-1没问题
-            if (operationLen <= CORRECT_INDEL_LENGTH)
+            ///if (operationLen <= CORRECT_INDEL_LENGTH)
             {
                 add_insertionEdge_weight(backbone, currentNodeID, y_string + y_i, operationLen);
                 backbone->g_nodes.list[currentNodeID].num_insertions++;
@@ -295,7 +295,7 @@ void addmatchedSeqToGraph(Graph* backbone, long long currentNodeID, char* x_stri
             ///3是y缺字符（x多字符），也就是backbone多字符
             ///这个相当于在backbone对应字符处变成了‘——’
             ///因此可以用mismatch类似的方法处理
-            if (operationLen <= CORRECT_INDEL_LENGTH)
+            ///if (operationLen <= CORRECT_INDEL_LENGTH)
             {
                 ///add_deletion_to_backbone(backbone, &currentNodeID, operationLen);
                 ///在编辑距离中，前面是个插入，后面是个删除，这种情况是不存在的

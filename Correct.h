@@ -5,7 +5,7 @@
 #include "Levenshtein_distance.h"
 #include "POA.h"
 
-#define CORRECT_THRESHOLD 0.65
+#define CORRECT_THRESHOLD 0.7
 #define MIN_COVERAGE_THRESHOLD 4
 #define CORRECT_INDEL_LENGTH 2
 #define MISMATCH 1
