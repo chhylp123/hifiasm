@@ -658,7 +658,8 @@ uint64_t readID, uint64_t readLength, All_reads* R_INF)
 
 
 
-void append_window_list(overlap_region* region, uint64_t x_start, uint64_t x_end, int y_start, int y_end, int error)
+void append_window_list(overlap_region* region, uint64_t x_start, uint64_t x_end, int y_start, int y_end, int error,
+int extra_begin, int extra_end)
 {
     
     long long length = region->x_pos_e - region->x_pos_s + 1;
@@ -678,6 +679,8 @@ void append_window_list(overlap_region* region, uint64_t x_start, uint64_t x_end
     region->w_list[region->w_list_length].y_end = y_end;
     region->w_list[region->w_list_length].error = error;
     region->w_list[region->w_list_length].cigar.length = -1;
+    region->w_list[region->w_list_length].extra_begin = extra_begin;
+    region->w_list[region->w_list_length].extra_end = extra_end;
     region->w_list_length++;
 }
 

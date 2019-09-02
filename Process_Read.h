@@ -48,8 +48,8 @@ static uint8_t seq_nt6_table[256] = {
 
 static char bit_t_seq_table[256][4] = {0};
 static char bit_t_seq_table_rc[256][4] = {0};
-static char s_H[4] = {'A', 'C', 'G', 'T'};
-static char rc_Table[4] = {'T', 'G', 'C', 'A'};
+static char s_H[5] = {'A', 'C', 'G', 'T', 'N'};
+static char rc_Table[5] = {'T', 'G', 'C', 'A', 'N'};
 
 #define RC_CHAR(x) rc_Table[seq_nt6_table[(uint8_t)x]]
 
@@ -58,6 +58,19 @@ void init_kseq(char* file);
 void destory_kseq();
 int get_read(kseq_t *s);
 
+typedef struct
+{
+    /**[0-1] bits are type:**/
+    /**[2-31] bits are length**/
+    uint32_t* record;
+    uint32_t length;
+	uint32_t size;
+
+    char* lost_base;
+    uint32_t lost_base_length;
+	uint32_t lost_base_size;
+	uint32_t new_length;
+}Compressed_Cigar_record;
 
 
 typedef struct
@@ -69,6 +82,7 @@ typedef struct
 
 	uint8_t** read_sperate;
 	uint64_t* read_length;
+	uint64_t* read_size;
 
 	///seq start pos in uint8_t* read
 	///do not need it
@@ -82,6 +96,8 @@ typedef struct
 	uint64_t total_reads;
 	uint64_t total_reads_bases;
 	uint64_t total_name_length;
+
+	Compressed_Cigar_record* cigars; 
 
 } All_reads;
 

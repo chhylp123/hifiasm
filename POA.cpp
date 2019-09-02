@@ -256,8 +256,6 @@ void addmatchedSeqToGraph(Graph* backbone, long long currentNodeID, char* x_stri
     int last_operation = -1;
 
     
-    
-    
     ///note that node 0 is the start node
     ///0 is match, 1 is mismatch, 2 is up, 3 is left
     ///2是x缺字符（y多字符），而3是y缺字符（x多字符）

@@ -12,6 +12,7 @@ extern int k_mer_min_freq;
 extern int k_mer_max_freq;
 extern int load_index_from_disk;
 extern int write_index_to_disk;
+extern int number_of_round;
 
 
 int CommandLine_process (int argc, char *argv[]);
