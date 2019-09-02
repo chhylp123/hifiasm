@@ -10,6 +10,11 @@
         "*.tcc": "cpp",
         "bitset": "cpp",
         "algorithm": "cpp",
-        "hashtable": "cpp"
+        "hashtable": "cpp",
+        "string_view": "cpp",
+        "list": "cpp",
+        "string": "cpp",
+        "array": "cpp",
+        "utility": "cpp"
     }
 }
