@@ -445,6 +445,45 @@ long long o_len, int threashold, int error, long long* total_mis)
     edlibFreeAlignResult(result);
 }
 
+
+void fill_subregion(char* r, long long start_pos, long long length, uint8_t strand, All_reads* R_INF, long long ID, 
+int extra_begin, int extra_end)
+{
+    
+    recover_UC_Read_sub_region(r+extra_begin, start_pos, length, strand, R_INF, ID);
+    memset(r, 'N', extra_begin);
+    memset(r+extra_begin+length, 'N', extra_end);
+}
+
+void determine_overlap_region(int threshold, long long y_start, long long y_ID, long long Window_Len, All_reads* R_INF,
+int* r_extra_begin, int* r_extra_end, long long* r_y_start, long long* r_y_length)
+{
+    int extra_begin;
+    int extra_end;
+    long long currentIDLen;
+    long long o_len;
+
+    extra_begin = extra_end = 0;
+    ///y maybe less than 0
+    y_start = y_start - threshold;
+    ///the length of y
+    currentIDLen = Get_READ_LENGTH((*R_INF), y_ID);
+    o_len = MIN(Window_Len, currentIDLen - y_start);
+    extra_end = Window_Len - o_len;
+
+    if (y_start < 0)
+    {
+        extra_begin = -y_start;
+        y_start = 0;
+        o_len = o_len - extra_begin;
+    }
+
+    (*r_extra_begin) = extra_begin;
+    (*r_extra_end) = extra_end;
+    (*r_y_start) = y_start;
+    (*r_y_length) = o_len;
+}
+
 void verify_window(long long window_start, long long window_end, overlap_region_alloc* overlap_list,Correct_dumy* dumy, All_reads* R_INF,
 char* r_string)
 {
@@ -458,20 +497,20 @@ char* r_string)
     long long x_end, x_len;
     int end_site;
     unsigned int error;
-    /************需要注释掉********* */ 
-    // long long total_match=0;
-    // long long total_unmatch=0;
-    // long long total_mis=0;
-    /************需要注释掉********* */
     int groupLen = 0;
     int return_sites[GROUP_SIZE];
 	unsigned int return_sites_error[GROUP_SIZE];
     uint64_t overlapID[GROUP_SIZE];
     uint64_t y_startGroup[GROUP_SIZE];
+    int y_extra_begin[GROUP_SIZE];
+    int y_extra_end[GROUP_SIZE];
+    int extra_begin;
+    int extra_end;
 
     ///这些是整个window被完全覆盖的
     for (i = 0; i < dumy->length; i++)
     {
+        extra_begin = extra_end = 0;
         ///整个window被覆盖的话，read本身上的区间就是[window_start, window_end]
         x_len = WINDOW;
         currentID = dumy->overlapID[i];
@@ -479,173 +518,97 @@ char* r_string)
         ///y上的相对位置
         y_start = (x_start - overlap_list->list[currentID].x_pos_s) + overlap_list->list[currentID].y_pos_s;
 
-        // /************需要注释掉**********/
-        // if(x_start < overlap_list->list[currentID].x_pos_s)
-        // {
-        //     fprintf(stderr, "ERROR\n");
-        // }
-        // /************需要注释掉**********/
-        ///y上的起始
-        y_start = y_start - THRESHOLD;
-        if (y_start < 0)
-        {
-            y_start = 0;
-        }
-        ///当前y的长度
-        currentIDLen = Get_READ_LENGTH((*R_INF), overlap_list->list[currentID].y_id);
-        ///不能超过y的剩余长度
-        o_len = MIN(Window_Len, currentIDLen - y_start);
 
-        // /************需要注释掉**********/
-        // if(o_len < x_len)
-        // {
-        //     fprintf(stderr, "ERROR\n");
-        // }
-        // /************需要注释掉**********/
+  
+        determine_overlap_region(THRESHOLD, y_start, overlap_list->list[currentID].y_id, Window_Len, R_INF,
+        &extra_begin, &extra_end, &y_start, &o_len);
+
+        fill_subregion(dumy->overlap_region_group[groupLen], y_start, o_len, overlap_list->list[currentID].y_pos_strand, 
+        R_INF, overlap_list->list[currentID].y_id, extra_begin, extra_end);
+
+        y_extra_begin[groupLen] = extra_begin;
+        y_extra_end[groupLen] = extra_end;
+        overlapID[groupLen] = currentID;
+        y_startGroup[groupLen] = y_start;
+        x_string = r_string + x_start;
+        groupLen++;
         
-        
-        ///这个长度足够，可以用来一起比
-        if (Window_Len == o_len)
+
+        if (groupLen == GROUP_SIZE)
         {
+            Reserve_Banded_BPM_4_SSE_only(dumy->overlap_region_group[0], dumy->overlap_region_group[1], 
+            dumy->overlap_region_group[2], dumy->overlap_region_group[3], Window_Len, x_string, WINDOW,
+                return_sites, return_sites_error, THRESHOLD, dumy->Peq_SSE);
+            groupLen = 0;
 
-            recover_UC_Read_sub_region(dumy->overlap_region_group[groupLen], y_start, o_len, overlap_list->list[currentID].y_pos_strand, 
-                R_INF, overlap_list->list[currentID].y_id);
             
-            overlapID[groupLen] = currentID;
-            y_startGroup[groupLen] = y_start;
-
-            x_string = r_string + x_start;
-
-            groupLen++;
-            if (groupLen == GROUP_SIZE)
+            if (return_sites_error[0]!=(unsigned int)-1)
             {
-            
-                Reserve_Banded_BPM_4_SSE_only(dumy->overlap_region_group[0], dumy->overlap_region_group[1], 
-                dumy->overlap_region_group[2], dumy->overlap_region_group[3], o_len, x_string, x_len,
-			        return_sites, return_sites_error, THRESHOLD, dumy->Peq_SSE);
-                groupLen = 0;
+                overlap_list->list[overlapID[0]].align_length += x_len;
 
-                
-                if (return_sites_error[0]!=(unsigned int)-1)
-                {
-                    overlap_list->list[overlapID[0]].align_length += x_len;
-
-                    append_window_list(&overlap_list->list[overlapID[0]], window_start, window_end, 
-                                y_startGroup[0], y_startGroup[0] + return_sites[0], (int)return_sites_error[0]);
-                }
-                else
-                {
-                    append_window_list(&overlap_list->list[overlapID[0]], window_start, window_end, y_startGroup[0], -1, -1);
-                }
-                
-
-                if (return_sites_error[1]!=(unsigned int)-1)
-                {
-                    overlap_list->list[overlapID[1]].align_length += x_len;
-
-                    append_window_list(&overlap_list->list[overlapID[1]], window_start, window_end, 
-                                y_startGroup[1], y_startGroup[1] + return_sites[1], (int)return_sites_error[1]);
-                }
-                else
-                {
-                    append_window_list(&overlap_list->list[overlapID[1]], window_start, window_end, y_startGroup[1], -1, -1);
-                }
-                
-
-                if (return_sites_error[2]!=(unsigned int)-1)
-                {
-                    overlap_list->list[overlapID[2]].align_length += x_len;
-
-                    append_window_list(&overlap_list->list[overlapID[2]], window_start, window_end, 
-                                y_startGroup[2], y_startGroup[2] + return_sites[2], (int)return_sites_error[2]);
-                }
-                else
-                {
-                    append_window_list(&overlap_list->list[overlapID[2]], window_start, window_end, y_startGroup[2], -1, -1);
-                }
-                
-
-                if (return_sites_error[3]!=(unsigned int)-1)
-                {
-                    overlap_list->list[overlapID[3]].align_length += x_len;
-
-                    append_window_list(&overlap_list->list[overlapID[3]], window_start, window_end, 
-                                y_startGroup[3], y_startGroup[3] + return_sites[3], (int)return_sites_error[3]);
-                }
-                else
-                {
-                    append_window_list(&overlap_list->list[overlapID[3]], window_start, window_end, y_startGroup[3], -1, -1);
-                }
-                
-
-                
-               
-               /************需要注释掉**********/
-            //    for (size_t ijk = 0; ijk < GROUP_SIZE; ijk++)
-            //    {
-            //        if (return_sites_error[ijk]!=(unsigned int)-1)
-            //         {
-            //             total_match++;
-            //         }
-            //         else
-            //         {
-            //             total_unmatch++;
-            //         }
-            //         test_edit_distance_by_edlib(x_string, dumy->overlap_region_group[ijk], x_len, o_len, THRESHOLD, 
-            //         return_sites_error[ijk], &total_mis);
-            //    }
-                /************需要注释掉********* */
-                
-            }
-
-        }
-        else  ///这个不够，只能单个比 ///不够的地方要置N
-        {
-
-            recover_UC_Read_sub_region(dumy->overlap_region, y_start, o_len, overlap_list->list[currentID].y_pos_strand, 
-                R_INF, overlap_list->list[currentID].y_id);
-
-            x_string = r_string + x_start;
-            y_string = dumy->overlap_region;
-
-            ///o_len < Window_Len, 说明y的长度不够，需要在y后面补N
-            memset (y_string + o_len, 0, Window_Len - o_len);
-            end_site = Reserve_Banded_BPM(y_string, o_len, x_string, x_len, THRESHOLD, &error);
-
-            
-
-
-            if (error!=(unsigned int)-1)
-            {
-                overlap_list->list[currentID].align_length += x_len;
-                append_window_list(&overlap_list->list[currentID], window_start, window_end, y_start, y_start + end_site, 
-                (int)error);
+                append_window_list(&overlap_list->list[overlapID[0]], window_start, window_end, 
+                            y_startGroup[0], y_startGroup[0] + return_sites[0], (int)return_sites_error[0],
+                            y_extra_begin[0], y_extra_end[0]);
             }
             else
             {
-                append_window_list(&overlap_list->list[currentID], window_start, window_end, y_start, -1, -1);
+                append_window_list(&overlap_list->list[overlapID[0]], window_start, window_end, y_startGroup[0], -1, -1,
+                y_extra_begin[0], y_extra_end[0]);
             }
             
+
+            if (return_sites_error[1]!=(unsigned int)-1)
+            {
+                overlap_list->list[overlapID[1]].align_length += x_len;
+
+                append_window_list(&overlap_list->list[overlapID[1]], window_start, window_end, 
+                            y_startGroup[1], y_startGroup[1] + return_sites[1], (int)return_sites_error[1],
+                            y_extra_begin[1], y_extra_end[1]);
+            }
+            else
+            {
+                append_window_list(&overlap_list->list[overlapID[1]], window_start, window_end, y_startGroup[1], -1, -1,
+                y_extra_begin[1], y_extra_end[1]);
+            }
             
-            /************需要注释掉**********/
-            // if (error!=(unsigned int)-1)
-            // {
-            //     total_match++;
-            // }
-            // else
-            // {
-            //     total_unmatch++;
-            // }
-            // test_edit_distance_by_edlib(x_string, y_string, x_len, o_len, THRESHOLD, error, &total_mis);
-            /************需要注释掉********* */
+
+            if (return_sites_error[2]!=(unsigned int)-1)
+            {
+                overlap_list->list[overlapID[2]].align_length += x_len;
+
+                append_window_list(&overlap_list->list[overlapID[2]], window_start, window_end, 
+                            y_startGroup[2], y_startGroup[2] + return_sites[2], (int)return_sites_error[2],
+                            y_extra_begin[2], y_extra_end[2]);
+            }
+            else
+            {
+                append_window_list(&overlap_list->list[overlapID[2]], window_start, window_end, y_startGroup[2], -1, -1,
+                y_extra_begin[2], y_extra_end[2]);
+            }
+            
+
+            if (return_sites_error[3]!=(unsigned int)-1)
+            {
+                overlap_list->list[overlapID[3]].align_length += x_len;
+
+                append_window_list(&overlap_list->list[overlapID[3]], window_start, window_end, 
+                            y_startGroup[3], y_startGroup[3] + return_sites[3], (int)return_sites_error[3],
+                            y_extra_begin[3], y_extra_end[3]);
+            }
+            else
+            {
+                append_window_list(&overlap_list->list[overlapID[3]], window_start, window_end, y_startGroup[3], -1, -1,
+                y_extra_begin[3], y_extra_end[3]);
+            }    
         }
     }
 
 
+    
 
     if (groupLen == 1)
     {
-        end_site = Reserve_Banded_BPM(dumy->overlap_region_group[0], o_len, x_string, x_len, THRESHOLD, &error);
+        end_site = Reserve_Banded_BPM(dumy->overlap_region_group[0], Window_Len, x_string, WINDOW, THRESHOLD, &error);
 
         
 
@@ -654,30 +617,19 @@ char* r_string)
             overlap_list->list[overlapID[0]].align_length += x_len;
 
             append_window_list(&overlap_list->list[overlapID[0]], window_start, window_end, 
-                                y_startGroup[0], y_startGroup[0] + end_site, (int)error);
+                                y_startGroup[0], y_startGroup[0] + end_site, (int)error,
+                                y_extra_begin[0], y_extra_end[0]);
         }
         else
         {
-            append_window_list(&overlap_list->list[overlapID[0]], window_start, window_end, y_startGroup[0], -1, -1);
+            append_window_list(&overlap_list->list[overlapID[0]], window_start, window_end, y_startGroup[0], -1, -1,
+            y_extra_begin[0], y_extra_end[0]);
         }
-        
-
-        /************需要注释掉**********/
-        // if (error!=(unsigned int)-1)
-        // {
-        //     total_match++;
-        // }
-        // else
-        // {
-        //     total_unmatch++;
-        // }
-        // test_edit_distance_by_edlib(x_string, dumy->overlap_region_group[0], x_len, o_len, THRESHOLD, error, &total_mis);
-        /************需要注释掉********* */
     }
     else if (groupLen > 1)
     {
         Reserve_Banded_BPM_4_SSE_only(dumy->overlap_region_group[0], dumy->overlap_region_group[1], 
-                dumy->overlap_region_group[2], dumy->overlap_region_group[3], o_len, x_string, x_len,
+                dumy->overlap_region_group[2], dumy->overlap_region_group[3], Window_Len, x_string, WINDOW,
 			        return_sites, return_sites_error, THRESHOLD, dumy->Peq_SSE);
 
         for (i = 0; i < groupLen; i++)
@@ -686,34 +638,19 @@ char* r_string)
             {
                 overlap_list->list[overlapID[i]].align_length += x_len;
                 append_window_list(&overlap_list->list[overlapID[i]], window_start, window_end, 
-                                y_startGroup[i], y_startGroup[i] + return_sites[i], (int)return_sites_error[i]);
+                                y_startGroup[i], y_startGroup[i] + return_sites[i], (int)return_sites_error[i],
+                                y_extra_begin[i], y_extra_end[i]);
             }
             else
             {
-                append_window_list(&overlap_list->list[overlapID[i]], window_start, window_end, y_startGroup[i], -1, -1);
+                append_window_list(&overlap_list->list[overlapID[i]], window_start, window_end, y_startGroup[i], -1, -1,
+                y_extra_begin[i], y_extra_end[i]);
             }
             
         }
 
-
-        /************需要注释掉**********/
-        // for (size_t ijk = 0; ijk < groupLen; ijk++)
-        // {
-        //     if (return_sites_error[ijk]!=(unsigned int)-1)
-        //     {
-        //         total_match++;
-        //     }
-        //     else
-        //     {
-        //         total_unmatch++;
-        //     }
-        //     test_edit_distance_by_edlib(x_string, dumy->overlap_region_group[ijk], x_len, o_len, THRESHOLD, 
-        //     return_sites_error[ijk], &total_mis);
-        // }
-        /************需要注释掉**********/
         groupLen = 0;
     }
-    
     
 
     long long reverse_i = dumy->size - 1;
@@ -722,6 +659,7 @@ char* r_string)
     ///这些是整个window被部分覆盖的
     for (i = 0; i < dumy->lengthNT; i++)
     {
+        extra_begin = extra_end = 0;
         currentID = dumy->overlapID[reverse_i--];
         x_start = MAX(window_start, overlap_list->list[currentID].x_pos_s);
         x_end = MIN(window_end, overlap_list->list[currentID].x_pos_e);
@@ -730,104 +668,38 @@ char* r_string)
         x_len = x_end - x_start + 1;
         threshold = x_len * THRESHOLD_RATE;
 
-        // /************需要注释掉**********/
-        // if (x_len <= 0)
-        // {
-        //     fprintf(stderr, "ERROR\n");
-        // }
-        // /************需要注释掉**********/
-
         ///y上的相对位置
         y_start = (x_start - overlap_list->list[currentID].x_pos_s) + overlap_list->list[currentID].y_pos_s;
 
-        // /************需要注释掉**********/
-        // if(x_start < overlap_list->list[currentID].x_pos_s)
-        // {
-        //     fprintf(stderr, "ERROR\n");
-        // }
-        // /************需要注释掉**********/
-
-
-        ///y上的起始
-        ///y_start = y_start - THRESHOLD;
-        y_start = y_start - threshold;
-        if (y_start < 0)
-        {
-            y_start = 0;
-        }
         
-        ///当前y的长度
-        currentIDLen = Get_READ_LENGTH((*R_INF), overlap_list->list[currentID].y_id);
-
-        
-        ///不能超过y的剩余长度
-        ///Window_Len = x_len + (THRESHOLD << 1);
         Window_Len = x_len + (threshold << 1);
-        o_len = MIN(Window_Len, currentIDLen - y_start);
+        determine_overlap_region(threshold, y_start, overlap_list->list[currentID].y_id, Window_Len, R_INF,
+        &extra_begin, &extra_end, &y_start, &o_len);
 
-
-        // /************需要注释掉**********/
-        // if(o_len < x_len)
-        // {
-        //     fprintf(stderr, "ERROR\n");
-        // }
-        // /************需要注释掉**********/
-
+        fill_subregion(dumy->overlap_region, y_start, o_len, overlap_list->list[currentID].y_pos_strand, 
+        R_INF, overlap_list->list[currentID].y_id, extra_begin, extra_end);
         
-        recover_UC_Read_sub_region(dumy->overlap_region, y_start, o_len, overlap_list->list[currentID].y_pos_strand, 
-                R_INF, overlap_list->list[currentID].y_id);
 
         x_string = r_string + x_start;
         y_string = dumy->overlap_region;
 
-        ///不够的地方要置N
-        if (Window_Len != o_len)
-        {
-            ///o_len < Window_Len, 说明y的长度不够，需要在y后面补N
-            memset (y_string + o_len, 0, Window_Len - o_len);
-        }
-        ///end_site = Reserve_Banded_BPM(y_string, o_len, x_string, x_len, THRESHOLD, &error);
-        end_site = Reserve_Banded_BPM(y_string, o_len, x_string, x_len, threshold, &error);
+
+        end_site = Reserve_Banded_BPM(y_string, Window_Len, x_string, x_len, threshold, &error);
 
 
         if (error!=(unsigned int)-1)
         {
             overlap_list->list[currentID].align_length += x_len;
-            append_window_list(&overlap_list->list[currentID], x_start, x_end, y_start, y_start + end_site, (int)error);
+            append_window_list(&overlap_list->list[currentID], x_start, x_end, y_start, y_start + end_site, (int)error,
+            extra_begin, extra_end);
         }
         else
         {
-            append_window_list(&overlap_list->list[currentID], x_start, x_end, y_start, -1, -1);
+            append_window_list(&overlap_list->list[currentID], x_start, x_end, y_start, -1, -1,
+            extra_begin, extra_end);
         }
-
-
-
-
-        /************需要注释掉********* */
-        // if (error!=(unsigned int)-1)
-        // {
-        //     total_match++;
-        // }
-        // else
-        // {
-        //     total_unmatch++;
-        // }
-        // //test_edit_distance_by_edlib(x_string, y_string, x_len, o_len, THRESHOLD, error, &total_mis);
-        // test_edit_distance_by_edlib(x_string, y_string, x_len, o_len, threshold, error, &total_mis);
-        /************需要注释掉********* */
     }
-    
 
-
-
-    /************需要注释掉********* */
-    // pthread_mutex_lock(&debug_statistics);
-    // T_total_match = T_total_match + total_match;
-    // T_total_unmatch = T_total_unmatch + total_unmatch;
-    // T_total_mis = T_total_mis + total_mis;
-	// pthread_mutex_unlock(&debug_statistics);
-    /************需要注释掉********* */
-        
 }
 
 void debug_stats(overlap_region_alloc* overlap_list, All_reads* R_INF, 
@@ -933,7 +805,7 @@ void debug_stats(overlap_region_alloc* overlap_list, All_reads* R_INF,
 
 
 inline void generate_cigar(
-	char* path, int path_length, window_list* result)
+	char* path, int path_length, window_list* result, int* start, int* end)
 {
 
     if (result->error == 0)
@@ -951,6 +823,34 @@ inline void generate_cigar(
     ///0 is match, 1 is mismatch, 2 is up, 3 is left
     char pre_ciga = 5;
     int pre_ciga_length = 0;
+
+
+    for (i = 0; i < path_length; i++)
+    {
+        if(path[i] == 1)
+        {
+            path[i] = 3;
+            (*end)--;
+        }
+        else
+        {
+            break;
+        }
+    }
+
+    for (i = path_length - 1; i >= 0; i--)
+    {
+        if(path[i] == 1)
+        {
+            path[i] = 3;
+            (*start)++;
+        }
+        else
+        {
+            break;
+        }
+    }
+    
 
     for (i = path_length - 1; i >= 0; i--)
     {
@@ -1110,6 +1010,8 @@ inline void recalcate_window(overlap_region_alloc* overlap_list, All_reads* R_IN
     unsigned int error;
     int real_y_start;
     long long overlap_length;
+    int extra_begin, extra_end;
+    long long o_len;
 
 
     ///j负责遍历整个overlap list
@@ -1130,12 +1032,20 @@ inline void recalcate_window(overlap_region_alloc* overlap_list, All_reads* R_IN
             ///找到第一个匹配的window
             if(overlap_list->list[j].w_list[i].y_end != -1)
             {
-                total_y_start = overlap_list->list[j].w_list[i].y_end + 1;
+                ///note!!! need notification
+                ///total_y_start = overlap_list->list[j].w_list[i].y_end + 1;
+                ///this is the actual end postion in ystring
+                total_y_start = overlap_list->list[j].w_list[i].y_end - overlap_list->list[j].w_list[i].extra_begin + 1;
+
+
+
                 ///k遍历匹配window右侧所有不匹配的window
                 ///如果i匹配，则k从i+1开始
                 ///知道第一个匹配的window结束
                 for (k = i + 1; k < overlap_list->list[j].w_list_length && overlap_list->list[j].w_list[k].y_end == -1; k++)
-                {   
+                {
+                    extra_begin = extra_end = 0;
+
                     ///y_start有可能大于y_readLen
                     ///这多发于最后一个window长度仅为几，而前面一个window的结束位置也超过了y_readLen-1
                     ///这个时候做动态规划会给超过的部分补N
@@ -1144,40 +1054,31 @@ inline void recalcate_window(overlap_region_alloc* overlap_list, All_reads* R_IN
                         break;
                     }
                     
+                    ///there is no problem for x
                     x_start = overlap_list->list[j].w_list[k].x_start;
                     x_end = overlap_list->list[j].w_list[k].x_end;
                     x_len = x_end - x_start + 1;
-                    ///if(x_len == )
                     threshold = x_len * THRESHOLD_RATE;
-                    y_start = total_y_start - threshold;
-                    if (y_start < 0)
-                    {
-                        y_start = 0;
-                    }
+
+
+                    y_start = total_y_start;
                     Window_Len = x_len + (threshold << 1);
-                    ///y_start有可能大于y_readLen
-                    ///这多发于最后一个window长度仅为几，而前面一个window的结束位置也超过了y_readLen-1
-                    ///这个时候做动态规划会给超过的部分补N
-                    y_len = MIN(Window_Len, y_readLen - y_start);
-                    ///这说明已经到y的结尾了
-                    if (y_len < x_len)
+                    determine_overlap_region(threshold, y_start, y_id, Window_Len, R_INF, 
+                    &extra_begin, &extra_end, &y_start, &o_len);
+
+                    if(o_len + threshold < x_len)
                     {
                         break;
                     }
                     
-                    
+                    fill_subregion(dumy->overlap_region, y_start, o_len, y_strand, 
+                    R_INF, y_id, extra_begin, extra_end);
 
-                    recover_UC_Read_sub_region(dumy->overlap_region, y_start, y_len, y_strand, R_INF, y_id);
-                    
                     x_string = g_read->seq + x_start;
                     y_string = dumy->overlap_region;
-                    if (Window_Len != y_len)
-                    {
-                        ///o_len < Window_Len, 说明y的长度不够，需要在y后面补N
-                        memset (y_string + y_len, 0, Window_Len - y_len);
-                    }
-                    
-                    end_site = Reserve_Banded_BPM(y_string, y_len, x_string, x_len, threshold, &error);
+
+                    ///note!!! need notification
+                    end_site = Reserve_Banded_BPM(y_string, Window_Len, x_string, x_len, threshold, &error);
                     
                     ///error等于-1说明没匹配
                     if (error!=(unsigned int)-1)
@@ -1186,14 +1087,18 @@ inline void recalcate_window(overlap_region_alloc* overlap_list, All_reads* R_IN
                         overlap_list->list[j].w_list[k].y_start = y_start;
                         overlap_list->list[j].w_list[k].y_end = y_start + end_site;
                         overlap_list->list[j].w_list[k].error = (int)error;
+                        ///note!!! need notification
+                        overlap_list->list[j].w_list[k].extra_begin = extra_begin;
+                        overlap_list->list[j].w_list[k].extra_end = extra_end;
                         overlap_list->list[j].align_length += x_len;
                     }
                     else
                     {
                         break;
                     }
-                    
-                    total_y_start = y_start + end_site + 1;
+                    ///note!!! need notification
+                    ///total_y_start = y_start + end_site + 1;
+                    total_y_start = y_start + end_site - extra_begin + 1;
 
                 }
                 
@@ -1222,25 +1127,26 @@ inline void recalcate_window(overlap_region_alloc* overlap_list, All_reads* R_IN
                 ///如果没有，就需要重新计算
                 if(overlap_list->list[j].w_list[i].cigar.length == -1)
                 {
+                    ///there is no problem for x
                     x_start = overlap_list->list[j].w_list[i].x_start;
                     x_end = overlap_list->list[j].w_list[i].x_end;
                     x_len = x_end - x_start + 1;
                     threshold = x_len * THRESHOLD_RATE;
-                    y_start = overlap_list->list[j].w_list[i].y_start;
                     Window_Len = x_len + (threshold << 1);
-                    y_len = MIN(Window_Len, y_readLen - y_start);
 
-                    recover_UC_Read_sub_region(dumy->overlap_region, y_start, y_len, y_strand, R_INF, y_id);
 
+                    ///y_start is the real y_start
+                    y_start = overlap_list->list[j].w_list[i].y_start;
+                    extra_begin = overlap_list->list[j].w_list[i].extra_begin;
+                    extra_end = overlap_list->list[j].w_list[i].extra_end;
+                    o_len = Window_Len - extra_end - extra_begin;
+                    fill_subregion(dumy->overlap_region, y_start, o_len, y_strand, 
+                    R_INF, y_id, extra_begin, extra_end);
                     x_string = g_read->seq + x_start;
                     y_string = dumy->overlap_region;
-                    if (Window_Len != y_len)
-                    {
-                        ///o_len < Window_Len, 说明y的长度不够，需要在y后面补N
-                        memset (y_string + y_len, 0, Window_Len - y_len);
-                    }
 
-                    end_site = Reserve_Banded_BPM_PATH(y_string, y_len, x_string, x_len, threshold, &error, &real_y_start,
+                    ///note!!! need notification
+                    end_site = Reserve_Banded_BPM_PATH(y_string, Window_Len, x_string, x_len, threshold, &error, &real_y_start,
                     &(dumy->path_length), dumy->matrix_bit, dumy->path, 
                     overlap_list->list[j].w_list[i].error, overlap_list->list[j].w_list[i].y_end - y_start);
 
@@ -1250,10 +1156,34 @@ inline void recalcate_window(overlap_region_alloc* overlap_list, All_reads* R_IN
                     ///到这里y_start已经被正确计算出来了
                     if (error != (unsigned int)-1)
                     {
-                        real_y_start = y_start + real_y_start;
-                        overlap_list->list[j].w_list[i].y_start = real_y_start;
-                        generate_cigar(dumy->path, dumy->path_length, &(overlap_list->list[j].w_list[i]));                                
+                        
+
+
+                         
+                        generate_cigar(dumy->path, dumy->path_length, &(overlap_list->list[j].w_list[i]),
+                        &real_y_start, &end_site);  
+
+                        if(real_y_start < extra_begin || end_site >= Window_Len - extra_end)
+                        {
+                            fprintf(stderr, "\nreal_y_start: %d, extra_begin: %d\n", 
+                            real_y_start, extra_begin);
+
+                            fprintf(stderr, "end_site: %d, Window_Len: %d, extra_end: %d\n", 
+                            end_site, Window_Len, extra_end);                            
+                        }
+                        
+                        
+                        ///note!!! need notification
+                        ///real_y_start = y_start + real_y_start;
+                        real_y_start = y_start + real_y_start - extra_begin;
+                        overlap_list->list[j].w_list[i].y_start = real_y_start;  
+                        overlap_list->list[j].w_list[i].y_end = y_start + end_site;                         
                     }
+                    else
+                    {
+                        fprintf(stderr, "error\n");
+                    }
+                    
                         
                 }
                 else
@@ -1271,59 +1201,69 @@ inline void recalcate_window(overlap_region_alloc* overlap_list, All_reads* R_IN
                 ///因为i!=0，所以k的大小不用担心
                 for (k = i - 1; k >= 0 && overlap_list->list[j].w_list[k].y_end == -1; k--)
                 {  
+                    ///there is no problem in x
                     x_start = overlap_list->list[j].w_list[k].x_start;
                     x_end = overlap_list->list[j].w_list[k].x_end;
                     x_len = x_end - x_start + 1;
                     threshold = x_len * THRESHOLD_RATE;
-                    ///这个和上面不同，先求y_end
-                    y_end = total_y_end + threshold;
-                    ///y_end不能大于y的总长度
-                    if(y_end >= y_readLen)
-                    {
-                        y_end = y_readLen - 1;
-                    }
                     Window_Len = x_len + (threshold << 1);
-                    y_len = MIN(Window_Len, y_end + 1);
-                    ///这说明已经到y的开始了，因为是倒着算的，没必要接着算了
-                    if (y_len < x_len)
+
+                    if(total_y_end <= 0)
                     {
                         break;
                     }
-                    y_start = y_end - y_len + 1;
-                    recover_UC_Read_sub_region(dumy->overlap_region, y_start, y_len, y_strand, R_INF, y_id);
+
+                    ///y_start may less than 0
+                    y_start = total_y_end - x_len + 1;
+                    determine_overlap_region(threshold, y_start, y_id, Window_Len, R_INF,
+                    &extra_begin, &extra_end, &y_start, &o_len);
+
+                    if(o_len + threshold < x_len)
+                    {
+                        break;
+                    }
+
+                    fill_subregion(dumy->overlap_region, y_start, o_len, y_strand, 
+                    R_INF, y_id, extra_begin, extra_end);
                     x_string = g_read->seq + x_start;
                     y_string = dumy->overlap_region;
-                    
-                    ///不要在前面补补，补了有可能触发剪纸
-                    ///还是像上面一样在后面随便补点就好了
-                    if (Window_Len != y_len)
-                    {
-                        ///o_len < Window_Len, 说明y的长度不够，需要在y后面补N
-                        ///memset (y_string, 0, Window_Len - y_len);
-                        memset (y_string + y_len, 0, Window_Len - y_len);
-                    }
-                    
 
-                    end_site = Reserve_Banded_BPM_PATH(y_string, y_len, x_string, x_len, threshold, &error, &real_y_start,
+                    ///note!!! need notification
+                    end_site = Reserve_Banded_BPM_PATH(y_string, Window_Len, x_string, x_len, threshold, &error, &real_y_start,
                     &(dumy->path_length), dumy->matrix_bit, dumy->path, -1, -1);
+
 
                     ///error等于-1说明没匹配
                     if (error!=(unsigned int)-1)
-                    {
-                        
-                        ///overlap_list->list[j].w_list[k].y_pre_start = overlap_list->list[j].w_list[k].y_start;
-                        overlap_list->list[j].w_list[k].y_start = y_start + real_y_start;
+                    { 
+
+                        generate_cigar(dumy->path, dumy->path_length, &(overlap_list->list[j].w_list[k]),
+                        &real_y_start, &end_site);   
+
+                        if(real_y_start < extra_begin || end_site >= Window_Len - extra_end)
+                        {
+                            fprintf(stderr, "\nreal_y_start: %d, extra_begin: %d\n", 
+                            real_y_start, extra_begin);
+
+                            fprintf(stderr, "end_site: %d, Window_Len: %d, extra_end: %d\n", 
+                            end_site, Window_Len, extra_end);                            
+                        }
+
+                        ///y_start has no shift, but y_end has shift           
+                        overlap_list->list[j].w_list[k].y_start = y_start + real_y_start - extra_begin;
                         overlap_list->list[j].w_list[k].y_end = y_start + end_site;
                         overlap_list->list[j].w_list[k].error = error;
                         overlap_list->list[j].align_length += x_len;
-                        generate_cigar(dumy->path, dumy->path_length, &(overlap_list->list[j].w_list[k]));
+                        ///note!!! need notification
+                        overlap_list->list[j].w_list[k].extra_begin = extra_begin;
+                        overlap_list->list[j].w_list[k].extra_end = extra_end;
                     }
                     else
                     {
                         break;
                     }
 
-                    total_y_end = y_start + real_y_start - 1;
+                    total_y_end = y_start + real_y_start - 1 - extra_begin;
                 }
             
             }
@@ -1344,6 +1284,7 @@ inline void recalcate_window(overlap_region_alloc* overlap_list, All_reads* R_IN
         y_readLen = Get_READ_LENGTH((*R_INF), y_id);
         overlap_length = overlap_list->list[j].x_pos_e - overlap_list->list[j].x_pos_s + 1;
 
+        ///only calculate cigar for high quality overlaps
         if (overlap_length * OVERLAP_THRESHOLD <=  overlap_list->list[j].align_length)
         {
             for (i = 0; i < overlap_list->list[j].w_list_length; i++)
@@ -1351,38 +1292,72 @@ inline void recalcate_window(overlap_region_alloc* overlap_list, All_reads* R_IN
                 ///判断cigar是否被计算
                 ///没被计算过就重算
                 ///第一个条件是判断这个窗口是否匹配
-                if(overlap_list->list[j].w_list[i].y_end != -1 && overlap_list->list[j].w_list[i].cigar.length == -1)
+                if(overlap_list->list[j].w_list[i].y_end != -1)
                 {
-                    x_start = overlap_list->list[j].w_list[i].x_start;
-                    x_end = overlap_list->list[j].w_list[i].x_end;
-                    x_len = x_end - x_start + 1;
-                    threshold = x_len * THRESHOLD_RATE;
-                    y_start = overlap_list->list[j].w_list[i].y_start;
-                    Window_Len = x_len + (threshold << 1);
-                    y_len = MIN(Window_Len, y_readLen - y_start);
-
-                    recover_UC_Read_sub_region(dumy->overlap_region, y_start, y_len, y_strand, R_INF, y_id);
-
-                    x_string = g_read->seq + x_start;
-                    y_string = dumy->overlap_region;
-                    if (Window_Len != y_len)
+                    if(overlap_list->list[j].w_list[i].cigar.length == -1)
                     {
-                        ///o_len < Window_Len, 说明y的长度不够，需要在y后面补N
-                        memset (y_string + y_len, 0, Window_Len - y_len);
+                        ///there is no problem for x
+                        x_start = overlap_list->list[j].w_list[i].x_start;
+                        x_end = overlap_list->list[j].w_list[i].x_end;
+                        x_len = x_end - x_start + 1;
+                        threshold = x_len * THRESHOLD_RATE;
+                        Window_Len = x_len + (threshold << 1);
+
+
+                        ///y_start is the real y_start
+                        y_start = overlap_list->list[j].w_list[i].y_start;
+                        extra_begin = overlap_list->list[j].w_list[i].extra_begin;
+                        extra_end = overlap_list->list[j].w_list[i].extra_end;
+                        o_len = Window_Len - extra_end - extra_begin;
+                        fill_subregion(dumy->overlap_region, y_start, o_len, y_strand, 
+                        R_INF, y_id, extra_begin, extra_end);
+                        x_string = g_read->seq + x_start;
+                        y_string = dumy->overlap_region;
+
+
+                        ///note!!! need notification
+                        end_site = Reserve_Banded_BPM_PATH(y_string, Window_Len, x_string, x_len, threshold, &error, &real_y_start,
+                        &(dumy->path_length), dumy->matrix_bit, dumy->path, 
+                        overlap_list->list[j].w_list[i].error, overlap_list->list[j].w_list[i].y_end - y_start);
+
+
+                        ///到这里y_start已经被正确计算出来了
+                        if (error != (unsigned int)-1)
+                        {
+
+                            generate_cigar(dumy->path, dumy->path_length, &(overlap_list->list[j].w_list[i]),
+                            &real_y_start, &end_site);    
+
+
+                            if(real_y_start < extra_begin || end_site >= Window_Len - extra_end)
+                            {
+                                fprintf(stderr, "\nreal_y_start: %d, extra_begin: %d\n", 
+                                real_y_start, extra_begin);
+
+                                fprintf(stderr, "end_site: %d, Window_Len: %d, extra_end: %d\n", 
+                                end_site, Window_Len, extra_end);                            
+                            }
+
+                            
+
+                            ///note!!! need notification
+                            ///real_y_start = y_start + real_y_start;
+                            real_y_start = y_start + real_y_start - extra_begin;
+                            overlap_list->list[j].w_list[i].y_start = real_y_start;  
+                            overlap_list->list[j].w_list[i].y_end = y_start + end_site - extra_begin;                              
+                        }
+                        else
+                        {
+                            fprintf(stderr, "error\n");
+                        }
                     }
-
-                    end_site = Reserve_Banded_BPM_PATH(y_string, y_len, x_string, x_len, threshold, &error, &real_y_start,
-                    &(dumy->path_length), dumy->matrix_bit, dumy->path, 
-                    overlap_list->list[j].w_list[i].error, overlap_list->list[j].w_list[i].y_end - y_start);
-
-                    ///到这里y_start已经被正确计算出来了
-                    if (error != (unsigned int)-1)
+                    else
                     {
-                        real_y_start = y_start + real_y_start;
-                        overlap_list->list[j].w_list[i].y_start = real_y_start;
-                        generate_cigar(dumy->path, dumy->path_length, &(overlap_list->list[j].w_list[i]));                                
+                        overlap_list->list[j].w_list[i].y_end -= overlap_list->list[j].w_list[i].extra_begin;
                     }
                 }
+                
+                
             }
         }
     }
@@ -1391,205 +1366,48 @@ inline void recalcate_window(overlap_region_alloc* overlap_list, All_reads* R_IN
 
 
 
+    /**
+    ///j负责遍历整个overlap list
+    for (j = 0; j < overlap_list->length; j++)
+    {
+        y_id = overlap_list->list[j].y_id;
+        y_strand = overlap_list->list[j].y_pos_strand;
+        y_readLen = Get_READ_LENGTH((*R_INF), y_id);
+        overlap_length = overlap_list->list[j].x_pos_e - overlap_list->list[j].x_pos_s + 1;
+
+        ///only calculate cigar for high quality overlaps
+        if (overlap_length * OVERLAP_THRESHOLD <=  overlap_list->list[j].align_length)
+        {
+            for (i = 0; i < overlap_list->list[j].w_list_length; i++)
+            {
+                if(overlap_list->list[j].w_list[i].y_end != -1)
+                {
+                    ///there is no problem for x
+                    x_start = overlap_list->list[j].w_list[i].x_start;
+                    x_end = overlap_list->list[j].w_list[i].x_end;
+                    x_len = x_end - x_start + 1;
+
+                    x_string = g_read->seq + x_start;
+
+                    y_start = overlap_list->list[j].w_list[i].y_start;
+                    y_end = overlap_list->list[j].w_list[i].y_end;
+                    y_len = y_end - y_start + 1;
+
+                    recover_UC_Read_sub_region(dumy->overlap_region, y_start, y_len, y_strand, R_INF, y_id);
+                    y_string = dumy->overlap_region;
 
 
+                    if(verify_cigar(x_string, x_len, y_string, y_len, &overlap_list->list[j].w_list[i].cigar, 
+                    overlap_list->list[j].w_list[i].error))
+                    {
+                        fprintf(stderr, "j: %d, i: %d, y_id: %d, y_start: %d, y_end: %d\n", j, i, y_id, y_start, y_end);
+                    }
+                }
 
-
-
-
-
-
-
-
-
-
-    
-
-    
-    // for (j = 0; j < overlap_list->length; j++)
-    // {
-        
-    //     y_id = overlap_list->list[j].y_id;
-    //     y_strand = overlap_list->list[j].y_pos_strand;
-    //     y_readLen = Get_READ_LENGTH((*R_INF), y_id);
-
-    //     matches = 0;
-    //     for (i = 0; i < overlap_list->list[j].w_list_length; i++)
-    //     {
-    //         x_start = overlap_list->list[j].w_list[i].x_start;
-    //         x_end = overlap_list->list[j].w_list[i].x_end;
-    //         x_len = x_end - x_start + 1;
-    //         ///if(x_len == )
-    //         threshold = x_len * THRESHOLD_RATE;   
-    //         y_start = overlap_list->list[j].w_list[i].y_start;
-
-
-            
-    //         if (overlap_list->list[j].w_list[i].y_end != -1)
-    //         {
-    //             matches += x_len;
-    //         }
-
-    //         if (i + 1 < overlap_list->list[j].w_list_length)
-    //         {
-    //             if (
-    //                 overlap_list->list[j].w_list[i + 1].x_end <= overlap_list->list[j].w_list[i].x_end
-    //                 ||
-    //                 overlap_list->list[j].w_list[i + 1].x_start <= overlap_list->list[j].w_list[i].x_start
-    //                 )
-    //             {
-    //                 fprintf(stderr, "ERROR 1\n");
-    //             }
-                
-    //         }
-
-
-    //         ///当起始位置还没求出来的时候
-    //         if(overlap_list->list[j].w_list[i].cigar.length == -1)
-    //         {
-                
-    //             Window_Len = x_len + (threshold << 1);
-    //             y_len = MIN(Window_Len, y_readLen - y_start);
-
-    //             recover_UC_Read_sub_region(dumy->overlap_region, y_start, y_len, y_strand, R_INF, y_id);
-                    
-    //             x_string = g_read->seq + x_start;
-    //             y_string = dumy->overlap_region;
-    //             if (Window_Len != y_len)
-    //             {
-    //                 ///o_len < Window_Len, 说明y的长度不够，需要在y后面补N
-    //                 memset (y_string + y_len, 0, Window_Len - y_len);
-    //             }
-
-    //             ///匹配
-    //             if (overlap_list->list[j].w_list[i].y_end != -1)
-    //             {
-    //                 ///fprintf(stderr, "hahah\n");
-    //                 end_site = Reserve_Banded_BPM(y_string, y_len, x_string, x_len, threshold, &error);
-
-    //                 if (error == (unsigned int)-1)
-    //                 {
-    //                     fprintf(stderr, "1 ERROR, y_start: %u, y_end: %u\n", 
-    //                     overlap_list->list[j].w_list[i].y_start, overlap_list->list[j].w_list[i].y_end);
-    //                 }
-                    
-    //                 if (end_site + y_start != overlap_list->list[j].w_list[i].y_end)
-    //                 {
-    //                     fprintf(stderr, "ERROR, y_end: %u, end_site: %u, y_start: %u, +: %u\n", 
-    //                     overlap_list->list[j].w_list[i].y_end, end_site, y_start, end_site + y_start);
-    //                 }
-
-    //                 int old_error = overlap_list->list[j].w_list[i].error;
-
-    //                 if (error != old_error)
-    //                 {
-                        
-    //                     fprintf(stderr, "ERROR new error: %d, old error: %d\n", error, overlap_list->list[j].w_list[i].error);
-    //                 }
-                    
-                    
-
-    //             }
-    //             else
-    //             {
-    //                 end_site = Reserve_Banded_BPM(y_string, y_len, x_string, x_len, threshold, &error);
-
-    //                 if (error != (unsigned int)-1)
-    //                 {
-    //                     fprintf(stderr, "2 ERROR\n");
-    //                 }
-    //             }
-                
-
-    //         }
-    //         else
-    //         {
-                
-
-    //             y_start = overlap_list->list[j].w_list[i].y_start;
-    //             ///此时y_start是真正匹配的起始位置，所以要减去threshold
-    //             y_start = y_start - threshold;
-    //             if(y_start < 0)
-    //             {
-    //                 y_start = 0;
-    //             }
-
-    //             Window_Len = x_len + (threshold << 1);
-    //             y_len = MIN(Window_Len, y_readLen - y_start);
-
-    //             recover_UC_Read_sub_region(dumy->overlap_region, y_start, y_len, y_strand, R_INF, y_id);
-                    
-    //             x_string = g_read->seq + x_start;
-    //             y_string = dumy->overlap_region;
-
-    //             if (Window_Len != y_len)
-    //             {
-    //                 ///o_len < Window_Len, 说明y的长度不够，需要在y后面补N
-    //                 memset (y_string + y_len, 0, Window_Len - y_len);
-    //             }
-
-
-                
-    //             end_site = Reserve_Banded_BPM_PATH(y_string, y_len, x_string, x_len, threshold, &error, &real_y_start,
-    //                     &(dumy->path_length), dumy->matrix_bit, dumy->path, 
-    //                     overlap_list->list[j].w_list[i].error, overlap_list->list[j].w_list[i].y_end - y_start);
-                        
-    //             ///end_site = Reserve_Banded_BPM(y_string, y_len, x_string, x_len, threshold, &error);
-                
-
-    //             if (error == (unsigned int)-1)
-    //             {
-    //                 fprintf(stderr, "3 ERROR, y_start: %d, y_end: %d, x_len: %d, pre_error: %d, y_strand: %u\n", 
-    //                 overlap_list->list[j].w_list[i].y_start, overlap_list->list[j].w_list[i].y_end, x_len, overlap_list->list[j].w_list[i].error, y_strand);
-
-    //                 fprintf(stderr, "Window_Len: %d, y_len: %d, y_readLen: %d\n", 
-    //                 Window_Len, y_len, y_readLen);
-
-    //                 print_string(g_read->seq+overlap_list->list[j].w_list[i].x_start, 
-    //                 overlap_list->list[j].w_list[i].x_end-overlap_list->list[j].w_list[i].x_start+1);
-
-    //                 recover_UC_Read_sub_region(dumy->overlap_region, overlap_list->list[j].w_list[i].y_start, 
-    //                 overlap_list->list[j].w_list[i].y_end-overlap_list->list[j].w_list[i].y_start + 1, y_strand, R_INF, y_id);
-
-    //                 print_string(dumy->overlap_region, 
-    //                 overlap_list->list[j].w_list[i].y_end-overlap_list->list[j].w_list[i].y_start + 1);
-    //             }
-
-    //             ////检验cigar是否正确
-    //             x_start = overlap_list->list[j].w_list[i].x_start;
-    //             x_end = overlap_list->list[j].w_list[i].x_end;
-    //             x_len = x_end - x_start + 1;
-    //             x_string = g_read->seq + x_start;
-
-    //             y_start = overlap_list->list[j].w_list[i].y_start;
-    //             y_end = overlap_list->list[j].w_list[i].y_end;
-    //             y_len = y_end - y_start + 1;
-    //             recover_UC_Read_sub_region(dumy->overlap_region, y_start, y_len, y_strand, R_INF, y_id);
-    //             y_string = dumy->overlap_region;
-                
-                
-    //             if(verify_cigar(x_string, x_len, y_string, y_len, &overlap_list->list[j].w_list[i].cigar, 
-    //             overlap_list->list[j].w_list[i].error))
-    //             {
-    //                 fprintf(stderr, "j: %d, i: %d, y_id: %d, y_start: %d, y_end: %d\n", j, i, y_id, y_start, y_end);
-    //             }
-                
-                
-                
-            
-                
-
-    //         }
-            
-    //     }
-
-    //     if (matches != overlap_list->list[j].align_length)
-    //     {
-    //         fprintf(stderr, "ERROR 2: matches: %d, align_length: %d\n", 
-    //                                 matches, overlap_list->list[j].align_length);
-    //     }
-    // }
-    
+            }
+        }
+    }
+    **/
     
 }
 
@@ -1654,11 +1472,14 @@ inline void add_segment_to_correct_read(Correct_dumy* dumy, char* segment, long 
 
 ///返回下一个backbone节点上的ID
 long long inline add_path_to_correct_read(Graph* backbone, Correct_dumy* dumy, long long currentNodeID, 
-long long type, long long edgeID)
+long long type, long long edgeID, Cigar_record* current_cigar, char* self_string)
 {
     //long long i;
     long long nodeID;
 
+    ///Note: currentNodeID must be a backbone node
+    ///currentNodeID = 0 means a fake node
+    ///currentNodeID = i means self_string[i - 1]
     ///包括匹配和误配两种情况
     if (type == MISMATCH)
     {
@@ -1668,6 +1489,10 @@ long long type, long long edgeID)
             nodeID = backbone->g_nodes.list[currentNodeID].mismatch_edges.list[edgeID].out_node;
             add_base_to_correct_read_directly(dumy, backbone->g_nodes.list[nodeID].base);
             ///match所以dumy->corrected_base不要+1
+
+            ///nodeID = i means self_string[i - 1]
+            ///add_cigar_record(self_string+nodeID-1, 1, current_cigar, 0);
+            add_cigar_record(&(backbone->g_nodes.list[nodeID].base), 1, current_cigar, 0);
 
             /***********需要注释掉********* */
             if (nodeID != currentNodeID + 1)
@@ -1680,12 +1505,26 @@ long long type, long long edgeID)
         }
         else ///这是mismatch的情况
         {
+            
+
             nodeID = backbone->g_nodes.list[currentNodeID].mismatch_edges.list[edgeID].out_node;
             add_base_to_correct_read_directly(dumy, backbone->g_nodes.list[nodeID].base);
             dumy->corrected_base++;
 
+            
+            char merge_base = 0;
+            merge_base = seq_nt6_table[(uint8_t)backbone->g_nodes.list[nodeID].base];
+            merge_base = merge_base << 3;
             ///这种中间节点只有一个元素，所以直接list[0]
             nodeID = backbone->g_nodes.list[nodeID].mismatch_edges.list[0].out_node;
+            merge_base = merge_base | seq_nt6_table[(uint8_t)backbone->g_nodes.list[nodeID].base];
+            add_cigar_record(&merge_base, 1, current_cigar, 1);
+            
+            /**
+            add_cigar_record(&(backbone->g_nodes.list[nodeID].base), 1, current_cigar, 1);
+            nodeID = backbone->g_nodes.list[nodeID].mismatch_edges.list[0].out_node;
+            **/
+
             /***********需要注释掉********* */
             if (nodeID != currentNodeID + 1)
             {
@@ -1699,6 +1538,11 @@ long long type, long long edgeID)
     else if (type == DELETION)
     {
         nodeID = backbone->g_nodes.list[currentNodeID].deletion_edges.list[edgeID].out_node;
+        dumy->corrected_base += nodeID - currentNodeID;
+        ///currentNodeID = i means self_string[i - 1]
+        add_cigar_record(self_string + currentNodeID, nodeID - currentNodeID, current_cigar, DELETION);
+
+
 
         /***********需要注释掉********* */
         if (!(nodeID >= backbone->s_start_nodeID && nodeID <= backbone->s_end_nodeID))
@@ -1711,7 +1555,7 @@ long long type, long long edgeID)
         }
         
         /***********需要注释掉********* */
-        dumy->corrected_base += nodeID - currentNodeID;
+        
         return nodeID;
     }
     else if (type == INSERTION)
@@ -1725,10 +1569,14 @@ long long type, long long edgeID)
         for (i = 0; i < step; i++)
         {
             add_base_to_correct_read_directly(dumy, backbone->g_nodes.list[nodeID].base);
+            add_cigar_record(&backbone->g_nodes.list[nodeID].base, 1, current_cigar, INSERTION);
             ///只有一条边
             nodeID = backbone->g_nodes.list[nodeID].insertion_edges.list[0].out_node;
         }
         dumy->corrected_base += step;
+
+        ///currentNodeID = i means self_string[i - 1]
+        ///add_cigar_record(self_string + currentNodeID, step, current_cigar, INSERTION);
 
         /***********需要注释掉********* */
         if (nodeID != currentNodeID)
@@ -1736,6 +1584,7 @@ long long type, long long edgeID)
             fprintf(stderr, "error insertion\n");
         }
         /***********需要注释掉********* */
+
         return nodeID;
     }
     else
@@ -1745,7 +1594,7 @@ long long type, long long edgeID)
     
 }
 
-void get_seq_from_Graph(Graph* backbone, Correct_dumy* dumy)
+void get_seq_from_Graph(Graph* backbone, Correct_dumy* dumy, Cigar_record* current_cigar, char* self_string)
 {
     long long new_seq_length = 0;
     long long currentNodeID;
@@ -1839,12 +1688,15 @@ void get_seq_from_Graph(Graph* backbone, Correct_dumy* dumy)
             ///这种情况下矫正
             if(max_count >= total_count*CORRECT_THRESHOLD)
             {
-                currentNodeID = add_path_to_correct_read(backbone, dumy, currentNodeID, max_type, max_edge);
+                currentNodeID = add_path_to_correct_read(backbone, dumy, currentNodeID, max_type, max_edge, current_cigar,
+                self_string);
             }
             else  ///不矫正, 直接取下一个backbone节点
             {
                 currentNodeID++;
                 add_base_to_correct_read_directly(dumy, backbone->g_nodes.list[currentNodeID].base);
+
+                add_cigar_record(&(backbone->g_nodes.list[currentNodeID].base), 1, current_cigar, 0);
             }
             
 
@@ -2296,7 +2148,7 @@ void get_seq_from_Graph_Len2(Graph* backbone, long long backbone_start, long lon
 
 
 void window_consensus(char* r_string, long long window_start, long long window_end, 
-overlap_region_alloc* overlap_list, Correct_dumy* dumy, All_reads* R_INF, Graph* g)
+overlap_region_alloc* overlap_list, Correct_dumy* dumy, All_reads* R_INF, Graph* g, Cigar_record* current_cigar)
 {
     clear_Graph(g);
 
@@ -2358,7 +2210,7 @@ overlap_region_alloc* overlap_list, Correct_dumy* dumy, All_reads* R_INF, Graph*
                     y_string, y_length, &(overlap_list->list[overlapID].w_list[windowID].cigar), startNodeID, endNodeID);
     }
 
-    get_seq_from_Graph(g, dumy);
+    get_seq_from_Graph(g, dumy, current_cigar, backbone);
 
 
     ///get_seq_from_Graph(g, startNodeID, endNodeID, dumy);
@@ -2444,9 +2296,9 @@ overlap_region_alloc* overlap_list, Correct_dumy* dumy, All_reads* R_INF, Graph*
 
 
 void generate_consensus(overlap_region_alloc* overlap_list, All_reads* R_INF, 
-                        UC_Read* g_read, Correct_dumy* dumy, Graph* g)
+                        UC_Read* g_read, Correct_dumy* dumy, Graph* g, Cigar_record* current_cigar)
 {
-
+    clear_Cigar_record(current_cigar);
     long long window_num = (g_read->length + WINDOW - 1) / WINDOW;
     long long i, j, overlap_length;
     long long window_start, window_end;
@@ -2468,6 +2320,7 @@ void generate_consensus(overlap_region_alloc* overlap_list, All_reads* R_INF,
         ///flag返回的是重叠数量
         ///dumy->length返回的是有效完全重叠的数量
         ///dumy->lengthNT返回的是有效不完全重叠的数量
+        ///return overlaps that is overlaped with [window_start, window_end]
         flag = get_available_interval(window_start, window_end, overlap_list, dumy);
         switch (flag)
         {
@@ -2488,11 +2341,12 @@ void generate_consensus(overlap_region_alloc* overlap_list, All_reads* R_INF,
         ///重叠窗口数，也就是coverage大小
         if(dumy->length >= MIN_COVERAGE_THRESHOLD)
         {
-            window_consensus(g_read->seq, window_start, window_end, overlap_list, dumy, R_INF, g);
+            window_consensus(g_read->seq, window_start, window_end, overlap_list, dumy, R_INF, g, current_cigar);
         }
         else
         {
             add_segment_to_correct_read(dumy, g_read->seq + window_start, window_end - window_start + 1);
+            add_cigar_record(g_read->seq + window_start, window_end - window_start + 1, current_cigar, 0);
         }
         
         window_start = window_start + WINDOW;
@@ -2507,6 +2361,7 @@ void generate_consensus(overlap_region_alloc* overlap_list, All_reads* R_INF,
     if (window_start < g_read->length)
     {
         add_segment_to_correct_read(dumy, g_read->seq + window_start, g_read->length - window_start);
+        add_cigar_record(g_read->seq + window_start, g_read->length - window_start, current_cigar, 0);
     }
     
 
@@ -2534,10 +2389,1456 @@ void generate_consensus(overlap_region_alloc* overlap_list, All_reads* R_INF,
     /***********************要注释掉*************************/
 }
 
+
+
+
+
+
+
+
+
+void markSNP(
+long long window_offset,
+long long x_total_start, long long x_length, 
+long long y_total_start, long long y_length, 
+CIGAR* cigar, haplotype_evdience_alloc* hap)
+{
+    
+    int x_i, y_i, cigar_i;
+    x_i = 0;
+    y_i = 0;
+    cigar_i = 0;
+    int operation;
+    int operationLen;
+    int i;
+    long long inner_offset = x_total_start - window_offset;
+
+    
+    ///note that node 0 is the start node
+    ///0 is match, 1 is mismatch, 2 is up, 3 is left
+    ///2是x缺字符（y多字符），而3是y缺字符（x多字符）
+    while (cigar_i < cigar->length)
+    {
+        operation = cigar->C_C[cigar_i];
+        operationLen = cigar->C_L[cigar_i];
+
+        ///这种情况代表匹配和mismatch
+        if (operation == 0)
+        {
+            x_i += operationLen;
+            y_i += operationLen;
+        }
+        else if(operation == 1)
+        {
+            for (i = 0; i < operationLen; i++)
+            {
+                /**
+                if(inner_offset + x_i >= WINDOW)
+                {
+                    fprintf(stderr, "error\n");
+                }
+                **/
+                hap->flag[inner_offset + x_i]++;
+                x_i++;
+                y_i++;
+            }
+        }///insertion
+        else if (operation == 2)
+        {
+            y_i += operationLen;
+        }
+        else if (operation == 3)
+        {
+            x_i += operationLen;
+        }
+        
+        cigar_i++;
+    }
+    /**
+    if(x_i != x_length || y_i != y_length)
+    {
+        fprintf(stderr, "x_i: %d, x_length: %d\n", x_i, x_length);
+        fprintf(stderr, "y_i: %d, y_length: %d\n", y_i, y_length);
+    }
+    
+   int no_zero = 0;
+   for (i = 0; i < WINDOW; i++)
+   {
+       if(hap->flag[i] != 0)
+       {
+           no_zero++;
+       }
+   }
+
+   fprintf(stderr, "no_zero: %d\n", no_zero);
+   **/
+   
+}
+
+
+
+
+void addSNPtohaplotype(
+long long window_offset, int overlapID,
+char* x_string, long long x_total_start, long long x_length, 
+char* y_string, long long y_total_start, long long y_length, 
+CIGAR* cigar, haplotype_evdience_alloc* hap)
+{
+    
+    int x_i, y_i, cigar_i;
+    x_i = 0;
+    y_i = 0;
+    cigar_i = 0;
+    int operation;
+    int operationLen;
+    int i;
+    long long inner_offset = x_total_start - window_offset;
+    haplotype_evdience ev;
+    
+    ///note that node 0 is the start node
+    ///0 is match, 1 is mismatch, 2 is up, 3 is left
+    ///2是x缺字符（y多字符），而3是y缺字符（x多字符）
+    while (cigar_i < cigar->length)
+    {
+        operation = cigar->C_C[cigar_i];
+        operationLen = cigar->C_L[cigar_i];
+
+        ///这种情况代表匹配和mismatch
+        if (operation == 0)
+        {
+            for (i = 0; i < operationLen; i++)
+            {
+                if(hap->flag[inner_offset] > FLAG_THRE)
+                {
+                    ev.misBase =  y_string[y_i];
+                    ev.overlapID = overlapID;
+                    ev.site = x_total_start + x_i;
+                    ev.overlapSite = y_total_start + y_i;
+                    ev.type = 0;
+                    addHaplotypeEvdience(hap, &ev);
+                }
+
+
+                inner_offset++;
+                x_i++;
+                y_i++;
+            }
+
+        }
+        else if(operation == 1)
+        {
+            for (i = 0; i < operationLen; i++)
+            {
+
+                if(hap->flag[inner_offset] > FLAG_THRE)
+                {
+                    ev.misBase =  y_string[y_i];
+                    ev.overlapID = overlapID;
+                    ev.site = x_total_start + x_i;
+                    ev.overlapSite = y_total_start + y_i;
+                    ev.type = 1;
+                    addHaplotypeEvdience(hap, &ev);
+                }
+
+                inner_offset++;
+                x_i++;
+                y_i++;
+            }
+        }///insertion
+        else if (operation == 2)
+        {
+            y_i += operationLen;
+        }
+        else if (operation == 3)
+        {
+
+            for (i = 0; i < operationLen; i++)
+            {
+                if(hap->flag[inner_offset] > FLAG_THRE)
+                {
+                    ev.misBase =  'N';
+                    ev.overlapID = overlapID;
+                    ev.site = x_total_start + x_i;
+                    ev.overlapSite = y_total_start + y_i;
+                    ev.type = 2;
+                    addHaplotypeEvdience(hap, &ev);
+                }
+
+                inner_offset++;
+                x_i++;
+            }
+        }
+        
+        cigar_i++;
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+void cluster(char* r_string, long long window_start, long long window_end, 
+overlap_region_alloc* overlap_list, Correct_dumy* dumy, All_reads* R_INF, haplotype_evdience_alloc* hap)
+{
+    long long x_start;
+    long long x_length; 
+    char* x_string;
+    char* y_string;
+    long long i;
+    long long y_start, y_length;
+    long long overlapID, windowID;
+    long long startNodeID, endNodeID, currentNodeID;
+
+    RsetInitHaplotypeEvdienceFlag(hap);
+
+    long long correct_x_pos_s;
+    long long inner_window_offset;
+
+
+    ///与当前window重叠的所有overlap
+    ///first mark all snp pos
+    for (i = 0; i < dumy->length; i++)
+    {
+        ///这个是那个overlap的ID，而不是overlap里对应窗口的ID
+        overlapID = dumy->overlapID[i];
+
+        ///overlap_list->list[overlapID].x_pos_s is the begining of the whole overlap
+        correct_x_pos_s = (overlap_list->list[overlapID].x_pos_s / WINDOW) * WINDOW;
+        ///window_start is the begining of this window in the whole x_read
+        windowID = (window_start - correct_x_pos_s) / WINDOW;
+
+        ///如果这个window不匹配，跳过
+        if (overlap_list->list[overlapID].w_list[windowID].y_end == -1)
+        {
+            continue;
+        }
+        
+        ///both x_start and y_start are the begining of the whole x_read and y_read
+        x_start = overlap_list->list[overlapID].w_list[windowID].x_start;
+        x_length = overlap_list->list[overlapID].w_list[windowID].x_end 
+                - overlap_list->list[overlapID].w_list[windowID].x_start + 1;
+
+        y_start = overlap_list->list[overlapID].w_list[windowID].y_start;
+        y_length = overlap_list->list[overlapID].w_list[windowID].y_end
+                - overlap_list->list[overlapID].w_list[windowID].y_start + 1;
+
+
+        markSNP(window_start, x_start, x_length, y_start, y_length, &(overlap_list->list[overlapID].w_list[windowID].cigar), 
+        hap);
+    }
+
+
+    for (i = 0; i < WINDOW; i++)
+    {
+        if(hap->flag[i] > FLAG_THRE)
+        {
+            hap->snp++;
+        }
+    }
+
+
+
+    ///add the information related to snp to haplotype_evdience_alloc
+    for (i = 0; i < dumy->length; i++)
+    {
+        ///这个是那个overlap的ID，而不是overlap里对应窗口的ID
+        overlapID = dumy->overlapID[i];
+
+        ///overlap_list->list[overlapID].x_pos_s is the begining of the whole overlap
+        correct_x_pos_s = (overlap_list->list[overlapID].x_pos_s / WINDOW) * WINDOW;
+        ///window_start is the begining of this window in the whole x_read
+        windowID = (window_start - correct_x_pos_s) / WINDOW;
+
+        ///如果这个window不匹配，跳过
+        if (overlap_list->list[overlapID].w_list[windowID].y_end == -1)
+        {
+            continue;
+        }
+        
+        ///both x_start and y_start are the begining of the whole x_read and y_read
+        x_start = overlap_list->list[overlapID].w_list[windowID].x_start;
+        x_length = overlap_list->list[overlapID].w_list[windowID].x_end 
+                - overlap_list->list[overlapID].w_list[windowID].x_start + 1;
+
+        y_start = overlap_list->list[overlapID].w_list[windowID].y_start;
+        y_length = overlap_list->list[overlapID].w_list[windowID].y_end
+                - overlap_list->list[overlapID].w_list[windowID].y_start + 1;
+
+
+        recover_UC_Read_sub_region(dumy->overlap_region, y_start, y_length, overlap_list->list[overlapID].y_pos_strand, 
+                R_INF, overlap_list->list[overlapID].y_id);
+
+        x_string = r_string + x_start;
+        y_string = dumy->overlap_region;
+
+
+        addSNPtohaplotype(window_start, overlapID, x_string, x_start, x_length, 
+        y_string, y_start, y_length, &(overlap_list->list[overlapID].w_list[windowID].cigar), 
+        hap);        
+    }
+
+
+
+}
+
+int cmp_haplotype_evdience(const void * a, const void * b)
+{
+    if ((*(haplotype_evdience*)a).site != (*(haplotype_evdience*)b).site)
+    {
+        return (*(haplotype_evdience*)a).site > (*(haplotype_evdience*)b).site ? 1 : -1; 
+    }
+    else
+    {
+        if ((*(haplotype_evdience*)a).type != (*(haplotype_evdience*)b).type)
+        {
+            return (*(haplotype_evdience*)a).type > (*(haplotype_evdience*)b).type ? 1 : -1; 
+        }
+        else
+        {
+            if ((*(haplotype_evdience*)a).misBase != (*(haplotype_evdience*)b).misBase)
+            {
+                return (*(haplotype_evdience*)a).misBase > (*(haplotype_evdience*)b).misBase ? 1 : -1; 
+            }
+            else
+            {
+                return 0;
+            }
+            
+        }
+        
+    }
+    
+    
+}
+
+
+int cmp_snp_stats(const void * a, const void * b)
+{
+    if ((*(SnpStats*)a).score != (*(SnpStats*)b).score)
+    {
+        return (*(SnpStats*)a).score < (*(SnpStats*)b).score ? 1 : -1; 
+    }
+    else
+    {
+        if ((*(SnpStats*)a).occ_2 != (*(SnpStats*)b).occ_2)
+        {
+            return (*(SnpStats*)a).occ_2 > (*(SnpStats*)b).occ_2 ? 1 : -1; 
+        }
+        else
+        {
+            return 0;
+        }   
+    }
+}
+
+void debug_hap_information(overlap_region_alloc* overlap_list, All_reads* R_INF, 
+                        UC_Read* g_read, haplotype_evdience_alloc* hap,
+                        Correct_dumy* dumy)
+{
+    int i, overlapID, y_ID, y_Strand;
+    long long x_start;
+    long long x_length; 
+    char* x_string;
+    char* y_string;
+    long long y_start;
+    long long y_length;
+
+    for (i = 0; i < hap->length; i++)
+    {
+        if(hap->list[i].type < 2)
+        {
+            overlapID = hap->list[i].overlapID;
+            x_start = hap->list[i].site; 
+            y_start = hap->list[i].overlapSite;
+
+
+            y_ID = overlap_list->list[overlapID].y_id;
+            y_Strand = overlap_list->list[overlapID].y_pos_strand;
+
+            recover_UC_Read_sub_region(dumy->overlap_region, y_start, 1, y_Strand, R_INF, y_ID);
+
+            x_string = g_read->seq + x_start;
+            y_string = dumy->overlap_region;
+
+            if(y_string[0] != hap->list[i].misBase)
+            {
+                fprintf(stderr, "y_string[0]: %c, hap->list[i].misBase: %c\n",
+                    y_string[0], hap->list[i].misBase);
+            }
+
+
+            if(hap->list[i].type == 0)
+            {
+                if(x_string[0] != y_string[0])
+                {
+                    fprintf(stderr, "x_string[0]: %c, y_string[0]: %c\n",
+                    x_string[0], y_string[0]);
+
+
+                }
+            }
+            else if(hap->list[i].type == 0)
+            {
+                if(x_string[0] == y_string[0])
+                {
+                    fprintf(stderr, "x_string[0]: %c, y_string[0]: %c\n",
+                    x_string[0], y_string[0]);
+                }
+
+            }
+        }
+
+        
+
+    }
+}
+
+
+
+
+
+
+
+
+
+int debug_split_sub_list(haplotype_evdience_alloc* hap, 
+haplotype_evdience* sub_list, long long sub_length, long long num_haplotype)
+{
+    long long i = 0;
+    long long occ_0 = 0;
+    long long occ_1 = 0;
+    long long occ_1_array[5];
+    memset(occ_1_array, 0, sizeof(long long) * 5);
+    long long occ_2 = 0;
+
+
+    for (i = 0; i < sub_length; i++)
+    {
+        if(sub_list[i].type == 0)
+        {
+            occ_0++;
+        }
+        else if(sub_list[i].type == 1)
+        {
+            occ_1_array[seq_nt6_table[(uint8_t)(sub_list[i].misBase)]]++;
+            occ_1++;
+        }
+        else if(sub_list[i].type == 2)
+        {
+            occ_2++;
+        }
+    }
+
+    /**
+     1. if occ_0 = 0, that means all overlaps are different with this read at this site
+     2. it is not possible that occ_1 = 0,
+     3. if occ_1 = 1, there are only one difference. It must be a sequencing error.
+    **/
+    if(occ_0 == 0 || occ_1 <= 1)
+    {
+        return 0;
+    }
+
+    ///note: if the max value except type0 is type2
+    ///that means this is no snp hapolyte
+    long long max = occ_2;
+    long long max_i = -1;
+
+    for (i = 0; i < 5; i++)
+    {
+        if(occ_1_array[i] > max)
+        {
+            max = occ_1_array[i];
+            max_i = i;
+        }
+    }
+
+
+
+    if(max_i == -1)
+    {
+        return 0;
+    }
+
+    if(max <= 1)
+    {
+        return 0;
+    }
+
+    ///if we have two max
+    for (i = 0; i < 5; i++)
+    {
+        if(occ_1_array[i] == max && i != max_i)
+        {
+            return 0;
+        }
+    }
+
+    long long new_0 = occ_0 + 1;
+    long long new_total = sub_length + 1;
+    ///note: here occ_0++ since the read itself has a type0
+    double available = new_0 + max;
+    double threshold = 0.95;
+    available = available/((double)(new_total));
+    if(available < threshold)
+    {
+        return 0;
+    }
+
+    ///if we just have one snp, we need to phase it carefully
+    if(num_haplotype == 1)
+    {
+        ///we must have just 1 match and 1 mismatch
+        ///any other types are not good
+        if(new_0 + max != new_total)
+        {
+            return 0;
+        }
+        
+        if(filter_snp(new_0, max, new_total) == 0)
+        {
+            return 0;
+        }
+    }
+    /**
+    if(filter_snp(new_0, max, new_total) == 0)
+    {
+        return 0;
+    }
+    **/
+
+    
+
+
+    ///for each calculated snp, find if it is at snp matrix
+    for (i = 0; i < hap->available_snp; i++)
+    {
+        if(hap->snp_stat[i].site == sub_list[0].site)
+        {
+
+            
+            int j = 0;
+            int vectorID = hap->snp_stat[i].id;
+            int8_t* vector = Get_SNP_Vector((*hap), vectorID);
+
+            if(hap->snp_stat[i].occ_0 != occ_0)
+            {
+                fprintf(stderr, "error occ0\n");
+            }
+
+            if(hap->snp_stat[i].occ_1 != occ_1_array[max_i])
+            {
+                fprintf(stderr, "error occ1\n");
+            }
+
+            if(hap->snp_stat[i].overlap_num != sub_length)
+            {
+                fprintf(stderr, "error overlap_num\n");
+            }
+
+            if(hap->snp_stat[i].overlap_num != hap->snp_stat[i].occ_0 + 
+            hap->snp_stat[i].occ_1 + hap->snp_stat[i].occ_2)
+            {
+                fprintf(stderr, "error overlap_num\n");
+            }
+
+            ///for each element in snp vector, find if it is in calculated dataset
+            for (j = 0; j < Get_SNP_Vector_Length((*hap)); j++)
+            {
+                if(vector[j] != -1)
+                {
+                    int x_i = 0;
+                    for (x_i = 0; x_i < sub_length; x_i++)
+                    {
+                        if(j == sub_list[x_i].overlapID)
+                        {
+                            break;
+                        }
+                    }
+
+                    if(x_i == sub_length)
+                    {
+                        fprintf(stderr, "error: j: %d\n",j);
+                    }
+                    else
+                    {
+                        if(vector[j] == 0 || sub_list[x_i].type == 0)
+                        {
+                            if(vector[j] != sub_list[x_i].type)
+                            {
+                                fprintf(stderr, "error: 0: %d\n",j);
+                            }
+                        }
+
+                        if(vector[j] == 1)
+                        {
+                            if(sub_list[x_i].type != 1)
+                            {
+                                fprintf(stderr, "-error: 1: %d\n",j);
+                            }
+
+
+                            if(sub_list[x_i].type == 1 && sub_list[x_i].misBase != s_H[max_i])
+                            {
+                                fprintf(stderr, "+error: 1: %d\n",j);
+                            }
+                        }
+
+                        if(vector[j] == 2)
+                        {
+                            if(sub_list[x_i].type != 2)
+                            {
+                                if(sub_list[x_i].type == 1 && sub_list[x_i].misBase != s_H[max_i])
+                                {
+                                    ;
+                                }
+                                else
+                                {
+                                    fprintf(stderr, "error: 2: %d\n",j);
+                                }
+                    
+                            }
+
+                        }
+                        
+         
+                    }
+                    
+                }
+            }
+
+
+            ///for each calculated data, find if it is in snp vector
+            for (j = 0; j < sub_length; j++)
+            {
+                if(vector[sub_list[j].overlapID] != sub_list[j].type)
+                {
+
+                    if(vector[sub_list[j].overlapID] == 2 && sub_list[j].type == 1 && sub_list[j].misBase != s_H[max_i])
+                    {
+                        ;
+                    }
+                    else
+                    {
+                            fprintf(stderr, "vector[sub_list[j].site]: %d, sub_list[j].type: %d\n",
+                        vector[sub_list[j].overlapID], sub_list[j].type);
+                    }
+                }
+            }
+            
+            
+            break;
+        }
+    }
+
+    
+    if(i == hap->available_snp)
+    {
+        fprintf(stderr, "error\n");
+    }    
+    
+
+    /**
+    fprintf(stderr, "new_0: %d, occ_0: %d, max: %d, max_i: %d, sub_length: %d, new_total: %d, available: %lf\n", 
+    new_0, occ_0, max, max_i, sub_length, new_total, available);
+    for (i = 0; i < sub_length; i++)
+    {
+        
+        fprintf(stderr, "i: %d, site: %d, type: %d, char: %c, ID: %d, name: %.*s\n", 
+    i, sub_list[i].site, sub_list[i].type, sub_list[i].misBase, sub_list[i].overlapID, 
+    Get_NAME_LENGTH((*R_INF), overlap_list->list[sub_list[i].overlapID].y_id), 
+    Get_NAME((*R_INF),overlap_list->list[sub_list[i].overlapID].y_id)); 
+
+    }
+    fprintf(stderr, "\n");
+    **/
+    
+    
+    return 1;
+    
+
+    
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+int debug_snp_matrix(haplotype_evdience_alloc* hap)
+{
+    uint64_t pre_site = (uint64_t)-1;
+    uint64_t num_of_snps = 0;
+    long long pre_i = -1;
+    long long sub_length;
+    haplotype_evdience* sub_list;
+    long long i;
+    long long a_snp = 0;
+
+
+    ////split reads
+    for (i = 0; i < hap->length; i++)
+    {
+        if(pre_site != hap->list[i].site)
+        {
+            if(i != 0)
+            {
+                sub_list = hap->list + pre_i;
+                sub_length = i - pre_i;
+                ///debug_total_length = debug_total_length + sub_length;
+                a_snp += debug_split_sub_list(hap, sub_list, sub_length, hap->snp);
+            }
+            num_of_snps++;
+            pre_site = hap->list[i].site;
+            pre_i = i;
+        }
+    }
+
+    if(pre_i != -1)
+    {
+        sub_list = hap->list + pre_i;
+        sub_length = i - pre_i;
+        ///debug_total_length = debug_total_length + sub_length;
+        a_snp += debug_split_sub_list(hap, sub_list, sub_length, hap->snp);
+    }
+
+    
+    if(a_snp != hap->available_snp)
+    {
+        fprintf(stderr, "a_snp: %d, available_snp: %d\n", 
+        a_snp, hap->available_snp);
+    }
+    
+
+}
+
+int split_sub_list(haplotype_evdience_alloc* hap, 
+haplotype_evdience* sub_list, long long sub_length, long long num_haplotype, 
+overlap_region_alloc* overlap_list, All_reads* R_INF)
+{
+    long long i = 0;
+    long long occ_0 = 0;
+    long long occ_1 = 0;
+    long long occ_1_array[5];
+    memset(occ_1_array, 0, sizeof(long long) * 5);
+    long long occ_2 = 0;
+
+
+    for (i = 0; i < sub_length; i++)
+    {
+        if(sub_list[i].type == 0)
+        {
+            occ_0++;
+        }
+        else if(sub_list[i].type == 1)
+        {
+            occ_1_array[seq_nt6_table[(uint8_t)(sub_list[i].misBase)]]++;
+            occ_1++;
+        }
+        else if(sub_list[i].type == 2)
+        {
+            occ_2++;
+        }
+    }
+
+    /**
+     1. if occ_0 = 0, that means all overlaps are different with this read at this site
+     2. it is not possible that occ_1 = 0,
+     3. if occ_1 = 1, there are only one difference. It must be a sequencing error.
+    **/
+    if(occ_0 == 0 || occ_1 <= 1)
+    {
+        return 0;
+    }
+
+    ///note: if the max value except type0 is type2
+    ///that means this is no snp hapolyte
+    long long max = occ_2;
+    long long max_i = -1;
+
+    for (i = 0; i < 5; i++)
+    {
+        if(occ_1_array[i] > max)
+        {
+            max = occ_1_array[i];
+            max_i = i;
+        }
+    }
+
+
+
+    if(max_i == -1)
+    {
+        return 0;
+    }
+
+    if(max <= 1)
+    {
+        return 0;
+    }
+
+    ///if we have two max
+    for (i = 0; i < 5; i++)
+    {
+        if(occ_1_array[i] == max && i != max_i)
+        {
+            return 0;
+        }
+    }
+
+    long long new_0 = occ_0 + 1;
+    long long new_total = sub_length + 1;
+    ///note: here occ_0++ since the read itself has a type0
+    double available = new_0 + max;
+    double threshold = 0.95;
+    available = available/((double)(new_total));
+    if(available < threshold)
+    {
+        return 0;
+    }
+
+    ///if we just have one snp, we need to phase it carefully
+    if(num_haplotype == 1)
+    {
+        ///we must have just 1 match and 1 mismatch
+        ///any other types are not good
+        if(new_0 + max != new_total)
+        {
+            return 0;
+        }
+
+        if(filter_snp(new_0, max, new_total) == 0)
+        {
+            return 0;
+        }
+    }
+
+    /**
+    if(filter_snp(new_0, max, new_total) == 0)
+    {
+        return 0;
+    }
+    **/
+    
+        
+
+
+    
+
+    
+    InsertSNPVector(hap, sub_list, sub_length, s_H[max_i]);
+    
+    
+
+    /**
+    fprintf(stderr, "new_0: %d, occ_0: %d, max: %d, max_i: %d, sub_length: %d, new_total: %d, available: %lf\n", 
+    new_0, occ_0, max, max_i, sub_length, new_total, available);
+    for (i = 0; i < sub_length; i++)
+    {
+        
+        fprintf(stderr, "i: %d, site: %d, type: %d, char: %c, ID: %d, name: %.*s\n", 
+    i, sub_list[i].site, sub_list[i].type, sub_list[i].misBase, sub_list[i].overlapID, 
+    Get_NAME_LENGTH((*R_INF), overlap_list->list[sub_list[i].overlapID].y_id), 
+    Get_NAME((*R_INF),overlap_list->list[sub_list[i].overlapID].y_id)); 
+
+    }
+    fprintf(stderr, "\n");
+    **/
+    
+    
+    
+    
+
+    
+}
+
+
+int calculate_distance_snp_vector(int8_t *vector1, int8_t *vector2, int Len)
+{
+    int i;
+    for (i = 0; i < Len; i++)
+    {
+        if(vector1[i] != vector2[i])
+        {
+            if ((vector1[i] == 0 || vector1[i] == 1) && (vector2[i] == 0 || vector2[i] == 1))
+            {
+                return 1;
+            }
+        }
+    }
+    
+    return 0;
+}
+
+void print_core_snp(haplotype_evdience_alloc* hap)
+{
+    int i, j;
+    for (i = 0; i < hap->core_snp; i++)
+    {
+        fprintf(stderr, "core(i): %d, site: %d, occ_0: %d, occ_1: %d, occ_2: %d, score: %d\n", 
+    i, hap->snp_stat[i].site, hap->snp_stat[i].occ_0, hap->snp_stat[i].occ_1,
+    hap->snp_stat[i].occ_2,
+    hap->snp_stat[i].score); 
+
+        int vectorID = hap->snp_stat[i].id;
+        int8_t* vector = Get_SNP_Vector((*hap), vectorID);
+
+        for (j = 0; j < hap->overlap; j++)
+        {
+            if(vector[j] == 0)
+            {
+                fprintf(stderr, "type: %d, ID: %d\n", vector[j], j);
+            }
+        }
+
+
+        for (j = 0; j < hap->overlap; j++)
+        {
+            if(vector[j] == 1)
+            {
+                fprintf(stderr, "type: %d, ID: %d\n", vector[j], j);
+            }
+        }
+
+
+        for (j = 0; j < hap->overlap; j++)
+        {
+            if(vector[j] == 2)
+            {
+                fprintf(stderr, "type: %d, ID: %d\n", vector[j], j);
+            }
+        }
+        
+    }
+}
+
+void merge_snp_vectors(haplotype_evdience_alloc* hap, int diff_vector_ID)
+{
+    int8_t *r_vector = Get_Result_SNP_Vector((*hap));
+    int vectorLen = Get_SNP_Vector_Length((*hap));
+    memset(r_vector, -1, vectorLen);
+    hap->result_stat.occ_0 = 0;
+    hap->result_stat.occ_1 = 0;
+
+    int8_t* vector;
+    int vectorID;
+    int i, j;
+
+    for (i = 0; i < hap->core_snp; i++)
+    {
+        if(i == diff_vector_ID)
+        {
+            continue;
+        }
+
+        vectorID = hap->snp_stat[i].id;
+        vector = Get_SNP_Vector((*hap), vectorID);
+
+        for (j = 0; j < vectorLen; j++)
+        {
+            if(r_vector[j] == -1)
+            {
+                if(vector[j] == 0)
+                {
+                    hap->result_stat.occ_0++;
+                    r_vector[j] = vector[j];
+                }
+                else if(vector[j] == 1)
+                {
+                    hap->result_stat.occ_1++;
+                    r_vector[j] = vector[j];
+                }
+            }
+            else ///can debug here
+            {
+                if((vector[j] != -1 && vector[j] != 2 && vector[j] != r_vector[j]))
+                {
+                    fprintf(stderr, "j: %d, vector[j]: %d, r_vector[j]: %d, hap->core_snp: %d, diff_vector_ID: %d\n",
+                    j, vector[j], r_vector[j], hap->core_snp, diff_vector_ID);
+
+                    print_core_snp(hap);
+                }
+            }
+            
+            
+            
+        }
+    }
+
+    hap->result_stat.overlap_num = hap->result_stat.occ_0 + hap->result_stat.occ_1;
+}
+
+void add_to_result_snp_vector(haplotype_evdience_alloc* hap, int8_t *new_vector, int Len)
+{
+    int8_t *r_vector = Get_Result_SNP_Vector((*hap));
+    int j;
+    for (j = 0; j < Len; j++)
+    {
+        if(r_vector[j] == -1)
+        {
+            if(new_vector[j] == 0)
+            {
+                hap->result_stat.occ_0++;
+                r_vector[j] = new_vector[j];
+            }
+            else if(new_vector[j] == 1)
+            {
+                hap->result_stat.occ_1++;
+                r_vector[j] = new_vector[j];
+            }
+        }
+        ///can debug here
+    }
+
+    hap->result_stat.overlap_num = hap->result_stat.occ_0 + hap->result_stat.occ_1;
+}
+
+
+
+
+int merge_snp_vectors_and_test(haplotype_evdience_alloc* hap, int diff_vector_ID)
+{
+    int8_t *r_vector = Get_Result_SNP_Vector((*hap));
+    int vectorLen = Get_SNP_Vector_Length((*hap));
+    memset(r_vector, -1, vectorLen);
+    hap->result_stat.occ_0 = 0;
+    hap->result_stat.occ_1 = 0;
+
+    int8_t* vector;
+    int vectorID;
+    int i, j;
+
+    for (i = 0; i < hap->core_snp; i++)
+    {
+        if(i == diff_vector_ID)
+        {
+            continue;
+        }
+
+        vectorID = hap->snp_stat[i].id;
+        vector = Get_SNP_Vector((*hap), vectorID);
+
+        for (j = 0; j < vectorLen; j++)
+        {
+            if(r_vector[j] == -1)
+            {
+                if(vector[j] == 0)
+                {
+                    hap->result_stat.occ_0++;
+                    r_vector[j] = vector[j];
+                }
+                else if(vector[j] == 1)
+                {
+                    hap->result_stat.occ_1++;
+                    r_vector[j] = vector[j];
+                }
+            }
+            else ///can debug here
+            {
+                ///has confilict
+                if(vector[j] != -1 && vector[j] != 2 && vector[j] != r_vector[j])
+                {
+                    return 0;
+                }
+            }
+        }
+    }
+
+    hap->result_stat.overlap_num = hap->result_stat.occ_0 + hap->result_stat.occ_1;
+
+    return 1;
+}
+
+int generate_haplotypes(haplotype_evdience_alloc* hap)
+{
+    int j;
+
+    int vectorID, vectorID2;
+    int diff_core_vector = 0;
+    int diff_vector_ID = -1;
+    int8_t *vector, *vector2;
+    
+    if(hap->core_snp == 0)
+    {
+        return 0;
+    }
+
+    ///the hap->core_snp is used to find centriod
+
+            
+    ///if there are <5 vectors in core_snp, we didn't allow different vector
+    if (hap->core_snp < 5)
+    {
+        if(merge_snp_vectors_and_test(hap, -1) == 0)
+        {
+            return 0;
+        }
+    }
+    else ///for vectors in core_snp, we allow at most one different vector when there are >= 5 vectors in core_snp
+    {
+        ///there are two condition: 1. vector 0 is the different one. 2. vector 0 is not the different one
+
+        
+        diff_vector_ID = -1;
+        ///first try to merge all vector together
+        if(merge_snp_vectors_and_test(hap, -1) == 0)
+        {
+            for (j = hap->core_snp - 1; j >= 0; j--)
+            {
+                if(merge_snp_vectors_and_test(hap, j) == 1)
+                {
+                    diff_vector_ID = j;
+                    break;
+                }
+            }
+
+            if(j == -1)
+            {
+                return 0;
+            }
+        }
+    }
+
+
+    
+
+    ///after merge, we get result vector
+    vector = Get_Result_SNP_Vector((*hap));
+    ///and for each non-core snp vector, if it has no conflict with result vector
+    /// add it to result vector
+    for (j = hap->core_snp; j < hap->available_snp; j++)
+    {
+        vectorID2 = hap->snp_stat[j].id;
+        vector2 = Get_SNP_Vector((*hap), vectorID2);
+        if(calculate_distance_snp_vector(vector, vector2, Get_SNP_Vector_Length((*hap))) == 0)
+        {
+            add_to_result_snp_vector(hap, vector2, Get_SNP_Vector_Length((*hap)));
+        }
+    }
+
+    ///merge_snp_vectors(hap, diff_vector_ID);
+
+    ///for read only have 1 snp, we need a more strict condition
+    if (hap->core_snp == 1 && 
+    filter_one_snp(hap->result_stat.occ_0 + 1, hap->result_stat.occ_1, 
+    hap->result_stat.overlap_num + 1) == 0)
+    {
+        return 0;
+    }
+
+
+    return 1;
+    
+}
+
+void print_Haplotype(haplotype_evdience_alloc* hap, overlap_region_alloc* overlap_list, All_reads* R_INF)
+{
+        int j, i;
+
+        
+    fprintf(stderr, "\nhap->snp: %d, hap->length: %d, perc: %d, x_name: %.*s\n", 
+    hap->snp, hap->length, (hap->snp == 0? 0: hap->length/hap->snp), 
+    Get_NAME_LENGTH((*R_INF), overlap_list->list[0].x_id), Get_NAME((*R_INF),overlap_list->list[0].x_id)
+    );
+    fprintf(stderr, "hap->available_snp: %d, hap->core_snp:%d\n", 
+    hap->available_snp, hap->core_snp);
+
+    int Len_x, matched_overlap = 0;
+        for (j = 0; j < overlap_list->length; j++)
+        {
+            Len_x = overlap_list->list[j].x_pos_e -  overlap_list->list[j].x_pos_s + 1;
+
+            if (Len_x * OVERLAP_THRESHOLD <=  overlap_list->list[j].align_length)
+            {
+                matched_overlap++;
+            }
+        }
+
+        fprintf(stderr, "occ_0: %d, occ_1: %d, overlap_num: %d, matched_overlap: %d, overlap_list->length: %d\n", 
+    hap->result_stat.occ_0, hap->result_stat.occ_1,
+    hap->result_stat.overlap_num, matched_overlap, overlap_list->length); 
+    
+
+    return;
+
+        fprintf(stderr, "Phaseing sucessfully!\n");
+        fprintf(stderr, "occ_0: %d, occ_1: %d, overlap_num: %d\n", 
+    hap->result_stat.occ_0, hap->result_stat.occ_1,
+    hap->result_stat.overlap_num); 
+
+
+        int8_t* vector = Get_Result_SNP_Vector((*hap));
+        for (j = 0; j < hap->overlap; j++)
+        {
+            if(vector[j] == 0)
+            {
+                fprintf(stderr, "Ptype: %d, ID: %d\n", vector[j], j);
+            }
+        }
+
+
+        for (j = 0; j < hap->overlap; j++)
+        {
+            if(vector[j] == 1)
+            {
+                fprintf(stderr, "Ptype: %d, ID: %d\n", vector[j], j);
+            }
+        }
+
+
+        for (j = 0; j < hap->overlap; j++)
+        {
+            if(vector[j] == 2)
+            {
+                fprintf(stderr, "Ptype: %d, ID: %d\n", vector[j], j);
+            }
+        }
+
+
+    for (i = 0; i < hap->core_snp; i++)
+    {
+        fprintf(stderr, "core(i): %d, site: %d, occ_0: %d, occ_1: %d, occ_2: %d, score: %d\n", 
+    i, hap->snp_stat[i].site, hap->snp_stat[i].occ_0, hap->snp_stat[i].occ_1,
+    hap->snp_stat[i].occ_2,
+    hap->snp_stat[i].score); 
+
+        int vectorID = hap->snp_stat[i].id;
+        int8_t* vector = Get_SNP_Vector((*hap), vectorID);
+
+        for (j = 0; j < hap->overlap; j++)
+        {
+            if(vector[j] == 0)
+            {
+                fprintf(stderr, "type: %d, ID: %d\n", vector[j], j);
+            }
+        }
+
+
+        for (j = 0; j < hap->overlap; j++)
+        {
+            if(vector[j] == 1)
+            {
+                fprintf(stderr, "type: %d, ID: %d\n", vector[j], j);
+            }
+        }
+
+
+        for (j = 0; j < hap->overlap; j++)
+        {
+            if(vector[j] == 2)
+            {
+                fprintf(stderr, "type: %d, ID: %d\n", vector[j], j);
+            }
+        }
+        
+    }
+
+
+
+        for (; i < hap->available_snp; i++)
+    {
+        fprintf(stderr, "i: %d, site: %d, occ_0: %d, occ_1: %d, occ_2: %d, score: %d\n", 
+    i, hap->snp_stat[i].site, hap->snp_stat[i].occ_0, hap->snp_stat[i].occ_1,
+    hap->snp_stat[i].occ_2,
+    hap->snp_stat[i].score); 
+
+        int vectorID = hap->snp_stat[i].id;
+        int8_t* vector = Get_SNP_Vector((*hap), vectorID);
+
+        for (j = 0; j < hap->overlap; j++)
+        {
+            if(vector[j] == 0)
+            {
+                fprintf(stderr, "type: %d, ID: %d\n", vector[j], j);
+            }
+        }
+
+
+        for (j = 0; j < hap->overlap; j++)
+        {
+            if(vector[j] == 1)
+            {
+                fprintf(stderr, "type: %d, ID: %d\n", vector[j], j);
+            }
+        }
+
+
+        for (j = 0; j < hap->overlap; j++)
+        {
+            if(vector[j] == 2)
+            {
+                fprintf(stderr, "type: %d, ID: %d\n", vector[j], j);
+            }
+        }
+        
+    }
+    
+}
+
+void partition_overlaps(overlap_region_alloc* overlap_list, All_reads* R_INF, 
+                        UC_Read* g_read, Correct_dumy* dumy, haplotype_evdience_alloc* hap)
+{
+    ResizeInitHaplotypeEvdience(hap);
+
+    long long window_num = (g_read->length + WINDOW - 1) / WINDOW;
+    long long i, j, overlap_length;
+    long long window_start, window_end;
+
+    long long num_availiable_win = 0;
+    
+
+    window_start = 0;
+    window_end = WINDOW - 1;
+    if (window_end >= g_read->length)
+    {
+        window_end = g_read->length - 1;
+    }
+    int flag;
+    for (i = 0; i < window_num; i++)
+    {
+        dumy->length = 0;
+        dumy->lengthNT = 0;
+        ///flag返回的是重叠数量
+        ///dumy->length返回的是有效完全重叠的数量
+        ///dumy->lengthNT返回的是有效不完全重叠的数量
+        ///return overlaps that is overlaped with [window_start, window_end]
+        flag = get_available_interval(window_start, window_end, overlap_list, dumy);
+        switch (flag)
+        {
+            case 1:    ///找到匹配
+                break;
+            case 0:    ///没找到匹配
+                break;
+            case -2: ///下一个window也不会存在匹配, 直接跳出
+                i = window_num;
+                break;
+        }
+
+
+        ///这个是available overlap里所有window的数量...
+        ///num_availiable_win = num_availiable_win + dumy->length + dumy->lengthNT;
+        num_availiable_win = num_availiable_win + dumy->length;
+
+
+        cluster(g_read->seq, window_start, window_end, overlap_list, dumy, R_INF, hap);
+
+        
+        window_start = window_start + WINDOW;
+        window_end = window_end + WINDOW;
+        if (window_end >= g_read->length)
+        {
+            window_end = g_read->length - 1;
+        }
+        
+    }
+
+
+    
+    ///very time-consuming
+    qsort(hap->list, hap->length, sizeof(haplotype_evdience), cmp_haplotype_evdience);
+
+    ///debug_hap_information(overlap_list, R_INF, g_read, hap, dumy);
+
+    SetSnpMatrix(hap, hap->snp, overlap_list->length);
+
+
+    uint64_t pre_site = (uint64_t)-1;
+    uint64_t num_of_snps = 0;
+    long long pre_i = -1;
+    long long sub_length;
+    haplotype_evdience* sub_list;
+
+    ///long long debug_total_length = 0;
+
+    ////split reads
+    for (i = 0; i < hap->length; i++)
+    {
+        if(pre_site != hap->list[i].site)
+        {
+            if(i != 0)
+            {
+                sub_list = hap->list + pre_i;
+                sub_length = i - pre_i;
+                ///debug_total_length = debug_total_length + sub_length;
+                split_sub_list(hap, sub_list, sub_length, hap->snp, overlap_list, R_INF);
+            }
+            num_of_snps++;
+            pre_site = hap->list[i].site;
+            pre_i = i;
+        }
+    }
+
+    if(pre_i != -1)
+    {
+        sub_list = hap->list + pre_i;
+        sub_length = i - pre_i;
+        ///debug_total_length = debug_total_length + sub_length;
+        split_sub_list(hap, sub_list, sub_length, hap->snp, overlap_list, R_INF);
+    }
+
+    ///debug_snp_matrix(hap);
+
+    qsort(hap->snp_stat, hap->available_snp, sizeof(SnpStats), cmp_snp_stats);
+
+    ///debug_snp_matrix(hap);
+
+    if(generate_haplotypes(hap))
+    {
+        //print_Haplotype(hap, overlap_list, R_INF);
+        ///if we can phase, we need to exclude the reads of different haplotype
+        int8_t* vector = Get_Result_SNP_Vector((*hap));
+        for (j = 0; j < Get_SNP_Vector_Length((*hap)); j++)
+        {
+            if(vector[j] == 1)
+            {
+                overlap_list->list[j].align_length = 0;
+            }
+        }
+    }
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 void correct_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF, 
                         UC_Read* g_read, Correct_dumy* dumy, UC_Read* overlap_read, Graph* g,
                         long long* matched_overlap_0, long long* matched_overlap_1, 
-                        long long* potiental_matched_overlap_0, long long* potiental_matched_overlap_1)
+                        long long* potiental_matched_overlap_0, long long* potiental_matched_overlap_1,
+                        Cigar_record* current_cigar, haplotype_evdience_alloc* hap)
 {
     reverse_complement(g_read->seq, g_read->length);
 
@@ -2581,6 +3882,18 @@ void correct_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF,
             fprintf(stderr, "error length\n");
         }
         
+        /**
+        if(memcmp("m54334_180926_225337/39780640/ccs", Get_NAME((*R_INF), overlap_list->list[0].x_id), 
+    Get_NAME_LENGTH((*R_INF), overlap_list->list[0].x_id)) == 0)
+        {
+            fprintf(stderr, "window_start: %d, window_end: %d, dumy->length: %d, dumy->lengthNT: %d\n", 
+            window_start, window_end, dumy->length, dumy->lengthNT);
+        }
+        **/
+        
+        
+
+        
         ///verify_get_interval(window_start, window_end, overlap_list, dumy);
 
         verify_window(window_start, window_end, overlap_list, dumy, R_INF, g_read->seq);
@@ -2593,15 +3906,58 @@ void correct_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF,
         }
     }
 
-    
     debug_stats(overlap_list, R_INF, g_read, dumy, overlap_read, potiental_matched_overlap_0, potiental_matched_overlap_1);
     
     recalcate_window(overlap_list, R_INF, g_read, dumy, overlap_read);
     
     debug_stats(overlap_list, R_INF, g_read, dumy, overlap_read, matched_overlap_0, matched_overlap_1);
 
+    /**
+        if(memcmp("m54334_180926_225337/39780640/ccs", Get_NAME((*R_INF), overlap_list->list[0].x_id), 
+    Get_NAME_LENGTH((*R_INF), overlap_list->list[0].x_id)) == 0)
+    {
+        fprintf(stderr, "start_pos: %d, end_pos: %d, x_length: %d\n", 
+        g_read->length - 1 - 84, g_read->length - 1, g_read->length);
 
-    generate_consensus(overlap_list, R_INF, g_read, dumy, g);
+
+        for (i = 0; i < overlap_list->length; i++)
+        {
+            int j;
+            for(j = 0; j < overlap_list->list[i].w_list_length; j++)
+            {
+                if(overlap_list->list[i].w_list[j].x_start == 13500)
+                {
+                    if(overlap_list->list[i].w_list[j].y_end != -1)
+                    {
+                        fprintf(stderr, "y_name: %.*s, x_start: %d, x_end: %d, y_start: %d, y_end: %d\n", 
+                        Get_NAME_LENGTH((*R_INF), overlap_list->list[i].y_id), Get_NAME((*R_INF), overlap_list->list[i].y_id),
+                        overlap_list->list[i].w_list[j].x_start, overlap_list->list[i].w_list[j].x_end,
+                        overlap_list->list[i].w_list[j].y_start,
+                        overlap_list->list[i].w_list[j].y_end);
+
+                    
+                        int ijk;
+                        for (ijk = 0; ijk < overlap_list->list[i].w_list[j].cigar.length; ijk++)
+                        {
+                            fprintf(stderr, "operation: %d, length: %d\n",
+                            overlap_list->list[i].w_list[j].cigar.C_C[ijk],
+                            overlap_list->list[i].w_list[j].cigar.C_L[ijk]
+                            );
+                        }
+                        
+                    }
+                }
+            }
+        }
+    }
+    **/
+    
+    
+    partition_overlaps(overlap_list, R_INF, g_read, dumy, hap);
+
+    generate_consensus(overlap_list, R_INF, g_read, dumy, g, current_cigar);
+
+
 
 
 
@@ -2673,6 +4029,41 @@ void correct_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF,
     /************需要注释掉********* */
 
     
+}
+
+
+void init_Cigar_record(Cigar_record* dummy)
+{
+    dummy->length = 0;
+    dummy->size = 100;
+    dummy->record = (uint32_t*)malloc(sizeof(uint32_t)*dummy->size);
+
+
+    dummy->lost_base_length = 0;
+    dummy->lost_base_size = 100;
+    dummy->lost_base = (char*)malloc(sizeof(char)*dummy->lost_base_size);
+
+
+
+    dummy->current_operation_length = 0;
+    dummy->current_operation = 127;
+}
+
+
+void destory_Cigar_record(Cigar_record* dummy)
+{
+    free(dummy->record);
+    free(dummy->lost_base);
+}
+
+void clear_Cigar_record(Cigar_record* dummy)
+{
+    dummy->new_read_length = 0;
+    dummy->length = 0;
+    dummy->lost_base_length = 0;
+
+    dummy->current_operation_length = 0;
+    dummy->current_operation = 127;
 }
 
 

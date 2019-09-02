@@ -206,6 +206,7 @@ int main(int argc, char *argv[])
 
     return 1;
     **/
+   fprintf(stdout, "Will perform %d round of error correction...\n", number_of_round);
     
    fprintf(stdout, "defined k_mer_min_freq by user: %d\n", k_mer_min_freq);
    fprintf(stdout, "defined k_mer_max_freq by user: %d\n", k_mer_max_freq);
@@ -213,25 +214,7 @@ int main(int argc, char *argv[])
 
     fprintf(stdout, "k-mer length: %d\n",k_mer_length);
 
-    if (load_index_from_disk && load_pre_cauculated_index())
-    {
-        ;
-    }
-    else
-    {
-        Counting_multiple_thr();
-
-        Build_hash_table_multiple_thr();
-    }
-
-    fprintf(stdout, "k_mer_min_freq in hashtable: %d\n", k_mer_min_freq);
-    fprintf(stdout, "k_mer_max_freq in hashtable: %d\n", k_mer_max_freq);
-
-    
-    
-    ///verify_Position_hash_table();
-
-    Overlap_calculate_multipe_thr();
+    Correct_Reads(number_of_round);
 
 
 
