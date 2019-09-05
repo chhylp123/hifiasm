@@ -6,7 +6,7 @@
 #include "POA.h"
 #include "Process_Read.h"
 
-#define CORRECT_THRESHOLD 0.7
+#define CORRECT_THRESHOLD 0.70
 #define MIN_COVERAGE_THRESHOLD 4
 #define CORRECT_INDEL_LENGTH 2
 #define MISMATCH 1
@@ -335,6 +335,7 @@ typedef struct
 {
     char* corrected_read;
     long long corrected_read_length;
+    long long last_boundary_length;
     long long corrected_read_size;
     long long corrected_base;
 
@@ -351,15 +352,31 @@ typedef struct
     __m128i Peq_SSE[256];
 } Correct_dumy;
 
+typedef struct
+{
+    Correct_dumy dumy;
+    Cigar_record cigar;
+    Cigar_record tmp_cigar;
+    long long obtained_cigar_length;
+}
+Round2_alignment;
+
+void init_Round2_alignment(Round2_alignment* h);
+void destory_Round2_alignment(Round2_alignment* h);
+void clear_Round2_alignment(Round2_alignment* h);
+
+
 
 void correct_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF, 
                         UC_Read* g_read, Correct_dumy* dumy, UC_Read* overlap_read, Graph* g,
                         long long* matched_overlap_0, long long* matched_overlap_1, 
                         long long* potiental_matched_overlap_0, long long* potiental_matched_overlap_1,
-                        Cigar_record* current_cigar, haplotype_evdience_alloc* hap);
+                        Cigar_record* current_cigar, haplotype_evdience_alloc* hap,
+                        Round2_alignment* second_round);
 void init_Correct_dumy(Correct_dumy* list);
 void destory_Correct_dumy(Correct_dumy* list);
 void clear_Correct_dumy(Correct_dumy* list, overlap_region_alloc* overlap_list);
+void clear_Correct_dumy_pure(Correct_dumy* list);
 void pre_filter_by_nearby(k_mer_pos* new_n_list, k_mer_pos* old_n_list, uint64_t n_length, uint64_t n_end_pos, UC_Read* g_read, 
 All_reads* R_INF, Correct_dumy* dumy, uint64_t* new_n_length);
 void pre_filter_by_nearby_single(k_mer_pos* new_n_list, k_mer_pos* old_n_list, uint64_t n_length, uint64_t n_end_pos, UC_Read* g_read, 
@@ -369,6 +386,7 @@ void get_seq_from_Graph(Graph* backbone, Correct_dumy* dumy);
 void init_Cigar_record(Cigar_record* dummy);
 void destory_Cigar_record(Cigar_record* dummy);
 void clear_Cigar_record(Cigar_record* dummy);
+
 
 
 

@@ -209,15 +209,16 @@ int load_All_reads(All_reads* r, char* read_file_name)
 
 
 	r->cigars = (Compressed_Cigar_record*)malloc(sizeof(Compressed_Cigar_record)*r->total_reads);
+	r->second_round_cigar = (Compressed_Cigar_record*)malloc(sizeof(Compressed_Cigar_record)*r->total_reads);
 	for (i = 0; i < r->total_reads; i++)
 	{
-		r->cigars[i].size = 0;
-		r->cigars[i].length = 0;
-		r->cigars[i].record = NULL;
+		r->second_round_cigar[i].size = r->cigars[i].size = 0;
+		r->second_round_cigar[i].length = r->cigars[i].length = 0;
+		r->second_round_cigar[i].record = r->cigars[i].record = NULL;
 
-		r->cigars[i].lost_base_size = 0;
-		r->cigars[i].lost_base_length = 0;
-		r->cigars[i].lost_base = NULL;
+		r->second_round_cigar[i].lost_base_size = r->cigars[i].lost_base_size = 0;
+		r->second_round_cigar[i].lost_base_length = r->cigars[i].lost_base_length = 0;
+		r->second_round_cigar[i].lost_base = r->cigars[i].lost_base = NULL;
 	}
 
 
@@ -277,15 +278,16 @@ void malloc_All_reads(All_reads* r)
 	}
 
 	r->cigars = (Compressed_Cigar_record*)malloc(sizeof(Compressed_Cigar_record)*r->total_reads);
+	r->second_round_cigar = (Compressed_Cigar_record*)malloc(sizeof(Compressed_Cigar_record)*r->total_reads);
 	for (i = 0; i < r->total_reads; i++)
 	{
-		r->cigars[i].size = 0;
-		r->cigars[i].length = 0;
-		r->cigars[i].record = NULL;
+		r->second_round_cigar[i].size = r->cigars[i].size = 0;
+		r->second_round_cigar[i].length = r->cigars[i].length = 0;
+		r->second_round_cigar[i].record = r->cigars[i].record = NULL;
 
-		r->cigars[i].lost_base_size = 0;
-		r->cigars[i].lost_base_length = 0;
-		r->cigars[i].lost_base = NULL;
+		r->second_round_cigar[i].lost_base_size = r->cigars[i].lost_base_size = 0;
+		r->second_round_cigar[i].lost_base_length = r->cigars[i].lost_base_length = 0;
+		r->second_round_cigar[i].lost_base = r->cigars[i].lost_base = NULL;
 	}
 
 
