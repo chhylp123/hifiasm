@@ -1158,6 +1158,8 @@ char* new_read, int new_length, int correct_base)
     
 }
 
+
+
 inline void push_cigar(Compressed_Cigar_record* records, long long ID, Cigar_record* input)
 {
 
@@ -1304,13 +1306,20 @@ void* Overlap_calculate_heap_merge(void* arg)
     haplotype_evdience_alloc hap;
     InitHaplotypeEvdience(&hap);
 
+
+    Round2_alignment second_round;
+    init_Round2_alignment(&second_round);
+
     for (i = thr_ID; i < R_INF.total_reads; i = i + thread_num)
     {
         
-        
+
         
 
         clear_Cigar_record(&current_cigar);
+        clear_Round2_alignment(&second_round);
+
+
         clear_Heap(&heap);
         clear_Candidates_list(&l);
         ///clear_Candidates_list(&debug_l);
@@ -1445,14 +1454,19 @@ void* Overlap_calculate_heap_merge(void* arg)
 
        ///clear_Graph(&POA_Graph);
 
-       correct_overlap(&overlap_list, &R_INF, &g_read, &correct, &overlap_read, &POA_Graph,
-       &matched_overlap_0, &matched_overlap_1, &potiental_matched_overlap_0, &potiental_matched_overlap_1,
-       &current_cigar, &hap);
-      
+        correct_overlap(&overlap_list, &R_INF, &g_read, &correct, &overlap_read, &POA_Graph,
+        &matched_overlap_0, &matched_overlap_1, &potiental_matched_overlap_0, &potiental_matched_overlap_1,
+        &current_cigar, &hap, &second_round);
+
         num_read_base = num_read_base + g_read.length;
         num_correct_base = num_correct_base + correct.corrected_base;
 
         push_cigar(R_INF.cigars, i, &current_cigar);
+        push_cigar(R_INF.second_round_cigar, i, &(second_round.cigar));
+        /**
+        fprintf(stderr, "current_cigar.new_read_length: %d, second_round.cigar.new_read_length: %d\n", 
+        current_cigar.new_read_length, second_round.cigar.new_read_length);
+        **/
 
         /**
         if(memcmp("m54334_180926_225337/39780640/ccs", Get_NAME(R_INF, i), Get_NAME_LENGTH(R_INF, i)) == 0)
@@ -1589,6 +1603,8 @@ void* Overlap_calculate_heap_merge(void* arg)
 
     destoryHaplotypeEvdience(&hap);
 
+    destory_Round2_alignment(&second_round);
+
 
     pthread_mutex_lock(&statistics);
     total_matched_overlap_0 += matched_overlap_0;
@@ -1614,6 +1630,8 @@ void* Overlap_calculate_heap_merge(void* arg)
 }
 
 
+
+
 void* Save_corrected_reads(void* arg)
 {
     int thr_ID = *((int*)arg);
@@ -1621,20 +1639,31 @@ void* Save_corrected_reads(void* arg)
     UC_Read g_read;
     init_UC_Read(&g_read);
 
-    int new_read_size = 10000;
-    char* new_read = (char*)malloc(new_read_size);
+    int first_round_read_size = 10000;
+    char* first_round_read = (char*)malloc(first_round_read_size);
+
+    int second_round_read_size = 10000;
+    char* second_round_read = (char*)malloc(second_round_read_size);
+
     Cigar_record cigar;
-    int new_read_length;
+    int first_round_read_length;
+    int second_round_read_length;
     uint64_t N_occ;
+
+    char* new_read;
+    int new_read_length;
     
     for (i = thr_ID; i < R_INF.total_reads; i = i + thread_num)
     {
         recover_UC_Read(&g_read, &R_INF, i);
 
-        if(R_INF.cigars[i].new_length>new_read_size)
+
+
+        /********************************1 round******************************/
+        if(R_INF.cigars[i].new_length > first_round_read_size)
         {
-            new_read_size = R_INF.cigars[i].new_length;
-            new_read = (char*)realloc(new_read, new_read_size);
+            first_round_read_size = R_INF.cigars[i].new_length;
+            first_round_read = (char*)realloc(first_round_read, first_round_read_size);
         }
 
         cigar.length = R_INF.cigars[i].length;
@@ -1642,7 +1671,43 @@ void* Save_corrected_reads(void* arg)
         cigar.record = R_INF.cigars[i].record;
         cigar.lost_base = R_INF.cigars[i].lost_base;
 
-        get_corrected_read_from_cigar(&cigar, g_read.seq, g_read.length, new_read, &new_read_length);
+        get_corrected_read_from_cigar(&cigar, g_read.seq, g_read.length, first_round_read, &first_round_read_length);
+        /**
+        if(first_round_read_length != R_INF.cigars[i].new_length)
+        {
+            fprintf(stderr, "error\n");
+        }
+        **/
+        /********************************1 round******************************/
+
+        /********************************2 round******************************/
+        if(R_INF.second_round_cigar[i].new_length > second_round_read_size)
+        {
+            second_round_read_size = R_INF.second_round_cigar[i].new_length;
+            second_round_read = (char*)realloc(second_round_read, second_round_read_size);
+        }
+        cigar.length = R_INF.second_round_cigar[i].length;
+        cigar.lost_base_length = R_INF.second_round_cigar[i].lost_base_length;
+        cigar.record = R_INF.second_round_cigar[i].record;
+        cigar.lost_base = R_INF.second_round_cigar[i].lost_base;
+        get_corrected_read_from_cigar(&cigar, first_round_read, first_round_read_length, 
+        second_round_read, &second_round_read_length);
+        /**
+        if(second_round_read_length != R_INF.second_round_cigar[i].new_length)
+        {
+            fprintf(stderr, "error\n");
+        }
+        **/
+        /********************************2 round******************************/
+
+
+
+
+        ///new_read = first_round_read;
+        ///new_read_length = first_round_read_length;
+        new_read = second_round_read;
+        new_read_length = second_round_read_length;
+
 
         ///need modification
         reverse_complement(new_read, new_read_length);
@@ -1674,7 +1739,8 @@ void* Save_corrected_reads(void* arg)
     }
 
     destory_UC_Read(&g_read);
-    free(new_read);
+    free(first_round_read);
+    free(second_round_read);
     free(arg);
 }
 

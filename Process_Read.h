@@ -98,6 +98,7 @@ typedef struct
 	uint64_t total_name_length;
 
 	Compressed_Cigar_record* cigars; 
+	Compressed_Cigar_record* second_round_cigar;
 
 } All_reads;
 

@@ -17,6 +17,9 @@ typedef khash_t(POS64) Pos_Table;
 ///#define THRESHOLD  14
 
 #define WINDOW 375
+#define WINDOW_BOUNDARY 150
+///for one side, the first or last WINDOW_UNCORRECT_SINGLE_SIDE_BOUNDARY bases should not be corrected
+#define WINDOW_UNCORRECT_SINGLE_SIDE_BOUNDARY 25
 #define THRESHOLD  15
 #define THRESHOLD_RATE 0.04
 #define OVERLAP_THRESHOLD 0.9
