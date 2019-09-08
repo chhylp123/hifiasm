@@ -76,6 +76,30 @@ typedef struct
 SnpStats;
 
 
+#define Get_DP_Backtrack_Column(matrix, i) (matrix.backtrack + matrix.snp_num * i)
+#define Get_DP_Backtrack_Column_Length(matrix, i) (matrix.snp_num)
+
+typedef struct
+{
+    // uint32_t snp_size;
+    // uint32_t snp_num;
+    // uint32_t* max;
+    // uint32_t* colum_len;
+    // uint32_t* colum;
+    // uint32_t matrix_size;
+
+    uint32_t snp_num;
+    
+    uint32_t* max;
+    uint32_t snp_size;
+    
+    uint32_t* backtrack_length;
+    uint32_t* backtrack;
+    uint32_t backtrack_size;
+}
+DP_matrix;
+
+
 #define Get_SNP_Martix_Size(matrix) (matrix.snp * matrix.overlap)
 #define Get_SNP_Vector(matrix, i) (matrix.snp_matrix + matrix.overlap * i)
 #define Get_SNP_Vector_Length(matrix) (matrix.overlap)
@@ -100,6 +124,8 @@ typedef struct
     SnpStats* snp_stat; 
     SnpStats result_stat;
     uint32_t snp_stat_size;
+
+    DP_matrix dp;
 }
 haplotype_evdience_alloc;
 
@@ -263,6 +289,40 @@ inline void SetSnpMatrix(haplotype_evdience_alloc* h, long long snp_num, long lo
     
 }
 
+
+
+inline void init_DP_matrix(DP_matrix* dp, int32_t snp_num)
+{
+    // if(snp_num + 1 > dp->snp_size)
+    // {
+    //     dp->snp_size = snp_num + 1;
+    //     dp->colum_len = (uint32_t*)realloc(dp->colum_len, dp->snp_size);
+    //     dp->max = (uint32_t*)realloc(dp->max, dp->snp_size);
+    // }
+
+    // dp->snp_num = snp_num;
+
+    // if(snp_num > 0)
+    // {
+    //     dp->colum_len[0] = 0;
+    // }
+
+    // dp->matrix_size = 0;
+
+
+    if(snp_num > dp->snp_size)
+    {
+        dp->snp_size = snp_num;
+        dp->max = (uint32_t*)realloc(dp->max, dp->snp_size * sizeof(uint32_t));
+        dp->backtrack_length = (uint32_t*)realloc(dp->backtrack_length, dp->snp_size * sizeof(uint32_t));
+
+        dp->backtrack_size = snp_num*snp_num;
+        dp->backtrack = (uint32_t*)realloc(dp->backtrack, dp->backtrack_size * sizeof(uint32_t));
+    }
+
+    dp->snp_num = snp_num;
+}
+
 inline void InitHaplotypeEvdience(haplotype_evdience_alloc* h)
 {
     h->snp = 0;
@@ -280,6 +340,21 @@ inline void InitHaplotypeEvdience(haplotype_evdience_alloc* h)
     h->size = 100;
     h->list = (haplotype_evdience*)calloc(h->size, sizeof(haplotype_evdience));
     memset(h->flag, 0, WINDOW * sizeof(uint32_t));
+
+
+    // h->dp.max = NULL;
+    // h->dp.colum = NULL;
+    // h->dp.colum_len = NULL;
+    // h->dp.matrix_size = 0;
+    // h->dp.snp_num = 0;
+    // h->dp.snp_size = 0;
+    h->dp.snp_num = 0;
+    h->dp.max = NULL;
+    h->dp.snp_size = 0;
+    h->dp.backtrack = NULL;
+    h->dp.backtrack_size = 0;
+    h->dp.backtrack_length = NULL;
+
 }
 
 inline void StarSubListHaplotypeEvdience(haplotype_evdience_alloc* h)

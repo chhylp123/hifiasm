@@ -15,6 +15,7 @@
         "list": "cpp",
         "string": "cpp",
         "array": "cpp",
-        "utility": "cpp"
+        "utility": "cpp",
+        "cmath": "cpp"
     }
 }
