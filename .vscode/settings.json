@@ -16,6 +16,15 @@
         "string": "cpp",
         "array": "cpp",
         "utility": "cpp",
-        "cmath": "cpp"
+        "cmath": "cpp",
+        "unordered_map": "cpp",
+        "system_error": "cpp",
+        "set": "cpp",
+        "sstream": "cpp",
+        "istream": "cpp",
+        "ostream": "cpp",
+        "tuple": "cpp",
+        "type_traits": "cpp",
+        "typeinfo": "cpp"
     }
 }

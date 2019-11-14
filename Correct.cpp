@@ -6,6 +6,7 @@
 #include "Levenshtein_distance.h"
 #include "edlib.h"
 #include "Assembly.h"
+#include "CommandLines.h"
 
 long long T_total_match=0;
 long long T_total_unmatch=0;
@@ -222,6 +223,9 @@ inline int get_interval(long long window_start, long long window_end, overlap_re
     int flag = 0;
     long long Begin, End, Len;
 
+    // fprintf(stderr, "overlap_list->length: %d, dumy->size: %d, dumy->start_i: %d\n", 
+    // overlap_list->length, dumy->size, dumy->start_i);
+    // fflush(stderr);
 
     for (i = dumy->start_i; i < overlap_list->length; i++)
     {
@@ -231,6 +235,7 @@ inline int get_interval(long long window_start, long long window_end, overlap_re
         {
             dumy->start_i = 0;
             dumy->length = 0;
+            dumy->lengthNT = 0;
             return 0;
         }
         else ///只要window_end >= overlap_list->list[i].x_pos_s，就有可能重叠
@@ -240,12 +245,15 @@ inline int get_interval(long long window_start, long long window_end, overlap_re
         }
     }
 
+    
+
     ///只会发生在这个window比list里所有元素都大的情况
     ///这种情况下一个window也无需遍历了
     if (i >= overlap_list->length)
     {
         dumy->start_i = overlap_list->length;
         dumy->length = 0;
+        dumy->lengthNT = 0;
         return -2;
     }
     
@@ -254,10 +262,19 @@ inline int get_interval(long long window_start, long long window_end, overlap_re
 
     for (; i < overlap_list->length; i++)
     {
+        // fprintf(stderr, "inner i: %d, x_pos_s: %d, x_pos_e: %d, window_start: %d, window_end: %d\n",
+        // i, overlap_list->list[i].x_pos_s, overlap_list->list[i].x_pos_e,
+        // window_start, window_end);
+        // fflush(stderr);
+
+        // fprintf(stderr, "dumy->length: %d, dumy->lengthNT: %d, dumy->size: %d\n",
+        // dumy->length, dumy->lengthNT, dumy->size);
+        // fflush(stderr);
         
         if((Len = OVERLAP(window_start, window_end, overlap_list->list[i].x_pos_s, overlap_list->list[i].x_pos_e)) > 0)
         {
-            if (Len == WINDOW)
+            ///sometimes the length of window > WINDOW, but overlap length == WINDOW
+            if (Len == WINDOW && window_end - window_start + 1 == WINDOW)
             {
                 dumy->overlapID[dumy->length] = i;
                 dumy->length++; 
@@ -339,7 +356,7 @@ inline int get_available_interval(long long window_start, long long window_end, 
 
             ///重叠是否有效
             overlap_length = overlap_list->list[i].x_pos_e - overlap_list->list[i].x_pos_s + 1;
-            if (overlap_length * OVERLAP_THRESHOLD <=  overlap_list->list[i].align_length)
+            if (overlap_list->list[i].is_match == 1)
             {
                 dumy->overlapID[dumy->length] = i;
                 dumy->length++; 
@@ -477,7 +494,7 @@ int extra_begin, int extra_end)
     memset(r+extra_begin+length, 'N', extra_end);
 }
 
-void determine_overlap_region(int threshold, long long y_start, long long y_ID, long long Window_Len, All_reads* R_INF,
+int determine_overlap_region(int threshold, long long y_start, long long y_ID, long long Window_Len, All_reads* R_INF,
 int* r_extra_begin, int* r_extra_end, long long* r_y_start, long long* r_y_length)
 {
     int extra_begin;
@@ -485,11 +502,26 @@ int* r_extra_begin, int* r_extra_end, long long* r_y_start, long long* r_y_lengt
     long long currentIDLen;
     long long o_len;
 
+    ///the length of y
+    currentIDLen = Get_READ_LENGTH((*R_INF), y_ID);
+    
+    ///since Window_Len == x_len + (threshold << 1)
+    if(currentIDLen <= y_start || 
+    currentIDLen - y_start + 2 * threshold + THRESHOLD_MAX_SIZE < Window_Len)
+    {
+        return 0;
+    }
+    
+    /**
+    if(currentIDLen <= y_start)
+    {
+        return 0;
+    }
+    **/
+
     extra_begin = extra_end = 0;
     ///y maybe less than 0
     y_start = y_start - threshold;
-    ///the length of y
-    currentIDLen = Get_READ_LENGTH((*R_INF), y_ID);
     o_len = MIN(Window_Len, currentIDLen - y_start);
     extra_end = Window_Len - o_len;
 
@@ -504,7 +536,11 @@ int* r_extra_begin, int* r_extra_end, long long* r_y_start, long long* r_y_lengt
     (*r_extra_end) = extra_end;
     (*r_y_start) = y_start;
     (*r_y_length) = o_len;
+
+    return 1;
 }
+
+
 
 void verify_window(long long window_start, long long window_end, overlap_region_alloc* overlap_list,Correct_dumy* dumy, All_reads* R_INF,
 char* r_string)
@@ -526,6 +562,7 @@ char* r_string)
     uint64_t y_startGroup[GROUP_SIZE];
     int y_extra_begin[GROUP_SIZE];
     int y_extra_end[GROUP_SIZE];
+    int error_threshold[GROUP_SIZE];
     int extra_begin;
     int extra_end;
 
@@ -539,19 +576,30 @@ char* r_string)
         x_start = window_start;
         ///y上的相对位置
         y_start = (x_start - overlap_list->list[currentID].x_pos_s) + overlap_list->list[currentID].y_pos_s;
-
-
+        /****************************may have bugs********************************/
+        y_start += y_start_offset(x_start, &(overlap_list->list[currentID].f_cigar));
+        /****************************may have bugs********************************/
+        
   
-        determine_overlap_region(THRESHOLD, y_start, overlap_list->list[currentID].y_id, Window_Len, R_INF,
-        &extra_begin, &extra_end, &y_start, &o_len);
+        if(!determine_overlap_region(THRESHOLD, y_start, overlap_list->list[currentID].y_id, Window_Len, R_INF,
+        &extra_begin, &extra_end, &y_start, &o_len))
+        {
+            append_window_list(&overlap_list->list[currentID], window_start, window_end, 
+            -1, -1, -1, -1, -1, -1);
+            continue;
+        }
 
         fill_subregion(dumy->overlap_region_group[groupLen], y_start, o_len, overlap_list->list[currentID].y_pos_strand, 
         R_INF, overlap_list->list[currentID].y_id, extra_begin, extra_end);
+
+        // fprintf(stderr, "!i: %d\n", i);
+        // fflush(stderr);
 
         y_extra_begin[groupLen] = extra_begin;
         y_extra_end[groupLen] = extra_end;
         overlapID[groupLen] = currentID;
         y_startGroup[groupLen] = y_start;
+        error_threshold[groupLen] = THRESHOLD;
         x_string = r_string + x_start;
         groupLen++;
         
@@ -570,12 +618,12 @@ char* r_string)
 
                 append_window_list(&overlap_list->list[overlapID[0]], window_start, window_end, 
                             y_startGroup[0], y_startGroup[0] + return_sites[0], (int)return_sites_error[0],
-                            y_extra_begin[0], y_extra_end[0]);
+                            y_extra_begin[0], y_extra_end[0], error_threshold[0]);
             }
             else
             {
                 append_window_list(&overlap_list->list[overlapID[0]], window_start, window_end, y_startGroup[0], -1, -1,
-                y_extra_begin[0], y_extra_end[0]);
+                y_extra_begin[0], y_extra_end[0], error_threshold[0]);
             }
             
 
@@ -585,12 +633,12 @@ char* r_string)
 
                 append_window_list(&overlap_list->list[overlapID[1]], window_start, window_end, 
                             y_startGroup[1], y_startGroup[1] + return_sites[1], (int)return_sites_error[1],
-                            y_extra_begin[1], y_extra_end[1]);
+                            y_extra_begin[1], y_extra_end[1], error_threshold[1]);
             }
             else
             {
                 append_window_list(&overlap_list->list[overlapID[1]], window_start, window_end, y_startGroup[1], -1, -1,
-                y_extra_begin[1], y_extra_end[1]);
+                y_extra_begin[1], y_extra_end[1], error_threshold[1]);
             }
             
 
@@ -600,12 +648,12 @@ char* r_string)
 
                 append_window_list(&overlap_list->list[overlapID[2]], window_start, window_end, 
                             y_startGroup[2], y_startGroup[2] + return_sites[2], (int)return_sites_error[2],
-                            y_extra_begin[2], y_extra_end[2]);
+                            y_extra_begin[2], y_extra_end[2], error_threshold[2]);
             }
             else
             {
                 append_window_list(&overlap_list->list[overlapID[2]], window_start, window_end, y_startGroup[2], -1, -1,
-                y_extra_begin[2], y_extra_end[2]);
+                y_extra_begin[2], y_extra_end[2], error_threshold[2]);
             }
             
 
@@ -615,17 +663,18 @@ char* r_string)
 
                 append_window_list(&overlap_list->list[overlapID[3]], window_start, window_end, 
                             y_startGroup[3], y_startGroup[3] + return_sites[3], (int)return_sites_error[3],
-                            y_extra_begin[3], y_extra_end[3]);
+                            y_extra_begin[3], y_extra_end[3], error_threshold[3]);
             }
             else
             {
                 append_window_list(&overlap_list->list[overlapID[3]], window_start, window_end, y_startGroup[3], -1, -1,
-                y_extra_begin[3], y_extra_end[3]);
+                y_extra_begin[3], y_extra_end[3], error_threshold[3]);
             }    
         }
     }
 
-
+    // fprintf(stderr, "(1) dumy->size: %d\n", dumy->size);
+    // fflush(stderr);
     
 
     if (groupLen == 1)
@@ -640,12 +689,12 @@ char* r_string)
 
             append_window_list(&overlap_list->list[overlapID[0]], window_start, window_end, 
                                 y_startGroup[0], y_startGroup[0] + end_site, (int)error,
-                                y_extra_begin[0], y_extra_end[0]);
+                                y_extra_begin[0], y_extra_end[0], error_threshold[0]);
         }
         else
         {
             append_window_list(&overlap_list->list[overlapID[0]], window_start, window_end, y_startGroup[0], -1, -1,
-            y_extra_begin[0], y_extra_end[0]);
+            y_extra_begin[0], y_extra_end[0], error_threshold[0]);
         }
     }
     else if (groupLen > 1)
@@ -661,18 +710,22 @@ char* r_string)
                 overlap_list->list[overlapID[i]].align_length += x_len;
                 append_window_list(&overlap_list->list[overlapID[i]], window_start, window_end, 
                                 y_startGroup[i], y_startGroup[i] + return_sites[i], (int)return_sites_error[i],
-                                y_extra_begin[i], y_extra_end[i]);
+                                y_extra_begin[i], y_extra_end[i], error_threshold[i]);
             }
             else
             {
                 append_window_list(&overlap_list->list[overlapID[i]], window_start, window_end, y_startGroup[i], -1, -1,
-                y_extra_begin[i], y_extra_end[i]);
+                y_extra_begin[i], y_extra_end[i], error_threshold[i]);
             }
             
         }
 
         groupLen = 0;
     }
+
+
+    // fprintf(stderr, "(2) dumy->size: %d\n", dumy->size);
+    // fflush(stderr);
     
 
     long long reverse_i = dumy->size - 1;
@@ -681,25 +734,99 @@ char* r_string)
     ///这些是整个window被部分覆盖的
     for (i = 0; i < dumy->lengthNT; i++)
     {
+        
         extra_begin = extra_end = 0;
         currentID = dumy->overlapID[reverse_i--];
         x_start = MAX(window_start, overlap_list->list[currentID].x_pos_s);
         x_end = MIN(window_end, overlap_list->list[currentID].x_pos_e);
 
+
         ///这个是和当前窗口重叠的长度
         x_len = x_end - x_start + 1;
         threshold = x_len * THRESHOLD_RATE;
+        /****************************may have bugs********************************/
+        threshold = Adjust_Threshold(threshold, x_len);
+        /****************************may have bugs********************************/
+        
 
         ///y上的相对位置
         y_start = (x_start - overlap_list->list[currentID].x_pos_s) + overlap_list->list[currentID].y_pos_s;
+        /****************************may have bugs********************************/
+        y_start += y_start_offset(x_start, &(overlap_list->list[currentID].f_cigar));
+        /****************************may have bugs********************************/
+
 
         
-        Window_Len = x_len + (threshold << 1);
-        determine_overlap_region(threshold, y_start, overlap_list->list[currentID].y_id, Window_Len, R_INF,
-        &extra_begin, &extra_end, &y_start, &o_len);
 
+
+
+        // fprintf(stderr, "lengthNT: %d, i: %d, window_start: %d, window_end: %d, x_start: %d, x_end: %d\n", 
+        // dumy->lengthNT, i, window_start, window_end, x_start, x_end);
+        // fflush(stderr);
+
+        // fprintf(stderr, "x_pos_s: %d, x_pos_e: %d, y_pos_s: %d, y_pos_e: %d\n", 
+        // overlap_list->list[currentID].x_pos_s, 
+        // overlap_list->list[currentID].x_pos_e,
+        // overlap_list->list[currentID].y_pos_s,
+        // overlap_list->list[currentID].y_pos_e);
+
+        // fprintf(stderr, "x_id: %d, x_length: %d, y_id: %d, y_length: %d, y_pos_strand: %d\n",
+        // overlap_list->list[currentID].x_id, 
+        // Get_READ_LENGTH((*R_INF), overlap_list->list[currentID].x_id),
+        // overlap_list->list[currentID].y_id,
+        // Get_READ_LENGTH((*R_INF), overlap_list->list[currentID].y_id),
+        // overlap_list->list[currentID].y_pos_strand);
+        // fflush(stderr);
+
+        // fprintf(stderr, "y_start: %d, y_start_offset: %d\n", y_start, 
+        // y_start_offset(x_start, &(overlap_list->list[currentID].f_cigar)));
+        // print_fake_gap(&(overlap_list->list[currentID].f_cigar));
+        // fflush(stderr);
+        
+        // fprintf(stderr, "(31) i: %d, dumy->size: %d, y_start: %d, yLen: %d\n", i, dumy->size, y_start,
+        // Get_READ_LENGTH((*R_INF), overlap_list->list[currentID].y_id));
+        // fflush(stderr);
+        
+        Window_Len = x_len + (threshold << 1);
+
+        if(!determine_overlap_region(threshold, y_start, overlap_list->list[currentID].y_id, Window_Len, R_INF,
+        &extra_begin, &extra_end, &y_start, &o_len))
+        {
+            append_window_list(&overlap_list->list[currentID], x_start, x_end, 
+            -1, -1, -1, -1, -1, -1);
+            continue;
+        }
+
+        /**
+        if(overlap_list->list[currentID].x_id == 18390 
+        && overlap_list->list[currentID].y_id == 18419)
+        {
+            fprintf(stderr, "x_start: %d, x_len: %d, y_start: %d, y_offset: %d, extra_begin: %d, extra_end: %d, o_len: %d\n", 
+                x_start, x_len, y_start, 
+                y_start_offset(x_start, &(overlap_list->list[currentID].f_cigar)),
+                extra_begin, extra_end, o_len);
+            
+        }
+        **/
+
+
+        // fprintf(stderr, "(32) i: %d, dumy->size: %d, y_start: %d, o_len: %d, extra_begin: %d, extra_end: %d\n", 
+        // i, dumy->size, y_start, o_len, extra_begin, extra_end);
+        // if(o_len == -13)
+        // {
+        //     print_fake_gap(&(overlap_list->list[currentID].f_cigar));
+        // }
+        // fflush(stderr);
+
+        
         fill_subregion(dumy->overlap_region, y_start, o_len, overlap_list->list[currentID].y_pos_strand, 
         R_INF, overlap_list->list[currentID].y_id, extra_begin, extra_end);
+
+        
+
+        // fprintf(stderr, "(333332) i: %d, dumy->size: %d, y_start: %d, yLen: %d, threshold: %d, Window_Len: %d\n", i, dumy->size, y_start,
+        // Get_READ_LENGTH((*R_INF), overlap_list->list[currentID].y_id), threshold, Window_Len);
+        // fflush(stderr);
         
 
         x_string = r_string + x_start;
@@ -709,19 +836,28 @@ char* r_string)
         end_site = Reserve_Banded_BPM(y_string, Window_Len, x_string, x_len, threshold, &error);
 
 
+        // fprintf(stderr, "(33) dumy->size: %d\n", dumy->size);
+        // fflush(stderr);
+
         if (error!=(unsigned int)-1)
         {
             overlap_list->list[currentID].align_length += x_len;
             append_window_list(&overlap_list->list[currentID], x_start, x_end, y_start, y_start + end_site, (int)error,
-            extra_begin, extra_end);
+            extra_begin, extra_end, threshold);
         }
         else
         {
             append_window_list(&overlap_list->list[currentID], x_start, x_end, y_start, -1, -1,
-            extra_begin, extra_end);
+            extra_begin, extra_end, threshold);
         }
     }
 
+    // fprintf(stderr, "(3) dumy->size: %d\n", dumy->size);
+    // fflush(stderr);
+
+
+    // fprintf(stderr, "************groupLen: %d\n", groupLen);
+    // fflush(stderr);
 }
 
 void debug_stats(overlap_region_alloc* overlap_list, All_reads* R_INF, 
@@ -738,7 +874,7 @@ void debug_stats(overlap_region_alloc* overlap_list, All_reads* R_INF,
     {
         Len_x = overlap_list->list[j].x_pos_e -  overlap_list->list[j].x_pos_s + 1;
 
-        if (Len_x * OVERLAP_THRESHOLD <=  overlap_list->list[j].align_length)
+        if (overlap_list->list[j].is_match == 1)
         {
             if (overlap_list->list[j].y_pos_strand == 0)
             {
@@ -752,180 +888,291 @@ void debug_stats(overlap_region_alloc* overlap_list, All_reads* R_INF,
                 ///(*matched_overlap_1) = (*matched_overlap_1) + overlap_list->list[j].align_length;
                 ///(*matched_overlap_1) = (*matched_overlap_1) + Len_x;
             }
+        }
+    }
 
-            /**
-            threshold = Len_x * 0.04;
+    
 
-            y_start = overlap_list->list[j].y_pos_s - threshold;
-            if (y_start < 0)
+
+}
+
+inline double trim_error_rate(overlap_region_alloc* overlap_list, long long ID)
+{
+    long long tLen, tError,i, subWinLen, subWinNum;
+    
+    tLen = 0;
+    tError = 0;
+
+    subWinNum = overlap_list->list[ID].w_list_length;
+
+    if(subWinNum < 5)
+    {
+        for (i = 0; i < subWinNum; i++)
+        {
+            subWinLen = overlap_list->list[ID].w_list[i].x_end - overlap_list->list[ID].w_list[i].x_start + 1;
+            tLen += subWinLen;
+            
+            if(overlap_list->list[ID].w_list[i].y_end != -1)
             {
-                y_start = 0;
-            }
-
-            
-            ///当前y的长度
-            currentIDLen = Get_READ_LENGTH((*R_INF), overlap_list->list[j].y_id);
-            ///不能超过y的剩余长度
-            Len_y = MIN(Len_x + 2 * threshold, currentIDLen - y_start);
-            
-            
-            if (overlap_list->list[j].y_pos_strand == 0)
-            {
-                recover_UC_Read(overlap_read, R_INF, overlap_list->list[j].y_id);
-                (*matched_overlap_0)++;
+                tError += overlap_list->list[ID].w_list[i].error;
             }
             else
             {
-                recover_UC_Read_RC(overlap_read, R_INF, overlap_list->list[j].y_id);
-                (*matched_overlap_1)++;
+                ///tError += (Adjust_Threshold(subWinLen*THRESHOLD_RATE, subWinLen) * 2);
+                tError += (Adjust_Threshold(subWinLen*THRESHOLD_RATE, subWinLen) * 3);
             }
-        
-
-            
-            
-            EdlibAlignResult result = edlibAlign(g_read->seq + overlap_list->list[j].x_pos_s, Len_x, 
-            overlap_read->seq + y_start, Len_y, 
-            edlibNewAlignConfig(threshold, EDLIB_MODE_HW, EDLIB_TASK_PATH, NULL, 0));
-            
-
-            if (result.status == EDLIB_STATUS_OK && result.editDistance != -1) {
-                char* cigar = edlibAlignmentToCigar(result.alignment, result.alignmentLength, EDLIB_CIGAR_STANDARD);
-                int cigar_length = strlen(cigar);
-                free(cigar);
-
-                
-                if (overlap_list->list[j].y_pos_strand == 0)
-                {
-                    (*potiental_matched_overlap_0)++;
-                }
-                else
-                {
-                    (*potiental_matched_overlap_1)++;
-                }
-                
-                // if (overlap_list->list[j].shared_seed == 1 && Len_x >= 1000)
-                // {
-                //     (*matched_overlap_0)++;
-                // }
-
-                // if (overlap_list->list[j].shared_seed == 2 && Len_x >= 1000)
-                // {
-                //     (*matched_overlap_1)++;
-                // }
-            
-                
-            }
-
-            edlibFreeAlignResult(result);
-            **/
         }
     }
+    else
+    {
+        for (i = 1; i < subWinNum - 1; i++)
+        {
+            subWinLen = overlap_list->list[ID].w_list[i].x_end - overlap_list->list[ID].w_list[i].x_start + 1;
+            tLen += subWinLen;
+
+            if(overlap_list->list[ID].w_list[i].y_end != -1)
+            {
+                tError += overlap_list->list[ID].w_list[i].error;
+            }
+            else
+            {
+                ///tError += (Adjust_Threshold(subWinLen*THRESHOLD_RATE, subWinLen) * 2);
+                tError += (Adjust_Threshold(subWinLen*THRESHOLD_RATE, subWinLen) * 3);
+            }
+        }
+    }
+    
+
+    
+
+    double error_rate = (double)(tError)/(double)(tLen);
+
+    return error_rate;
+}
+
+
+
+void mark_duplicate(overlap_region_alloc* overlap_list, All_reads* R_INF, 
+                        UC_Read* g_read, Correct_dumy* dumy, UC_Read* overlap_read)
+{
+    long long j, overlapLen;
+    double rate;
+
+
+    for (j = 0; j < overlap_list->length; j++)
+    {
+        if(overlap_list->list[j].is_match == 1)
+        {
+            rate = trim_error_rate(overlap_list, j);
+
+            if(rate > 0.01)
+            {
+                overlapLen = overlap_list->list[j].x_pos_e - overlap_list->list[j].x_pos_s + 1;
+                overlap_list->mapped_overlaps_length -= overlapLen;
+                overlap_list->list[j].is_match = 0;
+            }
+        }
+    }
+
 
 }
 
 
-void output_stats(overlap_region_alloc* overlap_list, All_reads* R_INF, 
-                        UC_Read* g_read, Correct_dumy* dumy, UC_Read* overlap_read)
+int calculate_hpm_errors(char* x, int x_len, char* y, int y_len, CIGAR* cigar, int error)
+{
+    int x_i, y_i, cigar_i;
+    x_i = 0;
+    y_i = 0;
+    cigar_i = 0;
+    int operation;
+    int operationLen;
+    int i;
+    int cigar_error = 0;
+    int hpm_error = 0;
+
+    ///0 is match, 1 is mismatch, 2 is up, 3 is left
+    ///2是x缺字符（y多字符），而3是y缺字符（x多字符）
+    ///while (x_i < x_len && y_i < y_len && cigar_i < cigar->length)
+    while (cigar_i < cigar->length)
+    {
+        operation = cigar->C_C[cigar_i];
+        operationLen = cigar->C_L[cigar_i];
+
+        if (operation == 0)
+        {
+            x_i = x_i + operationLen;
+            y_i = y_i + operationLen;
+        }
+        else if (operation == 1)
+        {
+            cigar_error += operationLen;
+            for (i = 0; i < operationLen; i++)
+            {
+                if(if_is_homopolymer_repeat(x_i, x, x_len) || if_is_homopolymer_repeat(y_i, y, y_len))
+                {
+                    hpm_error++;
+                }
+
+                x_i++;
+                y_i++;
+            }
+        }///2是x缺字符（y多字符）
+        else if (operation == 2)
+        {
+
+            if(if_is_homopolymer_repeat(x_i, x, x_len) || if_is_homopolymer_repeat(y_i, y, y_len))
+            {
+                hpm_error++;
+            }/**
+            else
+            {
+                if(x_i - 5 > 0 && x_i + 5 <= x_len
+                &&
+                y_i - 5 > 0 && y_i + 5 <= y_len)
+                {
+                    fprintf(stderr, "x: %.*s\ny: %.*s\n\n", 10, x + x_i - 5, 10, y + y_i - 5);
+                }
+                
+            }
+            **/
+            
+
+            cigar_error += operationLen;
+            y_i += operationLen;
+        }///3是y缺字符（x多字符）
+        else if (operation == 3)
+        {
+
+            if(if_is_homopolymer_repeat(x_i, x, x_len) || if_is_homopolymer_repeat(y_i, y, y_len))
+            {
+                hpm_error++;
+            }
+
+            cigar_error += operationLen;
+            x_i += operationLen;
+        }
+        
+        cigar_i++;
+    }
+
+
+
+    return hpm_error;
+    
+}
+
+
+
+void count_no_HPM_errors(overlap_region_alloc* overlap_list, All_reads* R_INF, 
+                        UC_Read* g_read, Correct_dumy* dumy, UC_Read* overlap_read, 
+                        long long* total_errors, long long* total_hpm_errors)
+{
+
+
+    long long j, i;
+    long long y_id, y_strand, y_readLen;
+    long long x_start, x_end, x_len, y_start, y_end, y_len, error;
+    char* x_string;
+    char* y_string;
+    CIGAR* cigar;
+    int hpm_error;
+    (*total_errors) = 0;
+    (*total_hpm_errors) = 0;
+
+    for (j = 0; j < overlap_list->length; j++)
+    {
+        y_id = overlap_list->list[j].y_id;
+        y_strand = overlap_list->list[j].y_pos_strand;
+        y_readLen = Get_READ_LENGTH((*R_INF), y_id);
+
+        if (overlap_list->list[j].is_match == 1)
+        {
+            ///for (i = 0; i < overlap_list->list[j].w_list_length; i++)
+            for (i = 1; i < overlap_list->list[j].w_list_length - 1; i++)
+            {
+                if(overlap_list->list[j].w_list[i].y_end != -1)
+                {
+                    x_start = overlap_list->list[j].w_list[i].x_start;
+                    x_end = overlap_list->list[j].w_list[i].x_end;
+                    x_len = x_end - x_start + 1;
+
+                    x_string = g_read->seq + x_start;
+
+                    y_start = overlap_list->list[j].w_list[i].y_start;
+                    y_end = overlap_list->list[j].w_list[i].y_end;
+                    y_len = y_end - y_start + 1;
+
+                    recover_UC_Read_sub_region(dumy->overlap_region, y_start, y_len, y_strand, R_INF, y_id);
+                    y_string = dumy->overlap_region;
+
+
+                    cigar = &overlap_list->list[j].w_list[i].cigar;
+                    error = overlap_list->list[j].w_list[i].error;
+
+                    hpm_error = calculate_hpm_errors(x_string, x_len, y_string, y_len, cigar, error);
+
+                    ///fprintf(stderr, "hpm_error: %d, error: %d\n", hpm_error, error);
+                    (*total_errors) += error;
+                    (*total_hpm_errors) += hpm_error;
+                }
+            }
+
+        }
+    }
+    
+
+
+}
+
+
+void debug_output_overlaps(overlap_region_alloc* overlap_list, All_reads* R_INF, 
+                        UC_Read* g_read, Correct_dumy* dumy, UC_Read* overlap_read, 
+                        long long* matched_overlap_0, long long* matched_overlap_1)
 {
     long long j;
     long long Len_x;
     int threshold;
     long long y_start;
     long long Len_y;
-    long long currentIDLen;
-    long long whole;
+    long long currentIDLen = 0;
+    fprintf(stderr, "overlap_list->length: %d\n", overlap_list->length);
     for (j = 0; j < overlap_list->length; j++)
     {
+        if(memcmp("m64013_190412_043951/108332093/ccs", Get_NAME((*R_INF),overlap_list->list[j].y_id), 
+     Get_NAME_LENGTH((*R_INF), overlap_list->list[j].y_id)) == 0)
+        {
+            fprintf(stderr, "******************************x_id: %d, y_id: %d, y_name: %.*s, error_rate: %f, is_match: %d*******************************\n",
+            overlap_list->list[j].x_id,
+            overlap_list->list[j].y_id,
+            Get_NAME_LENGTH((*R_INF), overlap_list->list[j].y_id), Get_NAME((*R_INF),overlap_list->list[j].y_id),
+            trim_error_rate(overlap_list, j), overlap_list->list[j].is_match);
+
+            print_fake_gap(&overlap_list->list[j].f_cigar);
+        }
+
         Len_x = overlap_list->list[j].x_pos_e -  overlap_list->list[j].x_pos_s + 1;
 
-        if (Len_x * OVERLAP_THRESHOLD <=  overlap_list->list[j].align_length)
+        if (overlap_list->list[j].is_match == 1)
         {
-            ;
+            currentIDLen++;
+            fprintf(stderr, "y_name: %.*s\n",
+            Get_NAME_LENGTH((*R_INF), overlap_list->list[j].y_id), Get_NAME((*R_INF),overlap_list->list[j].y_id));
         }
+        // else
+        // {
+        //     fprintf(stderr, "not match, y_name: %.*s\n",
+        //     Get_NAME_LENGTH((*R_INF), overlap_list->list[j].y_id), Get_NAME((*R_INF),overlap_list->list[j].y_id));
+        // }
+        
     }
+
+    fprintf(stderr, "currentIDLen: %d\n\n", currentIDLen);
 
 }
 
 
 
 
-
-inline void generate_cigar(
-	char* path, int path_length, window_list* result, int* start, int* end, int error)
-{
-
-    if (error == 0)
-    {
-        result->cigar.C_L[0] = result->x_end - result->x_start + 1;
-        result->cigar.C_C[0] = 0;
-        result->cigar.length = 1;
-
-        return;
-    }
-    
-
-	int i = 0;
-    result->cigar.length = 0;
-    ///0 is match, 1 is mismatch, 2 is up, 3 is left
-    char pre_ciga = 5;
-    int pre_ciga_length = 0;
-
-
-    for (i = 0; i < path_length; i++)
-    {
-        if(path[i] == 1)
-        {
-            path[i] = 3;
-            (*end)--;
-        }
-        else
-        {
-            break;
-        }
-    }
-
-    for (i = path_length - 1; i >= 0; i--)
-    {
-        if(path[i] == 1)
-        {
-            path[i] = 3;
-            (*start)++;
-        }
-        else
-        {
-            break;
-        }
-    }
-    
-
-    for (i = path_length - 1; i >= 0; i--)
-    {
-
-        if (pre_ciga != path[i])
-        {
-            if (pre_ciga_length != 0)
-            {
-                result->cigar.C_L[result->cigar.length] = pre_ciga_length;
-                result->cigar.C_C[result->cigar.length] = pre_ciga;
-                result->cigar.length++;
-            }
-
-            pre_ciga = path[i];
-            pre_ciga_length = 1;
-        }
-        else
-        {
-            pre_ciga_length++;
-        }
-    }
-
-    if (pre_ciga_length != 0)
-    {
-        result->cigar.C_L[result->cigar.length] = pre_ciga_length;
-        result->cigar.C_C[result->cigar.length] = pre_ciga;
-        result->cigar.length++;
-    }
-}
 
 
 int verify_cigar(char* x, int x_len, char* y, int y_len, CIGAR* cigar, int error)
@@ -955,7 +1202,7 @@ int verify_cigar(char* x, int x_len, char* y, int y_len, CIGAR* cigar, int error
 
                 if (x[x_i]!=y[y_i])
                 {
-                    fprintf(stderr, "error match\n");
+                    ///fprintf(stderr, "error match\n");
                     flag_error = 1;
                 }
                 x_i++;
@@ -970,7 +1217,7 @@ int verify_cigar(char* x, int x_len, char* y, int y_len, CIGAR* cigar, int error
 
                 if (x[x_i]==y[y_i])
                 {
-                    fprintf(stderr, "error mismatch, cigar_i: %d, x_i: %d, y_i: %d\n",cigar_i, x_i, y_i);
+                    ///fprintf(stderr, "error mismatch, cigar_i: %d, x_i: %d, y_i: %d\n",cigar_i, x_i, y_i);
                     flag_error = 1;
                 }
                 x_i++;
@@ -997,17 +1244,22 @@ int verify_cigar(char* x, int x_len, char* y, int y_len, CIGAR* cigar, int error
     
     if (cigar_error != error)
     {
+        /**
         fprintf(stderr, "error cigar_error: cigar_error: %d, error: %d\n", cigar_error, error);
         for (i = 0; i < cigar->length; i++)
         {
             fprintf(stderr, "%u: %u\n", cigar->C_L[i], cigar->C_C[i]);
         }
+        **/
+        
+       flag_error = 1;
         
     }
     
    
     if (flag_error == 1)
     {
+        /**
         print_string(x, x_len);
         print_string(y, y_len);
         fprintf(stderr, "x_len: %d, y_len: %d, cigar_len: %d, error: %d\n", x_len, y_len, cigar->length, error);
@@ -1015,12 +1267,350 @@ int verify_cigar(char* x, int x_len, char* y, int y_len, CIGAR* cigar, int error
         {
             fprintf(stderr, "%u: %u\n", cigar->C_L[i], cigar->C_C[i]);
         }
+        **/
+        
     }
     
     
     return flag_error;
     
 }
+
+inline int move_gap_greedy(char* path, int path_i, int path_length, char* x, int x_i, char* y, int y_i, unsigned int* new_error)
+{
+    if(path[path_i] < 2)
+    {
+        return 0;
+    }
+
+    /**
+         * 
+    GGCG-TGTGCCTGT
+        *
+    GGCAATGTGCCTGT
+        *
+    00013000000000
+    **/
+
+    int flag = 0;
+
+    char oper = path[path_i];
+    
+
+    if(oper == 3)
+    {
+        path_i++;
+        y_i--;
+        for (; path_i < path_length && x_i >= 0 && y_i >= 0; path_i++, x_i--, y_i--)
+        {
+            if(path[path_i] == 2 || path[path_i] == 3 || (path[path_i] == 0 && x[x_i] != y[y_i]))
+            {
+                break;
+            }
+            else
+            {
+                if(path[path_i] == 1 && x[x_i] == y[y_i])
+                {
+                    path[path_i - 1] = 0;
+                    (*new_error)--;
+                }
+                else
+                {
+                    path[path_i - 1] = path[path_i];
+                }
+
+                path[path_i] = oper;
+                
+
+                flag = 1;
+            }
+            
+        }
+    }
+    else if(oper == 2)
+    {
+        path_i++;
+        x_i--;
+        for (; path_i < path_length && x_i >= 0 && y_i >= 0; path_i++, x_i--, y_i--)
+        {
+            if(path[path_i] == 2 || path[path_i] == 3 || (path[path_i] == 0 && x[x_i] != y[y_i]))
+            {
+                break;
+            }
+            else
+            {
+
+                if(path[path_i] == 1 && x[x_i] == y[y_i])
+                {
+                    path[path_i - 1] = 0;
+                    (*new_error)--;
+                }
+                else
+                {
+                    path[path_i - 1] = path[path_i];
+                }
+
+
+                path[path_i] = oper;
+                flag = 1;
+            }
+            
+        }
+    }
+
+    return flag;
+}
+
+inline void generate_cigar(
+	char* path, int path_length, window_list* result, int* start, int* end, unsigned int* old_error,
+    char* x, int x_len, char* y)
+{
+
+    if ((*old_error) == 0)
+    {
+        result->cigar.C_L[0] = result->x_end - result->x_start + 1;
+        result->cigar.C_C[0] = 0;
+        result->cigar.length = 1;
+
+        return;
+    }
+    
+
+	int i = 0;
+    result->cigar.length = 0;
+    ///0 is match, 1 is mismatch, 2 is up, 3 is left
+    char pre_ciga = 5;
+    int pre_ciga_length = 0;
+    
+    int terminate_site = -1;
+
+    for (i = 0; i < path_length; i++)
+    {
+        if(path[i] == 1)
+        {
+            path[i] = 3;
+            (*end)--;
+            terminate_site = i;
+        }
+        else
+        {
+            break;
+        }
+    }
+
+    for (i = path_length - 1; i >= 0; i--)
+    {
+        if(path[i] == 1)
+        {
+            path[i] = 3;
+            (*start)++;
+        }
+        else
+        {
+            break;
+        }
+    }
+
+
+    for (i = path_length - 1; i >= 0; i--)
+    {
+
+        if (pre_ciga != path[i])
+        {
+            if (pre_ciga_length != 0)
+            {
+                result->cigar.C_L[result->cigar.length] = pre_ciga_length;
+                result->cigar.C_C[result->cigar.length] = pre_ciga;
+                result->cigar.length++;
+            }
+
+            pre_ciga = path[i];
+            pre_ciga_length = 1;
+        }
+        else
+        {
+            pre_ciga_length++;
+        }
+    }
+
+    if (pre_ciga_length != 0)
+    {
+        result->cigar.C_L[result->cigar.length] = pre_ciga_length;
+        result->cigar.C_C[result->cigar.length] = pre_ciga;
+        result->cigar.length++;
+    }
+
+    ///verify_cigar(x, x_len, y + (*start), (*end) - (*start) + 1, &(result->cigar), error);
+    
+    
+    y = y + (*start);
+
+    int x_i, y_i;
+    x_i = 0;
+    y_i = 0;
+    ///terminate_site = -1;
+    for (i = path_length - 1; i > terminate_site; i--)
+    {
+        if(path[i] == 0)
+        {
+            x_i++;
+            y_i++;
+        }
+        else if(path[i] == 1)
+        {
+            x_i++;
+            y_i++;
+        }
+        else if(path[i] == 2)
+        {
+            move_gap_greedy(path, i, path_length, x, x_i, y, y_i, old_error);
+            y_i++;
+        }
+        else if(path[i] == 3)
+        {
+            move_gap_greedy(path, i, path_length, x, x_i, y, y_i, old_error);
+            x_i++;
+        }
+    }
+
+
+
+    pre_ciga = 5;
+    pre_ciga_length = 0;
+    result->cigar.length = 0;
+    for (i = path_length - 1; i >= 0; i--)
+    {
+
+        if (pre_ciga != path[i])
+        {
+            if (pre_ciga_length != 0)
+            {
+                result->cigar.C_L[result->cigar.length] = pre_ciga_length;
+                result->cigar.C_C[result->cigar.length] = pre_ciga;
+                result->cigar.length++;
+            }
+
+            pre_ciga = path[i];
+            pre_ciga_length = 1;
+        }
+        else
+        {
+            pre_ciga_length++;
+        }
+    }
+
+    if (pre_ciga_length != 0)
+    {
+        result->cigar.C_L[result->cigar.length] = pre_ciga_length;
+        result->cigar.C_C[result->cigar.length] = pre_ciga;
+        result->cigar.length++;
+    }
+
+    
+    // if(verify_cigar(x, x_len, y, (*end) - (*start) + 1, &(result->cigar), *old_error))
+    // {
+    //     fprintf(stderr, "error\n");
+    // }
+    
+
+
+    /**
+    int x_i, y_i;
+    x_i = 0;
+    y_i = 0;
+    int new_error = error;
+    ///0 is match, 1 is mismatch, 2 is up, 3 is left
+    ///2是x缺字符（y多字符），而3是y缺字符（x多字符）
+    ///while (x_i < x_len && y_i < y_len && cigar_i < cigar->length)
+    for (i = path_length - 1; i >= 0; i--)
+    {
+        if(path[i] == 0)
+        {
+            x_i++;
+            y_i++;
+        }
+        else if(path[i] == 1)
+        {
+            x_i++;
+            y_i++;
+        }
+        else if(path[i] == 2)
+        {
+            move_gap_greedy(path, i, path_length, x, x_i, y, y_i, &new_error);
+            y_i++;
+        }
+        else if(path[i] == 3)
+        {
+            move_gap_greedy(path, i, path_length, x, x_i, y, y_i, &new_error);
+            x_i++;
+        }
+    }
+
+
+
+
+
+
+    
+    CIGAR new_cigar;
+
+    new_cigar.length = 0;
+    pre_ciga = 5;
+    pre_ciga_length = 0;
+    
+
+    for (i = path_length - 1; i >= 0; i--)
+    {
+
+        if (pre_ciga != path[i])
+        {
+            if (pre_ciga_length != 0)
+            {
+                new_cigar.C_L[new_cigar.length] = pre_ciga_length;
+                new_cigar.C_C[new_cigar.length] = pre_ciga;
+                new_cigar.length++;
+            }
+
+            pre_ciga = path[i];
+            pre_ciga_length = 1;
+        }
+        else
+        {
+            pre_ciga_length++;
+        }
+    }
+
+    if (pre_ciga_length != 0)
+    {
+        new_cigar.C_L[new_cigar.length] = pre_ciga_length;
+        new_cigar.C_C[new_cigar.length] = pre_ciga;
+        new_cigar.length++;
+    }
+
+
+
+
+    
+    if(verify_cigar(x, x_len, y, (*end) - (*start) + 1, &new_cigar, new_error))
+    {
+
+        fprintf(stderr, "x_string: %.*s\n",  x_len, x);
+                fprintf(stderr, "y_string: %.*s\n\n",  (*end) - (*start) + 1 , y);
+
+        for (int j = 0; j < result->cigar.length; j++)
+        {
+            fprintf(stderr, "oper: %d, len: %d\n", result->cigar.C_C[j], result->cigar.C_L[j]);
+        }
+
+        for (int j = 0; j < new_cigar.length; j++)
+        {
+            fprintf(stderr, "new_cigar.oper: %d, new_cigar.len: %d\n", new_cigar.C_C[j], new_cigar.C_L[j]);
+        }
+
+    }
+    **/
+}
+
 
 int verify_cigar_2(char* x, int x_len, char* y, int y_len, Cigar_record* cigar, int error)
 {
@@ -1033,6 +1623,7 @@ int verify_cigar_2(char* x, int x_len, char* y, int y_len, Cigar_record* cigar, 
     int i;
     int cigar_error = 0;
     int flag_error = 0;
+    int diff_i = 0;
 
     ///0 is match, 1 is mismatch, 2 is up, 3 is left
     ///2是x缺字符（y多字符），而3是y缺字符（x多字符）
@@ -1067,19 +1658,58 @@ int verify_cigar_2(char* x, int x_len, char* y, int y_len, Cigar_record* cigar, 
                     fprintf(stderr, "error mismatch, cigar_i: %d, x_i: %d, y_i: %d\n",cigar_i, x_i, y_i);
                     flag_error = 1;
                 }
+
+                if(Get_MisMatch_Base(cigar->lost_base[diff_i]) != y[y_i])
+                {
+                    fprintf(stderr, "mismatch x: %c, y: %c, mis[%d]: %c\n", x[x_i],y[y_i],diff_i, 
+                    Get_MisMatch_Base(cigar->lost_base[diff_i]));
+                }
+
+                if(Get_Match_Base(cigar->lost_base[diff_i]) != x[x_i])
+                {
+                    fprintf(stderr, "match x: %c, y: %c, deletion[%d]: %c\n", 
+                    x[x_i],y[y_i],diff_i, 
+                    Get_Match_Base(cigar->lost_base[diff_i]));
+                }
+               
+                
+
+
                 x_i++;
                 y_i++;
+                diff_i++;
             }
         }///2是x缺字符（y多字符）
         else if (operation == 2)
         {
             cigar_error += operationLen;
-            y_i += operationLen;
+            for (i = 0; i < operationLen; i++)
+            {
+                if(cigar->lost_base[diff_i] != y[y_i])
+                {
+                    fprintf(stderr, "insertion x: %c, y: %c, insertion[%d]: %c\n", x[x_i],y[y_i],diff_i, 
+                    cigar->lost_base[diff_i]);
+                }
+                y_i++;
+                diff_i++;
+            }
         }///3是y缺字符（x多字符）
         else if (operation == 3)
         {
             cigar_error += operationLen;
-            x_i += operationLen;
+
+            for (i = 0; i < operationLen; i++)
+            {
+                if(cigar->lost_base[diff_i] != x[x_i])
+                {
+                    fprintf(stderr, "deletion x: %c, y: %c, deletion[%d]: %c\n", x[x_i],y[y_i],diff_i, 
+                    cigar->lost_base[diff_i]);
+                }
+                x_i++;
+                diff_i++;
+            }
+            // x_i += operationLen;
+            // diff_i += operationLen;
         }
         
         cigar_i++;
@@ -1122,13 +1752,146 @@ int verify_cigar_2(char* x, int x_len, char* y, int y_len, Cigar_record* cigar, 
 }
 
 
-/**
-///记住等于0也要重算，虽然意义不那么大就是了
-#define NEED_START_POS(x) (x.error<=0)
-#define GET_ERROR(x) ((x.error>=0)? x.error : x.error*-1)
-**/
+inline int fix_boundary(char* x_string, long long x_len, int threshold,
+long long total_y_start, long long local_y_start, long long local_y_end,
+long long old_extra_begin, long long old_extra_end,
+long long y_ID, long long Window_Len, All_reads* R_INF,
+Correct_dumy* dumy, int y_strand, unsigned int old_error,
+long long* r_total_y_start, int* r_start_site, int* r_end_site,
+int* r_extra_begin, int* r_extra_end, unsigned int* r_error)
+{
 
-inline void recalcate_window(overlap_region_alloc* overlap_list, All_reads* R_INF, 
+    
+    int new_extra_begin, new_extra_end;
+    long long new_y_start, new_y_length;
+    int new_end_site, new_start_site;
+    unsigned int new_error;
+    char* y_string;
+
+
+    int path_length;
+
+    if(local_y_start == 0)
+    {
+        total_y_start = total_y_start + local_y_start;
+        ///if local_y_start == 0 and old_extra_begin != 0
+        ///this means total_y_start == 0, so shift to the left cannot get a new start pos
+        if(old_extra_begin != 0)
+        {
+            return 0;
+        }
+
+        ///if the begining of alignment is 0, we should try to shift the window to find a better result
+        ///shift to the left by threshold-1 bases
+        if(!determine_overlap_region(threshold, total_y_start, y_ID, Window_Len, R_INF,
+        &new_extra_begin, &new_extra_end, &new_y_start, &new_y_length))
+        {
+            return 0;
+        }
+
+        ///if new_y_start is equal to total_y_start, recalculate makes no sense
+        if(new_y_start == total_y_start)
+        {
+            return 0;
+        }
+
+        fill_subregion(dumy->overlap_region_fix, new_y_start, new_y_length, y_strand, R_INF, y_ID, 
+        new_extra_begin, new_extra_end);
+
+        y_string = dumy->overlap_region_fix;
+
+        new_end_site = Reserve_Banded_BPM_PATH(y_string, Window_Len, x_string, x_len, threshold, &new_error, &new_start_site,
+                    &path_length, dumy->matrix_bit, dumy->path_fix, -1, -1);
+        
+        if (new_error != (unsigned int)-1 && new_error < old_error)
+        {
+            (*r_total_y_start) = new_y_start;
+            (*r_start_site) = new_start_site;
+            (*r_end_site) = new_end_site;
+            (*r_extra_begin) = new_extra_begin;
+            (*r_extra_end) = new_extra_end;
+            (*r_error) = new_error;
+
+            dumy->path_length = path_length;
+            memcpy(dumy->path, dumy->path_fix, path_length);
+            memcpy(dumy->overlap_region, dumy->overlap_region_fix, Window_Len);
+            return 1;
+        }
+    }
+    else if(local_y_end == Window_Len - 1)
+    {
+        ///if local_y_end == Window_Len - 1 and old_extra_end > 0
+        ///this means local_y_end is the end of the y
+        ///so shit to the right makes no sense
+        if(old_extra_end != 0)
+        {
+            return 0;
+        }
+        long long total_y_end = total_y_start + local_y_end;
+
+        total_y_start = total_y_end - x_len + 1;
+
+        if(!determine_overlap_region(threshold, total_y_start, y_ID, Window_Len, R_INF,
+        &new_extra_begin, &new_extra_end, &new_y_start, &new_y_length))
+        {
+            return 0;
+        }
+
+        if(new_y_start == total_y_end - local_y_end)
+        {
+            return 0;
+        }
+
+        fill_subregion(dumy->overlap_region_fix, new_y_start, new_y_length, y_strand, R_INF, y_ID, 
+        new_extra_begin, new_extra_end);
+
+        y_string = dumy->overlap_region_fix;
+
+        new_end_site = Reserve_Banded_BPM_PATH(y_string, Window_Len, x_string, x_len, threshold, &new_error, &new_start_site,
+                    &path_length, dumy->matrix_bit, dumy->path_fix, -1, -1);
+
+        if (new_error != (unsigned int)-1 && new_error < old_error)
+        {
+            (*r_total_y_start) = new_y_start;
+            (*r_start_site) = new_start_site;
+            (*r_end_site) = new_end_site;
+            (*r_extra_begin) = new_extra_begin;
+            (*r_extra_end) = new_extra_end;
+            (*r_error) = new_error;
+
+            dumy->path_length = path_length;
+            memcpy(dumy->path, dumy->path_fix, path_length);
+            memcpy(dumy->overlap_region, dumy->overlap_region_fix, Window_Len);
+            return 1;
+        }
+
+
+    }
+    return 0;
+}
+
+
+inline int double_error_threshold(int pre_threshold, int x_len)
+{
+
+    pre_threshold = Adjust_Threshold(pre_threshold, x_len);
+    int threshold = pre_threshold * 2;
+    ///may have some bugs
+    if(x_len >= 300 && threshold < THRESHOLD_MAX_SIZE)
+    {
+        threshold = THRESHOLD_MAX_SIZE;
+    }
+    
+    if(threshold > THRESHOLD_MAX_SIZE)
+    {
+        threshold = THRESHOLD_MAX_SIZE;
+    }
+
+    return threshold;
+}
+
+
+inline void recalcate_window_back(overlap_region_alloc* overlap_list, All_reads* R_INF, 
                         UC_Read* g_read, Correct_dumy* dumy, UC_Read* overlap_read)
 {
     long long j, k, i;
@@ -1166,6 +1929,8 @@ inline void recalcate_window(overlap_region_alloc* overlap_list, All_reads* R_IN
         y_strand = overlap_list->list[j].y_pos_strand;
         y_readLen = Get_READ_LENGTH((*R_INF), y_id);
 
+
+        
         
         
         //i负责每个overlap里面的window
@@ -1181,13 +1946,30 @@ inline void recalcate_window(overlap_region_alloc* overlap_list, All_reads* R_IN
                 ///this is the actual end postion in ystring
                 total_y_start = overlap_list->list[j].w_list[i].y_end - overlap_list->list[j].w_list[i].extra_begin + 1;
 
-
+                
 
                 ///k遍历匹配window右侧所有不匹配的window
                 ///如果i匹配，则k从i+1开始
                 ///知道第一个匹配的window结束
                 for (k = i + 1; k < overlap_list->list[j].w_list_length && overlap_list->list[j].w_list[k].y_end == -1; k++)
                 {
+        /**
+                    if(memcmp("m64013_190324_024932/92733922/ccs", Get_NAME((*R_INF),overlap_list->list[j].x_id), 
+                Get_NAME_LENGTH((*R_INF), overlap_list->list[j].x_id)) == 0)
+        {
+                if(memcmp("m64013_190324_024932/123996697/ccs", Get_NAME((*R_INF),overlap_list->list[j].y_id), 
+        Get_NAME_LENGTH((*R_INF), overlap_list->list[j].y_id)) == 0)
+            {
+                fprintf(stderr, "total_y_start: %d, x_start: %lld, x_end: %lld, y_start: %lld, y_end: %lld, match: %d, cigar.length: %d, error: %d\n", 
+        total_y_start, overlap_list->list[j].w_list[i].x_start, overlap_list->list[j].w_list[i].x_end, 
+        overlap_list->list[j].w_list[i].y_start, overlap_list->list[j].w_list[i].y_end,
+        overlap_list->list[j].w_list[i].y_end - overlap_list->list[j].w_list[i].y_start + 1,
+        overlap_list->list[j].w_list[i].cigar.length, overlap_list->list[j].w_list[i].error);
+            }
+        }
+        **/
+
+
                     extra_begin = extra_end = 0;
 
                     ///y_start有可能大于y_readLen
@@ -1202,8 +1984,15 @@ inline void recalcate_window(overlap_region_alloc* overlap_list, All_reads* R_IN
                     x_start = overlap_list->list[j].w_list[k].x_start;
                     x_end = overlap_list->list[j].w_list[k].x_end;
                     x_len = x_end - x_start + 1;
-                    threshold = x_len * THRESHOLD_RATE;
-
+                    // /****************************may have bugs********************************/
+                    // ///threshold = x_len * THRESHOLD_RATE;
+                    // threshold = overlap_list->list[j].w_list[k].error_threshold;
+                    // /****************************may have bugs********************************/
+                    // /****************************may have bugs********************************/
+                    // threshold = Adjust_Threshold(threshold, x_len);
+                    // /****************************may have bugs********************************/
+                    threshold = double_error_threshold(overlap_list->list[j].w_list[k].error_threshold, x_len);
+                    
 
                     y_start = total_y_start;
                     Window_Len = x_len + (threshold << 1);
@@ -1234,6 +2023,8 @@ inline void recalcate_window(overlap_region_alloc* overlap_list, All_reads* R_IN
                         ///note!!! need notification
                         overlap_list->list[j].w_list[k].extra_begin = extra_begin;
                         overlap_list->list[j].w_list[k].extra_end = extra_end;
+                        overlap_list->list[j].w_list[k].error_threshold = threshold;
+                        
                         overlap_list->list[j].align_length += x_len;
                     }
                     else
@@ -1275,7 +2066,13 @@ inline void recalcate_window(overlap_region_alloc* overlap_list, All_reads* R_IN
                     x_start = overlap_list->list[j].w_list[i].x_start;
                     x_end = overlap_list->list[j].w_list[i].x_end;
                     x_len = x_end - x_start + 1;
-                    threshold = x_len * THRESHOLD_RATE;
+                    /****************************may have bugs********************************/
+                    ///threshold = x_len * THRESHOLD_RATE;
+                    threshold = overlap_list->list[j].w_list[i].error_threshold;
+                    /****************************may have bugs********************************/
+                    /****************************may have bugs********************************/
+                    threshold = Adjust_Threshold(threshold, x_len);
+                    /****************************may have bugs********************************/
                     Window_Len = x_len + (threshold << 1);
 
 
@@ -1294,6 +2091,9 @@ inline void recalcate_window(overlap_region_alloc* overlap_list, All_reads* R_IN
                     &(dumy->path_length), dumy->matrix_bit, dumy->path, 
                     overlap_list->list[j].w_list[i].error, overlap_list->list[j].w_list[i].y_end - y_start);
 
+
+
+
                     
                     
 
@@ -1301,11 +2101,27 @@ inline void recalcate_window(overlap_region_alloc* overlap_list, All_reads* R_IN
                     if (error != (unsigned int)-1)
                     {
                         
-
+                        if (end_site == Window_Len - 1 || real_y_start == 0)
+                        {
+                            
+                            if(fix_boundary(x_string, x_len, threshold, y_start, real_y_start, end_site,
+                            extra_begin, extra_end, y_id, Window_Len, R_INF, dumy, y_strand, error,
+                            &y_start, &real_y_start, &end_site,
+                            &extra_begin, &extra_end, &error))
+                            {
+                                ///fprintf(stderr, "old_error: %d, new_error: %d\n", overlap_list->list[j].w_list[i].error, error);
+                                overlap_list->list[j].w_list[i].error = error;
+                                overlap_list->list[j].w_list[i].extra_begin = extra_begin;
+                                overlap_list->list[j].w_list[i].extra_end = extra_end;
+                            }
+                            
+                            
+                        }
+                        
 
                          
                         generate_cigar(dumy->path, dumy->path_length, &(overlap_list->list[j].w_list[i]),
-                        &real_y_start, &end_site, error);  
+                        &real_y_start, &end_site, &error, x_string, x_len, y_string);   
 
                         if(real_y_start < extra_begin || end_site >= Window_Len - extra_end)
                         {
@@ -1321,7 +2137,8 @@ inline void recalcate_window(overlap_region_alloc* overlap_list, All_reads* R_IN
                         ///real_y_start = y_start + real_y_start;
                         real_y_start = y_start + real_y_start - extra_begin;
                         overlap_list->list[j].w_list[i].y_start = real_y_start;  
-                        overlap_list->list[j].w_list[i].y_end = y_start + end_site;                         
+                        overlap_list->list[j].w_list[i].y_end = y_start + end_site;
+                        overlap_list->list[j].w_list[i].error = error;                         
                     }
                     else
                     {
@@ -1349,7 +2166,15 @@ inline void recalcate_window(overlap_region_alloc* overlap_list, All_reads* R_IN
                     x_start = overlap_list->list[j].w_list[k].x_start;
                     x_end = overlap_list->list[j].w_list[k].x_end;
                     x_len = x_end - x_start + 1;
-                    threshold = x_len * THRESHOLD_RATE;
+                    // /****************************may have bugs********************************/
+                    // ///threshold = x_len * THRESHOLD_RATE;
+                    // threshold = overlap_list->list[j].w_list[k].error_threshold;
+                    // /****************************may have bugs********************************/
+                    // /****************************may have bugs********************************/
+                    // threshold = Adjust_Threshold(threshold, x_len);
+                    // /****************************may have bugs********************************/
+                    threshold = double_error_threshold(overlap_list->list[j].w_list[k].error_threshold, x_len);
+
                     Window_Len = x_len + (threshold << 1);
 
                     if(total_y_end <= 0)
@@ -1381,8 +2206,16 @@ inline void recalcate_window(overlap_region_alloc* overlap_list, All_reads* R_IN
                     if (error!=(unsigned int)-1)
                     { 
 
+                        if (end_site == Window_Len - 1 || real_y_start == 0)
+                        {
+                            fix_boundary(x_string, x_len, threshold, y_start, real_y_start, end_site,
+                            extra_begin, extra_end, y_id, Window_Len, R_INF, dumy, y_strand, error,
+                            &y_start, &real_y_start, &end_site,
+                            &extra_begin, &extra_end, &error);
+                        }
+
                         generate_cigar(dumy->path, dumy->path_length, &(overlap_list->list[j].w_list[k]),
-                        &real_y_start, &end_site, error);   
+                        &real_y_start, &end_site, &error, x_string, x_len, y_string);  
 
                         if(real_y_start < extra_begin || end_site >= Window_Len - extra_end)
                         {
@@ -1401,6 +2234,7 @@ inline void recalcate_window(overlap_region_alloc* overlap_list, All_reads* R_IN
                         ///note!!! need notification
                         overlap_list->list[j].w_list[k].extra_begin = extra_begin;
                         overlap_list->list[j].w_list[k].extra_end = extra_end;
+                        overlap_list->list[j].w_list[k].error_threshold = threshold;
                     }
                     else
                     {
@@ -1418,8 +2252,11 @@ inline void recalcate_window(overlap_region_alloc* overlap_list, All_reads* R_IN
 
 
 
-
+    overlap_list->mapped_overlaps_length = 0;
     
+    int pre_threshold;
+    long long tLen, tError;
+    double error_rate;
     ///j负责遍历整个overlap list
     for (j = 0; j < overlap_list->length; j++)
     {
@@ -1427,10 +2264,38 @@ inline void recalcate_window(overlap_region_alloc* overlap_list, All_reads* R_IN
         y_strand = overlap_list->list[j].y_pos_strand;
         y_readLen = Get_READ_LENGTH((*R_INF), y_id);
         overlap_length = overlap_list->list[j].x_pos_e - overlap_list->list[j].x_pos_s + 1;
+        overlap_list->list[j].is_match = 0;
+
+    /**
+        if(memcmp("m64013_190324_024932/92733922/ccs", Get_NAME((*R_INF),overlap_list->list[j].x_id), 
+     Get_NAME_LENGTH((*R_INF), overlap_list->list[j].x_id)) == 0)
+    {
+            if(memcmp("m64013_190324_024932/123996697/ccs", Get_NAME((*R_INF),overlap_list->list[j].y_id), 
+     Get_NAME_LENGTH((*R_INF), overlap_list->list[j].y_id)) == 0)
+        {
+            fprintf(stderr, "##############y_name: %.*s, error_rate: %f, is_match: %d, overlap_length: %d, align_length: %d##################\n",
+            Get_NAME_LENGTH((*R_INF), overlap_list->list[j].y_id), Get_NAME((*R_INF),overlap_list->list[j].y_id),
+            trim_error_rate(overlap_list, j), overlap_list->list[j].is_match, overlap_length, 
+            overlap_list->list[j].align_length);
+            for (i = 0; i < overlap_list->list[j].w_list_length; i++)
+            {
+                fprintf(stderr, "x_start: %lld, x_end: %lld, y_start: %lld, y_end: %lld, match: %d, cigar.length: %d, error: %d\n", 
+                overlap_list->list[j].w_list[i].x_start, overlap_list->list[j].w_list[i].x_end, 
+                overlap_list->list[j].w_list[i].y_start, overlap_list->list[j].w_list[i].y_end,
+                overlap_list->list[j].w_list[i].y_end - overlap_list->list[j].w_list[i].y_start + 1,
+                overlap_list->list[j].w_list[i].cigar.length, overlap_list->list[j].w_list[i].error);
+                
+            }
+        }
+    }
+    **/
+
+
 
         ///only calculate cigar for high quality overlaps
-        if (overlap_length * OVERLAP_THRESHOLD <=  overlap_list->list[j].align_length)
+        if (overlap_length * OVERLAP_THRESHOLD_FILTER <=  overlap_list->list[j].align_length)
         {
+            
             for (i = 0; i < overlap_list->list[j].w_list_length; i++)
             {
                 ///判断cigar是否被计算
@@ -1444,7 +2309,13 @@ inline void recalcate_window(overlap_region_alloc* overlap_list, All_reads* R_IN
                         x_start = overlap_list->list[j].w_list[i].x_start;
                         x_end = overlap_list->list[j].w_list[i].x_end;
                         x_len = x_end - x_start + 1;
-                        threshold = x_len * THRESHOLD_RATE;
+                        /****************************may have bugs********************************/
+                        ///threshold = x_len * THRESHOLD_RATE;
+                        threshold = overlap_list->list[j].w_list[i].error_threshold;
+                        /****************************may have bugs********************************/
+                        /****************************may have bugs********************************/
+                        threshold = Adjust_Threshold(threshold, x_len);
+                        /****************************may have bugs********************************/
                         Window_Len = x_len + (threshold << 1);
 
 
@@ -1469,8 +2340,24 @@ inline void recalcate_window(overlap_region_alloc* overlap_list, All_reads* R_IN
                         if (error != (unsigned int)-1)
                         {
 
+                            if (end_site == Window_Len - 1 || real_y_start == 0)
+                            {
+                                
+                                if(fix_boundary(x_string, x_len, threshold, y_start, real_y_start, end_site,
+                                extra_begin, extra_end, y_id, Window_Len, R_INF, dumy, y_strand, error,
+                                &y_start, &real_y_start, &end_site,
+                                &extra_begin, &extra_end, &error))
+                                {
+                                    ///fprintf(stderr, "old_error: %d, new_error: %d\n", overlap_list->list[j].w_list[i].error, error);
+                                    overlap_list->list[j].w_list[i].error = error;
+                                    overlap_list->list[j].w_list[i].extra_begin = extra_begin;
+                                    overlap_list->list[j].w_list[i].extra_end = extra_end;
+                                }
+                                
+                            }
+
                             generate_cigar(dumy->path, dumy->path_length, &(overlap_list->list[j].w_list[i]),
-                            &real_y_start, &end_site, error);    
+                            &real_y_start, &end_site, &error, x_string, x_len, y_string);    
 
 
                             if(real_y_start < extra_begin || end_site >= Window_Len - extra_end)
@@ -1488,7 +2375,8 @@ inline void recalcate_window(overlap_region_alloc* overlap_list, All_reads* R_IN
                             ///real_y_start = y_start + real_y_start;
                             real_y_start = y_start + real_y_start - extra_begin;
                             overlap_list->list[j].w_list[i].y_start = real_y_start;  
-                            overlap_list->list[j].w_list[i].y_end = y_start + end_site - extra_begin;                              
+                            overlap_list->list[j].w_list[i].y_end = y_start + end_site - extra_begin;
+                            overlap_list->list[j].w_list[i].error = error;                              
                         }
                         else
                         {
@@ -1499,9 +2387,119 @@ inline void recalcate_window(overlap_region_alloc* overlap_list, All_reads* R_IN
                     {
                         overlap_list->list[j].w_list[i].y_end -= overlap_list->list[j].w_list[i].extra_begin;
                     }
+
+
                 }
-                
-                
+                else ///try to calculate using higher threshold
+                {
+                    ///there is no problem for x
+                    ///there is no problem for x
+                    x_start = overlap_list->list[j].w_list[i].x_start;
+                    x_end = overlap_list->list[j].w_list[i].x_end;
+                    x_len = x_end - x_start + 1;
+                    ///double the threshold
+                    pre_threshold = overlap_list->list[j].w_list[i].error_threshold;
+                    threshold = double_error_threshold(pre_threshold, x_len);
+                    // /****************************may have bugs********************************/
+                    // ///pre_threshold = x_len * THRESHOLD_RATE;
+                    // pre_threshold = overlap_list->list[j].w_list[i].error_threshold;
+                    // /****************************may have bugs********************************/
+                    // /****************************may have bugs********************************/
+                    // pre_threshold = Adjust_Threshold(pre_threshold, x_len);
+                    // /****************************may have bugs********************************/
+                    // threshold = pre_threshold * 2;
+                    // ///may have some bugs
+                    // if(x_len >= 300 && threshold < THRESHOLD_MAX_SIZE)
+                    // {
+                    //     threshold = THRESHOLD_MAX_SIZE;
+                    // }
+                    // if(threshold > THRESHOLD_MAX_SIZE)
+                    // {
+                    //     threshold = THRESHOLD_MAX_SIZE;
+                    // }
+                    Window_Len = x_len + (threshold << 1);
+
+
+
+                    ///if the previous window is mapped
+                    if(i > 0 && overlap_list->list[j].w_list[i - 1].y_end != -1)
+                    {
+                        y_start = overlap_list->list[j].w_list[i - 1].y_end + 1;
+                        determine_overlap_region(threshold, y_start, y_id, Window_Len, R_INF, 
+                        &extra_begin, &extra_end, &y_start, &o_len);
+                    }///if the next window is mapped
+                    else if(i < overlap_list->list[j].w_list_length - 1 && overlap_list->list[j].w_list[i + 1].y_end != -1)
+                    {
+                        y_start = overlap_list->list[j].w_list[i + 1].y_start - 1 - x_len + 1;
+                        determine_overlap_region(threshold, y_start, y_id, Window_Len, R_INF, 
+                        &extra_begin, &extra_end, &y_start, &o_len);
+                    }
+                    else///if the previous window and next window are not mapped, using the y_start itself
+                    {
+                        ///y_start is the real y_start
+                        y_start = overlap_list->list[j].w_list[i].y_start;
+                        /// since y_start has already substacted pre_threshold
+                        ///here we just need to substact threshold - pre_threshold
+                        determine_overlap_region(threshold - pre_threshold, y_start, y_id, Window_Len, R_INF,
+                        &extra_begin, &extra_end, &y_start, &o_len);
+                    }
+                    
+
+                    fill_subregion(dumy->overlap_region, y_start, o_len, y_strand, R_INF, y_id, extra_begin, extra_end);
+
+                    x_string = g_read->seq + x_start;
+                    y_string = dumy->overlap_region;
+
+                    ///note!!! need notification
+                    end_site = Reserve_Banded_BPM_PATH(y_string, Window_Len, x_string, x_len, threshold, &error, &real_y_start,
+                    &(dumy->path_length), dumy->matrix_bit, dumy->path, -1, -1);
+
+                    if (error!=(unsigned int)-1)
+                    { 
+                        
+                        if (end_site == Window_Len - 1 || real_y_start == 0)
+                        {
+                            fix_boundary(x_string, x_len, threshold, y_start, real_y_start, end_site,
+                            extra_begin, extra_end, y_id, Window_Len, R_INF, dumy, y_strand, error,
+                            &y_start, &real_y_start, &end_site,
+                            &extra_begin, &extra_end, &error);
+                        }
+
+                        generate_cigar(dumy->path, dumy->path_length, &(overlap_list->list[j].w_list[i]),
+                        &real_y_start, &end_site, &error, x_string, x_len, y_string);  
+
+
+                        if(real_y_start < extra_begin || end_site >= Window_Len - extra_end)
+                        {
+                            fprintf(stderr, "\nreal_y_start: %d, extra_begin: %d, error: %d, Window_Len: %d, x_len: %d\n", 
+                            real_y_start, extra_begin, error, Window_Len, x_len);
+
+                            fprintf(stderr, "end_site: %d, Window_Len: %d, extra_end: %d\n", 
+                            end_site, Window_Len, extra_end);                            
+                        }
+
+                        real_y_start = y_start + real_y_start - extra_begin;
+                        overlap_list->list[j].w_list[i].y_start = real_y_start;  
+                        overlap_list->list[j].w_list[i].y_end = y_start + end_site - extra_begin; 
+                        overlap_list->list[j].w_list[i].error = error;
+                        overlap_list->list[j].align_length += x_len;
+                        overlap_list->list[j].w_list[i].extra_begin = extra_begin;
+                        overlap_list->list[j].w_list[i].extra_end = extra_end;
+                    }
+                }
+            }
+
+
+            error_rate = trim_error_rate(overlap_list, j);
+
+        
+
+            ///if(error_rate <= 0.015)
+            if(error_rate <= 0.025)
+            {
+                ///overlap_list->mapped_overlaps++;
+                overlap_list->mapped_overlaps_length += overlap_length;
+                overlap_list->list[j].is_match = 1;
             }
         }
     }
@@ -1520,7 +2518,7 @@ inline void recalcate_window(overlap_region_alloc* overlap_list, All_reads* R_IN
         overlap_length = overlap_list->list[j].x_pos_e - overlap_list->list[j].x_pos_s + 1;
 
         ///only calculate cigar for high quality overlaps
-        if (overlap_length * OVERLAP_THRESHOLD <=  overlap_list->list[j].align_length)
+        if (overlap_length * OVERLAP_THRESHOLD_FILTER <=  overlap_list->list[j].align_length)
         {
             for (i = 0; i < overlap_list->list[j].w_list_length; i++)
             {
@@ -1550,10 +2548,588 @@ inline void recalcate_window(overlap_region_alloc* overlap_list, All_reads* R_IN
 
             }
         }
+
+
+        // for (i = 0; i < overlap_list->list[j].w_list_length; i++)
+        // {
+
+        //     if(overlap_list->list[j].w_list[i].x_end - overlap_list->list[j].w_list[i].x_start + 1 != WINDOW && 
+        //     overlap_list->list[j].w_list[i].x_end != overlap_list->list[j].x_pos_e && 
+        //     overlap_list->list[j].w_list[i].x_start != overlap_list->list[j].x_pos_s)
+        //     {
+        //         fprintf(stderr, "x_start:%d, x_end: %d, g_read->length: %d, x_pos_s: %d, x_pos_e: %d\n", 
+        //         overlap_list->list[j].w_list[i].x_start, 
+        //         overlap_list->list[j].w_list[i].x_end, 
+        //         g_read->length,
+        //         overlap_list->list[j].x_pos_s,
+        //         overlap_list->list[j].x_pos_e);
+        //     }
+        // }
     }
     **/
     
+    
+
+    
+    
 }
+
+
+inline void recalcate_window(overlap_region_alloc* overlap_list, All_reads* R_INF, 
+                        UC_Read* g_read, Correct_dumy* dumy, UC_Read* overlap_read)
+{
+    long long j, k, i;
+    long long Len_x;
+    int threshold;
+    long long y_len;
+    long long currentIDLen;
+    long long matches;
+    long long y_id;
+    int y_strand;
+    long long y_readLen;
+    long long x_start;
+    long long x_end;
+    long long x_len;
+    long long total_y_start;
+    long long total_y_end;
+    long long y_start;
+    long long y_end;
+    long long Window_Len;
+    char* x_string;
+    char* y_string;
+    int end_site;
+    unsigned int error;
+    int real_y_start;
+    long long overlap_length;
+    int extra_begin, extra_end;
+    long long o_len;
+
+
+    ///j负责遍历整个overlap list
+    for (j = 0; j < overlap_list->length; j++)
+    {
+        
+        y_id = overlap_list->list[j].y_id;
+        y_strand = overlap_list->list[j].y_pos_strand;
+        y_readLen = Get_READ_LENGTH((*R_INF), y_id);
+
+
+        
+        
+        
+        //i负责每个overlap里面的window
+        //倒着找
+        //倒着用结束位置矫正
+        for (i = overlap_list->list[j].w_list_length - 1; i >= 0; i--)
+        {
+            ///找到第一个匹配的window
+            if(overlap_list->list[j].w_list[i].y_end != -1)
+            {
+                ///note!!! need notification
+                ///total_y_start = overlap_list->list[j].w_list[i].y_end + 1;
+                ///this is the actual end postion in ystring
+                total_y_start = overlap_list->list[j].w_list[i].y_end - overlap_list->list[j].w_list[i].extra_begin + 1;
+
+                
+
+                ///k遍历匹配window右侧所有不匹配的window
+                ///如果i匹配，则k从i+1开始
+                ///知道第一个匹配的window结束
+                for (k = i + 1; k < overlap_list->list[j].w_list_length && overlap_list->list[j].w_list[k].y_end == -1; k++)
+                {
+                    extra_begin = extra_end = 0;
+
+                    ///y_start有可能大于y_readLen
+                    ///这多发于最后一个window长度仅为几，而前面一个window的结束位置也超过了y_readLen-1
+                    ///这个时候做动态规划会给超过的部分补N
+                    if (total_y_start >= y_readLen)
+                    {
+                        break;
+                    }
+                    
+                    ///there is no problem for x
+                    x_start = overlap_list->list[j].w_list[k].x_start;
+                    x_end = overlap_list->list[j].w_list[k].x_end;
+                    x_len = x_end - x_start + 1;
+                    // /****************************may have bugs********************************/
+                    // ///threshold = x_len * THRESHOLD_RATE;
+                    // threshold = overlap_list->list[j].w_list[k].error_threshold;
+                    // /****************************may have bugs********************************/
+                    // /****************************may have bugs********************************/
+                    // threshold = Adjust_Threshold(threshold, x_len);
+                    // /****************************may have bugs********************************/
+                    threshold = double_error_threshold(overlap_list->list[j].w_list[k].error_threshold, x_len);
+                    
+
+                    y_start = total_y_start;
+                    Window_Len = x_len + (threshold << 1);
+                    if(!determine_overlap_region(threshold, y_start, y_id, Window_Len, R_INF, 
+                    &extra_begin, &extra_end, &y_start, &o_len))
+                    {
+                        break;
+                    }
+
+                    if(o_len + threshold < x_len)
+                    {
+                        break;
+                    }
+                    
+                    fill_subregion(dumy->overlap_region, y_start, o_len, y_strand, 
+                    R_INF, y_id, extra_begin, extra_end);
+
+                    x_string = g_read->seq + x_start;
+                    y_string = dumy->overlap_region;
+
+                    ///note!!! need notification
+                    end_site = Reserve_Banded_BPM(y_string, Window_Len, x_string, x_len, threshold, &error);
+                    
+                    ///error等于-1说明没匹配
+                    if (error!=(unsigned int)-1)
+                    {
+                        overlap_list->list[j].w_list[k].cigar.length = -1;
+                        overlap_list->list[j].w_list[k].y_start = y_start;
+                        overlap_list->list[j].w_list[k].y_end = y_start + end_site;
+                        overlap_list->list[j].w_list[k].error = (int)error;
+                        ///note!!! need notification
+                        overlap_list->list[j].w_list[k].extra_begin = extra_begin;
+                        overlap_list->list[j].w_list[k].extra_end = extra_end;
+                        overlap_list->list[j].w_list[k].error_threshold = threshold;
+                        
+                        overlap_list->list[j].align_length += x_len;
+                    }
+                    else
+                    {
+                        break;
+                    }
+                    ///note!!! need notification
+                    ///total_y_start = y_start + end_site + 1;
+                    total_y_start = y_start + end_site - extra_begin + 1;
+
+                }
+                
+            }
+            
+        }
+        
+
+
+
+        
+        ///continue;
+        ///i负责每个overlap里面的window
+        ///正着找
+        ///用起始位置矫正
+        for (i = 0; i < overlap_list->list[j].w_list_length; i++)
+        {
+            ///找到第一个匹配的window
+            ///首先这个window要匹配
+            ///其次不要是第一个window，这没意义
+            ///最后他之前的那个window必须是不匹配，如果之前那个window匹配，也没意义
+            if(overlap_list->list[j].w_list[i].y_end != -1 && i != 0 && overlap_list->list[j].w_list[i - 1].y_end == -1)
+            {
+                
+                ///判断这个匹配的window的起始位置有没有被计算出来
+                ///如果没有，就需要重新计算
+                if(overlap_list->list[j].w_list[i].cigar.length == -1)
+                {
+                    ///there is no problem for x
+                    x_start = overlap_list->list[j].w_list[i].x_start;
+                    x_end = overlap_list->list[j].w_list[i].x_end;
+                    x_len = x_end - x_start + 1;
+                    /****************************may have bugs********************************/
+                    ///threshold = x_len * THRESHOLD_RATE;
+                    threshold = overlap_list->list[j].w_list[i].error_threshold;
+                    /****************************may have bugs********************************/
+                    /****************************may have bugs********************************/
+                    threshold = Adjust_Threshold(threshold, x_len);
+                    /****************************may have bugs********************************/
+                    Window_Len = x_len + (threshold << 1);
+
+
+                    ///y_start is the real y_start
+                    y_start = overlap_list->list[j].w_list[i].y_start;
+                    extra_begin = overlap_list->list[j].w_list[i].extra_begin;
+                    extra_end = overlap_list->list[j].w_list[i].extra_end;
+                    o_len = Window_Len - extra_end - extra_begin;
+                    fill_subregion(dumy->overlap_region, y_start, o_len, y_strand, 
+                    R_INF, y_id, extra_begin, extra_end);
+                    x_string = g_read->seq + x_start;
+                    y_string = dumy->overlap_region;
+
+                    ///note!!! need notification
+                    end_site = Reserve_Banded_BPM_PATH(y_string, Window_Len, x_string, x_len, threshold, &error, &real_y_start,
+                    &(dumy->path_length), dumy->matrix_bit, dumy->path, 
+                    overlap_list->list[j].w_list[i].error, overlap_list->list[j].w_list[i].y_end - y_start);
+
+
+
+
+                    
+                    
+
+                    ///到这里y_start已经被正确计算出来了
+                    if (error != (unsigned int)-1)
+                    {
+                        
+                        if (end_site == Window_Len - 1 || real_y_start == 0)
+                        {
+                            
+                            if(fix_boundary(x_string, x_len, threshold, y_start, real_y_start, end_site,
+                            extra_begin, extra_end, y_id, Window_Len, R_INF, dumy, y_strand, error,
+                            &y_start, &real_y_start, &end_site,
+                            &extra_begin, &extra_end, &error))
+                            {
+                                ///fprintf(stderr, "old_error: %d, new_error: %d\n", overlap_list->list[j].w_list[i].error, error);
+                                overlap_list->list[j].w_list[i].error = error;
+                                overlap_list->list[j].w_list[i].extra_begin = extra_begin;
+                                overlap_list->list[j].w_list[i].extra_end = extra_end;
+                            }
+                            
+                            
+                        }
+                        
+
+                         
+                        generate_cigar(dumy->path, dumy->path_length, &(overlap_list->list[j].w_list[i]),
+                        &real_y_start, &end_site, &error, x_string, x_len, y_string);   
+
+                        if(real_y_start < extra_begin || end_site >= Window_Len - extra_end)
+                        {
+                            fprintf(stderr, "\nreal_y_start: %d, extra_begin: %d\n", 
+                            real_y_start, extra_begin);
+
+                            fprintf(stderr, "end_site: %d, Window_Len: %d, extra_end: %d\n", 
+                            end_site, Window_Len, extra_end);                            
+                        }
+                        
+                        
+                        ///note!!! need notification
+                        ///real_y_start = y_start + real_y_start;
+                        real_y_start = y_start + real_y_start - extra_begin;
+                        overlap_list->list[j].w_list[i].y_start = real_y_start;  
+                        overlap_list->list[j].w_list[i].y_end = y_start + end_site;
+                        overlap_list->list[j].w_list[i].error = error;                         
+                    }
+                    else
+                    {
+                        fprintf(stderr, "error\n");
+                    }
+                    
+                        
+                }
+                else
+                {
+                    real_y_start = overlap_list->list[j].w_list[i].y_start;
+                }
+
+
+                
+                ///再次矫正的基础位置就是real_y_start
+                total_y_end = real_y_start - 1;
+                ///k遍历匹配window左侧所有不匹配的window
+                ///如果i匹配，则k从i-1开始
+                ///直到第一个匹配的window结束
+                ///因为i!=0，所以k的大小不用担心
+                for (k = i - 1; k >= 0 && overlap_list->list[j].w_list[k].y_end == -1; k--)
+                {  
+                    ///there is no problem in x
+                    x_start = overlap_list->list[j].w_list[k].x_start;
+                    x_end = overlap_list->list[j].w_list[k].x_end;
+                    x_len = x_end - x_start + 1;
+                    // /****************************may have bugs********************************/
+                    // ///threshold = x_len * THRESHOLD_RATE;
+                    // threshold = overlap_list->list[j].w_list[k].error_threshold;
+                    // /****************************may have bugs********************************/
+                    // /****************************may have bugs********************************/
+                    // threshold = Adjust_Threshold(threshold, x_len);
+                    // /****************************may have bugs********************************/
+                    threshold = double_error_threshold(overlap_list->list[j].w_list[k].error_threshold, x_len);
+
+                    Window_Len = x_len + (threshold << 1);
+
+                    if(total_y_end <= 0)
+                    {
+                        break;
+                    }
+
+                    ///y_start may less than 0
+                    y_start = total_y_end - x_len + 1;
+                    if(!determine_overlap_region(threshold, y_start, y_id, Window_Len, R_INF,
+                    &extra_begin, &extra_end, &y_start, &o_len))
+                    {
+                        break;
+                    }
+
+                    if(o_len + threshold < x_len)
+                    {
+                        break;
+                    }
+
+                    fill_subregion(dumy->overlap_region, y_start, o_len, y_strand, 
+                    R_INF, y_id, extra_begin, extra_end);
+                    x_string = g_read->seq + x_start;
+                    y_string = dumy->overlap_region;
+
+                    ///note!!! need notification
+                    end_site = Reserve_Banded_BPM_PATH(y_string, Window_Len, x_string, x_len, threshold, &error, &real_y_start,
+                    &(dumy->path_length), dumy->matrix_bit, dumy->path, -1, -1);
+
+
+                    ///error等于-1说明没匹配
+                    if (error!=(unsigned int)-1)
+                    { 
+
+                        if (end_site == Window_Len - 1 || real_y_start == 0)
+                        {
+                            fix_boundary(x_string, x_len, threshold, y_start, real_y_start, end_site,
+                            extra_begin, extra_end, y_id, Window_Len, R_INF, dumy, y_strand, error,
+                            &y_start, &real_y_start, &end_site,
+                            &extra_begin, &extra_end, &error);
+                        }
+
+                        generate_cigar(dumy->path, dumy->path_length, &(overlap_list->list[j].w_list[k]),
+                        &real_y_start, &end_site, &error, x_string, x_len, y_string);  
+
+                        if(real_y_start < extra_begin || end_site >= Window_Len - extra_end)
+                        {
+                            fprintf(stderr, "\nreal_y_start: %d, extra_begin: %d\n", 
+                            real_y_start, extra_begin);
+
+                            fprintf(stderr, "end_site: %d, Window_Len: %d, extra_end: %d\n", 
+                            end_site, Window_Len, extra_end);                            
+                        }
+
+                        ///y_start has no shift, but y_end has shift           
+                        overlap_list->list[j].w_list[k].y_start = y_start + real_y_start - extra_begin;
+                        overlap_list->list[j].w_list[k].y_end = y_start + end_site;
+                        overlap_list->list[j].w_list[k].error = error;
+                        overlap_list->list[j].align_length += x_len;
+                        ///note!!! need notification
+                        overlap_list->list[j].w_list[k].extra_begin = extra_begin;
+                        overlap_list->list[j].w_list[k].extra_end = extra_end;
+                        overlap_list->list[j].w_list[k].error_threshold = threshold;
+                    }
+                    else
+                    {
+                        break;
+                    }
+
+                    total_y_end = y_start + real_y_start - 1 - extra_begin;
+                }
+            
+            }
+        }
+        
+        
+    }
+
+
+
+    overlap_list->mapped_overlaps_length = 0;
+    
+    int pre_threshold;
+    long long tLen, tError;
+    double error_rate;
+    ///j负责遍历整个overlap list
+    for (j = 0; j < overlap_list->length; j++)
+    {
+        y_id = overlap_list->list[j].y_id;
+        y_strand = overlap_list->list[j].y_pos_strand;
+        y_readLen = Get_READ_LENGTH((*R_INF), y_id);
+        overlap_length = overlap_list->list[j].x_pos_e - overlap_list->list[j].x_pos_s + 1;
+        overlap_list->list[j].is_match = 0;
+
+
+        ///only calculate cigar for high quality overlaps
+        if (overlap_length * OVERLAP_THRESHOLD_FILTER <=  overlap_list->list[j].align_length)
+        {
+            
+            for (i = 0; i < overlap_list->list[j].w_list_length; i++)
+            {
+                ///判断cigar是否被计算
+                ///没被计算过就重算
+                ///第一个条件是判断这个窗口是否匹配
+                if(overlap_list->list[j].w_list[i].y_end != -1)
+                {
+                    if(overlap_list->list[j].w_list[i].cigar.length == -1)
+                    {
+                        ///there is no problem for x
+                        x_start = overlap_list->list[j].w_list[i].x_start;
+                        x_end = overlap_list->list[j].w_list[i].x_end;
+                        x_len = x_end - x_start + 1;
+                        /****************************may have bugs********************************/
+                        ///threshold = x_len * THRESHOLD_RATE;
+                        threshold = overlap_list->list[j].w_list[i].error_threshold;
+                        /****************************may have bugs********************************/
+                        /****************************may have bugs********************************/
+                        threshold = Adjust_Threshold(threshold, x_len);
+                        /****************************may have bugs********************************/
+                        Window_Len = x_len + (threshold << 1);
+
+
+                        ///y_start is the real y_start
+                        y_start = overlap_list->list[j].w_list[i].y_start;
+                        extra_begin = overlap_list->list[j].w_list[i].extra_begin;
+                        extra_end = overlap_list->list[j].w_list[i].extra_end;
+                        o_len = Window_Len - extra_end - extra_begin;
+                        fill_subregion(dumy->overlap_region, y_start, o_len, y_strand, 
+                        R_INF, y_id, extra_begin, extra_end);
+                        x_string = g_read->seq + x_start;
+                        y_string = dumy->overlap_region;
+
+
+                        ///note!!! need notification
+                        end_site = Reserve_Banded_BPM_PATH(y_string, Window_Len, x_string, x_len, threshold, &error, &real_y_start,
+                        &(dumy->path_length), dumy->matrix_bit, dumy->path, 
+                        overlap_list->list[j].w_list[i].error, overlap_list->list[j].w_list[i].y_end - y_start);
+
+                        // if(error != overlap_list->list[j].w_list[i].error)
+                        // {
+                        //     fprintf(stderr, "error\n");
+                        // }
+
+                        ///到这里y_start已经被正确计算出来了
+                        if (error != (unsigned int)-1)
+                        {
+
+                            if (end_site == Window_Len - 1 || real_y_start == 0)
+                            {
+                                
+                                if(fix_boundary(x_string, x_len, threshold, y_start, real_y_start, end_site,
+                                extra_begin, extra_end, y_id, Window_Len, R_INF, dumy, y_strand, error,
+                                &y_start, &real_y_start, &end_site,
+                                &extra_begin, &extra_end, &error))
+                                {
+                                    ///fprintf(stderr, "old_error: %d, new_error: %d\n", overlap_list->list[j].w_list[i].error, error);
+                                    overlap_list->list[j].w_list[i].error = error;
+                                    overlap_list->list[j].w_list[i].extra_begin = extra_begin;
+                                    overlap_list->list[j].w_list[i].extra_end = extra_end;
+                                }
+                                
+                            }
+
+                            generate_cigar(dumy->path, dumy->path_length, &(overlap_list->list[j].w_list[i]),
+                            &real_y_start, &end_site, &error, x_string, x_len, y_string);    
+
+
+                            if(real_y_start < extra_begin || end_site >= Window_Len - extra_end)
+                            {
+                                fprintf(stderr, "\nreal_y_start: %d, extra_begin: %d\n", 
+                                real_y_start, extra_begin);
+
+                                fprintf(stderr, "end_site: %d, Window_Len: %d, extra_end: %d\n", 
+                                end_site, Window_Len, extra_end);                            
+                            }
+
+                            
+
+                            ///note!!! need notification
+                            ///real_y_start = y_start + real_y_start;
+                            real_y_start = y_start + real_y_start - extra_begin;
+                            overlap_list->list[j].w_list[i].y_start = real_y_start;  
+                            overlap_list->list[j].w_list[i].y_end = y_start + end_site - extra_begin;
+                            overlap_list->list[j].w_list[i].error = error;                              
+                        }
+                        else
+                        {
+                            fprintf(stderr, "error\n");
+                        }
+                    }
+                    else
+                    {
+                        overlap_list->list[j].w_list[i].y_end -= overlap_list->list[j].w_list[i].extra_begin;
+                    }
+
+
+                }
+            }
+
+            error_rate = trim_error_rate(overlap_list, j);
+
+            ///if(error_rate <= 0.015)
+            if(error_rate <= 0.03)
+            {
+                ///overlap_list->mapped_overlaps++;
+                overlap_list->mapped_overlaps_length += overlap_length;
+                overlap_list->list[j].is_match = 1;
+            }
+            else if(error_rate <= 0.045)
+            {
+                overlap_list->list[j].is_match = 3;
+            }
+        }
+    }
+    
+    
+
+
+
+    /**
+    ///j负责遍历整个overlap list
+    for (j = 0; j < overlap_list->length; j++)
+    {
+        y_id = overlap_list->list[j].y_id;
+        y_strand = overlap_list->list[j].y_pos_strand;
+        y_readLen = Get_READ_LENGTH((*R_INF), y_id);
+        overlap_length = overlap_list->list[j].x_pos_e - overlap_list->list[j].x_pos_s + 1;
+
+        ///only calculate cigar for high quality overlaps
+        if (overlap_length * OVERLAP_THRESHOLD_FILTER <=  overlap_list->list[j].align_length)
+        {
+            for (i = 0; i < overlap_list->list[j].w_list_length; i++)
+            {
+                if(overlap_list->list[j].w_list[i].y_end != -1)
+                {
+                    ///there is no problem for x
+                    x_start = overlap_list->list[j].w_list[i].x_start;
+                    x_end = overlap_list->list[j].w_list[i].x_end;
+                    x_len = x_end - x_start + 1;
+
+                    x_string = g_read->seq + x_start;
+
+                    y_start = overlap_list->list[j].w_list[i].y_start;
+                    y_end = overlap_list->list[j].w_list[i].y_end;
+                    y_len = y_end - y_start + 1;
+
+                    recover_UC_Read_sub_region(dumy->overlap_region, y_start, y_len, y_strand, R_INF, y_id);
+                    y_string = dumy->overlap_region;
+
+
+                    if(verify_cigar(x_string, x_len, y_string, y_len, &overlap_list->list[j].w_list[i].cigar, 
+                    overlap_list->list[j].w_list[i].error))
+                    {
+                        fprintf(stderr, "j: %d, i: %d, y_id: %d, y_start: %d, y_end: %d\n", j, i, y_id, y_start, y_end);
+                    }
+                }
+
+            }
+        }
+
+
+        // for (i = 0; i < overlap_list->list[j].w_list_length; i++)
+        // {
+
+        //     if(overlap_list->list[j].w_list[i].x_end - overlap_list->list[j].w_list[i].x_start + 1 != WINDOW && 
+        //     overlap_list->list[j].w_list[i].x_end != overlap_list->list[j].x_pos_e && 
+        //     overlap_list->list[j].w_list[i].x_start != overlap_list->list[j].x_pos_s)
+        //     {
+        //         fprintf(stderr, "x_start:%d, x_end: %d, g_read->length: %d, x_pos_s: %d, x_pos_e: %d\n", 
+        //         overlap_list->list[j].w_list[i].x_start, 
+        //         overlap_list->list[j].w_list[i].x_end, 
+        //         g_read->length,
+        //         overlap_list->list[j].x_pos_s,
+        //         overlap_list->list[j].x_pos_e);
+        //     }
+        // }
+    }
+    **/
+    
+    
+
+    
+    
+}
+
 
 
 inline void add_base_to_correct_read_directly(Correct_dumy* dumy, char base)
@@ -1609,7 +3185,6 @@ inline void add_segment_to_correct_read(Correct_dumy* dumy, char* segment, long 
     dumy->corrected_read_length += segment_length;
     dumy->corrected_read[dumy->corrected_read_length] = '\0';
 }
-
 
 
 
@@ -1683,6 +3258,12 @@ long long type, long long edgeID, Cigar_record* current_cigar, char* self_string
     {
         nodeID = backbone->g_nodes.list[currentNodeID].deletion_edges.list[edgeID].out_node;
         dumy->corrected_base += nodeID - currentNodeID;
+
+        // if(nodeID - currentNodeID != 1)
+        // {
+        //     fprintf(stderr, "error\n");
+        // }
+
         ///currentNodeID = i means self_string[i - 1]
         add_cigar_record(self_string + currentNodeID, nodeID - currentNodeID, current_cigar, DELETION);
 
@@ -1738,8 +3319,1707 @@ long long type, long long edgeID, Cigar_record* current_cigar, char* self_string
     
 }
 
-void get_seq_from_Graph(Graph* backbone, Correct_dumy* dumy, Cigar_record* current_cigar, char* self_string)
+
+///返回下一个backbone节点上的ID
+long long inline add_path_to_correct_read_new(Graph* backbone, Graph* DAGCon, Correct_dumy* dumy, long long currentNodeID, 
+long long type, long long edgeID, Cigar_record* current_cigar, char* self_string)
 {
+    //long long i;
+    long long nodeID;
+
+    ///Note: currentNodeID must be a backbone node
+    ///currentNodeID = 0 means a fake node
+    ///currentNodeID = i means self_string[i - 1]
+    ///包括匹配和误配两种情况
+    if (type == MISMATCH)
+    {
+        ///这是match的情况
+        if(backbone->g_nodes.list[currentNodeID].mismatch_edges.list[edgeID].length == 0)
+        {
+            nodeID = backbone->g_nodes.list[currentNodeID].mismatch_edges.list[edgeID].out_node;
+            add_base_to_correct_read_directly(dumy, backbone->g_nodes.list[nodeID].base);
+            ///match所以dumy->corrected_base不要+1
+
+            ///nodeID = i means self_string[i - 1]
+            ///add_cigar_record(self_string+nodeID-1, 1, current_cigar, 0);
+            add_cigar_record(&(backbone->g_nodes.list[nodeID].base), 1, current_cigar, 0);
+
+            /***********需要注释掉********* */
+            if (nodeID != currentNodeID + 1)
+            {
+                fprintf(stderr, "error match\n");
+            }
+            /***********需要注释掉********* */
+
+            return nodeID;
+        }
+        else ///这是mismatch的情况
+        {
+            
+
+            nodeID = backbone->g_nodes.list[currentNodeID].mismatch_edges.list[edgeID].out_node;
+            add_base_to_correct_read_directly(dumy, backbone->g_nodes.list[nodeID].base);
+            dumy->corrected_base++;
+
+            
+            char merge_base = 0;
+            merge_base = seq_nt6_table[(uint8_t)backbone->g_nodes.list[nodeID].base];
+            merge_base = merge_base << 3;
+            ///这种中间节点只有一个元素，所以直接list[0]
+            nodeID = backbone->g_nodes.list[nodeID].mismatch_edges.list[0].out_node;
+            merge_base = merge_base | seq_nt6_table[(uint8_t)backbone->g_nodes.list[nodeID].base];
+            add_cigar_record(&merge_base, 1, current_cigar, 1);
+            
+            /**
+            add_cigar_record(&(backbone->g_nodes.list[nodeID].base), 1, current_cigar, 1);
+            nodeID = backbone->g_nodes.list[nodeID].mismatch_edges.list[0].out_node;
+            **/
+
+            /***********需要注释掉********* */
+            if (nodeID != currentNodeID + 1)
+            {
+                fprintf(stderr, "error mismatch\n");
+            }
+            /***********需要注释掉********* */
+
+            return nodeID;
+        }
+    }
+    else if (type == DELETION)
+    {
+        nodeID = backbone->g_nodes.list[currentNodeID].deletion_edges.list[edgeID].out_node;
+        dumy->corrected_base += nodeID - currentNodeID;
+
+        // if(nodeID - currentNodeID != 1)
+        // {
+        //     fprintf(stderr, "error\n");
+        // }
+
+        ///currentNodeID = i means self_string[i - 1]
+        add_cigar_record(self_string + currentNodeID, nodeID - currentNodeID, current_cigar, DELETION);
+
+
+
+        /***********需要注释掉********* */
+        if (!(nodeID >= backbone->s_start_nodeID && nodeID <= backbone->s_end_nodeID))
+        {
+            fprintf(stderr, "error deletion 1\n");
+        }
+        if (nodeID <= currentNodeID)
+        {
+            fprintf(stderr, "error deletion 2\n");
+        }
+        
+        /***********需要注释掉********* */
+        
+        return nodeID;
+    }
+    else if (type == INSERTION)
+    {
+        ///这个一定要变成0
+        backbone->g_nodes.list[currentNodeID].num_insertions = 0;
+        long long str;
+        char str_c;
+        while (pop_from_Queue(&(DAGCon->node_q), &str))
+        {
+            str_c = (char)str;
+            add_base_to_correct_read_directly(dumy, str_c);
+            add_cigar_record(&str_c, 1, current_cigar, INSERTION);
+            dumy->corrected_base++;
+        }
+
+        return currentNodeID;
+
+        // nodeID = backbone->g_nodes.list[currentNodeID].insertion_edges.list[edgeID].out_node;
+        // long long step = backbone->g_nodes.list[currentNodeID].insertion_edges.list[edgeID].length;
+        // long long i;
+        // for (i = 0; i < step; i++)
+        // {
+        //     add_base_to_correct_read_directly(dumy, backbone->g_nodes.list[nodeID].base);
+        //     add_cigar_record(&backbone->g_nodes.list[nodeID].base, 1, current_cigar, INSERTION);
+        //     ///只有一条边
+        //     nodeID = backbone->g_nodes.list[nodeID].insertion_edges.list[0].out_node;
+        // }
+        // dumy->corrected_base += step;
+        // /***********需要注释掉********* */
+        // if (nodeID != currentNodeID)
+        // {
+        //     fprintf(stderr, "error insertion\n");
+        // }
+        // /***********需要注释掉********* */
+        // return nodeID;
+    }
+    else
+    {
+        fprintf(stderr, "error type\n");
+    }
+    
+}
+
+
+
+void test_single_path(Graph* DAGCon, Graph* backbone, int debug_node_in_backbone)
+{
+    char forward[1000];
+    char reverse[1000];
+    char pre[1000];
+    long long i, j, outNode, inputNode, preNode, string_i, path_weight, step;
+
+    if((Output_Edges(G_Node(*DAGCon, DAGCon->s_start_nodeID)).length != Input_Edges(G_Node(*DAGCon, DAGCon->s_end_nodeID)).length)
+    || (G_Node(*backbone, debug_node_in_backbone).insertion_edges.length != Output_Edges(G_Node(*DAGCon, DAGCon->s_start_nodeID)).length))
+    {
+        fprintf(stderr, "s_out: %d, s_end: %d\n",
+        Output_Edges(G_Node(*DAGCon, DAGCon->s_start_nodeID)).length,
+        Input_Edges(G_Node(*DAGCon, DAGCon->s_end_nodeID)).length);
+    }
+
+
+
+    
+
+    for (i = 0; i < Output_Edges(G_Node(*DAGCon, DAGCon->s_start_nodeID)).length; i++)
+    {
+        outNode = Output_Edges(G_Node(*DAGCon, DAGCon->s_start_nodeID)).list[i].out_node;
+        string_i = 0;
+        path_weight = Output_Edges(G_Node(*DAGCon, DAGCon->s_start_nodeID)).list[i].weight;
+
+        while(outNode != DAGCon->s_end_nodeID)
+        {
+            forward[string_i++] = G_Node(*DAGCon, outNode).base;
+            if(Output_Edges(G_Node(*DAGCon, outNode)).list[0].weight != path_weight)
+            {
+                fprintf(stderr, "error1\n");
+            }
+            outNode = Output_Edges(G_Node(*DAGCon, outNode)).list[0].out_node;
+        }
+        forward[string_i] = '\0';
+
+
+        inputNode = Input_Edges(G_Node(*DAGCon, DAGCon->s_end_nodeID)).list[i].in_node;
+        string_i = 0;
+        while(inputNode != DAGCon->s_start_nodeID)
+        {
+            reverse[string_i++] = G_Node(*DAGCon, inputNode).base;
+
+
+
+            if(Input_Edges(G_Node(*DAGCon, inputNode)).list[0].weight != path_weight)
+            {
+                fprintf(stderr, "error2\n");
+            }
+            inputNode = Input_Edges(G_Node(*DAGCon, inputNode)).list[0].in_node;
+        }
+        reverse[string_i] = '\0';
+
+        for(j = 0; j < string_i/2; j ++)
+        {
+            char k = reverse[j];
+            reverse[j] = reverse[string_i - j - 1];
+            reverse[string_i - j - 1] = k;
+        }
+
+        if(strcmp(forward, reverse))
+        {
+            fprintf(stderr, "f: %s\n, r: %s\n\n", forward, reverse);
+        }
+
+
+
+
+        if(G_Node(*backbone, debug_node_in_backbone).insertion_edges.list[i].weight != path_weight)
+        {
+            fprintf(stderr, "error3\n");
+        }
+
+        if(G_Node(*backbone, debug_node_in_backbone).insertion_edges.list[i].length != string_i)
+        {
+            fprintf(stderr, "error4\n");
+        }
+
+        step = G_Node(*backbone, debug_node_in_backbone).insertion_edges.list[i].length;
+        if(step != 0)
+        {
+            string_i = 0;
+            preNode = G_Node(*backbone, debug_node_in_backbone).insertion_edges.list[i].out_node;
+        
+            for (j = 0; j < step; j++)
+            {
+                pre[string_i++] = G_Node(*backbone, preNode).base;
+                preNode = G_Node(*backbone, preNode).insertion_edges.list[0].out_node;
+            }
+        }
+
+        pre[string_i] = '\0';
+
+
+        if(strcmp(forward, pre))
+        {
+            fprintf(stderr, "f: %s, r: %s, p: %s\n\n", forward, reverse, pre);
+        }
+
+    }
+}
+
+
+
+
+void test_single_path_new(Graph* DAGCon, Graph* backbone, int debug_node_in_backbone)
+{
+    char forward[1000];
+    char reverse[1000];
+    char pre[1000];
+    long long i, j, preNode, string_i, path_weight, step;
+    Node* outNode;
+    Node* inputNode;
+    Node* currentStartNode;
+    Node* currentEndNode;
+
+    if(
+        (Real_Length(Output_Edges(G_Node(*DAGCon, DAGCon->s_start_nodeID))) 
+        != 
+        Real_Length(Input_Edges(G_Node(*DAGCon, DAGCon->s_end_nodeID))))
+        || 
+        (G_Node(*backbone, debug_node_in_backbone).insertion_edges.length
+        != 
+        Real_Length(Output_Edges(G_Node(*DAGCon, DAGCon->s_start_nodeID)))))
+    {
+        fprintf(stderr, "s_out: %d, s_end: %d, insertion_edges.length: %d\n",
+        Real_Length(Output_Edges(G_Node(*DAGCon, DAGCon->s_start_nodeID))),
+        Real_Length(Input_Edges(G_Node(*DAGCon, DAGCon->s_end_nodeID))),
+        G_Node(*backbone, debug_node_in_backbone).insertion_edges.length);
+    }
+
+    RSet iter_out, iter_input;
+    clear_RSet(&iter_out);
+    clear_RSet(&iter_input);
+    currentStartNode = &(G_Node(*DAGCon, DAGCon->s_start_nodeID));
+    currentEndNode = &(G_Node(*DAGCon, DAGCon->s_end_nodeID));
+
+    i = 0;
+
+
+
+    while(getOutputNodes(&iter_out, DAGCon, currentStartNode, &outNode))
+    {
+        string_i = 0;
+        path_weight = Input_Edges((*outNode)).list[0].weight;
+
+        while(outNode != &(G_Node(*DAGCon, DAGCon->s_end_nodeID)))
+        {
+            RSet inner;
+            Edge* e;
+            forward[string_i++] = (*outNode).base;
+
+            clear_RSet(&inner);
+            while (getOutputEdges(&inner, DAGCon, outNode, &e))
+            {
+                if(e->weight != path_weight)
+                {
+                    fprintf(stderr, "error1\n");
+                }
+            }
+
+
+            clear_RSet(&inner);
+            while (getInputEdges(&inner, DAGCon, outNode, &e))
+            {
+                if(e->weight != path_weight)
+                {
+                    fprintf(stderr, "error1\n");
+                }
+            }
+    
+            clear_RSet(&inner);
+            while(getOutputNodes(&inner, DAGCon, outNode, &outNode))
+            {
+                ;
+            }
+        }
+        forward[string_i] = '\0';
+
+        
+        string_i = 0;
+        if(!getInputNodes(&iter_input, DAGCon, currentEndNode, &inputNode))
+        {
+            fprintf(stderr, "sbsbsb\n");
+        }
+
+        while(inputNode != &(G_Node(*DAGCon,DAGCon->s_start_nodeID)))
+        {
+            reverse[string_i++] = (*inputNode).base;
+            if(Input_Edges((*inputNode)).list[0].weight != path_weight)
+            {
+                fprintf(stderr, "error2\n");
+            }
+            RSet inner;
+            Edge* e;
+            clear_RSet(&inner);
+            while (getOutputEdges(&inner, DAGCon, inputNode, &e))
+            {
+                if(e->weight != path_weight)
+                {
+                    fprintf(stderr, "error1\n");
+                }
+            }
+            clear_RSet(&inner);
+            while (getInputEdges(&inner, DAGCon, inputNode, &e))
+            {
+                if(e->weight != path_weight)
+                {
+                    fprintf(stderr, "error1\n");
+                }
+            }
+
+            clear_RSet(&inner);
+            while(getInputNodes(&inner, DAGCon, inputNode, &inputNode))
+            {
+                ;
+            }
+
+            ///inputNode = &(G_Node(*DAGCon, Input_Edges((*inputNode)).list[0].in_node));
+        }
+        reverse[string_i] = '\0';
+
+        for(j = 0; j < string_i/2; j ++)
+        {
+            char k = reverse[j];
+            reverse[j] = reverse[string_i - j - 1];
+            reverse[string_i - j - 1] = k;
+        }
+
+        if(strcmp(forward, reverse)!=0)
+        {
+            fprintf(stderr, "f: %s, r: %s\n\n", forward, reverse);
+        }
+
+
+
+
+
+        if(G_Node(*backbone, debug_node_in_backbone).insertion_edges.list[i].weight != path_weight)
+        {
+            fprintf(stderr, "error3\n");
+        }
+
+        if(G_Node(*backbone, debug_node_in_backbone).insertion_edges.list[i].length != string_i)
+        {
+            fprintf(stderr, "error4\n");
+        }
+
+        /**
+        step = G_Node(*backbone, debug_node_in_backbone).insertion_edges.list[i].length;
+        if(step != 0)
+        {
+            string_i = 0;
+            preNode = G_Node(*backbone, debug_node_in_backbone).insertion_edges.list[i].out_node;
+        
+            for (j = 0; j < step; j++)
+            {
+                pre[string_i++] = G_Node(*backbone, preNode).base;
+                preNode = G_Node(*backbone, preNode).insertion_edges.list[0].out_node;
+            }
+        }
+
+        pre[string_i] = '\0';
+        **/
+
+       extract_path(backbone, debug_node_in_backbone, i, pre);
+
+
+        if(strcmp(forward, pre)!=0)
+        {
+            fprintf(stderr, "f: %s, r: %s, p: %s\n\n", forward, reverse, pre);
+        }
+        
+
+        i++;
+    }
+
+    int pre_weight = 0;
+    for (i = 0; i < G_Node(*backbone, debug_node_in_backbone).insertion_edges.length; i++)
+    {
+        if(i == 0)
+        {
+            extract_path(backbone, debug_node_in_backbone, i, pre);
+            pre_weight = G_Node(*backbone, debug_node_in_backbone).insertion_edges.list[i].weight;
+        }
+        else if(i > 0)
+        {
+            extract_path(backbone, debug_node_in_backbone, i, forward);
+
+            if(strcmp(forward, pre)==0)
+            {
+                fprintf(stderr, "f: %s, f_weight: %d, p: %s, p_weight: %d\n\n", 
+                forward, G_Node(*backbone, debug_node_in_backbone).insertion_edges.list[i].weight,
+                pre, pre_weight);
+            }
+
+            memcpy(pre, forward, strlen(forward) + 1);
+            
+        }
+    }
+    
+
+    
+    for (i = 0; i < DAGCon->g_nodes.length; i++)
+    {
+        currentStartNode = &(G_Node(*DAGCon, i));
+
+        if(If_Node_Exist(*currentStartNode))
+        {
+            clear_RSet(&iter_out);
+            Edge* e;
+            Edge* e_self;
+            Edge* e_reverse;
+            while(getOutputEdges(&iter_out, DAGCon, currentStartNode, &e_self))
+            {
+                ///e_reverse = &(Input_Edges(G_Node(*DAGCon, e_self->out_node)).list[e_self->reverse_edge_ID]);
+                e = e_self;
+
+                get_bi_direction_edges(DAGCon, e_self, &e_self, &e_reverse);
+
+                if(e != e_self)
+                {
+                    fprintf(stderr, "error0\n");
+                }
+
+                if(e_self->in_node != e_reverse->in_node || e_self->out_node != e_reverse->out_node || 
+                e_self->weight != e_reverse->weight)
+                {
+                    fprintf(stderr, "error1\n");
+                }
+
+
+                if(e_self != &(Output_Edges(G_Node(*DAGCon, e_self->in_node)).list[e_self->self_edge_ID]))
+                {
+                    fprintf(stderr, "error2\n");
+                }
+
+                if(Visit(*e_self) == 1 || Visit(*e_reverse) == 1)
+                {
+                    fprintf(stderr, "error visit flag\n");
+                }
+
+
+
+
+
+
+
+                get_bi_direction_edges(DAGCon, e_reverse, &e_self, &e_reverse);
+
+                if(e != e_self)
+                {
+                    fprintf(stderr, "error0\n");
+                }
+
+               if(e_self->in_node != e_reverse->in_node || e_self->out_node != e_reverse->out_node || 
+                e_self->weight != e_reverse->weight)
+                {
+                    fprintf(stderr, "error1\n");
+                }
+
+
+                if(e_self != &(Output_Edges(G_Node(*DAGCon, e_self->in_node)).list[e_self->self_edge_ID]))
+                {
+                    fprintf(stderr, "error2\n");
+                }
+            }
+
+
+
+            clear_RSet(&iter_input);
+            while(getInputEdges(&iter_input, DAGCon, currentStartNode, &e_self))
+            {
+
+                e = e_self;
+
+                get_bi_direction_edges(DAGCon, e_self, &e_self, &e_reverse);
+
+                if(e != e_reverse)
+                {
+                    fprintf(stderr, "error0\n");
+                }
+
+                if(e_self->in_node != e_reverse->in_node || e_self->out_node != e_reverse->out_node || 
+                e_self->weight != e_reverse->weight)
+                {
+                    fprintf(stderr, "error1\n");
+                }
+
+
+                if(e_self != &(Output_Edges(G_Node(*DAGCon, e_self->in_node)).list[e_self->self_edge_ID]))
+                {
+                    fprintf(stderr, "error2\n");
+                }
+
+
+
+
+
+
+
+                get_bi_direction_edges(DAGCon, e_reverse, &e_self, &e_reverse);
+
+                if(e != e_reverse)
+                {
+                    fprintf(stderr, "error0\n");
+                }
+
+               if(e_self->in_node != e_reverse->in_node || e_self->out_node != e_reverse->out_node || 
+                e_self->weight != e_reverse->weight)
+                {
+                    fprintf(stderr, "error1\n");
+                }
+
+
+                if(e_self != &(Output_Edges(G_Node(*DAGCon, e_self->in_node)).list[e_self->self_edge_ID]))
+                {
+                    fprintf(stderr, "error2\n");
+                }
+            }
+        }
+        // else
+        // {
+        //     fprintf(stderr, "node does not exist\n");
+        // }
+        
+    }
+}
+
+
+void debug_Queue(Graph* DAGCon)
+{
+    long long* input;
+    long long* output;
+
+    srand((unsigned)time(0)); 
+    long long array_length = rand() % 100;
+    input = (long long*)malloc(sizeof(long long) * (array_length + 1));
+    output = (long long*)malloc(sizeof(long long) * (array_length + 1));
+    long long i;
+
+    for (i = 0; i < array_length; i++)
+    {
+       input[i] = rand() % 1000000;
+       push_to_Queue(&(DAGCon->node_q), input[i]);
+    }
+
+    i = 0;
+    while (pop_from_Queue(&(DAGCon->node_q), &output[i]))
+    {
+        i++;
+    }
+
+    if(i != array_length)
+    {
+        fprintf(stderr, "array_length: %d\n", array_length);
+    }
+    else
+    {
+        for (i = 0; i < array_length; i++)
+        {
+            if(input[i] != output[i])
+            {
+                fprintf(stderr, "input[%d]:%d, output[%d]: %d\n", 
+            i, input[i], i, output[i]);
+            }
+            
+        }
+    }
+    
+    
+
+ 
+    
+        
+        
+    
+
+    srand((unsigned)time(0));
+    if(array_length != 0)
+    {
+        array_length = rand() % array_length;
+    }
+    
+
+    for (i = 0; i < array_length; i++)
+    {
+       input[i] = rand() % 1000000;
+       push_to_Queue(&(DAGCon->node_q), input[i]);
+    }
+
+    i = 0;
+    while (pop_from_Queue(&(DAGCon->node_q), &output[i]))
+    {
+        i++;
+    }
+
+    if(i != array_length)
+    {
+        fprintf(stderr, "array_length: %d\n", array_length);
+    }
+    else
+    {
+        for (i = 0; i < array_length; i++)
+        {
+            if(input[i] != output[i])
+            {
+                fprintf(stderr, "input[%d]:%d, output[%d]: %d\n", 
+            i, input[i], i, output[i]);
+            }
+            
+        }
+    }
+
+
+    free(input);
+    free(output);
+}
+
+
+///return the in-edge ID of outNode
+long long get_In_Edge_ID(Graph* DAGCon, long long inNode, long long outNode)
+{
+    long long i;
+
+    for (i = 0; i < Input_Edges(G_Node(*DAGCon, outNode)).length; i++)
+    {
+        if (Input_Edges(G_Node(*DAGCon, outNode)).list[i].in_node == inNode)
+        {
+            return i;
+        }
+    }
+
+    return -1;
+}
+
+
+///return the out-edge ID of inNode
+long long get_Out_Edge_ID(Graph* DAGCon, long long inNode, long long outNode)
+{
+    long long i;
+    for (i = 0; i < Output_Edges(G_Node(*DAGCon, inNode)).length; i++)
+    {
+        if(Output_Edges(G_Node(*DAGCon, inNode)).list[i].out_node == outNode)
+        {
+            return i;
+        }
+    }
+
+    return -1;
+}
+
+
+
+
+void Merge_Out_Nodes(Graph* DAGCon, Node* currentNode)
+{
+    ///if this node does not have any output, directly return
+    if(Real_Length(Output_Edges((*currentNode))) == 0)
+    {
+        return;
+    }
+
+    RSet buf, out_buf;
+    char Bases[4] = {'A', 'C', 'G', 'T'};
+    char base;
+    long long base_i, i, weight;
+    int flag = 0;
+    Node* get_node_1;
+    Node* out_node_of_get_node_1;
+    Node* consensus_node_1;
+    Edge* e_forward_1;
+    Edge* e_backward_1;
+
+    ///merge all base for each base
+    for (base_i = 0; base_i < 4; base_i++)
+    {
+        base = Bases[base_i];
+
+        clear_RSet(&buf);
+        flag = 0;
+        weight = 0;
+        ///should use getOutputEdges, instead of getOutputNodes
+        ///check all out-nodes of currentNode
+        while(getOutputNodes(&buf, DAGCon, currentNode, &get_node_1))
+        {
+            ///check the corresponding node, this node must only have one in-node
+            ///note this is the Real_Length, instead of the Input_Edges.length
+            if((*get_node_1).base == base && Real_Length(Input_Edges(*get_node_1)) == 1)
+            {
+                if(flag == 0)
+                {
+                    flag = 1;
+                    ///add a new node to merge all out-node
+                    consensus_node_1 = get_node_1;
+                    ///link consensus_node to currentNode
+                    ///set the new edge to be visited
+                    if(get_bi_Edge(DAGCon, currentNode, consensus_node_1, &e_forward_1, &e_backward_1))
+                    {
+                        Visit(*e_forward_1) = 1;
+                        Visit(*e_backward_1) = 1;
+                    }
+                    else
+                    {
+                        fprintf(stderr, "error\n");
+                    }
+
+                    weight = (*e_forward_1).weight;
+                }
+                else
+                {
+                    flag++;
+                    ///add the weight of get_node->currentNode
+                    if(get_bi_Edge(DAGCon, currentNode, get_node_1, &e_forward_1, &e_backward_1))
+                    {
+                        weight = weight + (*e_forward_1).weight;
+                    }
+                    else
+                    {
+                        fprintf(stderr, "error\n");
+                    }
+
+                    ///process the out-nodes of get_node
+                    clear_RSet(&out_buf);
+                    while(getOutputNodes(&out_buf, DAGCon, get_node_1, &out_node_of_get_node_1))
+                    {
+                        ///link consensus_node to the out-nodes of get_node
+                        if(get_bi_Edge(DAGCon, consensus_node_1, out_node_of_get_node_1, &e_forward_1, &e_backward_1))
+                        {
+                            Visit(*e_forward_1) = 1;
+                            Visit(*e_backward_1) = 1;
+                            (*e_forward_1).weight += get_Edge_Weight(DAGCon, get_node_1, out_node_of_get_node_1);
+                            (*e_backward_1).weight = (*e_forward_1).weight;
+                        }
+                        else
+                        {
+                            add_bi_direction_edge(DAGCon, consensus_node_1, out_node_of_get_node_1, 
+                            get_Edge_Weight(DAGCon, get_node_1, out_node_of_get_node_1), 1);
+                        }
+                    }
+
+                    delete_Node_DAGCon(DAGCon, get_node_1);
+                }
+            }
+        }
+
+        if(flag > 1)
+        {
+            get_bi_Edge(DAGCon, currentNode, consensus_node_1, &e_forward_1, &e_backward_1);
+            (*e_forward_1).weight = weight;
+            (*e_backward_1).weight = (*e_forward_1).weight;
+        }
+
+        if(flag > 0)
+        {
+            Merge_Out_Nodes(DAGCon, consensus_node_1);   
+        }
+    }
+}
+
+
+
+
+
+
+void Merge_In_Nodes(Graph* DAGCon, Node* currentNode)
+{
+    ///if this node does not have any input, directly return
+    if(Real_Length(Input_Edges((*currentNode))) == 0)
+    {
+        return;
+    }
+
+    RSet buf, in_buf;
+    char Bases[4] = {'A', 'C', 'G', 'T'};
+    char base;
+    long long base_i, i, weight;
+    int flag = 0;
+    Node* get_node;
+    Node* in_node_of_get_node;
+    Node* consensus_node;
+    Edge* e_forward;
+    Edge* e_backward;
+
+    ///merge all base for each base
+    for (base_i = 0; base_i < 4; base_i++)
+    {
+        base = Bases[base_i];
+
+        clear_RSet(&buf);
+        flag = 0;
+        weight = 0;
+        ///should use getInputEdges, instead of getInputNodes
+        ///check all in-nodes of currentNode
+        while(getInputNodes(&buf, DAGCon, currentNode, &get_node))
+        {
+            ///check the corresponding node, this node must only have one out-node
+            ///note this is the Real_Length, instead of the Output_Edges.length
+            if((*get_node).base == base && Real_Length(Output_Edges(*get_node)) == 1)
+            {
+                if(flag == 0)
+                {
+                    flag = 1;
+                    ///add a new node to merge all in-node
+                    consensus_node = get_node;
+                    ///link consensus_node to currentNode
+                    ///set the new edge to be visited
+                    if(get_bi_Edge(DAGCon, consensus_node, currentNode, &e_forward, &e_backward))
+                    {
+                        Visit(*e_forward) = 1;
+                        Visit(*e_backward) = 1;
+                    }
+                    else
+                    {
+                        fprintf(stderr, "error\n");
+                    }
+
+                    weight = (*e_forward).weight;
+                }
+                else
+                {
+                    flag++;
+                    ///add the weight of get_node->currentNode
+                    if(get_bi_Edge(DAGCon, get_node, currentNode, &e_forward, &e_backward))
+                    {
+                        weight = weight + (*e_forward).weight;
+                    }
+                    else
+                    {
+                        fprintf(stderr, "error\n");
+                    }
+
+                    ///process the in-nodes of get_node
+                    clear_RSet(&in_buf);
+                    while(getInputNodes(&in_buf, DAGCon, get_node, &in_node_of_get_node))
+                    {
+                        ///link in-nodes of get_node to consensus_node
+                        if(get_bi_Edge(DAGCon, in_node_of_get_node, consensus_node, &e_forward, &e_backward))
+                        {
+                            Visit(*e_forward) = 1;
+                            Visit(*e_backward) = 1;
+                            (*e_forward).weight += get_Edge_Weight(DAGCon, in_node_of_get_node, get_node);
+                            (*e_backward).weight = (*e_forward).weight;
+                        }
+                        else
+                        {
+                            add_bi_direction_edge(DAGCon, in_node_of_get_node, consensus_node, 
+                            get_Edge_Weight(DAGCon, in_node_of_get_node, get_node), 1);
+                        }
+                    }
+
+                    delete_Node_DAGCon(DAGCon, get_node);
+                }
+            }
+        }
+
+        if(flag > 1)
+        {
+            get_bi_Edge(DAGCon, consensus_node, currentNode, &e_forward, &e_backward);
+            (*e_forward).weight = weight;
+            (*e_backward).weight = (*e_forward).weight;
+        }
+
+        if(flag > 0)
+        {
+            Merge_In_Nodes(DAGCon, consensus_node);   
+        }
+    }
+}
+
+
+
+
+
+void print_graph(Graph* DAGCon)
+{
+    long long i;
+    for (long long i = 0; i < DAGCon->g_nodes.length; i++)
+    {
+        Node* currentStartNode = &(G_Node(*DAGCon, i));
+        RSet iter_out;
+
+        if(If_Node_Exist(*currentStartNode))
+        {
+            fprintf(stderr, "ID: %d (%c) (w: %d)\n", (*currentStartNode).ID, (*currentStartNode).base, (*currentStartNode).weight);
+            clear_RSet(&iter_out);
+            Edge* e;
+            fprintf(stderr, "****Out-node: ");
+            while(getOutputEdges(&iter_out, DAGCon, currentStartNode, &e))
+            {
+                //fprintf(stderr, "%d[%c], ", G_Node(*DAGCon, e->out_node).ID, G_Node(*DAGCon, e->out_node).base);
+                fprintf(stderr, "%d(w: %d), ", G_Node(*DAGCon, e->out_node).ID, e->weight);
+            }
+            fprintf(stderr, "\n");
+
+
+            // clear_RSet(&iter_out);
+            // fprintf(stderr, "In-node: ");
+            // while(getInputEdges(&iter_out, DAGCon, currentStartNode, &e))
+            // {
+            //     fprintf(stderr, "%d[%c], ", G_Node(*DAGCon, e->in_node).ID, G_Node(*DAGCon, e->in_node).base);
+            // }
+        }
+    }
+
+    fprintf(stderr, "*******\n");
+
+}
+
+
+
+
+void debug_DAGCon(Graph* DAGCon)
+{
+    for (long long i = 0; i < DAGCon->g_nodes.length; i++)
+    {
+        Node* currentStartNode = &(G_Node(*DAGCon, i));
+        RSet iter_out;
+
+        if(If_Node_Exist(*currentStartNode))
+        {
+            clear_RSet(&iter_out);
+            Edge* e;
+            Edge* e_self;
+            Edge* e_reverse;
+            while(getOutputEdges(&iter_out, DAGCon, currentStartNode, &e_self))
+            {
+
+                get_bi_direction_edges(DAGCon, e_self, &e_self, &e_reverse);
+
+
+                if(Visit(*e_self) == 0)
+                {
+                    fprintf(stderr, "Visit(*e_self): %d, error visit flag: in_node: %d, out_node: %d\n", 
+                    Visit(*e_self), (*e_self).in_node, (*e_self).out_node);
+                }
+
+
+                if(Visit(*e_reverse) == 0)
+                {
+                    fprintf(stderr, "Visit(*e_reverse): %d, error visit flag: in_node: %d, out_node: %d\n", 
+                    Visit(*e_reverse), (*e_reverse).in_node, (*e_reverse).out_node);
+                }
+
+
+                if(e_self->in_node != e_reverse->in_node)
+                {
+                    fprintf(stderr, "different in-node\n");
+                }
+                if(e_self->out_node != e_reverse->out_node)
+                {
+                    fprintf(stderr, "different out-node\n");
+                }
+                if(e_self->weight != e_reverse->weight)
+                {
+                    fprintf(stderr, "different weight\n");
+                }
+            }
+
+            clear_RSet(&iter_out);
+            while(getInputEdges(&iter_out, DAGCon, currentStartNode, &e_self))
+            {
+
+                get_bi_direction_edges(DAGCon, e_self, &e_self, &e_reverse);
+
+
+                if(Visit(*e_self) == 0)
+                {
+                    fprintf(stderr, "Visit(*e_self): %d, error visit flag: in_node: %d, out_node: %d\n", 
+                    Visit(*e_self), (*e_self).in_node, (*e_self).out_node);
+                }
+
+
+                if(Visit(*e_reverse) == 0)
+                {
+                    fprintf(stderr, "Visit(*e_reverse): %d, error visit flag: in_node: %d, out_node: %d\n", 
+                    Visit(*e_reverse), (*e_reverse).in_node, (*e_reverse).out_node);
+                }
+
+
+                if(e_self->in_node != e_reverse->in_node)
+                {
+                    fprintf(stderr, "different in-node\n");
+                }
+                if(e_self->out_node != e_reverse->out_node)
+                {
+                    fprintf(stderr, "different out-node\n");
+                }
+                if(e_self->weight != e_reverse->weight)
+                {
+                    fprintf(stderr, "different weight\n");
+                }
+            }
+        }
+    }
+}
+
+void Merge_DAGCon(Graph* DAGCon)
+{
+    ///using the length of edge representing if it has been visited
+    ///in default, the length of edge is 0
+    RSet iter_node, iter_edge;
+    long long flag;
+
+    Node* currentNode;
+    Node* outNode;
+    Edge* edge;
+    Edge* e_forward;
+    Edge* e_backward;
+
+    // int num_way = Real_Length(Output_Edges(G_Node(*DAGCon, DAGCon->s_start_nodeID)));
+    // if(num_way > 2)
+    // {
+    //     print_graph(DAGCon);
+    // }
+    
+
+    
+    ///at begining, only the start node has no in-node
+    currentNode = &(G_Node(*DAGCon, DAGCon->s_start_nodeID));
+    Push_Node(DAGCon, &currentNode);
+    
+
+    
+    while (Pop_Node(DAGCon, &currentNode))
+    {
+        ///merge in-node
+        Merge_In_Nodes(DAGCon, currentNode);
+        ///merge out-node
+        Merge_Out_Nodes(DAGCon, currentNode);
+
+        clear_RSet(&iter_edge);
+        ///for all out-edges of currentNode, set as visited
+        while (getOutputEdges(&iter_edge, DAGCon, currentNode, &edge))
+        {
+            get_bi_direction_edges(DAGCon, edge, &e_forward, &e_backward);
+            Visit(*e_forward) = 1;
+            Visit(*e_backward) = 1;
+        }
+        
+
+
+        ///check all out-node of currentNode
+        clear_RSet(&iter_node);
+        while(getOutputNodes(&iter_node, DAGCon, currentNode, &outNode))
+        {
+
+            ///for each outNode, check if all in-edges have been visited
+            flag = 0;
+            clear_RSet(&iter_edge);
+            while (getInputEdges(&iter_edge, DAGCon, outNode, &edge))
+            {
+                if(Visit(*edge) == 0)
+                {
+                    flag = 1;
+                    break;
+                }
+            }
+            //if all in-edges of Out_node have already been visited, push it to queue
+            if(flag == 0)
+            {
+                Push_Node(DAGCon, &outNode);
+            }
+        }
+    }
+
+
+
+    // if(num_way > 2)
+    // {
+    //     print_graph(DAGCon);
+    //     fprintf(stderr, "****************************note*****************\n\n");
+    // }
+
+
+    ///debug_DAGCon(DAGCon);
+}
+
+
+inline void generate_seq_from_path(Graph* DAGCon, Node* node, int direction)
+{
+    clear_Queue(&(DAGCon->node_q));
+    RSet iter;
+    Edge* e;
+    long long max;
+    Node* max_node;
+    
+
+    if(direction == 0)
+    {
+        while (node->ID != DAGCon->s_end_nodeID)
+        {
+            push_to_Queue(&(DAGCon->node_q), node->base);
+            clear_RSet(&iter);
+            max = 0;
+            while(getOutputEdges(&iter, DAGCon, node, &e))
+            {
+                if(e->weight > max)
+                {
+                    max = e->weight;
+                    max_node = &(G_Node(*DAGCon, e->out_node));
+                }
+            }
+            node = max_node;
+        }
+    }
+    else
+    {
+        while (node->ID != DAGCon->s_start_nodeID)
+        {
+            push_to_Queue(&(DAGCon->node_q), node->base);
+            clear_RSet(&iter);
+            max = 0;
+            while(getInputEdges(&iter, DAGCon, node, &e))
+            {
+                if(e->weight > max)
+                {
+                    max = e->weight;
+                    max_node = &(G_Node(*DAGCon, e->in_node));
+                }
+            }
+            node = max_node;
+        }
+
+        long long i, k;
+        long long length = (DAGCon->node_q.end - DAGCon->node_q.beg);
+        long long length_ex = length/2;
+        long long* array = DAGCon->node_q.buffer + DAGCon->node_q.beg;
+        for (i = 0; i < length_ex; i++)
+        {
+            k = array[i];
+            array[i] = array[length - i - 1];
+            array[length - i - 1] = k;
+        }
+    }
+}
+
+
+long long generate_best_seq_from_edges(Graph* DAGCon)
+{
+    long long max_start, max_end, max_start_edge, max_end_edge;
+    RSet iter;
+    Edge* e;
+    Node* newNode;
+    long long max_count;
+    
+
+    ///check the out-edges of start node
+    ///must to be 0
+    max_start = 0;
+    newNode = &(G_Node(*DAGCon, DAGCon->s_start_nodeID));
+    clear_RSet(&iter);
+    while(getOutputEdges(&iter, DAGCon, newNode, &e))
+    {
+        if(e->weight > max_start)
+        {
+            max_start = e->weight;
+            max_start_edge = iter.index - 1;
+        }
+    }
+
+    ///check the in-edges of end node
+    ///must to be 0
+    max_end = 0;
+    newNode = &(G_Node(*DAGCon, DAGCon->s_end_nodeID));
+    clear_RSet(&iter);
+    while(getInputEdges(&iter, DAGCon, newNode, &e))
+    {
+        if(e->weight > max_end)
+        {
+            max_end = e->weight;
+            max_end_edge = iter.index - 1;
+        }
+    }
+
+    if(max_start >= max_end)
+    {
+        max_count = max_start;
+        generate_seq_from_path(DAGCon, 
+        &G_Node(*DAGCon, Output_Edges(G_Node(*DAGCon, DAGCon->s_start_nodeID)).list[max_start_edge].out_node), 0);
+    }
+    else
+    {
+        max_count = max_end;
+        generate_seq_from_path(DAGCon, 
+        &G_Node(*DAGCon, Input_Edges(G_Node(*DAGCon, DAGCon->s_end_nodeID)).list[max_end_edge].in_node), 1);
+    }
+
+    
+    
+    ///if((*direction) == 1)
+    ///if(max_start < max_end && DAGCon->g_nodes.length > 5)
+    ///if(DAGCon->g_nodes.length > 5)
+    // if(max_start < max_end && DAGCon->node_q.end - DAGCon->node_q.beg > 1) 
+    // {
+    //     print_graph(DAGCon);
+    //     long long str;
+    //     while (pop_from_Queue(&(DAGCon->node_q), &str))
+    //     {
+    //         fprintf(stderr, "%c", (char)str);
+    //     }
+    //     fprintf(stderr, "\n");
+    //     fprintf(stderr, "###################(*max_count): %d, (*max_edge): %d, (*direction): %d###################\n\n", 
+    //     (*max_count), max_start >= max_end? max_start_edge:max_end_edge, max_start >= max_end? 0:1);
+    // }
+    // if(max_start >= max_end)
+    // {
+    //     newNode = &(G_Node(*DAGCon, DAGCon->s_start_nodeID));
+    //     if(Output_Edges(*newNode).list[max_start_edge].weight != (*max_count))
+    //     {
+    //         fprintf(stderr, "ERROR\n");
+    //     }
+    // }
+    // else
+    // {
+    //     newNode = &(G_Node(*DAGCon, DAGCon->s_end_nodeID));
+    //     if(Input_Edges(*newNode).list[max_end_edge].weight != (*max_count))
+    //     {
+    //         fprintf(stderr, "ERROR\n");
+    //     }
+    // }
+
+    return max_count;
+
+
+}
+
+
+inline void generate_seq_from_node(Graph* DAGCon, Node* node, int direction)
+{
+    clear_Queue(&(DAGCon->node_q));
+    RSet iter;
+    long long max;
+    Node* max_node;
+    Node* getNodes;
+    
+
+    if(direction == 0)
+    {
+        while (node->ID != DAGCon->s_end_nodeID)
+        {
+            push_to_Queue(&(DAGCon->node_q), node->base);
+            clear_RSet(&iter);
+            max = 0;
+            while(getOutputNodes(&iter, DAGCon, node, &getNodes))
+            {
+                if(getNodes->weight > max)
+                {
+                    max = getNodes->weight;
+                    max_node = getNodes;
+                }
+            }
+            node = max_node;
+        }
+    }
+    else
+    {
+        while (node->ID != DAGCon->s_start_nodeID)
+        {
+            push_to_Queue(&(DAGCon->node_q), node->base);
+            clear_RSet(&iter);
+            max = 0;
+            while(getInputNodes(&iter, DAGCon, node, &getNodes))
+            {
+                if(getNodes->weight > max)
+                {
+                    max = getNodes->weight;
+                    max_node = getNodes;
+                }
+            }
+            node = max_node;
+        }
+
+        long long i, k;
+        long long length = (DAGCon->node_q.end - DAGCon->node_q.beg);
+        long long length_ex = length/2;
+        long long* array = DAGCon->node_q.buffer + DAGCon->node_q.beg;
+        for (i = 0; i < length_ex; i++)
+        {
+            k = array[i];
+            array[i] = array[length - i - 1];
+            array[length - i - 1] = k;
+        }
+    }
+}
+
+
+long long generate_best_seq_from_nodes(Graph* DAGCon)
+{
+    long long max_start, max_end;
+    RSet iter;
+    Edge* e;
+    Node* newNode;
+    Node* getNode;
+    Node* max_start_node;
+    Node* max_end_node;
+    long long max_count, i;
+
+   for (i = 0; i < DAGCon->g_nodes.length; i++)
+   {
+       newNode = &(G_Node(*DAGCon, i));
+       if(If_Node_Exist(*newNode))
+        {
+            newNode->weight = 0;
+            clear_RSet(&iter);
+            while(getOutputEdges(&iter, DAGCon, newNode, &e))
+            {
+                newNode->weight += e->weight;
+            }
+        }
+   }
+    
+    newNode = &(G_Node(*DAGCon, DAGCon->s_start_nodeID));
+    newNode->weight = 0;
+    clear_RSet(&iter);
+    while(getOutputEdges(&iter, DAGCon, newNode, &e))
+    {
+        newNode->weight += e->weight;
+    }
+
+
+    newNode = &(G_Node(*DAGCon, DAGCon->s_end_nodeID));
+    newNode->weight = 0;
+    clear_RSet(&iter);
+    while(getInputEdges(&iter, DAGCon, newNode, &e))
+    {
+        newNode->weight += e->weight;
+    }
+
+
+    
+
+    ///check the out-edges of start node
+    ///must to be 0
+    max_start = 0;
+    newNode = &(G_Node(*DAGCon, DAGCon->s_start_nodeID));
+    clear_RSet(&iter);
+    while(getOutputNodes(&iter, DAGCon, newNode, &getNode))
+    {
+        if(getNode->weight > max_start)
+        {
+            max_start = getNode->weight;
+            max_start_node = getNode;
+        }
+    }
+
+    ///check the in-edges of end node
+    ///must to be 0
+    max_end = 0;
+    newNode = &(G_Node(*DAGCon, DAGCon->s_end_nodeID));
+    clear_RSet(&iter);
+    while(getInputNodes(&iter, DAGCon, newNode, &getNode))
+    {
+        if(getNode->weight > max_end)
+        {
+            max_end = getNode->weight;
+            max_end_node = getNode;
+        }
+    }
+
+    if(max_start >= max_end)
+    {
+        max_count = max_start;
+        generate_seq_from_node(DAGCon, max_start_node, 0);
+    }
+    else
+    {
+        max_count = max_end;
+        generate_seq_from_node(DAGCon, max_end_node, 1);
+    }
+
+    
+    /**
+    if(DAGCon->g_nodes.length > 5)
+    ///if(max_start < max_end && DAGCon->node_q.end - DAGCon->node_q.beg > 1) 
+    ///if(max_start < max_end)
+    {
+        print_graph(DAGCon);
+        long long str;
+        while (pop_from_Queue(&(DAGCon->node_q), &str))
+        {
+            fprintf(stderr, "%c", (char)str);
+        }
+        fprintf(stderr, "\n");
+        fprintf(stderr, "###################(*max_count): %d, (*max_node): %d, (*direction): %d###################\n\n", 
+        max_count, max_start >= max_end? max_start_node->ID:max_end_node->ID, max_start >= max_end? 0:1);
+    }
+    if(max_start >= max_end)
+    {
+        newNode = &(G_Node(*DAGCon, DAGCon->s_start_nodeID));
+        if(max_start_node->weight != max_count)
+        {
+            fprintf(stderr, "ERROR\n");
+        }
+    }
+    else
+    {
+        newNode = &(G_Node(*DAGCon, DAGCon->s_end_nodeID));
+        if(max_end_node->weight != max_count)
+        {
+            fprintf(stderr, "ERROR\n");
+        }
+    }
+    **/
+
+    return max_count;
+
+
+}
+
+
+void build_DAGCon(Graph* DAGCon, Graph* backbone, long long currentNodeID, long long* max_count)
+{
+    long long i, j, path_weight, nodeID, step;
+    char base;
+    clear_Graph(DAGCon);
+    Node* newNode;
+    Node* lastNode;
+
+    ///add the start node and the end node
+    newNode = add_Node_DAGCon(DAGCon, 'S');
+    DAGCon->s_start_nodeID = newNode->ID;
+
+    newNode = add_Node_DAGCon(DAGCon, 'E');
+    DAGCon->s_end_nodeID = newNode->ID;
+
+
+    for (i = 0; i < G_Node(*backbone, currentNodeID).insertion_edges.length; i++)
+    {
+        path_weight = G_Node(*backbone, currentNodeID).insertion_edges.list[i].weight;
+        
+        lastNode = &(G_Node(*DAGCon, DAGCon->s_start_nodeID));
+
+
+        /*****************************debug***************************************/
+        // newNode = add_Node_DAGCon(DAGCon, 'F');
+        // add_bi_direction_edge(DAGCon, lastNode, newNode, path_weight, 0);
+        // add_bi_direction_edge(DAGCon, newNode, &(G_Node(*DAGCon, DAGCon->s_end_nodeID)), path_weight, 0);
+        // delete_Node_DAGCon(DAGCon, newNode);
+        // if(remove_and_check_bi_direction_edge_from_nodes(DAGCon, &(G_Node(*DAGCon, DAGCon->s_start_nodeID)), newNode))
+        // {
+        //     fprintf(stderr, "step: %d, j: %d\n", step, j);
+        // }
+        // if(remove_and_check_bi_direction_edge_from_nodes(DAGCon, newNode, &(G_Node(*DAGCon, DAGCon->s_end_nodeID))))
+        // {
+        //     fprintf(stderr, "step: %d, j: %d\n", step, j);
+        // }
+
+
+        // Node* node0;
+        // Node* node1;
+        // Node* node2;
+        // newNode = add_Node_DAGCon(DAGCon, 'T');
+        // add_bi_direction_edge(DAGCon, lastNode, newNode, path_weight, 0);
+        // node0 = newNode;
+        // lastNode = newNode;
+        // newNode = add_Node_DAGCon(DAGCon, 'T');
+        // add_bi_direction_edge(DAGCon, lastNode, newNode, path_weight, 0);
+        // node1 = newNode;
+        // lastNode = newNode;
+        // newNode = add_Node_DAGCon(DAGCon, 'T');
+        // add_bi_direction_edge(DAGCon, lastNode, newNode, path_weight, 0);
+        // node2 = newNode;
+
+
+        // lastNode = &(G_Node(*DAGCon, DAGCon->s_start_nodeID));
+        // delete_Node_DAGCon(DAGCon, node1);
+
+        // Edge* e_forward;
+        // Edge* e_backward;
+        // if(get_bi_Edge(DAGCon, node2, &(G_Node(*DAGCon, DAGCon->s_end_nodeID)), &e_forward, &e_backward))
+        // {
+        //     remove_and_check_bi_direction_edge_from_edge(DAGCon, e_forward);
+        // }
+
+        // if(get_bi_Edge(DAGCon, node2, &(G_Node(*DAGCon, DAGCon->s_end_nodeID)), &e_forward, &e_backward))
+        // {
+        //     fprintf(stderr, "edge remove error\n");
+        // }
+
+        // remove_and_check_bi_direction_edge_from_nodes(DAGCon, lastNode, node0);
+        // remove_and_check_bi_direction_edge_from_nodes(DAGCon, node0, node1);
+        // remove_and_check_bi_direction_edge_from_nodes(DAGCon, node1, node2);
+        // if(remove_and_check_bi_direction_edge_from_nodes(DAGCon, node2, &(G_Node(*DAGCon, DAGCon->s_end_nodeID))))
+        // {
+        //     fprintf(stderr, "edge remove error\n");
+        // }
+        /*****************************debug***************************************/
+
+
+        step = G_Node(*backbone, currentNodeID).insertion_edges.list[i].length;
+        if(step != 0)
+        {
+            nodeID = G_Node(*backbone, currentNodeID).insertion_edges.list[i].out_node;
+        
+            for (j = 0; j < step; j++)
+            {
+                base = G_Node(*backbone, nodeID).base;
+                newNode = add_Node_DAGCon(DAGCon, base);
+                add_bi_direction_edge(DAGCon, lastNode, newNode, path_weight, 0);
+
+                /*****************************debug***************************************/
+                // if(!add_and_check_bi_direction_edge(DAGCon, lastNode, newNode, path_weight, 0))
+                // {
+                //     fprintf(stderr, "haha\n");
+                // }
+
+                // if(add_and_check_bi_direction_edge(DAGCon, lastNode, newNode, path_weight, 0))
+                // {
+                //     fprintf(stderr, "haha\n");
+                // }
+                // if(j != 0)
+                // {
+                //     add_bi_direction_edge(DAGCon, &(G_Node(*DAGCon, DAGCon->s_start_nodeID)), newNode, path_weight, 0);
+                //     if(!remove_and_check_bi_direction_edge_from_nodes(DAGCon, &(G_Node(*DAGCon, DAGCon->s_start_nodeID)), 
+                //     newNode))
+                //     {
+                //         fprintf(stderr, "step: %d, j: %d\n", step, j);
+                //     }
+                // }
+                /*****************************debug***************************************/
+
+                nodeID = G_Node(*backbone, nodeID).insertion_edges.list[0].out_node;
+
+                lastNode = newNode;
+            }
+
+            if(lastNode->ID != DAGCon->s_start_nodeID)
+            {
+                add_bi_direction_edge(DAGCon, lastNode, &(G_Node(*DAGCon, DAGCon->s_end_nodeID)), path_weight, 0);
+
+                /*****************************debug***************************************/
+                // if(!add_and_check_bi_direction_edge(DAGCon, lastNode, &(G_Node(*DAGCon, DAGCon->s_end_nodeID)), path_weight, 0))
+                // {
+                //     fprintf(stderr, "haha\n");
+                // }
+
+                // if(add_and_check_bi_direction_edge(DAGCon, lastNode, &(G_Node(*DAGCon, DAGCon->s_end_nodeID)), path_weight, 0))
+                // {
+                //     fprintf(stderr, "haha\n");
+                // }
+                // add_bi_direction_edge(DAGCon, &(G_Node(*DAGCon, DAGCon->s_start_nodeID)), 
+                // &(G_Node(*DAGCon, DAGCon->s_end_nodeID)), path_weight, 0);
+                // if(!remove_and_check_bi_direction_edge_from_nodes(DAGCon, &(G_Node(*DAGCon, DAGCon->s_start_nodeID)), 
+                // &(G_Node(*DAGCon, DAGCon->s_end_nodeID))))
+                // {
+                //     fprintf(stderr, "step: %d, j: %d\n", step, j);
+                // }
+                /*****************************debug***************************************/
+            }
+        }
+
+
+        
+    }
+
+    ///test_single_path_new(DAGCon, backbone, currentNodeID);
+
+
+    Merge_DAGCon(DAGCon);
+
+    ///(*max_count) = generate_best_seq_from_edges(DAGCon);
+    (*max_count) = generate_best_seq_from_nodes(DAGCon);
+
+    // long long k = 0;
+    // for (i = 0; i < DAGCon->g_nodes.length; i++)
+    // {
+    //     if(i != DAGCon->s_start_nodeID && i != DAGCon->s_end_nodeID)
+    //     {
+    //         if(If_Node_Exist(G_Node(*DAGCon, i)) && G_Node(*DAGCon, i).weight > k)
+    //         {
+    //             k = G_Node(*DAGCon, i).weight;
+    //         }
+    //     }
+    // }
+
+    // if(k != (*max_count))
+    // {
+    //     fprintf(stderr, "k: %d, (*max_count): %d\n", k, (*max_count));
+    // }
+    
+    
+    ///very important
+    backbone->g_nodes.list[currentNodeID].num_insertions = 0;
+
+}
+
+void debug_whole_graph(Graph* g)
+{
+    long long i, j, k;
+    for (i = 0; i < g->g_nodes.length; i++)
+    {
+        if(g->g_nodes.list[i].deletion_edges.length!= 0 &&
+        g->g_nodes.list[i].deletion_edges.length!= 1)
+        {
+            fprintf(stderr, "g->g_nodes.list[i].deletion_edges.length: %d\n",
+            g->g_nodes.list[i].deletion_edges.length);
+        }
+    }
+
+    for (i = g->s_start_nodeID; i < g->s_end_nodeID; i++)
+    {
+        if(g->g_nodes.list[i].mismatch_edges.length > 4 
+        || 
+        g->g_nodes.list[i].mismatch_edges.length < 1)
+        {
+            fprintf(stderr, "g->s_end_nodeID: %d, g->g_nodes.list[%d].mismatch_edges.length: %d\n",
+            g->s_end_nodeID, i, g->g_nodes.list[i].mismatch_edges.length);
+        }
+    }
+
+    char current[1000];
+    char compare[1000];
+    long long total_weight = 0;
+    for (i = g->s_start_nodeID; i < g->s_end_nodeID; i++)
+    {
+        total_weight = 0;
+        for (j = 0; j < G_Node(*g, i).insertion_edges.length; j++)
+        {
+            
+            total_weight = total_weight + G_Node(*g, i).insertion_edges.list[j].weight;
+
+            extract_path(g, i, j, current);
+
+            for (k = j + 1; k < G_Node(*g, i).insertion_edges.length; k++)
+            {
+                extract_path(g, i, k, compare);
+                if(strcmp(current, compare)==0)
+                {
+                    fprintf(stderr,"error\n");
+                }
+            }
+        }
+
+        if(total_weight != G_Node(*g, i).num_insertions)
+        {
+            fprintf(stderr,"error\n");
+        }
+    }
+
+        
+
+}
+
+void get_seq_from_Graph(Graph* backbone, Graph* DAGCon, Correct_dumy* dumy, Cigar_record* current_cigar, char* self_string,
+char* r_string, long long r_string_length, long long r_string_site)
+{
+    ///debug_whole_graph(backbone);
+
+    // double threshold;
+    // if(roundID > 0)
+    // {
+    //     threshold = CORRECT_THRESHOLD_SECOND;
+    // }
+    // else
+    // {
+    //     threshold = CORRECT_THRESHOLD;
+    // }
+    
+    
+
+
     long long new_seq_length = 0;
     long long currentNodeID;
     long long i;
@@ -1754,7 +5034,11 @@ void get_seq_from_Graph(Graph* backbone, Correct_dumy* dumy, Cigar_record* curre
     char current_base;
     long long current_weight;
 
+    long long max_insertion_count;
+
     currentNodeID = backbone->s_start_nodeID;
+
+    ///fprintf(stderr, "currentNodeID: %d\n", currentNodeID);
 
     while (currentNodeID != backbone->s_end_nodeID)
     {
@@ -1769,6 +5053,10 @@ void get_seq_from_Graph(Graph* backbone, Correct_dumy* dumy, Cigar_record* curre
         ///1. mismatch_edges 2. insertion_edges 3. deletion_edges
         if (currentNodeID >= backbone->s_start_nodeID && currentNodeID <= backbone->s_end_nodeID)
         {
+            
+            
+            
+            
 
             ///mismatch_edges
             for (i = 0; i < backbone->g_nodes.list[currentNodeID].mismatch_edges.length; i++)
@@ -1801,6 +5089,170 @@ void get_seq_from_Graph(Graph* backbone, Correct_dumy* dumy, Cigar_record* curre
             ///insertion_edges
             if (backbone->g_nodes.list[currentNodeID].num_insertions != 0)
             {
+                ///this line must be prior than the next line
+                ///since build_DAGCon will set backbone->g_nodes.list[currentNodeID].num_insertions to be 0
+                total_count = total_count + backbone->g_nodes.list[currentNodeID].num_insertions;
+                
+                build_DAGCon(DAGCon, backbone, currentNodeID, &max_insertion_count);
+
+                if(max_insertion_count > max_count)
+                {
+                    max_count = max_insertion_count;
+                    max_type = INSERTION;
+                }
+                // for (i = 0; i < backbone->g_nodes.list[currentNodeID].insertion_edges.length; i++)
+                // {
+                //     total_count = total_count + backbone->g_nodes.list[currentNodeID].insertion_edges.list[i].weight;
+
+                //     if (backbone->g_nodes.list[currentNodeID].insertion_edges.list[i].weight > max_count)
+                //     {
+                //         max_count = backbone->g_nodes.list[currentNodeID].insertion_edges.list[i].weight;
+                //         max_edge = i;
+                //         max_type = INSERTION;
+                //     }
+                // }
+            }
+
+            
+            
+            
+
+            ///deletion_edges
+            for (i = 0; i < backbone->g_nodes.list[currentNodeID].deletion_edges.length; i++)
+            {
+                total_count = total_count + backbone->g_nodes.list[currentNodeID].deletion_edges.list[i].weight;
+
+                if (backbone->g_nodes.list[currentNodeID].deletion_edges.list[i].weight > max_count)
+                {
+                    max_count = backbone->g_nodes.list[currentNodeID].deletion_edges.list[i].weight;
+                    max_edge = i;
+                    max_type = DELETION;
+                }
+            }
+
+
+
+            
+            
+            ///这种情况下矫正
+            if(max_count >= total_count*(CORRECT_THRESHOLD))
+            ///if(max_count >= total_count * threshold)
+            {
+                currentNodeID = add_path_to_correct_read_new(backbone, DAGCon, dumy, currentNodeID, max_type, max_edge, current_cigar,
+                self_string);
+            }
+            else  
+            {
+                ///NOTE: currentNodeID = 0 is a tmp node without any sense
+                 if(currentNodeID > 0 && if_is_homopolymer_strict(r_string_site + currentNodeID - 1, r_string, r_string_length)
+                  && max_count >= total_count*CORRECT_THRESHOLD_HOMOPOLYMER)
+                {
+                    currentNodeID = add_path_to_correct_read_new(backbone, DAGCon, dumy, currentNodeID, max_type, max_edge, current_cigar,
+                    self_string);
+                }
+                else///不矫正, 直接取下一个backbone节点
+                {
+                    currentNodeID++;
+                    add_base_to_correct_read_directly(dumy, backbone->g_nodes.list[currentNodeID].base);
+
+                    add_cigar_record(&(backbone->g_nodes.list[currentNodeID].base), 1, current_cigar, 0);
+                }
+            }
+            
+            ///fprintf(stderr, "currentNodeID: %d, max_type: %d\n", currentNodeID, max_type);
+        }
+        else  ///非backbone节点就会出错了
+        {
+            fprintf(stderr, "error\n");
+        }
+        
+    }
+
+}
+
+
+void get_seq_from_Graph_print(Graph* backbone, Correct_dumy* dumy, Cigar_record* current_cigar, char* self_string,
+char* r_string, long long r_string_length, long long r_string_site)
+{
+    long long new_seq_length = 0;
+    long long currentNodeID;
+    long long i;
+    // 总共有以下几种情况: 
+    // 1. match 2. mismatch (A, C, G, T, N) 3. deletion 4. insertion (A, C, G, T)
+    // 其实就是 1. 自己本身的weight 2. alignToNode的weight 3. insertion节点的weight
+    long long max_count;
+    int max_type;
+    long long  max_edge;
+    long long total_count;
+    long long nodeID;
+    char current_base;
+    long long current_weight;
+
+    currentNodeID = backbone->s_start_nodeID;
+
+    ///fprintf(stderr, "currentNodeID: %d\n", currentNodeID);
+
+    while (currentNodeID != backbone->s_end_nodeID)
+    {
+        total_count = 0;
+        max_count = -1;
+        max_type = -1;
+        max_edge = -1;
+
+
+        ///假如这是个backbone节点
+        ///有三类出边
+        ///1. mismatch_edges 2. insertion_edges 3. deletion_edges
+        if (currentNodeID >= backbone->s_start_nodeID && currentNodeID <= backbone->s_end_nodeID)
+        {
+            
+            
+            
+            
+
+            ///mismatch_edges
+            for (i = 0; i < backbone->g_nodes.list[currentNodeID].mismatch_edges.length; i++)
+            {
+                if(currentNodeID == 187)
+                {
+                    fprintf(stderr, "backbone->g_nodes.list[currentNodeID].num_insertions: %d\n",
+                    backbone->g_nodes.list[currentNodeID].num_insertions);
+                }
+
+                if (backbone->g_nodes.list[currentNodeID].num_insertions != 0)
+                {
+                    current_weight = backbone->g_nodes.list[currentNodeID].mismatch_edges.list[i].weight -
+                        backbone->g_nodes.list[currentNodeID].mismatch_edges.list[i].num_insertions;
+                }
+                else
+                {
+                    current_weight = backbone->g_nodes.list[currentNodeID].mismatch_edges.list[i].weight;
+                }
+
+                if(currentNodeID == 187)
+                {
+                    fprintf(stderr, "current_weight: %d\n",
+                    current_weight);
+                }
+                
+                
+                total_count = total_count + current_weight;
+
+                ///match
+                ///match要处理插入的情况
+                ///如果这里有insertion, 这个节点会过两遍
+                ///第一遍num_insertions > 0, 第二遍num_insertions=0
+                if (current_weight > max_count)
+                {
+                    max_count = current_weight;
+                    max_edge = i;
+                    max_type = MISMATCH;
+                }
+            }
+
+            ///insertion_edges
+            if (backbone->g_nodes.list[currentNodeID].num_insertions != 0)
+            {
                 for (i = 0; i < backbone->g_nodes.list[currentNodeID].insertion_edges.length; i++)
                 {
                     total_count = total_count + backbone->g_nodes.list[currentNodeID].insertion_edges.list[i].weight;
@@ -1810,6 +5262,16 @@ void get_seq_from_Graph(Graph* backbone, Correct_dumy* dumy, Cigar_record* curre
                         max_count = backbone->g_nodes.list[currentNodeID].insertion_edges.list[i].weight;
                         max_edge = i;
                         max_type = INSERTION;
+                    }
+
+                    if(currentNodeID == 187)
+                    {
+                        fprintf(stderr, "backbone->g_nodes.list[currentNodeID].insertion_edges.list[i].weight: %d, length: %d\n",
+                        backbone->g_nodes.list[currentNodeID].insertion_edges.list[i].weight,
+                    backbone->g_nodes.list[currentNodeID].insertion_edges.list[i].length);
+
+                    nodeID = backbone->g_nodes.list[currentNodeID].insertion_edges.list[i].out_node;
+                    fprintf(stderr, "%c\n", backbone->g_nodes.list[nodeID].base);
                     }
                 }
             }
@@ -1827,26 +5289,61 @@ void get_seq_from_Graph(Graph* backbone, Correct_dumy* dumy, Cigar_record* curre
                     max_edge = i;
                     max_type = DELETION;
                 }
+
+                if(currentNodeID == 187)
+                {
+                    fprintf(stderr, "backbone->g_nodes.list[currentNodeID].deletion_edges.list[i].weight: %d\n",
+                    backbone->g_nodes.list[currentNodeID].deletion_edges.list[i].weight);
+                }
             }
+
+            /**
+            if(currentNodeID > 0 && backbone->g_nodes.list[currentNodeID].base != r_string[r_string_site + currentNodeID - 1])
+            {
+                fprintf(stderr, "currentNodeID: %d\n", currentNodeID);
+            }
+            **/
             
+            fprintf(stderr, "currentNodeID: %d, max_count: %d, max_type: %d, total_count: %d\n", 
+            currentNodeID, max_count, max_type, total_count);
+
+
+
+        if(currentNodeID == 187)
+        {
+            nodeID = backbone->g_nodes.list[currentNodeID].insertion_edges.list[max_edge].out_node;
+            fprintf(stderr, "%c", backbone->g_nodes.list[nodeID].base);
+            nodeID = backbone->g_nodes.list[nodeID].insertion_edges.list[0].out_node;
+            fprintf(stderr, "%c\n", backbone->g_nodes.list[nodeID].base);
+        }
+
+
+
             ///这种情况下矫正
             if(max_count >= total_count*CORRECT_THRESHOLD)
             {
                 currentNodeID = add_path_to_correct_read(backbone, dumy, currentNodeID, max_type, max_edge, current_cigar,
                 self_string);
             }
-            else  ///不矫正, 直接取下一个backbone节点
+            else  
             {
-                currentNodeID++;
-                add_base_to_correct_read_directly(dumy, backbone->g_nodes.list[currentNodeID].base);
+                ///NOTE: currentNodeID = 0 is a tmp node without any sense
+                if(currentNodeID > 0 && if_is_homopolymer_strict(r_string_site + currentNodeID - 1, r_string, r_string_length)
+                  && max_count >= total_count*CORRECT_THRESHOLD_HOMOPOLYMER/** && max_type != MISMATCH**/)
+                {
+                    currentNodeID = add_path_to_correct_read(backbone, dumy, currentNodeID, max_type, max_edge, current_cigar,
+                    self_string);
+                }
+                else///不矫正, 直接取下一个backbone节点
+                {
+                    currentNodeID++;
+                    add_base_to_correct_read_directly(dumy, backbone->g_nodes.list[currentNodeID].base);
 
-                add_cigar_record(&(backbone->g_nodes.list[currentNodeID].base), 1, current_cigar, 0);
+                    add_cigar_record(&(backbone->g_nodes.list[currentNodeID].base), 1, current_cigar, 0);
+                }
             }
             
-
             ///fprintf(stderr, "currentNodeID: %d, max_type: %d\n", currentNodeID, max_type);
-
-
         }
         else  ///非backbone节点就会出错了
         {
@@ -1856,6 +5353,7 @@ void get_seq_from_Graph(Graph* backbone, Correct_dumy* dumy, Cigar_record* curre
     }
 
 }
+
 
 
 
@@ -2292,10 +5790,11 @@ void get_seq_from_Graph_Len2(Graph* backbone, long long backbone_start, long lon
 **/
 
 
-void window_consensus(char* r_string, long long window_start, long long window_end, 
-overlap_region_alloc* overlap_list, Correct_dumy* dumy, All_reads* R_INF, Graph* g, Cigar_record* current_cigar)
+void window_consensus(char* r_string, long long r_total_length, long long window_start, long long window_end, 
+overlap_region_alloc* overlap_list, Correct_dumy* dumy, All_reads* R_INF, Graph* g, Graph* DAGCon, Cigar_record* current_cigar)
 {
     clear_Graph(g);
+    clear_Graph(DAGCon);
 
     long long x_start;
     long long x_length; 
@@ -2342,12 +5841,6 @@ overlap_region_alloc* overlap_list, Correct_dumy* dumy, All_reads* R_INF, Graph*
         y_start = overlap_list->list[overlapID].w_list[windowID].y_start;
         y_length = overlap_list->list[overlapID].w_list[windowID].y_end
                 - overlap_list->list[overlapID].w_list[windowID].y_start + 1;
-        /**
-        fprintf(stderr, "****window_start: %d, x_start: %d, x_end: %d, x_length: %d, y_start: %d, y_length: %d, dumy->last_boundary_length: %d\n", 
-        window_start, x_start, overlap_list->list[overlapID].w_list[windowID].x_end , x_length, y_start, y_length,
-        dumy->last_boundary_length);
-        **/
-
 
         recover_UC_Read_sub_region(dumy->overlap_region, y_start, y_length, overlap_list->list[overlapID].y_pos_strand, 
                 R_INF, overlap_list->list[overlapID].y_id);
@@ -2358,12 +5851,89 @@ overlap_region_alloc* overlap_list, Correct_dumy* dumy, All_reads* R_INF, Graph*
         currentNodeID = x_start - window_start;
         ///这个是要用的cigar: overlap_list->list[overlapID].w_list[windowID].cigar;
 
+
+        /**
+        if(memcmp("m54238_180909_174539/6947324/ccs", Get_NAME((*R_INF),overlap_list->list[overlapID].x_id), 
+     Get_NAME_LENGTH((*R_INF), overlap_list->list[overlapID].x_id)) == 0 && window_start == 12750 && window_end == 13124)
+        {
+            fprintf(stderr, "********x_start: %d, window_start: %d, window_end: %d, dumy->length: %d, y_name: %.*s\n", 
+            x_start, window_start, window_end, dumy->length, 
+            Get_NAME_LENGTH((*R_INF), overlap_list->list[overlapID].y_id), Get_NAME((*R_INF),overlap_list->list[overlapID].y_id));
+
+
+            for (int ijk = 0; ijk < overlap_list->list[overlapID].w_list[windowID].cigar.length; ijk++)
+            {
+                fprintf(stderr, "###### Oper: %d, Len: %d\n", 
+                overlap_list->list[overlapID].w_list[windowID].cigar.C_C[ijk],
+                overlap_list->list[overlapID].w_list[windowID].cigar.C_L[ijk]);
+            }
+        }
+        
+
+       if(memcmp("m64011_190326_191011/163906371/ccs", Get_NAME((*R_INF),overlap_list->list[0].x_id), 
+     Get_NAME_LENGTH((*R_INF), overlap_list->list[0].x_id)) == 0 && window_start == 9375 && window_end == 9749)
+        {
+            fprintf(stderr, "y_name: %.*s\n", Get_NAME_LENGTH((*R_INF), overlap_list->list[overlapID].y_id), 
+                Get_NAME((*R_INF),overlap_list->list[overlapID].y_id));
+
+            reverse_complement(x_string, x_length);
+            reverse_complement(y_string, y_length);
+
+            fprintf(stderr, "x: %.*s\n", x_length, x_string);
+            fprintf(stderr, "y: %.*s\n", y_length, y_string);
+            for (int ijk = 0; ijk < overlap_list->list[overlapID].w_list[windowID].cigar.length; ijk++)
+            {
+                fprintf(stderr, "###### Oper: %d, Len: %d\n", 
+                overlap_list->list[overlapID].w_list[windowID].cigar.C_C[ijk],
+                overlap_list->list[overlapID].w_list[windowID].cigar.C_L[ijk]);
+            }
+            fprintf(stderr,"\n");
+
+            reverse_complement(x_string, x_length);
+            reverse_complement(y_string, y_length);
+            
+            
+        }
+        **/
+
         addmatchedSeqToGraph(g, currentNodeID, x_string, x_length, 
                     y_string, y_length, &(overlap_list->list[overlapID].w_list[windowID].cigar), startNodeID, endNodeID);
+
+        
     }
 
-    get_seq_from_Graph(g, dumy, current_cigar, backbone);
 
+    /**
+    if(memcmp("m54238_180922_175520/52363405/ccs", Get_NAME((*R_INF),overlap_list->list[overlapID].x_id), 
+     Get_NAME_LENGTH((*R_INF), overlap_list->list[overlapID].x_id)) == 0 && window_start == 6750 && window_end == 7124)
+     {
+         fprintf(stderr, "dumy->corrected_read_length: %d\n", dumy->corrected_read_length);
+     }
+
+    if(memcmp("m54238_180922_175520/52363405/ccs", Get_NAME((*R_INF),overlap_list->list[overlapID].x_id), 
+     Get_NAME_LENGTH((*R_INF), overlap_list->list[overlapID].x_id)) == 0 && window_start == 6750 && window_end == 7124)
+     {
+         get_seq_from_Graph_print(g, dumy, current_cigar, backbone, r_string, r_total_length, window_start);
+     }
+     else
+     {
+         get_seq_from_Graph(g, dumy, current_cigar, backbone, r_string, r_total_length, window_start);
+     }
+     
+
+    
+
+    
+
+
+    if(memcmp("m54238_180922_175520/52363405/ccs", Get_NAME((*R_INF),overlap_list->list[overlapID].x_id), 
+     Get_NAME_LENGTH((*R_INF), overlap_list->list[overlapID].x_id)) == 0 && window_start == 6750 && window_end == 7124)
+    {
+        fprintf(stderr, "dumy->corrected_read_length: %d\n", dumy->corrected_read_length);
+    }
+    **/
+
+    get_seq_from_Graph(g, DAGCon, dumy, current_cigar, backbone, r_string, r_total_length, window_start);
 
     ///get_seq_from_Graph(g, startNodeID, endNodeID, dumy);
     ///get_seq_from_Graph_Len2(g, startNodeID, endNodeID, dumy);
@@ -2492,9 +6062,11 @@ long long new_start, long long new_length)
         {
             for (cigar_i = 0; cigar_i < operationLen; cigar_i++)
             {
-                merge_base = x_string[x_i];
+                merge_base = 0;
+                merge_base = seq_nt6_table[(uint8_t)y_string[y_i]];
                 merge_base = merge_base << 3;
-                merge_base = merge_base | y_string[y_i];
+                merge_base = merge_base | seq_nt6_table[(uint8_t)x_string[x_i]];
+
                 add_cigar_record(&merge_base, 1, result_cigar, 1);
                 x_i++;
                 y_i++;
@@ -2704,14 +6276,6 @@ long long total_window_start, long long total_window_end)
     new_cigar->length = end_cigar - start_cigar + 1;
     ///可以优化
     memmove(new_cigar->record, new_cigar->record + start_cigar, new_cigar->length*sizeof(uint32_t));
-    /**
-    fprintf(stderr, "start_cigar: %d, end_cigar: %d\n", start_cigar, end_cigar);
-    for (int ijk = 0; ijk < new_cigar->length; ijk++)
-    {
-        fprintf(stderr, "new:Oper: %d, Len: %d\n", Get_Cigar_Type(new_cigar->record[ijk]), 
-        Get_Cigar_Length(new_cigar->record[ijk]));
-    }
-    **/
     
     long long total_x_start = total_window_start + get_x_start;
     long long x_length = get_x_end -get_x_start + 1;
@@ -2724,10 +6288,11 @@ long long total_window_start, long long total_window_end)
 
 }
 
-int process_boundary(overlap_region_alloc* overlap_list, All_reads* R_INF, Correct_dumy* dumy, Graph* g, 
+int process_boundary(overlap_region_alloc* overlap_list, All_reads* R_INF, Correct_dumy* dumy, Graph* g, Graph* DAGCon,
 Cigar_record* current_cigar, long long uncorrected_window_start, Round2_alignment* second_round)
 {
     char* r_string = dumy->corrected_read;
+    long long r_total_length = current_cigar->new_read_length;
     long long corrected_window_start, corrected_window_end;
     int extra_begin;
     int extra_end;
@@ -2751,6 +6316,7 @@ Cigar_record* current_cigar, long long uncorrected_window_start, Round2_alignmen
     }
 
     clear_Graph(g);
+    clear_Graph(DAGCon);
 
     long long x_start, x_end;
     long long x_length, x_len, o_len;
@@ -2774,6 +6340,8 @@ Cigar_record* current_cigar, long long uncorrected_window_start, Round2_alignmen
     backbone_length = corrected_window_end - corrected_window_start + 1;
     addUnmatchedSeqToGraph(g, backbone, backbone_length, &startNodeID, &endNodeID);
 
+    ///fprintf(stderr, "startNodeID: %d, endNodeID: %d\n", startNodeID, endNodeID);
+
     long long correct_x_pos_s;
     long long matched_coverage = 0;
     for (i = 0; i < dumy->length; i++)
@@ -2790,6 +6358,8 @@ Cigar_record* current_cigar, long long uncorrected_window_start, Round2_alignmen
 
         x_start = overlap_list->list[overlapID].w_list[windowID].x_start;
         y_start = overlap_list->list[overlapID].w_list[windowID].y_start;
+
+        
 
 
         /**
@@ -2823,6 +6393,9 @@ Cigar_record* current_cigar, long long uncorrected_window_start, Round2_alignmen
             x_end = corrected_window_end;
             x_len = x_end - x_start + 1;
             threshold = x_len * THRESHOLD_RATE;
+            /****************************may have bugs********************************/
+            threshold = Adjust_Threshold(threshold, x_len);
+            /****************************may have bugs********************************/
             ///y_start may less than 0
             y_start = y_start - WINDOW_BOUNDARY/2;
 
@@ -2833,26 +6406,81 @@ Cigar_record* current_cigar, long long uncorrected_window_start, Round2_alignmen
             }
 
             Window_Len = x_len + (threshold << 1);
-            determine_overlap_region(threshold, y_start, overlap_list->list[overlapID].y_id, Window_Len, R_INF,
-            &extra_begin, &extra_end, &y_start, &o_len);
-            fill_subregion(dumy->overlap_region, y_start, o_len, overlap_list->list[overlapID].y_pos_strand, 
-            R_INF, overlap_list->list[overlapID].y_id, extra_begin, extra_end);
 
-            x_string = r_string + x_start;
-            y_string = dumy->overlap_region;
+            error =(unsigned int)-1;
+            if(determine_overlap_region(threshold, y_start, overlap_list->list[overlapID].y_id, Window_Len, R_INF,
+            &extra_begin, &extra_end, &y_start, &o_len))
+            {
+                fill_subregion(dumy->overlap_region, y_start, o_len, overlap_list->list[overlapID].y_pos_strand, 
+                R_INF, overlap_list->list[overlapID].y_id, extra_begin, extra_end);
 
-            ///both end site and real_y_start have extra_begin
-            ///有很多是完全匹配，可以先快速判断是不是完全匹配
-            end_site = Reserve_Banded_BPM_PATH(y_string, Window_Len, x_string, x_len, threshold, &error, &real_y_start,
-                    &(dumy->path_length), dumy->matrix_bit, dumy->path, -1, -1);
+                x_string = r_string + x_start;
+                y_string = dumy->overlap_region;
+
+                ///both end site and real_y_start have extra_begin
+                ///有很多是完全匹配，可以先快速判断是不是完全匹配
+                end_site = Reserve_Banded_BPM_PATH(y_string, Window_Len, x_string, x_len, threshold, &error, &real_y_start,
+                        &(dumy->path_length), dumy->matrix_bit, dumy->path, -1, -1);
+            }
+
+            
+
+            ///try to calculate using higher threshold
+            if(error==(unsigned int)-1)
+            {
+                extra_begin = extra_end = 0;
+                x_start = corrected_window_start;
+                x_end = corrected_window_end;
+                x_len = x_end - x_start + 1;
+                threshold = threshold * 2;
+                /****************************may have bugs********************************/
+                threshold = Adjust_Threshold(threshold, x_len);
+                /****************************may have bugs********************************/
+                if(x_len >= 300 && threshold < THRESHOLD_MAX_SIZE)
+                {
+                    threshold = THRESHOLD_MAX_SIZE;
+                }
+                if(threshold > THRESHOLD_MAX_SIZE)
+                {
+                    threshold = THRESHOLD_MAX_SIZE;
+                }
+                Window_Len = x_len + (threshold << 1);
+                y_start = overlap_list->list[overlapID].w_list[windowID].y_start - WINDOW_BOUNDARY/2;
+
+                ///其实可以不加...怕出bug
+                if(y_start < 0)
+                {
+                    continue;
+                }
+
+                error =(unsigned int)-1;
+                if(determine_overlap_region(threshold, y_start, overlap_list->list[overlapID].y_id, Window_Len, R_INF,
+                &extra_begin, &extra_end, &y_start, &o_len))
+                {
+                    fill_subregion(dumy->overlap_region, y_start, o_len, overlap_list->list[overlapID].y_pos_strand, 
+                    R_INF, overlap_list->list[overlapID].y_id, extra_begin, extra_end);
+
+                    x_string = r_string + x_start;
+                    y_string = dumy->overlap_region;
+
+                    ///both end site and real_y_start have extra_begin
+                    ///有很多是完全匹配，可以先快速判断是不是完全匹配
+                    end_site = Reserve_Banded_BPM_PATH(y_string, Window_Len, x_string, x_len, threshold, &error, &real_y_start,
+                            &(dumy->path_length), dumy->matrix_bit, dumy->path, -1, -1);
+                }
+            }
 
             if (error!=(unsigned int)-1)
             {
+
+                
+
                 total_error = total_error + error;
                 matched_coverage++;
                 tmp_cigar.x_start = x_start;
                 tmp_cigar.x_end = x_end;
-                generate_cigar(dumy->path, dumy->path_length, &tmp_cigar, &real_y_start, &end_site, error);
+                generate_cigar(dumy->path, dumy->path_length, &tmp_cigar, &real_y_start, &end_site, &error, 
+                x_string, x_len, y_string);  
                 ///both end site and real_y_start have extra_begin
                 real_y_start -= extra_begin;
                 end_site -= extra_begin;
@@ -2870,39 +6498,39 @@ Cigar_record* current_cigar, long long uncorrected_window_start, Round2_alignmen
 
                 x_string = r_string + x_start;
                 y_string = dumy->overlap_region;
-                /**
-                if(memcmp("m54238_180914_183539/66650355/ccs", Get_NAME((*R_INF), overlap_list->list[overlapID].x_id), 
-                Get_NAME_LENGTH((*R_INF), overlap_list->list[overlapID].x_id)) == 0 && uncorrected_window_start == 375)
-                {
-                    fprintf(stderr, "###### %.*s, x_string[124]: %c, y_string[124]: %c\n", Get_NAME_LENGTH((*R_INF), overlap_list->list[overlapID].y_id), 
-                    Get_NAME((*R_INF), overlap_list->list[overlapID].y_id), x_string[124], y_string[124]);
 
-                    fprintf(stderr, "######error: %d****\n", error);
-                    for (int ijk = 0; ijk < tmp_cigar.cigar.length; ijk++)
-                    {
-                        fprintf(stderr, "###### Oper: %d, Len: %d\n", tmp_cigar.cigar.C_C[ijk],
-                        tmp_cigar.cigar.C_L[ijk]);
-                    }
+    //             if(memcmp("m54238_180922_175520/52363405/ccs", Get_NAME((*R_INF),overlap_list->list[overlapID].x_id), 
+    //  Get_NAME_LENGTH((*R_INF), overlap_list->list[overlapID].x_id)) == 0 && uncorrected_window_start == 6750)
+    //     {
+    //         fprintf(stderr, "********x_start: %d, uncorrected_window_start: %d, dumy->length: %d, y_name: %.*s\n", 
+    //         x_start, uncorrected_window_start, dumy->length, 
+    //         Get_NAME_LENGTH((*R_INF), overlap_list->list[overlapID].y_id), 
+    //         Get_NAME((*R_INF),overlap_list->list[overlapID].y_id));
+
+
+    //          fprintf(stderr, "*******error: %d****\n", error);
+    //             for (int ijk = 0; ijk < tmp_cigar.cigar.length; ijk++)
+    //             {
+    //                 fprintf(stderr, "Oper: %d, Len: %d\n", tmp_cigar.cigar.C_C[ijk],
+    //                 tmp_cigar.cigar.C_L[ijk]);
+    //             }
+                
+    //     }
+
+                
+                // if(verify_cigar(x_string, x_length, y_string, y_length, &tmp_cigar.cigar, 
+                //     error))
+                // {
+                //     fprintf(stderr, "*******error: %d****\n", error);
+                //     for (int ijk = 0; ijk < tmp_cigar.cigar.length; ijk++)
+                //     {
+                //         fprintf(stderr, "Oper: %d, Len: %d\n", tmp_cigar.cigar.C_C[ijk],
+                //         tmp_cigar.cigar.C_L[ijk]);
+                //     }
                     
-                    fprintf(stderr, "######dumy->path_length: %d\n****\n", dumy->path_length);
-                }
-                **/
-
-
-                /**
-                if(verify_cigar(x_string, x_length, y_string, y_length, &tmp_cigar.cigar, 
-                    error))
-                {
-                    fprintf(stderr, "*******error: %d****\n", error);
-                    for (int ijk = 0; ijk < tmp_cigar.cigar.length; ijk++)
-                    {
-                        fprintf(stderr, "Oper: %d, Len: %d\n", tmp_cigar.cigar.C_C[ijk],
-                        tmp_cigar.cigar.C_L[ijk]);
-                    }
-                    
-                    fprintf(stderr, "*******dumy->path_length: %d\n****\n", dumy->path_length);
-                }
-                **/
+                //     fprintf(stderr, "*******dumy->path_length: %d\n****\n", dumy->path_length);
+                // }
+                
 
                 currentNodeID = x_start - corrected_window_start;
                 
@@ -2946,7 +6574,9 @@ Cigar_record* current_cigar, long long uncorrected_window_start, Round2_alignmen
             ///and start from i-th node, we can correct (i+1)-th base
             /// so the condition when traversing graph is 
             ///(node >= start_base - corrected_window_start && node <= end_base - corrected_window_start)
-            get_seq_from_Graph(g, &(second_round->dumy), &(second_round->tmp_cigar), backbone);
+            get_seq_from_Graph(g, DAGCon, &(second_round->dumy), &(second_round->tmp_cigar), backbone, 
+            r_string, r_total_length, corrected_window_start);
+            
             /**
             if(verify_cigar_2(backbone, backbone_length, second_round->dumy.corrected_read, 
                 second_round->dumy.corrected_read_length, &(second_round->tmp_cigar), -1))
@@ -2954,6 +6584,7 @@ Cigar_record* current_cigar, long long uncorrected_window_start, Round2_alignmen
                 fprintf(stderr, "hahah\n");
             }
             **/
+            
             merge_cigars(dumy, current_cigar, second_round, start_base, end_base,
             corrected_window_start, corrected_window_end);
             
@@ -2977,31 +6608,30 @@ Cigar_record* current_cigar, long long uncorrected_window_start, Round2_alignmen
 
 
 void generate_consensus(overlap_region_alloc* overlap_list, All_reads* R_INF, 
-                        UC_Read* g_read, Correct_dumy* dumy, Graph* g, Cigar_record* current_cigar,
+                        UC_Read* g_read, Correct_dumy* dumy, Graph* g, Graph* DAGCon, Cigar_record* current_cigar,
                         Round2_alignment* second_round)
 {
     clear_Cigar_record(current_cigar);
     
-    long long window_num = (g_read->length + WINDOW - 1) / WINDOW;
-    long long i, j, overlap_length;
+    long long overlap_length;
     long long window_start, window_end;
 
     long long num_availiable_win = 0;
     
     
-    window_start = 0;
-    window_end = WINDOW - 1;
-    if (window_end >= g_read->length)
-    {
-        window_end = g_read->length - 1;
-    }
 
 
-    int flag;
+    Window_Pool w_inf;
+    init_Window_Pool(&w_inf, g_read->length, WINDOW, TAIL_LENGTH);
+
+    int flag = 0;
     ///for last window
     dumy->last_boundary_length = 0;
-    for (i = 0; i < window_num; i++)
+    while(get_Window(&w_inf, &window_start, &window_end) && flag != -2)
     {
+
+        
+
         dumy->length = 0;
         dumy->lengthNT = 0;
         ///flag返回的是重叠数量
@@ -3016,7 +6646,6 @@ void generate_consensus(overlap_region_alloc* overlap_list, All_reads* R_INF,
             case 0:    ///没找到匹配
                 break;
             case -2: ///下一个window也不会存在匹配, 直接跳出
-                i = window_num;
                 break;
         }
 
@@ -3024,41 +6653,18 @@ void generate_consensus(overlap_region_alloc* overlap_list, All_reads* R_INF,
         ///这个是available overlap里所有window的数量...
         ///num_availiable_win = num_availiable_win + dumy->length + dumy->lengthNT;
         num_availiable_win = num_availiable_win + dumy->length;
-
+        
         ///重叠窗口数，也就是coverage大小
         if(dumy->length >= MIN_COVERAGE_THRESHOLD)
         {
 
-            window_consensus(g_read->seq, window_start, window_end, overlap_list, dumy, R_INF, g, current_cigar);
+            window_consensus(g_read->seq, g_read->length, window_start, window_end, overlap_list, 
+            dumy, R_INF, g, DAGCon, current_cigar);
 
             if(dumy->last_boundary_length != 0)
             {
-                process_boundary(overlap_list, R_INF, dumy, g, current_cigar, window_start, second_round);
-                /**
-                if(memcmp("m54238_180914_183539/66650355/ccs", Get_NAME((*R_INF), overlap_list->list[0].x_id), 
-                Get_NAME_LENGTH((*R_INF), overlap_list->list[0].x_id)) == 0)
-                {
-                    
-                   ///fprintf(stderr, "%.*s\n\n", Get_NAME_LENGTH((*R_INF), overlap_list->list[0].x_id), Get_NAME((*R_INF), overlap_list->list[0].x_id));
-                    
-                   fprintf(stderr, "window_start: %d, window_end: %d, dumy->last_boundary_length: %d\n", 
-                   window_start, window_end, dumy->last_boundary_length);
-                   fprintf(stderr, "new_read_length: %d\n",second_round->cigar.new_read_length);
-                   fprintf(stderr, "cigar.length: %d\n",second_round->cigar.length);
-                   fprintf(stderr, "obtained_cigar_length: %d\n",second_round->obtained_cigar_length);
-
-                    fprintf(stderr, "*******\n");
-                   for (size_t ijk = 0; ijk < second_round->cigar.length; ijk++)
-                   {
-                       int operation = Get_Cigar_Type(second_round->cigar.record[ijk]);
-                       int operation_length = Get_Cigar_Length(second_round->cigar.record[ijk]);
-                       fprintf(stderr, "oper: %d, oper_len: %d\n", operation, operation_length);
-                   }
-
-                   fprintf(stderr, "*******\n");
-                   
-                }
-                **/
+                process_boundary(overlap_list, R_INF, dumy, g, DAGCon, current_cigar, 
+                window_start, second_round);
             }
             
         }
@@ -3069,16 +6675,7 @@ void generate_consensus(overlap_region_alloc* overlap_list, All_reads* R_INF,
         }
 
 
-        
-
         dumy->last_boundary_length = current_cigar->new_read_length;
-        
-        window_start = window_start + WINDOW;
-        window_end = window_end + WINDOW;
-        if (window_end >= g_read->length)
-        {
-            window_end = g_read->length - 1;
-        }
     }
 
     if (window_start < g_read->length)
@@ -3094,12 +6691,125 @@ void generate_consensus(overlap_region_alloc* overlap_list, All_reads* R_INF,
         add_cigar_record(dumy->corrected_read, current_cigar->new_read_length - second_round->obtained_cigar_length, 
         &(second_round->cigar), 0);
     }
-    
-    
-
 }
 
 
+inline int get_available_fully_covered_interval(long long window_start, long long window_end, 
+overlap_region_alloc* overlap_list, Correct_dumy* dumy, long long* real_length)
+{
+    long long i;
+    int flag = 0;
+    long long Begin, End, Len;
+    long long overlap_length;
+
+
+    for (i = dumy->start_i; i < overlap_list->length; i++)
+    {
+        ///只会发生在这个interval比list里所有元素都小的情况
+        ///这种情况下一个interval需要从0开始
+        if (window_end < overlap_list->list[i].x_pos_s)
+        {
+            dumy->start_i = 0;
+            return 0;
+        }
+        else ///只要window_end >= overlap_list->list[i].x_pos_s，就有可能重叠
+        {
+            dumy->start_i = i;
+            break;
+        }
+    }
+
+    ///只会发生在这个window比list里所有元素都大的情况
+    ///这种情况下一个window也无需遍历了
+    if (i >= overlap_list->length)
+    {
+        dumy->start_i = overlap_list->length;
+        return -2;
+    }
+    
+
+
+
+    
+    long long fake_length = 0;
+    overlap_length = window_end - window_start + 1;
+    (*real_length) = 0;
+
+    for (; i < overlap_list->length; i++)
+    {
+        ///是否重叠   
+        if((Len = OVERLAP(window_start, window_end, overlap_list->list[i].x_pos_s, overlap_list->list[i].x_pos_e)) > 0)
+        {
+            ///重叠数量
+            fake_length++;
+
+            if (overlap_length == Len && overlap_list->list[i].is_match == 1)
+            {
+                //dumy->length++; 
+                (*real_length)++;
+            }
+        }
+        
+        if(overlap_list->list[i].x_pos_s > window_end)
+        {
+            break;
+        }
+    }
+
+    ///fake_length是重叠的数量，而不是有效重叠的数量
+    if (fake_length == 0)
+    {
+        return 0;
+    }
+    else
+    {
+        return 1;
+    }
+}
+
+int check_if_fully_covered(overlap_region_alloc* overlap_list, 
+All_reads* R_INF, UC_Read* g_read, Correct_dumy* dumy, Graph* g)
+{
+    
+    long long overlap_length;
+    long long window_start, window_end;
+    
+    Window_Pool w_inf;
+    init_Window_Pool(&w_inf, g_read->length, WINDOW, TAIL_LENGTH);
+
+    int flag = 0;
+    long long realLen;
+    while(get_Window(&w_inf, &window_start, &window_end) && flag != -2)
+    {
+        dumy->length = 0;
+        dumy->lengthNT = 0;
+        ///flag返回的是重叠数量
+        ///dumy->length返回的是有效完全重叠的数量
+        ///dumy->lengthNT返回的是有效不完全重叠的数量
+        ///return overlaps that is overlaped with [window_start, window_end]
+        flag = get_available_fully_covered_interval(window_start, window_end, 
+        overlap_list, dumy, &realLen);
+
+
+        switch (flag)
+        {
+            case 1:    ///找到匹配
+                break;
+            case 0:    ///没找到匹配
+                break;
+            case -2: ///下一个window也不会存在匹配, 直接跳出
+                break;
+        }
+
+        if(realLen < MIN_COVERAGE_THRESHOLD * 2)
+        {
+           return 0;
+        }
+    }
+
+
+    return 1;
+}
 
 
 
@@ -3142,13 +6852,11 @@ CIGAR* cigar, haplotype_evdience_alloc* hap)
         {
             for (i = 0; i < operationLen; i++)
             {
-                /**
-                if(inner_offset + x_i >= WINDOW)
+                if(hap->flag[inner_offset + x_i] < 127)
                 {
-                    fprintf(stderr, "error\n");
+                    hap->flag[inner_offset + x_i]++;
                 }
-                **/
-                hap->flag[inner_offset + x_i]++;
+                
                 x_i++;
                 y_i++;
             }
@@ -3164,24 +6872,7 @@ CIGAR* cigar, haplotype_evdience_alloc* hap)
         
         cigar_i++;
     }
-    /**
-    if(x_i != x_length || y_i != y_length)
-    {
-        fprintf(stderr, "x_i: %d, x_length: %d\n", x_i, x_length);
-        fprintf(stderr, "y_i: %d, y_length: %d\n", y_i, y_length);
-    }
-    
-   int no_zero = 0;
-   for (i = 0; i < WINDOW; i++)
-   {
-       if(hap->flag[i] != 0)
-       {
-           no_zero++;
-       }
-   }
 
-   fprintf(stderr, "no_zero: %d\n", no_zero);
-   **/
    
 }
 
@@ -3192,7 +6883,7 @@ void addSNPtohaplotype(
 long long window_offset, int overlapID,
 char* x_string, long long x_total_start, long long x_length, 
 char* y_string, long long y_total_start, long long y_length, 
-CIGAR* cigar, haplotype_evdience_alloc* hap)
+CIGAR* cigar, haplotype_evdience_alloc* hap, int snp_threshold)
 {
     
     int x_i, y_i, cigar_i;
@@ -3218,7 +6909,7 @@ CIGAR* cigar, haplotype_evdience_alloc* hap)
         {
             for (i = 0; i < operationLen; i++)
             {
-                if(hap->flag[inner_offset] > FLAG_THRE)
+                if(hap->flag[inner_offset] > snp_threshold)
                 {
                     ev.misBase =  y_string[y_i];
                     ev.overlapID = overlapID;
@@ -3240,7 +6931,7 @@ CIGAR* cigar, haplotype_evdience_alloc* hap)
             for (i = 0; i < operationLen; i++)
             {
 
-                if(hap->flag[inner_offset] > FLAG_THRE)
+                if(hap->flag[inner_offset] > snp_threshold)
                 {
                     ev.misBase =  y_string[y_i];
                     ev.overlapID = overlapID;
@@ -3264,7 +6955,7 @@ CIGAR* cigar, haplotype_evdience_alloc* hap)
 
             for (i = 0; i < operationLen; i++)
             {
-                if(hap->flag[inner_offset] > FLAG_THRE)
+                if(hap->flag[inner_offset] > snp_threshold)
                 {
                     ev.misBase =  'N';
                     ev.overlapID = overlapID;
@@ -3297,6 +6988,7 @@ CIGAR* cigar, haplotype_evdience_alloc* hap)
 void cluster(char* r_string, long long window_start, long long window_end, 
 overlap_region_alloc* overlap_list, Correct_dumy* dumy, All_reads* R_INF, haplotype_evdience_alloc* hap)
 {
+    long long useful_length = window_end - window_start + 1;
     long long x_start;
     long long x_length; 
     char* x_string;
@@ -3306,10 +6998,19 @@ overlap_region_alloc* overlap_list, Correct_dumy* dumy, All_reads* R_INF, haplot
     long long overlapID, windowID;
     long long startNodeID, endNodeID, currentNodeID;
 
-    RsetInitHaplotypeEvdienceFlag(hap);
-
     long long correct_x_pos_s;
     long long inner_window_offset;
+    int snp_threshold;
+    /**
+    if(overlap_list->mapped_overlaps > Coverage_Threshold(coverage))
+    {
+        snp_threshold = 0;
+    }
+    else**/
+    {
+        snp_threshold = 1;
+    }
+    
 
 
     ///与当前window重叠的所有overlap
@@ -3339,19 +7040,36 @@ overlap_region_alloc* overlap_list, Correct_dumy* dumy, All_reads* R_INF, haplot
         y_length = overlap_list->list[overlapID].w_list[windowID].y_end
                 - overlap_list->list[overlapID].w_list[windowID].y_start + 1;
 
-
+            
         markSNP(window_start, x_start, x_length, y_start, y_length, &(overlap_list->list[overlapID].w_list[windowID].cigar), 
         hap);
     }
 
 
-    for (i = 0; i < WINDOW; i++)
+    /****************************may have bugs********************************/
+    long long last_snp = useful_length - 1;
+    long long first_snp = -1;
+    for (i = 0; i < useful_length; i++)
     {
-        if(hap->flag[i] > FLAG_THRE)
+        if(hap->flag[i] != 0)
+        {
+            last_snp = i;
+            if(first_snp != -1)
+            {
+                first_snp = i;
+            }
+        }
+        
+        if(hap->flag[i] > snp_threshold)
         {
             hap->snp++;
         }
     }
+    if(first_snp == -1)
+    {
+        first_snp = 0;
+    }
+    /****************************may have bugs********************************/
 
 
 
@@ -3391,11 +7109,10 @@ overlap_region_alloc* overlap_list, Correct_dumy* dumy, All_reads* R_INF, haplot
 
         addSNPtohaplotype(window_start, overlapID, x_string, x_start, x_length, 
         y_string, y_start, y_length, &(overlap_list->list[overlapID].w_list[windowID].cigar), 
-        hap);        
+        hap, snp_threshold);        
     }
 
-
-
+    RsetInitHaplotypeEvdienceFlag(hap + first_snp, last_snp + 1);
 }
 
 int cmp_haplotype_evdience(const void * a, const void * b)
@@ -3448,6 +7165,19 @@ int cmp_snp_stats(const void * a, const void * b)
     }
 }
 
+
+int cmp_max_DP(const void * a, const void * b)
+{
+    if(Get_Max_DP_Value((*(uint64_t*)a))!=Get_Max_DP_Value((*(uint64_t*)b)))
+    {
+        return Get_Max_DP_Value((*(uint64_t*)a)) < Get_Max_DP_Value((*(uint64_t*)b))? 1 : -1;
+    }
+    else
+    {
+        return 0;
+    }
+}
+
 void debug_hap_information(overlap_region_alloc* overlap_list, All_reads* R_INF, 
                         UC_Read* g_read, haplotype_evdience_alloc* hap,
                         Correct_dumy* dumy)
@@ -3494,7 +7224,7 @@ void debug_hap_information(overlap_region_alloc* overlap_list, All_reads* R_INF,
 
                 }
             }
-            else if(hap->list[i].type == 0)
+            else if(hap->list[i].type == 1)
             {
                 if(x_string[0] == y_string[0])
                 {
@@ -3504,9 +7234,15 @@ void debug_hap_information(overlap_region_alloc* overlap_list, All_reads* R_INF,
 
             }
         }
+    }
 
-        
 
+    for (i = 0; i < hap->length; i++)
+    {
+        if(i != 0 && hap->list[i].site  < hap->list[i-1].site)
+        {
+            fprintf(stderr, "wrong order\n");
+        }
     }
 }
 
@@ -3838,7 +7574,7 @@ int debug_snp_matrix(haplotype_evdience_alloc* hap)
 
 int split_sub_list(haplotype_evdience_alloc* hap, 
 haplotype_evdience* sub_list, long long sub_length, long long num_haplotype, 
-overlap_region_alloc* overlap_list, All_reads* R_INF)
+overlap_region_alloc* overlap_list, All_reads* R_INF, UC_Read* g_read)
 {
     long long i = 0;
     long long occ_0 = 0;
@@ -3865,15 +7601,21 @@ overlap_region_alloc* overlap_list, All_reads* R_INF)
         }
     }
 
+    
+
     /**
      1. if occ_0 = 0, that means all overlaps are different with this read at this site
      2. it is not possible that occ_1 = 0,
      3. if occ_1 = 1, there are only one difference. It must be a sequencing error.
+        (for repeat, it maybe a snp at repeat. but ...)
     **/
-    if(occ_0 == 0 || occ_1 <= 1)
+    ///if(occ_0 == 0 || occ_1 <= 1)
+    if(occ_0 == 0 || occ_1 == 0)
     {
         return 0;
     }
+
+    
 
     ///note: if the max value except type0 is type2
     ///that means this is no snp hapolyte
@@ -3895,11 +7637,12 @@ overlap_region_alloc* overlap_list, All_reads* R_INF)
     {
         return 0;
     }
-
+    
     if(max <= 1)
     {
         return 0;
     }
+
 
     ///if we have two max
     for (i = 0; i < 5; i++)
@@ -3921,59 +7664,22 @@ overlap_region_alloc* overlap_list, All_reads* R_INF)
         return 0;
     }
 
-    ///if we just have one snp, we need to phase it carefully
-    if(num_haplotype == 1)
-    {
-        ///we must have just 1 match and 1 mismatch
-        ///any other types are not good
-        if(new_0 + max != new_total)
-        {
-            return 0;
-        }
-
-        if(filter_snp(new_0, max, new_total) == 0)
-        {
-            return 0;
-        }
-    }
-
-    /**
-    if(filter_snp(new_0, max, new_total) == 0)
+    ///new_total is the number of errors here
+    new_total = new_total - new_0;
+    ///available is the number of selected errors here
+    available = max;
+    threshold = 0.70;
+    available = available/((double)(new_total));
+    if(available < threshold)
     {
         return 0;
     }
-    **/
     
-        
+   
 
 
-    
 
-    
-    InsertSNPVector(hap, sub_list, sub_length, s_H[max_i]);
-    
-    
-
-    /**
-    fprintf(stderr, "new_0: %d, occ_0: %d, max: %d, max_i: %d, sub_length: %d, new_total: %d, available: %lf\n", 
-    new_0, occ_0, max, max_i, sub_length, new_total, available);
-    for (i = 0; i < sub_length; i++)
-    {
-        
-        fprintf(stderr, "i: %d, site: %d, type: %d, char: %c, ID: %d, name: %.*s\n", 
-    i, sub_list[i].site, sub_list[i].type, sub_list[i].misBase, sub_list[i].overlapID, 
-    Get_NAME_LENGTH((*R_INF), overlap_list->list[sub_list[i].overlapID].y_id), 
-    Get_NAME((*R_INF),overlap_list->list[sub_list[i].overlapID].y_id)); 
-
-    }
-    fprintf(stderr, "\n");
-    **/
-    
-    
-    
-    
-
-    
+    InsertSNPVector(hap, sub_list, sub_length, s_H[max_i], g_read);
 }
 
 
@@ -4139,15 +7845,16 @@ int debug_add_to_result_snp_vector(haplotype_evdience_alloc* hap, int8_t *new_ve
         }
         else ///can debug here
         {
-            if((new_vector[j] != -1 && new_vector[j] != 2 && new_vector[j] != r_vector[j]))
+            ///if((new_vector[j] != -1 && new_vector[j] != 2 && new_vector[j] != r_vector[j]))
+            if((new_vector[j] == 0 || new_vector[j] == 1) && new_vector[j] != r_vector[j])
             {
-                fprintf(stderr, "j: %d\n", j);
-                return 0;
+                ///fprintf(stderr, "j: %d\n", j);
+                return j;
             }
         }
     }
 
-    return 1;
+    return -1;
 
 }
 
@@ -4220,11 +7927,18 @@ int generate_haplotypes(haplotype_evdience_alloc* hap)
         return 0;
     }
 
+    ///sort by weight
     qsort(hap->snp_stat, hap->available_snp, sizeof(SnpStats), cmp_snp_stats);
 
-    ///the hap->core_snp is used to find centriod
 
-            
+    // for (j = 0; j < hap->available_snp; j++)
+    // {
+    //     fprintf(stderr, "j: %d, score: %d\n",  j, hap->snp_stat[j].score);
+    // }
+    // fprintf(stderr, "\n\n");
+
+    ///the hap->core_snp is used to find centriod
+        
     ///if there are <5 vectors in core_snp, we didn't allow different vector
     if (hap->core_snp < 5)
     {
@@ -4290,11 +8004,13 @@ int generate_haplotypes(haplotype_evdience_alloc* hap)
     
 }
 
+
+
 void print_snp_in_line(haplotype_evdience_alloc* hap)
 {
     int j, i;
     uint32_t* column;
-        fprintf(stderr, "\n\n\n###########hap->available_snp: %d###########\n", hap->available_snp);
+        fprintf(stderr, "###########hap->available_snp: %d###########\n", hap->available_snp);
         for (j = 0; j < hap->available_snp; j++)
         {
             fprintf(stderr, "*********j: %d, site: %d, id: %d*********\n", j, hap->snp_stat[j].site, hap->snp_stat[j].id);
@@ -4326,7 +8042,9 @@ void print_snp_in_line(haplotype_evdience_alloc* hap)
         fprintf(stderr, "***********************\n");
         for (i = 0; i < hap->dp.snp_num; i++)
         {
-            fprintf(stderr, "hap->dp.max[%d]: %d, hap->dp.backtrack_length: %d\n", i, hap->dp.max[i], hap->dp.backtrack_length[i]);
+            fprintf(stderr, "hap->dp.max[%d]: %d, hap->dp.backtrack_length: %d\n", 
+            i, hap->dp.max[i], hap->dp.backtrack_length[i]);
+
             if(hap->dp.backtrack_length[i] != 0)
             {
                 column = Get_DP_Backtrack_Column(hap->dp, i);
@@ -4338,9 +8056,808 @@ void print_snp_in_line(haplotype_evdience_alloc* hap)
             }
             
         }
+
+        fprintf(stderr, "#########################\n\n\n");
 }
 
-int generate_haplotypes_DP(haplotype_evdience_alloc* hap, overlap_region_alloc* overlap_list, All_reads* R_INF)
+///if j == -1, print result vector
+void print_single_snp(haplotype_evdience_alloc* hap, int j)
+{
+
+
+
+    int i, vectorID;
+    int8_t* vector;
+    if(j != -1)
+    {
+        fprintf(stderr, "*********site: %d, j: %d, id: %d*********\n", 
+        hap->snp_stat[j].site, j, hap->snp_stat[j].id);
+        vectorID = hap->snp_stat[j].id;
+        vector = Get_SNP_Vector((*hap), vectorID);
+    }
+    else
+    {
+        fprintf(stderr, "*********result snp*********\n");
+        vector = Get_Result_SNP_Vector((*hap));
+    }
+    
+
+    
+    fprintf(stderr, "type(0):\n");
+    for (i = 0; i < hap->overlap; i++)
+    {
+        if(vector[i] == 0)
+        {
+            fprintf(stderr, "%3d, ", i);
+        }
+    }
+    fprintf(stderr, "\n");
+
+    fprintf(stderr, "type(1):\n");
+    for (i = 0; i < hap->overlap; i++)
+    {
+        if(vector[i] == 1)
+        {
+            fprintf(stderr, "%3d, ", i);
+        }
+    }
+    fprintf(stderr, "\n");
+    fprintf(stderr, "###############\n\n");
+}
+
+
+
+void Preorder_Merge(uint32_t snpID, haplotype_evdience_alloc* hap, int is_merge) 
+{ 
+    int vectorID = hap->snp_stat[snpID].id;
+    int8_t* vector = Get_SNP_Vector((*hap), vectorID);
+    hap->dp.visit[snpID] = 1;
+    
+
+    if(is_merge)
+    {
+        if(hap->snp_stat[snpID].is_homopolymer)
+        {
+            hap->result_stat.homopolymer_num++;
+        }
+        else
+        {
+            hap->result_stat.non_homopolymer_num++;
+        }
+        
+        hap->result_stat.score++;
+        int flag;
+        if((flag = debug_add_to_result_snp_vector(hap, vector, Get_SNP_Vector_Length((*hap))))!= -1)
+        {
+            fprintf(stderr, "incompatible snp vector....\n");
+            exit(0);
+        }
+    }
+
+    uint32_t* column;
+    int j;
+
+    if(hap->dp.backtrack_length[snpID] != 0)
+    {
+        column = Get_DP_Backtrack_Column(hap->dp, snpID);
+        
+        if(is_merge)
+        {
+            int add_ID = 0;
+            for (j = 0; j < hap->dp.backtrack_length[snpID]; j++)
+            {
+                if(hap->snp_stat[column[j]].is_homopolymer == 0)
+                {
+                    add_ID = j;
+                }
+            }
+
+            for (j = 0; j < hap->dp.backtrack_length[snpID]; j++)
+            {
+                if(j == add_ID)
+                {
+                    Preorder_Merge(column[j], hap, 1); 
+                }
+                else
+                {
+                    Preorder_Merge(column[j], hap, 0); 
+                }
+            }
+        }
+        else
+        {
+            for (j = 0; j < hap->dp.backtrack_length[snpID]; j++)
+            {
+                Preorder_Merge(column[j], hap, 0); 
+            }
+        }
+    }
+}
+
+
+void generate_result_vector_repeat(haplotype_evdience_alloc* hap, int pathLen)
+{
+    if(pathLen != hap->dp.current_snp_num)
+    {
+        fprintf(stderr, "hahah\n");
+    }
+
+    
+    int8_t* vector = Get_Result_SNP_Vector((*hap));
+    memset(vector, -1, Get_SNP_Vector_Length((*hap)));
+    hap->result_stat.occ_0 = 0;
+    hap->result_stat.occ_1 = 0;
+    hap->result_stat.occ_2 = 0;
+    hap->result_stat.score = pathLen;
+    hap->result_stat.homopolymer_num = 0;
+    hap->result_stat.non_homopolymer_num = 0;
+
+    long long snpID1;
+    long long j = 0;
+    int flag, vectorID;
+    int current_score;
+    for (j = 0; j < pathLen; j++)
+    {
+        snpID1 = hap->dp.buffer[j];
+        vectorID = hap->snp_stat[snpID1].id;
+        vector = Get_SNP_Vector((*hap), vectorID);
+        if(hap->snp_stat[snpID1].is_homopolymer)
+        {
+            hap->result_stat.homopolymer_num++;
+        }
+        else
+        {
+            hap->result_stat.non_homopolymer_num++;
+        }
+
+        if((flag = debug_add_to_result_snp_vector(hap, vector, Get_SNP_Vector_Length((*hap))))!= -1)
+        {
+            fprintf(stderr, "incompatible snp vector....\n");
+            exit(0);
+        }
+    }
+    hap->result_stat.overlap_num = hap->result_stat.occ_0 + hap->result_stat.occ_1;
+    
+
+    insert_SNP_IDs_addition(&(hap->dp.SNP_IDs), hap->dp.buffer, pathLen, hap->result_stat.occ_0, hap->result_stat.occ_1,
+    hap->result_stat.homopolymer_num, hap->result_stat.non_homopolymer_num);
+}
+
+
+
+void Preorder_Merge_Advance_Repeat(uint32_t snpID, haplotype_evdience_alloc* hap, int pathLen) 
+{ 
+    hap->dp.visit[snpID] = 1;
+    hap->dp.buffer[pathLen] = snpID;
+    pathLen++;
+
+    if(hap->dp.backtrack_length[snpID] == 0)
+    {
+        ///generate_result_vector_repeat(hap, pathLen);
+        insert_SNP_IDs_addition(&(hap->dp.SNP_IDs), hap->dp.buffer, pathLen);
+        return;
+    }
+    else
+    {
+        uint32_t* column;
+        int j;
+
+        column = Get_DP_Backtrack_Column(hap->dp, snpID);
+        for (j = 0; j < hap->dp.backtrack_length[snpID]; j++)
+        {
+            Preorder_Merge_Advance_Repeat(column[j], hap, pathLen); 
+        }
+    }
+}
+
+
+
+void generate_result_vector(haplotype_evdience_alloc* hap, int pathLen)
+{
+    if(pathLen != hap->dp.current_snp_num)
+    {
+        fprintf(stderr, "hahah\n");
+    }
+
+
+    int8_t* vector = Get_Result_SNP_Vector((*hap));
+    memset(vector, -1, Get_SNP_Vector_Length((*hap)));
+    hap->result_stat.occ_0 = 0;
+    hap->result_stat.occ_1 = 0;
+    hap->result_stat.occ_2 = 0;
+    hap->result_stat.score = pathLen;
+    hap->result_stat.homopolymer_num = 0;
+    hap->result_stat.non_homopolymer_num = 0;
+
+    long long snpID1;
+    long long j = 0;
+    int flag, vectorID;
+    int current_score;
+    for (j = 0; j < pathLen; j++)
+    {
+        snpID1 = hap->dp.buffer[j];
+        vectorID = hap->snp_stat[snpID1].id;
+        vector = Get_SNP_Vector((*hap), vectorID);
+        if(hap->snp_stat[snpID1].is_homopolymer)
+        {
+            hap->result_stat.homopolymer_num++;
+        }
+        else
+        {
+            hap->result_stat.non_homopolymer_num++;
+        }
+
+        if((flag = debug_add_to_result_snp_vector(hap, vector, Get_SNP_Vector_Length((*hap))))!= -1)
+        {
+            fprintf(stderr, "incompatible snp vector....\n");
+            exit(0);
+        }
+    }
+    hap->result_stat.overlap_num = hap->result_stat.occ_0 + hap->result_stat.occ_1;
+    
+
+    
+
+    ///check if this is a useful snp vector
+    if(hap->result_stat.overlap_num !=0 && filter_one_snp_advance_nearby(hap, hap->result_stat.occ_0 + 1, 
+    hap->result_stat.occ_1, hap->result_stat.overlap_num + 1,
+    hap->result_stat.homopolymer_num, hap->result_stat.non_homopolymer_num,
+    hap->dp.buffer, pathLen))
+    {
+        current_score = calculate_score(hap->result_stat.occ_0 + 1, hap->result_stat.occ_1);
+        ///first useful snp vector
+        if(hap->dp.max_snp_num < pathLen)
+        {
+            hap->dp.max_snp_num = pathLen;
+            hap->dp.max_score = current_score;
+            memcpy(hap->dp.max_buffer, hap->dp.buffer, sizeof(uint32_t) * pathLen);
+        }///if we have multiple single best snp vector, select the vector with max score
+        else if(hap->dp.max_snp_num == pathLen)
+        {
+            if(current_score > hap->dp.max_score)
+            {
+                hap->dp.max_score = current_score;
+                memcpy(hap->dp.max_buffer, hap->dp.buffer, sizeof(uint32_t) * pathLen);
+            }
+        }
+    }
+
+}
+
+
+void Preorder_Merge_Advance(uint32_t snpID, haplotype_evdience_alloc* hap, int pathLen) 
+{ 
+    hap->dp.visit[snpID] = 1;
+    hap->dp.buffer[pathLen] = snpID;
+    pathLen++;
+
+    if(hap->dp.backtrack_length[snpID] == 0)
+    {
+        generate_result_vector(hap, pathLen);
+        return;
+    }
+    else
+    {
+        uint32_t* column;
+        int j;
+
+        column = Get_DP_Backtrack_Column(hap->dp, snpID);
+        for (j = 0; j < hap->dp.backtrack_length[snpID]; j++)
+        {
+            Preorder_Merge_Advance(column[j], hap, pathLen); 
+        }
+    }
+}
+
+
+
+int if_snp_vector_useful(haplotype_evdience_alloc* hap,
+long long occ_0, long long occ_1, long long occ_1_low,
+long long coverage, uint32_t* SNPs, long long SNPsLen, int roundID)
+{
+    double occ_1_coverage_low = coverage * 0.3;
+    
+
+    if(occ_1 >= occ_1_low && occ_0 >= occ_1_low)
+    {
+        if(occ_1 >= occ_1_coverage_low && occ_0 >= occ_1_coverage_low)
+        {
+            return 1;
+        }
+        else if(occ_1 >= 5 && occ_0 >= 5)
+        {
+            return 1;
+        }
+        else if(occ_1 >= 2 && occ_0 >= 2 && SNPsLen >= 2)
+        {
+            int nearsnp;
+            int non_nearsnps;
+            count_nearby_snps(hap, SNPs, SNPsLen, &nearsnp, &non_nearsnps);
+            if(non_nearsnps > 0)
+            {
+                return 1;
+            }
+        }
+        else if(roundID == 1 && occ_0 >= occ_1_coverage_low)
+        {
+            return 1;
+        }
+        
+    }
+
+    return 0;
+}
+
+
+void merge_SNP_Vectors(haplotype_evdience_alloc* hap, uint32_t* SNPs, long long SNPLen)
+{
+    
+    int8_t* vector = Get_Result_SNP_Vector((*hap));
+    memset(vector, -1, Get_SNP_Vector_Length((*hap)));
+    hap->result_stat.occ_0 = 0;
+    hap->result_stat.occ_1 = 0;
+    hap->result_stat.occ_2 = 0;
+    hap->result_stat.score = SNPLen;
+    hap->result_stat.homopolymer_num = 0;
+    hap->result_stat.non_homopolymer_num = 0;
+
+    long long snpID1;
+    long long j = 0;
+    int flag, vectorID;
+    int current_score;
+    for (j = 0; j < SNPLen; j++)
+    {
+        snpID1 = SNPs[j];
+        vectorID = hap->snp_stat[snpID1].id;
+        vector = Get_SNP_Vector((*hap), vectorID);
+        if(hap->snp_stat[snpID1].is_homopolymer)
+        {
+            hap->result_stat.homopolymer_num++;
+        }
+        else
+        {
+            hap->result_stat.non_homopolymer_num++;
+        }
+
+        if((flag = debug_add_to_result_snp_vector(hap, vector, Get_SNP_Vector_Length((*hap))))!= -1)
+        {
+            fprintf(stderr, "incompatible snp vector....\n");
+            exit(0);
+        }
+    }
+    hap->result_stat.overlap_num = hap->result_stat.occ_0 + hap->result_stat.occ_1;
+}
+
+
+void remove_reads(haplotype_evdience_alloc* hap, uint32_t* SNPs, long long SNPsLen, overlap_region_alloc* overlap_list)
+{
+    long long i, j, snpID, vectorID, overlapLen;
+    int8_t *vector;
+
+    for (i = 0; i < SNPsLen; i++)
+    {
+        snpID = SNPs[i];
+        vectorID = hap->snp_stat[snpID].id;
+        vector = Get_SNP_Vector((*hap), vectorID);
+        ///hap->snp_stat[snpID].site;
+
+        for (j = 0; j < Get_SNP_Vector_Length((*hap)); j++)
+        {
+            
+            if(vector[j] == 1 && overlap_list->list[j].is_match == 1)
+            {
+                //overlap_list->list[j].is_match = 0;
+                overlap_list->list[j].is_match = 2;
+                overlapLen = overlap_list->list[j].x_pos_e - overlap_list->list[j].x_pos_s + 1;
+                ///overlap_list->mapped_overlaps--;
+                overlap_list->mapped_overlaps_length -= overlapLen;
+            }
+
+            /****************************may have bugs********************************/
+            if( hap->snp_stat[snpID].site >= overlap_list->list[j].x_pos_s
+                &&
+                hap->snp_stat[snpID].site <= overlap_list->list[j].x_pos_e)
+              {
+                  overlap_list->list[j].strong = 1;
+              }
+            /****************************may have bugs********************************/
+
+        }
+    }
+}
+
+
+void output_reads_phase(haplotype_evdience_alloc* hap, uint32_t* SNPs, long long SNPsLen, 
+overlap_region_alloc* overlap_list, All_reads* R_INF)
+{
+    long long i, j, snpID, vectorID, overlapLen;
+    int8_t *vector;
+
+    for (i = 0; i < SNPsLen; i++)
+    {
+        snpID = SNPs[i];
+        vectorID = hap->snp_stat[snpID].id;
+        vector = Get_SNP_Vector((*hap), vectorID);
+
+        fprintf(stderr, "i: %d, site: %d, Get_SNP_Vector_Length((*hap)): %d\n", 
+        i, hap->snp_stat[snpID].site, Get_SNP_Vector_Length((*hap)));
+    
+        fprintf(stderr, "flag 1\n");
+        for (j = 0; j < Get_SNP_Vector_Length((*hap)); j++)
+        {
+            if(vector[j] == 1)
+            {
+            
+                fprintf(stderr, "%.*s\n", Get_NAME_LENGTH((*R_INF), overlap_list->list[j].y_id),
+                Get_NAME((*R_INF), overlap_list->list[j].y_id));
+            
+            }
+        }
+
+
+        fprintf(stderr, "flag 0\n");
+        for (j = 0; j < Get_SNP_Vector_Length((*hap)); j++)
+        {
+
+            if(vector[j] == 0)
+            {
+            
+                fprintf(stderr, "%.*s\n", Get_NAME_LENGTH((*R_INF), overlap_list->list[j].y_id),
+                Get_NAME((*R_INF), overlap_list->list[j].y_id));
+            
+            }
+        }
+
+    }
+}
+
+void remove_reads_debug(haplotype_evdience_alloc* hap, uint32_t* SNPs, long long SNPsLen, overlap_region_alloc* overlap_list)
+{
+    fprintf(stderr, "SNPsLen: %d\n", SNPsLen);
+    long long i, j, snpID, vectorID, overlapLen;
+    int8_t *vector;
+
+    for (i = 0; i < SNPsLen; i++)
+    {
+        snpID = SNPs[i];
+        vectorID = hap->snp_stat[snpID].id;
+        vector = Get_SNP_Vector((*hap), vectorID);
+        fprintf(stderr, "i: %d, snpID:%d, SNPsLen: %d, available_snp: %d, snp_stat[snpID].site: %d\n", 
+        i, snpID, SNPsLen, hap->available_snp, hap->snp_stat[snpID].site);
+
+        for (j = 0; j < Get_SNP_Vector_Length((*hap)); j++)
+        {
+            
+
+            if(vector[j] == 1 && overlap_list->list[j].is_match == 1)
+            {
+                //overlap_list->list[j].is_match = 0;
+                overlap_list->list[j].is_match = 2;
+                overlapLen = overlap_list->list[j].x_pos_e - overlap_list->list[j].x_pos_s + 1;
+                ///overlap_list->mapped_overlaps--;
+                overlap_list->mapped_overlaps_length -= overlapLen;
+            }
+
+            /****************************may have bugs********************************/
+            if( hap->snp_stat[snpID].site >= overlap_list->list[j].x_pos_s
+                &&
+                hap->snp_stat[snpID].site <= overlap_list->list[j].x_pos_e)
+              {
+                  overlap_list->list[j].strong = 1;
+              }
+
+              fprintf(stderr, "j: %d, x_pos_s: %d, x_pos_e: %d, strong: %d, is_match: %d", j, overlap_list->list[j].x_pos_s, 
+            overlap_list->list[j].x_pos_e, overlap_list->list[j].strong, 
+            overlap_list->list[j].is_match);
+            fprintf(stderr, "****************y: %.*s****************\n", 
+            Get_NAME_LENGTH(R_INF, overlap_list->list[j].y_id), 
+            Get_NAME(R_INF, overlap_list->list[j].y_id));
+            /****************************may have bugs********************************/
+
+        }
+    }
+}
+
+void try_to_remove_reads(int8_t* vector, long long vectorLen, overlap_region_alloc* overlap_list,
+uint32_t* SNPs, long long SNPLen, haplotype_evdience_alloc* hap)
+{
+    long long i, overlapLen;
+    long long removed_num = 0;
+
+    for (i = 0; i < vectorLen; i++)
+    {
+        if(vector[i] == 1 && overlap_list->list[i].is_match == 1)
+        {
+            
+            ///overlap_list->list[i].is_match = 0;
+            overlap_list->list[i].is_match = 2;
+            overlapLen = overlap_list->list[i].x_pos_e - overlap_list->list[i].x_pos_s + 1;
+            ///overlap_list->mapped_overlaps--;
+            overlap_list->mapped_overlaps_length -= overlapLen;
+            removed_num++;
+        }
+    }
+
+
+    long long snpID, j;
+    for (i = 0; i < SNPLen; i++)
+    {
+        snpID = SNPs[i];
+
+        ///check all overlaps
+        for (j = 0; j < Get_SNP_Vector_Length((*hap)); j++)
+        {
+            /****************************may have bugs********************************/
+            if( hap->snp_stat[snpID].site >= overlap_list->list[j].x_pos_s
+                &&
+                hap->snp_stat[snpID].site <= overlap_list->list[j].x_pos_e)
+              {
+                  overlap_list->list[j].strong = 1;
+              }
+            /****************************may have bugs********************************/
+        }
+    }
+}
+
+
+void process_repeat_snps(haplotype_evdience_alloc* hap, int coverage, overlap_region_alloc* overlap_list)
+{
+    int i, snpID, vectorID, flag;
+    int8_t *vector;
+    long long occ_1_threshold_low;
+    long long occ_1_threshold_up;
+    occ_1_threshold_low = 0;
+
+
+    uint32_t* snp_ids;
+    long long length;
+
+    
+
+    for (i = 0; i < hap->dp.SNP_IDs.IDs_length; i++)
+    {
+        snp_ids = hap->dp.SNP_IDs.buffer + hap->dp.SNP_IDs.IDs[i].beg;
+        length = hap->dp.SNP_IDs.IDs[i].end -hap->dp.SNP_IDs.IDs[i].beg + 1;
+
+        merge_SNP_Vectors(hap, snp_ids, length);
+
+
+        /**
+        if(if_snp_vector_useful(hap, hap->dp.SNP_IDs.IDs[i].occ_0, hap->dp.SNP_IDs.IDs[i].occ_1,
+        occ_1_threshold_low, coverage, snp_ids, length, 0))**/
+        if(if_snp_vector_useful(hap, hap->result_stat.occ_0, hap->result_stat.occ_1,
+        occ_1_threshold_low, coverage, snp_ids, length, 0))
+        {
+            //fprintf(stderr, "i: %d \n", i);
+            ///remove_reads(hap, snp_ids, length, overlap_list);
+            try_to_remove_reads(Get_Result_SNP_Vector((*hap)), Get_SNP_Vector_Length((*hap)), 
+            overlap_list, snp_ids, length, hap);
+
+            hap->dp.SNP_IDs.IDs[i].is_remove = 1;
+        }
+        else
+        {
+            hap->dp.SNP_IDs.IDs[i].is_remove = 0;
+        }
+        
+    }
+
+
+
+    ///print_snp_in_line(hap);
+    // fprintf(stderr, "-:overlap_list->mapped_overlaps: %d\n", overlap_list->mapped_overlaps);
+    /**
+    if(overlap_list->mapped_overlaps > coverage * 1.6)
+    {
+        for (i = 0; i < hap->dp.SNP_IDs.IDs_length; i++)
+        {
+            snp_ids = hap->dp.SNP_IDs.buffer + hap->dp.SNP_IDs.IDs[i].beg;
+            length = hap->dp.SNP_IDs.IDs[i].end -hap->dp.SNP_IDs.IDs[i].beg + 1;
+            if(hap->dp.SNP_IDs.IDs[i].is_remove == 0 && 
+            if_snp_vector_useful(hap, hap->dp.SNP_IDs.IDs[i].occ_0, hap->dp.SNP_IDs.IDs[i].occ_1,
+            occ_1_threshold_low, coverage, snp_ids, length, 1))
+            {
+                //fprintf(stderr, "i: %d \n", i);
+                remove_reads(hap, snp_ids, length, overlap_list);
+                
+            }
+        }
+    }
+    **/
+
+    // fprintf(stderr, "-:overlap_list->mapped_overlaps: %d\n\n\n", overlap_list->mapped_overlaps);
+
+    
+
+    
+}
+
+void process_repeat_snps_debug(haplotype_evdience_alloc* hap, int coverage, 
+overlap_region_alloc* overlap_list, All_reads* R_INF)
+{
+    int i, snpID, vectorID, flag;
+    int8_t *vector;
+    long long occ_1_threshold_low;
+    long long occ_1_threshold_up;
+    occ_1_threshold_low = 0;
+
+
+    uint32_t* snp_ids;
+    long long length;
+
+    
+
+    for (i = 0; i < hap->dp.SNP_IDs.IDs_length; i++)
+    {
+        snp_ids = hap->dp.SNP_IDs.buffer + hap->dp.SNP_IDs.IDs[i].beg;
+        length = hap->dp.SNP_IDs.IDs[i].end -hap->dp.SNP_IDs.IDs[i].beg + 1;
+
+        merge_SNP_Vectors(hap, snp_ids, length);
+
+        if(if_snp_vector_useful(hap, hap->result_stat.occ_0, hap->result_stat.occ_1,
+        occ_1_threshold_low, coverage, snp_ids, length, 0))
+        {
+
+
+            
+            if(overlap_list->list[0].x_id == 5405)
+            {
+                fprintf(stderr, "snpid length: %d, occ_0: %d, occ_1: %d\n", 
+                length,
+                hap->result_stat.occ_0,
+                hap->result_stat.occ_1);
+                int k;
+                for (k = 0; k < length; k++)
+                {
+                    fprintf(stderr, "i: %d, site: %d\n", 
+                    i, hap->snp_stat[snp_ids[k]].site);
+                }
+
+                for (k = 0; k < Get_SNP_Vector_Length((*hap)); k++)
+                {
+                    fprintf(stderr, "flag 0\n");
+                    if(Get_Result_SNP_Vector((*hap))[k] == 0)
+                    {
+                        fprintf(stderr, "%.*s\n", 
+                        Get_NAME_LENGTH((*R_INF),overlap_list->list[k].y_id),
+                        Get_NAME((*R_INF),overlap_list->list[k].y_id));
+                    }
+
+                    fprintf(stderr, "flag 1\n");
+                    if(Get_Result_SNP_Vector((*hap))[k] == 1)
+                    {
+                        fprintf(stderr, "%.*s\n", 
+                        Get_NAME_LENGTH((*R_INF),overlap_list->list[k].y_id),
+                        Get_NAME((*R_INF),overlap_list->list[k].y_id));
+                    }
+                }
+
+                
+                
+            }
+            
+            try_to_remove_reads(Get_Result_SNP_Vector((*hap)), Get_SNP_Vector_Length((*hap)), 
+            overlap_list, snp_ids, length, hap);
+
+            hap->dp.SNP_IDs.IDs[i].is_remove = 1;
+        }
+        else
+        {
+            hap->dp.SNP_IDs.IDs[i].is_remove = 0;
+        }
+        
+    }
+}
+
+
+
+void debug_repeat_vector(haplotype_evdience_alloc* hap)
+{
+    int j, i, snpID, vectorID, flag;
+    int8_t *vector;
+    
+
+    // if(memcmp(hap->dp.SNP_IDs.buffer + hap->dp.SNP_IDs.IDs[hap->dp.SNP_IDs.max_snp_id].beg, 
+    // hap->dp.max_buffer, 
+    // sizeof(uint32_t) *(hap->dp.SNP_IDs.IDs[hap->dp.SNP_IDs.max_snp_id].end - 
+    // hap->dp.SNP_IDs.IDs[hap->dp.SNP_IDs.max_snp_id].beg + 1)))
+    // {
+    //     fprintf(stderr, "error1\n");
+    // }
+
+    // if(hap->dp.SNP_IDs.IDs[hap->dp.SNP_IDs.max_snp_id].end - 
+    // hap->dp.SNP_IDs.IDs[hap->dp.SNP_IDs.max_snp_id].beg + 1 != 
+    // hap->dp.max_snp_num)
+    // {
+    //     fprintf(stderr, "error2\n");
+    // }
+
+
+
+    
+
+    uint32_t* snp_ids;
+    long long length;
+    for (i = 0; i < hap->dp.SNP_IDs.IDs_length; i++)
+    {
+        snp_ids = hap->dp.SNP_IDs.buffer + hap->dp.SNP_IDs.IDs[i].beg;
+        length = hap->dp.SNP_IDs.IDs[i].end -hap->dp.SNP_IDs.IDs[i].beg + 1;
+
+        ////first clear result snp
+        vector = Get_Result_SNP_Vector((*hap));
+        memset(vector, -1, Get_SNP_Vector_Length((*hap)));
+
+        long long non_hom = 0;
+        long long hom = 0;
+        for (j = 0; j < length; j++)
+        {
+            ///note here is hap->dp.max_buffer instead of hap->dp.buffer
+            snpID = snp_ids[j];
+            vectorID = hap->snp_stat[snpID].id;
+            vector = Get_SNP_Vector((*hap), vectorID);
+
+
+            if(hap->snp_stat[snpID].is_homopolymer)
+            {
+                hom++;
+            }
+            else
+            {
+                non_hom++;
+            }
+            
+
+            if((flag = debug_add_to_result_snp_vector(hap, vector, Get_SNP_Vector_Length((*hap))))!= -1)
+            {
+                fprintf(stderr, "incompatible snp vector....\n");
+                exit(0);
+            }
+        }
+
+        vector = Get_Result_SNP_Vector((*hap));
+        long long occ_0 = 0;
+        long long occ_1 = 0;
+        for (j = 0; j < Get_SNP_Vector_Length((*hap)); j++)
+        {
+            if(vector[j] == 0)
+            {
+                occ_0++;
+            }
+
+            if(vector[j] == 1)
+            {
+                occ_1++;
+            }
+        }
+
+        if(hom != hap->dp.SNP_IDs.IDs[i].homopolymer_num)
+        {
+            fprintf(stderr, "error\n");
+        }
+
+        if(non_hom != hap->dp.SNP_IDs.IDs[i].non_homopolymer_num)
+        {
+            fprintf(stderr, "error\n");
+        }
+
+        if(occ_0 != hap->dp.SNP_IDs.IDs[i].occ_0)
+        {
+            fprintf(stderr, "error\n");
+        }
+
+        if(occ_1 != hap->dp.SNP_IDs.IDs[i].occ_1)
+        {
+            fprintf(stderr, "error\n");
+        }
+        
+
+
+    }
+}
+
+
+int generate_haplotypes_DP(haplotype_evdience_alloc* hap, overlap_region_alloc* overlap_list, All_reads* R_INF, long long rLen, 
+int force_repeat)
 {
     int j, i;
 
@@ -4355,15 +8872,7 @@ int generate_haplotypes_DP(haplotype_evdience_alloc* hap, overlap_region_alloc* 
         return 0;
     }
 
-
-
-    /**
-    fprintf(stderr, "*******\nhap->available_snp: %d\n", hap->available_snp);
-    for (j = 0; j < hap->available_snp; j++)
-    {
-        fprintf(stderr, "site: %d, id: %d\n", hap->snp_stat[j].site, hap->snp_stat[j].id);
-    }
-    **/
+    
 
     ///if hap->available_snp == 1, the following codes would have bugs
     ///filter snps that are highly likly false 
@@ -4373,7 +8882,10 @@ int generate_haplotypes_DP(haplotype_evdience_alloc* hap, overlap_region_alloc* 
         ///if a snp is very near to others, it should not be a real snp
         for (j = 0; j < hap->available_snp; j++)
         {
-
+            // if(hap->snp_stat[j].occ_1 == 1)
+            // {
+            //     fprintf(stderr, "***\n");
+            // }
             if(j > 0 && j < hap->available_snp - 1)
             {
                 if(hap->snp_stat[j].site != hap->snp_stat[j - 1].site + 1
@@ -4405,14 +8917,19 @@ int generate_haplotypes_DP(haplotype_evdience_alloc* hap, overlap_region_alloc* 
         hap->available_snp = i;
     }
 
+
+    
+    
+
+
     int flag;
-    long long overlap_length, total_read, unuseful_read;
+    long long overlap_length, total_read, unuseful_read, last_j, last_j_ID, last_j_flag;
     total_read = unuseful_read = 0;
     ///check if any read may be conflict with others
     for (i = 0; i < overlap_list->length; i++)
     {
         overlap_length = overlap_list->list[i].x_pos_e - overlap_list->list[i].x_pos_s + 1;
-        if (overlap_length * OVERLAP_THRESHOLD <=  overlap_list->list[i].align_length)
+        if (overlap_list->list[i].is_match == 1)
         {
             total_read++;
             flag = -1;
@@ -4421,35 +8938,77 @@ int generate_haplotypes_DP(haplotype_evdience_alloc* hap, overlap_region_alloc* 
                 vectorID = hap->snp_stat[j].id;
                 vector = Get_SNP_Vector((*hap), vectorID);
 
-                if(vector[i] != 2 && flag == 2)
+                ///flag == -1 means there are no useful signals yet
+                if (flag == -1)
                 {
-                    unuseful_read++;
-                    flag = 3;
-                    break;
-                }
-
-                if(vector[i] == 2)
+                    if((vector[i] == 0 || vector[i] == 1 ))
+                    {
+                        flag = 0;
+                    }
+                }///flag == 0 means there is at least one useful signal yet
+                else if (flag == 0) 
                 {
-                    flag = 2;
+                    if(vector[i] != 0 && vector[i] != 1)
+                    {
+                        flag = 2;
+                        last_j = hap->snp_stat[j].site;
+                        last_j_ID = j;
+                        last_j_flag = vector[i];
+                    }
+                }///flag == 0 means there is at least one useful signal first, and another unuseful signal after that
+                else if(flag == 2) 
+                {
+                    if((vector[i] == 0 || vector[i] == 1 ))
+                    {
+                        flag = 3;
+                        break;
+                    }
                 }
             }
 
 
             if(flag == 3)
             {
+                unuseful_read++;
                 for (j = 0; j < hap->available_snp; j++)
                 {
                     vectorID = hap->snp_stat[j].id;
                     vector = Get_SNP_Vector((*hap), vectorID);
+                    
+
+                    
+                    if(vector[i] == 0)
+                    {
+                        hap->snp_stat[j].occ_0--;
+                        hap->snp_stat[j].occ_2++;
+                    }
+                    else if(vector[i] == 1)
+                    {
+                        hap->snp_stat[j].occ_1--;
+                        hap->snp_stat[j].occ_2++;
+                    }
+                    else if(vector[i] != 2)
+                    {
+                        hap->snp_stat[j].occ_2++;
+                    }
+                    
+
                     vector[i] = 2;
                 }
+                // if(overlap_list->list[i].is_match == 0)
+                // {
+                //     fprintf(stderr, "error\n");
+                // }
+                ///this read may be unuseful
+                ///overlap_list->list[i].is_match = 0;
+                ///overlap_list->list[i].is_match = 2;
+                overlap_list->list[i].is_match = 4;
+                ///overlap_list->mapped_overlaps--;
+                overlap_list->mapped_overlaps_length -= overlap_length;
             }
         }
     }
-
-
-
-
+    
 
     /*******************************DP********************************/
     init_DP_matrix(&(hap->dp), hap->available_snp);
@@ -4465,6 +9024,7 @@ int generate_haplotypes_DP(haplotype_evdience_alloc* hap, overlap_region_alloc* 
         ///vector of snp i
         vectorID = hap->snp_stat[i].id;
         vector = Get_SNP_Vector((*hap), vectorID);
+        hap->dp.visit[i] = 0;
         hap->dp.max[i] = 1;
         hap->dp.backtrack_length[i] = 0;
         equal_best = 0;
@@ -4502,7 +9062,183 @@ int generate_haplotypes_DP(haplotype_evdience_alloc* hap, overlap_region_alloc* 
     }
 
     /*******************************DP********************************/
+
+
+
+
+
+    uint64_t tmp_mode = 0;
+
+    for (i = 0; i < hap->available_snp; i++)
+    {
+        tmp_mode = hap->dp.max[i];
+        tmp_mode = tmp_mode << 32;
+        tmp_mode = tmp_mode | (uint64_t)(i);
+        hap->dp.max_for_sort[i] = tmp_mode;
+    }
+    
+    qsort(hap->dp.max_for_sort, hap->available_snp, sizeof(uint64_t), cmp_max_DP);
+
+
+    int snpID;
+    int group_num = 0;
+    ///the minmum snp_num is 1
+    hap->dp.max_snp_num = 0;
+    hap->dp.max_score = -2;
+    
+    
+    
+    
+
+    //repeat
+    if(overlap_list->mapped_overlaps_length > Coverage_Threshold(coverage, rLen) || force_repeat)
+    {
+        for (i = 0; i < hap->available_snp; i++)
+        {
+            snpID = Get_Max_DP_ID(hap->dp.max_for_sort[i]);
+            if(hap->dp.visit[snpID] == 0)
+            {
+                hap->dp.current_snp_num = Get_Max_DP_Value(hap->dp.max_for_sort[i]);
+                Preorder_Merge_Advance_Repeat(snpID, hap, 0);
+            }
+        }
+    }
+    else  //non-repeat
+    {
+        for (i = 0; i < hap->available_snp; i++)
+        {
+            snpID = Get_Max_DP_ID(hap->dp.max_for_sort[i]);
+            if(hap->dp.visit[snpID] == 0)
+            {
+                hap->dp.current_snp_num = Get_Max_DP_Value(hap->dp.max_for_sort[i]);
+                Preorder_Merge_Advance(snpID, hap, 0);
+            }
+        }
+    }
+
     /**
+    if(memcmp("m64011_190329_072846/59507330/ccs", 
+    Get_NAME((*R_INF), overlap_list->list[0].x_id), 
+    Get_NAME_LENGTH((*R_INF), overlap_list->list[0].x_id)) == 0)
+    {
+        fprintf(stderr, "x_id: %d, mapped_overlaps_length: %d\n",
+        overlap_list->list[0].x_id,
+        overlap_list->mapped_overlaps_length);
+        fprintf(stderr, "coverage: %d\n",
+        coverage);
+        fprintf(stderr, "rLen: %d\n",
+        rLen);
+        fprintf(stderr, "Coverage_Threshold(coverage, rLen): %f\n",
+        Coverage_Threshold(coverage, rLen));
+        fprintf(stderr, "max_snp_num: %d\n",
+        hap->dp.max_snp_num);
+    }
+    **/
+    
+    
+    
+    
+
+    if(overlap_list->mapped_overlaps_length > Coverage_Threshold(coverage, rLen) || force_repeat)
+    {
+        ///debug_repeat_vector(hap);
+        ///process_repeat_snps_debug(hap, coverage, overlap_list, R_INF);
+        process_repeat_snps(hap, coverage, overlap_list);
+
+        return 1;
+        
+    }
+    else if(hap->dp.max_snp_num > 0)
+    {
+        /**
+        if(memcmp("m64011_190329_072846/59507330/ccs", 
+        Get_NAME((*R_INF), overlap_list->list[0].x_id), 
+        Get_NAME_LENGTH((*R_INF), overlap_list->list[0].x_id)) == 0)
+        {
+
+            output_reads_phase(hap, hap->dp.max_buffer, hap->dp.max_snp_num, 
+            overlap_list, R_INF);
+        }
+        **/
+    
+
+
+    
+        remove_reads(hap, hap->dp.max_buffer, hap->dp.max_snp_num, overlap_list);
+        return 1;
+    }
+    else
+    {
+        return 0;
+    }
+    
+
+    
+
+    /**
+    vector = Get_Result_SNP_Vector((*hap));
+    memset(vector, -1, Get_SNP_Vector_Length((*hap)));
+    vector = Get_Result_SNP_Vector((*hap));
+    for (i = 0; i < hap->available_snp; i++)
+    {
+        int debug_i = Get_Max_DP_ID(hap->dp.max_for_sort[i]);
+        int round = hap->dp.max[debug_i];
+        ///fprintf(stderr, "round: %d\n", round);
+        if(round > 1)
+        {
+            vector = Get_Result_SNP_Vector((*hap));
+            memset(vector, -1, Get_SNP_Vector_Length((*hap)));
+            
+
+            if(hap->dp.backtrack_length[debug_i] < 1)
+            {
+                fprintf(stderr, "error\n");
+            }
+
+        
+            
+            while (round > 0)
+            {
+                
+                
+                
+                vectorID2 = hap->snp_stat[debug_i].id;
+                vector2 = Get_SNP_Vector((*hap), vectorID2);
+                int flag;
+                if((flag = debug_add_to_result_snp_vector(hap, vector2, Get_SNP_Vector_Length((*hap))))!= -1)
+                {
+                    fprintf(stderr, "flag: %d, debug_i: %d, i: %d, x_name: %.*s\n", 
+                    flag, debug_i, i, Get_NAME_LENGTH((*R_INF), overlap_list->list[0].x_id), Get_NAME((*R_INF),overlap_list->list[0].x_id));
+                    print_snp_in_line(hap);
+                }
+
+                if(round != hap->dp.max[debug_i])
+                {
+                    fprintf(stderr, "error: %d\n", round);
+                }
+
+
+               if(hap->dp.backtrack_length[debug_i] != 0)
+                {
+                    column = Get_DP_Backtrack_Column(hap->dp, debug_i);
+                    debug_i = column[0];
+                }
+                else if(round != 1)
+                {
+                    fprintf(stderr, "round: %d\n", round);
+                }
+                
+
+
+                round--;
+            }
+            
+        }
+    }
+    vector = Get_Result_SNP_Vector((*hap));
+    memset(vector, -1, Get_SNP_Vector_Length((*hap)));
+    
+
     vector = Get_Result_SNP_Vector((*hap));
     memset(vector, -1, Get_SNP_Vector_Length((*hap)));
     vector = Get_Result_SNP_Vector((*hap));
@@ -4518,42 +9254,66 @@ int generate_haplotypes_DP(haplotype_evdience_alloc* hap, overlap_region_alloc* 
                 fprintf(stderr, "error\n");
             }
 
+        
             int debug_i = i;
             int round = hap->dp.max[i];
-            while (hap->dp.max[debug_i] != 1)
+            while (round > 0)
             {
                 
-
+                
+                
                 vectorID2 = hap->snp_stat[debug_i].id;
                 vector2 = Get_SNP_Vector((*hap), vectorID2);
-                if(debug_add_to_result_snp_vector(hap, vector2, Get_SNP_Vector_Length((*hap))) == 0)
+                int flag;
+                if((flag = debug_add_to_result_snp_vector(hap, vector2, Get_SNP_Vector_Length((*hap))))!= -1)
                 {
-                    fprintf(stderr, "debug_i: %d\n", debug_i);
+                    fprintf(stderr, "flag: %d, debug_i: %d, i: %d, x_name: %.*s\n", 
+                    flag, debug_i, i, Get_NAME_LENGTH((*R_INF), overlap_list->list[0].x_id), Get_NAME((*R_INF),overlap_list->list[0].x_id));
                     print_snp_in_line(hap);
-                    
                 }
 
+                if(round != hap->dp.max[debug_i])
+                {
+                    fprintf(stderr, "error: %d\n", round);
+                }
+
+
+               if(hap->dp.backtrack_length[debug_i] != 0)
+                {
+                    column = Get_DP_Backtrack_Column(hap->dp, debug_i);
+                    debug_i = column[0];
+                }
+                else if(round != 1)
+                {
+                    fprintf(stderr, "round: %d\n", round);
+                }
                 
 
-                if(hap->dp.max[debug_i] != round)
-                {
-                    fprintf(stderr, "hahah\n");
-                }
-                debug_i = hap->dp.backtrack_length[0];
+
                 round--;
             }
+            
         }
     }
     vector = Get_Result_SNP_Vector((*hap));
     memset(vector, -1, Get_SNP_Vector_Length((*hap)));
-
-    
+    **/
+    /**
     if(hap->available_snp > 4)
+    // if(memcmp("m54334_180924_221206/48759269/ccs", Get_NAME((*R_INF),overlap_list->list[0].x_id), 
+    // Get_NAME_LENGTH((*R_INF), overlap_list->list[0].x_id)) == 0)
+    // if(memcmp("m54328_180922_235017/65536381/ccs", Get_NAME((*R_INF),overlap_list->list[0].x_id), 
+    // Get_NAME_LENGTH((*R_INF), overlap_list->list[0].x_id)) == 0)
     {
         fprintf(stderr, "\n\n\n###########hap->available_snp: %d###########\n", hap->available_snp);
+
+        fprintf(stderr, "x_name: %.*s\n", 
+             Get_NAME_LENGTH((*R_INF), overlap_list->list[0].x_id), Get_NAME((*R_INF),overlap_list->list[0].x_id));
+
         for (j = 0; j < hap->available_snp; j++)
         {
-            fprintf(stderr, "*********site: %d, id: %d*********\n", hap->snp_stat[j].site, hap->snp_stat[j].id);
+            fprintf(stderr, "*********site: %d, j: %d, id: %d*********\n", 
+            hap->snp_stat[j].site, j, hap->snp_stat[j].id);
 
             fprintf(stderr, "type(0):\n");
 
@@ -4577,6 +9337,18 @@ int generate_haplotypes_DP(haplotype_evdience_alloc* hap, overlap_region_alloc* 
                 }
             }
             fprintf(stderr, "\n");
+
+            ///if(j == 21 || j == 23)
+            // {
+            //     for (i = 0; i < hap->overlap; i++)
+            //     {
+            //         if(vector[i] == 1)
+            //         {
+            //             fprintf(stderr, "1: i: %d, %.*s\n", i, Get_NAME_LENGTH((*R_INF), overlap_list->list[i].y_id), 
+            //             Get_NAME((*R_INF),overlap_list->list[i].y_id));
+            //         }
+            //     }
+            // }
         }
 
         fprintf(stderr, "***********************\n");
@@ -4595,6 +9367,7 @@ int generate_haplotypes_DP(haplotype_evdience_alloc* hap, overlap_region_alloc* 
             
         }
     }
+    
     **/
     
 
@@ -4631,7 +9404,204 @@ int generate_haplotypes_DP(haplotype_evdience_alloc* hap, overlap_region_alloc* 
 
     
 
+}
+
+
+inline int check_informative_site(haplotype_evdience_alloc* hap, SnpStats* snp)
+{
+    long long vectorID = snp->id;
+    int8_t *vector = Get_SNP_Vector((*hap), vectorID);
+    snp->occ_0 = 0;
+    snp->occ_1 = 0;
+    snp->occ_2 = 0;
+    long long i;
+    for (i = 0; i < Get_SNP_Vector_Length((*hap)); i++)
+    {
+        if(vector[i] == 0)
+        {
+            snp->occ_0++;
+        }
+        else if(vector[i] == 1)
+        {
+            snp->occ_1++;
+        }
+        else if(vector[i] == 2)
+        {
+            snp->occ_2++;
+        }
+    }
+
+    if(snp->occ_0 >= 2 || snp->occ_1 >= 2)
+    {
+        return 1;
+    }
+
     return 0;
+}
+
+inline long long snp_occ_in_one_read(haplotype_evdience_alloc* hap, overlap_region_alloc* overlap_list, 
+long long readID)
+{
+    long long i;
+    long long vectorID;
+    int8_t *vector;
+
+    long long snp_occ = 0;
+    for (i = 0; i < hap->available_snp; i++)
+    {
+        vectorID = hap->snp_stat[i].id;
+        vector = Get_SNP_Vector((*hap), vectorID);
+        if(vector[readID] == 1)
+        {
+            snp_occ++;
+        }
+    }
+
+    return snp_occ;
+}
+
+inline void remove_read_from_snps(haplotype_evdience_alloc* hap, overlap_region_alloc* overlap_list, 
+long long readID)
+{
+    long long i;
+    long long vectorID;
+    int8_t *vector;
+
+    for (i = 0; i < hap->available_snp; i++)
+    {
+        vectorID = hap->snp_stat[i].id;
+        vector = Get_SNP_Vector((*hap), vectorID);
+        vector[readID] = 2;
+    }
+    overlap_list->list[readID].is_match = 4;
+}
+
+int generate_haplotypes_naive(haplotype_evdience_alloc* hap, overlap_region_alloc* overlap_list, All_reads* R_INF, long long rLen, 
+int force_repeat)
+{
+    int j, i;
+
+    int vectorID, vectorID2;
+    int diff_core_vector = 0;
+    int diff_vector_ID = -1;
+    int8_t *vector, *vector2;
+
+    
+    if(hap->available_snp == 0)
+    {
+        return 0;
+    }
+
+    
+
+    ///if hap->available_snp == 1, the following codes would have bugs
+    ///filter snps that are highly likly false 
+    if(hap->available_snp > 1)
+    {
+        i = 0;
+        ///if a snp is very close to others, it should not be a real snp
+        for (j = 0; j < hap->available_snp; j++)
+        {
+            
+            if(j > 0 && j < hap->available_snp - 1)
+            {
+                if(hap->snp_stat[j].site != hap->snp_stat[j - 1].site + 1
+                    &&
+                hap->snp_stat[j].site + 1 != hap->snp_stat[j + 1].site)
+                {
+                    hap->snp_stat[i] = hap->snp_stat[j];
+                    i++;
+                }
+
+            }
+            else if(j == 0)
+            {
+                if(hap->snp_stat[j].site + 1 != hap->snp_stat[j + 1].site)
+                {
+                    hap->snp_stat[i] = hap->snp_stat[j];
+                    i++;
+                }
+            }
+            else
+            {
+                if(hap->snp_stat[j].site != hap->snp_stat[j - 1].site + 1)
+                {
+                    hap->snp_stat[i] = hap->snp_stat[j];
+                    i++;
+                }
+            }
+        }
+        hap->available_snp = i;
+    }
+
+
+    long long m, snp_occ;
+    /**
+    while (1)
+    {
+        m = 0;
+        for (i = 0; i < hap->available_snp; i++)
+        {
+            if(check_informative_site(hap, &(hap->snp_stat[i])))
+            {
+                hap->snp_stat[m] = hap->snp_stat[i];
+                m++;
+            }
+        }
+        if(m == hap->available_snp)
+        {
+            break;
+        }
+        hap->available_snp = m;
+
+
+        for (i = 0; i < overlap_list->length; i++)
+        {
+            if (overlap_list->list[i].is_match == 1)
+            {
+                snp_occ = snp_occ_in_one_read(hap, overlap_list, i);
+                if(snp_occ >= 1)
+                {
+                    remove_read_from_snps(hap, overlap_list, i);
+                }
+            }
+        }
+    }
+    **/
+    if(hap->available_snp > 0)
+    {
+        ///************************debug**************************///
+        m = 0;
+        for (i = 0; i < hap->available_snp; i++)
+        {
+            if(check_informative_site(hap, &(hap->snp_stat[i])))
+            {
+                hap->snp_stat[m] = hap->snp_stat[i];
+                m++;
+            }
+        }
+        hap->available_snp = m;
+        ///************************debug**************************///
+
+
+
+        init_DP_matrix(&(hap->dp), hap->available_snp);
+
+        for (i = 0; i < hap->available_snp; i++)
+        {
+            hap->dp.max_buffer[i] = i;
+        }
+        hap->dp.max_snp_num = hap->available_snp;
+        remove_reads(hap, hap->dp.max_buffer, hap->dp.max_snp_num, overlap_list);
+
+        return 1;
+
+    }
+    else
+    {
+        return 0;
+    }
+
 }
 
 
@@ -4652,7 +9622,7 @@ void print_Haplotype(haplotype_evdience_alloc* hap, overlap_region_alloc* overla
         {
             Len_x = overlap_list->list[j].x_pos_e -  overlap_list->list[j].x_pos_s + 1;
 
-            if (Len_x * OVERLAP_THRESHOLD <=  overlap_list->list[j].align_length)
+            if (overlap_list->list[j].is_match == 1)
             {
                 matched_overlap++;
             }
@@ -4792,7 +9762,7 @@ void debug_near_snp(overlap_region_alloc* overlap_list, All_reads* R_INF,
     {
         int flag = -1;
         overlap_length = overlap_list->list[i].x_pos_e - overlap_list->list[i].x_pos_s + 1;
-        if (overlap_length * OVERLAP_THRESHOLD <=  overlap_list->list[i].align_length)
+        if (overlap_list->list[i].is_match == 1)
         {
             total_read++;
             for (j = 0; j < hap->available_snp; j++)
@@ -4830,9 +9800,9 @@ void debug_near_snp(overlap_region_alloc* overlap_list, All_reads* R_INF,
     {
         fprintf(stderr, "\n\nsite: %d, score: %d\n", hap->snp_stat[j].site, hap->snp_stat[j].score );
 
-        if((j>0 && hap->snp_stat[j].site == hap->snp_stat[j - 1].site + 1)
-            ||
-           (j < hap->available_snp - 1 && hap->snp_stat[j].site + 1 == hap->snp_stat[j + 1].site))
+        // if((j>0 && hap->snp_stat[j].site == hap->snp_stat[j - 1].site + 1)
+        //     ||
+        //    (j < hap->available_snp - 1 && hap->snp_stat[j].site + 1 == hap->snp_stat[j + 1].site))
         {
 
             fprintf(stderr, "x_name: %.*s\n", 
@@ -4978,25 +9948,21 @@ void debug_near_snp(overlap_region_alloc* overlap_list, All_reads* R_INF,
 
 
 void partition_overlaps(overlap_region_alloc* overlap_list, All_reads* R_INF, 
-                        UC_Read* g_read, Correct_dumy* dumy, haplotype_evdience_alloc* hap)
+                        UC_Read* g_read, Correct_dumy* dumy, haplotype_evdience_alloc* hap,
+                        int force_repeat)
 {
     ResizeInitHaplotypeEvdience(hap);
 
-    long long window_num = (g_read->length + WINDOW - 1) / WINDOW;
     long long i, j, overlap_length;
     long long window_start, window_end;
 
     long long num_availiable_win = 0;
     
+    Window_Pool w_inf;
+    init_Window_Pool(&w_inf, g_read->length, WINDOW, TAIL_LENGTH);
 
-    window_start = 0;
-    window_end = WINDOW - 1;
-    if (window_end >= g_read->length)
-    {
-        window_end = g_read->length - 1;
-    }
-    int flag;
-    for (i = 0; i < window_num; i++)
+    int flag = 0;
+    while(get_Window(&w_inf, &window_start, &window_end) && flag != -2)
     {
         dumy->length = 0;
         dumy->lengthNT = 0;
@@ -5012,33 +9978,23 @@ void partition_overlaps(overlap_region_alloc* overlap_list, All_reads* R_INF,
             case 0:    ///没找到匹配
                 break;
             case -2: ///下一个window也不会存在匹配, 直接跳出
-                i = window_num;
                 break;
         }
-
-
+        
         ///这个是available overlap里所有window的数量...
         ///num_availiable_win = num_availiable_win + dumy->length + dumy->lengthNT;
         num_availiable_win = num_availiable_win + dumy->length;
 
-
         cluster(g_read->seq, window_start, window_end, overlap_list, dumy, R_INF, hap);
-
-        
-        window_start = window_start + WINDOW;
-        window_end = window_end + WINDOW;
-        if (window_end >= g_read->length)
-        {
-            window_end = g_read->length - 1;
-        }
-        
     }
 
 
     
     ///very time-consuming
-    ///it seems that hap->list has alread been sorted by site
     qsort(hap->list, hap->length, sizeof(haplotype_evdience), cmp_haplotype_evdience);
+
+    
+    
 
     ///debug_hap_information(overlap_list, R_INF, g_read, hap, dumy);
 
@@ -5063,7 +10019,7 @@ void partition_overlaps(overlap_region_alloc* overlap_list, All_reads* R_INF,
                 sub_list = hap->list + pre_i;
                 sub_length = i - pre_i;
                 ///debug_total_length = debug_total_length + sub_length;
-                split_sub_list(hap, sub_list, sub_length, hap->snp, overlap_list, R_INF);
+                split_sub_list(hap, sub_list, sub_length, hap->snp, overlap_list, R_INF, g_read);
             }
             num_of_snps++;
             pre_site = hap->list[i].site;
@@ -5076,33 +10032,15 @@ void partition_overlaps(overlap_region_alloc* overlap_list, All_reads* R_INF,
         sub_list = hap->list + pre_i;
         sub_length = i - pre_i;
         ///debug_total_length = debug_total_length + sub_length;
-        split_sub_list(hap, sub_list, sub_length, hap->snp, overlap_list, R_INF);
+        split_sub_list(hap, sub_list, sub_length, hap->snp, overlap_list, R_INF, g_read);
     }
 
     ///debug_snp_matrix(hap);
+    ///generate_haplotypes_DP(hap, overlap_list, R_INF, g_read->length, force_repeat);
+    generate_haplotypes_naive(hap, overlap_list, R_INF, g_read->length, force_repeat);
 
-    generate_haplotypes_DP(hap, overlap_list, R_INF);
-
-
-    ///debug_near_snp(overlap_list, R_INF, g_read, dumy, hap);
 
     ///debug_snp_matrix(hap);
-
-    if(generate_haplotypes(hap))
-    {
-        //print_Haplotype(hap, overlap_list, R_INF);
-        ///if we can phase, we need to exclude the reads of different haplotype
-        int8_t* vector = Get_Result_SNP_Vector((*hap));
-        for (j = 0; j < Get_SNP_Vector_Length((*hap)); j++)
-        {
-            if(vector[j] == 1)
-            {
-                overlap_list->list[j].align_length = 0;
-            }
-        }
-    }
-
-
 }
 
 
@@ -5127,13 +10065,15 @@ void partition_overlaps(overlap_region_alloc* overlap_list, All_reads* R_INF,
 
 
 
-void correct_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF, 
-                        UC_Read* g_read, Correct_dumy* dumy, UC_Read* overlap_read, Graph* g,
+void correct_overlap_back(overlap_region_alloc* overlap_list, All_reads* R_INF, 
+                        UC_Read* g_read, Correct_dumy* dumy, UC_Read* overlap_read, Graph* g, Graph* DAGCon,
                         long long* matched_overlap_0, long long* matched_overlap_1, 
                         long long* potiental_matched_overlap_0, long long* potiental_matched_overlap_1,
                         Cigar_record* current_cigar, haplotype_evdience_alloc* hap, 
                         Round2_alignment* second_round)
 {
+
+    
     reverse_complement(g_read->seq, g_read->length);
 
     clear_Correct_dumy(dumy, overlap_list);
@@ -5150,6 +10090,8 @@ void correct_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF,
     {
         window_end = g_read->length - 1;
     }
+
+
 
     int flag;
 
@@ -5195,60 +10137,160 @@ void correct_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF,
     
     debug_stats(overlap_list, R_INF, g_read, dumy, overlap_read, matched_overlap_0, matched_overlap_1);
     
-    partition_overlaps(overlap_list, R_INF, g_read, dumy, hap);
+    partition_overlaps(overlap_list, R_INF, g_read, dumy, hap, 0);
 
-    generate_consensus(overlap_list, R_INF, g_read, dumy, g, current_cigar, second_round);
-
-
-
-    /**
-    ///fprintf(stderr, "length: %lld, corrected_base: %lld\n", g_read->length, dumy->corrected_base);
-    
-    EdlibAlignResult result = edlibAlign(g_read->seq, g_read->length, dumy->corrected_read, dumy->corrected_read_length, 
-            edlibNewAlignConfig(-1, EDLIB_MODE_NW, EDLIB_TASK_PATH, NULL, 0));
-
-    
-
-    if (result.status == EDLIB_STATUS_OK) {
-        if (dumy->corrected_base == 0 && result.editDistance!= 0)
-        {
-            fprintf(stderr, "error 0\n");
-        }
+    generate_consensus(overlap_list, R_INF, g_read, dumy, g, DAGCon, current_cigar, second_round);
+}
 
 
-        if (dumy->corrected_base < result.editDistance)
-        {
-            fprintf(stderr, "error 1\n");
-        }
-        
-    
-        // fprintf(stderr, "****\n distance: %d, alignmentLength: %d, startLocations: %d, endLocations: %d, corrected_base: %d\n", 
-        // result.editDistance, result.alignmentLength, result.startLocations[0], result.endLocations[0], dumy->corrected_base);
-        
-        
-        // char* cigar = edlibAlignmentToCigar(result.alignment, result.alignmentLength, EDLIB_CIGAR_STANDARD);
-        // fprintf(stderr,"%s\n", cigar);
-        // free(cigar);
-        
-    }
-    else
+
+void print_overlap(char* name, long long readID, 
+overlap_region_alloc* overlap_list, All_reads* R_INF)
+{
+    if(memcmp(name, Get_NAME((*R_INF), readID), 
+    Get_NAME_LENGTH((*R_INF),readID)) == 0)
     {
-        fprintf(stderr, "error\n");
-    }
-    
-    edlibFreeAlignResult(result);
+        long long i, j;
+        fprintf(stderr, "\n\n****************ref_read: %.*s****************\n", 
+            Get_NAME_LENGTH((*R_INF),readID), Get_NAME((*R_INF),readID));
 
-    for (i = 0; i < dumy->corrected_read_length; i++)
-    {
-        if (dumy->corrected_read[i] != 'A' && dumy->corrected_read[i] != 'C' && dumy->corrected_read[i] != 'G' && dumy->corrected_read[i] != 'T')
+        fprintf(stderr, "\n###flag: 1\n");
+
+        for (i = 0; i < overlap_list->length; i++)
         {
-            fprintf(stderr, "error\n");
+            if(overlap_list->list[i].is_match == 1)
+            {
+                fprintf(stderr, "%.*s\n", Get_NAME_LENGTH((*R_INF),overlap_list->list[i].y_id),
+            Get_NAME((*R_INF),overlap_list->list[i].y_id));
+
+            fprintf(stderr, "alignLen: %d, x_s: %d, x_e: %d, y_s: %d, y_e: %d, y_dir: %d, strong: %d\n", 
+                overlap_list->list[i].align_length,
+                overlap_list->list[i].x_pos_s,
+                overlap_list->list[i].x_pos_e,
+                overlap_list->list[i].y_pos_s,
+                overlap_list->list[i].y_pos_e,
+                overlap_list->list[i].y_pos_strand,
+                overlap_list->list[i].strong);
+            }
+        }
+
+        fprintf(stderr, "\n###flag: 2\n");
+
+        for (i = 0; i < overlap_list->length; i++)
+        {
+            if(overlap_list->list[i].is_match == 2)
+            {
+                fprintf(stderr, "%.*s\n", Get_NAME_LENGTH((*R_INF),overlap_list->list[i].y_id),
+            Get_NAME((*R_INF),overlap_list->list[i].y_id));
+
+            fprintf(stderr, "alignLen: %d, x_s: %d, x_e: %d, y_s: %d, y_e: %d, y_dir: %d, strong: %d\n", 
+                overlap_list->list[i].align_length,
+                overlap_list->list[i].x_pos_s,
+                overlap_list->list[i].x_pos_e,
+                overlap_list->list[i].y_pos_s,
+                overlap_list->list[i].y_pos_e,
+                overlap_list->list[i].y_pos_strand,
+                overlap_list->list[i].strong);
+            }
+        }
+
+        fprintf(stderr, "\n###flag: 4\n");
+
+        for (i = 0; i < overlap_list->length; i++)
+        {
+            if(overlap_list->list[i].is_match == 4)
+            {
+                fprintf(stderr, "%.*s\n", Get_NAME_LENGTH((*R_INF),overlap_list->list[i].y_id),
+            Get_NAME((*R_INF),overlap_list->list[i].y_id));
+            fprintf(stderr, "alignLen: %d, x_s: %d, x_e: %d, y_s: %d, y_e: %d, y_dir: %d, strong: %d\n", 
+                overlap_list->list[i].align_length,
+                overlap_list->list[i].x_pos_s,
+                overlap_list->list[i].x_pos_e,
+                overlap_list->list[i].y_pos_s,
+                overlap_list->list[i].y_pos_e,
+                overlap_list->list[i].y_pos_strand,
+                overlap_list->list[i].strong);
+            }
         }
         
     }
-    **/
 
 }
+
+void correct_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF, 
+                        UC_Read* g_read, Correct_dumy* dumy, UC_Read* overlap_read, Graph* g, Graph* DAGCon,
+                        long long* matched_overlap_0, long long* matched_overlap_1, 
+                        long long* potiental_matched_overlap_0, long long* potiental_matched_overlap_1,
+                        Cigar_record* current_cigar, haplotype_evdience_alloc* hap, 
+                        Round2_alignment* second_round, int force_repeat, int is_consensus,
+                        int* fully_cov)
+{
+    reverse_complement(g_read->seq, g_read->length);
+
+    clear_Correct_dumy(dumy, overlap_list);
+
+    long long window_start, window_end;
+
+    Window_Pool w_inf;
+
+    init_Window_Pool(&w_inf, g_read->length, WINDOW, TAIL_LENGTH);
+
+    int flag = 0;
+
+    while(get_Window(&w_inf, &window_start, &window_end) && flag != -2)
+    {
+        dumy->length = 0;
+        dumy->lengthNT = 0;
+        flag = get_interval(window_start, window_end, overlap_list, dumy);
+
+        switch (flag)
+        {
+            case 1:    ///no match here
+                break;
+            case 0:    ///no match here
+                break;
+            case -2: ///if flag == -2, loop would be terminated
+                break;
+        }
+
+        if(dumy->length + dumy->lengthNT>overlap_list->length)
+        {
+            fprintf(stderr, "error length\n");
+        }
+
+        ///dumy->lengthNT represent how many overlaps that the length of them is not equal to WINDOW; may larger or less than WINDOW
+        ///dumy->length represent how many overlaps that the length of them is WINDOW
+        /****************************may improve**************************/
+        ///now the windows which are larger than WINDOW are verified one-by-one, to improve it, we can do it group-bygroup
+        verify_window(window_start, window_end, overlap_list, dumy, R_INF, g_read->seq);
+    }
+
+    recalcate_window(overlap_list, R_INF, g_read, dumy, overlap_read);
+
+
+    // print_overlap("m64011_190329_072846/59507330/ccs", 
+    // overlap_list->list[0].x_id, overlap_list, R_INF);
+
+
+    partition_overlaps(overlap_list, R_INF, g_read, dumy, hap, force_repeat);
+
+
+    // print_overlap("m64011_190329_072846/59507330/ccs", 
+    // overlap_list->list[0].x_id, overlap_list, R_INF);
+
+
+
+    
+    if(is_consensus)
+    {
+        generate_consensus(overlap_list, R_INF, g_read, dumy, g, DAGCon, current_cigar, second_round);
+    }
+
+
+    (*fully_cov) = check_if_fully_covered(overlap_list, R_INF, g_read, dumy, g);
+    
+}
+
 
 
 void init_Cigar_record(Cigar_record* dummy)

@@ -6,14 +6,17 @@
 #include "POA.h"
 #include "Process_Read.h"
 
-#define CORRECT_THRESHOLD 0.70
-#define MIN_COVERAGE_THRESHOLD 4
+//#define CORRECT_THRESHOLD 0.70
+#define CORRECT_THRESHOLD 0.60
+///#define CORRECT_THRESHOLD_SECOND 0.55
+#define CORRECT_THRESHOLD_HOMOPOLYMER 0.515
+#define MIN_COVERAGE_THRESHOLD 3
 #define CORRECT_INDEL_LENGTH 2
 #define MISMATCH 1
 #define INSERTION 2
 #define DELETION 3
 
-#define FLAG_THRE 1
+///#define FLAG_THRE 0
 
 #define MAX(x, y) ((x >= y)?x:y)
 #define MIN(x, y) ((x <= y)?x:y)
@@ -22,6 +25,89 @@
 
 #define Get_MisMatch_Base(RECORD) (s_H[(RECORD>>3)])
 #define Get_Match_Base(RECORD) (s_H[(RECORD&7)])
+#define Coverage_Threshold(coverage, r_len) (coverage*r_len*1.1)
+
+ 
+
+#define Get_Max_DP_Value(RECORD) (RECORD>>32)
+#define Get_Max_DP_ID(RECORD) (RECORD&(uint64_t)0xffffffff)
+
+#define Adjust_Threshold(threshold, x_len) ((threshold == 0 && x_len >= 4)? 1: threshold)
+
+
+
+typedef struct
+{
+    long long read_length;
+    long long window_length;
+    long long window_num;
+    long long window_start;
+    long long window_end;
+    long long tail_length;
+    int terminal;
+}Window_Pool;
+
+inline void init_Window_Pool(Window_Pool* dumy, long long read_length, long long window_length, long long tail_length)
+{
+    dumy->terminal = 0;
+    dumy->read_length = read_length;
+    dumy->window_length = window_length;
+    dumy->tail_length = tail_length;
+
+    dumy->window_start = 0;
+    dumy->window_end = dumy->window_length - 1;
+    if (dumy->window_end >= dumy->read_length)
+    {
+        dumy->window_end = dumy->read_length - 1;
+    }
+
+    dumy->window_num = (dumy->read_length + dumy->window_length - 1) / dumy->window_length;
+}
+
+
+inline int get_Window(Window_Pool* dumy, long long* w_beg, long long* w_end)
+{   
+    (*w_beg) = dumy->window_start;
+    (*w_end) = dumy->window_end;
+
+    if(dumy->window_end == dumy->read_length - 1)
+    {
+        if(dumy->terminal == 1 || dumy->read_length == 0)
+        {
+            return 0;
+        }
+        else if(dumy->terminal == 0)
+        {
+            dumy->terminal = 1;
+        }
+    }
+
+
+    dumy->window_start = dumy->window_start + dumy->window_length;
+    dumy->window_end = dumy->window_end + dumy->window_length;
+    if (dumy->window_end >= dumy->read_length)
+    {
+        dumy->window_end = dumy->read_length - 1;
+    }
+    // else if (dumy->read_length - dumy->window_end - 1 <= dumy->tail_length)
+    // {
+    //     dumy->window_end = dumy->read_length - 1;
+    // }
+    
+
+    /**
+    if((*w_end) - (*w_beg) + 1 < 375 && (*w_end) + 1 != dumy->read_length)
+    {
+        fprintf(stderr, "(*w_beg):%d, (*w_end): %d, dumy->read_length: %d\n", 
+        (*w_beg), (*w_end), dumy->read_length);
+    }
+    **/
+
+
+    return 1;
+}
+
+
 
 
 
@@ -69,15 +155,46 @@ typedef struct
     uint32_t occ_0;
     uint32_t occ_1;
     uint32_t occ_2;
+    uint32_t homopolymer_num;
+    uint32_t non_homopolymer_num;
     int score;
     ////the position of snp in read itself
     uint32_t site;
+    uint8_t is_homopolymer;
 }
 SnpStats;
 
 
+
+typedef struct
+{
+    uint32_t beg;
+    uint32_t end;
+    uint32_t occ_0;
+    uint32_t occ_1;
+    uint32_t homopolymer_num;
+    uint32_t non_homopolymer_num;
+    uint32_t is_remove;
+}
+Snp_ID_Vector;
+
+
+typedef struct
+{
+    long long IDs_size;
+    long long IDs_length;
+    long long max_snp_id;
+    Snp_ID_Vector* IDs;
+
+    long long buffer_size;
+    long long buffer_length;
+    uint32_t* buffer;
+}
+Snp_ID_Vector_Alloc;
+
 #define Get_DP_Backtrack_Column(matrix, i) (matrix.backtrack + matrix.snp_num * i)
 #define Get_DP_Backtrack_Column_Length(matrix, i) (matrix.snp_num)
+
 
 typedef struct
 {
@@ -90,12 +207,30 @@ typedef struct
 
     uint32_t snp_num;
     
+    uint8_t* visit;
     uint32_t* max;
+    uint64_t* max_for_sort;
+
+
+
     uint32_t snp_size;
     
     uint32_t* backtrack_length;
     uint32_t* backtrack;
     uint32_t backtrack_size;
+
+
+    uint32_t* buffer;
+    uint32_t* max_buffer;
+
+
+    int max_snp_num;
+    ///int max_snp_ID;
+    int max_score;
+    int current_snp_num;
+
+
+    Snp_ID_Vector_Alloc SNP_IDs;
 }
 DP_matrix;
 
@@ -113,7 +248,9 @@ typedef struct
     uint32_t length;
     uint32_t size;
     
-    uint32_t flag[WINDOW];
+    /****************************may have bugs********************************/
+    uint8_t flag[WINDOW_MAX_SIZE];
+    /****************************may have bugs********************************/
 
     uint32_t available_snp;
     uint32_t core_snp;
@@ -171,13 +308,497 @@ inline int filter_one_snp(int occ_0, int occ_1, int total)
     
 
     if(available < threshold || occ_0 < MIN_COVERAGE_THRESHOLD + 1 || total < 10)
+    ///if(available < threshold || total < 10)
     {
         return 0;
     }
     return 1;
 }
 
-inline void InsertSNPVector(haplotype_evdience_alloc* h, haplotype_evdience* sub_list, long long sub_length, char misBase)
+
+inline int filter_one_snp_advance_back(int occ_0, int occ_1, int total, int group_size,
+long long homopolymer_num, long long non_homopolymer_num)
+{
+    
+
+    double available;
+
+    if(occ_0 <= occ_1)
+    {
+        available = occ_0;
+    }
+    else
+    {
+        available = occ_1;
+    }
+    int min = available;
+
+    double threshold1 = 0.35;
+    double threshold2 = 0.24;
+    available = available/((double)(total));
+
+
+    //if(non_homopolymer_num > 0 && min >= 5 && group_size > 1)
+    if(non_homopolymer_num > 0 && min >= 5)
+    {
+        if(available < threshold2 || total < 10)
+        {
+            return 0;
+        }
+    }
+    else if(available < threshold1 || occ_0 < MIN_COVERAGE_THRESHOLD + 1 || total < 10)
+    {
+        return 0;
+    }
+    return 1;
+}
+
+
+inline void count_nearby_snps(haplotype_evdience_alloc* hap, uint32_t* SNPs, int SNPsLen, int* nearsnp, int* non_nearsnps)
+{
+    long long i, current_id, large_id, small_id;
+    long long distance = 10;
+
+    
+
+    if(SNPsLen == 1)
+    {
+        (*non_nearsnps) = 1;
+        (*nearsnp) = 0;
+        return;
+    }
+
+    if(SNPsLen == 0)
+    {
+        (*nearsnp) = 0;
+        (*non_nearsnps) = 0;
+        return;
+    }
+
+    (*nearsnp) = 0;
+    (*non_nearsnps) = 0;
+
+    for (i = 0; i < SNPsLen; i++)
+    {
+        if(i > 0 && i < SNPsLen - 1)
+        {
+            current_id= SNPs[i];
+
+            ///since SNPs[i - 1].site is larger than SNPs[i]
+            large_id = SNPs[i - 1];
+            small_id = SNPs[i + 1];
+            
+
+            if(hap->snp_stat[large_id].site - hap->snp_stat[current_id].site < distance
+              ||
+              hap->snp_stat[current_id].site - hap->snp_stat[small_id].site < distance)
+            {
+                (*nearsnp)++;
+            }
+            else
+            {
+                (*non_nearsnps)++;
+            }
+
+            if(hap->snp_stat[current_id].site > hap->snp_stat[large_id].site || 
+               hap->snp_stat[current_id].site < hap->snp_stat[small_id].site)
+            {
+                fprintf(stderr, "error\n");
+            }
+        }
+        else if(i == 0)
+        {
+            current_id= SNPs[i];
+            small_id = SNPs[i + 1];
+            if(hap->snp_stat[current_id].site - hap->snp_stat[small_id].site < distance)
+            {
+                (*nearsnp)++;
+            }
+            else
+            {
+                (*non_nearsnps)++;
+            }
+
+            if(hap->snp_stat[current_id].site < hap->snp_stat[small_id].site)
+            {
+                fprintf(stderr, "error\n");
+            }
+        }
+        else
+        {
+            large_id = SNPs[i - 1];
+            current_id= SNPs[i];
+            if(hap->snp_stat[large_id].site - hap->snp_stat[current_id].site < distance)
+            {
+                (*nearsnp)++;
+            }
+            else
+            {
+                (*non_nearsnps)++;
+            }
+
+            if(hap->snp_stat[current_id].site > hap->snp_stat[large_id].site)
+            {
+                fprintf(stderr, "error\n");
+            }
+            
+        }
+        
+    }
+
+    if((*nearsnp) + (*non_nearsnps) != SNPsLen)
+    {
+        fprintf(stderr, "(*nearsnp): %d, (*non_nearsnps): %d, SNPsLen: %d\n", (*nearsnp), (*non_nearsnps), SNPsLen);
+    }
+}
+
+inline int filter_one_snp_advance_nearby(haplotype_evdience_alloc* hap, int occ_0, int occ_1, int total,
+long long homopolymer_num, long long non_homopolymer_num,
+uint32_t* SNPs, int SNPsLen)
+{
+    
+
+    double available;
+
+    if(occ_0 <= occ_1)
+    {
+        available = occ_0;
+    }
+    else
+    {
+        available = occ_1;
+    }
+    int min = available;
+
+    double threshold1 = 0.35;
+    double threshold2 = 0.24;
+    available = available/((double)(total));
+    
+
+
+    ///if((non_homopolymer_num > 0 && min >= 5) || (min >= 6))
+    if(min >= 5)
+    {
+        if(available < threshold2 || total < 10)
+        {
+            return 0;
+        }
+    }
+    else if(available < threshold1 || occ_0 < MIN_COVERAGE_THRESHOLD + 1 || total < 10)
+    {
+        return 0;
+    }
+    return 1;
+}
+
+/**
+inline int if_is_homopolymer(long long site, char* read, long long read_length)
+{
+    long long beg, end, i;
+
+    beg = site - 10;
+    if(beg < 0)
+    {
+        beg = 0;
+    }
+
+    end = site + 10;
+
+    if(end >= read_length)
+    {
+        end = read_length - 1;
+    }
+
+    char f_homopolymer_ch = 0;
+    long long f_homopolymer_len = 0;
+
+    for (i = site + 1; i <= end; i++)
+    {
+        if(f_homopolymer_ch == 0)
+        {
+            f_homopolymer_ch = read[i];
+            f_homopolymer_len = 1;
+        }
+        else 
+        {
+            if(read[i] != f_homopolymer_ch)
+            {
+                break;
+            }
+            else
+            {
+                f_homopolymer_len++;
+            }
+        }
+    }
+
+    char b_homopolymer_ch = 0;
+    long long b_homopolymer_len = 0;
+
+    for (i = site - 1; i >= beg; i--)
+    {
+        if(b_homopolymer_ch == 0)
+        {
+            b_homopolymer_ch = read[i];
+            b_homopolymer_len = 1;
+        }
+        else
+        {
+            if(read[i] != b_homopolymer_ch)
+            {
+                break;
+            }
+            else
+            {
+                b_homopolymer_len++;
+            }
+        }
+    }
+
+    if(f_homopolymer_ch == read[site])
+    {
+        f_homopolymer_len++;
+    }
+    else if(b_homopolymer_ch == read[site])
+    {
+        b_homopolymer_len++;
+    }
+
+
+    if(f_homopolymer_len >= 5 || b_homopolymer_len >= 5)
+    {
+        return 1;
+    }
+
+    if (b_homopolymer_ch == f_homopolymer_ch 
+        && 
+        (f_homopolymer_len + b_homopolymer_len >= 5))
+    {
+        return 1;
+    }
+    
+    
+    return 0;
+}
+**/
+
+inline int if_is_homopolymer_strict(long long site, char* read, long long read_length)
+{
+    long long beg, end, i;
+    long long threshold = 3;
+
+    beg = site - threshold;
+    if(beg < 0)
+    {
+        beg = 0;
+    }
+
+    end = site + threshold;
+
+    if(end >= read_length)
+    {
+        end = read_length - 1;
+    }
+
+    char f_homopolymer_ch = 0;
+    long long f_homopolymer_len = 0;
+
+    for (i = site + 1; i <= end; i++)
+    {
+        if(f_homopolymer_ch == 0)
+        {
+            f_homopolymer_ch = read[i];
+            f_homopolymer_len = 1;
+        }
+        else 
+        {
+            if(read[i] != f_homopolymer_ch)
+            {
+                break;
+            }
+            else
+            {
+                f_homopolymer_len++;
+            }
+        }
+    }
+
+    char b_homopolymer_ch = 0;
+    long long b_homopolymer_len = 0;
+
+    for (i = site - 1; i >= beg; i--)
+    {
+        if(b_homopolymer_ch == 0)
+        {
+            b_homopolymer_ch = read[i];
+            b_homopolymer_len = 1;
+        }
+        else
+        {
+            if(read[i] != b_homopolymer_ch)
+            {
+                break;
+            }
+            else
+            {
+                b_homopolymer_len++;
+            }
+        }
+    }
+
+    if(f_homopolymer_ch == read[site])
+    {
+        f_homopolymer_len++;
+    }
+    else if(b_homopolymer_ch == read[site])
+    {
+        b_homopolymer_len++;
+    }
+
+    /**
+    fprintf(stderr, "site: %d, beg: %d, end: %d\n", site, beg, end);
+    for (i = beg; i <= end; i++)
+    {
+        if (i == site)
+        {
+            fprintf(stderr, "|%c|", read[i]);
+        }
+        else
+        {
+            fprintf(stderr, "%c", read[i]);
+        }
+    }
+    fprintf(stderr, "\n");
+    **/
+
+    if(f_homopolymer_len >= threshold || b_homopolymer_len >= threshold)
+    {
+        return 1;
+    }
+
+    if (read[site] == f_homopolymer_ch 
+        && 
+        b_homopolymer_ch == f_homopolymer_ch 
+        && 
+        (f_homopolymer_len + b_homopolymer_len >= threshold))
+    {
+        return 1;
+    }
+    
+    
+    return 0;
+}
+
+
+inline int if_is_homopolymer_repeat(long long site, char* read, long long read_length)
+{
+    long long beg, end, i;
+    long long threshold = 3;
+
+    beg = site - threshold;
+    if(beg < 0)
+    {
+        beg = 0;
+    }
+
+    end = site + threshold;
+
+    if(end >= read_length)
+    {
+        end = read_length - 1;
+    }
+
+    char f_homopolymer_ch = 0;
+    long long f_homopolymer_len = 0;
+
+    for (i = site + 1; i <= end; i++)
+    {
+        if(f_homopolymer_ch == 0)
+        {
+            f_homopolymer_ch = read[i];
+            f_homopolymer_len = 1;
+        }
+        else 
+        {
+            if(read[i] != f_homopolymer_ch)
+            {
+                break;
+            }
+            else
+            {
+                f_homopolymer_len++;
+            }
+        }
+    }
+
+    char b_homopolymer_ch = 0;
+    long long b_homopolymer_len = 0;
+
+    for (i = site - 1; i >= beg; i--)
+    {
+        if(b_homopolymer_ch == 0)
+        {
+            b_homopolymer_ch = read[i];
+            b_homopolymer_len = 1;
+        }
+        else
+        {
+            if(read[i] != b_homopolymer_ch)
+            {
+                break;
+            }
+            else
+            {
+                b_homopolymer_len++;
+            }
+        }
+    }
+
+    if(f_homopolymer_ch == read[site])
+    {
+        f_homopolymer_len++;
+    }
+    else if(b_homopolymer_ch == read[site])
+    {
+        b_homopolymer_len++;
+    }
+
+    /**
+    fprintf(stderr, "site: %d, beg: %d, end: %d\n", site, beg, end);
+    for (i = beg; i <= end; i++)
+    {
+        if (i == site)
+        {
+            fprintf(stderr, "|%c|", read[i]);
+        }
+        else
+        {
+            fprintf(stderr, "%c", read[i]);
+        }
+    }
+    fprintf(stderr, "\n");
+    **/
+
+    if(f_homopolymer_len >= threshold || b_homopolymer_len >= threshold)
+    {
+        return 1;
+    }
+
+    if (read[site] == f_homopolymer_ch 
+        && 
+        b_homopolymer_ch == f_homopolymer_ch 
+        && 
+        (f_homopolymer_len + b_homopolymer_len >= threshold))
+    {
+        return 1;
+    }
+    
+    
+    return 0;
+}
+
+inline void InsertSNPVector(haplotype_evdience_alloc* h, haplotype_evdience* sub_list, long long sub_length, char misBase, 
+UC_Read* g_read)
 {
     if(sub_length <= 0)
         return;
@@ -189,6 +810,11 @@ inline void InsertSNPVector(haplotype_evdience_alloc* h, haplotype_evdience* sub
     h->snp_stat[h->available_snp].overlap_num = 0;
     
     h->snp_stat[h->available_snp].site = sub_list[0].site;
+
+    h->snp_stat[h->available_snp].is_homopolymer = 
+    if_is_homopolymer_strict(h->snp_stat[h->available_snp].site, g_read->seq, g_read->length);
+
+    ///fprintf(stderr, "is_homopolymer: %d\n", h->snp_stat[h->available_snp].is_homopolymer);
 
     int8_t* vector = Get_SNP_Vector((*h), h->available_snp);
     for (i = 0; i < sub_length; i++)
@@ -261,6 +887,51 @@ inline void InsertSNPVector(haplotype_evdience_alloc* h, haplotype_evdience* sub
     h->available_snp++;
 }
 
+
+inline int calculate_score(int new_occ_0, int new_occ_1)
+{
+    if(new_occ_0 + new_occ_1 == 0)
+    {
+        return -1;
+    }
+
+    if(filter_snp(new_occ_0, new_occ_1, new_occ_0 + new_occ_1) == 0)
+    {
+        return -1;
+    }
+
+    double consensus = new_occ_0 + new_occ_1 - abs(new_occ_0 - new_occ_1);
+
+    consensus = consensus /((double)(new_occ_0 + new_occ_1));
+
+    ///50% vs 50%
+    if(new_occ_0 == new_occ_1)
+    {
+        consensus = consensus + 0.25;
+    }
+    else if(consensus >= 0.8)
+    {
+        consensus = consensus + 0.2;
+    }
+    else if(consensus >= 0.6)
+    {
+        consensus = consensus + 0.15;
+    }
+    else if(consensus >= 0.4)
+    {
+        consensus = consensus + 0.1;
+    }
+    else if(consensus >= 0.2)
+    {
+        consensus = consensus + 0.05;
+    }
+    
+
+    consensus= consensus*((double)(new_occ_0 + new_occ_1));
+
+    return consensus;
+}
+
 inline void SetSnpMatrix(haplotype_evdience_alloc* h, long long snp_num, long long overlap_num)
 {
     long long new_size = (snp_num + 1)* overlap_num;
@@ -290,30 +961,101 @@ inline void SetSnpMatrix(haplotype_evdience_alloc* h, long long snp_num, long lo
 }
 
 
+inline void init_SNP_IDs(Snp_ID_Vector_Alloc* SNP_IDs)
+{
+    SNP_IDs->max_snp_id = -1;
+    SNP_IDs->buffer_length = 0;
+    SNP_IDs->buffer_size = 1000;
+    SNP_IDs->buffer = (uint32_t*)malloc(sizeof(uint32_t) * SNP_IDs->buffer_size);
+
+    SNP_IDs->IDs_length = 0;
+    SNP_IDs->IDs_size = 10;
+    SNP_IDs->IDs = (Snp_ID_Vector*)calloc(SNP_IDs->IDs_size, sizeof(Snp_ID_Vector));
+
+}
+
+inline void clear_SNP_IDs(Snp_ID_Vector_Alloc* SNP_IDs)
+{
+    SNP_IDs->IDs_length = 0;
+    SNP_IDs->buffer_length = 0;
+    SNP_IDs->max_snp_id = -1;
+}
+
+inline void destory_SNP_IDs(Snp_ID_Vector_Alloc* SNP_IDs)
+{
+    free(SNP_IDs->buffer);
+    free(SNP_IDs->IDs);
+}
+
+inline void insert_SNP_IDs_addition(Snp_ID_Vector_Alloc* SNP_IDs, uint32_t* IDs_vec, int IDs_vec_length,
+ uint32_t occ_0, uint32_t occ_1, uint32_t homopolymer_num, uint32_t non_homopolymer_num)
+{
+    if(SNP_IDs->IDs_length + 1 > SNP_IDs->IDs_size)
+    {
+        SNP_IDs->IDs_size = SNP_IDs->IDs_size * 2;
+        SNP_IDs->IDs = (Snp_ID_Vector*)realloc(SNP_IDs->IDs, SNP_IDs->IDs_size * sizeof(Snp_ID_Vector));
+    }
+    SNP_IDs->IDs[SNP_IDs->IDs_length].beg = SNP_IDs->buffer_length;
+    SNP_IDs->IDs[SNP_IDs->IDs_length].end = SNP_IDs->buffer_length + IDs_vec_length - 1;
+    
+    SNP_IDs->IDs[SNP_IDs->IDs_length].occ_0 = occ_0;
+    SNP_IDs->IDs[SNP_IDs->IDs_length].occ_1 = occ_1;
+    SNP_IDs->IDs[SNP_IDs->IDs_length].homopolymer_num = homopolymer_num;
+    SNP_IDs->IDs[SNP_IDs->IDs_length].non_homopolymer_num = non_homopolymer_num;
+    
+
+
+    if(SNP_IDs->buffer_length + IDs_vec_length > SNP_IDs->buffer_size)
+    {
+        SNP_IDs->buffer_size = (SNP_IDs->buffer_length + IDs_vec_length) * 2;
+        SNP_IDs->buffer = (uint32_t*)realloc(SNP_IDs->buffer, SNP_IDs->buffer_size * sizeof(uint32_t));
+    }
+    memcpy(SNP_IDs->buffer + SNP_IDs->buffer_length, IDs_vec, IDs_vec_length*sizeof(uint32_t));
+
+
+    SNP_IDs->IDs_length++;
+    SNP_IDs->buffer_length += IDs_vec_length;
+}
+
+
+inline void insert_SNP_IDs_addition(Snp_ID_Vector_Alloc* SNP_IDs, uint32_t* IDs_vec, int IDs_vec_length)
+{
+    if(SNP_IDs->IDs_length + 1 > SNP_IDs->IDs_size)
+    {
+        SNP_IDs->IDs_size = SNP_IDs->IDs_size * 2;
+        SNP_IDs->IDs = (Snp_ID_Vector*)realloc(SNP_IDs->IDs, SNP_IDs->IDs_size * sizeof(Snp_ID_Vector));
+    }
+    SNP_IDs->IDs[SNP_IDs->IDs_length].beg = SNP_IDs->buffer_length;
+    SNP_IDs->IDs[SNP_IDs->IDs_length].end = SNP_IDs->buffer_length + IDs_vec_length - 1;
+
+
+    if(SNP_IDs->buffer_length + IDs_vec_length > SNP_IDs->buffer_size)
+    {
+        SNP_IDs->buffer_size = (SNP_IDs->buffer_length + IDs_vec_length) * 2;
+        SNP_IDs->buffer = (uint32_t*)realloc(SNP_IDs->buffer, SNP_IDs->buffer_size * sizeof(uint32_t));
+    }
+    memcpy(SNP_IDs->buffer + SNP_IDs->buffer_length, IDs_vec, IDs_vec_length*sizeof(uint32_t));
+
+
+    SNP_IDs->IDs_length++;
+    SNP_IDs->buffer_length += IDs_vec_length;
+}
+
 
 inline void init_DP_matrix(DP_matrix* dp, int32_t snp_num)
 {
-    // if(snp_num + 1 > dp->snp_size)
-    // {
-    //     dp->snp_size = snp_num + 1;
-    //     dp->colum_len = (uint32_t*)realloc(dp->colum_len, dp->snp_size);
-    //     dp->max = (uint32_t*)realloc(dp->max, dp->snp_size);
-    // }
-
-    // dp->snp_num = snp_num;
-
-    // if(snp_num > 0)
-    // {
-    //     dp->colum_len[0] = 0;
-    // }
-
-    // dp->matrix_size = 0;
-
 
     if(snp_num > dp->snp_size)
     {
         dp->snp_size = snp_num;
         dp->max = (uint32_t*)realloc(dp->max, dp->snp_size * sizeof(uint32_t));
+        dp->max_for_sort = (uint64_t*)realloc(dp->max_for_sort, dp->snp_size * sizeof(uint64_t));
+        dp->visit = (uint8_t*)realloc(dp->visit, dp->snp_size * sizeof(uint8_t));
+        dp->buffer = (uint32_t*)realloc(dp->buffer, dp->snp_size * sizeof(uint32_t));
+        dp->max_buffer = (uint32_t*)realloc(dp->max_buffer, dp->snp_size * sizeof(uint32_t));
+
+
+        
         dp->backtrack_length = (uint32_t*)realloc(dp->backtrack_length, dp->snp_size * sizeof(uint32_t));
 
         dp->backtrack_size = snp_num*snp_num;
@@ -321,6 +1063,10 @@ inline void init_DP_matrix(DP_matrix* dp, int32_t snp_num)
     }
 
     dp->snp_num = snp_num;
+
+    clear_SNP_IDs(&(dp->SNP_IDs));
+
+
 }
 
 inline void InitHaplotypeEvdience(haplotype_evdience_alloc* h)
@@ -339,7 +1085,10 @@ inline void InitHaplotypeEvdience(haplotype_evdience_alloc* h)
     h->length = 0;
     h->size = 100;
     h->list = (haplotype_evdience*)calloc(h->size, sizeof(haplotype_evdience));
-    memset(h->flag, 0, WINDOW * sizeof(uint32_t));
+
+    /****************************may have bugs********************************/
+    memset(h->flag, 0, WINDOW_MAX_SIZE * sizeof(uint8_t));
+    /****************************may have bugs********************************/
 
 
     // h->dp.max = NULL;
@@ -350,10 +1099,16 @@ inline void InitHaplotypeEvdience(haplotype_evdience_alloc* h)
     // h->dp.snp_size = 0;
     h->dp.snp_num = 0;
     h->dp.max = NULL;
+    h->dp.max_for_sort = NULL;
+    h->dp.visit = NULL;
     h->dp.snp_size = 0;
     h->dp.backtrack = NULL;
     h->dp.backtrack_size = 0;
     h->dp.backtrack_length = NULL;
+    h->dp.buffer = NULL;
+    h->dp.max_buffer = NULL;
+
+    init_SNP_IDs(&(h->dp.SNP_IDs));
 
 }
 
@@ -373,6 +1128,17 @@ inline void destoryHaplotypeEvdience(haplotype_evdience_alloc* h)
     free(h->list);
     free(h->snp_stat);
     free(h->snp_matrix);
+    free(h->dp.backtrack);
+    free(h->dp.max);
+    free(h->dp.max_for_sort);
+    free(h->dp.visit);
+    free(h->dp.backtrack_length);
+    free(h->dp.buffer);
+    free(h->dp.max_buffer);
+    destory_SNP_IDs(&(h->dp.SNP_IDs));
+    
+
+    
 }
 
 inline void ResizeInitHaplotypeEvdience(haplotype_evdience_alloc* h)
@@ -381,12 +1147,16 @@ inline void ResizeInitHaplotypeEvdience(haplotype_evdience_alloc* h)
     h->length = 0;
     h->sub_list_start = 0;
     h->sub_list_length = 0;
-    memset(h->flag, 0, WINDOW * sizeof(uint32_t));
+    /****************************may have bugs********************************/
+    memset(h->flag, 0, WINDOW_MAX_SIZE * sizeof(uint8_t));
+    /****************************may have bugs********************************/
 }
 
-inline void RsetInitHaplotypeEvdienceFlag(haplotype_evdience_alloc* h)
+inline void RsetInitHaplotypeEvdienceFlag(haplotype_evdience_alloc* h, long long useful_length)
 {
-    memset(h->flag, 0, WINDOW * sizeof(uint32_t));
+    /****************************may have bugs********************************/
+    memset(h->flag, 0, useful_length * sizeof(uint8_t));
+    /****************************may have bugs********************************/
 }
 
 inline void addHaplotypeEvdience(haplotype_evdience_alloc* h, haplotype_evdience* ev)
@@ -419,11 +1189,23 @@ typedef struct
     uint64_t lengthNT;
     uint64_t size;
     uint64_t start_i;
-    char overlap_region[WINDOW + THRESHOLD*2 + 10];
-    char overlap_region_group[GROUP_SIZE][WINDOW + THRESHOLD*2 + 10];
-    char path[WINDOW + THRESHOLD*2 + 10];
+
+    /****************************may have bugs********************************/
+    // char overlap_region[WINDOW + THRESHOLD*2 + 10];
+    // char overlap_region_group[GROUP_SIZE][WINDOW + THRESHOLD*2 + 10];
+    // char path[WINDOW + THRESHOLD*2 + 10];
+    // Word matrix_bit[((WINDOW + 10)<<3)];
+
+    char overlap_region[WINDOW_MAX_SIZE + THRESHOLD_MAX_SIZE*2 + 10];
+    char overlap_region_group[GROUP_SIZE][WINDOW_MAX_SIZE + THRESHOLD_MAX_SIZE*2 + 10];
+    char path[WINDOW_MAX_SIZE + THRESHOLD_MAX_SIZE*2 + 10];
+
+    char path_fix[WINDOW_MAX_SIZE + THRESHOLD_MAX_SIZE*2 + 10];
+    char overlap_region_fix[WINDOW_MAX_SIZE + THRESHOLD_MAX_SIZE*2 + 10];
+    Word matrix_bit[((WINDOW_MAX_SIZE + 10)<<3)];
+    /****************************may have bugs********************************/
+
     int path_length;
-    Word matrix_bit[((WINDOW + 10)<<3)];
     __m128i Peq_SSE[256];
 } Correct_dumy;
 
@@ -443,11 +1225,12 @@ void clear_Round2_alignment(Round2_alignment* h);
 
 
 void correct_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF, 
-                        UC_Read* g_read, Correct_dumy* dumy, UC_Read* overlap_read, Graph* g,
+                        UC_Read* g_read, Correct_dumy* dumy, UC_Read* overlap_read, Graph* g, Graph* DAGCon, 
                         long long* matched_overlap_0, long long* matched_overlap_1, 
                         long long* potiental_matched_overlap_0, long long* potiental_matched_overlap_1,
                         Cigar_record* current_cigar, haplotype_evdience_alloc* hap,
-                        Round2_alignment* second_round);
+                        Round2_alignment* second_round, int force_repeat, int is_consensus,
+                        int* fully_cov);
 void init_Correct_dumy(Correct_dumy* list);
 void destory_Correct_dumy(Correct_dumy* list);
 void clear_Correct_dumy(Correct_dumy* list, overlap_region_alloc* overlap_list);
@@ -456,7 +1239,8 @@ void pre_filter_by_nearby(k_mer_pos* new_n_list, k_mer_pos* old_n_list, uint64_t
 All_reads* R_INF, Correct_dumy* dumy, uint64_t* new_n_length);
 void pre_filter_by_nearby_single(k_mer_pos* new_n_list, k_mer_pos* old_n_list, uint64_t n_length, uint64_t n_end_pos, UC_Read* g_read, 
 All_reads* R_INF, Correct_dumy* dumy, uint64_t* new_n_length);
-void get_seq_from_Graph(Graph* backbone, Correct_dumy* dumy);
+void get_seq_from_Graph(Graph* backbone, Graph* DAGCon, Correct_dumy* dumy, Cigar_record* current_cigar, char* self_string,
+char* r_string, long long r_string_length, long long r_string_site);
 
 void init_Cigar_record(Cigar_record* dummy);
 void destory_Cigar_record(Cigar_record* dummy);
@@ -644,6 +1428,7 @@ inline void add_cigar_record(char* seq, uint32_t len, Cigar_record* dummy, uint3
     
 }
 
+int verify_cigar_2(char* x, int x_len, char* y, int y_len, Cigar_record* cigar, int error);
 
 /**********************for prefilter************************ */
 void destory_k_mer_pos_list_alloc_prefilter(k_mer_pos_list_alloc* list);
