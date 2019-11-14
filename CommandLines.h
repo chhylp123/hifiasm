@@ -13,6 +13,12 @@ extern int k_mer_max_freq;
 extern int load_index_from_disk;
 extern int write_index_to_disk;
 extern int number_of_round;
+extern int roundID;
+extern int coverage;
+extern int read_graph;
+extern int c_round;
+extern char* required_read_name;
+extern int adapterLen;
 
 
 int CommandLine_process (int argc, char *argv[]);

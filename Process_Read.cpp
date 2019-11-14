@@ -74,9 +74,10 @@ void destory_All_reads(All_reads* r)
 void write_All_reads(All_reads* r, char* read_file_name)
 {
     fprintf(stdout, "Writing reads to disk ...... \n");
-    char* index_name = (char*)malloc(strlen(read_file_name)+5);
+    char* index_name = (char*)malloc(strlen(read_file_name)+15);
     sprintf(index_name, "%s.bin", read_file_name);
     FILE* fp = fopen(index_name, "w");
+	fwrite(&adapterLen, sizeof(adapterLen), 1, fp);
     fwrite(&r->index_size, sizeof(r->index_size), 1, fp);
 	fwrite(&r->name_index_size, sizeof(r->name_index_size), 1, fp);
 	fwrite(&r->total_reads, sizeof(r->total_reads), 1, fp);
@@ -127,6 +128,7 @@ void write_All_reads(All_reads* r, char* read_file_name)
 
 
     free(index_name);    
+	fflush(fp);
     fclose(fp);
     fprintf(stdout, "Reads has been written.\n");
 }
@@ -136,7 +138,7 @@ void write_All_reads(All_reads* r, char* read_file_name)
 int load_All_reads(All_reads* r, char* read_file_name)
 {
     fprintf(stdout, "Loading reads to disk ...... \n");
-    char* index_name = (char*)malloc(strlen(read_file_name)+5);
+    char* index_name = (char*)malloc(strlen(read_file_name)+15);
     sprintf(index_name, "%s.bin", read_file_name);
     FILE* fp = fopen(index_name, "r");
 	if (!fp)
@@ -144,7 +146,14 @@ int load_All_reads(All_reads* r, char* read_file_name)
         return 0;
     }
 
-
+	int local_adapterLen;
+    fread(&local_adapterLen, sizeof(local_adapterLen), 1, fp);
+    if(local_adapterLen != adapterLen)
+    {
+        fprintf(stdout, "the adapterLen of index is: %d, but the adapterLen set by user is: %d\n", 
+        local_adapterLen, adapterLen);
+		exit(1);
+    }
     fread(&r->index_size, sizeof(r->index_size), 1, fp);
 	fread(&r->name_index_size, sizeof(r->name_index_size), 1, fp);
 	fread(&r->total_reads, sizeof(r->total_reads), 1, fp);
@@ -210,6 +219,8 @@ int load_All_reads(All_reads* r, char* read_file_name)
 
 	r->cigars = (Compressed_Cigar_record*)malloc(sizeof(Compressed_Cigar_record)*r->total_reads);
 	r->second_round_cigar = (Compressed_Cigar_record*)malloc(sizeof(Compressed_Cigar_record)*r->total_reads);
+	r->paf = (ma_hit_t_alloc*)malloc(sizeof(ma_hit_t_alloc)*r->total_reads);
+	r->reverse_paf = (ma_hit_t_alloc*)malloc(sizeof(ma_hit_t_alloc)*r->total_reads);
 	for (i = 0; i < r->total_reads; i++)
 	{
 		r->second_round_cigar[i].size = r->cigars[i].size = 0;
@@ -219,7 +230,12 @@ int load_All_reads(All_reads* r, char* read_file_name)
 		r->second_round_cigar[i].lost_base_size = r->cigars[i].lost_base_size = 0;
 		r->second_round_cigar[i].lost_base_length = r->cigars[i].lost_base_length = 0;
 		r->second_round_cigar[i].lost_base = r->cigars[i].lost_base = NULL;
+		init_ma_hit_t_alloc(&(r->paf[i]));
+		init_ma_hit_t_alloc(&(r->reverse_paf[i]));
 	}
+
+
+	
 
 
     free(index_name);    
@@ -279,6 +295,8 @@ void malloc_All_reads(All_reads* r)
 
 	r->cigars = (Compressed_Cigar_record*)malloc(sizeof(Compressed_Cigar_record)*r->total_reads);
 	r->second_round_cigar = (Compressed_Cigar_record*)malloc(sizeof(Compressed_Cigar_record)*r->total_reads);
+	r->paf = (ma_hit_t_alloc*)malloc(sizeof(ma_hit_t_alloc)*r->total_reads);
+	r->reverse_paf = (ma_hit_t_alloc*)malloc(sizeof(ma_hit_t_alloc)*r->total_reads);
 	for (i = 0; i < r->total_reads; i++)
 	{
 		r->second_round_cigar[i].size = r->cigars[i].size = 0;
@@ -288,7 +306,17 @@ void malloc_All_reads(All_reads* r)
 		r->second_round_cigar[i].lost_base_size = r->cigars[i].lost_base_size = 0;
 		r->second_round_cigar[i].lost_base_length = r->cigars[i].lost_base_length = 0;
 		r->second_round_cigar[i].lost_base = r->cigars[i].lost_base = NULL;
+		init_ma_hit_t_alloc(&(r->paf[i]));
+		init_ma_hit_t_alloc(&(r->reverse_paf[i]));
 	}
+
+
+
+
+
+
+
+
 
 
 	r->name = (char*)malloc(sizeof(char)*r->total_name_length);
@@ -658,21 +686,47 @@ void compress_base(uint8_t* dest, char* src, uint64_t src_l, uint64_t** N_site_l
 
 	while (i + 4 <= src_l)
 	{
+
+		// fprintf(stderr, "0 i: %d, dest_i: %d, src_l: %d\n",
+		// i, dest_i, src_l);
+		// fflush(stderr);
+
 		tmp = 0;
 
 		COMPRESS_BASE;
 		tmp = tmp | (c<<6);
 
+		// fprintf(stderr, "*******1******1 i: %d, tmp: %d, c: %d\n",
+		// i, tmp, c);
+		// fflush(stderr);
+
 		COMPRESS_BASE;
 		tmp = tmp | (c<<4);
+
+		// fprintf(stderr, "*******2******1 i: %d, tmp: %d, c: %d\n",
+		// i, tmp, c);
+		// fflush(stderr);
 
 		COMPRESS_BASE;
 		tmp = tmp | (c<<2);
 
+		// fprintf(stderr, "*******3******1 i: %d, tmp: %d, c: %d\n",
+		// i, tmp, c);
+		// fflush(stderr);
+
 		COMPRESS_BASE;
 		tmp = tmp | c;
 
+		// fprintf(stderr, "*******4******1 i: %d, tmp: %d, c: %d\n",
+		// i, tmp, c);
+		// fflush(stderr);
+
 		dest[dest_i] = tmp;
+
+		// fprintf(stderr, "2 i: %d, dest_i: %d, src_l: %d\n",
+		// i, dest_i, src_l);
+		// fflush(stderr);
+
 		dest_i++;
 	}
 
@@ -716,7 +770,7 @@ inline void exchage_kstring_t(kstring_t* a, kstring_t* b)
 	*b = tmp;
 }
 
-int get_read(kseq_t *s)
+int get_read(kseq_t *s, int adapterLen)
 {
 	int l;
 
@@ -727,6 +781,24 @@ int get_read(kseq_t *s)
 		exchage_kstring_t(&seq->name, &s->name);
 		exchage_kstring_t(&seq->qual, &s->qual);
 		exchage_kstring_t(&seq->seq, &s->seq);
+
+		if(adapterLen > 0)
+		{
+			if(s->seq.l <= adapterLen*2)
+			{
+				s->seq.l = 0;
+			}
+			else
+			{
+				long long i;
+				for (i = 0; i < (s->seq.l - adapterLen*2); i++)
+				{
+					s->seq.s[i] = s->seq.s[i + adapterLen];
+				}
+				s->seq.l -= adapterLen*2;
+			} 
+			
+		}
 		
 		return 1;
 	}
@@ -770,8 +842,8 @@ void init_R_buffer(int thread_num)
 
 void destory_R_buffer_block(R_buffer_block* curr_sub_block)
 {
-
-	free(curr_sub_block->read);
+	kseq_destroy(curr_sub_block->read);
+	///free(curr_sub_block->read);
 }
 
 
@@ -790,7 +862,7 @@ void destory_R_buffer()
 
 
 inline void load_read_block(R_buffer_block* read_batch, int batch_read_size,
-	int* return_file_flag, int is_insert)
+	int* return_file_flag, int is_insert, int adapterLen)
 {
 	int inner_i = 0;
 	int file_flag = 1;
@@ -801,18 +873,18 @@ inline void load_read_block(R_buffer_block* read_batch, int batch_read_size,
 	while (inner_i<batch_read_size)
 	{
 
-		file_flag = get_read(&read_batch->read[inner_i]);
+		file_flag = get_read(&read_batch->read[inner_i], adapterLen);
 
 		if (file_flag == 1)
 		{
 			read_batch->read[inner_i].ID = total_reads;
 			total_reads++;
 
-			///fprintf(stderr, "is_insert: %d\n", is_insert);
 
 			if (is_insert)
 			{
-				insert_read(&R_INF, &read_batch->read[inner_i].seq, &read_batch->read[inner_i].name);
+				insert_read(&R_INF, &read_batch->read[inner_i].seq, 
+				&read_batch->read[inner_i].name);
 			}
 
 			inner_i++;
@@ -896,7 +968,7 @@ void* input_reads_muti_threads(void* arg)
 
 
 
-		load_read_block(&tmp_buf, RDB.block_inner_size, &file_flag, is_insert);
+		load_read_block(&tmp_buf, RDB.block_inner_size, &file_flag, is_insert, adapterLen);
 
 		if (file_flag == 0)
 		{
@@ -1022,7 +1094,7 @@ void Counting_block()
 
 
 		load_read_block(&tmp_buf, RDB.block_inner_size,
-			&file_flag, 0);
+			&file_flag, 0, adapterLen);
 
 
 		if (file_flag == 0)
