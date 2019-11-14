@@ -21,6 +21,25 @@ typedef struct
 
 } Hash_code;
 
+typedef struct {
+    Hash_code key; ///k-mer itself
+    uint64_t value;  ///offset
+} k_v;
+
+typedef struct {
+	k_v* buffer;
+    uint32_t size;
+    uint32_t length;
+} small_hash_table;
+
+void init_small_hash_table(small_hash_table* x);
+void clear_small_hash_table(small_hash_table* x);
+void resize_small_hash_table(small_hash_table* x, uint64_t size);
+void destory_small_hash_table(small_hash_table* x);
+void add_small_hash_table(small_hash_table* x, k_v* element);
+void sort_small_hash_table(small_hash_table* x);
+int compare_k_mer(k_v* x, k_v* y);
+int query_small_hash_table(small_hash_table* target, k_v* query, long long* l_end, long long* r_end);
 
 
 typedef struct

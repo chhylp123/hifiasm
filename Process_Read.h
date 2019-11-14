@@ -6,6 +6,9 @@
 #include <stdlib.h>
 #include <zlib.h>
 #include "kseq.h"
+#include "Overlaps.h"
+#include "CommandLines.h"
+///#include "Hash_Table.h"
 
 #define READ_INIT_NUMBER 1000
 
@@ -15,11 +18,11 @@
 #define IS_FULL(buffer) ((buffer.num >= buffer.size)?1:0)
 #define IS_EMPTY(buffer) ((buffer.num == 0)?1:0)
 ///#define Get_READ_LENGTH(R_INF, ID) (R_INF.index[ID+1] - R_INF.index[ID])
-#define Get_READ_LENGTH(R_INF, ID) R_INF.read_length[ID]
-#define Get_NAME_LENGTH(R_INF, ID) (R_INF.name_index[ID+1] - R_INF.name_index[ID])
+#define Get_READ_LENGTH(R_INF, ID) R_INF.read_length[(ID)]
+#define Get_NAME_LENGTH(R_INF, ID) (R_INF.name_index[(ID)+1] - R_INF.name_index[(ID)])
 ///#define Get_READ(R_INF, ID) R_INF.read + (R_INF.index[ID]>>2) + ID
-#define Get_READ(R_INF, ID) R_INF.read_sperate[ID]
-#define Get_NAME(R_INF, ID) R_INF.name + R_INF.name_index[ID]
+#define Get_READ(R_INF, ID) R_INF.read_sperate[(ID)]
+#define Get_NAME(R_INF, ID) R_INF.name + R_INF.name_index[(ID)]
 
 
 
@@ -56,7 +59,56 @@ static char rc_Table[5] = {'T', 'G', 'C', 'A', 'N'};
 
 void init_kseq(char* file);
 void destory_kseq();
-int get_read(kseq_t *s);
+int get_read(kseq_t *s, int adapterLen);
+
+
+typedef struct
+{
+    uint64_t x_id;
+    uint64_t x_pos_s;
+    uint64_t x_pos_e;
+    uint8_t x_pos_strand;
+
+    uint64_t y_id;
+    uint64_t y_pos_s;
+    uint64_t y_pos_e;
+    uint8_t y_pos_strand;
+
+	uint64_t matchLen;
+	uint64_t totalLen;
+
+} PAF;
+
+typedef struct
+{
+    PAF* list;
+    uint64_t size;
+    uint64_t length;
+} PAF_alloc;
+
+
+inline void init_PAF_alloc(PAF_alloc* list)
+{
+	list->size = 15;
+    list->length = 0;
+    list->list = (PAF*)malloc(sizeof(PAF)*list->size);
+}
+
+
+inline void append_PAF_alloc(PAF_alloc* list, PAF* e)
+{
+    if(list->length+1 > list->size)
+    {
+        list->size = list->size * 2;
+        list->list = (PAF*)realloc(list->list, sizeof(PAF)*list->size);
+    }
+
+    list->list[list->length] = (*e);
+    list->length++;
+}
+
+
+
 
 typedef struct
 {
@@ -99,6 +151,10 @@ typedef struct
 
 	Compressed_Cigar_record* cigars; 
 	Compressed_Cigar_record* second_round_cigar;
+
+    ma_hit_t_alloc* paf;
+    ma_hit_t_alloc* reverse_paf;
+    ma_sub_t* coverage_cut;
 
 } All_reads;
 

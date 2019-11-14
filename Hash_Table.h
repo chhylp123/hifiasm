@@ -17,23 +17,23 @@ typedef khash_t(POS64) Pos_Table;
 ///#define THRESHOLD  14
 
 #define WINDOW 375
-#define WINDOW_BOUNDARY 150
+//#define WINDOW_BOUNDARY 150
+#define WINDOW_BOUNDARY 375
 ///for one side, the first or last WINDOW_UNCORRECT_SINGLE_SIDE_BOUNDARY bases should not be corrected
 #define WINDOW_UNCORRECT_SINGLE_SIDE_BOUNDARY 25
 #define THRESHOLD  15
 #define THRESHOLD_RATE 0.04
-#define OVERLAP_THRESHOLD 0.9
+#define TAIL_LENGTH int(1/THRESHOLD_RATE)
+///#define OVERLAP_THRESHOLD 0.9
+#define OVERLAP_THRESHOLD_FILTER 0.9
+#define WINDOW_MAX_SIZE WINDOW + TAIL_LENGTH + 3
+#define THRESHOLD_MAX_SIZE  31
 
-/**
-#define WINDOW 500
-#define THRESHOLD  15
-#define THRESHOLD_RATE 0.03
-#define OVERLAP_THRESHOLD 0.95
-**/
 
 #define GROUP_SIZE 4
 ///最长是10M10D10M10D10M这种
-#define CIGAR_MAX_LENGTH THRESHOLD*2+2
+///#define CIGAR_MAX_LENGTH THRESHOLD*2+2
+#define CIGAR_MAX_LENGTH 31*2+4
 
 typedef struct
 {
@@ -92,11 +92,20 @@ typedef struct
   int y_start;
   int extra_begin;
   int extra_end;
+  int error_threshold;
   ///int y_pre_start;
   ///error小于等于0都要重新算
   int error;
   CIGAR cigar;
 } window_list;
+
+
+typedef struct
+{
+    uint64_t* buffer;
+    uint64_t length;
+    uint64_t size;
+}Fake_Cigar;
 
 typedef struct
 {
@@ -113,10 +122,15 @@ typedef struct
 
     uint64_t shared_seed;
     uint64_t align_length;
+    ///uint64_t total_errors;
+    uint8_t is_match;
+    uint64_t non_homopolymer_errors;
 
     window_list* w_list;
     uint64_t w_list_size;
     uint64_t w_list_length;
+    int8_t strong;
+    Fake_Cigar f_cigar;
 } overlap_region;
 
 
@@ -125,6 +139,8 @@ typedef struct
     overlap_region* list;
     uint64_t size;
     uint64_t length;
+    ///uint64_t mapped_overlaps_length;
+    long long mapped_overlaps_length;
 } overlap_region_alloc;
 
 typedef struct
@@ -153,7 +169,15 @@ typedef struct
     int MaxSize;    
 } HeapSq;
 
-
+typedef struct
+{
+    long long* score;
+    long long* pre;
+    long long* indels;
+    long long* self_length;
+    long long length;
+    long long size;
+} Chain_Data;
 
 typedef struct
 {
@@ -163,6 +187,7 @@ typedef struct
     long long size;
     uint64_t foward_pos;
     uint64_t rc_pos;
+    Chain_Data chainDP;
 } Candidates_list;
 
 typedef struct
@@ -204,6 +229,23 @@ inline uint64_t mod_d(uint64_t h_key, uint64_t low_key, uint64_t d)
     result = ((result << 32) + (low_key & (uint64_t)0xffffffff)) % d;
 
     return result;
+}
+
+inline int if_k_mer_available(Hash_code* code, int k)
+{
+    uint64_t h_key, low_key;
+    ///k有可能是64，所以可能会有问题
+    ///low_key = code->x[0] | (code->x[1] << k);
+    low_key = code->x[0] | (code->x[1] << SAFE_SHIFT(k));
+    //k不可能为0, 所以这个右移不会有问题
+    h_key = code->x[1] >> (64 - k);
+
+    if(mod_d(h_key, low_key, MODE_VALUE) > 3)
+    {
+        return 0;
+    }
+
+    return 1;
 }
 
 
@@ -458,16 +500,84 @@ void append_overlap_region_alloc(overlap_region_alloc* list, overlap_region* tmp
 void calculate_overlap_region(Candidates_list* candidates, overlap_region_alloc* overlap_list, 
 uint64_t readID, uint64_t readLength, All_reads* R_INF);
 void append_window_list(overlap_region* region, uint64_t x_start, uint64_t x_end, int y_start, int y_end, int error,
-int extra_begin, int extra_end);
+int extra_begin, int extra_end, int error_threshold);
+
+
+void insert_kv_list_to_candidates(k_v* list, long long occ, long long y_id, long long y_offset, long long y_strand,
+Candidates_list* candidates);
+
+void overlap_region_sort_y_id(overlap_region *a, long long n);
+
+void calculate_inexact_overlap_region(Candidates_list* candidates, overlap_region_alloc* overlap_list, 
+uint64_t readID, uint64_t readLength, All_reads* R_INF);
+
+void calculate_overlap_region_by_chaining(Candidates_list* candidates, overlap_region_alloc* overlap_list, 
+uint64_t readID, uint64_t readLength, All_reads* R_INF, double band_width_threshold);
 
 
 
 
 
 
+static const char LogTable256[256] = {
+#define LT(n) n, n, n, n, n, n, n, n, n, n, n, n, n, n, n, n
+	-1, 0, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3,
+	LT(4), LT(5), LT(5), LT(6), LT(6), LT(6), LT(6),
+	LT(7), LT(7), LT(7), LT(7), LT(7), LT(7), LT(7), LT(7)
+};
 
+static inline int ilog2_32(uint32_t v)
+{
+	uint32_t t, tt;
+	if ((tt = v>>16)) return (t = tt>>8) ? 24 + LogTable256[t] : 16 + LogTable256[tt];
+	return (t = v>>8) ? 8 + LogTable256[t] : LogTable256[v];
+}
 
+void init_fake_cigar(Fake_Cigar* x);
+void destory_fake_cigar(Fake_Cigar* x);
+void clear_fake_cigar(Fake_Cigar* x);
+void add_fake_cigar(Fake_Cigar* x, uint32_t gap_site, int32_t gap_shift);
+void resize_fake_cigar(Fake_Cigar* x, long long size);
+int get_fake_gap_pos(Fake_Cigar* x, int index);
+int get_fake_gap_shift(Fake_Cigar* x, int index);
+inline long long y_start_offset(long long x_start, Fake_Cigar* o)
+{
+    if(x_start == get_fake_gap_pos(o, o->length - 1))
+    {
+        return get_fake_gap_shift(o, o->length - 1);
+    }
+    
+    
+    long long i;
+    for (i = 0; i < o->length; i++)
+    {
+        if(x_start < get_fake_gap_pos(o, i))
+        {
+            break;
+        }
+    }
 
+    if(i == 0 || i == o->length)
+    {
+        fprintf(stderr, "ERROR\n");
+        exit(0);
+    }
+
+    ///note here return i - 1
+    return get_fake_gap_shift(o, i - 1);
+}
+
+inline void print_fake_gap(Fake_Cigar* o)
+{
+    long long i;
+    for (i = 0; i < o->length; i++)
+    {
+        fprintf(stderr, "**i: %d, gap_pos_in_x: %d, gap_shift: %d\n", 
+           i, get_fake_gap_pos(o, i),
+           get_fake_gap_shift(o, i));
+    }
+
+}
 
 
 
@@ -584,5 +694,11 @@ void debug_mode(uint64_t d, uint64_t thread_ID, uint64_t thread_num);
 
 /********************************for debug***************************************/
 void merge_Candidates_list_version(Candidates_list* l, k_mer_pos* n_list, uint64_t n_lengh, uint64_t end_pos, int strand);
+
+void sort_candidates(Candidates_list* candidates, long long readID,
+overlap_region_alloc* overlap_list, All_reads* R_INF);
+void append_overlap_region_alloc_from_existing(overlap_region_alloc* list, overlap_region* tmp, All_reads* R_INF);
+int cmp_by_x_pos_s(const void * a, const void * b);
+void resize_Chain_Data(Chain_Data* x, long long size);
 
 #endif

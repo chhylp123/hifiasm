@@ -200,12 +200,6 @@ int main(int argc, char *argv[])
     if (!CommandLine_process(argc, argv))
         return 1;
 
-
-    /**
-    debug_edit_distance();
-
-    return 1;
-    **/
    fprintf(stdout, "Will perform %d round of error correction...\n", number_of_round);
     
    fprintf(stdout, "defined k_mer_min_freq by user: %d\n", k_mer_min_freq);
@@ -213,10 +207,21 @@ int main(int argc, char *argv[])
 
 
     fprintf(stdout, "k-mer length: %d\n",k_mer_length);
+    fprintf(stdout, "coverage: %d\n",coverage);
+    fprintf(stdout, "read_graph: %d\n", read_graph);
+    fprintf(stdout, "adapterLen: %d\n", adapterLen);
+    fflush(stdout);
+    
 
+
+    
+
+    if(required_read_name)
+    {
+        fprintf(stdout, "required_read_name: %s\n", required_read_name);
+    }
+    
     Correct_Reads(number_of_round);
-
-
 
     return 1;
 }
