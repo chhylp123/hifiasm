@@ -403,6 +403,8 @@ void normalize_ma_hit_t(ma_hit_t_alloc* sources, long long num_sources)
             }
             else
             {
+                ///must have this line
+                new_element.ml = 1;
                 set_reverse_overlap(&new_element, &(sources[i].buffer[j]));
                 add_ma_hit_t_alloc(&(sources[tn]), &new_element);
                 si_overlaps++;
@@ -5054,6 +5056,27 @@ long long weakID, uint32_t w_qs, uint32_t w_qe)
 }
 
 
+inline int check_weak_ma_hit_reverse(ma_hit_t_alloc* aim_paf, ma_hit_t_alloc* reverse_paf_list, 
+long long weakID)
+{
+    long long i = 0;
+    long long strongID, index;
+    ///all overlaps coming from another haplotye are strong
+    for (i = 0; i < aim_paf->length; i++)
+    {
+        strongID = Get_tn(aim_paf->buffer[i]);
+        index = get_specific_overlap
+            (&(reverse_paf_list[strongID]), strongID, weakID);
+        if(index != -1)
+        {
+            return 0;
+        }
+    }
+
+    return 1;
+}
+
+
 inline int check_weak_ma_hit_debug(ma_hit_t_alloc* aim_paf, ma_hit_t_alloc* reverse_paf_list, 
 long long weakID)
 {
@@ -6897,6 +6920,17 @@ void clean_weak_ma_hit_t(ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_source
     uint32_t qn, tn;
     ma_hit_t new_element;
     long long qLen_0, qLen_1;
+
+    // if(memcmp("m64016_190918_162737/92668450/ccs", Get_NAME(R_INF, i), 
+    //     Get_NAME_LENGTH(R_INF, i)) == 0)
+    // {
+    //     debug_info_of_specfic_read("m64016_190918_162737/92668450/ccs", 
+    //     sources, reverse_sources, -1, "clean_weak_ma_hit_t");
+
+    //     debug_info_of_specfic_read("m64016_190918_162737/53545052/ccs", 
+    //     sources, reverse_sources, -1, "clean_weak_ma_hit_t");
+    // }
+
     for (i = 0; i < num_sources; i++)
     {
         for (j = 0; j < sources[i].length; j++)
@@ -6907,20 +6941,13 @@ void clean_weak_ma_hit_t(ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_source
             //if this is a weak overlap
             if(sources[i].buffer[j].ml == 0)
             {   
-                if(!check_weak_ma_hit(&(sources[qn]), reverse_sources, tn, 
-                Get_qs(sources[i].buffer[j]), Get_qe(sources[i].buffer[j])))
+                if(
+                !check_weak_ma_hit(&(sources[qn]), reverse_sources, tn, 
+                Get_qs(sources[i].buffer[j]), Get_qe(sources[i].buffer[j]))
+                /**
+                ||
+                !check_weak_ma_hit_reverse(&(reverse_sources[qn]), sources, tn)**/)
                 {
-                    /**
-                    if(memcmp("m64016_190918_162737/76808505/ccs", 
-                    Get_NAME(R_INF, i), Get_NAME_LENGTH(R_INF, i)) == 0)
-                    {
-                        fprintf(stderr, "#### %.*s, %.*s\n", 
-                        Get_NAME_LENGTH(R_INF, qn), Get_NAME(R_INF, qn),
-                        Get_NAME_LENGTH(R_INF, tn), Get_NAME(R_INF, tn));
-                    }
-                    **/
-
-
                     sources[i].buffer[j].bl = 0;
                     index = get_specific_overlap(&(sources[tn]), tn, qn);
                     sources[tn].buffer[index].bl = 0;
@@ -6928,6 +6955,8 @@ void clean_weak_ma_hit_t(ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_source
             }
         }
     }
+
+
 
     long long m = 0;
     long long pre_overlaps, current_overlaps, exact_overlaps;
@@ -6954,10 +6983,17 @@ void clean_weak_ma_hit_t(ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_source
         current_overlaps += sources[i].length;
     }
 
-    /**
-    fprintf(stdout, "pre_overlaps: %lld, current_overlaps: %lld, exact_overlaps: %lld\n", 
-    pre_overlaps, current_overlaps, exact_overlaps);
-    **/
+
+    // if(memcmp("m64016_190918_162737/92668450/ccs", Get_NAME(R_INF, i), 
+    //     Get_NAME_LENGTH(R_INF, i)) == 0)
+    // {
+    //     debug_info_of_specfic_read("m64016_190918_162737/92668450/ccs", 
+    //     sources, reverse_sources, -1, "clean_weak_ma_hit_t");
+
+    //     debug_info_of_specfic_read("m64016_190918_162737/53545052/ccs", 
+    //     sources, reverse_sources, -1, "clean_weak_ma_hit_t");
+    // }
+
 
     fprintf(stderr, "[M::%s] takes %0.2f s\n\n", __func__, Get_T()-startTime);
 }
@@ -7093,14 +7129,15 @@ ma_hit_t_alloc* reverse_sources, int id, char* command)
             {
                 qn = Get_qn(sources[i].buffer[j]);
                 tn = Get_tn(sources[i].buffer[j]);
-                fprintf(stderr, "target: %.*s, qs: %d, qe: %d, ts: %d, te: %d, ml: %d, rev: %d\n", 
+                fprintf(stderr, "target: %.*s, qs: %d, qe: %d, ts: %d, te: %d, ml: %d, rev: %d, el: %d\n", 
                 Get_NAME_LENGTH(R_INF, tn), Get_NAME(R_INF, tn),
                 Get_qs(sources[i].buffer[j]),
                 Get_qe(sources[i].buffer[j]),
                 Get_ts(sources[i].buffer[j]),
                 Get_te(sources[i].buffer[j]),
                 sources[i].buffer[j].ml,
-                sources[i].buffer[j].rev);
+                sources[i].buffer[j].rev,
+                sources[i].buffer[j].el);
 
                 
 
@@ -7419,16 +7456,24 @@ char* output_file_name, long long bubble_dist, int read_graph, int write)
     }
 
 
-    // debug_info_of_specfic_read("m64016_190918_162737/72220752/ccs", 
+    // debug_info_of_specfic_read("m64016_190918_162737/92668450/ccs", 
     // sources, reverse_sources, -1, "init");
+
+    debug_info_of_specfic_read("m64016_190918_162737/53545052/ccs", 
+    sources, reverse_sources, -1, "init");
+
+
     
     ma_sub_t* coverage_cut;
-    normalize_ma_hit_t(sources, n_read);
-    ///normalize_ma_hit_t_single_side(sources, n_read);
+    ///normalize_ma_hit_t(sources, n_read);
+    normalize_ma_hit_t_single_side(sources, n_read);
 
 
-    // debug_info_of_specfic_read("m64016_190918_162737/72220752/ccs", 
+    // debug_info_of_specfic_read("m64016_190918_162737/92668450/ccs", 
     // sources, reverse_sources, -1, "normalize");
+
+    debug_info_of_specfic_read("m64016_190918_162737/53545052/ccs", 
+    sources, reverse_sources, -1, "normalize");
     
 
 
@@ -7444,7 +7489,7 @@ char* output_file_name, long long bubble_dist, int read_graph, int write)
     
     
     
-    // debug_info_of_specfic_read("m64016_190918_162737/72220752/ccs", 
+    // debug_info_of_specfic_read("m64016_190918_162737/49678749/ccs", 
     // sources, reverse_sources, -1, "clean");
 
 
