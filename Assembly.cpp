@@ -1180,6 +1180,7 @@ void push_overlaps(ma_hit_t_alloc* paf, overlap_region_alloc* overlap_list, int 
 
             tmp.bl = R_INF.read_length[overlap_list->list[i].y_id];
             tmp.ml = overlap_list->list[i].strong;
+            tmp.no_l_indel = overlap_list->list[i].without_large_indel;
 
             add_ma_hit_t_alloc(paf, &tmp);
         }
@@ -1281,7 +1282,7 @@ overlap_region_alloc* overlap_list, UC_Read* x_read, UC_Read* y_read)
             
             tmp.bl = R_INF.read_length[overlap_list->list[i].y_id];
             tmp.ml = overlap_list->list[i].strong;
-
+            tmp.no_l_indel = overlap_list->list[i].without_large_indel;
 
 
 
@@ -1842,7 +1843,7 @@ void* Overlap_calculate_heap_merge(void* arg)
     long long num_correct_base = 0;
     long long num_second_correct_base = 0;
     long long j;
-    int fully_cov;
+    int fully_cov, abnormal;
 
     int thr_ID = *((int*)arg);
     uint64_t POA_i;
@@ -1919,7 +1920,7 @@ void* Overlap_calculate_heap_merge(void* arg)
 
         correct_overlap(&overlap_list, &R_INF, &g_read, &correct, &overlap_read, &POA_Graph, &DAGCon,
         &matched_overlap_0, &matched_overlap_1, &potiental_matched_overlap_0, &potiental_matched_overlap_1,
-        &current_cigar, &hap, &second_round, 0, 1, &fully_cov);
+        &current_cigar, &hap, &second_round, 0, 1, &fully_cov, &abnormal);
 
         num_read_base = num_read_base + g_read.length;
         num_correct_base = num_correct_base + correct.corrected_base;
@@ -1933,18 +1934,6 @@ void* Overlap_calculate_heap_merge(void* arg)
         R_INF.paf[i].is_fully_corrected = 0;
         if(fully_cov)
         {
-            /**
-            if(current_cigar.length == 1 && second_round.cigar.length == 1)
-            {
-                if(Get_Cigar_Type(current_cigar.record[0]) == 0 && 
-                Get_Cigar_Length(current_cigar.record[0]) == g_read.length &&
-                Get_Cigar_Type(second_round.cigar.record[0]) == 0 &&
-                Get_Cigar_Length(second_round.cigar.record[0]) == g_read.length)
-                {
-                    R_INF.paf[i].is_fully_corrected = 1;
-                }
-            }
-            **/    
            if(
             get_cigar_errors(&current_cigar) == 0 
             && 
@@ -1953,6 +1942,10 @@ void* Overlap_calculate_heap_merge(void* arg)
                 R_INF.paf[i].is_fully_corrected = 1;
             }     
         }
+        R_INF.paf[i].is_abnormal = abnormal;
+
+
+
 
 
         push_overlaps(&(R_INF.paf[i]), &overlap_list, 1);
@@ -2828,8 +2821,8 @@ void* Final_overlap_calculate_heap_merge(void* arg)
     long long matched_overlap_1 = 0;
     long long potiental_matched_overlap_0 = 0;
     long long potiental_matched_overlap_1 = 0;
-    long long num_read_base = 0;
     long long num_correct_base = 0;
+    long long num_read_base = 0;
     long long num_second_correct_base = 0;
     long long j, inner_j;
 
@@ -2937,6 +2930,7 @@ void* Final_overlap_calculate_heap_merge(void* arg)
 
                     overlap_list.list[j].is_match = 1;
                     overlap_list.list[j].strong = R_INF.paf[i].buffer[inner_j].ml;
+                    overlap_list.list[j].without_large_indel = R_INF.paf[i].buffer[inner_j].no_l_indel;
                     overlap_list.mapped_overlaps_length++;
 
                     if(overlap_list.list[j].strong == 1)
@@ -2951,6 +2945,15 @@ void* Final_overlap_calculate_heap_merge(void* arg)
                     {
                         fprintf(stderr, "error\n");
                     }
+
+
+                    if(overlap_list.list[j].without_large_indel == 0)
+                    {
+                        num_second_correct_base++;
+                    }
+
+
+
                 }
                 j++;
                 inner_j++;
@@ -2958,6 +2961,7 @@ void* Final_overlap_calculate_heap_merge(void* arg)
         }
 
 
+        ///recover missing exact overlaps 
         reverse_complement(g_read.seq, g_read.length);
         for (j = 0; j < overlap_list.length; j++)
         {
@@ -2978,6 +2982,7 @@ void* Final_overlap_calculate_heap_merge(void* arg)
                 {
                     overlap_list.list[j].is_match = 1;
                     overlap_list.list[j].strong = 0;
+                    overlap_list.list[j].without_large_indel = 1;
                     overlap_list.mapped_overlaps_length++;
                     potiental_matched_overlap_0++;
                 }
@@ -3024,11 +3029,15 @@ void* Final_overlap_calculate_heap_merge(void* arg)
     total_potiental_matched_overlap_0 += potiental_matched_overlap_0;
     total_potiental_matched_overlap_1 += potiental_matched_overlap_1;
     total_num_correct_base += num_correct_base;
+    total_second_num_correct_base += num_second_correct_base;
 
 
     complete_threads++;
     if(complete_threads == thread_num)
     {
+
+
+        fprintf(stderr, "overlaps with large indels: %llu\n", total_second_num_correct_base);
         fprintf(stderr, "weak overlaps: %llu\n", total_matched_overlap_0);
         fprintf(stderr, "strong overlaps: %llu\n", total_matched_overlap_1); 
         fprintf(stderr, "recover weak overlaps: %llu\n", total_potiental_matched_overlap_0);

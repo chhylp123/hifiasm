@@ -1230,7 +1230,7 @@ void correct_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF,
                         long long* potiental_matched_overlap_0, long long* potiental_matched_overlap_1,
                         Cigar_record* current_cigar, haplotype_evdience_alloc* hap,
                         Round2_alignment* second_round, int force_repeat, int is_consensus,
-                        int* fully_cov);
+                        int* fully_cov, int* abnormal);
 void init_Correct_dumy(Correct_dumy* list);
 void destory_Correct_dumy(Correct_dumy* list);
 void clear_Correct_dumy(Correct_dumy* list, overlap_region_alloc* overlap_list);
