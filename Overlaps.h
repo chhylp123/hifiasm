@@ -7,6 +7,7 @@
 
 ///#define MIN_OVERLAP_LEN 2000
 ///#define MIN_OVERLAP_LEN 500
+///#define MIN_OVERLAP_LEN 50
 #define MIN_OVERLAP_LEN 50
 #define MIN_OVERLAP_COVERAGE 1
 #define MAX_HANG_LEN 1000
@@ -42,6 +43,7 @@ typedef struct {
 	uint32_t ml:31, rev:1;
 	uint32_t bl:31, del:1;
 	uint8_t el;
+	uint8_t no_l_indel;
 } ma_hit_t;
 
 
@@ -50,6 +52,7 @@ typedef struct {
     uint32_t size;
     uint32_t length;
 	uint8_t is_fully_corrected;
+	uint8_t is_abnormal;
 } ma_hit_t_alloc;
 
 
@@ -96,6 +99,7 @@ typedef struct {
 	uint32_t ol:31, del:1;
 	uint8_t strong;
 	uint8_t el;
+	uint8_t no_l_indel;
 } asg_arc_t;
 
 typedef struct {
@@ -194,6 +198,7 @@ static inline int ma_hit2arc(const ma_hit_t *h, int ql, int tl, int max_hang, fl
 
 	p->strong = h->ml;
 	p->el = h->el;
+	p->no_l_indel = h->no_l_indel;
 	return l;
 }
 
