@@ -124,6 +124,7 @@ typedef struct
     uint64_t align_length;
     ///uint64_t total_errors;
     uint8_t is_match;
+    uint8_t without_large_indel;
     uint64_t non_homopolymer_errors;
 
     window_list* w_list;

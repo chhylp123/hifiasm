@@ -6695,7 +6695,7 @@ void generate_consensus(overlap_region_alloc* overlap_list, All_reads* R_INF,
 
 
 inline int get_available_fully_covered_interval(long long window_start, long long window_end, 
-overlap_region_alloc* overlap_list, Correct_dumy* dumy, long long* real_length)
+overlap_region_alloc* overlap_list, Correct_dumy* dumy, long long* real_length, long long* real_length_100)
 {
     long long i;
     int flag = 0;
@@ -6745,8 +6745,12 @@ overlap_region_alloc* overlap_list, Correct_dumy* dumy, long long* real_length)
 
             if (overlap_length == Len && overlap_list->list[i].is_match == 1)
             {
-                //dumy->length++; 
                 (*real_length)++;
+            }
+
+            if (overlap_length == Len && overlap_list->list[i].is_match == 100)
+            {
+                (*real_length_100)++;
             }
         }
         
@@ -6768,17 +6772,19 @@ overlap_region_alloc* overlap_list, Correct_dumy* dumy, long long* real_length)
 }
 
 int check_if_fully_covered(overlap_region_alloc* overlap_list, 
-All_reads* R_INF, UC_Read* g_read, Correct_dumy* dumy, Graph* g)
+All_reads* R_INF, UC_Read* g_read, Correct_dumy* dumy, Graph* g, int* abnormal)
 {
     
     long long overlap_length;
     long long window_start, window_end;
+    int return_flag = 1;
+    (*abnormal) = 0;
     
     Window_Pool w_inf;
     init_Window_Pool(&w_inf, g_read->length, WINDOW, TAIL_LENGTH);
 
     int flag = 0;
-    long long realLen;
+    long long realLen, tmpLen;
     while(get_Window(&w_inf, &window_start, &window_end) && flag != -2)
     {
         dumy->length = 0;
@@ -6788,7 +6794,7 @@ All_reads* R_INF, UC_Read* g_read, Correct_dumy* dumy, Graph* g)
         ///dumy->lengthNT返回的是有效不完全重叠的数量
         ///return overlaps that is overlaped with [window_start, window_end]
         flag = get_available_fully_covered_interval(window_start, window_end, 
-        overlap_list, dumy, &realLen);
+        overlap_list, dumy, &realLen, &tmpLen);
 
 
         switch (flag)
@@ -6803,12 +6809,26 @@ All_reads* R_INF, UC_Read* g_read, Correct_dumy* dumy, Graph* g)
 
         if(realLen < MIN_COVERAGE_THRESHOLD * 2)
         {
-           return 0;
+            return_flag = 0;
+           //return 0;
+        }
+
+        if(realLen == 0)
+        {
+            ///that means this window is a middle window
+            if(window_start != 0 && window_end != g_read->length - 1)
+            {
+                (*abnormal) = 1;
+            }
+            else if((*abnormal)==0)
+            {
+                (*abnormal) = 2;
+            }
         }
     }
 
-
-    return 1;
+    return return_flag;
+    //return 1;
 }
 
 
@@ -9432,6 +9452,132 @@ int force_repeat)
 
 }
 
+void lable_large_indels(overlap_region_alloc* overlap_list, All_reads* R_INF, long long read_length,
+Correct_dumy* dumy)
+{
+    long long i, j;
+    long long cigar_i, operation, operationLen;
+    int is_delete = 0;
+    CIGAR* cigar;
+    for (i = 0; i < overlap_list->length; i++)
+    {
+        ///should has at least 3 windows for this overlap
+        if (overlap_list->list[i].is_match == 1 && overlap_list->list[i].w_list_length >= 3)
+        {
+            ///here w_list_length >= 3
+            ///skip the first and last window
+            for (j = 1; j < overlap_list->list[i].w_list_length - 1; j++)
+            {
+                ///this window is not matched, it seems to have large difference
+                if(overlap_list->list[i].w_list[j].y_end == -1)
+                {
+                    overlap_list->list[i].is_match = 100;
+                    is_delete = 1;
+                    goto end_rem;
+                }
+
+                cigar = &(overlap_list->list[i].w_list[j].cigar);
+                ///if there are <=2 cigar elements, skip it
+                if(cigar->length < 3)
+                {
+                    continue;
+                }
+                ///skip the first and last cigar elements
+                for (cigar_i = 1; cigar_i < cigar->length - 1; cigar_i++)
+                {
+                    operation = cigar->C_C[cigar_i];
+                    operationLen = cigar->C_L[cigar_i];
+                    
+                    if(operationLen <= 5)
+                    {
+                        continue;
+                    }
+                    ///>=6 bp deletion or insertion 
+                    if(operation == 2 || operation == 3)
+                    {
+                        overlap_list->list[i].is_match = 100;
+                        is_delete = 1;
+                        goto end_rem;
+                    }
+                }
+            }
+        }
+
+        end_rem:
+        overlap_list->list[i].w_list_length >= 3;
+
+        
+    }
+
+
+    if(is_delete == 1)
+    {
+        long long overlap_length;
+        long long window_start, window_end;
+        Window_Pool w_inf;
+        init_Window_Pool(&w_inf, read_length, WINDOW, TAIL_LENGTH);
+        int flag = 0;
+        long long realLen, realLen_100;
+        int to_recover = 0;
+        while(get_Window(&w_inf, &window_start, &window_end) && flag != -2)
+        {
+            dumy->length = 0;
+            dumy->lengthNT = 0;
+            ///flag返回的是重叠数量
+            ///dumy->length返回的是有效完全重叠的数量
+            ///dumy->lengthNT返回的是有效不完全重叠的数量
+            ///return overlaps that is overlaped with [window_start, window_end]
+            flag = get_available_fully_covered_interval(window_start, window_end, 
+            overlap_list, dumy, &realLen, &realLen_100);
+
+
+            switch (flag)
+            {
+                case 1:    ///找到匹配
+                    break;
+                case 0:    ///没找到匹配
+                    break;
+                case -2: ///下一个window也不会存在匹配, 直接跳出
+                    break;
+            }
+
+            ///it seems there is a long indel at the reference read itself
+            if(realLen == 0 && realLen_100 > 0)
+            {
+                to_recover = 1;
+                break;
+            }
+        }
+
+        if(to_recover == 1)
+        {
+            for (i = 0; i < overlap_list->length; i++)
+            {
+                if (overlap_list->list[i].is_match == 100)
+                {
+                    overlap_list->list[i].is_match = 1;
+                }
+            }
+        }
+    }
+
+
+    for (i = 0; i < overlap_list->length; i++)
+    {
+        if (overlap_list->list[i].is_match == 1)
+        {
+            overlap_list->list[i].without_large_indel = 1;
+        }
+
+        if (overlap_list->list[i].is_match == 100)
+        {
+            overlap_list->list[i].is_match = 1;
+            overlap_list->list[i].without_large_indel = 0;
+        }
+    }
+
+}
+
 
 int generate_haplotypes_DP(haplotype_evdience_alloc* hap, overlap_region_alloc* overlap_list, All_reads* R_INF, long long rLen, 
 int force_repeat)
@@ -10285,6 +10431,8 @@ void partition_overlaps(overlap_region_alloc* overlap_list, All_reads* R_INF,
     generate_haplotypes_DP(hap, overlap_list, R_INF, g_read->length, force_repeat);
     ///generate_haplotypes_naive(hap, overlap_list, R_INF, g_read->length, force_repeat);
 
+    lable_large_indels(overlap_list, R_INF, g_read->length, dumy);
+
 
     ///debug_snp_matrix(hap);
 }
@@ -10542,7 +10690,7 @@ void correct_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF,
                         long long* potiental_matched_overlap_0, long long* potiental_matched_overlap_1,
                         Cigar_record* current_cigar, haplotype_evdience_alloc* hap, 
                         Round2_alignment* second_round, int force_repeat, int is_consensus,
-                        int* fully_cov)
+                        int* fully_cov, int* abnormal)
 {
     reverse_complement(g_read->seq, g_read->length);
 
@@ -10594,8 +10742,8 @@ void correct_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF,
     partition_overlaps(overlap_list, R_INF, g_read, dumy, hap, force_repeat);
 
 
-    print_overlap("m64016_190918_162737/53545052/ccs", 
-    overlap_list->list[0].x_id, overlap_list, R_INF, 1);
+    // print_overlap("m64016_190918_162737/53545052/ccs", 
+    // overlap_list->list[0].x_id, overlap_list, R_INF, 1);
 
 
 
@@ -10606,7 +10754,7 @@ void correct_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF,
     }
 
 
-    (*fully_cov) = check_if_fully_covered(overlap_list, R_INF, g_read, dumy, g);
+    (*fully_cov) = check_if_fully_covered(overlap_list, R_INF, g_read, dumy, g, abnormal);
     
 }
 

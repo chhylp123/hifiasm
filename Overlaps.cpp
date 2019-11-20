@@ -354,6 +354,17 @@ inline void set_reverse_overlap(ma_hit_t* dest, ma_hit_t* source)
     {
         dest->ml = source->ml = 1;
     }
+
+
+    if(dest->no_l_indel == 0 || source->no_l_indel == 0)
+    {
+        dest->no_l_indel = source->no_l_indel = 0;
+    }
+    else
+    {
+        dest->no_l_indel = source->no_l_indel = 1;
+    }
+    
     /****************************may have bugs********************************/
     dest->bl = Get_qe(*dest) - Get_qs(*dest);
 }
@@ -405,6 +416,7 @@ void normalize_ma_hit_t(ma_hit_t_alloc* sources, long long num_sources)
             {
                 ///must have this line
                 new_element.ml = 1;
+                new_element.no_l_indel = 1;
                 set_reverse_overlap(&new_element, &(sources[i].buffer[j]));
                 add_ma_hit_t_alloc(&(sources[tn]), &new_element);
                 si_overlaps++;
@@ -2966,6 +2978,8 @@ uint32_t startNode, uint32_t endNode, int max_dist, buf_t* bub)
 }
 
 
+
+
 int find_single_link(asg_t *g, uint32_t link_beg, int linkLen, uint32_t* link_end)
 {
     uint32_t v, w;
@@ -3592,6 +3606,47 @@ int asg_arc_del_triangular_advance(asg_t *g, long long max_dist)
     fprintf(stderr, "[M::%s] takes %0.2f s\n\n", __func__, Get_T()-startTime);
 
     return n_reduced + n_reduced_a;
+}
+
+
+int asg_arc_del_triangular_directly(asg_t *g, long long max_dist)
+{
+    double startTime = Get_T();
+    ///the reason is that each read has two direction (query->target, target->query)
+	uint32_t v, w, n_vtx = g->n_seq * 2, n_reduced = 0;
+
+
+    int flag0, flag1, node;
+    for (v = 0; v < n_vtx; ++v) 
+    {
+        uint32_t nv = asg_arc_n(g, v);
+        asg_arc_t *av = asg_arc_a(g, v);
+        if (g->seq[v>>1].del)
+        {
+            continue;
+        } 
+
+        if(nv < 2)
+        {
+            continue;
+        }
+
+
+        //test_triangular_directly();
+    }
+
+    
+
+    if (n_reduced) {
+		asg_cleanup(g);
+		asg_symm(g);
+	}
+
+    fprintf(stderr, "[M::%s] removed %d triangular overlaps\n", 
+    __func__, n_reduced);
+    fprintf(stderr, "[M::%s] takes %0.2f s\n\n", __func__, Get_T()-startTime);
+
+    return n_reduced;
 }
 
 
@@ -4288,7 +4343,7 @@ uint32_t startNode, uint32_t endNode)
 }
 
 
-int test_single_node_bubble_directly(asg_t *g, uint32_t v, long long longLen_thres)
+int test_single_node_bubble_directly(asg_t *g, uint32_t v, long long longLen_thres, ma_hit_t_alloc* sources)
 {
     
     uint32_t w, vEnd;
@@ -4323,7 +4378,8 @@ int test_single_node_bubble_directly(asg_t *g, uint32_t v, long long longLen_thr
             longLen = Len[1];
             
             /****************************may have bugs********************************/
-            if(asg_arc_a(g, w)[0].el == 0 || asg_arc_a(g, w^1)[0].el == 0)
+            ///if(asg_arc_a(g, w)[0].el == 0 || asg_arc_a(g, w^1)[0].el == 0)
+            if(asg_arc_a(g, w)[0].el == 0 || asg_arc_a(g, w^1)[0].el == 0 || sources[w>>1].is_abnormal == 1)
             {
                 asg_seq_del(g, w>>1);
                 n_reduced++;
@@ -4348,7 +4404,8 @@ int test_single_node_bubble_directly(asg_t *g, uint32_t v, long long longLen_thr
             longLen = Len[0];
             
             /****************************may have bugs********************************/
-            if(asg_arc_a(g, w)[0].el == 0 || asg_arc_a(g, w^1)[0].el == 0)
+            ///if(asg_arc_a(g, w)[0].el == 0 || asg_arc_a(g, w^1)[0].el == 0)
+            if(asg_arc_a(g, w)[0].el == 0 || asg_arc_a(g, w^1)[0].el == 0 || sources[w>>1].is_abnormal == 1)
             {
                 asg_seq_del(g, w>>1);
                 n_reduced++;
@@ -4367,41 +4424,54 @@ int test_single_node_bubble_directly(asg_t *g, uint32_t v, long long longLen_thr
         }
         else if(Len[0] == 1 && Len[1] == 1)
         {
-            w = av[0].v;
-            flag0 = asg_arc_a(g, w)[0].el + asg_arc_a(g, w^1)[0].el;
-            w = av[1].v;
-            flag1 = asg_arc_a(g, w)[0].el + asg_arc_a(g, w^1)[0].el;
-            ///>=2 means this is an exact overlap
-            if(flag0 < 2 && flag1 >= 2)
+            flag0 = sources[av[0].v>>1].is_abnormal;
+            flag1 = sources[av[1].v>>1].is_abnormal;
+
+            if(flag0 == 1 && flag1 == 0)
+            {
+                asg_seq_del(g, av[0].v>>1);
+                n_reduced++;
+            }
+            else if(flag0 == 0 && flag1 == 1)
+            {
+                asg_seq_del(g, av[1].v>>1);
+                n_reduced++;
+            }
+            else
             {
                 w = av[0].v;
-                
-                /****************************may have bugs********************************/
-                if(asg_arc_a(g, w)[0].el == 0 || asg_arc_a(g, w^1)[0].el == 0)
-                {
-                    asg_seq_del(g, w>>1);
-                    n_reduced++;
-                }
-                /****************************may have bugs********************************/
-            }
-
-            if(flag0 >= 2 && flag1 < 2)
-            {
+                flag0 = asg_arc_a(g, w)[0].el + asg_arc_a(g, w^1)[0].el;
                 w = av[1].v;
-                
-                /****************************may have bugs********************************/
-                if(asg_arc_a(g, w)[0].el == 0 || asg_arc_a(g, w^1)[0].el == 0)
+                flag1 = asg_arc_a(g, w)[0].el + asg_arc_a(g, w^1)[0].el;
+                ///>=2 means this is an exact overlap
+                if(flag0 < 2 && flag1 >= 2)
                 {
-                    asg_seq_del(g, w>>1);
-                    n_reduced++;
+                    w = av[0].v;
+                    
+                    /****************************may have bugs********************************/
+                    if(asg_arc_a(g, w)[0].el == 0 || asg_arc_a(g, w^1)[0].el == 0)
+                    {
+                        asg_seq_del(g, w>>1);
+                        n_reduced++;
+                    }
+                    /****************************may have bugs********************************/
                 }
-                /****************************may have bugs********************************/
+
+                if(flag0 >= 2 && flag1 < 2)
+                {
+                    w = av[1].v;
+                    
+                    /****************************may have bugs********************************/
+                    if(asg_arc_a(g, w)[0].el == 0 || asg_arc_a(g, w^1)[0].el == 0)
+                    {
+                        asg_seq_del(g, w>>1);
+                        n_reduced++;
+                    }
+                    /****************************may have bugs********************************/
+                }
             }
         }
-        else
-        {
-            fprintf(stderr, "error\n");
-        }
+        
     }
     return n_reduced;
 }
@@ -4451,7 +4521,7 @@ int asg_arc_del_single_node_bubble(asg_t *g, long long max_dist)
     return n_reduced;
 }
 
-int asg_arc_del_single_node_directly(asg_t *g, long long longLen_thres)
+int asg_arc_del_single_node_directly(asg_t *g, long long longLen_thres, ma_hit_t_alloc* sources)
 {
     double startTime = Get_T();
     ///the reason is that each read has two direction (query->target, target->query)
@@ -4470,7 +4540,7 @@ int asg_arc_del_single_node_directly(asg_t *g, long long longLen_thres)
             continue;
         }
 
-        n_reduced += test_single_node_bubble_directly(g, v, longLen_thres);
+        n_reduced += test_single_node_bubble_directly(g, v, longLen_thres, sources);
     }
 
 
@@ -5056,18 +5126,19 @@ long long weakID, uint32_t w_qs, uint32_t w_qe)
 }
 
 
-inline int check_weak_ma_hit_reverse(ma_hit_t_alloc* aim_paf, ma_hit_t_alloc* reverse_paf_list, 
+inline int check_weak_ma_hit_reverse(ma_hit_t_alloc* r_paf, ma_hit_t_alloc* r_paf_source, 
 long long weakID)
 {
     long long i = 0;
     long long strongID, index;
     ///all overlaps coming from another haplotye are strong
-    for (i = 0; i < aim_paf->length; i++)
+    for (i = 0; i < r_paf->length; i++)
     {
-        strongID = Get_tn(aim_paf->buffer[i]);
+        strongID = Get_tn(r_paf->buffer[i]);
         index = get_specific_overlap
-            (&(reverse_paf_list[strongID]), strongID, weakID);
-        if(index != -1)
+            (&(r_paf_source[strongID]), strongID, weakID);
+        ///must be a strong overlap
+        if(index != -1 && r_paf_source[strongID].buffer[index].ml == 1)
         {
             return 0;
         }
@@ -5252,6 +5323,41 @@ int asg_arc_del_short_diploid_unclean(asg_t *g, float drop_ratio, ma_hit_t_alloc
 
 	return n_short;
 }
+
+int asg_arc_del_too_short_overlaps(asg_t *g, long long dropLen)
+{
+    double startTime = Get_T();
+
+	uint32_t v, n_vtx = g->n_seq * 2, n_short = 0;
+	for (v = 0; v < n_vtx; ++v) 
+    {
+        if (g->seq[v>>1].del) continue;
+        if (g->seq_vis[v] != 0) continue;
+
+		asg_arc_t *av = asg_arc_a(g, v);
+		uint32_t i, thres, nv = asg_arc_n(g, v);
+		///if there is just one overlap, do nothing
+		if (nv < 2) continue;
+		//av[0] has the most overlap length
+		///remove short overlaps
+        if(av[0].ol < dropLen) continue;
+
+		for (i = nv - 1; i >= 1 && av[i].ol < dropLen; --i);
+
+		for (i = i + 1; i < nv; ++i)
+			av[i].del = 1, ++n_short;
+	}
+
+
+    asg_cleanup(g);
+    asg_symm(g);
+	
+	fprintf(stderr, "[M::%s] removed %d short overlaps\n", __func__, n_short);
+    fprintf(stderr, "[M::%s] takes %0.2f s\n\n", __func__, Get_T()-startTime);
+
+	return n_short;
+}
+
 
 
 int asg_arc_del_short_diploid_unclean_exact(asg_t *g, float drop_ratio, ma_hit_t_alloc* sources)
@@ -6460,7 +6566,10 @@ int asg_arc_del_short_diploid_by_exact(asg_t *g, int max_ext, ma_hit_t_alloc* so
         sources[v>>1].is_fully_corrected == 1 && 
         sources[w>>1].is_fully_corrected == 0)
         {
-            if(av[ov_max_i].el == 1 && sources[av[ov_max_i].v>>1].is_fully_corrected)
+            /****************************may have bugs********************************/
+            ///if(av[ov_max_i].el == 1 && sources[av[ov_max_i].v>>1].is_fully_corrected)
+            /****************************may have bugs********************************/
+            if(av[ov_max_i].el == 1 && sources[av[ov_max_i].v>>1].is_fully_corrected == 1)
             {
                 if (kv > 1 && kw > 1) {
                     to_del = 1;
@@ -6490,6 +6599,104 @@ int asg_arc_del_short_diploid_by_exact(asg_t *g, int max_ext, ma_hit_t_alloc* so
 	return n_cut;
 }
 
+
+
+int asg_arc_del_short_diploi_by_suspect_edge(asg_t *g, int max_ext, ma_hit_t_alloc* sources)
+{
+    double startTime = Get_T();
+    kvec_t(uint64_t) b;
+    memset(&b, 0, sizeof(b));
+
+	uint32_t v, n_vtx = g->n_seq * 2;
+    long long n_cut = 0;
+    
+    for (v = 0; v < n_vtx; ++v) 
+    {
+        ///if(g->seq_vis[v] == 0)
+        {
+            asg_arc_t *av = asg_arc_a(g, v);
+            uint32_t nv = asg_arc_n(g, v);
+            if (nv < 2) continue;
+
+            long long i;
+            for (i = 0; i < nv; ++i)
+            {
+                ///means there is a large indel at this edge
+                if(av[i].no_l_indel == 0)
+                {
+                    kv_push(uint64_t, b, (uint64_t)(av[i].ol << 32 | (av - g->arc + i)));   
+                }
+            }
+        }
+	}
+
+    fprintf(stderr, "[M::%s] %lld unsorted pending overlaps\n", __func__, b.n);
+
+    radix_sort_arch64(b.a, b.a + b.n);
+
+    fprintf(stderr, "[M::%s] %lld sorted pending overlaps\n", __func__, b.n);
+
+    long long k;
+    for (k = 0; k < b.n; k++)
+    {
+        
+        asg_arc_t *a = &g->arc[(uint32_t)b.a[k]];
+		///v is self id, w is the id of another end
+		uint32_t i, iv, iw, v = (a->ul)>>32, w = a->v^1, to_del = 0;
+		uint32_t nv = asg_arc_n(g, v), nw = asg_arc_n(g, w), kv, kw;
+		asg_arc_t *av, *aw;
+		///nv must be >= 2
+		if (nv == 1 && nw == 1) continue;
+        av = asg_arc_a(g, v);
+		aw = asg_arc_a(g, w);
+
+        ///calculate the longest edge for v and w
+		for (i = 0, kv = 0; i < nv; ++i) 
+        {
+			if (av[i].del) continue;
+			++kv;
+		}
+
+		for (i = 0, kw = 0; i < nw; ++i) 
+        {
+			if (aw[i].del) continue;
+			++kw;
+		}
+
+		if (kv == 1 && kw == 1) continue;
+
+        ///to see which one is the current edge (from v and w)
+		for (iv = 0; iv < nv; ++iv)
+			if (av[iv].v == (w^1)) break;
+		for (iw = 0; iw < nw; ++iw)
+			if (aw[iw].v == (v^1)) break;
+
+        ///if one edge has been deleted, it should be deleted in both direction
+        if (av[iv].del && aw[iw].del) continue;
+
+        
+        if (kv > 1 && kw > 1) {
+			to_del = 1;
+        } else if (kw == 1) {
+            if (asg_topocut_aux(g, w^1, max_ext) < max_ext) to_del = 1;
+        } else if (kv == 1) {
+            if (asg_topocut_aux(g, v^1, max_ext) < max_ext) to_del = 1;
+        }
+        
+		if (to_del)
+			av[iv].del = aw[iw].del = 1, ++n_cut;
+    }
+    
+    free(b.a);
+	if (n_cut) 
+    {
+		asg_cleanup(g);
+		asg_symm(g);
+	}
+	fprintf(stderr, "[M::%s] removed %d suspect overlaps\n", __func__, n_cut);
+    fprintf(stderr, "[M::%s] takes %0.2f s\n\n", __func__, Get_T()-startTime);
+	return n_cut;
+}
 
 int asg_arc_del_false_node(asg_t *g, int max_ext)
 {
@@ -7296,6 +7503,7 @@ void read_ma(ma_hit_t* x, FILE* fp)
     fread(&(x->ts), sizeof(x->ts), 1, fp);
     fread(&(x->te), sizeof(x->te), 1, fp);
     fread(&(x->el), sizeof(x->el), 1, fp);
+    fread(&(x->no_l_indel), sizeof(x->no_l_indel), 1, fp);
 
     uint32_t t;
     fread(&(t), sizeof(t), 1, fp);
@@ -7333,6 +7541,7 @@ int load_ma_hit_ts(ma_hit_t_alloc** x, char* read_file_name)
     for (i = 0; i < n_read; i++)
     {        
         fread(&((*x)[i].is_fully_corrected), sizeof((*x)[i].is_fully_corrected), 1, fp);
+        fread(&((*x)[i].is_abnormal), sizeof((*x)[i].is_abnormal), 1, fp);
         fread(&((*x)[i].length), sizeof((*x)[i].length), 1, fp);
 
         (*x)[i].buffer = (ma_hit_t*)malloc(sizeof(ma_hit_t)*(*x)[i].length);
@@ -7357,6 +7566,7 @@ void write_ma(ma_hit_t* x, FILE* fp)
     fwrite(&(x->ts), sizeof(x->ts), 1, fp);
     fwrite(&(x->te), sizeof(x->te), 1, fp);
     fwrite(&(x->el), sizeof(x->el), 1, fp);
+    fwrite(&(x->no_l_indel), sizeof(x->no_l_indel), 1, fp);
 
     uint32_t t = x->ml;
     fwrite(&(t), sizeof(t), 1, fp);
@@ -7383,6 +7593,7 @@ void write_ma_hit_ts(ma_hit_t_alloc* x, long long n_read, char* read_file_name)
     for (i = 0; i < n_read; i++)
     {
         fwrite(&(x[i].is_fully_corrected), sizeof(x[i].is_fully_corrected), 1, fp);
+        fwrite(&(x[i].is_abnormal), sizeof(x[i].is_abnormal), 1, fp);
         fwrite(&(x[i].length), sizeof(x[i].length), 1, fp);
         for (k = 0; k < x[i].length; k++)
         {
@@ -7440,6 +7651,192 @@ char* output_file_name)
 }
 
 
+// in a resolved bubble, mark unused vertices and arcs as "reduced"
+static void asg_bub_backtrack(asg_t *g, uint32_t v0, buf_t *b)
+{
+	uint32_t i, v;
+	///assert(b->S.n == 1);
+	///first remove all nodes in this bubble
+	for (i = 0; i < b->b.n; ++i)
+		g->seq[b->b.a[i]>>1].del = 1;
+
+	///second remove all edges (self/reverse for each edge) in this bubble
+	for (i = 0; i < b->e.n; ++i) {
+		asg_arc_t *a = &g->arc[b->e.a[i]];
+		///remove this edge self
+		a->del = 1;
+		///remove the reverse direction
+		asg_arc_del(g, a->v^1, a->ul>>32^1, 1);
+	}
+	///v is the sink of this bubble
+	v = b->S.a[0];
+	///recover node
+	do {
+		uint32_t u = b->a[v].p; // u->v
+		g->seq[v>>1].del = 0;
+		asg_arc_del(g, u, v, 0);
+		asg_arc_del(g, v^1, u^1, 0);
+		v = u;
+	} while (v != v0);
+}
+
+
+// count the number of outgoing arcs, excluding reduced arcs
+static inline int count_out(const asg_t *g, uint32_t v)
+{
+	uint32_t i, n, nv = asg_arc_n(g, v);
+	const asg_arc_t *av = asg_arc_a(g, v);
+	for (i = n = 0; i < nv; ++i)
+		if (!av[i].del) ++n;
+	return n;
+}
+
+// pop bubbles from vertex v0; the graph MJUST BE symmetric: if u->v present, v'->u' must be present as well
+static uint64_t asg_bub_pop1(asg_t *g, uint32_t v0, int max_dist, buf_t *b)
+{
+	uint32_t i, n_pending = 0;
+	uint64_t n_pop = 0;
+	///if this node has been deleted
+	if (g->seq[v0>>1].del) return 0; // already deleted
+	///asg_arc_n(n0)
+	if ((uint32_t)g->idx[v0] < 2) return 0; // no bubbles
+	///S saves nodes with all incoming edges visited
+	b->S.n = b->T.n = b->b.n = b->e.n = 0;
+	///for each node, b->a saves all related information
+	b->a[v0].c = b->a[v0].d = 0;
+	///b->S is the nodes with all incoming edges visited
+	kv_push(uint32_t, b->S, v0);
+
+	do {
+		///v is a node that all incoming edges have been visited
+		///d is the distance from v0 to v
+		uint32_t v = kv_pop(b->S), d = b->a[v].d, c = b->a[v].c;
+		uint32_t nv = asg_arc_n(g, v);
+		asg_arc_t *av = asg_arc_a(g, v);
+		///why we have this assert?
+		///assert(nv > 0);
+
+		///all out-edges of v
+		for (i = 0; i < nv; ++i) { // loop through v's neighbors
+			/**
+			p->ul: |____________31__________|__________1___________|______________32_____________|
+								qn            direction of overlap       length of this node (not overlap length)
+												(in the view of query)
+			p->v : |___________31___________|__________1___________|
+								tn             reverse direction of overlap
+											(in the view of target)
+			p->ol: overlap length
+			**/
+			uint32_t w = av[i].v, l = (uint32_t)av[i].ul; // v->w with length l
+			binfo_t *t = &b->a[w];
+			///that means there is a circle, directly terminate the whole bubble poping
+			if (w == v0) goto pop_reset;
+			///if this edge has been deleted
+			if (av[i].del) continue;
+
+			///push the edge
+			kv_push(uint32_t, b->e, (g->idx[v]>>32) + i);
+
+			///find a too far path? directly terminate the whole bubble poping
+			if (d + l > max_dist) break; // too far
+
+
+			if (t->s == 0) { // this vertex has never been visited
+				kv_push(uint32_t, b->b, w); // save it for revert
+				///t->p means the in-node of w is v
+				///t->s = 1 means w has been visited
+				///d is len(v0->v), l is len(v->w), so t->d is len(v0->w)
+				t->p = v, t->s = 1, t->d = d + l;
+				///incoming edges of w
+				t->r = count_out(g, w^1);
+				++n_pending;
+			} else { // visited before
+				///c seems the max weight of node
+				if (c + 1 > t->c || (c + 1 == t->c && d + l > t->d)) t->p = v;
+				if (c + 1 > t->c) t->c = c + 1;
+				///update len(v0->w)
+				if (d + l < t->d) t->d = d + l; // update dist
+			}
+			///assert(t->r > 0);
+			//if all incoming edges of w have visited
+			//push it to b->S
+			if (--(t->r) == 0) {
+				uint32_t x = asg_arc_n(g, w);
+				if (x) kv_push(uint32_t, b->S, w);
+				else kv_push(uint32_t, b->T, w); // a tip
+				--n_pending;
+			}
+		}
+		///if i < nv, that means (d + l > max_dist)
+		if (i < nv || b->S.n == 0) goto pop_reset;
+	} while (b->S.n > 1 || n_pending);
+	asg_bub_backtrack(g, v0, b);
+	n_pop = 1 | (uint64_t)b->T.n<<32;
+pop_reset:
+	for (i = 0; i < b->b.n; ++i) { // clear the states of visited vertices
+		binfo_t *t = &b->a[b->b.a[i]];
+		t->s = t->c = t->d = 0;
+	}
+	return n_pop;
+}
+
+// pop bubbles
+int asg_pop_bubble(asg_t *g, int max_dist)
+{
+	uint32_t v, n_vtx = g->n_seq * 2;
+	uint64_t n_pop = 0;
+	buf_t b;
+	if (!g->is_symm) asg_symm(g);
+	memset(&b, 0, sizeof(buf_t));
+	///set information for each node
+	b.a = (binfo_t*)calloc(n_vtx, sizeof(binfo_t));
+	//traverse all node with two directions 
+	for (v = 0; v < n_vtx; ++v) {
+		uint32_t i, n_arc = 0, nv = asg_arc_n(g, v);
+		asg_arc_t *av = asg_arc_a(g, v);
+		///some node could be deleted
+		if (nv < 2 || g->seq[v>>1].del) continue;
+		///some edges could be deleted
+		for (i = 0; i < nv; ++i) // asg_bub_pop1() may delete some edges/arcs
+			if (!av[i].del) ++n_arc;
+		if (n_arc > 1)
+			n_pop += asg_bub_pop1(g, v, max_dist, &b);
+	}
+	free(b.a); free(b.S.a); free(b.T.a); free(b.b.a); free(b.e.a);
+	if (n_pop) asg_cleanup(g);
+	fprintf(stderr, "[M::%s] popped %d bubbles and trimmed %d tips\n", __func__, (uint32_t)n_pop, (uint32_t)(n_pop>>32));
+	return n_pop;
+}
+
+
+void output_contig_graph(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name, long long n_read, long long bubble_dist)
+{
+
+
+    asg_pop_bubble(sg, bubble_dist);
+    ma_ug_t *ug = NULL;
+    ug = ma_ug_gen(sg);
+    ma_ug_seq(ug, &R_INF, coverage_cut, n_read);
+
+    fprintf(stdout, "Writing unitig GFA to disk ...... \n");
+    char* gfa_name = (char*)malloc(strlen(output_file_name)+35);
+    sprintf(gfa_name, "%s.contig.gfa", output_file_name);
+    FILE* output_file = fopen(gfa_name, "w");
+    ma_ug_print(ug, &R_INF, coverage_cut, output_file);
+    fclose(output_file);
+    
+    
+
+
+
+    sprintf(gfa_name, "%s.simple.contig.gfa", output_file_name);
+    output_file = fopen(gfa_name, "w");
+    ma_ug_print_simple(ug, &R_INF, coverage_cut, output_file);
+    fclose(output_file);
+
+    free(gfa_name);
+    ma_ug_destroy(ug);
+}
 
 void build_string_graph_without_clean(
 int min_dp, ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, 
@@ -7459,8 +7856,8 @@ char* output_file_name, long long bubble_dist, int read_graph, int write)
     // debug_info_of_specfic_read("m64016_190918_162737/92668450/ccs", 
     // sources, reverse_sources, -1, "init");
 
-    debug_info_of_specfic_read("m64016_190918_162737/53545052/ccs", 
-    sources, reverse_sources, -1, "init");
+    // debug_info_of_specfic_read("m64016_190918_162737/53545052/ccs", 
+    // sources, reverse_sources, -1, "init");
 
 
     
@@ -7472,8 +7869,8 @@ char* output_file_name, long long bubble_dist, int read_graph, int write)
     // debug_info_of_specfic_read("m64016_190918_162737/92668450/ccs", 
     // sources, reverse_sources, -1, "normalize");
 
-    debug_info_of_specfic_read("m64016_190918_162737/53545052/ccs", 
-    sources, reverse_sources, -1, "normalize");
+    // debug_info_of_specfic_read("m64016_190918_162737/53545052/ccs", 
+    // sources, reverse_sources, -1, "normalize");
     
 
 
@@ -7513,20 +7910,12 @@ char* output_file_name, long long bubble_dist, int read_graph, int write)
     
 
 
-
-
-
     asg_t *sg = NULL;
     sg = ma_sg_gen(sources, n_read, coverage_cut, max_hang_length, mini_overlap_length);
 
     
     // debug_info_of_specfic_node("m64016_190918_162737/72220752/ccs", sg, "sg_gen");
     
-
-
-
-
-
 
     asg_arc_del_trans(sg, GAP_FUZZ);
 
@@ -7543,7 +7932,7 @@ char* output_file_name, long long bubble_dist, int read_graph, int write)
 
 
 
-    asg_arc_del_short_diploid_unclean(sg, corase_ovlp_drop_ratio, sources, reverse_sources);
+    ///asg_arc_del_short_diploid_unclean(sg, corase_ovlp_drop_ratio, sources, reverse_sources);
 
 
     
@@ -7584,36 +7973,25 @@ char* output_file_name, long long bubble_dist, int read_graph, int write)
             fprintf(stderr, "\n\n**********%d-th round drop: drop_ratio = %f**********\n", 
             i, drop_ratio);
 
-            // debug_info_of_specfic_node("m64016_190918_162737/72220752/ccs", sg, "step");
-
 
             while(1)
             {
                 int tri_flag = 0;
+
+                
                 tri_flag += asg_arc_del_self_circle_contig(sg);
-                // fprintf(stderr, "tri_flag: %d\n", tri_flag);
-                // fflush(stderr);
                 ///asg_arc_del_single_node_bubble(sg, bubble_dist);
-                tri_flag += asg_arc_del_single_node_directly(sg, MAX_SHORT_TIPS);
-                // fprintf(stderr, "tri_flag: %d\n", tri_flag);
-                // fflush(stderr);
+                tri_flag += asg_arc_del_single_node_directly(sg, MAX_SHORT_TIPS, sources);
                 tri_flag += asg_arc_del_triangular_advance(sg, bubble_dist);
-                // fprintf(stderr, "tri_flag: %d\n", tri_flag);
-                // fflush(stderr);
                 tri_flag += asg_arc_del_cross_bubble(sg, bubble_dist);
-                // fprintf(stderr, "tri_flag: %d\n", tri_flag);
-                // fflush(stderr);
                 ///asg_arc_del_single_node_bubble(sg, bubble_dist);
-                tri_flag += asg_arc_del_single_node_directly(sg, MAX_SHORT_TIPS);
-                // fprintf(stderr, "tri_flag: %d\n", tri_flag);
-                // fflush(stderr);
+                tri_flag += asg_arc_del_single_node_directly(sg, MAX_SHORT_TIPS, sources);
 
                 if(tri_flag == 0)
                 {
                     break;
                 }
             }
-            
 
             
             /****************************may have bugs********************************/
@@ -7624,36 +8002,20 @@ char* output_file_name, long long bubble_dist, int read_graph, int write)
             /****************************may have bugs********************************/
 
             /****************************may have bugs********************************/
-            //asg_arc_identify_simple_bubbles(sg);
-            asg_arc_identify_simple_bubbles_multi(sg, 1);
+            ///asg_arc_identify_simple_bubbles_multi(sg, 1);
+            asg_arc_identify_simple_bubbles_multi(sg, 0);
             ///asg_arc_del_short_diploid_unclean_exact(sg, drop_ratio, sources);
             asg_arc_del_short_diploid_by_exact(sg, MAX_SHORT_TIPS, sources);
             asg_cut_tip(sg, MAX_SHORT_TIPS);
             /****************************may have bugs********************************/
 
 
-            // fprintf(stderr, "bugs\n");
-            // fflush(stderr);
+        
 
             //asg_arc_identify_simple_bubbles(sg);
             asg_arc_identify_simple_bubbles_multi(sg, 1);
-
-            // fprintf(stderr, "asg_arc_identify_simple_bubbles_multi\n");
-            // fflush(stderr);
-
-
             asg_arc_del_short_diploid_by_length(sg, drop_ratio, MAX_SHORT_TIPS);
             asg_cut_tip(sg, MAX_SHORT_TIPS);
-
-
-            // fprintf(stderr, "asg_arc_del_short_diploid_by_length\n");
-            // fflush(stderr);
-
-            
-            // debug_info_of_specfic_node("m64016_190918_162737/141297762/ccs", sg);
-
-
-
 
             asg_arc_identify_simple_bubbles_multi(sg, 0);
             asg_arc_del_short_false_link(sg, 0.6, bubble_dist);
@@ -7677,7 +8039,7 @@ char* output_file_name, long long bubble_dist, int read_graph, int write)
         // fprintf(stderr, "tri_flag: %d\n", tri_flag);
         // fflush(stderr);
         ///asg_arc_del_single_node_bubble(sg, bubble_dist);
-        tri_flag += asg_arc_del_single_node_directly(sg, MAX_SHORT_TIPS);
+        tri_flag += asg_arc_del_single_node_directly(sg, MAX_SHORT_TIPS, sources);
         // fprintf(stderr, "tri_flag: %d\n", tri_flag);
         // fflush(stderr);
         tri_flag += asg_arc_del_triangular_advance(sg, bubble_dist);
@@ -7689,7 +8051,7 @@ char* output_file_name, long long bubble_dist, int read_graph, int write)
         // fprintf(stderr, "tri_flag: %d\n", tri_flag);
         // fflush(stderr);
         ///asg_arc_del_single_node_bubble(sg, bubble_dist);
-        tri_flag += asg_arc_del_single_node_directly(sg, MAX_SHORT_TIPS);
+        tri_flag += asg_arc_del_single_node_directly(sg, MAX_SHORT_TIPS, sources);
         // fprintf(stderr, "tri_flag: %d\n", tri_flag);
         // fflush(stderr);
 
@@ -7698,6 +8060,17 @@ char* output_file_name, long long bubble_dist, int read_graph, int write)
             break;
         }
     }
+
+
+    asg_arc_del_short_diploi_by_suspect_edge(sg, MAX_SHORT_TIPS, sources);
+    asg_cut_tip(sg, MAX_SHORT_TIPS);
+
+
+    // asg_arc_identify_simple_bubbles_multi(sg, 0);
+    // asg_arc_del_too_short_overlaps(sg, 1000);
+    // asg_cut_tip(sg, MAX_SHORT_TIPS);
+    
+
 
 
     ///asg_arc_del_triangular_advance_debug(sg, bubble_dist);
@@ -7740,13 +8113,19 @@ char* output_file_name, long long bubble_dist, int read_graph, int write)
     
     /****************************may have bugs********************************/
 
+    /**
+    memset(sg->seq_vis, 0, sg->n_seq*2*sizeof(uint8_t));
+    asg_arc_del_short_diploid_by_exact(sg, MAX_SHORT_TIPS, sources);
+    asg_cut_tip(sg, MAX_SHORT_TIPS);
+    **/
     
     // debug_info_of_specfic_node("m64016_190918_162737/141297762/ccs", sg);
     
     out:
-
     output_unitig_graph(sg, coverage_cut, output_file_name, n_read);
     output_read_graph(sg, coverage_cut, output_file_name, n_read);
+
+    output_contig_graph(sg, coverage_cut, output_file_name, n_read, 50000);
 
     
     asg_destroy(sg);
