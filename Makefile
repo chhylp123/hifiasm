@@ -1,18 +1,54 @@
-CC=g++
+CXX=		g++
+CXXFLAGS=	-g -O3 -msse4.2 -mpopcnt -fomit-frame-pointer -Winline -Wall
+CPPFLAGS=
+INCLUDES=
+OBJS=		Output.o CommandLines.o Process_Read.o Assembly.o kmer.o Hash_Table.o \
+			POA.o Correct.o Levenshtein_distance.o edlib.o Overlaps.o
+EXE=		ccs_assembly
+LIBS=		-lz -lpthread -lm
 
-CFLAGS = -w -c -msse4.2 -mpopcnt -fomit-frame-pointer -Winline -O3 -lz
-LDFLAGS = -lm -lz -lpthread -O3 -mpopcnt -msse4.2 -lz -w
+ifneq ($(asan),)
+	CXXFLAGS+=-fsanitize=address
+	LIBS+=-fsanitize=address
+endif
 
-SOURCES = main.cpp Output.cpp CommandLines.cpp Process_Read.cpp Assembly.cpp kmer.cpp Hash_Table.cpp POA.cpp Correct.cpp Levenshtein_distance.cpp edlib.cpp Overlaps.cpp
-OBJECTS = $(SOURCES:.c=.o)
-EXECUTABLE = ccs_assembly
+.SUFFIXES:.cpp .o
+.PHONY:all clean depend
 
+.cpp.o:
+		$(CXX) -c $(CXXFLAGS) $(CPPFLAGS) $(INCLUDES) $< -o $@
 
-all: $(SOURCES) $(EXECUTABLE)
-$(EXECUTABLE): $(OBJECTS)
-	$(CC) $(OBJECTS) -o $@ $(LDFLAGS) 
+all:$(EXE)
 
-.c.o:
-	$(CC) $(CFLAGS) $< -o $@ 
+$(EXE):$(OBJS) main.o
+		$(CXX) $(CXXFLAGS) $^ -o $@ $(LIBS)
+
 clean:
-	rm -f *.o *~ \#* ccs_assembly
+		rm -fr gmon.out *.o a.out $(EXE) *~ *.a *.dSYM
+
+depend:
+		(LC_ALL=C; export LC_ALL; makedepend -Y -- $(CPPFLAGS) $(DFLAGS) -- *.cpp)
+
+# DO NOT DELETE
+
+Assembly.o: Assembly.h Process_Read.h kseq.h Overlaps.h kvec.h kdq.h
+Assembly.o: CommandLines.h kmer.h Hash_Table.h khash.h POA.h Correct.h
+Assembly.o: Levenshtein_distance.h Output.h
+CommandLines.o: CommandLines.h ketopt.h
+Correct.o: Correct.h Hash_Table.h khash.h kmer.h Process_Read.h kseq.h
+Correct.o: Overlaps.h kvec.h kdq.h CommandLines.h Levenshtein_distance.h
+Correct.o: POA.h edlib.h Assembly.h
+Hash_Table.o: Hash_Table.h khash.h kmer.h Process_Read.h kseq.h Overlaps.h
+Hash_Table.o: kvec.h kdq.h CommandLines.h Correct.h Levenshtein_distance.h
+Hash_Table.o: POA.h ksort.h
+Levenshtein_distance.o: Levenshtein_distance.h
+Output.o: Output.h CommandLines.h
+Overlaps.o: Overlaps.h kvec.h kdq.h ksort.h Process_Read.h kseq.h
+Overlaps.o: CommandLines.h
+POA.o: POA.h Hash_Table.h khash.h kmer.h Process_Read.h kseq.h Overlaps.h
+POA.o: kvec.h kdq.h CommandLines.h Correct.h Levenshtein_distance.h
+Process_Read.o: Process_Read.h kseq.h Overlaps.h kvec.h kdq.h CommandLines.h
+edlib.o: edlib.h
+kmer.o: kmer.h Process_Read.h kseq.h Overlaps.h kvec.h kdq.h CommandLines.h
+main.o: CommandLines.h Process_Read.h kseq.h Overlaps.h kvec.h kdq.h
+main.o: Assembly.h Levenshtein_distance.h edlib.h
