@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#define __STDC_LIMIT_MACROS
 #include <stdint.h>
 #include "Overlaps.h"
 #include "ksort.h"
