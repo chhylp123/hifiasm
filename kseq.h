@@ -37,6 +37,14 @@
 #define KS_SEP_LINE  2 // line separator: "\n" (Unix) or "\r\n" (Windows)
 #define KS_SEP_MAX   2
 
+#ifndef klib_unused
+#if (defined __clang__ && __clang_major__ >= 3) || (defined __GNUC__ && __GNUC__ >= 3)
+#define klib_unused __attribute__ ((__unused__))
+#else
+#define klib_unused
+#endif
+#endif /* klib_unused */
+
 #define __KS_TYPE(type_t)						\
 	typedef struct __kstream_t {				\
 		unsigned char *buf;						\
@@ -65,7 +73,7 @@
 	}
 
 #define __KS_GETC(__read, __bufsize)						\
-	static inline int ks_getc(kstream_t *ks)				\
+	static inline klib_unused int ks_getc(kstream_t *ks)	\
 	{														\
 		if (ks_err(ks)) return -3;							\
 		if (ks->is_eof && ks->begin >= ks->end) return -1;	\
@@ -231,7 +239,7 @@ typedef struct __kstring_t {
 	__KSEQ_BASIC(SCOPE, type_t)					\
 	__KSEQ_READ(SCOPE)
 
-#define KSEQ_INIT(type_t, __read) KSEQ_INIT2(static, type_t, __read)
+#define KSEQ_INIT(type_t, __read) KSEQ_INIT2(static klib_unused, type_t, __read)
 
 #define KSEQ_DECLARE(type_t) \
 	__KS_TYPE(type_t) \
