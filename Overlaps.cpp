@@ -7825,7 +7825,7 @@ static uint64_t asg_bub_pop1(asg_t *g, uint32_t v0, int max_dist, buf_t *b)
 	} while (b->S.n > 1 || n_pending);
 	asg_bub_backtrack(g, v0, b);
 	n_pop = 1 | (uint64_t)b->T.n<<32;
-    fprintf(stderr, "v>>1: %u\n", v0>>1);
+    ///fprintf(stderr, "v>>1: %u\n", v0>>1);
 pop_reset:
 	for (i = 0; i < b->b.n; ++i) { // clear the states of visited vertices
 		binfo_t *t = &b->a[b->b.a[i]];
@@ -8181,6 +8181,11 @@ char* output_file_name, long long bubble_dist, int read_graph, int write)
 
     // debug_info_of_specfic_node("m64016_190918_162737/72220752/ccs", sg, "del_trans");
 
+    char* unlean_name = (char*)malloc(strlen(output_file_name)+25);
+    sprintf(unlean_name, "%s.unclean", output_file_name);
+    output_read_graph(sg, coverage_cut, unlean_name, n_read);
+    free(unlean_name);
+
     
 
     asg_cut_tip(sg, MAX_SHORT_TIPS);
@@ -8276,8 +8281,10 @@ char* output_file_name, long long bubble_dist, int read_graph, int write)
             asg_cut_tip(sg, MAX_SHORT_TIPS);
             /****************************may have bugs********************************/
 
+            
             asg_arc_del_non_different_haps(sg, reverse_sources, drop_ratio);
             asg_cut_tip(sg, MAX_SHORT_TIPS);
+            
 
             //asg_arc_identify_simple_bubbles(sg);
             asg_arc_identify_simple_bubbles_multi(sg, 1);
@@ -8341,7 +8348,7 @@ char* output_file_name, long long bubble_dist, int read_graph, int write)
     asg_arc_identify_simple_bubbles_multi(sg, 0);
     asg_arc_del_too_short_overlaps(sg, 2000, min_ovlp_drop_ratio, reverse_sources);
     asg_cut_tip(sg, MAX_SHORT_TIPS);
-
+    
     
     
 
