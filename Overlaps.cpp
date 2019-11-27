@@ -5264,7 +5264,271 @@ int asg_arc_del_short_diploid_unclean(asg_t *g, float drop_ratio, ma_hit_t_alloc
 }
 
 
+
+
+inline int get_real_length(asg_t *g, uint32_t v, uint32_t* v_s)
+{
+    uint32_t i, kv = 0;
+    for (i = 0, kv = 0; i < asg_arc_n(g, v); i++)
+    {
+        if(!asg_arc_a(g, v)[i].del)
+        {
+            if(v_s) v_s[kv] = asg_arc_a(g, v)[i].v;
+            kv++;
+        }
+    }
+
+    return kv;
+}
+
+uint32_t detect_single_path_with_dels(asg_t *g, uint32_t begNode, uint32_t* endNode, long long* Len, buf_t* b)
+{
+    
+    uint32_t v = begNode, w;
+    uint32_t kv, kw;
+    (*Len) = 0;
+
+
+    while (1)
+    {
+        (*Len)++;
+        kv = get_real_length(g, v, NULL);
+        (*endNode) = v;
+
+        if(b) kv_push(uint32_t, b->b, v>>1);
+
+        if(kv == 0)
+        {
+            return END_TIPS;
+        }
+
+        if(kv == 2)
+        {
+            return TWO_OUTPUT;
+        }
+
+        if(kv > 2)
+        {
+            return MUL_OUTPUT;
+        }
+
+        ///up to here, kv=1
+        ///kw must >= 1
+        get_real_length(g, v, &w);
+        kw = get_real_length(g, w^1, NULL);
+        v = w;
+        (*endNode) = v;
+
+
+        if(kw == 2)
+        {
+            (*Len)++;
+            if(b) kv_push(uint32_t, b->b, v>>1);
+            return TWO_INPUT;
+        }
+
+        if(kw > 2)
+        {
+            (*Len)++;
+            if(b) kv_push(uint32_t, b->b, v>>1);
+            return MUL_INPUT;
+        }   
+
+
+        if((v>>1) == (begNode>>1))
+        {
+            return LOOP;
+        } 
+    }
+
+    return LONG_TIPS;   
+}
+
+
+
 long long check_if_diploid(uint32_t v1, uint32_t v2, asg_t *g, 
+ma_hit_t_alloc* reverse_sources, long long min_edge_length)
+{
+    buf_t b_0, b_1;
+    memset(&b_0, 0, sizeof(buf_t));
+    memset(&b_1, 0, sizeof(buf_t));
+
+    uint32_t convex1, convex2, f1, f2;
+    long long l1, l2;
+
+    b_0.b.n = 0;
+    b_1.b.n = 0;
+    ///uint32_t flag1 = detect_single_path(g, v1, &convex1, &l1, &b_0);
+    uint32_t flag1 = detect_single_path_with_dels(g, v1, &convex1, &l1, &b_0);
+    
+    ///uint32_t flag2 = detect_single_path(g, v2, &convex2, &l2, &b_1);
+    uint32_t flag2 = detect_single_path_with_dels(g, v2, &convex2, &l2, &b_1);
+    
+    if(flag1 == LOOP || flag2 == LOOP)
+    {
+        return -1;
+    }
+
+    if(flag1 != END_TIPS && flag1 != LONG_TIPS)
+    {
+        l1--;
+        b_0.b.n--;
+    }
+
+    if(flag2 != END_TIPS && flag2 != LONG_TIPS)
+    {
+        l2--;
+        b_1.b.n--;
+    }
+
+
+    if(l1 <= min_edge_length || l2 <= min_edge_length)
+    {
+        return -1;
+    }
+
+    buf_t* b_min;
+    buf_t* b_max;
+    if(l1<=l2)
+    {
+        b_min = &b_0;
+        b_max = &b_1;
+    }
+    else
+    {
+        b_min = &b_1;
+        b_max = &b_0;
+    }
+
+    long long i, j, k;
+    double max_count = 0;
+    double min_count = 0;
+    uint32_t qn, tn;
+    for (i = 0; i < b_min->b.n; i++)
+    {
+        qn = b_min->b.a[i];
+        for (j = 0; j < reverse_sources[qn].length; j++)
+        {
+            tn = Get_tn(reverse_sources[qn].buffer[j]);
+            if(g->seq[tn].del == 1) continue;
+            min_count++;
+            for (k = 0; k < b_max->b.n; k++)
+            {
+                if(b_max->b.a[k]==tn)
+                {
+                    max_count++;
+                    break;
+                }
+            }
+        }
+    }
+
+
+    free(b_0.b.a);
+    free(b_1.b.a);
+
+    if(min_count == 0) return -1;
+    if(max_count == 0) return 0;
+    if(max_count/min_count>0.3) return 1;
+    return 0;
+
+}
+
+
+long long check_if_diploid_aggressive(uint32_t v1, uint32_t v2, asg_t *g, 
+ma_hit_t_alloc* reverse_sources, long long min_edge_length)
+{
+    buf_t b_0, b_1;
+    memset(&b_0, 0, sizeof(buf_t));
+    memset(&b_1, 0, sizeof(buf_t));
+
+    uint32_t convex1, convex2, f1, f2;
+    long long l1, l2;
+
+    b_0.b.n = 0;
+    b_1.b.n = 0;
+    ///uint32_t flag1 = detect_single_path(g, v1, &convex1, &l1, &b_0);
+    uint32_t flag1 = detect_single_path_with_dels(g, v1, &convex1, &l1, &b_0);
+    
+    ///uint32_t flag2 = detect_single_path(g, v2, &convex2, &l2, &b_1);
+    uint32_t flag2 = detect_single_path_with_dels(g, v2, &convex2, &l2, &b_1);
+    
+    if(flag1 == LOOP || flag2 == LOOP)
+    {
+        return -1;
+    }
+
+    if(flag1 != END_TIPS && flag1 != LONG_TIPS)
+    {
+        l1--;
+        b_0.b.n--;
+    }
+
+    if(flag2 != END_TIPS && flag2 != LONG_TIPS)
+    {
+        l2--;
+        b_1.b.n--;
+    }
+
+
+    if(l1 <= min_edge_length || l2 <= min_edge_length)
+    {
+        return -1;
+    }
+
+    buf_t* b_min;
+    buf_t* b_max;
+    if(l1<=l2)
+    {
+        b_min = &b_0;
+        b_max = &b_1;
+    }
+    else
+    {
+        b_min = &b_1;
+        b_max = &b_0;
+    }
+
+    long long i, j, k;
+    double max_count = 0;
+    double min_count = 0;
+    uint32_t qn, tn;
+    for (i = 0; i < b_min->b.n; i++)
+    {
+        qn = b_min->b.a[i];
+        for (j = 0; j < reverse_sources[qn].length; j++)
+        {
+            tn = Get_tn(reverse_sources[qn].buffer[j]);
+            if(g->seq[tn].del == 1) continue;
+            min_count++;
+            for (k = 0; k < b_max->b.n; k++)
+            {
+                if(b_max->b.a[k]==tn)
+                {
+                    max_count++;
+                    break;
+                }
+            }
+        }
+    }
+
+
+
+    free(b_0.b.a);
+    free(b_1.b.a);
+
+    if(min_count == 0) return -1;
+    if(max_count == 0) return 0;
+
+    return 1;
+    /**
+    if(max_count/min_count>0.3) return 1;
+    return 0;
+    **/
+
+}
+
+long long check_if_diploid_debug(uint32_t v1, uint32_t v2, asg_t *g, 
 ma_hit_t_alloc* reverse_sources, long long min_edge_length)
 {
     buf_t b_0, b_1;
@@ -5315,6 +5579,13 @@ ma_hit_t_alloc* reverse_sources, long long min_edge_length)
         b_max = &b_0;
     }
 
+
+    fprintf(stderr, "b_0.n: %d\n", b_0.b.n);
+    fprintf(stderr, "b_1.n: %d\n", b_1.b.n);
+
+    fprintf(stderr, "b_min.n: %d\n", b_min->b.n);
+    fprintf(stderr, "b_max.n: %d\n", b_max->b.n);
+
     long long i, j, k;
     double max_count = 0;
     double min_count = 0;
@@ -5349,12 +5620,13 @@ ma_hit_t_alloc* reverse_sources, long long min_edge_length)
 
 }
 
-int asg_arc_del_too_short_overlaps(asg_t *g, long long dropLen, float drop_ratio, ma_hit_t_alloc* reverse_sources)
+int asg_arc_del_too_short_overlaps(asg_t *g, long long dropLen, float drop_ratio, ma_hit_t_alloc* reverse_sources, long long min_edge_length)
 {
     double startTime = Get_T();
 
-	uint32_t v, n_vtx = g->n_seq * 2, n_short = 0;
+	uint32_t v, v_max, v_maxLen, n_vtx = g->n_seq * 2, n_short = 0;
     long long drop_ratio_Len;
+    /**
 	for (v = 0; v < n_vtx; ++v) 
     {
         if (g->seq[v>>1].del) continue;
@@ -5380,12 +5652,56 @@ int asg_arc_del_too_short_overlaps(asg_t *g, long long dropLen, float drop_ratio
 		// 	av[i].del = 1, ++n_short;
         for (i = i + 1; i < nv; ++i)
         {
-            if(check_if_diploid(av[0].v, av[i].v, g, reverse_sources, 2) != 1)
+            if(check_if_diploid(av[0].v, av[i].v, g, reverse_sources, min_edge_length) != 1)
             {
                 av[i].del = 1, ++n_short;
             }
         }
 	}
+    **/
+
+
+    for (v = 0; v < n_vtx; ++v) 
+    {
+        if (g->seq[v>>1].del) continue;
+        if (g->seq_vis[v] != 0) continue;
+
+        uint32_t i, n_arc = 0, nv = asg_arc_n(g, v);
+        asg_arc_t *av = asg_arc_a(g, v);
+        ///some node could be deleted
+        if (nv < 2 || g->seq[v>>1].del) continue;
+
+
+
+        n_arc = get_real_length(g, v, NULL);
+        if (n_arc < 2) continue;
+        v_max = (uint32_t)-1;
+
+        for (i = 0, n_arc = 0; i < nv; i++)
+        {
+            if (!av[i].del)
+            {
+                if(v_max == (uint32_t)-1)
+                {
+                    v_max = av[i].v;
+                    v_maxLen = av[i].ol;
+                    if(v_maxLen < dropLen) break;
+                    drop_ratio_Len = v_maxLen * drop_ratio;
+                    if(dropLen < drop_ratio_Len)
+                    {
+                        drop_ratio_Len = dropLen;
+                    }
+                }
+                else if(av[i].ol < drop_ratio_Len && 
+                check_if_diploid(v_max, av[i].v, g, reverse_sources, min_edge_length) != 1)
+                {
+                    av[i].ol = 1;
+                    asg_arc_del(g, av[i].v^1, av[i].ul>>32^1, 1);
+                    ++n_short;
+                }
+            }
+        }
+    }
 
 
     asg_cleanup(g);
@@ -5542,13 +5858,14 @@ static int asg_topocut_aux(asg_t *g, uint32_t v, int max_ext)
         fprintf(stderr, "v: %llu, n_ext: %llu, max_ext: %llu \n", v, n_ext, max_ext);
     }
     **/
-   if(v == (uint32_t)-1) return max_ext + 1;
+    ///if(v == (uint32_t)-1) return max_ext + 1;
 	return n_ext;
 }
 
 // delete short arcs
 ///for best graph?
-int asg_arc_del_short_diploid_by_length(asg_t *g, float drop_ratio, int max_ext)
+int asg_arc_del_short_diploid_by_length(asg_t *g, float drop_ratio, int max_ext, 
+ma_hit_t_alloc* reverse_sources, long long miniedgeLen)
 {
     double startTime = Get_T();
     kvec_t(uint64_t) b;
@@ -5586,7 +5903,7 @@ int asg_arc_del_short_diploid_by_length(asg_t *g, float drop_ratio, int max_ext)
 		///v is self id, w is the id of another end
 		uint32_t i, iv, iw, v = (a->ul)>>32, w = a->v^1, to_del = 0;
 		uint32_t nv = asg_arc_n(g, v), nw = asg_arc_n(g, w), kv, kw;
-		uint32_t ov_max = 0, ow_max = 0;
+		uint32_t ov_max = 0, ov_max_i, ow_max = 0, ow_max_i;
 		asg_arc_t *av, *aw;
 		///nv must be >= 2
 		if (nv == 1 && nw == 1) continue;
@@ -5597,7 +5914,7 @@ int asg_arc_del_short_diploid_by_length(asg_t *g, float drop_ratio, int max_ext)
         ///calculate the longest edge for v and w
 		for (i = 0, kv = 0; i < nv; ++i) {
 			if (av[i].del) continue;
-			if (ov_max < av[i].ol) ov_max = av[i].ol;
+			if (ov_max < av[i].ol) ov_max = av[i].ol, ov_max_i = i; 
 			++kv;
 		}
 		if (kv >= 2 && a->ol > ov_max * drop_ratio) continue;
@@ -5605,7 +5922,7 @@ int asg_arc_del_short_diploid_by_length(asg_t *g, float drop_ratio, int max_ext)
 
 		for (i = 0, kw = 0; i < nw; ++i) {
 			if (aw[i].del) continue;
-			if (ow_max < aw[i].ol) ow_max = aw[i].ol;
+			if (ow_max < aw[i].ol) ow_max = aw[i].ol, ow_max_i = i;
 			++kw;
 		}
 		if (kw >= 2 && a->ol > ow_max * drop_ratio) continue;
@@ -5625,10 +5942,36 @@ int asg_arc_del_short_diploid_by_length(asg_t *g, float drop_ratio, int max_ext)
 		if (kv > 1 && kw > 1) {
 			if (a->ol < ov_max * drop_ratio && a->ol < ow_max * drop_ratio)
 				to_del = 1;
+            // if(to_del == 1)
+            // {
+            //     if(check_if_diploid(av[ov_max_i].v, w^1, g, reverse_sources, miniedgeLen) == 1 
+            //        || 
+            //        check_if_diploid(aw[ow_max_i].v, v^1, g, reverse_sources, miniedgeLen) == 1)
+            //     {
+            //         to_del = 0;
+            //     }
+            // }
+        
 		} else if (kw == 1) {
 			if (asg_topocut_aux(g, w^1, max_ext) < max_ext) to_del = 1;
+            ///kv > 1
+            // if(to_del == 1)
+            // {
+            //     if(check_if_diploid(av[ov_max_i].v, w^1, g, reverse_sources, miniedgeLen) == 1)
+            //     {
+            //         to_del = 0;
+            //     }
+            // }
 		} else if (kv == 1) {
 			if (asg_topocut_aux(g, v^1, max_ext) < max_ext) to_del = 1;
+            ///kw > 1
+            // if(to_del == 1)
+            // {
+            //     if(check_if_diploid(aw[ow_max_i].v, v^1, g, reverse_sources, miniedgeLen) == 1)
+            //     {
+            //         to_del = 0;
+            //     }
+            // }
 		}
 		if (to_del)
 			av[iv].del = aw[iw].del = 1, ++n_cut;
@@ -5647,20 +5990,7 @@ int asg_arc_del_short_diploid_by_length(asg_t *g, float drop_ratio, int max_ext)
 }
 
 
-inline int get_real_length(asg_t *g, uint32_t v, uint32_t* v_s)
-{
-    uint32_t i, kv = 0;
-    for (i = 0, kv = 0; i < asg_arc_n(g, v); i++)
-    {
-        if(!asg_arc_a(g, v)[i].del)
-        {
-            if(v_s) v_s[kv] = asg_arc_a(g, v)[i].v;
-            kv++;
-        }
-    }
 
-    return kv;
-}
 
 // delete short arcs
 ///for best graph?
@@ -6888,14 +7218,14 @@ ma_ug_t *ma_ug_gen(asg_t *g)
 	for (v = 0; v < n_vtx; ++v) {
 		uint32_t w, x, l, start, end, len;
 		ma_utg_t *p;
+        ///what's the usage of mark array
+        ///mark array is used to select another direction of node
 		if (g->seq[v>>1].del || arc_cnt(g, v) == 0 || mark[v]) continue;
 		mark[v] = 1;
 		q->count = 0, start = v, end = v^1, len = 0;
 		// forward
 		w = v;
 		while (1) {
-			
-
 			/**
 			 * w----->x
 			 * w<-----x
@@ -6910,6 +7240,7 @@ ma_ug_t *ma_ug_gen(asg_t *g)
 			**/
 			mark[x] = mark[w^1] = 1;
 			///l is the edge length, instead of overlap length
+            ///note: edge length is different with overlap length
 			l = asg_arc_len(arc_first(g, w));
 			kdq_push(uint64_t, q, (uint64_t)w<<32 | l);
 			end = x^1, len += l;
@@ -7440,6 +7771,18 @@ ma_hit_t_alloc* reverse_sources, int id, char* command)
 void ma_sg_print(const asg_t *g, const All_reads *RNF, const ma_sub_t *sub, FILE *fp)
 {
 	uint32_t i;
+    for (i = 0; i < g->n_seq; ++i) 
+    {
+        if(!g->seq[i].del)
+        {
+             fprintf(fp, 
+             "S\t%.*s\t*\tLN:i:%d\n",
+             Get_NAME_LENGTH((*RNF), i), 
+             Get_NAME((*RNF), i),
+             g->seq[i].len);
+        }
+    }
+
 	for (i = 0; i < g->n_arc; ++i) {
 		const asg_arc_t *p = &g->arc[i];
 		if (sub) {
@@ -7505,6 +7848,316 @@ void ma_ug_print_simple(const ma_ug_t *ug, All_reads *RNF, const ma_sub_t *cover
 	}    
 }
 
+
+int asg_arc_cut_long_tip(asg_t *g, float drop_ratio)
+{
+    double startTime = Get_T();
+    ///the reason is that each read has two direction (query->target, target->query)
+    uint32_t v, v_max, w, n_vtx = g->n_seq * 2, n_reduced = 0, convex, flag;
+    long long ll, v_maxLen;
+
+    buf_t b;
+    memset(&b, 0, sizeof(buf_t));
+
+    for (v = 0; v < n_vtx; ++v) 
+    {
+        uint32_t i, n_arc = 0, nv = asg_arc_n(g, v);
+        asg_arc_t *av = asg_arc_a(g, v);
+        ///some node could be deleted
+        if (nv < 2 || g->seq[v>>1].del) continue;
+        n_arc = get_real_length(g, v, NULL);
+        if (n_arc < 2) continue;
+
+        v_maxLen = -1;
+
+        for (i = 0, n_arc = 0; i < nv; i++)
+        {
+            if (!av[i].del)
+            {
+                flag = detect_single_path_with_dels(g, av[i].v, &convex, &ll, NULL);
+                if(v_maxLen < ll)
+                {
+                    v_maxLen = ll;
+                }
+            }
+        }
+
+        for (i = 0, n_arc = 0; i < nv; i++)
+        {
+            if (!av[i].del)
+            {
+                b.b.n = 0;
+                if(detect_single_path_with_dels(g, av[i].v, &convex, &ll, &b) == END_TIPS)
+                {
+                    if(v_maxLen*drop_ratio > ll)
+                    {
+                        n_reduced++;
+                        long long k;
+                        for (k = 0; k < b.b.n; k++)
+                        {
+                            asg_seq_del(g, b.b.a[k]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+
+    asg_cleanup(g);
+    asg_symm(g);
+    
+
+    fprintf(stderr, "[M::%s] removed %d long tips\n", 
+    __func__, n_reduced);
+    fprintf(stderr, "[M::%s] takes %0.2f s\n\n", __func__, Get_T()-startTime);
+
+    return n_reduced;
+}
+
+uint32_t detect_single_path_with_dels_contigLen(asg_t *g, uint32_t begNode, uint32_t* endNode, long long* baseLen, buf_t* b)
+{
+    
+    uint32_t v = begNode, w;
+    uint32_t kv, kw, k;
+    (*baseLen) = 0;
+
+
+    while (1)
+    {
+        ///(*Len)++;
+        kv = get_real_length(g, v, NULL);
+        (*endNode) = v;
+
+        if(b) kv_push(uint32_t, b->b, v>>1);
+
+        if(kv == 0)
+        {
+            (*baseLen) += g->seq[v>>1].len;
+            return END_TIPS;
+        }
+
+        if(kv == 2)
+        {
+            (*baseLen) += g->seq[v>>1].len;
+            return TWO_OUTPUT;
+        }
+
+        if(kv > 2)
+        {
+            (*baseLen) += g->seq[v>>1].len;
+            return MUL_OUTPUT;
+        }
+
+        ///kv must be 1
+        for (k = 0; k < asg_arc_n(g, v); k++)
+        {
+            if(!asg_arc_a(g, v)[k].del)
+            {
+                w = asg_arc_a(g, v)[k].v;
+                (*baseLen) += ((uint32_t)(asg_arc_a(g, v)[k].ul));
+                break;
+            }
+        }
+
+        ///up to here, kv=1
+        ///kw must >= 1
+        kw = get_real_length(g, w^1, NULL);
+        v = w;
+        (*endNode) = v;
+
+
+        if(kw == 2)
+        {
+            (*baseLen) += g->seq[v>>1].len;
+            if(b) kv_push(uint32_t, b->b, v>>1);
+            return TWO_INPUT;
+        }
+
+        if(kw > 2)
+        {
+            (*baseLen) += g->seq[v>>1].len;
+            if(b) kv_push(uint32_t, b->b, v>>1);
+            return MUL_INPUT;
+        }   
+
+
+        if((v>>1) == (begNode>>1))
+        {
+            return LOOP;
+        } 
+    }
+
+    return LONG_TIPS;   
+}
+
+
+int asg_arc_cut_long_equal_tips_only_tips(asg_t *g, ma_hit_t_alloc* reverse_sources, long long miniedgeLen)
+{
+    double startTime = Get_T();
+    ///the reason is that each read has two direction (query->target, target->query)
+    uint32_t v, v_max, w, n_vtx = g->n_seq * 2, n_reduced = 0, convex, flag;
+    long long ll, base_maxLen, base_maxLen_i;
+
+    buf_t b;
+    memset(&b, 0, sizeof(buf_t));
+
+    for (v = 0; v < n_vtx; ++v) 
+    {
+        uint32_t i, n_arc = 0, nv = asg_arc_n(g, v);
+        asg_arc_t *av = asg_arc_a(g, v);
+        ///some node could be deleted
+        if (nv < 2 || g->seq[v>>1].del) continue;
+        n_arc = get_real_length(g, v, NULL);
+        if (n_arc < 2) continue;
+
+        base_maxLen = -1;
+        base_maxLen_i = -1;
+
+        for (i = 0; i < nv; i++)
+        {
+            if (!av[i].del)
+            {
+                flag = detect_single_path_with_dels_contigLen(g, av[i].v, &convex, &ll, NULL);
+                if(flag != END_TIPS)
+                {
+                    base_maxLen = -1;
+                    base_maxLen_i = -1;
+                    break;
+                }
+                if(base_maxLen < ll)
+                {
+                    base_maxLen = ll;
+                    base_maxLen_i = i;
+                }
+            }
+        }
+
+        ///all outedges are tips
+        if(base_maxLen != -1)
+        {
+            for (i = 0; i < nv; i++)
+            {
+                if(i == base_maxLen_i) continue;
+                if (!av[i].del)
+                {
+                    ///check_if_diploid_aggressive
+                    if(check_if_diploid(av[base_maxLen_i].v, av[i].v, g, 
+                    reverse_sources, miniedgeLen)==1)
+                    {
+                        b.b.n = 0;
+                        if(detect_single_path_with_dels_contigLen(g, av[i].v, &convex, &ll, &b) 
+                        == END_TIPS)
+                        {
+                            n_reduced++;
+                            long long k;
+                            for (k = 0; k < b.b.n; k++)
+                            {
+                                asg_seq_del(g, b.b.a[k]);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+
+    asg_cleanup(g);
+    asg_symm(g);
+    
+
+    fprintf(stderr, "[M::%s] removed %d long tips\n", 
+    __func__, n_reduced);
+    fprintf(stderr, "[M::%s] takes %0.2f s\n\n", __func__, Get_T()-startTime);
+
+    return n_reduced;
+}
+
+int asg_arc_cut_long_equal_tips(asg_t *g, ma_hit_t_alloc* reverse_sources, long long miniedgeLen)
+{
+    double startTime = Get_T();
+    ///the reason is that each read has two direction (query->target, target->query)
+    uint32_t v, v_max, w, n_vtx = g->n_seq * 2, n_reduced = 0, convex, flag;
+    long long ll, base_maxLen, base_maxLen_i;
+
+    buf_t b;
+    memset(&b, 0, sizeof(buf_t));
+
+    for (v = 0; v < n_vtx; ++v) 
+    {
+        uint32_t i, n_arc = 0, nv = asg_arc_n(g, v), n_tips;
+        asg_arc_t *av = asg_arc_a(g, v);
+        ///some node could be deleted
+        if (nv < 2 || g->seq[v>>1].del) continue;
+        n_arc = get_real_length(g, v, NULL);
+        if (n_arc < 2) continue;
+
+        base_maxLen = -1;
+        base_maxLen_i = -1;
+        n_tips = 0;
+
+        for (i = 0; i < nv; i++)
+        {
+            if (!av[i].del)
+            {
+                flag = detect_single_path_with_dels_contigLen(g, av[i].v, &convex, &ll, NULL);
+                
+                if(base_maxLen < ll)
+                {
+                    base_maxLen = ll;
+                    base_maxLen_i = i;
+                }
+
+                if(flag == END_TIPS)
+                {
+                    n_tips++;
+                }
+            }
+        }
+
+        ///at least one tip
+        if(n_tips > 0)
+        {
+            for (i = 0; i < nv; i++)
+            {
+                if(i == base_maxLen_i) continue;
+                if (!av[i].del)
+                {
+                    b.b.n = 0;
+                    if(detect_single_path_with_dels_contigLen(g, av[i].v, &convex, &ll, &b) 
+                    != END_TIPS)
+                    {
+                        continue;
+                    }
+                    //we can only cut tips
+                    if(check_if_diploid(av[base_maxLen_i].v, av[i].v, g, 
+                    reverse_sources, miniedgeLen)==1)
+                    {
+                        n_reduced++;
+                        long long k;
+                        for (k = 0; k < b.b.n; k++)
+                        {
+                            asg_seq_del(g, b.b.a[k]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+
+    asg_cleanup(g);
+    asg_symm(g);
+    
+
+    fprintf(stderr, "[M::%s] removed %d long tips\n", 
+    __func__, n_reduced);
+    fprintf(stderr, "[M::%s] takes %0.2f s\n\n", __func__, Get_T()-startTime);
+
+    return n_reduced;
+}
+
 void output_unitig_graph(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name, long long n_read)
 {
     ma_ug_t *ug = NULL;
@@ -7542,6 +8195,7 @@ void output_read_graph(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name
     free(gfa_name);
     fclose(output_file);
 }
+
 
 void read_ma(ma_hit_t* x, FILE* fp)
 {
@@ -7604,6 +8258,8 @@ int load_ma_hit_ts(ma_hit_t_alloc** x, char* read_file_name)
     fclose(fp);
     fprintf(stdout, "ma_hit_ts has been read.\n");
 }
+
+
 
 
 void write_ma(ma_hit_t* x, FILE* fp)
@@ -7816,7 +8472,8 @@ static uint64_t asg_bub_pop1(asg_t *g, uint32_t v0, int max_dist, buf_t *b)
 			if (--(t->r) == 0) {
 				uint32_t x = asg_arc_n(g, w);
 				if (x) kv_push(uint32_t, b->S, w);
-				else kv_push(uint32_t, b->T, w); // a tip
+				///else kv_push(uint32_t, b->T, w); // a tip
+                else goto pop_reset;
 				--n_pending;
 			}
 		}
@@ -7824,8 +8481,9 @@ static uint64_t asg_bub_pop1(asg_t *g, uint32_t v0, int max_dist, buf_t *b)
 		if (i < nv || b->S.n == 0) goto pop_reset;
 	} while (b->S.n > 1 || n_pending);
 	asg_bub_backtrack(g, v0, b);
-	n_pop = 1 | (uint64_t)b->T.n<<32;
-    ///fprintf(stderr, "v>>1: %u\n", v0>>1);
+	///n_pop = 1 | (uint64_t)b->T.n<<32;
+    n_pop = 1;
+    ///fprintf(stderr, "v>>1: %u, num nodes: %d\n", v0>>1, b->b.n);
 pop_reset:
 	for (i = 0; i < b->b.n; ++i) { // clear the states of visited vertices
 		binfo_t *t = &b->a[b->b.a[i]];
@@ -7858,8 +8516,9 @@ int asg_pop_bubble(asg_t *g, int max_dist)
 	}
 	free(b.a); free(b.S.a); free(b.T.a); free(b.b.a); free(b.e.a);
 	if (n_pop) asg_cleanup(g);
-	fprintf(stderr, "[M::%s] popped %d bubbles and trimmed %d tips\n", __func__, (uint32_t)n_pop, (uint32_t)(n_pop>>32));
-	return n_pop;
+	///fprintf(stderr, "[M::%s] popped %d bubbles and trimmed %d tips\n", __func__, (uint32_t)n_pop, (uint32_t)(n_pop>>32));
+	fprintf(stderr, "[M::%s] popped %d bubbles\n", __func__, n_pop);
+    return n_pop;
 }
 
 
@@ -7997,7 +8656,7 @@ int asg_arc_del_triangular_directly(asg_t *g, long long min_edge_length, ma_hit_
 
 
 
-int asg_arc_del_non_different_haps(asg_t *g, ma_hit_t_alloc* reverse_sources, float drop_ratio)
+int asg_arc_del_orthology(asg_t *g, ma_hit_t_alloc* reverse_sources, float drop_ratio, long long miniedgeLen)
 {
     double startTime = Get_T();
     ///the reason is that each read has two direction (query->target, target->query)
@@ -8024,7 +8683,7 @@ int asg_arc_del_non_different_haps(asg_t *g, ma_hit_t_alloc* reverse_sources, fl
             }
         }
 
-        if(check_if_diploid(av[idx[0]].v, av[idx[1]].v, g, reverse_sources, 2) == 0)
+        if(check_if_diploid(av[idx[0]].v, av[idx[1]].v, g, reverse_sources, miniedgeLen) == 0)
         {
             float max = av[idx[0]].ol;
             float min = av[idx[1]].ol;
@@ -8057,23 +8716,231 @@ int asg_arc_del_non_different_haps(asg_t *g, ma_hit_t_alloc* reverse_sources, fl
 
 
 
+int asg_arc_del_orthology_multiple_way(asg_t *g, ma_hit_t_alloc* reverse_sources, float drop_ratio, long long miniedgeLen)
+{
+    double startTime = Get_T();
+    ///the reason is that each read has two direction (query->target, target->query)
+    uint32_t v, v_max, v_maxLen, w, n_vtx = g->n_seq * 2, n_reduced = 0;
+
+    for (v = 0; v < n_vtx; ++v) 
+    {
+        if (g->seq_vis[v] != 0) continue;
+        uint32_t i, n_arc = 0, nv = asg_arc_n(g, v);
+        asg_arc_t *av = asg_arc_a(g, v);
+        ///some node could be deleted
+        if (nv < 2 || g->seq[v>>1].del) continue;
+        n_arc = get_real_length(g, v, NULL);
+        if (n_arc < 2) continue;
+        v_max = (uint32_t)-1;
+
+        for (i = 0, n_arc = 0; i < nv; i++)
+        {
+            if (!av[i].del)
+            {
+                if(v_max == (uint32_t)-1)
+                {
+                    v_max = av[i].v;
+                    v_maxLen = av[i].ol;
+                }
+                else if(check_if_diploid(v_max, av[i].v, g, reverse_sources, miniedgeLen) == 0)
+                {
+                    if(av[i].ol < drop_ratio * v_maxLen)
+                    {
+                        ///fprintf(stderr, "v: %u, v_max: %u, av[%d].v: %u\n", v>>1, v_max>>1, i, av[i].v>>1);
+                        
+                        av[i].ol = 1;
+                        asg_arc_del(g, av[i].v^1, av[i].ul>>32^1, 1);
+                        n_reduced++;
+                    }
+                }
+            }
+        }
+    }
+
+    if (n_reduced) {
+        asg_cleanup(g);
+        asg_symm(g);
+    }
+
+    fprintf(stderr, "[M::%s] removed %d different hap overlaps\n", 
+    __func__, n_reduced);
+    fprintf(stderr, "[M::%s] takes %0.2f s\n\n", __func__, Get_T()-startTime);
+
+    return n_reduced;
+}
 
 
 
 
 
 
+uint32_t detect_single_path_with_dels_by_length
+(asg_t *g, uint32_t begNode, uint32_t* endNode, long long* Len, buf_t* b, long long maxLen)
+{
+    
+    uint32_t v = begNode, w;
+    uint32_t kv, kw;
+    (*Len) = 0;
+
+
+    while (1)
+    {
+        (*Len)++;
+        kv = get_real_length(g, v, NULL);
+        (*endNode) = v;
+
+        if(b) kv_push(uint32_t, b->b, v>>1);
+
+        if(kv == 0)
+        {
+            return END_TIPS;
+        }
+
+        if(kv == 2)
+        {
+            return TWO_OUTPUT;
+        }
+
+        if(kv > 2)
+        {
+            return MUL_OUTPUT;
+        }
+
+        if((*Len) > maxLen)
+        {
+            return LONG_TIPS;
+        }
+
+        ///up to here, kv=1
+        ///kw must >= 1
+        get_real_length(g, v, &w);
+        kw = get_real_length(g, w^1, NULL);
+        v = w;
+        (*endNode) = v;
+
+
+        if(kw == 2)
+        {
+            (*Len)++;
+            if(b) kv_push(uint32_t, b->b, v>>1);
+            return TWO_INPUT;
+        }
+
+        if(kw > 2)
+        {
+            (*Len)++;
+            if(b) kv_push(uint32_t, b->b, v>>1);
+            return MUL_INPUT;
+        }   
+
+
+        if((v>>1) == (begNode>>1))
+        {
+            return LOOP;
+        } 
+    }
+
+    return LONG_TIPS;   
+}
 
 
 
+long long asg_arc_del_self_circle_untig(asg_t *g, long long circleLen)
+{
+    uint32_t v, v_max, w, n_vtx = g->n_seq * 2, n_reduced = 0, convex, flag;
+    long long ll;
+    asg_arc_t *aw;
+    uint32_t nw, k;
+    for (v = 0; v < n_vtx; ++v) 
+    {
+        uint32_t i, n_arc = 0, nv = asg_arc_n(g, v);
+        asg_arc_t *av = asg_arc_a(g, v);
+        ///some node could be deleted
+        if (g->seq[v>>1].del) continue;
+        n_arc = get_real_length(g, v, NULL);
+        if (n_arc != 1) continue;
+
+        for (i = 0; i < nv; i++)
+        {
+            ///actually there is just one un-del edge
+            if (!av[i].del)
+            {    
+                flag = detect_single_path_with_dels_by_length(g, v, &convex, &ll, NULL, circleLen);
+                if(ll > circleLen || flag == LONG_TIPS)
+                {
+                    break;
+                }
+                if(flag == LOOP)
+                {
+                    break;
+                }
+                if(flag != END_TIPS && flag != LONG_TIPS)
+                {
+                    w = v^1;
+                    n_arc = get_real_length(g, w, NULL);
+                    if(n_arc == 0)
+                    {
+                        break;
+                    }
+                    aw = asg_arc_a(g, w);
+                    nw = asg_arc_n(g, w);
+                    for (k = 0; k < nw; k++)
+                    {
+                        if ((!aw[k].del) && (aw[k].v == (convex^1)))
+                        {
+                            // fprintf(stderr, "v: %u, w: %u, aw[%d].v: %u, convex: %u, ll: %d\n", 
+                            // v>>1, w>>1, k, aw[k].v>>1, convex>>1, ll);
+
+                            // fprintf(stderr, "*aw[k].v: %u, *convex: %u\n\n", 
+                            // aw[k].v, convex);
+
+                            aw[k].del = 1;
+                            asg_arc_del(g, aw[k].v^1, aw[k].ul>>32^1, 1);
+                            n_reduced++;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (n_reduced) {
+        asg_cleanup(g);
+        asg_symm(g);
+    }
+
+    fprintf(stderr, "[M::%s] removed %d self-circles\n", 
+    __func__, n_reduced);
+
+    return n_reduced;
+}
 
 
-
-void output_contig_graph(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name, long long n_read, long long bubble_dist)
+void output_contig_graph(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name, long long n_read, long long bubble_dist, long long tipsLen, float tip_drop_ratio, long long circleLen,
+ma_hit_t_alloc* reverse_sources, long long miniedgeLen)
 {
 
+    asg_cut_tip(sg, tipsLen);
+    // asg_pop_bubble(sg, bubble_dist);
+    // asg_arc_del_self_circle_untig(sg, circleLen);
+    long long n_ac = 1;
+    long long pre_cons = sg->n_seq + sg->n_arc;
+    long long cur_cons = 0;
+    ///while(n_ac > 0)
+    while(pre_cons != cur_cons)
+    {
+        pre_cons = sg->n_seq + sg->n_arc;
+        n_ac = 0;
+        n_ac += asg_pop_bubble(sg, bubble_dist);
+        n_ac += asg_arc_del_self_circle_untig(sg, circleLen);
+        n_ac += asg_arc_cut_long_tip(sg, tip_drop_ratio);
+        n_ac += asg_arc_cut_long_equal_tips(sg, reverse_sources, 2);
 
-    asg_pop_bubble(sg, bubble_dist);
+        cur_cons = sg->n_seq + sg->n_arc;
+    }
+
+    ///asg_arc_del_self_circle_untig(sg, circleLen);
+    
     ma_ug_t *ug = NULL;
     ug = ma_ug_gen(sg);
     ma_ug_seq(ug, &R_INF, coverage_cut, n_read);
@@ -8210,7 +9077,7 @@ char* output_file_name, long long bubble_dist, int read_graph, int write)
 
     // asg_arc_del_single_node_bubble(sg, bubble_dist);
     // asg_cut_tip(sg, MAX_SHORT_TIPS);
-    asg_cut_tip(sg, MAX_SHORT_TIPS);
+    ///asg_cut_tip(sg, MAX_SHORT_TIPS);
 
     ///clean_round = 0;
     // fprintf(stderr, "\n\nWill perform %d round of clean...**********\n", 
@@ -8244,8 +9111,6 @@ char* output_file_name, long long bubble_dist, int read_graph, int write)
             while(1)
             {
                 int tri_flag = 0;
-
-                
                 tri_flag += asg_arc_del_self_circle_contig(sg);
                 ///asg_arc_del_single_node_bubble(sg, bubble_dist);
                 tri_flag += asg_arc_del_single_node_directly(sg, MAX_SHORT_TIPS, sources);
@@ -8254,8 +9119,6 @@ char* output_file_name, long long bubble_dist, int read_graph, int write)
                 ///asg_arc_del_single_node_bubble(sg, bubble_dist);
                 tri_flag += asg_arc_del_single_node_directly(sg, MAX_SHORT_TIPS, sources);
 
-                
-
                 if(tri_flag == 0)
                 {
                     break;
@@ -8263,7 +9126,9 @@ char* output_file_name, long long bubble_dist, int read_graph, int write)
             }
 
 
-
+            ///asg_arc_del_orthology(sg, reverse_sources, drop_ratio, MAX_SHORT_TIPS);
+            // asg_arc_del_orthology_multiple_way(sg, reverse_sources, drop_ratio, MAX_SHORT_TIPS);
+            // asg_cut_tip(sg, MAX_SHORT_TIPS);
             
             /****************************may have bugs********************************/
             //asg_arc_identify_simple_bubbles(sg);
@@ -8281,14 +9146,10 @@ char* output_file_name, long long bubble_dist, int read_graph, int write)
             asg_cut_tip(sg, MAX_SHORT_TIPS);
             /****************************may have bugs********************************/
 
-            
-            asg_arc_del_non_different_haps(sg, reverse_sources, drop_ratio);
-            asg_cut_tip(sg, MAX_SHORT_TIPS);
-            
 
             //asg_arc_identify_simple_bubbles(sg);
             asg_arc_identify_simple_bubbles_multi(sg, 1);
-            asg_arc_del_short_diploid_by_length(sg, drop_ratio, MAX_SHORT_TIPS);
+            asg_arc_del_short_diploid_by_length(sg, drop_ratio, MAX_SHORT_TIPS, reverse_sources, MAX_SHORT_TIPS);
             asg_cut_tip(sg, MAX_SHORT_TIPS);
 
             asg_arc_identify_simple_bubbles_multi(sg, 0);
@@ -8335,6 +9196,7 @@ char* output_file_name, long long bubble_dist, int read_graph, int write)
         }
     }
 
+    
 
     asg_arc_del_short_diploi_by_suspect_edge(sg, MAX_SHORT_TIPS, sources);
     asg_cut_tip(sg, MAX_SHORT_TIPS);
@@ -8343,10 +9205,13 @@ char* output_file_name, long long bubble_dist, int read_graph, int write)
     asg_arc_del_triangular_directly(sg, MAX_SHORT_TIPS, reverse_sources);
 
     
+    asg_arc_identify_simple_bubbles_multi(sg, 0);
+    asg_arc_del_orthology_multiple_way(sg, reverse_sources, 0.4, MAX_SHORT_TIPS);
+    asg_cut_tip(sg, MAX_SHORT_TIPS);
 
     
     asg_arc_identify_simple_bubbles_multi(sg, 0);
-    asg_arc_del_too_short_overlaps(sg, 2000, min_ovlp_drop_ratio, reverse_sources);
+    asg_arc_del_too_short_overlaps(sg, 2000, min_ovlp_drop_ratio, reverse_sources, MAX_SHORT_TIPS);
     asg_cut_tip(sg, MAX_SHORT_TIPS);
     
     
@@ -8406,7 +9271,8 @@ char* output_file_name, long long bubble_dist, int read_graph, int write)
     output_unitig_graph(sg, coverage_cut, output_file_name, n_read);
     output_read_graph(sg, coverage_cut, output_file_name, n_read);
 
-    output_contig_graph(sg, coverage_cut, output_file_name, n_read, 500000);
+    output_contig_graph(sg, coverage_cut, output_file_name, n_read, 10000000, MAX_SHORT_TIPS, 0.1, 20,
+    reverse_sources, MAX_SHORT_TIPS);
     ///output_contig_graph(sg, coverage_cut, output_file_name, n_read, 10000000);
 
     
