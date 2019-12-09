@@ -120,6 +120,7 @@ typedef struct
     uint64_t y_pos_e;
     uint64_t y_pos_strand;
 
+    uint64_t overlapLen;
     uint64_t shared_seed;
     uint64_t align_length;
     ///uint64_t total_errors;

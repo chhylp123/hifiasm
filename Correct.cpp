@@ -7,11 +7,42 @@
 #include "edlib.h"
 #include "Assembly.h"
 #include "CommandLines.h"
+#include "ksw2.h"
 
 long long T_total_match=0;
 long long T_total_unmatch=0;
 long long T_total_mis=0;
 pthread_mutex_t debug_statistics ;
+
+
+
+
+void align(const char *tseq, const char *qseq, const int tl, const int ql, 
+const uint8_t *c, int sc_mch, int sc_mis, int gapo, int gape, int bandLen, int zdrop,
+int* max_q_pos, int* max_t, int* score)
+{
+	int i, a = sc_mch, b = sc_mis < 0? sc_mis : -sc_mis; // a>0 and b<0
+	int8_t mat[25] = { a,b,b,b,0, b,a,b,b,0, b,b,a,b,0, b,b,b,a,0, 0,0,0,0,0 };
+	uint8_t *ts, *qs;
+	ksw_extz_t ez;
+
+	memset(&ez, 0, sizeof(ksw_extz_t));
+	ts = (uint8_t*)malloc(tl);
+	qs = (uint8_t*)malloc(ql);
+	for (i = 0; i < tl; ++i) ts[i] = c[(uint8_t)tseq[i]]; // encode to 0/1/2/3
+	for (i = 0; i < ql; ++i) qs[i] = c[(uint8_t)qseq[i]];
+	///ksw_extz(0, ql, qs, tl, ts, 5, mat, gapo, gape, -1, -1, 0, &ez);
+    ksw_extz2_sse(0, ql, qs, tl, ts, 5, mat, gapo, gape, bandLen, zdrop, sc_mch, 0, &ez);
+    /**
+	for (i = 0; i < ez.n_cigar; ++i) // print CIGAR
+		printf("%d%c", ez.cigar[i]>>4, "MID"[ez.cigar[i]&0xf]);
+	putchar('\n');
+    **/
+	free(ez.cigar); free(ts); free(qs);
+    (*score) = ez.max;
+}
+
+
 
 
 void clear_Round2_alignment(Round2_alignment* h)
@@ -944,6 +975,116 @@ inline double trim_error_rate(overlap_region_alloc* overlap_list, long long ID)
     
 
     
+
+    double error_rate = (double)(tError)/(double)(tLen);
+
+    return error_rate;
+}
+
+///error_rate should be 30%
+long long get_high_error(long long x_start, long long x_end, 
+long long y_start, long long y_end, long long y_id, long long y_strand, long long pre_threshold,
+long long n_steps, float error_rate, All_reads* R_INF, Correct_dumy* dumy,
+UC_Read* g_read)
+{
+    long long stepLen = (x_end - x_start + 1) / n_steps;
+    if((x_end - x_start + 1) % n_steps != 0)
+    {
+        stepLen++;
+    }
+    long long SubLen, SubWindowLen;
+    long long SubThreshold = THRESHOLD_MAX_SIZE;
+    int extra_begin, extra_end;
+    long long o_len;
+    long long T_error = 0;
+    y_start = y_start + pre_threshold;
+
+    while (x_start <= x_end)
+    {
+        SubLen = x_end - x_start + 1;
+        if(SubLen > stepLen)
+        {
+            SubLen = stepLen;
+        }
+
+
+        SubThreshold = SubLen * error_rate;
+        if(SubThreshold > THRESHOLD_MAX_SIZE)
+        {
+            SubThreshold = THRESHOLD_MAX_SIZE;
+        }
+
+        SubThreshold = Adjust_Threshold(SubThreshold, SubLen);
+
+
+        SubWindowLen = SubLen + (SubThreshold << 1);
+        if(determine_overlap_region(SubThreshold, y_start, y_id, SubWindowLen, R_INF,
+        &extra_begin, &extra_end, &y_start, &o_len) == 0)
+        {
+            T_error = T_error + (x_end - x_start + 1) * error_rate * 1.5;
+            break;
+        }
+
+        fill_subregion(dumy->overlap_region, y_start, o_len, y_strand, R_INF, y_id, 
+        extra_begin, extra_end);
+
+        char* x_string = g_read->seq + x_start;
+        char* y_string = dumy->overlap_region;
+        int end_site;
+        unsigned int error;
+
+        end_site = Reserve_Banded_BPM(y_string, SubWindowLen, x_string, SubLen, SubThreshold, &error);
+                    
+        ///error等于-1说明没匹配
+        if (error!=(unsigned int)-1)
+        {
+            T_error = T_error + error;
+            y_start = y_start + end_site - extra_begin + 1;
+        }
+        else
+        {
+            T_error = T_error + SubLen * error_rate * 1.5;
+            y_start = y_start + SubThreshold - extra_begin + SubLen;
+        }
+        
+        x_start = x_start + SubLen;
+    }
+
+
+    return T_error;
+}
+
+inline double non_trim_error_rate(overlap_region_alloc* overlap_list, long long ID,
+All_reads* R_INF, Correct_dumy* dumy, UC_Read* g_read)
+{
+    long long tLen, tError,i, subWinLen, subWinNum;
+    
+    tLen = 0;
+    tError = 0;
+
+    subWinNum = overlap_list->list[ID].w_list_length;
+
+    
+    for (i = 0; i < subWinNum; i++)
+    {
+        subWinLen = overlap_list->list[ID].w_list[i].x_end - overlap_list->list[ID].w_list[i].x_start + 1;
+        tLen += subWinLen;
+
+        if(overlap_list->list[ID].w_list[i].y_end != -1)
+        {
+            tError += overlap_list->list[ID].w_list[i].error;
+        }
+        else
+        {
+            tError +=
+            get_high_error(overlap_list->list[ID].w_list[i].x_start, 
+            overlap_list->list[ID].w_list[i].x_end, overlap_list->list[ID].w_list[i].y_start,
+            overlap_list->list[ID].w_list[i].y_end, overlap_list->list[ID].y_id, 
+            overlap_list->list[ID].y_pos_strand, 
+            overlap_list->list[ID].w_list[i].error_threshold - overlap_list->list[ID].w_list[i].extra_begin,
+            3, 0.3, R_INF, dumy, g_read);
+        }
+    }
 
     double error_rate = (double)(tError)/(double)(tLen);
 
@@ -3044,7 +3185,9 @@ inline void recalcate_window(overlap_region_alloc* overlap_list, All_reads* R_IN
                 }
             }
 
-            error_rate = trim_error_rate(overlap_list, j);
+            ///error_rate = trim_error_rate(overlap_list, j);
+            error_rate = non_trim_error_rate(overlap_list, j, R_INF, dumy, g_read);
+            
 
             ///if(error_rate <= 0.015)
             if(error_rate <= 0.03)
@@ -8638,6 +8781,19 @@ uint32_t* SNPs, long long SNPLen, haplotype_evdience_alloc* hap)
     for (i = 0; i < SNPLen; i++)
     {
         snpID = SNPs[i];
+        
+        
+        ///if(overlap_list->list[0].x_id == 83735)
+        ///if(overlap_list->list[0].x_id == 83739)
+        // if(overlap_list->list[0].x_id == 1185538)
+        // {
+        //     fprintf(stderr, "SNPLen: %d, x_id: %d, hap->snp_stat[snpID].site: %d, occ_0: %d, occ_1: %d, occ_2: %d, overlap_num: %d\n", 
+        //     SNPLen, overlap_list->list[0].x_id, hap->snp_stat[snpID].site,
+        //     hap->snp_stat[snpID].occ_0, hap->snp_stat[snpID].occ_1, hap->snp_stat[snpID].occ_2,
+        //     hap->snp_stat[snpID].overlap_num);
+        // }
+        
+        
 
         ///check all overlaps
         for (j = 0; j < Get_SNP_Vector_Length((*hap)); j++)
@@ -9578,6 +9734,22 @@ Correct_dumy* dumy)
 
 }
 
+int debug_print_snp_stat(char* name, haplotype_evdience_alloc* hap, overlap_region_alloc* overlap_list, All_reads* R_INF)
+{
+    if(overlap_list->length > 0 &&
+       memcmp(name, Get_NAME((*R_INF), overlap_list->list[0].x_id), 
+       Get_NAME_LENGTH((*R_INF), overlap_list->list[0].x_id)) == 0)
+    {
+        fprintf(stderr, "\n%s, available_snp: %d\n", name, hap->available_snp);
+        int i;
+        for (i = 0; i < hap->available_snp; i++)
+        {
+            fprintf(stderr, "site: %d, occ_0: %d, occ_1: %d, occ_2: %d\n", 
+            hap->snp_stat[i].site, hap->snp_stat[i].occ_0,
+            hap->snp_stat[i].occ_1, hap->snp_stat[i].occ_2);
+        }
+    }  
+}
 
 int generate_haplotypes_DP(haplotype_evdience_alloc* hap, overlap_region_alloc* overlap_list, All_reads* R_INF, long long rLen, 
 int force_repeat)
@@ -9595,8 +9767,9 @@ int force_repeat)
         return 0;
     }
 
-    
+    // debug_print_snp_stat("m64016_190918_162737/174131552/ccs", hap, overlap_list, R_INF);
 
+    
     ///if hap->available_snp == 1, the following codes would have bugs
     ///filter snps that are highly likly false 
     if(hap->available_snp > 1)
@@ -9816,6 +9989,8 @@ int force_repeat)
             Preorder_Merge_Advance_Repeat(snpID, hap, 0);
         }
     }
+
+    // debug_print_snp_stat("m64016_190918_162737/174131552/ccs", hap, overlap_list, R_INF);
 
 
     //if(hap->dp.max_snp_num > 0)
@@ -10537,7 +10712,6 @@ void correct_overlap_back(overlap_region_alloc* overlap_list, All_reads* R_INF,
 }
 
 
-
 void print_overlap(char* name, long long readID, 
 overlap_region_alloc* overlap_list, All_reads* R_INF, int output_reads)
 {
@@ -10545,8 +10719,8 @@ overlap_region_alloc* overlap_list, All_reads* R_INF, int output_reads)
     Get_NAME_LENGTH((*R_INF),readID)) == 0)
     {
         long long i, j;
-        fprintf(stderr, "\n\n****************ref_read: %.*s****************\n", 
-            Get_NAME_LENGTH((*R_INF),readID), Get_NAME((*R_INF),readID));
+        fprintf(stderr, "\n\n****************ref_read: %.*s, id: %d****************\n", 
+            Get_NAME_LENGTH((*R_INF),readID), Get_NAME((*R_INF),readID), readID);
 
         fprintf(stderr, "\n###flag: 1\n");
 
@@ -10618,16 +10792,18 @@ overlap_region_alloc* overlap_list, All_reads* R_INF, int output_reads)
             fprintf(stderr, ">%.*s\n", Get_NAME_LENGTH((*R_INF),readID), Get_NAME((*R_INF),readID));
             fprintf(stderr, "%.*s\n", g_read.length, g_read.seq);
 
-            fprintf(stderr, "query_read:\n");
+            ///fprintf(stderr, "query_read:\n");
             for (i = 0; i < overlap_list->length; i++)
             {
-                fprintf(stderr, "i: %d\n", i);
+                ///fprintf(stderr, "i: %d\n", i);
                 recover_UC_Read(&g_read, R_INF, overlap_list->list[i].y_id);
                 fprintf(stderr, ">%.*s\n", 
                 Get_NAME_LENGTH((*R_INF),overlap_list->list[i].y_id),
                 Get_NAME((*R_INF),overlap_list->list[i].y_id));
                 fprintf(stderr, "%.*s\n", g_read.length, g_read.seq);
             }
+
+            fprintf(stderr, "Has already output all related reads\n\n");
 
             destory_UC_Read(&g_read);
 
@@ -10684,13 +10860,14 @@ overlap_region_alloc* overlap_list, All_reads* R_INF, int output_reads)
 
 }
 
+
 void correct_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF, 
                         UC_Read* g_read, Correct_dumy* dumy, UC_Read* overlap_read, Graph* g, Graph* DAGCon,
                         long long* matched_overlap_0, long long* matched_overlap_1, 
                         long long* potiental_matched_overlap_0, long long* potiental_matched_overlap_1,
                         Cigar_record* current_cigar, haplotype_evdience_alloc* hap, 
                         Round2_alignment* second_round, int force_repeat, int is_consensus,
-                        int* fully_cov, int* abnormal)
+                        int* fully_cov, int* abnormal, uint8_t* c2n)
 {
     reverse_complement(g_read->seq, g_read->length);
 
@@ -10735,18 +10912,12 @@ void correct_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF,
     recalcate_window(overlap_list, R_INF, g_read, dumy, overlap_read);
 
 
-    // print_overlap("m64011_190329_072846/59507330/ccs", 
-    // overlap_list->list[0].x_id, overlap_list, R_INF);
-
 
     partition_overlaps(overlap_list, R_INF, g_read, dumy, hap, force_repeat);
 
 
-    // print_overlap("m64016_190918_162737/53545052/ccs", 
+    // print_overlap("m64016_190918_162737/174131552/ccs", 
     // overlap_list->list[0].x_id, overlap_list, R_INF, 1);
-
-
-
     
     if(is_consensus)
     {
