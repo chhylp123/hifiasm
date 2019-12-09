@@ -184,6 +184,9 @@ inline int Reserve_Banded_BPM
 	int i_last = i;
 	i = 0;
 
+	/****************************may have bugs********************************/
+	unsigned int ungap_error = (unsigned int)-1;
+	/****************************may have bugs********************************/
 
 	while (i < available_i)
 	{
@@ -196,7 +199,21 @@ inline int Reserve_Banded_BPM
 			*return_err = err;
 			return_site = site + i;
 		}
+
+		/****************************may have bugs********************************/
+		if(i == errthold)
+		{
+			ungap_error = err;
+		}
+		/****************************may have bugs********************************/
 	}
+
+	/****************************may have bugs********************************/
+	if((ungap_error<=errthold) && (ungap_error == (*return_err)))
+	{
+		return_site = site + errthold;
+	}
+	/****************************may have bugs********************************/
 
 	return return_site;
 
@@ -436,6 +453,11 @@ inline int Reserve_Banded_BPM_PATH
 	///int site = p_length - last_high - 1;
 	int site = t_length - 1;
 	int return_site = -1;
+
+	/****************************may have bugs********************************/
+	unsigned int ungap_error = (unsigned int)-1;
+	/****************************may have bugs********************************/
+
 	///p_length大部分情况下应该是t_length + 2 * errthold，这是i要小于last_high = 2 * errthold
 	///也就是p_length - t_length
 	///那么当p_length < t_length + 2 * errthold, available_i也应该是这个值
@@ -459,13 +481,30 @@ inline int Reserve_Banded_BPM_PATH
 			*return_err = err;
 			return_site = site + i;
 		}
+
+		/****************************may have bugs********************************/
+		if(i == errthold)
+		{
+			ungap_error = err;
+		}
+		/****************************may have bugs********************************/
 	}
+
+	
 
 
 	if ((*return_err) == (unsigned int)-1)
 	{
 		return return_site;
 	}
+
+
+	/****************************may have bugs********************************/
+	if((ungap_error<=errthold) && (ungap_error == (*return_err)))
+	{
+		return_site = site + errthold;
+	}
+	/****************************may have bugs********************************/
 	
     ////注意，这里p_length要矫正啊啊
 	///不矫正会出错
@@ -846,6 +885,13 @@ inline int Reserve_Banded_BPM_4_SSE_only(char *pattern1, char *pattern2, char *p
 
 	i = 0;
 
+	/****************************may have bugs********************************/
+	unsigned int ungap_error1 = (unsigned int)-1;
+	unsigned int ungap_error2 = (unsigned int)-1;
+	unsigned int ungap_error3 = (unsigned int)-1;
+	unsigned int ungap_error4 = (unsigned int)-1;
+	/****************************may have bugs********************************/
+
 
 	///p_length大部分情况下应该是t_length + 2 * errthold，这是i要小于last_high = 2 * errthold
 	///也就是p_length - t_length
@@ -891,7 +937,39 @@ inline int Reserve_Banded_BPM_4_SSE_only(char *pattern1, char *pattern2, char *p
 			return_sites[3] = site + i;
 			return_sites_error[3] = err4;
 		}
+
+		/****************************may have bugs********************************/
+		if(i == errthold)
+		{
+			ungap_error1 = err1;
+			ungap_error2 = err2;
+			ungap_error3 = err3;
+			ungap_error4 = err4;
+		}
+		/****************************may have bugs********************************/
 	}
+
+	/****************************may have bugs********************************/
+	if((ungap_error1<=errthold) && (ungap_error1 == return_sites_error[0]))
+	{
+		return_sites[0] = site + errthold;
+	}
+
+	if((ungap_error2<=errthold) && (ungap_error2 == return_sites_error[1]))
+	{
+		return_sites[1] = site + errthold;
+	}
+
+	if((ungap_error3<=errthold) && (ungap_error3 == return_sites_error[2]))
+	{
+		return_sites[2] = site + errthold;
+	}
+
+	if((ungap_error4<=errthold) && (ungap_error4 == return_sites_error[3]))
+	{
+		return_sites[3] = site + errthold;
+	}
+	/****************************may have bugs********************************/
 
 	return 1;
 }

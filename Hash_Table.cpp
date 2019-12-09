@@ -643,11 +643,13 @@ int append_inexact_overlap_region_alloc(overlap_region_alloc* list, overlap_regi
         memset(list->list + (list->size/2), 0, sizeof(overlap_region)*(list->size/2));
     }
 
-    if (list->length!=0 && 
-    list->list[list->length - 1].y_id==tmp->y_id
-    )
+    if (list->length!=0 && list->list[list->length - 1].y_id==tmp->y_id)
     {    
-        if(list->list[list->length - 1].shared_seed >= tmp->shared_seed)
+        ///if(list->list[list->length - 1].shared_seed >= tmp->shared_seed)
+        if((list->list[list->length - 1].shared_seed > tmp->shared_seed)
+           ||
+           ((list->list[list->length - 1].shared_seed == tmp->shared_seed) && 
+           (list->list[list->length - 1].overlapLen <= tmp->overlapLen)))
         {
             return 0;
         }
@@ -1244,10 +1246,41 @@ void debug_chain(k_mer_hit* a, long long a_n, Chain_Data* dp)
     }
 }
 
+long long get_chainLen(long long x_beg, long long x_end, long long xLen, 
+long long y_beg, long long y_end, long long yLen)
+{
+    if(x_beg <= y_beg)
+    {
+        y_beg = y_beg - x_beg;
+        x_beg = 0;
+    }
+    else
+    {
+        x_beg = x_beg - y_beg;
+        y_beg = 0;
+    }
+
+    long long x_right_length = xLen - x_end - 1;
+    long long y_right_length = yLen - y_end - 1;
+
+
+    if(x_right_length <= y_right_length)
+    {
+        x_end = xLen - 1;
+        y_end = y_end + x_right_length;        
+    }
+    else
+    {
+        x_end = x_end + y_right_length;
+        y_end = yLen - 1;
+    }
+
+    return x_end - x_beg + 1;
+}
 
 ///double band_width_threshold = 0.05;
 void chain_DP(k_mer_hit* a, long long a_n, Chain_Data* dp, overlap_region* result, 
-double band_width_threshold)
+double band_width_threshold, int max_skip, int x_readLen, int y_readLen)
 {
     long long i, j;
     long long self_pos, pos, max_j, max_i, max_score, score, n_skip;
@@ -1294,31 +1327,36 @@ double band_width_threshold)
                 continue;
             }
 
+            ///min distance
             distance_min = distance_pos < distance_self_pos? distance_pos:distance_self_pos;
             score = distance_min < min_score? distance_min : min_score;
 
-            /**
-            log_distance_gap = distance_gap? ilog2_32(distance_gap) : 0;
-
-            score -= (long long)(distance_gap * 0.01 * min_score) + (log_distance_gap/2);
-            **/
             gap_rate = (double)((double)(total_indels)/(double)(total_self_length));
-            ///if the gap rate > 0.05, score will be negative
+            ///if the gap rate > 0.06, score will be negative
             score -= (long long)(gap_rate * score * band_width_penalty);
 
             score += dp->score[j];
 
+            ///find a new max score
             if(score > max_score)
             {
                 max_score = score;
                 max_j = j;
                 max_indels = total_indels;
                 max_self_length = total_self_length;
-                if (n_skip > 0)
+                /****************************may have bugs********************************/
+                n_skip = 0;
+                /****************************may have bugs********************************/
+            }/****************************may have bugs********************************/
+            else
+            {
+                n_skip++;
+                if(n_skip > max_skip)
                 {
-                    n_skip--;
+                    break;
                 }
             }
+            /****************************may have bugs********************************/
         }
 
         dp->score[i] = max_score;
@@ -1331,16 +1369,34 @@ double band_width_threshold)
     ///debug_chain(a, a_n, dp);
 
 
+    
 
     max_score = -1;
     max_i = -1;
+    long long mini_xLen = x_readLen * 2 + 2, tmp_xLen;
     for (i = 0; i < a_n; ++i) 
     {
         if(dp->score[i] > max_score)
         {
             max_score = dp->score[i];
             max_i = i;
+            mini_xLen = get_chainLen(a[i].self_offset, a[i].self_offset, x_readLen, 
+            a[i].offset, a[i].offset, y_readLen);
         }
+        else if(dp->score[i] == max_score)
+        {
+            tmp_xLen = get_chainLen(a[i].self_offset, a[i].self_offset, x_readLen, 
+            a[i].offset, a[i].offset, y_readLen);
+
+            if(tmp_xLen < mini_xLen)
+            {
+                max_score = dp->score[i];
+                max_i = i;
+
+                mini_xLen = tmp_xLen;
+            }
+        }
+        
     }
 
 
@@ -1350,6 +1406,7 @@ double band_width_threshold)
     result->x_pos_e = a[i].self_offset;
     result->y_pos_e = a[i].offset;
     result->shared_seed = max_score;
+    result->overlapLen = mini_xLen;
 
     distance_self_pos = result->x_pos_e - a[i].self_offset;
     distance_pos = result->y_pos_e - a[i].offset;
@@ -1515,7 +1572,6 @@ uint64_t readID, uint64_t readLength, All_reads* R_INF, double band_width_thresh
     long long tmp_pos_distance;
     long long tmp_self_pos_distance;
     long long constant_distance = 5;
-    double error_rate = 0.05;
 
 
     if (candidates->length == 0)
@@ -1562,9 +1618,80 @@ uint64_t readID, uint64_t readLength, All_reads* R_INF, double band_width_thresh
             continue;
         }
 
+       
+        // if(
+        // ((memcmp("m64016_190918_162737/130811282/ccs", 
+        // Get_NAME((*R_INF), tmp_region.x_id), Get_NAME_LENGTH((*R_INF), tmp_region.x_id)) == 0) 
+        // && 
+        // (memcmp("m64016_190918_162737/179635219/ccs", 
+        // Get_NAME((*R_INF), tmp_region.y_id), Get_NAME_LENGTH((*R_INF), tmp_region.y_id)) == 0))
+        // ||
+        // ((memcmp("m64016_190918_162737/179635219/ccs", 
+        // Get_NAME((*R_INF), tmp_region.x_id), Get_NAME_LENGTH((*R_INF), tmp_region.x_id)) == 0) 
+        // && 
+        // (memcmp("m64016_190918_162737/130811282/ccs", 
+        // Get_NAME((*R_INF), tmp_region.y_id), Get_NAME_LENGTH((*R_INF), tmp_region.y_id)) == 0)))
+        // {
+        //     fprintf(stderr, "****************x_name: %.*s****************\n", 
+        //     Get_NAME_LENGTH((*R_INF), tmp_region.x_id), Get_NAME((*R_INF), tmp_region.x_id));
+        //     fprintf(stderr, "****************y_name: %.*s****************\n", 
+        //     Get_NAME_LENGTH((*R_INF), tmp_region.y_id), Get_NAME((*R_INF), tmp_region.y_id));
+            
+
+        //     k_mer_hit* k_list = candidates->list + sub_region_beg;
+        //     long long k_listLen = sub_region_end - sub_region_beg + 1;
+        //     long long k = 0;
+
+        //     fprintf(stderr, "k_listLen: %d\n", k_listLen);
+
+        //     for (k = 0; k < k_listLen; k++)
+        //     {
+        //         fprintf(stderr, "k: %d, readID: %d, strand: %d, offset: %d, self_offset: %d\n", 
+        //         k, k_list[k].readID, k_list[k].strand, k_list[k].offset, k_list[k].self_offset);
+        //     }
+        // }
+
         
         chain_DP(candidates->list + sub_region_beg, 
-        sub_region_end - sub_region_beg + 1, &(candidates->chainDP), &tmp_region, band_width_threshold);
+        sub_region_end - sub_region_beg + 1, &(candidates->chainDP), &tmp_region, band_width_threshold,
+        50, Get_READ_LENGTH((*R_INF), tmp_region.x_id), Get_READ_LENGTH((*R_INF), tmp_region.y_id));
+
+        
+        // if(
+        // ((memcmp("m64016_190918_162737/130811282/ccs", 
+        // Get_NAME((*R_INF), tmp_region.x_id), Get_NAME_LENGTH((*R_INF), tmp_region.x_id)) == 0) 
+        // && 
+        // (memcmp("m64016_190918_162737/179635219/ccs", 
+        // Get_NAME((*R_INF), tmp_region.y_id), Get_NAME_LENGTH((*R_INF), tmp_region.y_id)) == 0))
+        // ||
+        // ((memcmp("m64016_190918_162737/179635219/ccs", 
+        // Get_NAME((*R_INF), tmp_region.x_id), Get_NAME_LENGTH((*R_INF), tmp_region.x_id)) == 0) 
+        // && 
+        // (memcmp("m64016_190918_162737/130811282/ccs", 
+        // Get_NAME((*R_INF), tmp_region.y_id), Get_NAME_LENGTH((*R_INF), tmp_region.y_id)) == 0)))
+        // {
+        //     fprintf(stderr, "****************x_name: %.*s****************\n", 
+        //     Get_NAME_LENGTH((*R_INF), tmp_region.x_id), Get_NAME((*R_INF), tmp_region.x_id));
+        //     fprintf(stderr, "****************y_name: %.*s****************\n", 
+        //     Get_NAME_LENGTH((*R_INF), tmp_region.y_id), Get_NAME((*R_INF), tmp_region.y_id));
+
+
+        //     k_mer_hit* k_list = candidates->list + sub_region_beg;
+        //     long long k_listLen = sub_region_end - sub_region_beg + 1;
+        //     long long k = 0;
+
+        //     fprintf(stderr, "k_listLen: %d\n", k_listLen);
+
+        //     for (k = 0; k < k_listLen; k++)
+        //     {
+        //         fprintf(stderr, "k: %d, score: %d, pre: %d, indels: %d, self_length: %d\n", 
+        //         k, candidates->chainDP.score[k], candidates->chainDP.pre[k], 
+        //         candidates->chainDP.indels[k], candidates->chainDP.self_length[k]);                
+        //     }
+        // }
+    
+
+
 
         ///自己和自己重叠的要排除
         ///if (tmp_region.x_id != tmp_region.y_id && tmp_region.shared_seed > 1)
@@ -2466,7 +2593,6 @@ int load_Total_Pos_Table(Total_Pos_Table* TCB, char* read_file_name)
     fread(&TCB->size, sizeof(TCB->size), 1, fp);
     fread(&TCB->useful_k_mer, sizeof(TCB->useful_k_mer), 1, fp);
     fread(&TCB->total_occ, sizeof(TCB->total_occ), 1, fp);
-
 
     if (TCB->useful_k_mer+1)
     {
