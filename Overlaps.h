@@ -9,7 +9,8 @@
 ///#define MIN_OVERLAP_LEN 500
 ///#define MIN_OVERLAP_LEN 50
 #define MIN_OVERLAP_LEN 50
-#define MIN_OVERLAP_COVERAGE 1
+///#define MIN_OVERLAP_COVERAGE 1
+#define MIN_OVERLAP_COVERAGE 0
 #define MAX_HANG_LEN 1000
 #define MAX_HANG_PRE 0.8
 #define GAP_FUZZ 1000
@@ -81,6 +82,7 @@ void debug_normalize_ma_hit_t(ma_hit_t_alloc* sources, long long num_sources);
 
 typedef struct {
 	uint32_t s:31, del:1, e;
+	uint8_t c;
 } ma_sub_t;
 
 void ma_hit_sub(int min_dp, ma_hit_t_alloc* sources, long long n_read, uint64_t* readLen, 
@@ -104,6 +106,7 @@ typedef struct {
 
 typedef struct {
 	uint32_t len:31, del:1;
+	uint8_t c;
 } asg_seq_t;
 
 typedef struct {
@@ -323,5 +326,8 @@ long long mini_overlap_length, long long max_hang_length,
 long long clean_round, float min_ovlp_drop_ratio, float max_ovlp_drop_ratio, 
 float corase_ovlp_drop_ratio, char* output_file_name, long long bubble_dist, int read_graph,
 int write);
+
+void debug_info_of_specfic_read(char* name, ma_hit_t_alloc* sources, 
+ma_hit_t_alloc* reverse_sources, int id, char* command);
 
 #endif

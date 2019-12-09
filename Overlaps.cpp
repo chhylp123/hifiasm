@@ -884,6 +884,106 @@ long long mini_overlap_length, ma_sub_t** coverage_cut)
 
 
 
+void ma_hit_chimeric(int min_dp, ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, 
+long long n_read, uint64_t* readLen, ma_sub_t* coverage_cut)
+{
+    double startTime = Get_T();
+
+	int i, j, k, n_remove = 0;
+	kvec_t(uint32_t) b = {0,0,0};
+
+	for (i = 0; i < n_read; ++i) 
+    {
+
+        kv_resize(uint32_t, b, readLen[i]);
+        memset(b.a, 0, sizeof(uint32_t)*readLen[i]);
+
+        
+        
+        for (j = 0; j < sources[i].length; j++)
+        {
+            uint32_t qs, qe;
+            qs = Get_qs(sources[i].buffer[j]);
+            qe = Get_qe(sources[i].buffer[j]);
+
+
+            ///if(qe - qs < 1000) continue;
+            for (k = qs; k < qe; k++)
+            {
+                b.a[k]++;
+            }
+        }
+
+    
+        // for (j = 0; j < reverse_sources[i].length; j++)
+        // {
+        //     uint32_t qs, qe;
+        //     qs = Get_qs(reverse_sources[i].buffer[j]);
+        //     qe = Get_qe(reverse_sources[i].buffer[j]);
+
+        //     for (k = qs; k < qe; k++)
+        //     {
+        //         b.a[k]++;
+        //     }
+        // }
+    
+        
+        int left, right;
+        left = -1;
+        right = readLen[i];
+        for (k = 0; k < readLen[i]; k++)
+        {
+            if(b.a[k] < min_dp)
+            {
+                left = k;
+                break;
+            }
+        }
+        
+        for (k = readLen[i] - 1; k >= 0; k--)
+        {
+            if(b.a[k] < min_dp)
+            {
+                right = k;
+                break;
+            }
+        }
+
+        // if(i == 4616942 || i == 4024299 || i == 6135193)
+        // {
+        //     fprintf(stderr, "i: %d, left: %d, right: %d, rLen: %d, min_dp: %d\n", 
+        //     i, left, right, readLen[i], min_dp);
+        //     for (k = 0; k < readLen[i]; k++)
+        //     {
+        //         fprintf(stderr, "a[%d]: %d\n", k, b.a[k]);
+        //     }
+        // }
+    
+        if( (left <= right) && (left > 0) && (right < readLen[i] - 1))
+        {
+            coverage_cut[i].c = 1;
+            n_remove++;
+            /****************************may have bugs********************************/
+            coverage_cut[i].del = 1;
+            sources[i].length = 0;
+            /****************************may have bugs********************************/
+        }
+        else
+        {
+            coverage_cut[i].c = 0;
+        }
+	}
+
+	free(b.a);
+
+    fprintf(stderr, "[M::%s] takes %0.2f s, n_remove: %d\n\n", __func__, Get_T()-startTime, n_remove);
+}
+
+
+
+
+
+
 void ma_hit_cut(int min_dp, ma_hit_t_alloc* sources, long long n_read, uint64_t* readLen, 
 long long mini_overlap_length, ma_sub_t** coverage_cut)
 {
@@ -1488,6 +1588,7 @@ int max_hang, int min_ovlp)
     {
         ///if a read has been deleted, should we still add them?
 		asg_seq_set(g, i, coverage_cut[i].e - coverage_cut[i].s, coverage_cut[i].del);
+        g->seq[i].c = coverage_cut[i].c;
 	}
 
     g->seq_vis = (uint8_t*)calloc(g->n_seq*2, sizeof(uint8_t));
@@ -3889,15 +3990,6 @@ void* asg_arc_identify_simple_bubbles_pthread(void* arg)
 
         b.b.n = 0;
 
-        ///if(v%10000 == 0)
-        //if(v >= 18020000)
-        // if(v == 18021291)
-        // {
-        //     fprintf(stderr, "0 v: %d, thr_ID: %d\n", v, thr_ID);
-        //     fflush(stderr);
-        // }
-        
-
         if(g->seq_vis[v] != 1)
         {
             ///if(detect_bubble_with_bubbles(g, v, &w, &l, &b, (uint32_t)-1))
@@ -6294,7 +6386,6 @@ ma_hit_t_alloc* reverse_sources, long long miniedgeLen)
 
 
         /****************************may have bugs********************************/
-        /**
         if(to_del_l != kv)
         {
             b_f.n = 0;
@@ -6384,7 +6475,317 @@ ma_hit_t_alloc* reverse_sources, long long miniedgeLen)
         }
 
         terminal:
-        **/
+        /****************************may have bugs********************************/
+
+
+        if(to_del_l != kv) continue;
+
+
+
+
+
+        uint32_t convex1;
+        long long l1;
+
+
+
+
+        ////forward bubble
+        to_del_l = 0;
+        for (i = 0; i < b_f.n; i++)
+        {
+            if(b_f.a[i] == b_f.a[0])
+            {
+                to_del_l = 1;
+            } 
+            else
+            {
+                to_del_l = 0;
+                break;
+            }
+        }
+        //check the length
+        if(to_del_l == 0 && asg_bub_end_finder_with_del_advance(g, 
+        b_f.a, b_f.n, max_dist, &bub, 0, (u_int32_t)-1, &sink)==1)
+        {
+            to_del_l = 1;
+        }
+        if(to_del_l == 0 && detect_mul_bubble_end_with_bubbles(g, b_f.a, b_f.n, &convex1, &l1, NULL))
+        {
+            to_del_l = 1;
+        }
+
+        ///if(v>>1 == 4581428) fprintf(stderr, "to_del_l: %d, b_f.n: %d\n", to_del_l, b_f.n);
+
+        ///if(to_del_l == 0) continue;
+
+
+
+
+
+
+
+        ////backward bubble
+        to_del_r = 0;
+        for (i = 0; i < b_r.n; i++)
+        {
+            if(b_r.a[i] == b_r.a[0])
+            {
+                to_del_r = 1;
+            } 
+            else
+            {
+                to_del_r = 0;
+                break;
+            }
+        }
+        if(to_del_r == 0 && asg_bub_end_finder_with_del_advance
+        (g, b_r.a, b_r.n, max_dist, &bub, 1, v^1, &sink)==1)
+        {
+            to_del_r = 1;
+        }
+        if(to_del_r == 0 && detect_mul_bubble_end_with_bubbles(g, b_r.a, b_r.n, &convex1, &l1, NULL))
+        {
+            to_del_r = 1;
+        }
+
+        
+        // if(v>>1 == 4581428)
+        // {
+        //     fprintf(stderr, "to_del_l: %d, b_f.n: %d\n", to_del_l, b_f.n);
+        //     asg_bub_end_finder_with_del_advance_debug(g, b_r.a, b_r.n, max_dist, &bub, 1, v^1);
+        // }
+        
+        // if(v>>1 == 7318036)
+        // {
+        //     fprintf(stderr, "to_del_l: %d, to_del_r: %d, b_f.n: %d\n", to_del_l, to_del_r, b_f.n);
+        // } 
+
+
+
+		if (to_del_l && to_del_r)
+        {
+            for (i = 0; i < nv; ++i) 
+            {
+			    if (av[i].del) continue;
+                ///fprintf(stderr, "%.*s\n", Get_NAME_LENGTH((R_INF), v>>1), Get_NAME((R_INF), v>>1));
+                ++n_cut;
+                av[i].del = 1;
+                asg_arc_del(g, av[i].v^1, av[i].ul>>32^1, 1);
+		    }
+
+        }
+    }
+    
+    free(b.a); free(b_f.a); free(b_r.a);
+    free(bub.a); free(bub.S.a); free(bub.T.a); free(bub.b.a); free(bub.e.a);
+	if (n_cut) 
+    {
+		asg_cleanup(g);
+		asg_symm(g);
+	}
+	fprintf(stderr, "[M::%s] removed %d false overlaps\n", __func__, n_cut);
+    fprintf(stderr, "[M::%s] takes %0.2f s\n\n", __func__, Get_T()-startTime);
+	return n_cut;
+}
+
+
+int asg_arc_del_short_false_link_advance(asg_t *g, float drop_ratio, float o_drop_ratio, int max_dist, 
+ma_hit_t_alloc* reverse_sources, long long miniedgeLen)
+{
+    double startTime = Get_T();
+    
+    kvec_t(uint64_t) b;
+    memset(&b, 0, sizeof(b));
+
+
+    kvec_t(uint32_t) b_f;
+    memset(&b_f, 0, sizeof(b_f));
+
+    kvec_t(uint32_t) b_r;
+    memset(&b_r, 0, sizeof(b_r));
+
+
+	uint32_t v, w, n_vtx = g->n_seq * 2, n_cut = 0;
+    uint32_t sink;
+
+    buf_t bub;
+    if (!g->is_symm) asg_symm(g);
+    memset(&bub, 0, sizeof(buf_t));
+    bub.a = (binfo_t*)calloc(n_vtx, sizeof(binfo_t));
+    
+    for (v = 0; v < n_vtx; ++v) 
+    {
+        if(g->seq_vis[v] == 0)
+        {
+            asg_arc_t *av = asg_arc_a(g, v);
+            uint32_t nv = asg_arc_n(g, v);
+            if(nv == 1 && asg_arc_n(g, v^1) == 1) continue;
+
+            uint64_t t_ol = 0;
+            long long i;
+            for (i = 0; i < nv; ++i)
+            {
+                t_ol += av[i].ol;
+            }
+            kv_push(uint64_t, b, (uint64_t)(t_ol << 32 | v));  
+        }
+	}
+
+    fprintf(stderr, "[M::%s] %lld unsorted pending overlaps\n", __func__, b.n);
+
+    radix_sort_arch64(b.a, b.a + b.n);
+
+    fprintf(stderr, "[M::%s] %lld sorted pending overlaps\n", __func__, b.n);
+
+    
+
+    uint32_t min_edge;
+    
+    
+    long long k, t;
+    for (k = 0; k < b.n; k++)
+    {
+        ///v is the node
+        v = (uint32_t)b.a[k];
+        if (g->seq[v>>1].del) continue;
+        uint32_t nv = asg_arc_n(g, v), nw, to_del_l, to_del_r;
+        if (nv < 2) continue;
+        uint32_t kv = get_real_length(g, v, NULL), kw;
+        if (kv < 2) continue;
+        uint32_t i;
+        asg_arc_t *av = asg_arc_a(g, v), *aw;
+
+        b_f.n = 0;
+        b_r.n = 0;
+        to_del_l = 0;
+        for (i = 0; i < nv; i++)
+        {
+            if (av[i].del) continue;
+            
+            w = av[i].v^1;
+            nw = asg_arc_n(g, w);
+            if(nw < 2) break;
+            kw = get_real_length(g, w, NULL);
+            if(kw < 2) break;
+
+            kv_push(uint32_t, b_f, av[i].v);
+            kv_push(uint32_t, b_r, w);
+
+            aw = asg_arc_a(g, w);
+            min_edge = (u_int32_t)-1;
+            for (t = 0; t < nw; t++)
+            {
+                if(aw[t].del) continue;
+                if((aw[t].v>>1) == (v>>1)) continue;
+                if(aw[t].ol < min_edge) min_edge = aw[t].ol;
+                ///kv_push(uint32_t, b_r, aw[t].v);
+            }
+
+            if(av[i].ol < min_edge * drop_ratio) to_del_l++;
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+        /****************************may have bugs********************************/
+        if(to_del_l != kv)
+        {
+            b_f.n = 0;
+            b_r.n = 0;
+            to_del_l = 0;
+
+            for (i = 0; i < nv; i++)
+            {
+                if (av[i].del) continue;
+
+                w = av[i].v^1;
+                nw = asg_arc_n(g, w);
+                if(nw < 2) break;
+                kw = get_real_length(g, w, NULL);
+                if(kw < 2) break;
+
+                kv_push(uint32_t, b_f, av[i].v);
+                kv_push(uint32_t, b_r, w);
+
+                aw = asg_arc_a(g, w);
+                min_edge = (u_int32_t)-1;
+                for (t = 0; t < nw; t++)
+                {
+                    if(aw[t].del) continue;
+                    if((aw[t].v>>1) == (v>>1)) continue;
+                    if(aw[t].ol < min_edge) min_edge = aw[t].ol;
+                }
+
+                if(av[i].ol < min_edge * o_drop_ratio) to_del_l++;
+            }
+
+            if(to_del_l == kv)
+            {
+                ///forward
+                to_del_l = 1;
+                for (i = 1; i < b_f.n; i++)
+                {
+                    if(check_if_diploid(b_f.a[0], b_f.a[i], g, reverse_sources, miniedgeLen) == 1)
+                    {
+                        to_del_l++;
+                    }
+                }
+
+                ///backward
+                if(to_del_l != kv && b_r.n >= 2)
+                {
+                    to_del_l = 0;
+                    uint32_t w0, w1;
+
+
+                    w = b_r.a[0];
+                    kw = get_real_length(g, w, NULL);
+                    if(kw != 2) goto terminal;
+                    aw = asg_arc_a(g, w);
+                    nw = asg_arc_n(g, w);
+                    for (t = 0; t < nw; t++)
+                    {
+                        if(aw[t].del) continue;
+                        if((aw[t].v>>1) == (v>>1)) continue;
+                        w0 = aw[t].v;
+                    }
+                    to_del_l = 1;
+
+
+                    for (i = 1; i < b_r.n; i++)
+                    {
+                        w = b_r.a[i];
+                        kw = get_real_length(g, w, NULL);
+                        if(kw != 2) goto terminal;
+                        aw = asg_arc_a(g, w);
+                        nw = asg_arc_n(g, w);
+                        for (t = 0; t < nw; t++)
+                        {
+                            if(aw[t].del) continue;
+                            if((aw[t].v>>1) == (v>>1)) continue;
+                            w1 = aw[t].v;
+                        }
+
+                        if(check_if_diploid(w0, w1, g, reverse_sources, miniedgeLen) == 1)
+                        {
+                            to_del_l++;
+                        }
+                    }
+
+                }
+            }
+        }
+
+        terminal:
         /****************************may have bugs********************************/
 
 
@@ -6472,10 +6873,11 @@ ma_hit_t_alloc* reverse_sources, long long miniedgeLen)
 
 		if (to_del_l && to_del_r)
         {
+            fprintf(stderr, "%.*s\n", Get_NAME_LENGTH((R_INF), v>>1), Get_NAME((R_INF), v>>1));
             for (i = 0; i < nv; ++i) 
             {
 			    if (av[i].del) continue;
-                ///fprintf(stderr, "%.*s\n", Get_NAME_LENGTH((R_INF), v>>1), Get_NAME((R_INF), v>>1));
+                
                 ++n_cut;
                 av[i].del = 1;
                 asg_arc_del(g, av[i].v^1, av[i].ul>>32^1, 1);
@@ -7856,7 +8258,7 @@ ma_hit_t_alloc* reverse_sources, int id, char* command)
         }
     }
 
-
+    fflush(stderr);
 
     
 }
@@ -8871,7 +9273,50 @@ int asg_arc_del_orthology_multiple_way(asg_t *g, ma_hit_t_alloc* reverse_sources
 
 
 
+int asg_arc_del_chimeric_read(asg_t *g, long long miniedgeLen)
+{
+    double startTime = Get_T();
+    ///the reason is that each read has two direction (query->target, target->query)
+    uint32_t v, v_max, v_maxLen, w, n_vtx = g->n_seq * 2, n_reduced = 0, n_arc;
 
+    for (v = 0; v < n_vtx; ++v) 
+    {
+        ///if (g->seq_vis[v] != 0) continue;
+        if (g->seq[v>>1].del) continue;
+        if (g->seq[v>>1].c == 0) continue;
+        ///fprintf(stderr, "v>>1: %d\n", v>>1);
+        if((get_real_length(g, v, NULL) == 0) || (get_real_length(g, v^1, NULL) == 0))
+        {
+            continue;
+        }
+
+
+        uint32_t convex1, convex2, flag1, flag2;
+        long long l1, l2, ll;
+        flag1 = detect_single_path_with_dels(g, v, &convex1, &l1, NULL);
+        if(flag1 == END_TIPS || flag1 == LONG_TIPS) continue;
+        flag2 = detect_single_path_with_dels(g, v^1, &convex2, &l2, NULL);
+        if(flag2 == END_TIPS || flag2 == LONG_TIPS) continue;
+        ll = l1 + l2 - 1;
+        if(ll <= miniedgeLen)
+        {
+            ///fprintf(stderr, "***v>>1: %d\n", v>>1);
+            asg_seq_del(g, v>>1);
+            n_reduced++;
+        }
+    }
+
+    if (n_reduced) {
+        asg_cleanup(g);
+        asg_symm(g);
+    }
+
+    fprintf(stderr, "[M::%s] removed %d chimeric reads\n", 
+    __func__, n_reduced);
+    fprintf(stderr, "[M::%s] takes %0.2f s\n\n", __func__, Get_T()-startTime);
+
+    return n_reduced;
+}
 
 
 uint32_t detect_single_path_with_dels_by_length
@@ -9016,10 +9461,38 @@ long long asg_arc_del_self_circle_untig(asg_t *g, long long circleLen)
 }
 
 
+void output_unitig_graph_without_small_bubbles(asg_t *sg, ma_sub_t* coverage_cut, 
+char* output_file_name, long long n_read, long long bubble_dist, long long tipsLen)
+{
+    asg_cut_tip(sg, tipsLen);
+    asg_pop_bubble(sg, bubble_dist);
+    asg_cut_tip(sg, tipsLen);
+    
+    ma_ug_t *ug = NULL;
+    ug = ma_ug_gen(sg);
+    ma_ug_seq(ug, &R_INF, coverage_cut, n_read);
+
+    fprintf(stdout, "Writing unitig GFA to disk ...... \n");
+    char* gfa_name = (char*)malloc(strlen(output_file_name)+35);
+    sprintf(gfa_name, "%s.no_s_bub.gfa", output_file_name);
+    FILE* output_file = fopen(gfa_name, "w");
+    ma_ug_print(ug, &R_INF, coverage_cut, output_file);
+    fclose(output_file);
+    
+    
+    sprintf(gfa_name, "%s.simple.no_s_bub.gfa", output_file_name);
+    output_file = fopen(gfa_name, "w");
+    ma_ug_print_simple(ug, &R_INF, coverage_cut, output_file);
+    fclose(output_file);
+
+    free(gfa_name);
+    ma_ug_destroy(ug);
+}
+
+
 void output_contig_graph(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name, long long n_read, long long bubble_dist, long long tipsLen, float tip_drop_ratio, long long circleLen,
 ma_hit_t_alloc* reverse_sources, long long miniedgeLen)
 {
-
     asg_cut_tip(sg, tipsLen);
     // asg_pop_bubble(sg, bubble_dist);
     // asg_arc_del_self_circle_untig(sg, circleLen);
@@ -9038,12 +9511,9 @@ ma_hit_t_alloc* reverse_sources, long long miniedgeLen)
 
         cur_cons = sg->n_seq + sg->n_arc;
     }
-    /**
-    fprintf(stderr, "pop bubbles: %d, sg->n_seq + sg->n_arc: %d\n", 
-    asg_pop_bubble(sg, bubble_dist), sg->n_seq + sg->n_arc);
-    fprintf(stderr, "pop bubbles: %d, sg->n_seq + sg->n_arc: %d\n", 
-    asg_pop_bubble(sg, bubble_dist), sg->n_seq + sg->n_arc);
-    **/
+
+    asg_arc_identify_simple_bubbles_multi(sg, 1);
+    asg_arc_del_short_false_link(sg, 0.6, 0.85, bubble_dist, reverse_sources, MAX_SHORT_TIPS);
 
     ///asg_arc_del_self_circle_untig(sg, circleLen);
     
@@ -9071,6 +9541,23 @@ ma_hit_t_alloc* reverse_sources, long long miniedgeLen)
     ma_ug_destroy(ug);
 }
 
+
+int output_tips(asg_t *g, const All_reads *RNF)
+{
+	uint32_t v, w, n_vtx = g->n_seq * 2, n_reduced = 0;
+    for (v = 0; v < n_vtx; ++v)
+    {
+        if (g->seq[v>>1].del) continue;
+
+        if(asg_arc_n(g, v) == 0)
+        {
+            fprintf(stderr, "%.*s\n",
+             Get_NAME_LENGTH((*RNF), v>>1), 
+             Get_NAME((*RNF), v>>1));
+        }
+    }
+}
+
 void build_string_graph_without_clean(
 int min_dp, ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, 
 long long n_read, uint64_t* readLen, 
@@ -9086,24 +9573,21 @@ char* output_file_name, long long bubble_dist, int read_graph, int write)
     }
 
 
-    // debug_info_of_specfic_read("m64016_190918_162737/92668450/ccs", 
+    // debug_info_of_specfic_read("m64016_190918_162737/179635219/ccs", 
     // sources, reverse_sources, -1, "init");
 
-    // debug_info_of_specfic_read("m64016_190918_162737/53545052/ccs", 
+    // debug_info_of_specfic_read("m64016_190918_162737/130811282/ccs", 
     // sources, reverse_sources, -1, "init");
+    
 
-
+    
     
     ma_sub_t* coverage_cut;
     ///normalize_ma_hit_t(sources, n_read);
     normalize_ma_hit_t_single_side(sources, n_read);
 
 
-    // debug_info_of_specfic_read("m64016_190918_162737/92668450/ccs", 
-    // sources, reverse_sources, -1, "normalize");
-
-    // debug_info_of_specfic_read("m64016_190918_162737/53545052/ccs", 
-    // sources, reverse_sources, -1, "normalize");
+    
     
 
 
@@ -9119,7 +9603,13 @@ char* output_file_name, long long bubble_dist, int read_graph, int write)
     
     
     
-    // debug_info_of_specfic_read("m64016_190918_162737/49678749/ccs", 
+    // debug_info_of_specfic_read("m64013_190322_203854/82051959/ccs", 
+    // sources, reverse_sources, -1, "clean");
+
+    // debug_info_of_specfic_read("m64013_190322_203854/74385680/ccs", 
+    // sources, reverse_sources, -1, "clean");
+
+    // debug_info_of_specfic_read("m64011_190329_072846/80545633/ccs", 
     // sources, reverse_sources, -1, "clean");
 
 
@@ -9127,6 +9617,9 @@ char* output_file_name, long long bubble_dist, int read_graph, int write)
     
 
     ma_hit_sub(min_dp, sources, n_read, readLen, mini_overlap_length, &coverage_cut);
+
+    ma_hit_chimeric(1, sources, reverse_sources, n_read, readLen, coverage_cut);
+
     ma_hit_cut(min_dp, sources, n_read, readLen, mini_overlap_length, &coverage_cut);
     ///it seems we do not need ma_hit_flt
     ma_hit_flt(sources, n_read, coverage_cut, max_hang_length, mini_overlap_length);
@@ -9136,7 +9629,11 @@ char* output_file_name, long long bubble_dist, int read_graph, int write)
 
     
 
+    // debug_info_of_specfic_read("m64016_190918_162737/179635219/ccs", 
+    // sources, reverse_sources, -1, "contain");
 
+    // debug_info_of_specfic_read("m64016_190918_162737/130811282/ccs", 
+    // sources, reverse_sources, -1, "contain");
     
     // debug_info_of_specfic_read("m64016_190918_162737/72220752/ccs", 
     // sources, reverse_sources, -1, "contain");
@@ -9310,16 +9807,35 @@ char* output_file_name, long long bubble_dist, int read_graph, int write)
 
     asg_arc_del_triangular_directly(sg, MAX_SHORT_TIPS, reverse_sources);
 
+
+
+
+
+    ///asg_arc_identify_simple_bubbles_multi(sg, 0);
+    // asg_arc_del_chimeric_read(sg, MAX_SHORT_TIPS*2);
+    // asg_cut_tip(sg, MAX_SHORT_TIPS);
+    
+
+
+
     
     asg_arc_identify_simple_bubbles_multi(sg, 0);
     asg_arc_del_orthology_multiple_way(sg, reverse_sources, 0.4, MAX_SHORT_TIPS);
     asg_cut_tip(sg, MAX_SHORT_TIPS);
 
     
+
+
+
     asg_arc_identify_simple_bubbles_multi(sg, 0);
     asg_arc_del_too_short_overlaps(sg, 2000, min_ovlp_drop_ratio, reverse_sources, MAX_SHORT_TIPS);
     asg_cut_tip(sg, MAX_SHORT_TIPS);
-    
+
+
+    /**
+    asg_arc_identify_simple_bubbles_multi(sg, 1);
+    asg_arc_del_short_false_link_advance(sg, 0.6, 0.85, bubble_dist, reverse_sources, MAX_SHORT_TIPS);
+    **/
     
     
 
@@ -9374,8 +9890,16 @@ char* output_file_name, long long bubble_dist, int read_graph, int write)
     // debug_info_of_specfic_node("m64016_190918_162737/141297762/ccs", sg);
     
     out:
+    ///output_tips(sg, &R_INF);
+
+
     output_unitig_graph(sg, coverage_cut, output_file_name, n_read);
     output_read_graph(sg, coverage_cut, output_file_name, n_read);
+
+    /****************************may have bugs********************************/
+    output_unitig_graph_without_small_bubbles(sg, coverage_cut, output_file_name, n_read, 
+    100000, MAX_SHORT_TIPS);
+    /****************************may have bugs********************************/
 
     output_contig_graph(sg, coverage_cut, output_file_name, n_read, 10000000, MAX_SHORT_TIPS, 0.1, 20,
     reverse_sources, MAX_SHORT_TIPS);
