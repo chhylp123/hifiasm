@@ -1164,8 +1164,8 @@ All_reads* R_INF, Correct_dumy* dumy, UC_Read* g_read)
                 y_beg_right = 1 + overlap_list->list[ID].w_list[i + 1].y_start - 1 - x_len;
             }
 
-            ///cannot apply this strategy to the leftmost and the rightmost window
-            if(y_beg_left == -1 && y_beg_right == -1 && i > 0 && i < subWinNum - 1)
+
+            if(y_beg_left == -1 && y_beg_right == -1)
             {
                 y_beg_left = overlap_list->list[ID].w_list[i].y_start;
                 if(overlap_list->list[ID].w_list[i].extra_begin >= 0)
@@ -1173,6 +1173,16 @@ All_reads* R_INF, Correct_dumy* dumy, UC_Read* g_read)
                     y_beg_left = y_beg_left + overlap_list->list[ID].w_list[i].error_threshold - 
                     overlap_list->list[ID].w_list[i].extra_begin;
                 }
+                y_beg_right = y_beg_left;
+            }
+
+            if(y_beg_left == -1 && y_beg_right != -1)
+            {
+                y_beg_left = y_beg_right;
+            }
+
+            if(y_beg_right == -1 && y_beg_left != -1)
+            {
                 y_beg_right = y_beg_left;
             }
 
@@ -1191,12 +1201,18 @@ All_reads* R_INF, Correct_dumy* dumy, UC_Read* g_read)
                 threshold, 1, &r_error_right, &r_y_end_right, &r_x_end_right, &aligned_xLen_right);
             }
 
-            ///here one of aligned_xLen_left and aligned_xLen_right must be 0
-            if((i == 0 || i == subWinNum - 1) && 
-            (x_len - (aligned_xLen_left + aligned_xLen_right) > 10))
-            {
-                return 1.0;
-            }
+            /**
+           if(i == 0 || i == subWinNum - 1)
+           {
+               if(((aligned_xLen_left + aligned_xLen_right) < x_len)
+                 &&
+                 (x_len - (aligned_xLen_left + aligned_xLen_right) > 20))
+                {
+                    return 1.0;
+                }
+           }
+           **/
+
 
             ///aligned in both direction
             if(aligned_xLen_left != 0 && aligned_xLen_right != 0)

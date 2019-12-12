@@ -9617,7 +9617,7 @@ char* output_file_name, long long bubble_dist, int read_graph, int write)
     
 
     ma_hit_sub(min_dp, sources, n_read, readLen, mini_overlap_length, &coverage_cut);
-
+    ////这个会断开
     ma_hit_chimeric(1, sources, reverse_sources, n_read, readLen, coverage_cut);
 
     ma_hit_cut(min_dp, sources, n_read, readLen, mini_overlap_length, &coverage_cut);
