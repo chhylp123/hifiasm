@@ -1919,8 +1919,9 @@ void* Overlap_calculate_heap_merge(void* arg)
 
     for (i = thr_ID; i < R_INF.total_reads; i = i + thread_num)
     {
-        get_new_candidates(i, &g_read, &overlap_list, &array_list, &heap, &l, THRESHOLD_RATE*1.5);
-        
+        ///get_new_candidates(i, &g_read, &overlap_list, &array_list, &heap, &l, THRESHOLD_RATE*1.5);
+        get_new_candidates(i, &g_read, &overlap_list, &array_list, &heap, &l, 0.02);
+
         clear_Cigar_record(&current_cigar);
         clear_Round2_alignment(&second_round);
 
@@ -2119,8 +2120,8 @@ void* Output_related_reads(void* arg)
             &&
            memcmp(required_read_name, Get_NAME((R_INF), i), Get_NAME_LENGTH((R_INF),i)) == 0)
         {
-            get_new_candidates(i, &g_read, &overlap_list, &array_list, &heap, &l, THRESHOLD_RATE*1.5);
-
+            ////get_new_candidates(i, &g_read, &overlap_list, &array_list, &heap, &l, THRESHOLD_RATE*1.5);
+            get_new_candidates(i, &g_read, &overlap_list, &array_list, &heap, &l, 0.02);
 
             fprintf(stderr, ">%.*s\n", Get_NAME_LENGTH((R_INF), i),
             Get_NAME((R_INF), i));
@@ -2998,7 +2999,8 @@ void* Final_overlap_calculate_heap_merge(void* arg)
 
         
 
-        get_new_candidates(i, &g_read, &overlap_list, &array_list, &heap, &l, THRESHOLD_RATE*1.5);
+        ////get_new_candidates(i, &g_read, &overlap_list, &array_list, &heap, &l, THRESHOLD_RATE*1.5);
+        get_new_candidates(i, &g_read, &overlap_list, &array_list, &heap, &l, 0.001);
         /**
         correct_overlap(&overlap_list, &R_INF, &g_read, &correct, &overlap_read, &POA_Graph, &DAGCon,
         &matched_overlap_0, &matched_overlap_1, &potiental_matched_overlap_0, &potiental_matched_overlap_1,
@@ -3081,22 +3083,6 @@ void* Final_overlap_calculate_heap_merge(void* arg)
 
 
 
-        // if(memcmp("m64016_190918_162737/130811282/ccs", Get_NAME((R_INF), i), 
-        // Get_NAME_LENGTH((R_INF), i)) == 0)
-        // {
-        //     fprintf(stderr, "\n2\n");
-        //     debug_print_overlap("m64016_190918_162737/179635219/ccs", &overlap_list, &R_INF, "second");
-        // }
-
-        // if(memcmp("m64016_190918_162737/179635219/ccs", Get_NAME((R_INF), i), 
-        // Get_NAME_LENGTH((R_INF), i)) == 0)
-        // {
-        //     fprintf(stderr, "\n2\n");
-        //     debug_print_overlap("m64016_190918_162737/130811282/ccs", &overlap_list, &R_INF, "second");
-        // }
-
-
-
 
         inner_j = 0;
         j = 0;
@@ -3123,22 +3109,6 @@ void* Final_overlap_calculate_heap_merge(void* arg)
                 inner_j++;
             }
         }
-
-
-
-        // if(memcmp("m64016_190918_162737/130811282/ccs", Get_NAME((R_INF), i), 
-        // Get_NAME_LENGTH((R_INF), i)) == 0)
-        // {
-        //     fprintf(stderr, "\n3\n");
-        //     debug_print_overlap("m64016_190918_162737/179635219/ccs", &overlap_list, &R_INF, "third");
-        // }
-
-        // if(memcmp("m64016_190918_162737/179635219/ccs", Get_NAME((R_INF), i), 
-        // Get_NAME_LENGTH((R_INF), i)) == 0)
-        // {
-        //     fprintf(stderr, "\n3\n");
-        //     debug_print_overlap("m64016_190918_162737/130811282/ccs", &overlap_list, &R_INF, "third");
-        // }
 
 
         ///recover missing exact overlaps 
@@ -3171,23 +3141,6 @@ void* Final_overlap_calculate_heap_merge(void* arg)
         }
 
 
-        // if(memcmp("m64016_190918_162737/130811282/ccs", Get_NAME((R_INF), i), 
-        // Get_NAME_LENGTH((R_INF), i)) == 0)
-        // {
-        //     fprintf(stderr, "\n4\n");
-        //     debug_print_overlap("m64016_190918_162737/179635219/ccs", &overlap_list, &R_INF, "fourth");
-        // }
-
-        // if(memcmp("m64016_190918_162737/179635219/ccs", Get_NAME((R_INF), i), 
-        // Get_NAME_LENGTH((R_INF), i)) == 0)
-        // {
-        //     fprintf(stderr, "\n4\n");
-        //     debug_print_overlap("m64016_190918_162737/130811282/ccs", &overlap_list, &R_INF, "fourth");
-        // }
-
-
-
-
         if(R_INF.paf[i].is_fully_corrected)
         {
             potiental_matched_overlap_1++;
@@ -3200,25 +3153,6 @@ void* Final_overlap_calculate_heap_merge(void* arg)
 
         push_final_overlaps(&(R_INF.reverse_paf[i]), R_INF.reverse_paf, 
         &overlap_list, &g_read, &overlap_read, 2, 0);
-
-
-        // if(memcmp("m64016_190918_162737/130811282/ccs", Get_NAME((R_INF), i), 
-        // Get_NAME_LENGTH((R_INF), i)) == 0)
-        // {
-        //     fprintf(stderr, "\n5\n");
-        //     debug_print_overlap("m64016_190918_162737/179635219/ccs", &overlap_list, &R_INF, "last");
-
-        //     debug_print_overlap(NULL, &overlap_list, &R_INF, "SET");
-        // }
-
-        // if(memcmp("m64016_190918_162737/179635219/ccs", Get_NAME((R_INF), i), 
-        // Get_NAME_LENGTH((R_INF), i)) == 0)
-        // {
-        //     fprintf(stderr, "\n5\n");
-        //     debug_print_overlap("m64016_190918_162737/130811282/ccs", &overlap_list, &R_INF, "last");
-
-        //     debug_print_overlap(NULL, &overlap_list, &R_INF, "SET");
-        // }
 
     }
 

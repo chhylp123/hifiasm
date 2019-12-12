@@ -632,6 +632,225 @@ void append_overlap_region_alloc_from_existing(overlap_region_alloc* list, overl
 }
 
 
+int append_inexact_overlap_region_alloc_back(overlap_region_alloc* list, overlap_region* tmp, All_reads* R_INF)
+{
+   
+    if (list->length + 1 > list->size)
+    {
+        list->size = list->size * 2;
+        list->list = (overlap_region*)realloc(list->list, sizeof(overlap_region)*list->size);
+        ///新分配空间要初始化
+        memset(list->list + (list->size/2), 0, sizeof(overlap_region)*(list->size/2));
+    }
+
+    if (list->length!=0 && 
+    list->list[list->length - 1].y_id==tmp->y_id
+    )
+    {    
+        if(list->list[list->length - 1].shared_seed >= tmp->shared_seed)
+        {
+            return 0;
+        }
+        else
+        {
+            list->length--;
+        }
+    }
+
+    if(tmp->x_pos_s <= tmp->y_pos_s)
+    {
+        tmp->y_pos_s = tmp->y_pos_s - tmp->x_pos_s;
+        tmp->x_pos_s = 0;
+    }
+    else
+    {
+        tmp->x_pos_s = tmp->x_pos_s - tmp->y_pos_s;
+        tmp->y_pos_s = 0;
+    }
+
+
+    long long x_right_length = Get_READ_LENGTH((*R_INF), tmp->x_id) - tmp->x_pos_e - 1;
+    long long y_right_length = Get_READ_LENGTH((*R_INF), tmp->y_id) - tmp->y_pos_e - 1;
+
+
+
+    if(x_right_length <= y_right_length)
+    {
+        tmp->x_pos_e = Get_READ_LENGTH((*R_INF), tmp->x_id) - 1;
+        tmp->y_pos_e = tmp->y_pos_e + x_right_length;        
+    }
+    else
+    {
+        tmp->x_pos_e = tmp->x_pos_e + y_right_length;
+        tmp->y_pos_e = Get_READ_LENGTH((*R_INF), tmp->y_id) - 1;
+    }
+
+    
+    if (tmp->x_pos_strand == 1)
+    {
+        list->list[list->length].x_id = tmp->x_id;
+        list->list[list->length].x_pos_e = Get_READ_LENGTH((*R_INF), tmp->x_id) - tmp->x_pos_s - 1;
+        list->list[list->length].x_pos_s = Get_READ_LENGTH((*R_INF), tmp->x_id) - tmp->x_pos_e - 1;
+        list->list[list->length].x_pos_strand = 0;
+
+        list->list[list->length].y_id = tmp->y_id;
+        list->list[list->length].y_pos_e = Get_READ_LENGTH((*R_INF), tmp->y_id) - tmp->y_pos_s - 1;
+        list->list[list->length].y_pos_s = Get_READ_LENGTH((*R_INF), tmp->y_id) - tmp->y_pos_e - 1;
+        list->list[list->length].y_pos_strand = 1;
+
+
+
+
+        resize_fake_cigar(&(list->list[list->length].f_cigar), (tmp->f_cigar.length + 2));
+        add_fake_cigar(&(list->list[list->length].f_cigar), list->list[list->length].x_pos_s, 0);
+        long long distance_gap;
+        long long pre_distance_gap = 0;
+        long long i = 0;
+        for (i = 0; i < tmp->f_cigar.length; i++)
+        {
+            distance_gap = get_fake_gap_shift(&(tmp->f_cigar), i);
+            if(distance_gap != pre_distance_gap)
+            {
+                pre_distance_gap = distance_gap;
+                add_fake_cigar(&(list->list[list->length].f_cigar), 
+                Get_READ_LENGTH((*R_INF), tmp->x_id) - get_fake_gap_pos(&(tmp->f_cigar), i) - 1, 
+                pre_distance_gap);
+            }
+        }
+
+        if(get_fake_gap_pos(&(list->list[list->length].f_cigar), 
+        list->list[list->length].f_cigar.length - 1) != list->list[list->length].x_pos_e)
+        {
+            add_fake_cigar(&(list->list[list->length].f_cigar), 
+            list->list[list->length].x_pos_e, 
+            get_fake_gap_shift(&(list->list[list->length].f_cigar), 
+            list->list[list->length].f_cigar.length - 1));
+        }
+
+
+        /******************************for debug********************************/
+        // long long distance_self_pos = tmp->x_pos_e - tmp->x_pos_s;
+        // long long distance_pos = tmp->y_pos_e - tmp->y_pos_s;
+        // distance_gap = distance_pos - distance_self_pos;
+
+        // if(distance_gap != 
+        // get_fake_gap_shift(&(list->list[list->length].f_cigar), 
+        // list->list[list->length].f_cigar.length - 1))
+        // {
+        //     fprintf(stderr, "error\n");
+        // } 
+    //     long long distance_self_pos = tmp->x_pos_e - tmp->x_pos_s;
+    //     long long distance_pos = tmp->y_pos_e - tmp->y_pos_s;
+    //     distance_gap = distance_pos - distance_self_pos;
+    //     fprintf(stderr, "\nx_s: %d, x_e: %d, y_s: %d, y_e: %d, distance_gap: %d, xLen: %d\n", 
+    //     list->list[list->length].x_pos_s, list->list[list->length].x_pos_e, 
+    //     list->list[list->length].y_pos_s, list->list[list->length].y_pos_e, distance_gap,
+    //     Get_READ_LENGTH((*R_INF), tmp->x_id));
+    //     for (i = 0; i < list->list[list->length].f_cigar.length; i++)
+    //    {
+    //        fprintf(stderr, "##i: %d, gap_pos_in_x: %d, gap_shift: %d\n", 
+    //        i, get_fake_gap_pos(&(list->list[list->length].f_cigar), i),
+    //        get_fake_gap_shift(&(list->list[list->length].f_cigar), i));
+    //    }
+    //    for (i = 0; i < tmp->f_cigar.length; i++)
+    //    {
+    //        fprintf(stderr, "**i: %d, gap_pos_in_x: %d, gap_shift: %d\n", 
+    //        i, get_fake_gap_pos(&(tmp->f_cigar), i),
+    //        get_fake_gap_shift(&(tmp->f_cigar), i));
+    //    }
+        /******************************for debug********************************/ 
+    }
+    else
+    {
+        list->list[list->length].x_id = tmp->x_id;
+        list->list[list->length].x_pos_e = tmp->x_pos_e;
+        list->list[list->length].x_pos_s = tmp->x_pos_s;
+        list->list[list->length].x_pos_strand = tmp->x_pos_strand;
+
+        list->list[list->length].y_id = tmp->y_id;
+        list->list[list->length].y_pos_e = tmp->y_pos_e;
+        list->list[list->length].y_pos_s = tmp->y_pos_s;
+        list->list[list->length].y_pos_strand = tmp->y_pos_strand;
+
+
+
+        resize_fake_cigar(&(list->list[list->length].f_cigar), (tmp->f_cigar.length + 2));
+        add_fake_cigar(&(list->list[list->length].f_cigar), list->list[list->length].x_pos_s, 0);
+        long long distance_self_pos = tmp->x_pos_e - tmp->x_pos_s;
+        long long distance_pos = tmp->y_pos_e - tmp->y_pos_s;
+        long long init_distance_gap = distance_pos - distance_self_pos;
+        long long pre_distance_gap = init_distance_gap;
+        long long distance_gap;
+        long long i = 0;
+        for (i = tmp->f_cigar.length - 1; i >= 0; i--)
+        {
+            distance_gap = get_fake_gap_shift(&(tmp->f_cigar), i);
+            if(distance_gap != pre_distance_gap)
+            {
+                pre_distance_gap = distance_gap;
+
+                add_fake_cigar(&(list->list[list->length].f_cigar), 
+                get_fake_gap_pos(&(tmp->f_cigar), i), init_distance_gap - pre_distance_gap);
+            }
+        }
+
+        if(get_fake_gap_pos(&(list->list[list->length].f_cigar), 
+        list->list[list->length].f_cigar.length - 1) != list->list[list->length].x_pos_e)
+        {
+            add_fake_cigar(&(list->list[list->length].f_cigar), 
+            list->list[list->length].x_pos_e, 
+            get_fake_gap_shift(&(list->list[list->length].f_cigar), 
+            list->list[list->length].f_cigar.length - 1));
+        } 
+
+        
+
+
+        /******************************for debug********************************/
+        // distance_self_pos = tmp->x_pos_e - tmp->x_pos_s;
+        // distance_pos = tmp->y_pos_e - tmp->y_pos_s;
+        // distance_gap = distance_pos - distance_self_pos;
+
+        // if(distance_gap != 
+        // get_fake_gap_shift(&(list->list[list->length].f_cigar), 
+        // list->list[list->length].f_cigar.length - 1))
+        // {
+        //     fprintf(stderr, "error\n");
+        // } 
+    //     distance_self_pos = tmp->x_pos_e - tmp->x_pos_s;
+    //     distance_pos = tmp->y_pos_e - tmp->y_pos_s;
+    //     distance_gap = distance_pos - distance_self_pos;
+    //     fprintf(stderr, "\nx_s: %d, x_e: %d, y_s: %d, y_e: %d, distance_gap: %d\n", 
+    //     list->list[list->length].x_pos_s, list->list[list->length].x_pos_e, 
+    //     list->list[list->length].y_pos_s, list->list[list->length].y_pos_e, distance_gap);
+    //     for (i = 0; i < list->list[list->length].f_cigar.length; i++)
+    //    {
+    //        fprintf(stderr, "##i: %d, gap_pos_in_x: %d, gap_shift: %d\n", 
+    //        i, get_fake_gap_pos(&(list->list[list->length].f_cigar), i),
+    //        get_fake_gap_shift(&(list->list[list->length].f_cigar), i));
+    //    }
+    //    for (i = 0; i < tmp->f_cigar.length; i++)
+    //    {
+    //        fprintf(stderr, "**i: %d, gap_pos_in_x: %d, gap_shift: %d\n", 
+    //        i, get_fake_gap_pos(&(tmp->f_cigar), i),
+    //        get_fake_gap_shift(&(tmp->f_cigar), i));
+    //    }
+        /******************************for debug********************************/
+    }
+
+
+    list->list[list->length].shared_seed = tmp->shared_seed;
+    list->list[list->length].align_length = 0;
+    list->list[list->length].is_match = 0;
+    list->list[list->length].non_homopolymer_errors = 0;
+    list->list[list->length].strong = 0;
+
+    list->length++;
+
+    return 1;
+}
+
+
 int append_inexact_overlap_region_alloc(overlap_region_alloc* list, overlap_region* tmp, All_reads* R_INF)
 {
    
@@ -1278,6 +1497,164 @@ long long y_beg, long long y_end, long long yLen)
     return x_end - x_beg + 1;
 }
 
+void chain_DP_back(k_mer_hit* a, long long a_n, Chain_Data* dp, overlap_region* result, 
+double band_width_threshold)
+{
+    long long i, j;
+    long long self_pos, pos, max_j, max_i, max_score, score, n_skip;
+    long long distance_pos, distance_self_pos, distance_gap, log_distance_gap, distance_min;
+    ///double band_width_threshold = 0.05;
+    double band_width_penalty = 1 / band_width_threshold;
+    long long min_score = k_mer_length;
+    long long max_indels, max_self_length;
+    double gap_rate;
+    long long total_indels, total_self_length;
+    
+    resize_Chain_Data(dp, a_n);
+    // fill the score and backtrack arrays
+	for (i = 0; i < a_n; ++i) 
+    {
+        pos = a[i].offset;
+        self_pos = a[i].self_offset;
+        max_j = -1;
+        max_score = min_score;
+        n_skip = 0;
+        max_indels = 0;
+        max_self_length = 0;
+        
+
+        ///may have a pre-cut condition for j
+        for (j = i - 1; j >= 0; --j) 
+        {
+            distance_pos = pos - a[j].offset;
+            distance_self_pos = self_pos - a[j].self_offset;
+            ///a has been sorted by a[].offset
+            ///note for a, we do not have any two elements that have both equal offsets and self_offsets
+            ///but there maybe two elements that have equal offsets or equal self_offsets
+            if(distance_pos == 0 || distance_self_pos <= 0)
+            {
+                continue;
+            }
+
+            distance_gap = distance_pos > distance_self_pos? distance_pos - distance_self_pos : distance_self_pos - distance_pos;
+            
+            total_indels = dp->indels[j] + distance_gap;
+            total_self_length = dp->self_length[j] + distance_self_pos;
+            if(total_indels > band_width_threshold * total_self_length)
+            {
+                continue;
+            }
+
+            distance_min = distance_pos < distance_self_pos? distance_pos:distance_self_pos;
+            score = distance_min < min_score? distance_min : min_score;
+
+            /**
+            log_distance_gap = distance_gap? ilog2_32(distance_gap) : 0;
+            score -= (long long)(distance_gap * 0.01 * min_score) + (log_distance_gap/2);
+            **/
+            gap_rate = (double)((double)(total_indels)/(double)(total_self_length));
+            ///if the gap rate > 0.05, score will be negative
+            score -= (long long)(gap_rate * score * band_width_penalty);
+
+            score += dp->score[j];
+
+            if(score > max_score)
+            {
+                max_score = score;
+                max_j = j;
+                max_indels = total_indels;
+                max_self_length = total_self_length;
+                if (n_skip > 0)
+                {
+                    n_skip--;
+                }
+            }
+        }
+
+        dp->score[i] = max_score;
+        dp->pre[i] = max_j;
+        dp->indels[i] = max_indels;
+        dp->self_length[i] = max_self_length;
+    }
+
+
+    ///debug_chain(a, a_n, dp);
+
+
+
+    max_score = -1;
+    max_i = -1;
+    for (i = 0; i < a_n; ++i) 
+    {
+        if(dp->score[i] > max_score)
+        {
+            max_score = dp->score[i];
+            max_i = i;
+        }
+    }
+
+
+    clear_fake_cigar(&(result->f_cigar));
+
+    i = max_i;
+    result->x_pos_e = a[i].self_offset;
+    result->y_pos_e = a[i].offset;
+    result->shared_seed = max_score;
+
+    distance_self_pos = result->x_pos_e - a[i].self_offset;
+    distance_pos = result->y_pos_e - a[i].offset;
+    long long pre_distance_gap = distance_pos - distance_self_pos;
+    ///record first site
+    ///the length of f_cigar should be at least 1
+    add_fake_cigar(&(result->f_cigar), a[i].self_offset, pre_distance_gap);
+    long long chainLen = 0;
+    if(result->x_pos_strand == 1)
+    {
+        while (i >= 0)
+        {
+            distance_self_pos = result->x_pos_e - a[i].self_offset;
+            distance_pos = result->y_pos_e - a[i].offset;
+            distance_gap = distance_pos - distance_self_pos;
+            if(distance_gap != pre_distance_gap)
+            {
+                pre_distance_gap = distance_gap;
+                ///record this site
+                add_fake_cigar(&(result->f_cigar), a[i].self_offset, pre_distance_gap);
+            }
+
+            chainLen++;
+            result->x_pos_s = a[i].self_offset;
+            result->y_pos_s = a[i].offset;
+            i = dp->pre[i];
+        }
+    }
+    else
+    {
+    
+        while (i >= 0)
+        {
+            distance_self_pos = result->x_pos_e - a[i].self_offset;
+            distance_pos = result->y_pos_e - a[i].offset;
+            distance_gap = distance_pos - distance_self_pos;
+            if(distance_gap == pre_distance_gap)
+            {
+                result->f_cigar.length--;
+                add_fake_cigar(&(result->f_cigar), a[i].self_offset, pre_distance_gap);
+            }
+            else
+            {
+                pre_distance_gap = distance_gap;
+                add_fake_cigar(&(result->f_cigar), a[i].self_offset, pre_distance_gap);
+            }
+
+            chainLen++;
+            result->x_pos_s = a[i].self_offset;
+            result->y_pos_s = a[i].offset;
+            i = dp->pre[i];
+        }
+    }
+}
+
 ///double band_width_threshold = 0.05;
 void chain_DP(k_mer_hit* a, long long a_n, Chain_Data* dp, overlap_region* result, 
 double band_width_threshold, int max_skip, int x_readLen, int y_readLen)
@@ -1618,95 +1995,20 @@ uint64_t readID, uint64_t readLength, All_reads* R_INF, double band_width_thresh
             continue;
         }
 
-       
-        // if(
-        // ((memcmp("m64016_190918_162737/130811282/ccs", 
-        // Get_NAME((*R_INF), tmp_region.x_id), Get_NAME_LENGTH((*R_INF), tmp_region.x_id)) == 0) 
-        // && 
-        // (memcmp("m64016_190918_162737/179635219/ccs", 
-        // Get_NAME((*R_INF), tmp_region.y_id), Get_NAME_LENGTH((*R_INF), tmp_region.y_id)) == 0))
-        // ||
-        // ((memcmp("m64016_190918_162737/179635219/ccs", 
-        // Get_NAME((*R_INF), tmp_region.x_id), Get_NAME_LENGTH((*R_INF), tmp_region.x_id)) == 0) 
-        // && 
-        // (memcmp("m64016_190918_162737/130811282/ccs", 
-        // Get_NAME((*R_INF), tmp_region.y_id), Get_NAME_LENGTH((*R_INF), tmp_region.y_id)) == 0)))
-        // {
-        //     fprintf(stderr, "****************x_name: %.*s****************\n", 
-        //     Get_NAME_LENGTH((*R_INF), tmp_region.x_id), Get_NAME((*R_INF), tmp_region.x_id));
-        //     fprintf(stderr, "****************y_name: %.*s****************\n", 
-        //     Get_NAME_LENGTH((*R_INF), tmp_region.y_id), Get_NAME((*R_INF), tmp_region.y_id));
-            
-
-        //     k_mer_hit* k_list = candidates->list + sub_region_beg;
-        //     long long k_listLen = sub_region_end - sub_region_beg + 1;
-        //     long long k = 0;
-
-        //     fprintf(stderr, "k_listLen: %d\n", k_listLen);
-
-        //     for (k = 0; k < k_listLen; k++)
-        //     {
-        //         fprintf(stderr, "k: %d, readID: %d, strand: %d, offset: %d, self_offset: %d\n", 
-        //         k, k_list[k].readID, k_list[k].strand, k_list[k].offset, k_list[k].self_offset);
-        //     }
-        // }
-
-        
+    
         chain_DP(candidates->list + sub_region_beg, 
         sub_region_end - sub_region_beg + 1, &(candidates->chainDP), &tmp_region, band_width_threshold,
         50, Get_READ_LENGTH((*R_INF), tmp_region.x_id), Get_READ_LENGTH((*R_INF), tmp_region.y_id));
 
+        // chain_DP_back(candidates->list + sub_region_beg, 
+        // sub_region_end - sub_region_beg + 1, &(candidates->chainDP), &tmp_region, band_width_threshold);
         
-        // if(
-        // ((memcmp("m64016_190918_162737/130811282/ccs", 
-        // Get_NAME((*R_INF), tmp_region.x_id), Get_NAME_LENGTH((*R_INF), tmp_region.x_id)) == 0) 
-        // && 
-        // (memcmp("m64016_190918_162737/179635219/ccs", 
-        // Get_NAME((*R_INF), tmp_region.y_id), Get_NAME_LENGTH((*R_INF), tmp_region.y_id)) == 0))
-        // ||
-        // ((memcmp("m64016_190918_162737/179635219/ccs", 
-        // Get_NAME((*R_INF), tmp_region.x_id), Get_NAME_LENGTH((*R_INF), tmp_region.x_id)) == 0) 
-        // && 
-        // (memcmp("m64016_190918_162737/130811282/ccs", 
-        // Get_NAME((*R_INF), tmp_region.y_id), Get_NAME_LENGTH((*R_INF), tmp_region.y_id)) == 0)))
-        // {
-        //     fprintf(stderr, "****************x_name: %.*s****************\n", 
-        //     Get_NAME_LENGTH((*R_INF), tmp_region.x_id), Get_NAME((*R_INF), tmp_region.x_id));
-        //     fprintf(stderr, "****************y_name: %.*s****************\n", 
-        //     Get_NAME_LENGTH((*R_INF), tmp_region.y_id), Get_NAME((*R_INF), tmp_region.y_id));
-
-
-        //     k_mer_hit* k_list = candidates->list + sub_region_beg;
-        //     long long k_listLen = sub_region_end - sub_region_beg + 1;
-        //     long long k = 0;
-
-        //     fprintf(stderr, "k_listLen: %d\n", k_listLen);
-
-        //     for (k = 0; k < k_listLen; k++)
-        //     {
-        //         fprintf(stderr, "k: %d, score: %d, pre: %d, indels: %d, self_length: %d\n", 
-        //         k, candidates->chainDP.score[k], candidates->chainDP.pre[k], 
-        //         candidates->chainDP.indels[k], candidates->chainDP.self_length[k]);                
-        //     }
-        // }
-    
-
-
-
         ///自己和自己重叠的要排除
         ///if (tmp_region.x_id != tmp_region.y_id && tmp_region.shared_seed > 1)
         if (tmp_region.x_id != tmp_region.y_id)
         {
-            ///append_overlap_region_alloc(overlap_list, &tmp_region, R_INF);
-            /**
-            if(append_inexact_overlap_region_alloc(overlap_list, &tmp_region, R_INF))
-            {
-                debug_seed_offset(candidates->list + sub_region_beg, 
-            sub_region_end - sub_region_beg + 1, 
-            &(candidates->chainDP), &(overlap_list->list[overlap_list->length - 1]), R_INF);
-            }
-            **/
             append_inexact_overlap_region_alloc(overlap_list, &tmp_region, R_INF);
+            ///append_inexact_overlap_region_alloc_back(overlap_list, &tmp_region, R_INF);
         }
     }
 

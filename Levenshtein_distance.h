@@ -13,6 +13,394 @@ typedef uint64_t Word;
 typedef uint32_t Word_32;
 
 
+typedef struct
+{
+	/**
+     * vec[num_words-1], vec[num_words-2], ..., vec[1], vec[0]
+     * num_bits-1, num_bits-2, num_bits-3, ..., 8, 7, 6, 5, 4, 3, 2, 1, 0
+    **/
+	Word* vec;
+    Word num_words;
+	Word num_bits;
+	///for vec[num_words-1]
+	Word last_bit_mode;
+	Word last_bit_shift;
+} bit_vectors;
+
+inline void init_bit_vector(bit_vectors* b, Word num_bits)
+{
+	b->num_bits = num_bits;
+	b->num_words = ((b->num_bits)>>6);
+	b->last_bit_mode = (Word)-1;
+	b->last_bit_shift = b->num_bits&63;
+	if(b->last_bit_shift != 0)
+	{
+		b->num_words++;
+		b->last_bit_mode = b->last_bit_mode >> (64 - b->last_bit_shift); 
+	}
+	b->vec = (Word*)calloc(b->num_words, sizeof(Word));
+}
+
+inline void destory_bit_vector(bit_vectors* b, Word num_bits)
+{
+	free(b->vec);
+}
+
+///&
+inline int AND_bit_vector(bit_vectors* x, bit_vectors* y, bit_vectors* dest)
+{
+	if(x->num_bits != y->num_bits || x->num_bits != dest->num_bits) return 0;
+
+	Word i;
+	for (i = 0; i < x->num_words; i++)
+	{
+		dest->vec[i] = x->vec[i] & y->vec[i];
+	}
+
+	if(dest->num_words > 0)
+	{
+		dest->vec[dest->num_words - 1] = dest->vec[dest->num_words - 1] & dest->last_bit_mode;
+	}
+
+	return 1;
+}
+
+///|
+inline int OR_bit_vector(bit_vectors* x, bit_vectors* y, bit_vectors* dest)
+{
+	if(x->num_bits != y->num_bits || x->num_bits != dest->num_bits) return 0;
+
+	Word i;
+	for (i = 0; i < x->num_words; i++)
+	{
+		dest->vec[i] = x->vec[i] | y->vec[i];
+	}
+
+	if(dest->num_words > 0)
+	{
+		dest->vec[dest->num_words - 1] = dest->vec[dest->num_words - 1] & dest->last_bit_mode;
+	}
+
+	return 1;
+}
+
+
+///^
+inline int XOR_bit_vector(bit_vectors* x, bit_vectors* y, bit_vectors* dest)
+{
+	if(x->num_bits != y->num_bits || x->num_bits != dest->num_bits) return 0;
+
+	Word i;
+	for (i = 0; i < x->num_words; i++)
+	{
+		dest->vec[i] = x->vec[i] ^ y->vec[i];
+	}
+
+	if(dest->num_words > 0)
+	{
+		dest->vec[dest->num_words - 1] = dest->vec[dest->num_words - 1] & dest->last_bit_mode;
+	}
+
+	return 1;
+}
+
+///~
+inline int NOT_bit_vector(bit_vectors* source, bit_vectors* dest)
+{
+	if(source->num_bits != dest->num_bits) return 0;
+
+	Word i;
+	for (i = 0; i < source->num_words; i++)
+	{
+		dest->vec[i] = ~(source->vec[i]);
+	}
+
+	if(dest->num_words > 0)
+	{
+		dest->vec[dest->num_words - 1] = dest->vec[dest->num_words - 1] & dest->last_bit_mode;
+	}
+
+	return 1;
+}
+
+///<< 1
+inline int L_shift_1_bit_vector(bit_vectors* source, bit_vectors* dest)
+{
+	/**
+     * vec[num_words-1], vec[num_words-2], ..., vec[1], vec[0]
+     * num_bits-1, num_bits-2, num_bits-3, ..., 8, 7, 6, 5, 4, 3, 2, 1, 0
+    **/
+	if(source->num_bits != dest->num_bits || source->num_words < 1) return 0;
+	Word i;
+	for (i = source->num_words - 1; i >= 1; i--)
+	{
+		dest->vec[i] = (source->vec[i])<<1;
+		dest->vec[i] = dest->vec[i] | ((source->vec[i-1])>>63);
+	}
+
+	dest->vec[0] = (source->vec[0])<<1;
+	dest->vec[dest->num_words - 1] = dest->vec[dest->num_words - 1] & dest->last_bit_mode;
+	return 1;
+}
+
+
+inline void get_error(int t_length, int errthold, int init_err, Word VP, Word VN, 
+unsigned int* return_err, int* back_site)
+{
+	(*return_err) = (unsigned int)-1;
+	int site = t_length - 1;
+	int return_site = -1;
+	///p_length大部分情况下应该是t_length + 2 * errthold，这是i要小于last_high = 2 * errthold
+	///也就是p_length - t_length
+	///那么当p_length < t_length + 2 * errthold, available_i也应该是这个值
+	///int available_i = p_length - t_length;
+	int available_i = 2 * errthold;
+	
+
+	if ((init_err <= errthold) && (init_err <= (*return_err)))
+	{
+		(*return_err) = init_err;
+		return_site = site;
+	}
+
+
+	int i = 0;
+	unsigned int ungap_error = (unsigned int)-1;
+
+	while (i < available_i)
+	{
+		init_err = init_err + ((VP >> i)&(Word)1);
+		init_err = init_err - ((VN >> i)&(Word)1);
+		++i;
+
+		if ((init_err <= errthold) && (init_err <= *return_err))
+		{
+			*return_err = init_err;
+			return_site = site + i;
+		}
+
+		/****************************may have bugs********************************/
+		if(i == errthold)
+		{
+			ungap_error = init_err;
+		}
+		/****************************may have bugs********************************/
+	}
+
+	/****************************may have bugs********************************/
+	if((ungap_error<=errthold) && (ungap_error == (*return_err)))
+	{
+		return_site = site + errthold;
+	}
+	/****************************may have bugs********************************/
+
+	(*back_site) = return_site;
+}
+
+inline int Reserve_Banded_BPM_Extension
+(char *pattern, int p_length, char *text, int t_length, unsigned short errthold, 
+unsigned int* return_err, int* return_p_end, int* return_t_end)
+{
+	(*return_err) = (unsigned int)-1;
+	(*return_p_end) = -1;
+	(*return_t_end) = -1;
+
+	Word Peq[256];
+
+	unsigned int line_error = (unsigned int)-1;
+	int return_site;
+	int band_length = (errthold << 1) + 1;
+	int i = 0;
+	Word tmp_Peq_1 = (Word)1;
+
+	Peq['A'] = (Word)0;
+	Peq['T'] = (Word)0;
+	Peq['G'] = (Word)0;
+	Peq['C'] = (Word)0;
+
+
+	Word Peq_A;
+	Word Peq_T;
+	Word Peq_C;
+	Word Peq_G;
+
+	///band_length = 2k + 1
+	for (i = 0; i<band_length; i++)
+	{
+		Peq[pattern[i]] = Peq[pattern[i]] | tmp_Peq_1;
+		tmp_Peq_1 = tmp_Peq_1 << 1;
+	}
+
+	Peq_A = Peq['A'];
+	Peq_C = Peq['C'];
+	Peq_T = Peq['T'];
+	Peq_G = Peq['G'];
+
+
+	memset(Peq, 0, sizeof(Word)* 256);
+
+
+	Peq['A'] = Peq_A;
+	Peq['C'] = Peq_C;
+	Peq['T'] = Peq_T;
+	Peq['G'] = Peq_G;
+
+
+	
+
+	Word Mask = ((Word)1 << (errthold << 1));
+
+	Word VP = 0;
+	Word VN = 0;
+	Word X = 0;
+	Word D0 = 0;
+	Word HN = 0;
+	Word HP = 0;
+
+
+	i = 0;
+
+	int err = 0;
+
+	Word err_mask = (Word)1;
+
+	int i_bd = (errthold << 1);
+
+
+	int last_high = (errthold << 1);
+
+	int t_length_1 = t_length - 1;
+
+	while (i<t_length_1)
+	{
+		X = Peq[text[i]] | VN;
+
+		D0 = ((VP + (X&VP)) ^ VP) | X;
+
+		HN = VP&D0;
+		HP = VN | ~(VP | D0);
+
+		X = D0 >> 1;
+		VN = X&HP;
+		VP = HN | ~(X | HP);
+
+		if (!(D0&err_mask))
+		{
+			++err;
+			if ((err - last_high)>errthold)
+            {
+                return (*return_t_end);
+            }
+		}
+		get_error(i + 1, errthold, err, VP, VN, &line_error, &return_site);
+		if(line_error != (unsigned int)-1)
+		{
+			(*return_t_end) = i;
+			(*return_p_end) = return_site;
+			(*return_err) = line_error;
+		}
+
+		Peq['A'] = Peq['A'] >> 1;
+		Peq['C'] = Peq['C'] >> 1;
+		Peq['G'] = Peq['G'] >> 1;
+		Peq['T'] = Peq['T'] >> 1;
+
+
+		++i;
+		++i_bd;
+		Peq[pattern[i_bd]] = Peq[pattern[i_bd]] | Mask;
+	}
+
+
+
+
+
+	X = Peq[text[i]] | VN;
+	D0 = ((VP + (X&VP)) ^ VP) | X;
+	HN = VP&D0;
+	HP = VN | ~(VP | D0);
+	X = D0 >> 1;
+	VN = X&HP;
+	VP = HN | ~(X | HP);
+	if (!(D0&err_mask))
+	{
+		++err;
+		if ((err - last_high)>errthold)
+		{
+			return (*return_t_end);
+		}
+	}
+	///i = t_length - 1
+	get_error(i + 1, errthold, err, VP, VN, &line_error, &return_site);
+	if(line_error != (unsigned int)-1)
+	{
+		(*return_t_end) = i;
+		(*return_p_end) = return_site;
+		(*return_err) = line_error;
+	}
+
+	return (*return_t_end);
+}
+
+inline void reverse_string(char* str, int strLen)
+{
+	int i, Len;
+	char k;
+	Len = strLen / 2;
+	for (i = 0; i < Len; i++)
+	{
+		k = str[i];
+		str[i] = str[strLen - i - 1];
+		str[strLen - i - 1] = k;
+	}
+}
+
+inline int alignment_extension(char *pattern, int p_length, char *text, int t_length, 
+unsigned short errthold, int direction, unsigned int* return_err, int* return_p_end, 
+int* return_t_end, int* return_aligned_t_len)
+{
+	(*return_aligned_t_len) = 0;
+	
+	if(direction == 0)
+	{
+		Reserve_Banded_BPM_Extension(pattern, p_length, text, t_length, errthold, return_err, 
+		return_p_end, return_t_end);
+		if((*return_p_end) != -1 && (*return_t_end) != -1)
+		{
+			(*return_aligned_t_len) = (*return_t_end) + 1;
+			return 1;
+		}
+		else
+		{
+			return -1;
+		}
+		
+	}
+	else
+	{
+		reverse_string(pattern, p_length);
+		reverse_string(text, t_length);
+
+		Reserve_Banded_BPM_Extension(pattern, p_length, text, t_length, errthold, return_err, 
+		return_p_end, return_t_end);
+
+		reverse_string(pattern, p_length);
+		reverse_string(text, t_length);
+
+		if((*return_p_end) != -1 && (*return_t_end) != -1)
+		{
+			(*return_aligned_t_len) = (*return_t_end) + 1;
+			(*return_p_end) = p_length - (*return_p_end);
+			(*return_t_end) = t_length - (*return_t_end);
+			return 1;
+		}
+		else
+		{
+			return -1;
+		}
+	}
+}
+
 
 
 
