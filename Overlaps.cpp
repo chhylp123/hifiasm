@@ -9890,7 +9890,7 @@ char* output_file_name, long long bubble_dist, int read_graph, int write)
     // debug_info_of_specfic_node("m64016_190918_162737/141297762/ccs", sg);
     
     out:
-    ///output_tips(sg, &R_INF);
+    output_tips(sg, &R_INF);
 
 
     output_unitig_graph(sg, coverage_cut, output_file_name, n_read);
