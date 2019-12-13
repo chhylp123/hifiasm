@@ -1152,10 +1152,10 @@ inline void ResizeInitHaplotypeEvdience(haplotype_evdience_alloc* h)
     /****************************may have bugs********************************/
 }
 
-inline void RsetInitHaplotypeEvdienceFlag(haplotype_evdience_alloc* h, long long useful_length)
+inline void RsetInitHaplotypeEvdienceFlag(haplotype_evdience_alloc* h, long long beg, long long useful_length)
 {
     /****************************may have bugs********************************/
-    memset(h->flag, 0, useful_length * sizeof(uint8_t));
+    memset(h->flag + beg, 0, useful_length * sizeof(uint8_t));
     /****************************may have bugs********************************/
 }
 
