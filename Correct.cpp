@@ -7115,7 +7115,6 @@ Cigar_record* current_cigar, long long uncorrected_window_start, Round2_alignmen
     backbone_length = corrected_window_end - corrected_window_start + 1;
     addUnmatchedSeqToGraph(g, backbone, backbone_length, &startNodeID, &endNodeID);
 
-    ///fprintf(stderr, "startNodeID: %d, endNodeID: %d\n", startNodeID, endNodeID);
 
     long long correct_x_pos_s;
     long long matched_coverage = 0;
@@ -7125,7 +7124,7 @@ Cigar_record* current_cigar, long long uncorrected_window_start, Round2_alignmen
         correct_x_pos_s = (overlap_list->list[overlapID].x_pos_s / WINDOW) * WINDOW;
         windowID = (uncorrected_window_start - correct_x_pos_s) / WINDOW;
 
-        ///如果这个window不匹配，跳过
+        ///skip if window is unmatched
         if (overlap_list->list[overlapID].w_list[windowID].y_end == -1)
         {
             continue;
@@ -7139,7 +7138,7 @@ Cigar_record* current_cigar, long long uncorrected_window_start, Round2_alignmen
 
         /**
          * There are total 3 cases:
-         * 1.  this window of x is overlapped totally by y
+         * 1.  this window of x is overlapped fully by y
          *     x: ------|------|---------
          *     y: ------|------|---------
          *     in this case, x_start == uncorrected_window_start, x_length == WINDOW
@@ -7626,24 +7625,26 @@ CIGAR* cigar, haplotype_evdience_alloc* hap)
     int operation;
     int operationLen;
     int i;
+    ///mismatches based on the offset of x
     long long inner_offset = x_total_start - window_offset;
 
     
     ///note that node 0 is the start node
     ///0 is match, 1 is mismatch, 2 is up, 3 is left
-    ///2是x缺字符（y多字符），而3是y缺字符（x多字符）
+    ///2 represents thre are more bases at y
+    ///3 represents thre are more bases at x
     while (cigar_i < cigar->length)
     {
         operation = cigar->C_C[cigar_i];
         operationLen = cigar->C_L[cigar_i];
 
-        ///这种情况代表匹配和mismatch
+        ///match
         if (operation == 0)
         {
             x_i += operationLen;
             y_i += operationLen;
         }
-        else if(operation == 1)
+        else if(operation == 1) ///mismatch
         {
             for (i = 0; i < operationLen; i++)
             {
@@ -7667,8 +7668,6 @@ CIGAR* cigar, haplotype_evdience_alloc* hap)
         
         cigar_i++;
     }
-
-   
 }
 
 
@@ -7693,17 +7692,19 @@ CIGAR* cigar, haplotype_evdience_alloc* hap, int snp_threshold)
     
     ///note that node 0 is the start node
     ///0 is match, 1 is mismatch, 2 is up, 3 is left
-    ///2是x缺字符（y多字符），而3是y缺字符（x多字符）
+    ///2 represents thre are more bases at y
+    ///3 represents thre are more bases at x
     while (cigar_i < cigar->length)
     {
         operation = cigar->C_C[cigar_i];
         operationLen = cigar->C_L[cigar_i];
 
-        ///这种情况代表匹配和mismatch
+        ///matches
         if (operation == 0)
         {
             for (i = 0; i < operationLen; i++)
             {
+                ///should be at least 2 mismatches
                 if(hap->flag[inner_offset] > snp_threshold)
                 {
                     ev.misBase =  y_string[y_i];
@@ -7747,7 +7748,7 @@ CIGAR* cigar, haplotype_evdience_alloc* hap, int snp_threshold)
         }
         else if (operation == 3)
         {
-
+            /****************************may have bugs********************************/
             for (i = 0; i < operationLen; i++)
             {
                 if(hap->flag[inner_offset] > snp_threshold)
@@ -7763,6 +7764,7 @@ CIGAR* cigar, haplotype_evdience_alloc* hap, int snp_threshold)
                 inner_offset++;
                 x_i++;
             }
+            /****************************may have bugs********************************/
         }
         
         cigar_i++;
@@ -7779,10 +7781,10 @@ CIGAR* cigar, haplotype_evdience_alloc* hap, int snp_threshold)
 
 
 
-
 void cluster(char* r_string, long long window_start, long long window_end, 
 overlap_region_alloc* overlap_list, Correct_dumy* dumy, All_reads* R_INF, haplotype_evdience_alloc* hap)
 {
+    ///window_start, window_end, and useful_length correspond to x, instead of y
     long long useful_length = window_end - window_start + 1;
     long long x_start;
     long long x_length; 
@@ -7796,23 +7798,13 @@ overlap_region_alloc* overlap_list, Correct_dumy* dumy, All_reads* R_INF, haplot
     long long correct_x_pos_s;
     long long inner_window_offset;
     int snp_threshold;
-    /**
-    if(overlap_list->mapped_overlaps > Coverage_Threshold(coverage))
-    {
-        snp_threshold = 0;
-    }
-    else**/
-    {
-        snp_threshold = 1;
-    }
-    
+    snp_threshold = 1;
 
-
-    ///与当前window重叠的所有overlap
+    ///all overlaps related to the current window [window_start, window_end]
     ///first mark all snp pos
     for (i = 0; i < dumy->length; i++)
     {
-        ///这个是那个overlap的ID，而不是overlap里对应窗口的ID
+        ///overlap id, instead of the window id or the y id
         overlapID = dumy->overlapID[i];
 
         ///overlap_list->list[overlapID].x_pos_s is the begining of the whole overlap
@@ -7820,13 +7812,14 @@ overlap_region_alloc* overlap_list, Correct_dumy* dumy, All_reads* R_INF, haplot
         ///window_start is the begining of this window in the whole x_read
         windowID = (window_start - correct_x_pos_s) / WINDOW;
 
-        ///如果这个window不匹配，跳过
+        ///skip if this window is not matched
         if (overlap_list->list[overlapID].w_list[windowID].y_end == -1)
         {
             continue;
         }
         
-        ///both x_start and y_start are the begining of the whole x_read and y_read
+        ///both x_start and y_start are the offsets of the whole x_read and y_read
+        ///instead of the offsets of window
         x_start = overlap_list->list[overlapID].w_list[windowID].x_start;
         x_length = overlap_list->list[overlapID].w_list[windowID].x_end 
                 - overlap_list->list[overlapID].w_list[windowID].x_start + 1;
@@ -7836,33 +7829,35 @@ overlap_region_alloc* overlap_list, Correct_dumy* dumy, All_reads* R_INF, haplot
                 - overlap_list->list[overlapID].w_list[windowID].y_start + 1;
 
             
-        markSNP(window_start, x_start, x_length, y_start, y_length, &(overlap_list->list[overlapID].w_list[windowID].cigar), 
-        hap);
+        markSNP(window_start, x_start, x_length, y_start, y_length, 
+        &(overlap_list->list[overlapID].w_list[windowID].cigar), hap);
     }
 
 
     /****************************may have bugs********************************/
-    long long last_snp = useful_length - 1;
+    long long last_snp = -1;
     long long first_snp = -1;
     for (i = 0; i < useful_length; i++)
     {
         if(hap->flag[i] != 0)
         {
             last_snp = i;
-            if(first_snp != -1)
+            if(first_snp == -1)
             {
                 first_snp = i;
             }
         }
-        
+        ///for a real snp, the coverage should be at least 2
         if(hap->flag[i] > snp_threshold)
         {
             hap->snp++;
         }
     }
-    if(first_snp == -1)
+    ///if there are any >0 elements, both first_snp and last_snp should be != -1
+    if(first_snp == -1 || last_snp == -1)
     {
         first_snp = 0;
+        last_snp = -1;
     }
     /****************************may have bugs********************************/
 
@@ -7871,7 +7866,7 @@ overlap_region_alloc* overlap_list, Correct_dumy* dumy, All_reads* R_INF, haplot
     ///add the information related to snp to haplotype_evdience_alloc
     for (i = 0; i < dumy->length; i++)
     {
-        ///这个是那个overlap的ID，而不是overlap里对应窗口的ID
+        ///overlap ID, instead of the window ID
         overlapID = dumy->overlapID[i];
 
         ///overlap_list->list[overlapID].x_pos_s is the begining of the whole overlap
@@ -7879,13 +7874,14 @@ overlap_region_alloc* overlap_list, Correct_dumy* dumy, All_reads* R_INF, haplot
         ///window_start is the begining of this window in the whole x_read
         windowID = (window_start - correct_x_pos_s) / WINDOW;
 
-        ///如果这个window不匹配，跳过
+        ///skip if this window is not matched
         if (overlap_list->list[overlapID].w_list[windowID].y_end == -1)
         {
             continue;
         }
         
-        ///both x_start and y_start are the begining of the whole x_read and y_read
+        ///both x_start and y_start are the offsets of the whole x_read and y_read
+        ///instead of the offsets of window
         x_start = overlap_list->list[overlapID].w_list[windowID].x_start;
         x_length = overlap_list->list[overlapID].w_list[windowID].x_end 
                 - overlap_list->list[overlapID].w_list[windowID].x_start + 1;
@@ -7907,7 +7903,133 @@ overlap_region_alloc* overlap_list, Correct_dumy* dumy, All_reads* R_INF, haplot
         hap, snp_threshold);        
     }
 
-    RsetInitHaplotypeEvdienceFlag(hap + first_snp, last_snp + 1);
+    RsetInitHaplotypeEvdienceFlag(hap, first_snp, last_snp + 1 - first_snp);
+}
+
+
+void cluster_advance(char* r_string, long long window_start, long long window_end, 
+overlap_region_alloc* overlap_list, Correct_dumy* dumy, All_reads* R_INF, haplotype_evdience_alloc* hap)
+{
+    ///window_start, window_end, and useful_length correspond to x, instead of y
+    long long useful_length = window_end - window_start + 1;
+    long long x_start;
+    long long x_length; 
+    char* x_string;
+    char* y_string;
+    long long i;
+    long long y_start, y_length;
+    long long overlapID, windowID;
+    long long startNodeID, endNodeID, currentNodeID;
+
+    long long correct_x_pos_s;
+    long long inner_window_offset;
+    int snp_threshold;
+    snp_threshold = 1;
+
+    ///all overlaps related to the current window [window_start, window_end]
+    ///first mark all snp pos
+    for (i = 0; i < dumy->length; i++)
+    {
+        ///overlap id, instead of the window id or the y id
+        overlapID = dumy->overlapID[i];
+
+        ///overlap_list->list[overlapID].x_pos_s is the begining of the whole overlap
+        correct_x_pos_s = (overlap_list->list[overlapID].x_pos_s / WINDOW) * WINDOW;
+        ///window_start is the begining of this window in the whole x_read
+        windowID = (window_start - correct_x_pos_s) / WINDOW;
+
+        ///skip if this window is not matched
+        if (overlap_list->list[overlapID].w_list[windowID].y_end == -1)
+        {
+            continue;
+        }
+        
+        ///both x_start and y_start are the offsets of the whole x_read and y_read
+        ///instead of the offsets of window
+        x_start = overlap_list->list[overlapID].w_list[windowID].x_start;
+        x_length = overlap_list->list[overlapID].w_list[windowID].x_end 
+                - overlap_list->list[overlapID].w_list[windowID].x_start + 1;
+
+        y_start = overlap_list->list[overlapID].w_list[windowID].y_start;
+        y_length = overlap_list->list[overlapID].w_list[windowID].y_end
+                - overlap_list->list[overlapID].w_list[windowID].y_start + 1;
+
+            
+        markSNP(window_start, x_start, x_length, y_start, y_length, 
+        &(overlap_list->list[overlapID].w_list[windowID].cigar), hap);
+    }
+
+
+    /****************************may have bugs********************************/
+    long long last_snp = -1;
+    long long first_snp = -1;
+    for (i = 0; i < useful_length; i++)
+    {
+        if(hap->flag[i] != 0)
+        {
+            last_snp = i;
+            if(first_snp == -1)
+            {
+                first_snp = i;
+            }
+        }
+        ///for a real snp, the coverage should be at least 2
+        if(hap->flag[i] > snp_threshold)
+        {
+            hap->snp++;
+        }
+    }
+    ///if there are any >0 elements, both first_snp and last_snp should be != -1
+    if(first_snp == -1 || last_snp == -1)
+    {
+        first_snp = 0;
+        last_snp = -1;
+    }
+    /****************************may have bugs********************************/
+
+
+
+    ///add the information related to snp to haplotype_evdience_alloc
+    for (i = 0; i < dumy->length; i++)
+    {
+        ///overlap ID, instead of the window ID
+        overlapID = dumy->overlapID[i];
+
+        ///overlap_list->list[overlapID].x_pos_s is the begining of the whole overlap
+        correct_x_pos_s = (overlap_list->list[overlapID].x_pos_s / WINDOW) * WINDOW;
+        ///window_start is the begining of this window in the whole x_read
+        windowID = (window_start - correct_x_pos_s) / WINDOW;
+
+        ///skip if this window is not matched
+        if (overlap_list->list[overlapID].w_list[windowID].y_end == -1)
+        {
+            continue;
+        }
+        
+        ///both x_start and y_start are the offsets of the whole x_read and y_read
+        ///instead of the offsets of window
+        x_start = overlap_list->list[overlapID].w_list[windowID].x_start;
+        x_length = overlap_list->list[overlapID].w_list[windowID].x_end 
+                - overlap_list->list[overlapID].w_list[windowID].x_start + 1;
+
+        y_start = overlap_list->list[overlapID].w_list[windowID].y_start;
+        y_length = overlap_list->list[overlapID].w_list[windowID].y_end
+                - overlap_list->list[overlapID].w_list[windowID].y_start + 1;
+
+
+        recover_UC_Read_sub_region(dumy->overlap_region, y_start, y_length, overlap_list->list[overlapID].y_pos_strand, 
+                R_INF, overlap_list->list[overlapID].y_id);
+
+        x_string = r_string + x_start;
+        y_string = dumy->overlap_region;
+
+
+        addSNPtohaplotype(window_start, overlapID, x_string, x_start, x_length, 
+        y_string, y_start, y_length, &(overlap_list->list[overlapID].w_list[windowID].cigar), 
+        hap, snp_threshold);        
+    }
+
+    RsetInitHaplotypeEvdienceFlag(hap, first_snp, last_snp + 1 - first_snp);
 }
 
 int cmp_haplotype_evdience(const void * a, const void * b)
@@ -11245,7 +11367,103 @@ void partition_overlaps(overlap_region_alloc* overlap_list, All_reads* R_INF,
 }
 
 
+void partition_overlaps_advance(overlap_region_alloc* overlap_list, All_reads* R_INF, 
+                        UC_Read* g_read, Correct_dumy* dumy, haplotype_evdience_alloc* hap,
+                        int force_repeat)
+{
+    ResizeInitHaplotypeEvdience(hap);
 
+    long long i, j, overlap_length;
+    long long window_start, window_end;
+
+    long long num_availiable_win = 0;
+    
+    Window_Pool w_inf;
+    init_Window_Pool(&w_inf, g_read->length, WINDOW, TAIL_LENGTH);
+
+    int flag = 0;
+    while(get_Window(&w_inf, &window_start, &window_end) && flag != -2)
+    {
+        dumy->length = 0;
+        dumy->lengthNT = 0;
+        ///flag返回的是重叠数量
+        ///dumy->length返回的是有效完全重叠的数量
+        ///dumy->lengthNT返回的是有效不完全重叠的数量
+        ///return overlaps that is overlaped with [window_start, window_end]
+        flag = get_available_interval(window_start, window_end, overlap_list, dumy);
+        switch (flag)
+        {
+            case 1:    ///找到匹配
+                break;
+            case 0:    ///没找到匹配
+                break;
+            case -2: ///下一个window也不会存在匹配, 直接跳出
+                break;
+        }
+        
+        ///这个是available overlap里所有window的数量...
+        ///num_availiable_win = num_availiable_win + dumy->length + dumy->lengthNT;
+        num_availiable_win = num_availiable_win + dumy->length;
+
+        cluster_advance(g_read->seq, window_start, window_end, overlap_list, dumy, R_INF, hap);
+    }
+
+
+    
+    ///very time-consuming
+    qsort(hap->list, hap->length, sizeof(haplotype_evdience), cmp_haplotype_evdience);
+
+    
+    
+
+    ///debug_hap_information(overlap_list, R_INF, g_read, hap, dumy);
+
+    SetSnpMatrix(hap, hap->snp, overlap_list->length);
+
+
+    uint64_t pre_site = (uint64_t)-1;
+    uint64_t num_of_snps = 0;
+    long long pre_i = -1;
+    long long sub_length;
+    haplotype_evdience* sub_list;
+
+    ///long long debug_total_length = 0;
+
+    ////split reads
+    for (i = 0; i < hap->length; i++)
+    {
+        if(pre_site != hap->list[i].site)
+        {
+            if(i != 0)
+            {
+                sub_list = hap->list + pre_i;
+                sub_length = i - pre_i;
+                ///debug_total_length = debug_total_length + sub_length;
+                split_sub_list(hap, sub_list, sub_length, hap->snp, overlap_list, R_INF, g_read);
+            }
+            num_of_snps++;
+            pre_site = hap->list[i].site;
+            pre_i = i;
+        }
+    }
+
+    if(pre_i != -1)
+    {
+        sub_list = hap->list + pre_i;
+        sub_length = i - pre_i;
+        ///debug_total_length = debug_total_length + sub_length;
+        split_sub_list(hap, sub_list, sub_length, hap->snp, overlap_list, R_INF, g_read);
+    }
+
+    ///debug_snp_matrix(hap);
+    generate_haplotypes_DP(hap, overlap_list, R_INF, g_read->length, force_repeat);
+    ///generate_haplotypes_naive(hap, overlap_list, R_INF, g_read->length, force_repeat);
+
+    lable_large_indels(overlap_list, R_INF, g_read->length, dumy);
+
+
+    ///debug_snp_matrix(hap);
+}
 
 
 
@@ -11545,7 +11763,8 @@ void correct_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF,
 
 
 
-    partition_overlaps(overlap_list, R_INF, g_read, dumy, hap, force_repeat);
+    ////partition_overlaps(overlap_list, R_INF, g_read, dumy, hap, force_repeat);
+    partition_overlaps_advance(overlap_list, R_INF, g_read, dumy, hap, force_repeat);
 
 
     // print_overlap("m64016_190918_162737/174131552/ccs", 
