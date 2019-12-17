@@ -22,7 +22,7 @@ const uint8_t *c, int sc_mch, int sc_mis, int gapo, int gape, int bandLen, int z
 int* max_q_pos, int* max_t, int* score)
 {
 	int i, a = sc_mch, b = sc_mis < 0? sc_mis : -sc_mis; // a>0 and b<0
-	int8_t mat[25] = { a,b,b,b,0, b,a,b,b,0, b,b,a,b,0, b,b,b,a,0, 0,0,0,0,0 };
+	int8_t mat[25] = {a,b,b,b,0, b,a,b,b,0, b,b,a,b,0, b,b,b,a,0, 0,0,0,0,0};
 	uint8_t *ts, *qs;
 	ksw_extz_t ez;
 
@@ -43,6 +43,42 @@ int* max_q_pos, int* max_t, int* score)
 }
 
 
+void afine_gap_alignment(const char *tseq, uint8_t* tnum, const int tl, 
+const char *qseq, uint8_t* qnum, const int ql, const uint8_t *c2n, const int strand,
+int sc_mch, int sc_mis, int gapo, int gape, int bandLen, int zdrop, int end_bonus,
+long long* max_t_pos, long long* max_q_pos, long long* score, long long* droped)
+{
+    (*max_t_pos) = (*max_q_pos) = -1;
+	int i, a = sc_mch, b = sc_mis < 0? sc_mis : -sc_mis; // a>0 and b<0
+	int8_t mat[25] = {a,b,b,b,0, b,a,b,b,0, b,b,a,b,0, b,b,b,a,0, 0,0,0,0,0};
+	ksw_extz_t ez;
+	memset(&ez, 0, sizeof(ksw_extz_t));
+
+    if(strand == FORWARD_KSW)
+    {
+        for (i = 0; i < tl; ++i) tnum[i] = c2n[(uint8_t)tseq[i]]; // encode to 0/1/2/3
+	    for (i = 0; i < ql; ++i) qnum[i] = c2n[(uint8_t)qseq[i]];
+    }
+    else if(strand == BACKWARD_KSW)
+    {
+        for (i = 0; i < tl; ++i) tnum[i] = c2n[(uint8_t)tseq[tl - i - 1]]; // encode to 0/1/2/3
+	    for (i = 0; i < ql; ++i) qnum[i] = c2n[(uint8_t)qseq[ql - i - 1]];
+    }
+
+    ksw_extz2_sse(0, ql, qnum, tl, tnum, 5, mat, gapo, gape, bandLen, zdrop, end_bonus, 0, &ez);
+
+    (*score) = ez.max;
+    (*max_t_pos) = ez.max_t;
+    (*max_q_pos) = ez.max_q;
+    (*droped) = ez.zdropped;
+    
+    /**
+	for (i = 0; i < ez.n_cigar; ++i) // print CIGAR
+		printf("%d%c", ez.cigar[i]>>4, "MID"[ez.cigar[i]&0xf]);
+	putchar('\n');
+    **/
+	free(ez.cigar);
+}
 
 
 void clear_Round2_alignment(Round2_alignment* h)
@@ -1572,6 +1608,239 @@ int verify_cigar(char* x, int x_len, char* y, int y_len, CIGAR* cigar, int error
     
     return flag_error;
     
+}
+
+
+int scan_cigar(CIGAR* cigar, int* get_error, int scanXLen, int direction)
+{
+    (*get_error) = -1;
+    if(cigar->length == 1 && cigar->C_C[0] == 0)
+    {
+        (*get_error) = 0;
+        return 1;
+    }
+
+
+    int x_i, y_i, cigar_i;
+    x_i = 0;
+    y_i = 0;
+    
+    int operation;
+    int operationLen;
+    int i;
+    int cigar_error = 0;
+
+    ///0 is match, 1 is mismatch, 2 is up, 3 is left
+    ///2: there are more bases at y, 3: there are more bases at x
+    if(direction == 0)
+    {
+        cigar_i = 0;
+        while (cigar_i < cigar->length)
+        {
+            operation = cigar->C_C[cigar_i];
+            operationLen = cigar->C_L[cigar_i];
+            cigar_i++;
+
+            if (operation == 0)
+            {
+                x_i = x_i + operationLen;
+                y_i = y_i + operationLen;
+                if(x_i >= scanXLen)
+                {
+                    (*get_error) = cigar_error;
+                    return 1;
+                }
+            }
+            else if (operation == 1)
+            {
+                for (i = 0; i < operationLen; i++)
+                {
+                    x_i++;
+                    y_i++;
+                    cigar_error++;
+                    if(x_i >= scanXLen)
+                    {
+                        (*get_error) = cigar_error;
+                        return 1;
+                    }
+                }
+            }///2是x缺字符（y多字符）
+            else if (operation == 2)
+            {
+                cigar_error += operationLen;
+                y_i += operationLen;
+            }///3是y缺字符（x多字符）
+            else if (operation == 3)
+            {
+                for (i = 0; i < operationLen; i++)
+                {
+                    x_i++;
+                    cigar_error++;
+                    if(x_i >= scanXLen)
+                    {
+                        (*get_error) = cigar_error;
+                        return 1;
+                    }
+                }
+            }
+        }
+    }
+    else
+    {
+        cigar_i = cigar->length - 1;
+        while (cigar_i >= 0)
+        {
+            operation = cigar->C_C[cigar_i];
+            operationLen = cigar->C_L[cigar_i];
+            cigar_i--;
+            if (operation == 0)
+            {
+                x_i = x_i + operationLen;
+                y_i = y_i + operationLen;
+                if(x_i >= scanXLen)
+                {
+                    (*get_error) = cigar_error;
+                    return 1;
+                }
+            }
+            else if (operation == 1)
+            {
+                for (i = 0; i < operationLen; i++)
+                {
+                    x_i++;
+                    y_i++;
+                    cigar_error++;
+                    if(x_i >= scanXLen)
+                    {
+                        (*get_error) = cigar_error;
+                        return 1;
+                    }
+                }
+            }///2是x缺字符（y多字符）
+            else if (operation == 2)
+            {
+                cigar_error += operationLen;
+                y_i += operationLen;
+            }///3是y缺字符（x多字符）
+            else if (operation == 3)
+            {
+                for (i = 0; i < operationLen; i++)
+                {
+                    x_i++;
+                    cigar_error++;
+                    if(x_i >= scanXLen)
+                    {
+                        (*get_error) = cigar_error;
+                        return 1;
+                    }
+                }
+            }
+        }
+    }
+
+    (*get_error) = cigar_error;
+    return 0;
+}
+
+///[scanXbeg, scanXend]
+int scan_cigar_interval(CIGAR* cigar, int* get_error, int scanXbeg, int scanXend)
+{
+    (*get_error) = -1;
+    if(cigar->length == 1 && cigar->C_C[0] == 0)
+    {
+        (*get_error) = 0;
+        return 1;
+    }
+
+
+
+    int x_i, y_i, cigar_i;
+    x_i = 0;
+    y_i = 0;
+    
+    int operation;
+    int operationLen;
+    int i;
+    int cigar_error = 0;
+
+    ///0 is match, 1 is mismatch, 2 is up, 3 is left
+    ///2: there are more bases at y, 3: there are more bases at x
+    cigar_i = 0;
+    while (cigar_i < cigar->length)
+    {
+        operation = cigar->C_C[cigar_i];
+        operationLen = cigar->C_L[cigar_i];
+        cigar_i++;
+
+        if (operation == 0)
+        {
+            for (i = 0; i < operationLen; i++)
+            {
+                if(x_i == scanXbeg)
+                {
+                    cigar_error = 0;
+                }
+                
+                x_i++;
+                y_i++;
+
+                if(x_i == scanXend + 1)
+                {
+                    (*get_error) = cigar_error;
+                    return 1;
+                }
+            }
+        }
+        else if (operation == 1)
+        {
+            for (i = 0; i < operationLen; i++)
+            {
+                if(x_i == scanXbeg)
+                {
+                    cigar_error = 0;
+                }
+                
+                x_i++;
+                y_i++;
+                cigar_error++;
+
+                if(x_i == scanXend + 1)
+                {
+                    (*get_error) = cigar_error;
+                    return 1;
+                }
+            }
+        }///2是x缺字符（y多字符）
+        else if (operation == 2)
+        {
+            cigar_error += operationLen;
+            y_i += operationLen;
+        }///3是y缺字符（x多字符）
+        else if (operation == 3)
+        {
+            for (i = 0; i < operationLen; i++)
+            {
+                if(x_i == scanXbeg)
+                {
+                    cigar_error = 0;
+                }
+                
+
+                x_i++;
+                cigar_error++;
+
+                if(x_i == scanXend + 1)
+                {
+                    (*get_error) = cigar_error;
+                    return 1;
+                }
+            }
+        }
+    }
+
+
+    (*get_error) = cigar_error;
+    return 0;
 }
 
 inline int move_gap_greedy(char* path, int path_i, int path_length, char* x, int x_i, char* y, int y_i, unsigned int* new_error)
@@ -3513,32 +3782,6 @@ inline void recalcate_window(overlap_region_alloc* overlap_list, All_reads* R_IN
                     ///note!!! need notification
                     end_site = Reserve_Banded_BPM(y_string, Window_Len, x_string, x_len, threshold, &error);
                     
-
-
-                    // unsigned int debug_error;
-                    // int return_y_end, return_x_end;
-                    // Reserve_Banded_BPM_Extension(y_string, Window_Len, x_string, x_len, threshold, 
-                    // &debug_error, &return_y_end, &return_x_end);
-                    // if(return_x_end != x_len - 1 && end_site != -1)
-                    // {
-                    //     fprintf(stderr, "error\n");
-                    // }
-
-                    // if(return_x_end == x_len - 1 && end_site == -1)
-                    // {
-                    //     fprintf(stderr, "error\n");
-                    // }
-
-                    // if(return_x_end == x_len - 1 && end_site != -1)
-                    // {
-                    //     if(return_y_end != end_site || debug_error != error)
-                    //     {
-                    //         fprintf(stderr, "error\n");
-                    //     }
-                    // }
-                    
-
-
                     ///error等于-1说明没匹配
                     if (error!=(unsigned int)-1)
                     {
@@ -3884,6 +4127,788 @@ inline void recalcate_window(overlap_region_alloc* overlap_list, All_reads* R_IN
         }
     }    
 }
+
+
+void debug_scan_cigar(overlap_region* sub_list)
+{
+    long long i;
+    int f_err, b_err, fLen, bLen, xLen;
+    for (i = 0; i < sub_list->w_list_length; i++)
+    {
+        if(sub_list->w_list[i].y_end == -1 || sub_list->w_list[i].cigar.length == -1)
+        {
+            continue;
+        }
+        xLen = sub_list->w_list[i].x_end - sub_list->w_list[i].x_start + 1;
+
+        scan_cigar(&(sub_list->w_list[i].cigar), &b_err, 
+        xLen, 1);
+        scan_cigar(&(sub_list->w_list[i].cigar), &f_err, 
+        xLen, 0);
+
+        if(b_err != sub_list->w_list[i].error || f_err != sub_list->w_list[i].error)
+        {
+            fprintf(stderr, "sbsbsbsbsb1\n");
+        }
+
+        scan_cigar(&(sub_list->w_list[i].cigar), &b_err, 
+        WINDOW, 1);
+        scan_cigar(&(sub_list->w_list[i].cigar), &f_err, 
+        WINDOW, 0);
+
+        if(b_err != sub_list->w_list[i].error || f_err != sub_list->w_list[i].error)
+        {
+            fprintf(stderr, "sbsbsbsbsb2\n");
+        }
+
+        scan_cigar_interval(&(sub_list->w_list[i].cigar), &b_err, 0, xLen-1);
+        if(b_err != sub_list->w_list[i].error)
+        {
+            fprintf(stderr, "sbsbsbsbsb3\n");
+        }
+
+        fLen = xLen / 3;
+        scan_cigar(&(sub_list->w_list[i].cigar), &f_err, fLen, 0);
+        scan_cigar_interval(&(sub_list->w_list[i].cigar), &b_err, 0, fLen-1);
+        if(f_err != b_err)
+        {
+            fprintf(stderr, "sbsbsbsbsb4\n");
+        }
+
+        fLen = xLen / 3;
+        scan_cigar(&(sub_list->w_list[i].cigar), &f_err, fLen, 1);
+        scan_cigar_interval(&(sub_list->w_list[i].cigar), &b_err, xLen-fLen, xLen-1);
+        if(f_err != b_err)
+        {
+            fprintf(stderr, "\nsbsbsbsbsb5\n");
+            fprintf(stderr, "b_err: %d, f_err: %d\n",b_err, f_err);
+            long long j;
+            for (j = 0; j < sub_list->w_list[i].cigar.length; j++)
+            {
+                fprintf(stderr, "len: %d, opera: %d\n", 
+                sub_list->w_list[i].cigar.C_L[j], sub_list->w_list[i].cigar.C_C[j]);
+            }
+        }
+
+        // bLen = xLen / 3;
+        // fLen = xLen - bLen;
+
+        // scan_cigar(&(sub_list->w_list[i].cigar), &b_err, 
+        // bLen, 1);
+        // scan_cigar(&(sub_list->w_list[i].cigar), &f_err, 
+        // fLen, 0);
+
+        // if(b_err + f_err != sub_list->w_list[i].error)
+        // {
+        //     fprintf(stderr, "\nsub_list->w_list[i].error: %d, bLen: %d, b_err: %d, fLen: %d, f_err: %d\n",
+        //     sub_list->w_list[i].error, bLen, b_err, fLen, f_err);
+        //     long long j;
+        //     for (j = 0; j < sub_list->w_list[i].cigar.length; j++)
+        //     {
+        //         fprintf(stderr, "len: %d, opera: %d\n", 
+        //         sub_list->w_list[i].cigar.C_L[j], sub_list->w_list[i].cigar.C_C[j]);
+        //     }
+            
+        // }
+    }
+}
+
+void calculate_boundary_cigars(overlap_region* sub_list, All_reads* R_INF, Correct_dumy* dumy, 
+UC_Read* g_read)
+{
+    resize_window_list_alloc(&(sub_list->boundary_cigars), sub_list->w_list_length - 1);
+    int x_id = sub_list->x_id;
+    int y_id = sub_list->y_id;
+    int y_strand = sub_list->y_pos_strand;
+    long long x_readLen = Get_READ_LENGTH((*R_INF), x_id);
+    long long y_readLen = Get_READ_LENGTH((*R_INF), y_id);
+    long long i, y_distance;
+    int f_err, b_err, m_error;
+    int scanLen = 10;
+    long long boundaryLen = 200;
+    long long single_sideLen = boundaryLen/2;
+    long long useless_side = single_sideLen/2;
+    int alpha = 1;
+    long long y_start, x_start;
+    long long y_end, x_end;
+    long long yLen, xLen;
+    long long leftLen, rightLen;
+    long long threshold;
+    int extra_begin, extra_end;
+    long long o_len;
+    char* x_string;
+    char* y_string;
+    int end_site;
+    unsigned int error;
+    int real_y_start;
+    sub_list->boundary_cigars.length = sub_list->w_list_length - 1;
+    for (i = 0; i + 1 < sub_list->w_list_length; i++)
+    {
+        ///if two windows are not aligned
+        if(sub_list->w_list[i].y_end == -1 && sub_list->w_list[i+1].y_end == -1)
+        {
+            sub_list->boundary_cigars.buffer[i].error = -1;
+            sub_list->boundary_cigars.buffer[i].y_end = -1;
+            continue;
+        }
+
+        y_distance = sub_list->w_list[i+1].y_start - sub_list->w_list[i].y_end - 1;
+
+        ///if two windows are aligned
+        if(sub_list->w_list[i].y_end != -1 && sub_list->w_list[i+1].y_end != -1 && y_distance == 0)
+        {
+            scan_cigar(&(sub_list->w_list[i].cigar), &b_err, scanLen, 1);
+            scan_cigar(&(sub_list->w_list[i+1].cigar), &f_err, scanLen, 0);
+            if(b_err == 0 && f_err == 0)
+            {
+                sub_list->boundary_cigars.buffer[i].error = -2;
+                sub_list->boundary_cigars.buffer[i].y_end = -1;
+                continue;
+            }
+        }
+
+
+        ///y_distance can be less than 0, or larger than 0
+        if(sub_list->w_list[i].y_end != -1)
+        {
+            y_start = sub_list->w_list[i].y_end;
+            x_start = sub_list->w_list[i].x_end;
+        }
+        else if(sub_list->w_list[i+1].y_end != -1)
+        {
+            y_start = sub_list->w_list[i+1].y_start;
+            x_start = sub_list->w_list[i+1].x_start;
+        }
+        else
+        {
+            sub_list->boundary_cigars.buffer[i].error = -1;
+            sub_list->boundary_cigars.buffer[i].y_end = -1;
+            continue;
+        }
+
+
+        sub_list->boundary_cigars.buffer[i].extra_begin = x_start;
+        sub_list->boundary_cigars.buffer[i].extra_end = y_start;
+
+        ///leftLen and rightLen are used for x        
+        ///x should be at [sub_list->w_list[i].x_start, sub_list->w_list[i+1].x_end]
+        ///y shouldn't have limitation
+        leftLen = MIN(MIN((x_start - sub_list->w_list[i].x_start), y_start), single_sideLen);
+        rightLen = MIN(MIN((sub_list->w_list[i+1].x_end + 1 - x_start), y_readLen - y_start), 
+        single_sideLen);
+
+
+        xLen = leftLen + rightLen;
+        x_start = x_start - leftLen;
+        x_end = x_start + xLen - 1;
+        y_start = y_start - leftLen;
+
+        ///leftLen, rightLen
+        if(leftLen <= useless_side || rightLen <= useless_side)
+        {
+            sub_list->boundary_cigars.buffer[i].error = -1;
+            sub_list->boundary_cigars.buffer[i].y_end = -1;
+            continue;
+        }
+
+
+        threshold = xLen * THRESHOLD_RATE;
+        threshold = Adjust_Threshold(threshold, xLen);
+        threshold = double_error_threshold(threshold, xLen);
+
+        yLen = xLen + (threshold << 1);
+        if(!determine_overlap_region(threshold, y_start, y_id, yLen, R_INF, 
+                    &extra_begin, &extra_end, &y_start, &o_len))
+        {
+            sub_list->boundary_cigars.buffer[i].error = -1;
+            sub_list->boundary_cigars.buffer[i].y_end = -1;
+            continue;
+        }
+
+        if(o_len < xLen)
+        {
+            sub_list->boundary_cigars.buffer[i].error = -1;
+            sub_list->boundary_cigars.buffer[i].y_end = -1;
+            continue;
+        }
+
+        fill_subregion(dumy->overlap_region, y_start, o_len, y_strand, 
+                    R_INF, y_id, extra_begin, extra_end);
+        
+        x_string = g_read->seq + x_start;
+        y_string = dumy->overlap_region;
+
+        end_site = Reserve_Banded_BPM_PATH(y_string, yLen, x_string, xLen, threshold, &error, 
+        &real_y_start, &(dumy->path_length), dumy->matrix_bit, dumy->path, -1, -1);
+
+        if (error!=(unsigned int)-1)
+        {
+            sub_list->boundary_cigars.buffer[i].x_start = x_start;
+            sub_list->boundary_cigars.buffer[i].x_end = x_end;
+
+            generate_cigar(dumy->path, dumy->path_length, &(sub_list->boundary_cigars.buffer[i]),
+                        &real_y_start, &end_site, &error, x_string, xLen, y_string);
+
+
+            ///y_distance can be less than 0, or larger than 0
+            if(y_distance<0) y_distance = y_distance * (-1);
+            ///leftLen, rightLen
+            if(leftLen <= useless_side || rightLen <= useless_side)
+            {
+                sub_list->boundary_cigars.buffer[i].error = -1;
+                sub_list->boundary_cigars.buffer[i].y_end = -1;
+                continue;
+            }
+
+            
+            scan_cigar_interval(&(sub_list->boundary_cigars.buffer[i].cigar), &m_error, 
+            useless_side, xLen-useless_side-1);
+            scan_cigar(&(sub_list->w_list[i].cigar), &b_err, leftLen-useless_side, 1);
+            scan_cigar(&(sub_list->w_list[i+1].cigar), &f_err, rightLen-useless_side, 0);
+            if(f_err + b_err + y_distance + alpha < m_error)
+            {
+                sub_list->boundary_cigars.buffer[i].error = -1;
+                sub_list->boundary_cigars.buffer[i].y_end = -1;
+                continue;
+            }
+
+            sub_list->boundary_cigars.buffer[i].error = error;
+            sub_list->boundary_cigars.buffer[i].y_start = y_start + real_y_start - extra_begin;
+            sub_list->boundary_cigars.buffer[i].y_end = y_start + end_site - extra_begin;
+
+            sub_list->boundary_cigars.buffer[i].x_start = x_start;
+            sub_list->boundary_cigars.buffer[i].x_end = x_end;
+            sub_list->boundary_cigars.buffer[i].error_threshold = useless_side;
+
+            
+        }
+        else
+        {
+            sub_list->boundary_cigars.buffer[i].error = -1;
+            sub_list->boundary_cigars.buffer[i].y_end = -1;
+            continue;
+        }
+         
+    }
+
+}
+
+inline void recalcate_window_advance(overlap_region_alloc* overlap_list, All_reads* R_INF, 
+                        UC_Read* g_read, Correct_dumy* dumy, UC_Read* overlap_read)
+{
+    long long j, k, i;
+    long long Len_x;
+    int threshold;
+    long long y_len;
+    long long currentIDLen;
+    long long matches;
+    long long y_id;
+    int y_strand;
+    long long y_readLen;
+    long long x_start;
+    long long x_end;
+    long long x_len;
+    long long total_y_start;
+    long long total_y_end;
+    long long y_start;
+    long long y_end;
+    long long Window_Len;
+    char* x_string;
+    char* y_string;
+    int end_site;
+    unsigned int error;
+    int real_y_start;
+    long long overlap_length;
+    int extra_begin, extra_end;
+    long long o_len;
+
+
+    ///j负责遍历整个overlap list
+    for (j = 0; j < overlap_list->length; j++)
+    {
+        
+        y_id = overlap_list->list[j].y_id;
+        y_strand = overlap_list->list[j].y_pos_strand;
+        y_readLen = Get_READ_LENGTH((*R_INF), y_id);
+
+        //i corresponding to each window of a overlap
+        //utilize the the end pos of pre-window in backwards
+        for (i = overlap_list->list[j].w_list_length - 1; i >= 0; i--)
+        {
+            ///the first matched window
+            if(overlap_list->list[j].w_list[i].y_end != -1)
+            {
+                ///note!!! need notification
+                ///this is the actual end postion in ystring
+                total_y_start = overlap_list->list[j].w_list[i].y_end 
+                            - overlap_list->list[j].w_list[i].extra_begin + 1;
+
+                
+
+                ///k corresponding to all unmatched windows at the right side of overlap_list->list[j].w_list[i]
+                ///so k starts from i + 1, and end to the first matched window
+                for (k = i + 1; k < overlap_list->list[j].w_list_length && overlap_list->list[j].w_list[k].y_end == -1; k++)
+                {
+                    extra_begin = extra_end = 0;
+
+                    ///if y_start > y_readLen, direct terminate
+                    if (total_y_start >= y_readLen)
+                    {
+                        break;
+                    }
+                    
+                    ///there is no problem for x
+                    x_start = overlap_list->list[j].w_list[k].x_start;
+                    x_end = overlap_list->list[j].w_list[k].x_end;
+                    x_len = x_end - x_start + 1;
+                    ///there are two potiential reasons for unmatched window:
+                    ///1. this window has a large number of differences
+                    ///2. DP does not start from the right offset
+                    threshold = double_error_threshold(overlap_list->list[j].w_list[k].error_threshold, x_len);
+                    
+                    y_start = total_y_start;
+                    Window_Len = x_len + (threshold << 1);
+
+                    if(!determine_overlap_region(threshold, y_start, y_id, Window_Len, R_INF, 
+                    &extra_begin, &extra_end, &y_start, &o_len))
+                    {
+                        break;
+                    }
+
+                    if(o_len + threshold < x_len)
+                    {
+                        break;
+                    }
+                    
+                    fill_subregion(dumy->overlap_region, y_start, o_len, y_strand, 
+                    R_INF, y_id, extra_begin, extra_end);
+
+                    x_string = g_read->seq + x_start;
+                    y_string = dumy->overlap_region;
+
+                    ///note!!! need notification
+                    end_site = Reserve_Banded_BPM(y_string, Window_Len, x_string, x_len, threshold, &error);
+                    
+                    ///error等于-1说明没匹配
+                    if (error!=(unsigned int)-1)
+                    {
+                        overlap_list->list[j].w_list[k].cigar.length = -1;
+                        overlap_list->list[j].w_list[k].y_start = y_start;
+                        overlap_list->list[j].w_list[k].y_end = y_start + end_site;
+                        overlap_list->list[j].w_list[k].error = (int)error;
+                        ///note!!! need notification
+                        overlap_list->list[j].w_list[k].extra_begin = extra_begin;
+                        overlap_list->list[j].w_list[k].extra_end = extra_end;
+                        overlap_list->list[j].w_list[k].error_threshold = threshold;
+                        
+                        overlap_list->list[j].align_length += x_len;
+                    }
+                    else
+                    {
+                        break;
+                    }
+
+                    ///note!!! need notification
+                    total_y_start = y_start + end_site - extra_begin + 1;
+                }
+                
+            }
+            
+        }
+        
+
+
+        //i corresponding to each window of a overlap
+        //utilize the the start pos of next window in forward
+        for (i = 0; i < overlap_list->list[j].w_list_length; i++)
+        {
+            ///find the first matched window, which should not be the first window
+            ///the pre-window of this matched window must be unmatched
+            if(overlap_list->list[j].w_list[i].y_end != -1 && i != 0 && overlap_list->list[j].w_list[i - 1].y_end == -1)
+            {
+                ///check if the start pos of this matched window has been calculated
+                if(overlap_list->list[j].w_list[i].cigar.length == -1)
+                {
+                    ///there is no problem for x
+                    x_start = overlap_list->list[j].w_list[i].x_start;
+                    x_end = overlap_list->list[j].w_list[i].x_end;
+                    x_len = x_end - x_start + 1;
+                    /****************************may have bugs********************************/
+                    threshold = overlap_list->list[j].w_list[i].error_threshold;
+                    /****************************may have bugs********************************/
+                    /****************************may have bugs********************************/
+                    ///should not adjust threshold, since this window can be matched by the old threshold
+                    ///threshold = Adjust_Threshold(threshold, x_len);
+                    /****************************may have bugs********************************/
+                    Window_Len = x_len + (threshold << 1);
+
+
+                    ///y_start is the real y_start
+                    y_start = overlap_list->list[j].w_list[i].y_start;
+                    extra_begin = overlap_list->list[j].w_list[i].extra_begin;
+                    extra_end = overlap_list->list[j].w_list[i].extra_end;
+                    o_len = Window_Len - extra_end - extra_begin;
+                    fill_subregion(dumy->overlap_region, y_start, o_len, y_strand, 
+                    R_INF, y_id, extra_begin, extra_end);
+                    x_string = g_read->seq + x_start;
+                    y_string = dumy->overlap_region;
+
+                    ///note!!! need notification
+                    end_site = Reserve_Banded_BPM_PATH(y_string, Window_Len, x_string, x_len, threshold, &error, &real_y_start,
+                    &(dumy->path_length), dumy->matrix_bit, dumy->path, 
+                    overlap_list->list[j].w_list[i].error, overlap_list->list[j].w_list[i].y_end - y_start);
+
+
+                    ///y_start has already been calculated
+                    if (error != (unsigned int)-1)
+                    {
+                        ///this condition is always wrong
+                        ///in best case, real_y_start = threshold, end_site = Window_Len - threshold - 1
+                        if (end_site == Window_Len - 1 || real_y_start == 0)
+                        {
+                            if(fix_boundary(x_string, x_len, threshold, y_start, real_y_start, 
+                            end_site, extra_begin, extra_end, y_id, Window_Len, R_INF, dumy, 
+                            y_strand, error, &y_start, &real_y_start, &end_site, &extra_begin, 
+                            &extra_end, &error))
+                            {
+                                overlap_list->list[j].w_list[i].error = error;
+                                overlap_list->list[j].w_list[i].extra_begin = extra_begin;
+                                overlap_list->list[j].w_list[i].extra_end = extra_end;
+                            }
+                        }
+                        
+
+                         
+                        generate_cigar(dumy->path, dumy->path_length, &(overlap_list->list[j].w_list[i]),
+                        &real_y_start, &end_site, &error, x_string, x_len, y_string);   
+
+                        // if(real_y_start < extra_begin || end_site >= Window_Len - extra_end)
+                        // {
+                        //     fprintf(stderr, "\nreal_y_start: %d, extra_begin: %d\n", 
+                        //     real_y_start, extra_begin);
+
+                        //     fprintf(stderr, "end_site: %d, Window_Len: %d, extra_end: %d\n", 
+                        //     end_site, Window_Len, extra_end);                            
+                        // }
+                        
+                        
+                        ///note!!! need notification
+                        real_y_start = y_start + real_y_start - extra_begin;
+                        overlap_list->list[j].w_list[i].y_start = real_y_start; 
+                        ///I forget why don't reduce the extra_begin for y_end
+                        ///it seems extra_begin will be reduced at the end of this function 
+                        overlap_list->list[j].w_list[i].y_end = y_start + end_site;
+                        overlap_list->list[j].w_list[i].error = error;                         
+                    }
+                    else
+                    {
+                        fprintf(stderr, "error\n");
+                    }
+                }
+                else
+                {
+                    real_y_start = overlap_list->list[j].w_list[i].y_start;
+                }
+
+
+                
+                ///the end pos for pre window is real_y_start - 1
+                total_y_end = real_y_start - 1;
+                ///k遍历匹配window左侧所有不匹配的window
+                ///如果i匹配，则k从i-1开始
+                ///直到第一个匹配的window结束
+                ///因为i!=0，所以k的大小不用担心
+                for (k = i - 1; k >= 0 && overlap_list->list[j].w_list[k].y_end == -1; k--)
+                {  
+                    ///there is no problem in x
+                    x_start = overlap_list->list[j].w_list[k].x_start;
+                    x_end = overlap_list->list[j].w_list[k].x_end;
+                    x_len = x_end - x_start + 1;
+                    ///there are two potiential reasons for unmatched window:
+                    ///1. this window has a large number of differences
+                    ///2. DP does not start from the right offset
+                    threshold = double_error_threshold(overlap_list->list[j].w_list[k].error_threshold, x_len);
+
+                    Window_Len = x_len + (threshold << 1);
+
+                    if(total_y_end <= 0)
+                    {
+                        break;
+                    }
+
+                    ///y_start might be less than 0
+                    y_start = total_y_end - x_len + 1;
+                    if(!determine_overlap_region(threshold, y_start, y_id, Window_Len, R_INF,
+                    &extra_begin, &extra_end, &y_start, &o_len))
+                    {
+                        break;
+                    }
+
+                    if(o_len + threshold < x_len)
+                    {
+                        break;
+                    }
+
+                    fill_subregion(dumy->overlap_region, y_start, o_len, y_strand, 
+                    R_INF, y_id, extra_begin, extra_end);
+                    x_string = g_read->seq + x_start;
+                    y_string = dumy->overlap_region;
+
+                    ///note!!! need notification
+                    end_site = Reserve_Banded_BPM_PATH(y_string, Window_Len, x_string, x_len, threshold, &error, &real_y_start,
+                    &(dumy->path_length), dumy->matrix_bit, dumy->path, -1, -1);
+
+                    if (error!=(unsigned int)-1)
+                    { 
+                        ///this condition is always wrong
+                        ///in best case, real_y_start = threshold, end_site = Window_Len - threshold - 1
+                        if (end_site == Window_Len - 1 || real_y_start == 0)
+                        {
+                            fix_boundary(x_string, x_len, threshold, y_start, real_y_start, end_site,
+                            extra_begin, extra_end, y_id, Window_Len, R_INF, dumy, y_strand, error,
+                            &y_start, &real_y_start, &end_site,
+                            &extra_begin, &extra_end, &error);
+                        }
+
+                        generate_cigar(dumy->path, dumy->path_length, &(overlap_list->list[j].w_list[k]),
+                        &real_y_start, &end_site, &error, x_string, x_len, y_string);  
+
+                        // if(real_y_start < extra_begin || end_site >= Window_Len - extra_end)
+                        // {
+                        //     fprintf(stderr, "\nreal_y_start: %d, extra_begin: %d\n", 
+                        //     real_y_start, extra_begin);
+
+                        //     fprintf(stderr, "end_site: %d, Window_Len: %d, extra_end: %d\n", 
+                        //     end_site, Window_Len, extra_end);                            
+                        // }
+
+                        ///y_start has no shift, but y_end has shift           
+                        overlap_list->list[j].w_list[k].y_start = y_start + real_y_start - extra_begin;
+                        overlap_list->list[j].w_list[k].y_end = y_start + end_site;
+                        overlap_list->list[j].w_list[k].error = error;
+                        overlap_list->list[j].align_length += x_len;
+                        overlap_list->list[j].w_list[k].extra_begin = extra_begin;
+                        overlap_list->list[j].w_list[k].extra_end = extra_end;
+                        overlap_list->list[j].w_list[k].error_threshold = threshold;
+                    }
+                    else
+                    {
+                        break;
+                    }
+
+                    total_y_end = y_start + real_y_start - 1 - extra_begin;
+                }
+            }
+        }
+    }
+
+
+
+    overlap_list->mapped_overlaps_length = 0;
+    
+    int pre_threshold;
+    long long tLen, tError;
+    double error_rate;
+    for (j = 0; j < overlap_list->length; j++)
+    {
+        y_id = overlap_list->list[j].y_id;
+        y_strand = overlap_list->list[j].y_pos_strand;
+        y_readLen = Get_READ_LENGTH((*R_INF), y_id);
+        overlap_length = overlap_list->list[j].x_pos_e - overlap_list->list[j].x_pos_s + 1;
+        overlap_list->list[j].is_match = 0;
+
+        ///debug_scan_cigar(&(overlap_list->list[j]));
+
+        ///only calculate cigar for high quality overlaps
+        if (overlap_length * OVERLAP_THRESHOLD_FILTER <=  overlap_list->list[j].align_length)
+        {
+            
+            for (i = 0; i < overlap_list->list[j].w_list_length; i++)
+            {
+                ///first we need to check if this window is matched
+                if(overlap_list->list[j].w_list[i].y_end != -1)
+                {
+                    ///second check if the cigar of this window has been got 
+                    if(overlap_list->list[j].w_list[i].cigar.length == -1)
+                    {
+                        ///there is no problem for x
+                        x_start = overlap_list->list[j].w_list[i].x_start;
+                        x_end = overlap_list->list[j].w_list[i].x_end;
+                        x_len = x_end - x_start + 1;
+                        /****************************may have bugs********************************/
+                        ///threshold = x_len * THRESHOLD_RATE;
+                        threshold = overlap_list->list[j].w_list[i].error_threshold;
+                        /****************************may have bugs********************************/
+                        /****************************may have bugs********************************/
+                        ///should not adjust threshold, since this window can be matched by the old threshold
+                        ///threshold = Adjust_Threshold(threshold, x_len);
+                        /****************************may have bugs********************************/
+                        Window_Len = x_len + (threshold << 1);
+
+
+                        ///y_start is the real y_start
+                        ///for the window with cigar, y_start has already reduced extra_begin
+                        y_start = overlap_list->list[j].w_list[i].y_start;
+                        extra_begin = overlap_list->list[j].w_list[i].extra_begin;
+                        extra_end = overlap_list->list[j].w_list[i].extra_end;
+                        o_len = Window_Len - extra_end - extra_begin;
+                        fill_subregion(dumy->overlap_region, y_start, o_len, y_strand, 
+                        R_INF, y_id, extra_begin, extra_end);
+                        x_string = g_read->seq + x_start;
+                        y_string = dumy->overlap_region;
+
+
+                        ///note!!! need notification
+                        end_site = Reserve_Banded_BPM_PATH(y_string, Window_Len, x_string, x_len, threshold, &error, &real_y_start,
+                        &(dumy->path_length), dumy->matrix_bit, dumy->path, 
+                        overlap_list->list[j].w_list[i].error, overlap_list->list[j].w_list[i].y_end - y_start);
+
+                        // if(error != overlap_list->list[j].w_list[i].error)
+                        // {
+                        //     fprintf(stderr, "error\n");
+                        // }
+
+                        if (error != (unsigned int)-1)
+                        {
+                            if (end_site == Window_Len - 1 || real_y_start == 0)
+                            {
+                                
+                                if(fix_boundary(x_string, x_len, threshold, y_start, real_y_start, end_site,
+                                extra_begin, extra_end, y_id, Window_Len, R_INF, dumy, y_strand, error,
+                                &y_start, &real_y_start, &end_site,
+                                &extra_begin, &extra_end, &error))
+                                {
+                                    overlap_list->list[j].w_list[i].error = error;
+                                    overlap_list->list[j].w_list[i].extra_begin = extra_begin;
+                                    overlap_list->list[j].w_list[i].extra_end = extra_end;
+                                }
+                                
+                            }
+
+                            generate_cigar(dumy->path, dumy->path_length, &(overlap_list->list[j].w_list[i]),
+                            &real_y_start, &end_site, &error, x_string, x_len, y_string);    
+
+
+                            // if(real_y_start < extra_begin || end_site >= Window_Len - extra_end)
+                            // {
+                            //     fprintf(stderr, "\nreal_y_start: %d, extra_begin: %d\n", 
+                            //     real_y_start, extra_begin);
+
+                            //     fprintf(stderr, "end_site: %d, Window_Len: %d, extra_end: %d\n", 
+                            //     end_site, Window_Len, extra_end);                            
+                            // }
+
+                            ///note!!! need notification
+                            real_y_start = y_start + real_y_start - extra_begin;
+                            overlap_list->list[j].w_list[i].y_start = real_y_start;  
+                            overlap_list->list[j].w_list[i].y_end = y_start + end_site - extra_begin;
+                            overlap_list->list[j].w_list[i].error = error;                              
+                        }
+                        else
+                        {
+                            fprintf(stderr, "error\n");
+                        }
+                    }
+                    else
+                    {
+                        overlap_list->list[j].w_list[i].y_end -= overlap_list->list[j].w_list[i].extra_begin;
+                    }
+
+
+                }
+            }
+
+            ///error_rate = trim_error_rate(overlap_list, j);
+            error_rate = non_trim_error_rate(overlap_list, j, R_INF, dumy, g_read);
+            
+
+            ///if(error_rate <= 0.015)
+            if(error_rate <= 0.03)
+            {
+                overlap_list->mapped_overlaps_length += overlap_length;
+                overlap_list->list[j].is_match = 1;
+                calculate_boundary_cigars(&(overlap_list->list[j]), R_INF, dumy, g_read);
+            }
+            else if(error_rate <= 0.045)
+            {
+                overlap_list->list[j].is_match = 3;
+            }
+        }
+    }
+
+
+    /**
+    for (j = 0; j < overlap_list->length; j++)
+    {
+        y_id = overlap_list->list[j].y_id;
+        y_strand = overlap_list->list[j].y_pos_strand;
+        if(overlap_list->list[j].is_match == 1)
+        {
+            for (i = 0; i < overlap_list->list[j].w_list_length; i++)
+            {
+                if(overlap_list->list[j].w_list[i].y_end != -1)
+                {
+                    ///there is no problem for x
+                    x_start = overlap_list->list[j].w_list[i].x_start;
+                    x_end = overlap_list->list[j].w_list[i].x_end;
+                    x_len = x_end - x_start + 1;
+
+                    x_string = g_read->seq + x_start;
+
+                    y_start = overlap_list->list[j].w_list[i].y_start;
+                    y_end = overlap_list->list[j].w_list[i].y_end;
+                    y_len = y_end - y_start + 1;
+
+                    recover_UC_Read_sub_region(dumy->overlap_region, y_start, y_len, y_strand, R_INF, y_id);
+                    y_string = dumy->overlap_region;
+
+
+                    if(verify_cigar(x_string, x_len, y_string, y_len, &overlap_list->list[j].w_list[i].cigar, 
+                    overlap_list->list[j].w_list[i].error))
+                    {
+                        fprintf(stderr, "j: %d, i: %d, y_id: %d, y_start: %d, y_end: %d\n", j, i, y_id, y_start, y_end);
+                    }
+                }
+
+            }
+
+            
+
+            for (i = 0; i < overlap_list->list[j].boundary_cigars.length; i++)
+            {
+                if(overlap_list->list[j].boundary_cigars.buffer[i].y_end != -1)
+                {
+                    x_start = overlap_list->list[j].boundary_cigars.buffer[i].x_start;
+                    x_end = overlap_list->list[j].boundary_cigars.buffer[i].x_end;
+                    x_len = x_end - x_start + 1;
+                    x_string = g_read->seq + x_start;
+
+                    y_start = overlap_list->list[j].boundary_cigars.buffer[i].y_start;
+                    y_end = overlap_list->list[j].boundary_cigars.buffer[i].y_end;
+                    y_len = y_end - y_start + 1;
+
+                    recover_UC_Read_sub_region(dumy->overlap_region, y_start, y_len, y_strand, 
+                    R_INF, y_id);
+                    y_string = dumy->overlap_region;
+
+
+                    if(verify_cigar(x_string, x_len, y_string, y_len, 
+                    &overlap_list->list[j].boundary_cigars.buffer[i].cigar, 
+                    overlap_list->list[j].boundary_cigars.buffer[i].error))
+                    {
+                        fprintf(stderr, "j: %d, i: %d, y_id: %d, y_start: %d, y_end: %d\n", j, i, y_id, y_start, y_end);
+                    }
+                }
+            }
+        }
+    }
+    **/
+    
+}
+
+
+
+
 
 /**
 inline void adjust_alignment_windows(overlap_region* overlap, All_reads* R_INF)
@@ -7671,6 +8696,126 @@ CIGAR* cigar, haplotype_evdience_alloc* hap)
 }
 
 
+///[xBeg, xEnd]
+void markSNP_detail(CIGAR* cigar_record, uint8_t* flag, 
+long long xBeg, long long xEnd, long long flag_offset)
+{
+    if(xBeg > xEnd) return;
+    int operation;
+    int operationLen;
+    long long x_i, y_i, cigar_i, i;
+    i = cigar_i = x_i = y_i = 0;
+
+    while (cigar_i < cigar_record->length)
+    {
+        operation = cigar_record->C_C[cigar_i];
+        operationLen = cigar_record->C_L[cigar_i];
+        if(x_i > xEnd)
+        {
+            break;
+        }
+        
+
+        ///match
+        if (operation == 0)
+        {
+            x_i += operationLen;
+            y_i += operationLen;
+        }
+        else if(operation == 1) ///mismatch
+        {
+            for (i = 0; i < operationLen; i++)
+            {
+                ///flag_offset
+                if(flag[x_i - flag_offset] < 127 && x_i >= xBeg && x_i <= xEnd)
+                {
+                    flag[x_i - flag_offset]++;
+                }
+                
+                x_i++;
+                y_i++;
+            }
+        }///insertion
+        else if (operation == 2)
+        {
+            y_i += operationLen;
+        }
+        else if (operation == 3)
+        {
+            x_i += operationLen;
+        }
+        
+        cigar_i++;
+    }
+}
+
+void markSNP_advance(
+long long window_offset,
+long long x_total_start, long long x_length, 
+long long y_total_start, long long y_length, 
+window_list* current_cigar, window_list* beg_cigar, window_list* end_cigar, haplotype_evdience_alloc* hap)
+{   
+    long long x_total_end = x_total_start + x_length - 1;
+    ///mismatches based on the offset of x
+    long long inner_offset = x_total_start - window_offset;
+    CIGAR* cigar_record;
+    long long useless_side, xleftLen, xrightLen, x_interval_beg, x_interval_end;
+    long long current_cigar_beg, current_cigar_end;
+
+    ///for current_cigar, [current_cigar_beg, current_cigar_end]
+    current_cigar_beg = 0;
+    current_cigar_end = x_length - 1;
+
+    if(beg_cigar!=NULL && beg_cigar->y_end!=-1)
+    {
+        useless_side = beg_cigar->error_threshold;
+        cigar_record = &(beg_cigar->cigar);
+
+        xleftLen = x_total_start - beg_cigar->x_start;
+        xrightLen = beg_cigar->x_end - x_total_start + 1;
+        ///actually xleftLen could be no larger than useless_side
+        ///but such window has already been filtered out in calculate_boundary_cigars
+        if(xleftLen > useless_side && xrightLen > useless_side)
+        {
+            x_interval_beg = xleftLen;
+            x_interval_end = x_interval_beg + (xrightLen - useless_side) - 1;
+            ///this is the offset of the current cigar
+            current_cigar_beg = xrightLen - useless_side;
+            markSNP_detail(cigar_record, hap->flag + inner_offset, x_interval_beg, 
+            x_interval_end, x_interval_beg);
+        }
+    }
+
+    if(end_cigar!=NULL && end_cigar->y_end!=-1)
+    {
+        useless_side = end_cigar->error_threshold;
+        cigar_record = &(end_cigar->cigar);
+        xleftLen = x_total_end - end_cigar->x_start;
+        xrightLen = end_cigar->x_end - x_total_end + 1;
+
+        ///actually xrightLen could be no larger than useless_side
+        ///but such window has already been filtered out in calculate_boundary_cigars
+        if(xleftLen > useless_side && xrightLen > useless_side)
+        {
+            x_interval_end = xleftLen;
+            x_interval_beg = x_interval_end - (xleftLen + 1 - useless_side) + 1;
+            current_cigar_end = (x_length - 1) - (xleftLen + 1 - useless_side);
+            markSNP_detail(cigar_record, hap->flag + end_cigar->x_start - window_offset,
+            x_interval_beg, x_interval_end, 0);
+        }
+    }
+
+
+
+    
+    // markSNP_detail(&(current_cigar->cigar), hap->flag + inner_offset, 0, x_length/2);
+    // markSNP_detail(&(current_cigar->cigar), hap->flag + inner_offset, x_length/2+1, x_length - 1);
+    ///markSNP_detail(&(current_cigar->cigar), hap->flag + inner_offset, 0, x_length - 1, 0);
+    markSNP_detail(&(current_cigar->cigar), hap->flag + inner_offset, current_cigar_beg, 
+    current_cigar_end, 0);
+}
+
+
 
 
 void addSNPtohaplotype(
@@ -7770,6 +8915,8 @@ CIGAR* cigar, haplotype_evdience_alloc* hap, int snp_threshold)
         cigar_i++;
     }
 }
+
+
 
 
 
@@ -7907,17 +9054,26 @@ overlap_region_alloc* overlap_list, Correct_dumy* dumy, All_reads* R_INF, haplot
 }
 
 
-void cluster_advance(char* r_string, long long window_start, long long window_end, 
-overlap_region_alloc* overlap_list, Correct_dumy* dumy, All_reads* R_INF, haplotype_evdience_alloc* hap)
+void get_related_cigars(window_list_alloc* boundary_cigars, long long id, window_list** beg_cigar, 
+window_list** end_cigar)
 {
+    (*beg_cigar) = &(boundary_cigars->buffer[id*2]);
+    (*end_cigar) = &(boundary_cigars->buffer[id*2+1]);
+}
+
+void cluster_advance(char* r_string, long long window_start, long long window_end, 
+overlap_region_alloc* overlap_list, Correct_dumy* dumy, All_reads* R_INF, 
+haplotype_evdience_alloc* hap)
+{
+    window_list* beg_cigar;
+    window_list* end_cigar;
     ///window_start, window_end, and useful_length correspond to x, instead of y
     long long useful_length = window_end - window_start + 1;
-    long long x_start;
-    long long x_length; 
+    long long x_start, x_end, x_length;
     char* x_string;
     char* y_string;
     long long i;
-    long long y_start, y_length;
+    long long y_start, y_end, y_length;
     long long overlapID, windowID;
     long long startNodeID, endNodeID, currentNodeID;
 
@@ -7925,6 +9081,8 @@ overlap_region_alloc* overlap_list, Correct_dumy* dumy, All_reads* R_INF, haplot
     long long inner_window_offset;
     int snp_threshold;
     snp_threshold = 1;
+
+    ///resize_window_list_alloc(boundary_cigars, dumy->length * 2);
 
     ///all overlaps related to the current window [window_start, window_end]
     ///first mark all snp pos
@@ -7949,14 +9107,30 @@ overlap_region_alloc* overlap_list, Correct_dumy* dumy, All_reads* R_INF, haplot
         x_start = overlap_list->list[overlapID].w_list[windowID].x_start;
         x_length = overlap_list->list[overlapID].w_list[windowID].x_end 
                 - overlap_list->list[overlapID].w_list[windowID].x_start + 1;
+        x_end = overlap_list->list[overlapID].w_list[windowID].x_end;
+
 
         y_start = overlap_list->list[overlapID].w_list[windowID].y_start;
         y_length = overlap_list->list[overlapID].w_list[windowID].y_end
                 - overlap_list->list[overlapID].w_list[windowID].y_start + 1;
+        y_end = overlap_list->list[overlapID].w_list[windowID].y_end;
 
+
+       beg_cigar = end_cigar = NULL;
+
+       if(windowID >= 1)
+       {
+           beg_cigar = &(overlap_list->list[overlapID].boundary_cigars.buffer[windowID-1]);
+       }
+
+       if(windowID < overlap_list->list[overlapID].w_list_length - 1)
+       {
+           end_cigar = &(overlap_list->list[overlapID].boundary_cigars.buffer[windowID]);
+       }
             
-        markSNP(window_start, x_start, x_length, y_start, y_length, 
-        &(overlap_list->list[overlapID].w_list[windowID].cigar), hap);
+
+        markSNP_advance(window_start, x_start, x_length, y_start, y_length, 
+        &(overlap_list->list[overlapID].w_list[windowID]), beg_cigar, end_cigar, hap);
     }
 
 
@@ -8022,6 +9196,17 @@ overlap_region_alloc* overlap_list, Correct_dumy* dumy, All_reads* R_INF, haplot
 
         x_string = r_string + x_start;
         y_string = dumy->overlap_region;
+
+
+        beg_cigar = end_cigar = NULL;
+        if(windowID >= 1)
+        {
+            beg_cigar = &(overlap_list->list[overlapID].boundary_cigars.buffer[windowID-1]);
+        }
+        if(windowID < overlap_list->list[overlapID].w_list_length - 1)
+        {
+            end_cigar = &(overlap_list->list[overlapID].boundary_cigars.buffer[windowID]);
+        }
 
 
         addSNPtohaplotype(window_start, overlapID, x_string, x_start, x_length, 
@@ -11760,12 +12945,11 @@ void correct_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF,
     }
 
     recalcate_window(overlap_list, R_INF, g_read, dumy, overlap_read);
+    ///recalcate_window_advance(overlap_list, R_INF, g_read, dumy, overlap_read);
 
 
-
-    ////partition_overlaps(overlap_list, R_INF, g_read, dumy, hap, force_repeat);
-    partition_overlaps_advance(overlap_list, R_INF, g_read, dumy, hap, force_repeat);
-
+    partition_overlaps(overlap_list, R_INF, g_read, dumy, hap, force_repeat);
+    ///partition_overlaps_advance(overlap_list, R_INF, g_read, dumy, hap, force_repeat);
 
     // print_overlap("m64016_190918_162737/174131552/ccs", 
     // overlap_list->list[0].x_id, overlap_list, R_INF, 1);
@@ -12225,3 +13409,49 @@ uint64_t n_end_pos, uint8_t n_direction, UC_Read* g_read, All_reads* R_INF, Corr
 
 
 /**********************for prefilter************************ */
+
+
+void init_Cigar_record_alloc(Cigar_record_alloc* x)
+{
+    x->length = 0;
+    x->size = 0;
+    x->buffer = NULL;
+}
+
+void resize_Cigar_record_alloc(Cigar_record_alloc* x, long long new_size)
+{
+    long long i;
+    if(new_size > x->size)
+    {
+        x->buffer = (Cigar_record*)realloc(x->buffer, new_size*sizeof(Cigar_record));
+        for (i = 0; i < x->size; i++)
+        {
+            clear_Cigar_record(&(x->buffer[i]));
+        }
+        for (; i < new_size; i++)
+        {
+            init_Cigar_record(&(x->buffer[i]));
+            clear_Cigar_record(&(x->buffer[i]));
+        }
+
+        x->size = new_size;
+    }
+    else
+    {
+        for (i = 0; i < new_size; i++)
+        {
+            clear_Cigar_record(&(x->buffer[i]));
+        }
+    }
+
+    x->length = 0;
+}
+void destory_Cigar_record_alloc(Cigar_record_alloc* x)
+{
+    long long i;
+    for (i = 0; i < x->size; i++)
+    {
+        destory_Cigar_record(&(x->buffer[i]));
+    }
+    free(x->buffer);
+}
