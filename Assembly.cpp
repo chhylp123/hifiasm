@@ -578,15 +578,15 @@ void Build_hash_table_multiple_thr()
         destory_kseq();
         destory_R_buffer();
         ///destory_Total_Count_Table(&TCB);
-        if (write_index_to_disk)
-        {
-            write_Total_Pos_Table(&PCB, read_file_name);
-            ///destory_Total_Pos_Table(&PCB);
-            ///load_Total_Pos_Table(&PCB, read_file_name);
-            write_All_reads(&R_INF, read_file_name);
-            ///destory_All_reads(&R_INF);
-            ///load_All_reads(&R_INF, read_file_name);
-        }
+        // if (write_index_to_disk)
+        // {
+        //     write_Total_Pos_Table(&PCB, read_file_name);
+        //     ///destory_Total_Pos_Table(&PCB);
+        //     ///load_Total_Pos_Table(&PCB, read_file_name);
+        //     write_All_reads(&R_INF, read_file_name);
+        //     ///destory_All_reads(&R_INF);
+        //     ///load_All_reads(&R_INF, read_file_name);
+        // }
     }
 
     ///destory_Total_Count_Table(&TCB);
@@ -1157,29 +1157,44 @@ inline void push_cigar(Compressed_Cigar_record* records, long long ID, Cigar_rec
 }
 
 
-void push_overlaps(ma_hit_t_alloc* paf, overlap_region_alloc* overlap_list, int flag)
+void push_overlaps(ma_hit_t_alloc* paf, overlap_region_alloc* overlap_list, int flag, 
+All_reads* R_INF, int if_reverse)
 {
-    long long i = 0;
+    long long i = 0, xLen, yLen;
     ma_hit_t tmp;
     clear_ma_hit_t_alloc(paf);
     for (i = 0; i < overlap_list->length; i++)
     {
         if (overlap_list->list[i].is_match == flag)
         {
+            xLen = Get_READ_LENGTH((*R_INF), overlap_list->list[i].x_id);
+            yLen = Get_READ_LENGTH((*R_INF), overlap_list->list[i].y_id);
+
             tmp.qns = overlap_list->list[i].x_id;
             tmp.qns = tmp.qns << 32;
-            tmp.qns = tmp.qns | (uint64_t)(overlap_list->list[i].x_pos_s);
-
-            tmp.qe = overlap_list->list[i].x_pos_e;
-
             tmp.tn = overlap_list->list[i].y_id;
-            tmp.ts = overlap_list->list[i].y_pos_s;
-            tmp.te = overlap_list->list[i].y_pos_e;
-
+        
+            if(if_reverse != 0)
+            {
+                tmp.qns = tmp.qns | (uint64_t)(xLen - overlap_list->list[i].x_pos_s - 1);
+                tmp.qe = xLen - overlap_list->list[i].x_pos_e - 1;
+                tmp.ts = yLen - overlap_list->list[i].y_pos_s - 1;
+                tmp.te = yLen - overlap_list->list[i].y_pos_e - 1;
+            }
+            else
+            {
+                tmp.qns = tmp.qns | (uint64_t)(overlap_list->list[i].x_pos_s);
+                tmp.qe = overlap_list->list[i].x_pos_e;
+                tmp.ts = overlap_list->list[i].y_pos_s;
+                tmp.te = overlap_list->list[i].y_pos_e;
+            }
+            
+    
             ///for overlap_list, the x_strand of all overlaps are 0, so the tmp.rev is the same as the y_strand
             tmp.rev = overlap_list->list[i].y_pos_strand;
 
-            tmp.bl = R_INF.read_length[overlap_list->list[i].y_id];
+            ///tmp.bl = R_INF.read_length[overlap_list->list[i].y_id];
+            tmp.bl = Get_READ_LENGTH((*R_INF), overlap_list->list[i].y_id);
             tmp.ml = overlap_list->list[i].strong;
             tmp.no_l_indel = overlap_list->list[i].without_large_indel;
 
@@ -1238,7 +1253,7 @@ long long xBeg, long long xEnd, long long yBeg, long long yEnd)
 }
 
 long long push_final_overlaps(ma_hit_t_alloc* paf, ma_hit_t_alloc* reverse_paf_list, 
-overlap_region_alloc* overlap_list, UC_Read* x_read, UC_Read* y_read, int flag, int test_exact)
+overlap_region_alloc* overlap_list, int flag)
 {
     long long i = 0;
     long long available_overlaps = 0;
@@ -1286,23 +1301,7 @@ overlap_region_alloc* overlap_list, UC_Read* x_read, UC_Read* y_read, int flag, 
             tmp.ml = overlap_list->list[i].strong;
             tmp.no_l_indel = overlap_list->list[i].without_large_indel;
 
-
-
-            if(test_exact == 1)
-            {
-                if(overlap_list->list[i].y_pos_strand == 0)
-                {
-                    recover_UC_Read(y_read, &R_INF, overlap_list->list[i].y_id);
-                }
-                else
-                {
-                    recover_UC_Read_RC(y_read, &R_INF, overlap_list->list[i].y_id);
-                }
-                
-                tmp.el = if_exact_match(x_read->seq, x_read->length, y_read->seq, y_read->length, 
-                overlap_list->list[i].x_pos_s, overlap_list->list[i].x_pos_e, 
-                overlap_list->list[i].y_pos_s, overlap_list->list[i].y_pos_e);
-            }
+            tmp.el = overlap_list->list[i].shared_seed;
 
             add_ma_hit_t_alloc(paf, &tmp);
         }
@@ -1736,7 +1735,7 @@ HeapSq* heap, Candidates_list* l, small_hash_table* forward, small_hash_table* r
 }
 
 void get_new_candidates(long long readID, UC_Read* g_read, overlap_region_alloc* overlap_list, k_mer_pos_list_alloc* array_list,
-HeapSq* heap, Candidates_list* l, double band_width_threshold)
+HeapSq* heap, Candidates_list* l, double band_width_threshold, int keep_whole_chain)
 {
     HPC_seq HPC_read;
     Hash_code k_code;
@@ -1821,7 +1820,8 @@ HeapSq* heap, Candidates_list* l, double band_width_threshold)
     
     ///以x_pos_e，即结束位置为主元排序
     ///calculate_overlap_region(l, overlap_list, readID, g_read->length, &R_INF);
-    calculate_overlap_region_by_chaining(l, overlap_list, readID, g_read->length, &R_INF, band_width_threshold);
+    calculate_overlap_region_by_chaining(l, overlap_list, readID, g_read->length, &R_INF, 
+    band_width_threshold, keep_whole_chain);
 }
 
 
@@ -1910,7 +1910,6 @@ void* Overlap_calculate_heap_merge(void* arg)
     init_small_hash_table(&reverse);
 
 
-
     uint8_t c2n[256];
     memset(c2n, 4, 256);
     c2n['A'] = c2n['a'] = 0; c2n['C'] = c2n['c'] = 1;
@@ -1920,7 +1919,7 @@ void* Overlap_calculate_heap_merge(void* arg)
     for (i = thr_ID; i < R_INF.total_reads; i = i + thread_num)
     {
         ///get_new_candidates(i, &g_read, &overlap_list, &array_list, &heap, &l, THRESHOLD_RATE*1.5);
-        get_new_candidates(i, &g_read, &overlap_list, &array_list, &heap, &l, 0.02);
+        get_new_candidates(i, &g_read, &overlap_list, &array_list, &heap, &l, 0.02, 1);
 
         clear_Cigar_record(&current_cigar);
         clear_Round2_alignment(&second_round);
@@ -1955,8 +1954,8 @@ void* Overlap_calculate_heap_merge(void* arg)
 
 
 
-        push_overlaps(&(R_INF.paf[i]), &overlap_list, 1);
-        push_overlaps(&(R_INF.reverse_paf[i]), &overlap_list, 2);
+        push_overlaps(&(R_INF.paf[i]), &overlap_list, 1, &R_INF, roundID%2);
+        push_overlaps(&(R_INF.reverse_paf[i]), &overlap_list, 2, &R_INF, roundID%2);
     }
 
 
@@ -1971,17 +1970,11 @@ void* Overlap_calculate_heap_merge(void* arg)
     
         
 
-    /**
-    fprintf(stderr, "candidate_overlap_reads: %llu\n", candidate_overlap_reads);
-    fprintf(stderr, "total_shared_seed: %llu\n", total_shared_seed);
-    **/
     destory_Candidates_list(&l);
     destory_overlap_region_alloc(&overlap_list);
-    //destory_Candidates_list(&debug_l);
 
     destory_Heap(&heap);
     destory_k_mer_pos_list_alloc(&array_list);
-    ///destory_k_mer_pos_list_alloc_prefilter(&array_list);
 
     destory_Graph(&POA_Graph);
     destory_Graph(&DAGCon);
@@ -2121,7 +2114,7 @@ void* Output_related_reads(void* arg)
            memcmp(required_read_name, Get_NAME((R_INF), i), Get_NAME_LENGTH((R_INF),i)) == 0)
         {
             ////get_new_candidates(i, &g_read, &overlap_list, &array_list, &heap, &l, THRESHOLD_RATE*1.5);
-            get_new_candidates(i, &g_read, &overlap_list, &array_list, &heap, &l, 0.02);
+            get_new_candidates(i, &g_read, &overlap_list, &array_list, &heap, &l, 0.02, 1);
 
             fprintf(stderr, ">%.*s\n", Get_NAME_LENGTH((R_INF), i),
             Get_NAME((R_INF), i));
@@ -2893,21 +2886,303 @@ void debug_print_overlap(char* y_name, overlap_region_alloc* overlap_list, All_r
     }
 }
 
+int debug_diff(int a, int b)
+{
+    if(DIFF(a, b)!= abs(a-b))
+    {
+        fprintf(stderr, "sbsbsbsb\n");
+    }
+}
+
+void update_overlaps(overlap_region_alloc* overlap_list, ma_hit_t_alloc* paf, 
+UC_Read* g_read, UC_Read* overlap_read, int is_match, int is_exact)
+{
+
+    long long inner_j = 0;
+    long long j = 0;
+    long long x_overlapLen, y_overlapLen;
+    while (j < overlap_list->length && inner_j < paf->length)
+    {
+        if(overlap_list->list[j].y_id < paf->buffer[inner_j].tn)
+        {
+            j++;
+        }
+        else if(overlap_list->list[j].y_id > paf->buffer[inner_j].tn)
+        {
+            inner_j++;
+        }
+        else
+        {
+            if(overlap_list->list[j].y_pos_strand == paf->buffer[inner_j].rev)
+            {
+                x_overlapLen = Get_qe(paf->buffer[inner_j]) - Get_qs(paf->buffer[inner_j]) + 1;
+                y_overlapLen = Get_te(paf->buffer[inner_j]) - Get_ts(paf->buffer[inner_j]) + 1;
+                if(x_overlapLen < y_overlapLen) x_overlapLen = y_overlapLen;
+                x_overlapLen = x_overlapLen * 0.1;
+
+                // debug_diff(overlap_list->list[j].x_pos_s, Get_qs(paf->buffer[inner_j]));
+                // debug_diff(overlap_list->list[j].x_pos_e, Get_qe(paf->buffer[inner_j]));
+                // debug_diff(overlap_list->list[j].y_pos_s, Get_ts(paf->buffer[inner_j]));
+                // debug_diff(overlap_list->list[j].y_pos_e, Get_te(paf->buffer[inner_j]));
+
+                ///fprintf(stderr, "hehe\n");
+
+                // if(
+                // ((DIFF(overlap_list->list[j].x_pos_s, Get_qs(paf->buffer[inner_j])) < x_overlapLen)
+                // && (DIFF(overlap_list->list[j].x_pos_e, Get_qe(paf->buffer[inner_j])) < x_overlapLen))
+                // ||
+                // ((DIFF(overlap_list->list[j].y_pos_s, Get_ts(paf->buffer[inner_j])) < x_overlapLen)
+                // && (DIFF(overlap_list->list[j].y_pos_e, Get_te(paf->buffer[inner_j])) < x_overlapLen)))
+                if(
+                ((DIFF(overlap_list->list[j].x_pos_s, Get_qs(paf->buffer[inner_j])) < x_overlapLen)
+                && (DIFF(overlap_list->list[j].x_pos_e, Get_qe(paf->buffer[inner_j])) < x_overlapLen))
+                || 
+                ((DIFF(overlap_list->list[j].y_pos_s, Get_ts(paf->buffer[inner_j])) < x_overlapLen)
+                && (DIFF(overlap_list->list[j].y_pos_e, Get_te(paf->buffer[inner_j])) < x_overlapLen))
+                )
+                {
+                    overlap_list->list[j].is_match = is_match;
+                    overlap_list->list[j].strong = paf->buffer[inner_j].ml;
+                    overlap_list->list[j].without_large_indel = paf->buffer[inner_j].no_l_indel;
+                    if(is_exact == 1)
+                    {
+                        if(overlap_list->list[j].y_pos_strand == 0)
+                        {
+                            recover_UC_Read(overlap_read, &R_INF, overlap_list->list[j].y_id);
+                        }
+                        else
+                        {
+                            recover_UC_Read_RC(overlap_read, &R_INF, overlap_list->list[j].y_id);
+                        }
+                        if(if_exact_match(g_read->seq, g_read->length, overlap_read->seq, overlap_read->length, 
+                        overlap_list->list[j].x_pos_s, overlap_list->list[j].x_pos_e, 
+                        overlap_list->list[j].y_pos_s, overlap_list->list[j].y_pos_e))
+                        {
+                            overlap_list->list[j].shared_seed = 1;
+                        }
+                        else
+                        {
+                            overlap_list->list[j].shared_seed = 0;
+                        }
+                    }
+                }
+                else
+                {
+                    overlap_list->list[j].is_match = 3;
+                }
+            }
+            else
+            {
+                overlap_list->list[j].is_match = 3;
+            }
+            
+            j++;
+            inner_j++;
+        }
+    }
+}
+
+void update_exact_overlaps(overlap_region_alloc* overlap_list, UC_Read* g_read, UC_Read* overlap_read)
+{
+    long long j;
+    for (j = 0; j < overlap_list->length; j++)
+    {
+        if (overlap_list->list[j].is_match != 1)
+        {
+            if(overlap_list->list[j].y_pos_strand == 0)
+            {
+                recover_UC_Read(overlap_read, &R_INF, overlap_list->list[j].y_id);
+            }
+            else
+            {
+                recover_UC_Read_RC(overlap_read, &R_INF, overlap_list->list[j].y_id);
+            }
+
+            if(if_exact_match(g_read->seq, g_read->length, overlap_read->seq, overlap_read->length, 
+            overlap_list->list[j].x_pos_s, overlap_list->list[j].x_pos_e, 
+            overlap_list->list[j].y_pos_s, overlap_list->list[j].y_pos_e))
+            {
+                overlap_list->list[j].is_match = 1;
+                overlap_list->list[j].strong = 0;
+                overlap_list->list[j].without_large_indel = 1;
+                overlap_list->list[j].shared_seed = 1;
+            }
+        }
+    }
+}
+
+
+void statistic(ma_hit_t_alloc* paf, ma_hit_t_alloc* rev_paf, long long readNum)
+{
+
+    long long forward, reverse, strong, weak, exact, no_l_indel;
+    no_l_indel = forward = reverse = exact = strong = weak = 0;
+    long long i, j;
+    
+    for (i = 0; i < readNum; i++)
+    {
+        forward += paf[i].length;
+        reverse += rev_paf[i].length;
+        for (j = 0; j < paf[i].length; j++)
+        {
+            if(paf[i].buffer[j].el == 1) exact++;
+            if(paf[i].buffer[j].ml == 1) strong++;
+            if(paf[i].buffer[j].ml == 0) weak++;
+            if(paf[i].buffer[j].no_l_indel == 1) no_l_indel++;
+        }
+    }
+
+
+    fprintf(stdout, "****************statistic for overlaps****************\n");
+    fprintf(stdout, "overlaps #: %lld\n", forward);
+    fprintf(stdout, "strong overlaps #: %lld\n", strong);
+    fprintf(stdout, "weak overlaps #: %lld\n", weak);
+    fprintf(stdout, "exact overlaps #: %lld\n", exact);
+    fprintf(stdout, "inexact overlaps #: %lld\n", forward - exact);
+    fprintf(stdout, "overlaps without large indels#: %lld\n", no_l_indel);
+    fprintf(stdout, "reverse overlaps #: %lld\n", reverse);
+    fprintf(stdout, "****************statistic for overlaps****************\n");
+}
+
+
+void fill_chain(Fake_Cigar* chain, char* x_string, char* y_string, long long xBeg, long long yBeg,
+long long x_readLen, long long y_readLen, Cigar_record* cigar, uint8_t* c2n)
+{
+    long long i, xOffset, yOffset, xRegionLen, yRegionLen, /**bandLen,**/ maxXpos, maxYpos, mapScore, zdroped;
+    float band_rate = 0.08;
+    int endbouns;
+    if(chain->length <= 0) return;
+
+    kvec_t(uint8_t) x_num;
+    kvec_t(uint8_t) y_num;
+    kv_init(x_num);
+    kv_init(y_num);
+
+    ///deal with region 0 backward
+    i = 0;
+    endbouns = 0;
+
+    xOffset = get_fake_gap_pos(chain, 0);
+    xOffset = xOffset - 1;
+    yOffset = (xOffset - xBeg) + yBeg + get_fake_gap_shift(chain, 0);
+    if(xOffset >= 0 && yOffset >= 0)
+    {
+        xRegionLen = xOffset + 1;
+        yRegionLen = yOffset + 1;
+        //note here cannot use DIFF(xRegionLen, yRegionLen)
+        // bandLen = (MIN(xRegionLen, yRegionLen))*band_rate;
+        // if(bandLen == 0) bandLen = MIN(xRegionLen, yRegionLen);
+
+        ///do alignment backward
+        kv_resize(uint8_t, x_num, xRegionLen);
+        kv_resize(uint8_t, y_num, yRegionLen);
+        ///text is x, query is y
+        afine_gap_alignment(x_string, x_num.a, xRegionLen, y_string, y_num.a, yRegionLen, 
+        c2n, BACKWARD_KSW, MATCH_SCORE_KSW, MISMATCH_SCORE_KSW, GAP_OPEN_KSW, GAP_EXT_KSW,
+        /**bandLen,**/BAND_KSW, Z_DROP_KSW, endbouns, &maxXpos, &maxYpos, &mapScore, &zdroped);
+        fprintf(stderr, "* xOffset: %d, yOffset: %d, xRegionLen: %d, yRegionLen: %d, bandLen: %d, maxXpos: %d, maxYpos: %d, zdroped: %d\n",
+        xOffset, yOffset, xRegionLen, yRegionLen, BAND_KSW, maxXpos, maxYpos, zdroped);
+    }
+
+    ///align forward
+    for (i = 0; i < chain->length; i++)
+    {
+        // xOffset = get_fake_gap_pos(chain, i);
+        // yOffset = xOffset + get_fake_gap_shift(chain, i);
+        xOffset = get_fake_gap_pos(chain, i);
+        yOffset = (xOffset - xBeg) + yBeg + get_fake_gap_shift(chain, i);
+        ///last region
+        if(i == chain->length - 1)
+        {
+            endbouns = 0;
+            xRegionLen = x_readLen - xOffset;
+            yRegionLen = y_readLen - yOffset;
+            //note here cannot use DIFF(xRegionLen, yRegionLen)
+            // bandLen = (MIN(xRegionLen, yRegionLen))*band_rate;
+            // if(bandLen == 0) bandLen = MIN(xRegionLen, yRegionLen);
+        }
+        else
+        {
+            ///higher endbouns for middle regions
+            endbouns = MATCH_SCORE_KSW;
+            xRegionLen = get_fake_gap_pos(chain, i+1) - xOffset;
+            yRegionLen = (get_fake_gap_pos(chain, i+1) + get_fake_gap_shift(chain, i+1)) - 
+                         (get_fake_gap_pos(chain, i) + get_fake_gap_shift(chain, i));
+
+            // bandLen = MAX((MIN(xRegionLen, yRegionLen))*band_rate, DIFF(xRegionLen, yRegionLen));
+            // if(bandLen == 0) bandLen = MIN(xRegionLen, yRegionLen);
+        }
+
+        
+        ///do alignment forward
+        kv_resize(uint8_t, x_num, xRegionLen);
+        kv_resize(uint8_t, y_num, yRegionLen);
+        ///text is x, query is y
+        afine_gap_alignment(x_string+xOffset, x_num.a, xRegionLen, y_string+yOffset, y_num.a, yRegionLen, 
+        c2n, FORWARD_KSW, MATCH_SCORE_KSW, MISMATCH_SCORE_KSW, GAP_OPEN_KSW, GAP_EXT_KSW,
+        /**bandLen,**/BAND_KSW, Z_DROP_KSW, endbouns, &maxXpos, &maxYpos, &mapScore, &zdroped);
+        fprintf(stderr, "# xOffset: %d, yOffset: %d, xRegionLen: %d, yRegionLen: %d, bandLen: %d, maxXpos: %d, maxYpos: %d, zdroped: %d\n",
+        xOffset, yOffset, xRegionLen, yRegionLen, BAND_KSW, maxXpos, maxYpos, zdroped);
+    }
+
+
+    kv_destroy(x_num);
+    kv_destroy(y_num);
+}
+void Final_phasing(overlap_region_alloc* overlap_list, Cigar_record_alloc* cigarline,
+UC_Read* g_read, UC_Read* overlap_read, uint8_t* c2n)
+{
+    long long i, xLen, yLen, yStrand;
+    char* x_string;
+    char* y_string;
+    Cigar_record* cigar;
+    resize_Cigar_record_alloc(cigarline, overlap_list->length);
+    
+
+    
+    for (i = 0; i < overlap_list->length; i++)
+    {
+        if(overlap_list->list[i].is_match == 1 ||
+           overlap_list->list[i].is_match == 2 ||
+           overlap_list->list[i].is_match == 3)
+        {
+            xLen = overlap_list->list[i].x_pos_e - overlap_list->list[i].x_pos_s + 1;
+            yLen = overlap_list->list[i].y_pos_e - overlap_list->list[i].y_pos_s + 1;
+            yStrand = overlap_list->list[i].y_pos_strand;
+            cigar = &(cigarline->buffer[i]);
+            ///has already been matched exactly
+            if(overlap_list->list[i].is_match == 1 && overlap_list->list[i].shared_seed == 1)
+            {
+                add_cigar_record(g_read->seq + overlap_list->list[i].x_pos_s, xLen, cigar, 0);
+            }
+            else 
+            {
+                if(yStrand == 0)
+                {
+                    recover_UC_Read(overlap_read, &R_INF, overlap_list->list[i].y_id);
+                }
+                else
+                {
+                    recover_UC_Read_RC(overlap_read, &R_INF, overlap_list->list[i].y_id);
+                }
+                x_string = g_read->seq;
+                y_string = overlap_read->seq;
+
+                fill_chain(&(overlap_list->list[i].f_cigar), x_string, y_string, 
+                overlap_list->list[i].x_pos_s, overlap_list->list[i].y_pos_s,
+                Get_READ_LENGTH(R_INF, overlap_list->list[i].x_id), 
+                Get_READ_LENGTH(R_INF, overlap_list->list[i].y_id), cigar, c2n);
+            }
+            
+        }
+    }
+    
+}
+
 void* Final_overlap_calculate_heap_merge(void* arg)
 {
-    long long matched_overlap_0 = 0;
-    long long matched_overlap_1 = 0;
-    long long potiental_matched_overlap_0 = 0;
-    long long potiental_matched_overlap_1 = 0;
-    long long num_correct_base = 0;
-    long long num_read_base = 0;
-    long long num_second_correct_base = 0;
-    long long j, inner_j;
-
     int thr_ID = *((int*)arg);
-    uint64_t POA_i;
     long long i = 0;
-    int avalible_k = 0;
 
     UC_Read g_read;
     init_UC_Read(&g_read);
@@ -2915,27 +3190,8 @@ void* Final_overlap_calculate_heap_merge(void* arg)
     UC_Read overlap_read;
     init_UC_Read(&overlap_read);
 
-    HPC_seq HPC_read;
-    Hash_code k_code;
-    uint64_t code;
-    uint64_t end_pos;
-    k_mer_pos* list;
-    uint64_t list_length;
-    uint64_t sub_ID;
-    long long total_shared_seed = 0;
-    long long candidate_overlap_reads = 0;
-    
-
-    Candidates_list l;
-    //Candidates_list debug_l;
-    Graph POA_Graph;
-    Graph DAGCon;
-    init_Graph(&DAGCon);
-    init_Graph(&POA_Graph);
-
-    
+    Candidates_list l;    
     init_Candidates_list(&l);
-    //init_Candidates_list(&debug_l);
 
     k_mer_pos_list_alloc array_list;
     init_k_mer_pos_list_alloc(&array_list);
@@ -2944,63 +3200,24 @@ void* Final_overlap_calculate_heap_merge(void* arg)
     init_overlap_region_alloc(&overlap_list);
 
     HeapSq heap;
-
     Init_Heap(&heap);
 
-    Correct_dumy correct;
-    init_Correct_dumy(&correct);
+    Cigar_record_alloc cigarline;
+    init_Cigar_record_alloc(&cigarline);
 
-
-    Output_buffer_sub_block current_sub_buffer;
-
-    init_buffer_sub_block(&current_sub_buffer);
-
-    Cigar_record current_cigar;
-    init_Cigar_record(&current_cigar);
-
-    haplotype_evdience_alloc hap;
-    InitHaplotypeEvdience(&hap);
-
-
-    Round2_alignment second_round;
-    init_Round2_alignment(&second_round);
-
-    small_hash_table forward, reverse;
-    init_small_hash_table(&forward);
-    init_small_hash_table(&reverse);
-
-
-    long long pre_r_overlaps = 0;
-    long long cur_r_overlaps = 0;
-    long long pre_overlaps = 0;
-    long long cur_overlaps = 0;
-    if(thr_ID == 0)
-    {
-        for (i = 0; i < R_INF.total_reads; i++)
-        {
-            pre_r_overlaps += R_INF.reverse_paf[i].length;
-            pre_overlaps += R_INF.paf[i].length;
-        }
-    }
-
-    // if(thr_ID == 0)
-    // {
-    //     debug_info_of_specfic_read("m64016_190918_162737/130811282/ccs", 
-    //     R_INF.paf, R_INF.reverse_paf, -1, "xxxx");
-
-    //     debug_info_of_specfic_read("m64016_190918_162737/179635219/ccs", 
-    //     R_INF.paf, R_INF.reverse_paf, -1, "xxxx");
-    // }
+    uint8_t c2n[256];
+    memset(c2n, 4, 256);
+    c2n['A'] = c2n['a'] = 0; c2n['C'] = c2n['c'] = 1;
+	c2n['G'] = c2n['g'] = 2; c2n['T'] = c2n['t'] = 3; // build the encoding table
     
+
+
 
 
     for (i = thr_ID; i < R_INF.total_reads; i = i + thread_num)
     {
 
-        
-
-        ////get_new_candidates(i, &g_read, &overlap_list, &array_list, &heap, &l, THRESHOLD_RATE*1.5);
-        get_new_candidates(i, &g_read, &overlap_list, &array_list, &heap, &l, 0.001);
+        get_new_candidates(i, &g_read, &overlap_list, &array_list, &heap, &l, 0.001, 0);
         /**
         correct_overlap(&overlap_list, &R_INF, &g_read, &correct, &overlap_read, &POA_Graph, &DAGCon,
         &matched_overlap_0, &matched_overlap_1, &potiental_matched_overlap_0, &potiental_matched_overlap_1,
@@ -3012,148 +3229,23 @@ void* Final_overlap_calculate_heap_merge(void* arg)
         overlap_region_sort_y_id(overlap_list.list, overlap_list.length);
         ma_hit_sort_tn(R_INF.paf[i].buffer, R_INF.paf[i].length);
         ma_hit_sort_tn(R_INF.reverse_paf[i].buffer, R_INF.reverse_paf[i].length);
+        reverse_complement(g_read.seq, g_read.length);
 
 
-        // if(memcmp("m64016_190918_162737/130811282/ccs", Get_NAME((R_INF), i), 
-        // Get_NAME_LENGTH((R_INF), i)) == 0)
-        // {
-        //     fprintf(stderr, "\n1\n");
-        //     debug_print_overlap("m64016_190918_162737/179635219/ccs", &overlap_list, &R_INF, "first");
-        // }
+        update_overlaps(&overlap_list, &(R_INF.paf[i]), &g_read, &overlap_read, 1, 1);
+        update_overlaps(&overlap_list, &(R_INF.reverse_paf[i]), &g_read, &overlap_read, 2, 0);
+        ///recover missing exact overlaps 
+        update_exact_overlaps(&overlap_list, &g_read, &overlap_read);
 
-        // if(memcmp("m64016_190918_162737/179635219/ccs", Get_NAME((R_INF), i), 
-        // Get_NAME_LENGTH((R_INF), i)) == 0)
-        // {
-        //     fprintf(stderr, "\n1\n");
-        //     debug_print_overlap("m64016_190918_162737/130811282/ccs", &overlap_list, &R_INF, "first");
-        // }
+        ///Final_phasing(&overlap_list, &cigarline, &g_read, &overlap_read, c2n);
 
+
+        push_final_overlaps(&(R_INF.paf[i]), R_INF.reverse_paf, 
+        &overlap_list, 1);
+        push_final_overlaps(&(R_INF.reverse_paf[i]), R_INF.reverse_paf, 
+        &overlap_list, 2);
 
         
-
-        overlap_list.mapped_overlaps_length = 0;
-        inner_j = 0;
-        j = 0;
-        while (j < overlap_list.length && inner_j < R_INF.paf[i].length)
-        {
-            if(overlap_list.list[j].y_id < R_INF.paf[i].buffer[inner_j].tn)
-            {
-                j++;
-            }
-            else if(overlap_list.list[j].y_id > R_INF.paf[i].buffer[inner_j].tn)
-            {
-                inner_j++;
-            }
-            else
-            {
-                if(overlap_list.list[j].y_pos_strand == R_INF.paf[i].buffer[inner_j].rev)
-                {
-
-                    overlap_list.list[j].is_match = 1;
-                    overlap_list.list[j].strong = R_INF.paf[i].buffer[inner_j].ml;
-                    overlap_list.list[j].without_large_indel = R_INF.paf[i].buffer[inner_j].no_l_indel;
-                    overlap_list.mapped_overlaps_length++;
-
-                    if(overlap_list.list[j].strong == 1)
-                    {
-                        matched_overlap_1++;
-                    }
-                    else if(overlap_list.list[j].strong == 0)
-                    {
-                        matched_overlap_0++;
-                    }
-                    else
-                    {
-                        fprintf(stderr, "error\n");
-                    }
-
-
-                    if(overlap_list.list[j].without_large_indel == 0)
-                    {
-                        num_second_correct_base++;
-                    }
-
-
-
-                }
-                j++;
-                inner_j++;
-            }
-        }
-
-
-
-
-        inner_j = 0;
-        j = 0;
-        while (j < overlap_list.length && inner_j < R_INF.reverse_paf[i].length)
-        {
-            if(overlap_list.list[j].y_id < R_INF.reverse_paf[i].buffer[inner_j].tn)
-            {
-                j++;
-            }
-            else if(overlap_list.list[j].y_id > R_INF.reverse_paf[i].buffer[inner_j].tn)
-            {
-                inner_j++;
-            }
-            else
-            {
-                if(overlap_list.list[j].y_pos_strand == R_INF.reverse_paf[i].buffer[inner_j].rev)
-                {
-
-                    overlap_list.list[j].is_match = 2;
-                    overlap_list.list[j].strong = 0;
-                    overlap_list.list[j].without_large_indel = 1;
-                }
-                j++;
-                inner_j++;
-            }
-        }
-
-
-        ///recover missing exact overlaps 
-        reverse_complement(g_read.seq, g_read.length);
-        for (j = 0; j < overlap_list.length; j++)
-        {
-            if (overlap_list.list[j].is_match != 1)
-            {
-                if(overlap_list.list[j].y_pos_strand == 0)
-                {
-                    recover_UC_Read(&overlap_read, &R_INF, overlap_list.list[j].y_id);
-                }
-                else
-                {
-                    recover_UC_Read_RC(&overlap_read, &R_INF, overlap_list.list[j].y_id);
-                }
-
-                if(if_exact_match(g_read.seq, g_read.length, overlap_read.seq, overlap_read.length, 
-                overlap_list.list[j].x_pos_s, overlap_list.list[j].x_pos_e, 
-                overlap_list.list[j].y_pos_s, overlap_list.list[j].y_pos_e))
-                {
-                    overlap_list.list[j].is_match = 1;
-                    overlap_list.list[j].strong = 0;
-                    overlap_list.list[j].without_large_indel = 1;
-                    overlap_list.mapped_overlaps_length++;
-                    potiental_matched_overlap_0++;
-                }
-                
-            }
-        }
-
-
-        if(R_INF.paf[i].is_fully_corrected)
-        {
-            potiental_matched_overlap_1++;
-        }
-
-        num_correct_base += 
-        push_final_overlaps(&(R_INF.paf[i]), R_INF.reverse_paf, 
-        &overlap_list, &g_read, &overlap_read, 1, 1);
-
-
-        push_final_overlaps(&(R_INF.reverse_paf[i]), R_INF.reverse_paf, 
-        &overlap_list, &g_read, &overlap_read, 2, 0);
-
     }
 
 
@@ -3161,70 +3253,20 @@ void* Final_overlap_calculate_heap_merge(void* arg)
 
     finish_output_buffer();
 
-    destory_buffer_sub_block(&current_sub_buffer);
     destory_Candidates_list(&l);
     destory_overlap_region_alloc(&overlap_list);
     destory_Heap(&heap);
-    destory_k_mer_pos_list_alloc(&array_list);
-    destory_Graph(&POA_Graph);
-    destory_Graph(&DAGCon);    
+    destory_k_mer_pos_list_alloc(&array_list);  
     destory_UC_Read(&g_read);
     destory_UC_Read(&overlap_read);
-    destory_Cigar_record(&current_cigar);
-    destory_Correct_dumy(&correct);
-    destoryHaplotypeEvdience(&hap);
-    destory_Round2_alignment(&second_round);
-    destory_small_hash_table(&forward);
-    destory_small_hash_table(&reverse);
-
-
+    destory_Cigar_record_alloc(&cigarline);
+    
 
     pthread_mutex_lock(&statistics);
-    total_matched_overlap_0 += matched_overlap_0;
-    total_matched_overlap_1 += matched_overlap_1;
-    total_potiental_matched_overlap_0 += potiental_matched_overlap_0;
-    total_potiental_matched_overlap_1 += potiental_matched_overlap_1;
-    total_num_correct_base += num_correct_base;
-    total_second_num_correct_base += num_second_correct_base;
-
-
     complete_threads++;
     if(complete_threads == thread_num)
     {
-
-
-        fprintf(stderr, "overlaps with large indels: %llu\n", total_second_num_correct_base);
-        fprintf(stderr, "weak overlaps: %llu\n", total_matched_overlap_0);
-        fprintf(stderr, "strong overlaps: %llu\n", total_matched_overlap_1); 
-        fprintf(stderr, "recover weak overlaps: %llu\n", total_potiental_matched_overlap_0);
-        fprintf(stderr, "final available overlaps: %llu\n", total_num_correct_base); 
-
-        fprintf(stderr, "fully corrected reads: %llu\n", total_potiental_matched_overlap_1);
-
-
-
-        for (i = 0; i < R_INF.total_reads; i++)
-        {
-            cur_r_overlaps += R_INF.reverse_paf[i].length;
-            cur_overlaps += R_INF.paf[i].length;
-        }
-        fprintf(stderr, "pre_r_overlaps: %d, cur_r_overlaps: %d\n", 
-        pre_r_overlaps, cur_r_overlaps);
-
-        fprintf(stderr, "pre_overlaps: %d, cur_overlaps: %d\n", 
-        pre_overlaps, cur_overlaps);
-
-
-
-
- 
-        // debug_info_of_specfic_read("m64016_190918_162737/130811282/ccs", 
-        // R_INF.paf, R_INF.reverse_paf, -1, "yyyy");
-
-        // debug_info_of_specfic_read("m64016_190918_162737/179635219/ccs", 
-        // R_INF.paf, R_INF.reverse_paf, -1, "yyyy");
-        
-              
+        statistic(R_INF.paf, R_INF.reverse_paf, R_INF.total_reads);
     }
     pthread_mutex_unlock(&statistics);
     free(arg);
@@ -3363,24 +3405,9 @@ void Correct_Reads(int last_round)
 
     roundID = number_of_round - last_round;
     fprintf(stdout, "Error correction: start the %d-th round ...\n", roundID);
-    ///only the first round correction can load index from disk
-    if (roundID == 0 && load_index_from_disk && load_pre_cauculated_index())
-    {
-        ;
-    }
-    else
-    {
-        Counting_multiple_thr();
-
-        Build_hash_table_multiple_thr();
-    }
-
     
-    fprintf(stdout, "Total pos in hash tabe: %d\n", PCB.total_occ);
-    fprintf(stdout, "k_mer_min_freq in hashtable: %d\n", k_mer_min_freq);
-    fprintf(stdout, "k_mer_max_freq in hashtable: %d\n", k_mer_max_freq);
-    
-    
+    Counting_multiple_thr();
+    Build_hash_table_multiple_thr();
     
     ///verify_Position_hash_table();
     Overlap_calculate_multipe_thr();

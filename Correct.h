@@ -16,10 +16,13 @@
 #define INSERTION 2
 #define DELETION 3
 
+#define MIN(x,y) ((x)<=(y)?(x):(y)) 
+
 ///#define FLAG_THRE 0
 
 #define MAX(x, y) ((x >= y)?x:y)
 #define MIN(x, y) ((x <= y)?x:y)
+#define DIFF(x, y) ((MAX((x), (y))) - (MIN((x), (y))))
 #define OVERLAP(x_start, x_end, y_start, y_end) (MIN(x_end, y_end) - MAX(x_start, y_start) + 1) 
 ///#define OVERLAP(x_start, x_end, y_start, y_end) MIN(x_end, y_end) - MAX(x_start, y_start) + 1 
 
@@ -129,6 +132,14 @@ typedef struct
     
 
 }Cigar_record;
+
+
+typedef struct
+{
+  long long length;
+  long long size;
+  Cigar_record* buffer;
+}Cigar_record_alloc;
 
 
 typedef struct
@@ -1436,4 +1447,22 @@ void append_k_mer_pos_list_alloc_prefilter(k_mer_pos_list_alloc* list, k_mer_pos
 uint64_t n_end_pos, uint8_t n_direction, UC_Read* g_read, All_reads* R_INF, Correct_dumy* dumy);
 /**********************for prefilter************************ */
 
+
+void init_Cigar_record_alloc(Cigar_record_alloc* x);
+void resize_Cigar_record_alloc(Cigar_record_alloc* x, long long new_size);
+void destory_Cigar_record_alloc(Cigar_record_alloc* x);
+
+void afine_gap_alignment(const char *tseq, uint8_t* tnum, const int tl, 
+const char *qseq, uint8_t* qnum, const int ql, const uint8_t *c2n, const int strand,
+int sc_mch, int sc_mis, int gapo, int gape, int bandLen, int zdrop, int end_bonus,
+long long* max_t_pos, long long* max_q_pos, long long* score, long long* droped);
+
+#define FORWARD_KSW 0
+#define BACKWARD_KSW 1
+#define MATCH_SCORE_KSW 2
+#define MISMATCH_SCORE_KSW 4
+#define GAP_OPEN_KSW 4
+#define GAP_EXT_KSW 2
+#define Z_DROP_KSW 400
+#define BAND_KSW 50
 #endif

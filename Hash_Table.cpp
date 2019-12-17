@@ -291,6 +291,7 @@ void init_overlap_region_alloc(overlap_region_alloc* list)
     for (i = 0; i < list->size; i++)
     { 
         init_fake_cigar(&(list->list[i].f_cigar));
+        init_window_list_alloc(&(list->list[i].boundary_cigars));
     }
 }
 void clear_overlap_region_alloc(overlap_region_alloc* list)
@@ -302,6 +303,7 @@ void clear_overlap_region_alloc(overlap_region_alloc* list)
     {   
         list->list[i].w_list_length = 0;
         clear_fake_cigar(&(list->list[i].f_cigar));
+        clear_window_list_alloc(&(list->list[i].boundary_cigars));
     }
 }
 
@@ -315,6 +317,7 @@ void destory_overlap_region_alloc(overlap_region_alloc* list)
             free(list->list[i].w_list);
         }
         destory_fake_cigar(&(list->list[i].f_cigar));
+        destory_window_list_alloc(&(list->list[i].boundary_cigars));
     }
     free(list->list);
 }
@@ -851,7 +854,8 @@ int append_inexact_overlap_region_alloc_back(overlap_region_alloc* list, overlap
 }
 
 
-int append_inexact_overlap_region_alloc(overlap_region_alloc* list, overlap_region* tmp, All_reads* R_INF)
+int append_inexact_overlap_region_alloc(overlap_region_alloc* list, overlap_region* tmp, 
+All_reads* R_INF, int add_beg_end)
 {
    
     if (list->length + 1 > list->size)
@@ -923,9 +927,16 @@ int append_inexact_overlap_region_alloc(overlap_region_alloc* list, overlap_regi
 
 
         resize_fake_cigar(&(list->list[list->length].f_cigar), (tmp->f_cigar.length + 2));
-        add_fake_cigar(&(list->list[list->length].f_cigar), list->list[list->length].x_pos_s, 0);
+        if(add_beg_end == 1)
+        {
+            add_fake_cigar(&(list->list[list->length].f_cigar), list->list[list->length].x_pos_s, 0);
+        }
+        
         long long distance_gap;
-        long long pre_distance_gap = 0;
+        /****************************may have bugs********************************/
+        ///long long pre_distance_gap = 0;
+        long long pre_distance_gap = 0xfffffffffffffff;
+        /****************************may have bugs********************************/
         long long i = 0;
         for (i = 0; i < tmp->f_cigar.length; i++)
         {
@@ -939,8 +950,8 @@ int append_inexact_overlap_region_alloc(overlap_region_alloc* list, overlap_regi
             }
         }
 
-        if(get_fake_gap_pos(&(list->list[list->length].f_cigar), 
-        list->list[list->length].f_cigar.length - 1) != list->list[list->length].x_pos_e)
+        if(add_beg_end == 1 && get_fake_gap_pos(&(list->list[list->length].f_cigar), 
+            list->list[list->length].f_cigar.length - 1) != list->list[list->length].x_pos_e)
         {
             add_fake_cigar(&(list->list[list->length].f_cigar), 
             list->list[list->length].x_pos_e, 
@@ -996,11 +1007,18 @@ int append_inexact_overlap_region_alloc(overlap_region_alloc* list, overlap_regi
 
 
         resize_fake_cigar(&(list->list[list->length].f_cigar), (tmp->f_cigar.length + 2));
-        add_fake_cigar(&(list->list[list->length].f_cigar), list->list[list->length].x_pos_s, 0);
+        if(add_beg_end == 1)
+        {
+            add_fake_cigar(&(list->list[list->length].f_cigar), list->list[list->length].x_pos_s, 0);
+        }
+        
         long long distance_self_pos = tmp->x_pos_e - tmp->x_pos_s;
         long long distance_pos = tmp->y_pos_e - tmp->y_pos_s;
         long long init_distance_gap = distance_pos - distance_self_pos;
-        long long pre_distance_gap = init_distance_gap;
+        /****************************may have bugs********************************/
+        ///long long pre_distance_gap = init_distance_gap;
+        long long pre_distance_gap = 0xfffffffffffffff;
+        /****************************may have bugs********************************/
         long long distance_gap;
         long long i = 0;
         for (i = tmp->f_cigar.length - 1; i >= 0; i--)
@@ -1015,7 +1033,7 @@ int append_inexact_overlap_region_alloc(overlap_region_alloc* list, overlap_regi
             }
         }
 
-        if(get_fake_gap_pos(&(list->list[list->length].f_cigar), 
+        if(add_beg_end == 1 && get_fake_gap_pos(&(list->list[list->length].f_cigar), 
         list->list[list->length].f_cigar.length - 1) != list->list[list->length].x_pos_e)
         {
             add_fake_cigar(&(list->list[list->length].f_cigar), 
@@ -1058,6 +1076,19 @@ int append_inexact_overlap_region_alloc(overlap_region_alloc* list, overlap_regi
     //    }
         /******************************for debug********************************/
     }
+
+    // if(list->list[list->length].f_cigar.length < 3 && tmp->f_cigar.length != 1)
+    // {
+    //     fprintf(stderr, "\n original cigar:\n");
+    //     print_fake_gap(&tmp->f_cigar);
+    //     fprintf(stderr, "new cigar:\n");
+    //     print_fake_gap(&list->list[list->length].f_cigar);
+    //     fprintf(stderr, "xs: %d, xe: %d, strand: %d, xLen: %d\n",
+    //     list->list[list->length].x_pos_s,
+    //     list->list[list->length].x_pos_e,
+    //     tmp->x_pos_strand,
+    //     Get_READ_LENGTH((*R_INF), tmp->x_id));
+    // }
 
 
     list->list[list->length].shared_seed = tmp->shared_seed;
@@ -1778,7 +1809,7 @@ double band_width_threshold, int max_skip, int x_readLen, int y_readLen)
 
 
     clear_fake_cigar(&(result->f_cigar));
-
+    ///not a has been sorted by offset, that means has been sorted by query offset
     i = max_i;
     result->x_pos_e = a[i].self_offset;
     result->y_pos_e = a[i].offset;
@@ -1790,6 +1821,7 @@ double band_width_threshold, int max_skip, int x_readLen, int y_readLen)
     long long pre_distance_gap = distance_pos - distance_self_pos;
     ///record first site
     ///the length of f_cigar should be at least 1
+    ///record the offset of reference
     add_fake_cigar(&(result->f_cigar), a[i].self_offset, pre_distance_gap);
     long long chainLen = 0;
     if(result->x_pos_strand == 1)
@@ -1938,7 +1970,7 @@ All_reads* R_INF)
 
 
 void calculate_overlap_region_by_chaining(Candidates_list* candidates, overlap_region_alloc* overlap_list, 
-uint64_t readID, uint64_t readLength, All_reads* R_INF, double band_width_threshold)
+uint64_t readID, uint64_t readLength, All_reads* R_INF, double band_width_threshold, int add_beg_end)
 {
     overlap_region tmp_region;
     uint64_t i = 0;
@@ -1967,12 +1999,13 @@ uint64_t readID, uint64_t readLength, All_reads* R_INF, double band_width_thresh
         current_ID = candidates->list[i].readID;
         current_stand = candidates->list[i].strand;
 
-        ///这个是查询read的信息
+        ///reference read
         tmp_region.x_id = readID;
         tmp_region.x_pos_strand = current_stand;
-        ///这个是被查询的read的信息
+        ///query read
         tmp_region.y_id = current_ID;
-        tmp_region.y_pos_strand = 0;  ///永远是0
+        ///here the strand of query is always 0
+        tmp_region.y_pos_strand = 0;  
 
 
 
@@ -2007,7 +2040,7 @@ uint64_t readID, uint64_t readLength, All_reads* R_INF, double band_width_thresh
         ///if (tmp_region.x_id != tmp_region.y_id && tmp_region.shared_seed > 1)
         if (tmp_region.x_id != tmp_region.y_id)
         {
-            append_inexact_overlap_region_alloc(overlap_list, &tmp_region, R_INF);
+            append_inexact_overlap_region_alloc(overlap_list, &tmp_region, R_INF, add_beg_end);
             ///append_inexact_overlap_region_alloc_back(overlap_list, &tmp_region, R_INF);
         }
     }
@@ -2158,7 +2191,7 @@ uint64_t readID, uint64_t readLength, All_reads* R_INF)
         ///if (tmp_region.x_id != tmp_region.y_id && tmp_region.shared_seed > 1)
         if (tmp_region.x_id != tmp_region.y_id)
         {
-            append_inexact_overlap_region_alloc(overlap_list, &tmp_region, R_INF);
+            append_inexact_overlap_region_alloc(overlap_list, &tmp_region, R_INF, 1);
         }
         
         
@@ -2937,8 +2970,310 @@ int load_Total_Pos_Table(Total_Pos_Table* TCB, char* read_file_name)
     return 1;
 }
 
+typedef struct
+{
+    long long* list;
+    uint64_t length;
+} H_peaks;
 
-void Traverse_Counting_Table(Total_Count_Table* TCB, Total_Pos_Table* PCB, int k_mer_min_freq, int k_mer_max_freq)
+void insert_H_peaks(H_peaks* h, long long index, long long value)
+{
+    if(h->length <= index)
+    {
+        long long newLen = index + 1;
+        h->list = (long long*)realloc(h->list, newLen*sizeof(long long));
+        memset(h->list + h->length, 0, sizeof(long long) * (newLen - h->length));
+        h->length = newLen;
+    }
+
+    h->list[index] += value;
+}
+
+inline void RC_Hash_code(Hash_code* code, Hash_code* rc_code, int k)
+{
+    rc_code->x[0] = 0;
+    rc_code->x[1] = 0;
+    int i;
+    for (i = 0; i < k; i++)
+    {
+        rc_code->x[0] = rc_code->x[0] << 1;
+        rc_code->x[1] = rc_code->x[1] << 1;
+        rc_code->x[0] |= (((uint64_t)((code->x[0] >> i) & 1))^((uint64_t)1));
+        rc_code->x[1] |= (((uint64_t)((code->x[1] >> i) & 1))^((uint64_t)1));
+    }
+}
+
+
+
+void get_peak_debug(Total_Count_Table* TCB, long long* min, long long* max)
+{
+    int i;
+    Count_Table* h;
+    khint_t k;
+    long long c_count;
+    H_peaks LH;
+    LH.list = NULL;
+    LH.length = 0;
+    uint64_t sub_ID;
+    uint64_t sub_key;
+    Hash_code code, rc_code, debug_code;
+    char str[100];
+    char rc_str[100];
+
+
+    
+    for (i = 0; i < TCB->size; i++)
+    {
+        h = TCB->sub_h[i];
+        for (k = kh_begin(h); k != kh_end(h); ++k)
+        {
+            if (kh_exist(h, k))            // test if a bucket contains data
+            {
+                sub_ID = i;
+                sub_key = kh_key(h, k);
+
+                recover_hash_code(sub_ID, sub_key, &code, TCB->suffix_mode, 
+                TCB->suffix_bits, k_mer_length);
+                RC_Hash_code(&code, &rc_code, k_mer_length);
+                RC_Hash_code(&rc_code, &debug_code, k_mer_length);
+                if(code.x[0] != debug_code.x[0] || code.x[1] != debug_code.x[1])
+                {
+                    fprintf(stderr, "sbsbsb\n");
+                }
+
+                Hashcode_to_string(&code, str, k_mer_length);
+                Hashcode_to_string(&rc_code, rc_str, k_mer_length);
+                reverse_complement(str, k_mer_length);
+                if(memcmp(str, rc_str, k_mer_length) != 0)
+                {
+                    fprintf(stderr, "hehehehe\n");
+                    int j;
+                    for (j = 0; j < k_mer_length; j++)
+                    {
+                        fprintf(stderr, "%c",str[j]);
+                    }
+                    fprintf(stderr, "\n");
+
+                    for (j = 0; j < k_mer_length; j++)
+                    {
+                        fprintf(stderr, "%c",rc_str[j]);
+                    }
+                    fprintf(stderr, "\n");
+                    
+                }
+
+
+                ///get_Total_Count_Table(&TCB, &k_code, k_mer_length);
+
+                c_count = kh_value(h, k);
+
+                if(get_Total_Count_Table(TCB, &code, k_mer_length) != c_count)
+                {
+                    fprintf(stderr, "sbsbsb\n");
+                }
+
+                insert_H_peaks(&LH, c_count, c_count);
+            }
+        }
+    }
+
+    (*max) = -1;
+    (*min) = -1;
+    long long max_value = -1;
+    for (i = 0; i < LH.length; i++)
+    {
+        if(LH.list[i] >= max_value)
+        {
+            max_value = LH.list[i];
+            (*max) = i;
+        }
+    }
+
+    long long min_value = max_value;
+    for (i = 0; i < LH.length; i++)
+    {
+        if(LH.list[i] < min_value && LH.list[i] != 0)
+        {
+            min_value = LH.list[i];
+            (*min) = i;
+        }
+    }
+
+    for (i = 0; i < LH.length; i++)
+    {
+        ///fprintf(stderr, "%d, %d\n", i, LH.list[i]);
+        fprintf(stderr, "%d\n", LH.list[i]);
+    }
+    
+    
+
+    free(LH.list);
+}
+
+///1: a > b; -1: a < b; 0: a=b
+int cmp_Hash_code(Hash_code* a, Hash_code* b)
+{
+    if(a->x[1] > b->x[1])
+    {
+        return 1;
+    }
+    if(a->x[1] < b->x[1])
+    {
+        return -1;
+    }
+    ///a->x[1] == b->x[1]
+    if(a->x[0] > b->x[0])
+    {
+        return 1;
+    }
+    if(a->x[0] < b->x[0])
+    {
+        return -1;
+    }
+
+    return 0;
+}
+
+int get_total_freq(Total_Count_Table* TCB, uint64_t sub_ID, uint64_t sub_key, long long* T_count)
+{
+    Hash_code code, rc_code;
+    long long count, rc_count;
+
+    recover_hash_code(sub_ID, sub_key, &code, TCB->suffix_mode, 
+                TCB->suffix_bits, k_mer_length);
+    RC_Hash_code(&code, &rc_code, k_mer_length);
+
+    count = get_Total_Count_Table(TCB, &code, k_mer_length);
+    rc_count = get_Total_Count_Table(TCB, &rc_code, k_mer_length);
+    (*T_count) = count + rc_count;
+
+    if(count == 0)
+    {
+        return 0;
+    }///count > 0 && rc_count == 0
+    else if(rc_count == 0)
+    {
+        return 1;
+    }///count > 0 && rc_count > 0
+    else
+    {
+        int flag = cmp_Hash_code(&code, &rc_code);
+
+        ///code > rc_code
+        if(flag > 0)
+        {
+            return 1;
+        }///code < rc_code
+        else if(flag < 0)
+        {
+            return 0;
+        }
+        else
+        {
+            (*T_count) = (*T_count)/2;
+            return 1;
+        }
+    }
+}
+
+void get_peak(Total_Count_Table* TCB, long long* min, long long* max, long long* up_boundary)
+{
+    int i;
+    Count_Table* h;
+    khint_t k;
+    long long count;
+    H_peaks LH;
+    LH.list = NULL;
+    LH.length = 0;
+    uint64_t sub_ID;
+    uint64_t sub_key;
+    
+    
+    
+    for (i = 0; i < TCB->size; i++)
+    {
+        h = TCB->sub_h[i];
+        for (k = kh_begin(h); k != kh_end(h); ++k)
+        {
+            if (kh_exist(h, k))            // test if a bucket contains data
+            {
+                sub_ID = i;
+                sub_key = kh_key(h, k);
+
+                if(get_total_freq(TCB, sub_ID, sub_key, &count)==1)
+                {
+                    insert_H_peaks(&LH, count, count);
+                }
+            }
+        }
+    }
+
+    (*max) = -1;
+    (*min) = -1;
+    long long max_value = -1;
+    //// seed with freq 1 is useless
+    for (i = 2; i < LH.length; i++)
+    {
+        if(LH.list[i] >= max_value)
+        {
+            max_value = LH.list[i];
+            (*max) = i;
+        }
+    }
+
+    long long opt = 4;
+    (*up_boundary) = -1;
+    for (i = (*max) + opt; i < LH.length; i++)
+    {
+        if(LH.list[i] > LH.list[i-opt])
+        {
+            long long j = i-opt;
+            for (; j < i; j++)
+            {
+                if(LH.list[j] < LH.list[j+1])
+                {
+                    (*up_boundary) = j;
+                    goto end_opt;
+                }
+            }
+            
+            (*up_boundary) = i;
+            goto end_opt;
+        }
+    }
+
+    end_opt:
+    if((*up_boundary) == -1 || (*up_boundary) > (*max) * 10)
+    {
+        (*up_boundary) = (*max) * 10;
+    }
+
+
+
+
+    long long min_value = max_value;
+    //// seed with freq 1 is useless
+    for (i = 2; i < LH.length && i < (*max); i++)
+    {
+        if(LH.list[i] < min_value && LH.list[i] != 0)
+        {
+            min_value = LH.list[i];
+            (*min) = i;
+        }
+    }
+
+    // for (i = 0; i < LH.length; i++)
+    // {
+    //     ///fprintf(stderr, "%d, %d\n", i, LH.list[i]);
+    //     fprintf(stderr, "%d\n", LH.list[i]);
+    // }
+    // fflush(stderr);
+    
+
+    free(LH.list);
+}
+
+void Traverse_Counting_Table_back(Total_Count_Table* TCB, Total_Pos_Table* PCB, int k_mer_min_freq, int k_mer_max_freq)
 {
     int i;
     Count_Table* h;
@@ -2947,6 +3282,12 @@ void Traverse_Counting_Table(Total_Count_Table* TCB, Total_Pos_Table* PCB, int k
     uint64_t sub_ID;
     PCB->useful_k_mer = 0;
     PCB->total_occ = 0;
+
+    long long freq_min, freq_max, freq_up;
+    ///get_peak_debug(TCB, &freq_min, &freq_max);
+    get_peak(TCB, &freq_min, &freq_max, &freq_up);
+    fprintf(stderr, "freq_min: %d, freq_max: %d, freq_up: %d\n", 
+    freq_min, freq_max, freq_up);
 
     ///init_Total_Pos_Table(PCB, TCB);
 
@@ -3010,6 +3351,115 @@ void Traverse_Counting_Table(Total_Count_Table* TCB, Total_Pos_Table* PCB, int k
             if (kh_exist(h, k))            // test if a bucket contains data
             {
                 if (kh_value(h, k)>=k_mer_min_freq && kh_value(h, k)<=k_mer_max_freq)
+                {
+                    PCB->useful_k_mer++;
+                    PCB->total_occ = PCB->total_occ + kh_value(h, k);
+                    PCB->k_mer_index[PCB->useful_k_mer] = PCB->total_occ;
+                }
+            }
+        }
+    }
+
+    PCB->pos = (k_mer_pos*)malloc(sizeof(k_mer_pos)*PCB->total_occ);
+    memset(PCB->pos, 0, sizeof(k_mer_pos)*PCB->total_occ);
+    
+    
+}
+
+void Traverse_Counting_Table(Total_Count_Table* TCB, Total_Pos_Table* PCB, int k_mer_min_freq, int k_mer_max_freq)
+{
+    int i;
+    Count_Table* h;
+    khint_t k;
+    uint64_t sub_key;
+    uint64_t sub_ID;
+    PCB->useful_k_mer = 0;
+    PCB->total_occ = 0;
+
+    long long freq_min, max, freq_up;
+    ///get_peak_debug(TCB, &freq_min, &freq_max);
+    get_peak(TCB, &freq_min, &max, &freq_up);
+    fprintf(stdout, "freq_min: %d, freq_max: %d, freq_up:%d\n", 
+    freq_min, max, freq_up);
+    if(freq_min < k_mer_min_freq)
+    {
+        k_mer_min_freq = freq_min;
+    }
+    if(freq_up > k_mer_max_freq)
+    {
+        k_mer_max_freq = freq_up;
+    }
+
+    fprintf(stdout, "k_mer_min_freq: %d, k_mer_max_freq: %d\n", 
+    k_mer_min_freq, k_mer_max_freq);
+
+
+    khint_t t;  ///这就是个迭代器
+    int absent;
+    long long count;
+
+    /********************************************
+     hash_table(key) ----> PCB->k_mer_index ------> PCB->pos
+     ********************************************/
+    for (i = 0; i < TCB->size; i++)
+    {
+        h = TCB->sub_h[i];
+        for (k = kh_begin(h); k != kh_end(h); ++k)
+        {
+            if (kh_exist(h, k))            // test if a bucket contains data
+            {
+                sub_ID = i;
+                sub_key = kh_key(h, k);
+                get_total_freq(TCB, sub_ID, sub_key, &count);
+
+                ///只有符合频率范围要求的k-mer，才会被加入到pos table中
+                if (count>=k_mer_min_freq && count<=k_mer_max_freq)
+                {
+                    t = kh_put(POS64, PCB->sub_h[sub_ID], sub_key, &absent);
+    
+                    if (absent)
+                    {
+                        ///kh_value(PCB->sub_h[sub_ID], t) = useful_k_mer + total_occ;
+                        kh_value(PCB->sub_h[sub_ID], t) = PCB->useful_k_mer;
+                    }
+                    else   ///哈希表中已有的元素
+                    {
+                        ///kh_value(PCB->sub_h[sub_ID], t)++;
+                        fprintf(stderr, "ERROR\n");
+                    }
+
+                   
+                    PCB->useful_k_mer++;
+                    PCB->total_occ = PCB->total_occ + kh_value(h, k);
+                }
+            }
+        }
+    }
+
+
+    fprintf(stdout, "useful_k_mer: %lld\n",PCB->useful_k_mer);
+    fprintf(stdout, "total_occ: %lld\n",PCB->total_occ);
+
+    PCB->k_mer_index = (uint64_t*)malloc(sizeof(uint64_t)*(PCB->useful_k_mer+1));
+
+    PCB->k_mer_index[0] = 0;
+
+    PCB->total_occ = 0;
+    PCB->useful_k_mer = 0;
+
+    for (i = 0; i < TCB->size; i++)
+    {
+        h = TCB->sub_h[i];
+        for (k = kh_begin(h); k != kh_end(h); ++k)
+        {
+            if (kh_exist(h, k))            // test if a bucket contains data
+            {
+                sub_ID = i;
+                sub_key = kh_key(h, k);
+                get_total_freq(TCB, sub_ID, sub_key, &count);
+
+                ///if (kh_value(h, k)>=k_mer_min_freq && kh_value(h, k)<=k_mer_max_freq)
+                if (count>=k_mer_min_freq && count<=k_mer_max_freq)
                 {
                     PCB->useful_k_mer++;
                     PCB->total_occ = PCB->total_occ + kh_value(h, k);
@@ -3801,6 +4251,45 @@ void resize_fake_cigar(Fake_Cigar* x, long long size)
         x->size = size;
         x->buffer = (uint64_t*)realloc(x->buffer, sizeof(uint64_t) * x->size);
     }
+
+    x->length = 0;
+}
+
+
+void init_window_list_alloc(window_list_alloc* x)
+{
+    x->buffer = NULL;
+    x->length = 0;
+    x->size = 0;
+}
+
+void clear_window_list_alloc(window_list_alloc* x)
+{
+    x->length = 0;
+}
+
+void destory_window_list_alloc(window_list_alloc* x)
+{
+    if(x->size != 0)
+    {
+        free((x->buffer));
+    }
+}
+
+void resize_window_list_alloc(window_list_alloc* x, long long size)
+{
+    if(size > x->size)
+    {
+        x->size = size;
+        x->buffer = (window_list*)realloc(x->buffer, sizeof(window_list) * x->size);
+    }
+
+    long long i;
+    for (i = 0; i < x->size; i++)
+    {
+        x->buffer[i].error = -1; 
+    }
+    
 
     x->length = 0;
 }

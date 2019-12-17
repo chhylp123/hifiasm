@@ -102,6 +102,14 @@ typedef struct
 
 typedef struct
 {
+    window_list* buffer;
+    long long length;
+    long long size;
+}window_list_alloc;
+
+
+typedef struct
+{
     uint64_t* buffer;
     uint64_t length;
     uint64_t size;
@@ -133,6 +141,8 @@ typedef struct
     uint64_t w_list_length;
     int8_t strong;
     Fake_Cigar f_cigar;
+
+    window_list_alloc boundary_cigars;
 } overlap_region;
 
 
@@ -250,7 +260,25 @@ inline int if_k_mer_available(Hash_code* code, int k)
     return 1;
 }
 
+////suffix_bits = 64 in default
+inline int recover_hash_code(uint64_t sub_ID, uint64_t sub_key, Hash_code* code,
+uint64_t suffix_mode, int suffix_bits, int k)
+{
+    uint64_t h_key, low_key;
+    h_key = low_key = 0;
 
+    low_key = sub_ID << SAFE_SHIFT(suffix_bits);
+    low_key = low_key | sub_key;
+
+    h_key = sub_ID >> (64 - suffix_bits);
+
+    code->x[0] = code->x[1] = 0;
+    uint64_t mask = ALL >> (64 - k);
+    code->x[0] = low_key & mask;
+
+    code->x[1] = h_key << (64 - k);
+    code->x[1] = code->x[1] | (low_key >> SAFE_SHIFT(k));
+}
 
 ///inline int get_sub_table(uint64_t* get_sub_ID, uint64_t* get_sub_key, Total_Count_Table* TCB, Hash_code* code, int k)
 inline int get_sub_table(uint64_t* get_sub_ID, uint64_t* get_sub_key, uint64_t suffix_mode, int suffix_bits,
@@ -279,7 +307,13 @@ Hash_code* code, int k)
     *get_sub_ID = sub_ID;
     *get_sub_key = sub_key;
 
-     return 1;
+
+    // Hash_code de_code;
+    // recover_hash_code(sub_ID, sub_key, &de_code, suffix_mode, suffix_bits, k);
+    ///if(de_code.x[0] != (*code).x[0] || de_code.x[1] != (*code).x[1]) fprintf(stderr, "hehe\n");
+    ///if(de_code.x[0] == (*code).x[0] || de_code.x[1] == (*code).x[1]) fprintf(stderr, "hehe\n");
+
+    return 1;
 
 }
 
@@ -514,7 +548,7 @@ void calculate_inexact_overlap_region(Candidates_list* candidates, overlap_regio
 uint64_t readID, uint64_t readLength, All_reads* R_INF);
 
 void calculate_overlap_region_by_chaining(Candidates_list* candidates, overlap_region_alloc* overlap_list, 
-uint64_t readID, uint64_t readLength, All_reads* R_INF, double band_width_threshold);
+uint64_t readID, uint64_t readLength, All_reads* R_INF, double band_width_threshold, int add_beg_end);
 
 
 
@@ -702,5 +736,13 @@ overlap_region_alloc* overlap_list, All_reads* R_INF);
 void append_overlap_region_alloc_from_existing(overlap_region_alloc* list, overlap_region* tmp, All_reads* R_INF);
 int cmp_by_x_pos_s(const void * a, const void * b);
 void resize_Chain_Data(Chain_Data* x, long long size);
+
+
+
+void init_window_list_alloc(window_list_alloc* x);
+void clear_window_list_alloc(window_list_alloc* x);
+void destory_window_list_alloc(window_list_alloc* x);
+void resize_window_list_alloc(window_list_alloc* x, long long size);
+
 
 #endif
