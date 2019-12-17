@@ -4,8 +4,9 @@
 
 ///#define ALL (0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff)
 #define ALL (0xffffffffffffffff)
-
+/****************************may have bugs********************************/
 #define SAFE_SHIFT(k) k & ((k < 64)?ALL:0)
+/****************************may have bugs********************************/
 
 
 
@@ -92,6 +93,21 @@ inline void k_mer_append(Hash_code* code, uint64_t c, int k)
 
     code->x[0] = ((code->x[0]<<1) | (c&1))  & mask;
     code->x[1] = ((code->x[1]<<1) | (c>>1)) & mask;
+}
+
+inline void Hashcode_to_string(Hash_code* code, char* str, int k)
+{
+    uint8_t c;
+    int i;
+    for (i = 0; i < k; i++)
+    {
+        c = (code->x[1] >> (k - i - 1)) & ((uint64_t)1);
+        c = c << 1;
+        c = c | ((code->x[0] >> (k - i - 1)) & ((uint64_t)1));
+
+        str[i] = s_H[c];
+    }
+    
 }
 
 void init_HPC_seq(HPC_seq* seq, char* str, long long l);
