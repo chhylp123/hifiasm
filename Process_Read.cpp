@@ -329,6 +329,27 @@ void destory_UC_Read(UC_Read* r)
 	free(r->seq);
 }
 
+void init_aux_table()
+{
+	if (bit_t_seq_table[0][0] == 0)
+	{
+		uint64_t i = 0;
+
+		for (i = 0; i < 256; i++)
+		{
+			bit_t_seq_table[i][0] = s_H[((i >> 6)&(uint64_t)3)];
+			bit_t_seq_table[i][1] = s_H[((i >> 4)&(uint64_t)3)];
+			bit_t_seq_table[i][2] = s_H[((i >> 2)&(uint64_t)3)];
+			bit_t_seq_table[i][3] = s_H[(i&(uint64_t)3)];
+
+			bit_t_seq_table_rc[i][0] = RC_CHAR(bit_t_seq_table[i][3]);
+			bit_t_seq_table_rc[i][1] = RC_CHAR(bit_t_seq_table[i][2]);
+			bit_t_seq_table_rc[i][2] = RC_CHAR(bit_t_seq_table[i][1]);
+			bit_t_seq_table_rc[i][3] = RC_CHAR(bit_t_seq_table[i][0]);
+		}
+		
+	}
+}
 
 void init_UC_Read(UC_Read* r)
 {

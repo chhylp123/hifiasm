@@ -3321,6 +3321,132 @@ void Output_PAF()
 }
 
 
+int check_cluster(uint64_t* list, long long listLen, ma_hit_t_alloc* paf, float threshold)
+{
+    long long i, k;
+    uint32_t qn, tn;
+    long long T_edges, A_edges;
+    T_edges = A_edges = 0;
+    for (i = 0; i < listLen; i++)
+    {
+        qn = (uint32_t)list[i];
+        for (k = i + 1; k < listLen; k++)
+        {
+            tn = (uint32_t)list[k];
+            if(get_specific_overlap(&(paf[qn]), qn, tn) != -1)
+            {
+                A_edges++;
+            }
+            
+            if(get_specific_overlap(&(paf[tn]), tn, qn) != -1)
+            {
+                A_edges++;
+            }
+
+            T_edges = T_edges + 2;
+        }
+        
+    }
+
+    if(A_edges >= (T_edges*threshold))
+    {
+        return 1;
+    }
+    else
+    {
+        return 0;
+    }
+}
+
+
+
+
+void rescue_edges(ma_hit_t_alloc* paf, ma_hit_t_alloc* rev_paf, 
+long long readNum, long long rescue_threshold, float cluster_threshold)
+{
+    double startTime = Get_T();
+    long long i, j, revises = 0;
+    uint32_t qn, tn;
+
+    kvec_t(uint64_t) edge_vector;
+    kv_init(edge_vector);
+    kvec_t(uint64_t) edge_vector_index;
+    kv_init(edge_vector_index);
+    uint64_t flag;
+    int index;
+    
+    for (i = 0; i < readNum; i++)
+    {
+        edge_vector.n = 0;
+        edge_vector_index.n = 0;
+        for (j = 0; j < paf[i].length; j++)
+        {
+            qn = Get_qn(paf[i].buffer[j]);
+            tn = Get_tn(paf[i].buffer[j]);
+            index = get_specific_overlap(&(rev_paf[tn]), tn, qn);
+            if(index != -1)
+            {
+                flag = tn;
+                flag = flag << 32;
+                flag = flag | (uint64_t)(index);
+                kv_push(uint64_t, edge_vector, flag);
+                kv_push(uint64_t, edge_vector_index, j);
+            }
+        }
+
+        ///the read itself has these overlaps, but all related reads do not have 
+        ///we need to remove all overlaps from paf[i], and then add all overlaps to rev_paf[i]
+        if(edge_vector.n >= rescue_threshold && 
+        check_cluster(edge_vector.a, edge_vector.n, paf, cluster_threshold) == 1)
+        {
+            fprintf(stderr,"\nremove following %d edges...\n", edge_vector.n);
+            print_revise_edges(&(paf[i]), edge_vector_index.a, edge_vector_index.n);
+
+            add_overlaps(&(paf[i]), &(rev_paf[i]), edge_vector_index.a, edge_vector_index.n);
+            remove_overlaps(&(paf[i]), edge_vector_index.a, edge_vector_index.n);
+            revises = revises + edge_vector.n;
+        }
+
+        edge_vector.n = 0;
+        edge_vector_index.n = 0;
+        for (j = 0; j < rev_paf[i].length; j++)
+        {
+            qn = Get_qn(rev_paf[i].buffer[j]);
+            tn = Get_tn(rev_paf[i].buffer[j]);
+            index = get_specific_overlap(&(paf[tn]), tn, qn);
+            if(index != -1)
+            {
+                flag = tn;
+                flag = flag << 32;
+                flag = flag | (uint64_t)(index);
+                kv_push(uint64_t, edge_vector, flag);
+                kv_push(uint64_t, edge_vector_index, j);
+            }
+        }
+
+        ///the read itself do not have these overlaps, but all related reads have
+        ///we need to remove all overlaps from rev_paf[i], and then add all overlaps to paf[i]
+        if(edge_vector.n >= rescue_threshold && 
+        check_cluster(edge_vector.a, edge_vector.n, paf, cluster_threshold) == 1)
+        {
+            fprintf(stderr,"\nadd following %d edges...\n", edge_vector.n);
+            print_revise_edges(&(rev_paf[i]), edge_vector_index.a, edge_vector_index.n);
+
+
+            remove_overlaps(&(rev_paf[i]), edge_vector_index.a, edge_vector_index.n);
+            add_overlaps_from_different_sources(paf, &(paf[i]), edge_vector.a, edge_vector.n);
+            revises = revises + edge_vector.n;
+        }
+    }
+
+
+    kv_destroy(edge_vector);
+    kv_destroy(edge_vector_index);
+
+    fprintf(stderr, "[M::%s] took %0.2fs, revise edges #: %lld\n\n", __func__, Get_T()-startTime, revises);
+}
+
+
 
 void generate_overlaps(int last_round)
 {
@@ -3350,6 +3476,8 @@ void generate_overlaps(int last_round)
         pthread_join(_r_threads[i], NULL);
     free(_r_threads);
 
+    ///rescue_edges(R_INF.paf, R_INF.reverse_paf, R_INF.total_reads, 4, 0.985);
+
     fprintf(stdout, "Final overlaps have been calculated.\n");
     fprintf(stdout, "%-30s%18.2f\n\n", "Final overlaps calculation time:", Get_T() - start_time); 
 
@@ -3364,6 +3492,8 @@ void generate_overlaps(int last_round)
     MIN_OVERLAP_LEN, MAX_HANG_LEN, c_round, 0.2, 0.8, 0.8, output_file_name, MAX_BUBBLE_DIST, 0, 1);
 
 }
+
+
 
 
 
