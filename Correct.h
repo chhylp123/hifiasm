@@ -1447,6 +1447,10 @@ void append_k_mer_pos_list_alloc_prefilter(k_mer_pos_list_alloc* list, k_mer_pos
 uint64_t n_end_pos, uint8_t n_direction, UC_Read* g_read, All_reads* R_INF, Correct_dumy* dumy);
 /**********************for prefilter************************ */
 
+int verify_single_window(long long x_start, long long x_end, 
+long long overlap_x_s, long long overlap_y_s, int x_id,
+int y_id, int y_strand, char* x_buffer, char* y_buffer,
+All_reads* R_INF);
 
 void init_Cigar_record_alloc(Cigar_record_alloc* x);
 void resize_Cigar_record_alloc(Cigar_record_alloc* x, long long new_size);

@@ -56,7 +56,7 @@ static char rc_Table[5] = {'T', 'G', 'C', 'A', 'N'};
 
 #define RC_CHAR(x) rc_Table[seq_nt6_table[(uint8_t)x]]
 
-
+void init_aux_table();
 void init_kseq(char* file);
 void destory_kseq();
 int get_read(kseq_t *s, int adapterLen);
