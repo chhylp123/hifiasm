@@ -330,4 +330,11 @@ int write);
 void debug_info_of_specfic_read(char* name, ma_hit_t_alloc* sources, 
 ma_hit_t_alloc* reverse_sources, int id, char* command);
 
+void collect_abnormal_edges(ma_hit_t_alloc* paf, ma_hit_t_alloc* rev_paf, long long readNum);
+
+void add_overlaps(ma_hit_t_alloc* source_paf, ma_hit_t_alloc* dest_paf, uint64_t* source_index, long long listLen);
+void remove_overlaps(ma_hit_t_alloc* source_paf, uint64_t* source_index, long long listLen);
+void add_overlaps_from_different_sources(ma_hit_t_alloc* source_paf_list, ma_hit_t_alloc* dest_paf, 
+uint64_t* source_index, long long listLen);
+void print_revise_edges(ma_hit_t_alloc* source_paf, uint64_t* source_index, long long listLen);
 #endif

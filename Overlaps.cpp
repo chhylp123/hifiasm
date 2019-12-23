@@ -6,6 +6,8 @@
 #include "ksort.h"
 #include "Process_Read.h"
 #include "CommandLines.h"
+#include "Hash_Table.h"
+#include "Correct.h"
 
 KDQ_INIT(uint64_t)
 
@@ -53,6 +55,109 @@ void asg_destroy(asg_t *g)
 void asg_arc_sort(asg_t *g)
 {
 	radix_sort_asg(g->arc, g->arc + g->n_arc);
+}
+
+
+void add_overlaps(ma_hit_t_alloc* source_paf, ma_hit_t_alloc* dest_paf, uint64_t* source_index, long long listLen)
+{
+    long long i;
+    ma_hit_t ele;
+    ma_hit_t* tmp;
+    for (i = 0; i < listLen; i++)
+    {
+        tmp = &(source_paf->buffer[(uint32_t)(source_index[i])]);
+        /**
+        ele.rev = tmp->rev;
+        ele.qns = Get_tn((*tmp));
+        ele.qns = ele.qns << 32;
+        ele.qns = ele.qns | (uint64_t)(Get_ts((*tmp)));
+        ele.qe = Get_te((*tmp));
+
+        ele.tn = Get_qn((*tmp));
+        ele.ts = Get_qs((*tmp));
+        ele.te = Get_qe((*tmp));
+
+        ele.bl = R_INF.read_length[ele.tn];
+        ele.ml = tmp->ml;
+        ele.el = tmp->el;
+        ele.no_l_indel = tmp->no_l_indel;
+        
+        add_ma_hit_t_alloc(dest_paf, &ele);
+        **/
+        add_ma_hit_t_alloc(dest_paf, tmp);
+    }
+}
+
+
+void remove_overlaps(ma_hit_t_alloc* source_paf, uint64_t* source_index, long long listLen)
+{
+    long long i, m;
+    ma_hit_t ele;
+    ma_hit_t* tmp;
+    for (i = 0; i < listLen; i++)
+    {
+        source_paf->buffer[(uint32_t)(source_index[i])].qns = (uint64_t)(-1);
+    }
+
+    m = 0;
+    for (i = 0; i < source_paf->length; i++)
+    {
+        if(source_paf->buffer[i].qns != (uint64_t)(-1))
+        {
+            source_paf->buffer[m] = source_paf->buffer[i];
+            m++;
+        }
+    }
+    source_paf->length = m;
+}
+
+
+void add_overlaps_from_different_sources(ma_hit_t_alloc* source_paf_list, ma_hit_t_alloc* dest_paf, 
+uint64_t* source_index, long long listLen)
+{
+    long long i;
+    ma_hit_t ele;
+    ma_hit_t* tmp;
+    uint32_t source_n, source_i;
+    for (i = 0; i < listLen; i++)
+    {
+        source_n = source_index[i] >> 32;
+        source_i = (uint32_t)(source_index[i]);
+        tmp = &(source_paf_list[source_n].buffer[source_i]);
+
+        ele.rev = tmp->rev;
+        ele.qns = Get_tn((*tmp));
+        ele.qns = ele.qns << 32;
+        ele.qns = ele.qns | (uint64_t)(Get_ts((*tmp)));
+        ele.qe = Get_te((*tmp));
+
+        ele.tn = Get_qn((*tmp));
+        ele.ts = Get_qs((*tmp));
+        ele.te = Get_qe((*tmp));
+
+        ele.bl = R_INF.read_length[ele.tn];
+        ele.ml = tmp->ml;
+        ele.el = tmp->el;
+        ele.no_l_indel = tmp->no_l_indel;
+        
+        add_ma_hit_t_alloc(dest_paf, &ele);
+    }
+}
+
+void print_revise_edges(ma_hit_t_alloc* source_paf, uint64_t* source_index, long long listLen)
+{
+    long long i, m;
+    ma_hit_t ele;
+    ma_hit_t* tmp;
+    for (i = 0; i < listLen; i++)
+    {
+        tmp = &(source_paf->buffer[(uint32_t)(source_index[i])]);
+
+        fprintf(stderr, "%.*s(%d) ---(+)--> %.*s(%d), Len: %d\n", 
+        Get_NAME_LENGTH(R_INF, Get_qn((*tmp))), Get_NAME(R_INF, Get_qn((*tmp))), Get_qn((*tmp)),
+        Get_NAME_LENGTH(R_INF, Get_tn((*tmp))), Get_NAME(R_INF, Get_tn((*tmp))), Get_tn((*tmp)),
+        Get_qe((*tmp)) - Get_qs((*tmp)));
+    }
 }
 
 void ma_ug_destroy(ma_ug_t *ug)
@@ -347,6 +452,7 @@ inline void set_reverse_overlap(ma_hit_t* dest, ma_hit_t* source)
 
 
     /****************************may have bugs********************************/
+    /**
     if(dest->ml == 0 || source->ml == 0)
     {
         dest->ml = source->ml = 0;
@@ -365,7 +471,9 @@ inline void set_reverse_overlap(ma_hit_t* dest, ma_hit_t* source)
     {
         dest->no_l_indel = source->no_l_indel = 1;
     }
-    
+    **/
+    dest->ml = source->ml;
+    dest->no_l_indel = source->no_l_indel;
     /****************************may have bugs********************************/
     dest->bl = Get_qe(*dest) - Get_qs(*dest);
 }
@@ -970,6 +1078,16 @@ long long n_read, uint64_t* readLen, ma_sub_t* coverage_cut)
         }
         else
         {
+            // if(coverage_cut[i].c == 2)
+            // {
+            //     fprintf(stderr, "\ni: %d, readLen: %d\n", i, readLen[i]);
+            //     for (j = 0; j < sources[i].length; j++)
+            //     {
+            //         fprintf(stderr, "j: %d, qs: %d, qe: %d, ts: %d, te: %d\n",
+            //         j, Get_qs(sources[i].buffer[j]), Get_qe(sources[i].buffer[j]),
+            //         Get_ts(sources[i].buffer[j]), Get_te(sources[i].buffer[j]));
+            //     }
+            // }
             coverage_cut[i].c = 0;
         }
 	}
@@ -981,6 +1099,487 @@ long long n_read, uint64_t* readLen, ma_sub_t* coverage_cut)
 
 
 
+int boundary_verify_back(uint32_t interval_s, uint32_t interval_e, ma_hit_t* map, 
+char* x_buffer, char* y_buffer, All_reads* R_INF)
+{
+    uint32_t xs, xe, ys, ye, dir, x_id, y_id, xLen;
+    dir = (*map).rev;
+    xs = Get_qs((*map));
+    xe = Get_qe((*map)) - 1;
+    x_id = Get_qn((*map));
+    y_id = Get_tn((*map));
+    long long yLen = Get_READ_LENGTH((*R_INF), y_id);
+
+    if(dir == 1)
+    {
+        ys = yLen - (Get_te((*map)) - 1) - 1;
+        ye = yLen - Get_ts((*map)) - 1;
+         
+    }
+    else
+    {
+        ys = Get_ts((*map));
+        ye = Get_te((*map)) - 1;
+    }
+
+    xLen = interval_e - interval_s;
+
+    if(xLen <= WINDOW)
+    {
+        return verify_single_window(interval_s, interval_e-1, xs, ys, x_id, y_id, 
+                                                        dir, x_buffer, y_buffer, R_INF);
+    }
+    else
+    {
+        if(verify_single_window(interval_s, interval_s + WINDOW - 1, 
+        xs, ys, x_id, y_id, dir, x_buffer, y_buffer, R_INF) == 0)
+        {
+            return 0;
+        }
+
+        if(verify_single_window(interval_e - WINDOW, interval_e-1, 
+        xs, ys, x_id, y_id, dir, x_buffer, y_buffer, R_INF) == 0)
+        {
+            return 0;
+        }
+
+        return 1;
+    }
+}
+
+int boundary_verify(uint32_t x_interval_s, uint32_t x_interval_e, ma_hit_t* map, 
+char* x_buffer, char* y_buffer, All_reads* R_INF)
+{
+    uint32_t xs, xe, ys, ye, dir, x_id, y_id, x_interval_Len, y_interval_Len, y_interval_s, y_interval_e;
+    dir = (*map).rev;
+    xs = Get_qs((*map));
+    xe = Get_qe((*map)) - 1;
+    x_id = Get_qn((*map));
+    y_id = Get_tn((*map));
+    long long yLen = Get_READ_LENGTH((*R_INF), y_id);
+
+    if(dir == 1)
+    {
+        ys = yLen - (Get_te((*map)) - 1) - 1;
+        ye = yLen - Get_ts((*map)) - 1;
+         
+    }
+    else
+    {
+        ys = Get_ts((*map));
+        ye = Get_te((*map)) - 1;
+    }
+    ///[x_interval_s, x_interval_e)
+    x_interval_Len = x_interval_e - x_interval_s;
+
+    ///[y_interval_s, y_interval_e]
+    y_interval_s = (x_interval_s - xs) + ys;
+    if(y_interval_s >= yLen)
+    {
+        return 0;
+    }
+    y_interval_e = y_interval_s + x_interval_Len - 1;
+    if(y_interval_e >= yLen)
+    {
+        y_interval_e = yLen - 1;
+    }
+
+    if(y_interval_e < y_interval_s)
+    {
+        return 0;
+    }
+    
+    y_interval_Len = y_interval_e - y_interval_s + 1;
+
+
+    if(y_interval_Len <= WINDOW)
+    {
+        return verify_single_window(y_interval_s, y_interval_e, ys, xs, y_id, x_id, 
+                                                        dir, y_buffer, x_buffer, R_INF);
+    }
+    else
+    {
+        
+        if(verify_single_window(y_interval_s, y_interval_s + WINDOW - 1, ys, xs, y_id, x_id, 
+                                                        dir, y_buffer, x_buffer, R_INF) == 0)
+        {
+            return 0;
+        }
+
+        if(verify_single_window(y_interval_e - WINDOW + 1, y_interval_e, ys, xs, y_id, x_id, 
+                                                        dir, y_buffer, x_buffer, R_INF) == 0)
+        {
+            return 0;
+        }
+
+        return 1;
+    }
+}
+
+void collect_sides(ma_hit_t_alloc* paf, uint64_t rLen, ma_sub_t* max_left, ma_sub_t* max_right)
+{
+    long long j;
+    uint32_t qs, qe;
+    for (j = 0; j < paf->length; j++)
+    {
+        qs = Get_qs(paf->buffer[j]);
+        qe = Get_qe(paf->buffer[j]);
+
+
+        ///overlaps from left side
+        if(qs == 0)
+        {
+            if(qs < max_left->s) max_left->s = qs;
+            if(qe > max_left->e) max_left->e = qe;
+        }
+
+        ///overlaps from right side
+        if(qe == rLen)
+        {
+            if(qs < max_right->s) max_right->s = qs;
+            if(qe > max_right->e) max_right->e = qe;
+        }
+
+        ///note: if (qs == 0 && qe == rLen)
+        ///this overlap would be added to both b_left and b_right
+        ///that is what we want
+    }
+}
+
+void collect_contain(ma_hit_t_alloc* paf, uint64_t rLen, ma_sub_t* max_left, ma_sub_t* max_right)
+{
+    long long j;
+    uint32_t qs, qe;
+    for (j = 0; j < paf->length; j++)
+    {
+        qs = Get_qs(paf->buffer[j]);
+        qe = Get_qe(paf->buffer[j]);
+        ///check contained overlaps
+        if(qs != 0 && qe != rLen)
+        {
+            ///[qs, qe), [max_left.s, max_left.e)
+            if(qs < max_left->e && qe > max_left->e)
+            {
+                if(qe > max_left->e) max_left->e = qe;
+            }
+
+            ///[qs, qe), [max_right.s, max_right.e)
+            if(qs < max_right->s && qe > max_right->s)
+            {
+                if(qs < max_right->s) max_right->s = qs;
+            }
+        }
+    }
+}
+
+
+
+int intersection_check(ma_hit_t_alloc* paf, uint64_t rLen, uint32_t interval_s, uint32_t interval_e)
+{
+    long long j, cov = 0;
+    uint32_t qs, qe;
+
+    for (j = 0; j < paf->length; j++)
+    {
+        qs = Get_qs(paf->buffer[j]);
+        qe = Get_qe(paf->buffer[j]);
+        ///[interval_s, interval_e) must be at least contained at one of the [qs, qe)
+        if(qs<=interval_s && qe>=interval_e)
+        {
+            cov++;
+        }
+    }
+
+    return cov;
+}
+
+
+int intersection_check_by_base(ma_hit_t_alloc* paf, uint64_t rLen, uint32_t interval_s, uint32_t interval_e,
+char* bq, char* bt)
+{
+    long long j;
+    uint32_t qs, qe;
+
+    for (j = 0; j < paf->length; j++)
+    {
+        qs = Get_qs(paf->buffer[j]);
+        qe = Get_qe(paf->buffer[j]);
+        ///[interval_s, interval_e) must be at least contained at one of the [qs, qe)
+        if(qs<=interval_s && qe>=interval_e)
+        {
+            if(boundary_verify(interval_s, interval_e, &(paf->buffer[j]), bq, bt, &R_INF) == 0)
+            {
+                return 1;
+            }
+        }
+    }
+
+    return 0;
+}
+
+
+
+void detect_chimeric_reads(ma_hit_t_alloc* paf, ma_hit_t_alloc* rev_paf, 
+long long n_read, uint64_t* readLen, ma_sub_t* coverage_cut, float shift_rate)
+{
+    double startTime = Get_T();
+    init_aux_table();
+    long long i, j, rLen, /**cov,**/ n_simple_remove = 0, n_complex_remove = 0, n_complex_remove_real = 0;
+    uint32_t qs, qe;
+    uint32_t interval_s, interval_e;
+    ma_sub_t max_left, max_right;
+    kvec_t(char) b_q = {0,0,0};
+    kvec_t(char) b_t = {0,0,0};
+    for (i = 0; i < n_read; ++i) 
+    {
+        coverage_cut[i].c = 0;
+        rLen = readLen[i];
+
+
+        max_left.s = max_right.s = rLen;
+        max_left.e = max_right.e = 0;
+
+
+        collect_sides(&(paf[i]), rLen, &max_left, &max_right);
+        collect_sides(&(rev_paf[i]), rLen, &max_left, &max_right);
+        ///that means this read is an end node
+        if(max_left.s == rLen || max_right.s == rLen)
+        {
+            continue;
+        }
+
+
+        collect_contain(&(paf[i]), rLen, &max_left, &max_right);
+        collect_contain(&(rev_paf[i]), rLen, &max_left, &max_right);
+        ////shift_rate should be (FINAL_OVERLAP_ERROR_RATE*2)
+        ///this read is a normal read
+        if(max_left.e > max_right.s && 
+           (max_left.e - max_right.s >= rLen * shift_rate))
+        {
+            ///coverage_cut[i].c = 0;
+            continue;
+        }
+
+        ///simple chimeric reads
+        if(max_left.e <= max_right.s)
+        {
+            ///coverage_cut[i].c = 2;
+            coverage_cut[i].c = 1;
+            coverage_cut[i].del = 1;
+            paf[i].length = 0;
+            n_simple_remove++;
+            continue;
+        }
+
+        ///now max_left.e >  max_right.s && max_left.e - max_right.s is small enough
+        //[interval_s, interval_e)
+        interval_s = max_right.s;
+        interval_e = max_left.e;
+
+        /**
+        cov = 0;
+        cov += intersection_check(&(paf[i]), rLen, interval_s, interval_e);
+        cov += intersection_check(&(rev_paf[i]), rLen, interval_s, interval_e);
+        if(interval_e - interval_s < WINDOW && cov <= 2)
+        {
+            coverage_cut[i].c = 1;
+            coverage_cut[i].del = 1;
+            paf[i].length = 0;
+            n_complex_remove_real++;
+        }
+        else**/
+        {
+            kv_resize(char, b_q, WINDOW*4+20);
+            kv_resize(char, b_t, WINDOW*4+20);
+            if(intersection_check_by_base(&(paf[i]), rLen, interval_s, interval_e, b_q.a, b_t.a)
+              ||
+              intersection_check_by_base(&(rev_paf[i]), rLen, interval_s, interval_e, b_q.a, b_t.a))
+            {
+                coverage_cut[i].c = 1;
+                coverage_cut[i].del = 1;
+                paf[i].length = 0;
+                n_complex_remove_real++;
+            }
+        }
+
+        n_complex_remove++;
+    }
+
+    free(b_q.a);
+    free(b_t.a);
+
+    fprintf(stderr, "[M::%s] takes %0.2f s, n_simple_remove: %d, n_complex_remove: %d/%d\n\n", 
+    __func__, Get_T()-startTime, n_simple_remove, n_complex_remove_real, n_complex_remove);
+}
+
+
+void detect_chimeric_reads_back(ma_hit_t_alloc* paf, ma_hit_t_alloc* rev_paf, 
+long long n_read, uint64_t* readLen, ma_sub_t* coverage_cut, float shift_rate)
+{
+    double startTime = Get_T();
+    long long i, j, cov, rLen, n_simple_remove = 0, n_complex_remove = 0, n_complex_remove_real = 0;
+    uint32_t qs, qe;
+    uint32_t interval_s, interval_e;
+    ma_sub_t max_left, max_right;
+    kvec_t(char) b_q = {0,0,0};
+    kvec_t(char) b_t = {0,0,0};
+    for (i = 0; i < n_read; ++i) 
+    {
+        coverage_cut[i].c = 0;
+        rLen = readLen[i];
+
+
+        max_left.s = max_right.s = rLen;
+        max_left.e = max_right.e = 0;
+
+        for (j = 0; j < paf[i].length; j++)
+        {
+            qs = Get_qs(paf[i].buffer[j]);
+            qe = Get_qe(paf[i].buffer[j]);
+
+
+            ///overlaps from left side
+            if(qs == 0)
+            {
+                if(qs < max_left.s) max_left.s = qs;
+                if(qe > max_left.e) max_left.e = qe;
+            }
+
+            ///overlaps from right side
+            if(qe == rLen)
+            {
+                if(qs < max_right.s) max_right.s = qs;
+                if(qe > max_right.e) max_right.e = qe;
+            }
+
+            ///note: if (qs == 0 && qe == rLen)
+            ///this overlap would be added to both b_left and b_right
+            ///that is what we want
+        }
+
+
+        ///that means this read is an end node
+        ///if(max_left.e == 0 || max_right.e == 0)
+        if(max_left.s == rLen || max_right.s == rLen)
+        {
+            continue;
+        }
+
+
+        for (j = 0; j < paf[i].length; j++)
+        {
+            qs = Get_qs(paf[i].buffer[j]);
+            qe = Get_qe(paf[i].buffer[j]);
+            ///check contained overlaps
+            if(qs != 0 && qe != rLen)
+            {
+                ///[qs, qe), [max_left.s, max_left.e)
+                if(qs < max_left.e && qe > max_left.e)
+                {
+                    if(qe > max_left.e) max_left.e = qe;
+                }
+
+                ///[qs, qe), [max_right.s, max_right.e)
+                if(qs < max_right.s && qe > max_right.s)
+                {
+                    if(qs < max_right.s) max_right.s = qs;
+                }
+            }
+        }
+
+        ////shift_rate should be (FINAL_OVERLAP_ERROR_RATE*2)
+        ///this read is a normal read
+        if(max_left.e > max_right.s && 
+           (max_left.e - max_right.s >= rLen * shift_rate))
+        {
+            ///coverage_cut[i].c = 0;
+            continue;
+        }
+
+        ///simple chimeric reads
+        if(max_left.e <= max_right.s)
+        {
+            ///coverage_cut[i].c = 2;
+            coverage_cut[i].c = 1;
+            coverage_cut[i].del = 1;
+            paf[i].length = 0;
+            n_simple_remove++;
+            continue;
+        }
+
+        ///now max_left.e >  max_right.s && max_left.e - max_right.s is small enough
+        //[interval_s, interval_e)
+        interval_s = max_right.s;
+        interval_e = max_left.e;
+
+        kv_resize(char, b_q, rLen+10);
+        kv_resize(char, b_t, (rLen*2+10));
+
+        cov = 0;
+        for (j = 0; j < paf[i].length; j++)
+        {
+            qs = Get_qs(paf[i].buffer[j]);
+            qe = Get_qe(paf[i].buffer[j]);
+            ///[interval_s, interval_e) must be at least contained at one of the [qs, qe)
+            if(qs<=interval_s && qe>=interval_e)
+            {
+                // if(i == 439960)
+                // {
+                //     fprintf(stderr, "?????? interval_s: %d, interval_e: %d, qn: %d, tn: %d, j: %d, qs: %d, qe: %d, ts: %d, te: %d, dir: %d\n",
+                // interval_s, interval_e,
+                // Get_qn(paf[i].buffer[j]), Get_tn(paf[i].buffer[j]),
+                // j, Get_qs(paf[i].buffer[j]), Get_qe(paf[i].buffer[j]),
+                // Get_ts(paf[i].buffer[j]), Get_te(paf[i].buffer[j]),
+                // paf[i].buffer[j].rev);
+
+                // fprintf(stderr, "%.*s\n", Get_NAME_LENGTH(R_INF, Get_tn(paf[i].buffer[j])),
+                //     Get_NAME(R_INF, Get_tn(paf[i].buffer[j])));
+                // }
+                ///num++;
+                cov++;
+                if(boundary_verify(interval_s, interval_e, &(paf[i].buffer[j]), 
+                b_q.a, b_t.a, &R_INF) == 0)
+                {
+                    coverage_cut[i].c = 1;
+                    coverage_cut[i].del = 1;
+                    paf[i].length = 0;
+                    n_complex_remove_real++;
+                    break;
+                }
+            }
+        }
+
+        if(coverage_cut[i].c == 0 && interval_e - interval_s < WINDOW && cov <= 2)
+        {
+            coverage_cut[i].c = 1;
+            coverage_cut[i].del = 1;
+            paf[i].length = 0;
+            n_complex_remove_real++;
+        }
+
+
+        
+
+        
+        ///if all of them are wrong
+        // if(j == paf[i].length)
+        // {
+        //     coverage_cut[i].c = 1;
+        //     coverage_cut[i].del = 1;
+        //     paf[i].length = 0;
+        //     n_complex_remove_real++;
+        // }
+
+
+        n_complex_remove++;
+    }
+
+    free(b_q.a);
+    free(b_t.a);
+
+    fprintf(stderr, "[M::%s] takes %0.2f s, n_simple_remove: %d, n_complex_remove: %d/%d\n\n", 
+    __func__, Get_T()-startTime, n_simple_remove, n_complex_remove_real, n_complex_remove);
+}
 
 
 
@@ -8199,8 +8798,8 @@ ma_hit_t_alloc* reverse_sources, int id, char* command)
         {
             fprintf(stderr, "\n\n\nafter %s\n", command);
 
-            fprintf(stderr, "****************ma_hit_t ref_read: %.*s****************\n", 
-            Get_NAME_LENGTH(R_INF, i), Get_NAME(R_INF, i));
+            fprintf(stderr, "****************ma_hit_t (%d)ref_read: %.*s****************\n", 
+            i, Get_NAME_LENGTH(R_INF, i), Get_NAME(R_INF, i));
 
 
             fprintf(stderr, "sources Len: %d, is_fully_corrected: %d\n", 
@@ -9558,6 +10157,326 @@ int output_tips(asg_t *g, const All_reads *RNF)
     }
 }
 
+void collect_abnormal_edges(ma_hit_t_alloc* paf, ma_hit_t_alloc* rev_paf, long long readNum)
+{
+    double startTime = Get_T();
+    long long T_edges, T_Single_Dir_Edges_0, T_Single_Dir_Edges_1, T_Conflict_Equal_Edges, T_Conflict_Strong_Edges;
+    T_edges = T_Single_Dir_Edges_0 = T_Single_Dir_Edges_1 = T_Conflict_Equal_Edges = T_Conflict_Strong_Edges = 0;
+    long long T_Single_Dir_Edges_1_1000 = 0;
+    long long related_reads = 0;
+    long long related_overlaps = 0;
+    long long i, j;
+    uint32_t qn, tn;
+    int is_equal_f, is_strong_f, is_exist_f; 
+    int is_equal_b, is_strong_b, is_exist_b; 
+
+    kvec_t(uint64_t) edge_vector;
+    kv_init(edge_vector);
+    
+    for (i = 0; i < readNum; i++)
+    {
+        for (j = 0; j < paf[i].length; j++)
+        {
+            qn = Get_qn(paf[i].buffer[j]);
+            tn = Get_tn(paf[i].buffer[j]);
+            T_edges++;
+
+            is_equal_f = paf[i].buffer[j].el;
+            is_strong_f = paf[i].buffer[j].ml;
+            is_exist_f = 1;
+            
+            is_exist_b = get_specific_overlap(&(paf[tn]), tn, qn);
+            if(is_exist_b == -1)
+            {
+                is_exist_b = get_specific_overlap(&(rev_paf[tn]), tn, qn);
+                if(is_exist_b != -1)
+                {
+                    T_Single_Dir_Edges_0++;
+                    kv_push(uint64_t, edge_vector, qn);
+                    kv_push(uint64_t, edge_vector, tn);
+                    ///related_overlaps += paf[qn].length + rev_paf[qn].length + paf[tn].length + rev_paf[tn].length;
+                    // fprintf(stderr, "%.*s(%d) ---(+)--> %.*s(%d), Len: %d\n", 
+                    // Get_NAME_LENGTH(R_INF, qn), Get_NAME(R_INF, qn), qn,
+                    // Get_NAME_LENGTH(R_INF, tn), Get_NAME(R_INF, tn), tn,
+                    // Get_qe(paf[i].buffer[j]) - Get_qs(paf[i].buffer[j]));
+
+                    // fprintf(stderr, "%.*s(%d) ---(-)--> %.*s(%d), Len: %d\n\n", 
+                    // Get_NAME_LENGTH(R_INF, tn), Get_NAME(R_INF, tn), tn,
+                    // Get_NAME_LENGTH(R_INF, qn), Get_NAME(R_INF, qn), qn,
+                    // Get_qe(rev_paf[tn].buffer[is_exist_b]) - Get_qs(rev_paf[tn].buffer[is_exist_b]));
+                } 
+                else
+                {
+                    T_Single_Dir_Edges_1++;
+                    if(Get_qe(paf[i].buffer[j]) - Get_qs(paf[i].buffer[j]) >= 1000)
+                    {
+                        T_Single_Dir_Edges_1_1000++;
+                        // fprintf(stderr, "%.*s(%d) ---(%d)--> %.*s(%d), Len: %d\n\n", 
+                        // Get_NAME_LENGTH(R_INF, qn), Get_NAME(R_INF, qn), qn,
+                        // is_strong_f,
+                        // Get_NAME_LENGTH(R_INF, tn), Get_NAME(R_INF, tn), tn,
+                        // Get_qe(paf[i].buffer[j]) - Get_qs(paf[i].buffer[j]));
+                    }
+                }
+
+                related_reads = related_reads + 2;
+            }
+            else
+            {
+                is_equal_b = paf[tn].buffer[is_exist_b].el;
+                is_strong_b = paf[tn].buffer[is_exist_b].ml;
+
+                if(is_equal_f != is_equal_b)
+                {
+                    T_Conflict_Equal_Edges++;
+
+                    // fprintf(stderr, "%.*s(%d) ---(%d)--> %.*s(%d), Len: %d\n", 
+                    // Get_NAME_LENGTH(R_INF, qn), Get_NAME(R_INF, qn), qn,
+                    // is_equal_f,
+                    // Get_NAME_LENGTH(R_INF, tn), Get_NAME(R_INF, tn), tn,
+                    // Get_qe(paf[i].buffer[j]) - Get_qs(paf[i].buffer[j]));
+
+                    // fprintf(stderr, "%.*s(%d) ---(%d)--> %.*s(%d), Len: %d\n\n", 
+                    // Get_NAME_LENGTH(R_INF, tn), Get_NAME(R_INF, tn), tn,
+                    // is_equal_b,
+                    // Get_NAME_LENGTH(R_INF, qn), Get_NAME(R_INF, qn), qn,
+                    // Get_qe(paf[tn].buffer[is_exist_b]) - Get_qs(paf[tn].buffer[is_exist_b]));
+                } 
+                
+                if(is_strong_f != is_strong_b)
+                {
+                    T_Conflict_Strong_Edges++;
+                    // fprintf(stderr, "%.*s(%d) ---(%d)--> %.*s(%d), Len: %d\n", 
+                    // Get_NAME_LENGTH(R_INF, qn), Get_NAME(R_INF, qn), qn,
+                    // is_strong_f,
+                    // Get_NAME_LENGTH(R_INF, tn), Get_NAME(R_INF, tn), tn,
+                    // Get_qe(paf[i].buffer[j]) - Get_qs(paf[i].buffer[j]));
+
+                    // fprintf(stderr, "%.*s(%d) ---(%d)--> %.*s(%d), Len: %d\n\n", 
+                    // Get_NAME_LENGTH(R_INF, tn), Get_NAME(R_INF, tn), tn,
+                    // is_strong_b,
+                    // Get_NAME_LENGTH(R_INF, qn), Get_NAME(R_INF, qn), qn,
+                    // Get_qe(paf[tn].buffer[is_exist_b]) - Get_qs(paf[tn].buffer[is_exist_b]));
+                } 
+
+                if(is_equal_f != is_equal_b || is_strong_f != is_strong_b)
+                {
+                    related_reads++;
+                }
+            }
+        }
+    }
+
+    radix_sort_arch64(edge_vector.a, edge_vector.a + edge_vector.n);
+    uint64_t pre = (uint64_t)-1;
+    long long mn = 0;
+    for (i = 0; i < edge_vector.n; i++)
+    {
+        if(pre != edge_vector.a[i])
+        {
+            mn++;
+            pre = edge_vector.a[i];
+            related_overlaps += paf[pre].length + rev_paf[pre].length;
+        }
+
+        if(i>0 && edge_vector.a[i] < edge_vector.a[i-1]) fprintf(stderr, "hehe\n");
+    }
+    
+    
+
+    fprintf(stdout, "****************statistic for abnormal overlaps****************\n");
+    fprintf(stdout, "overlaps #: %lld\n", T_edges);
+	fprintf(stdout, "one direction overlaps (different phasing)#: %lld\n", T_Single_Dir_Edges_0);
+    fprintf(stdout, "one direction overlaps (missing)#: %lld\n", T_Single_Dir_Edges_1);
+    fprintf(stdout, "one direction overlaps (missing) >= 1000#: %lld\n", T_Single_Dir_Edges_1_1000);
+    fprintf(stdout, "conflict strong/weak overlaps #: %lld\n", T_Conflict_Strong_Edges);
+    fprintf(stdout, "conflict exact/inexact overlaps #: %lld\n", T_Conflict_Equal_Edges);
+    fprintf(stdout, "related_reads #: %lld/%lld\n", related_reads, mn);
+    fprintf(stdout, "related_overlaps #: %lld\n", related_overlaps);
+    
+    fprintf(stdout, "****************statistic for abnormal overlaps****************\n");
+
+    fprintf(stderr, "[M::%s] took %0.2fs\n\n", __func__, Get_T()-startTime);
+
+    kv_destroy(edge_vector);
+}
+
+///if we don't have this function, we just simply remove all one-direction edges
+///by utilizing this function, some one-direction edges can be recovered as two-direction edges  
+void try_rescue_overlaps(ma_hit_t_alloc* paf, ma_hit_t_alloc* rev_paf, long long readNum,
+long long rescue_threshold)
+{
+    double startTime = Get_T();
+    long long i, j, revises = 0;
+    uint32_t qn, tn, qs, qe;
+
+    kvec_t(uint64_t) edge_vector;
+    kv_init(edge_vector);
+    kvec_t(uint64_t) edge_vector_index;
+    kv_init(edge_vector_index);
+    kvec_t(uint32_t) b;
+    kv_init(b);
+    uint64_t flag;
+    int index;
+    
+    for (i = 0; i < readNum; i++)
+    {
+        edge_vector.n = 0;
+        edge_vector_index.n = 0;
+        for (j = 0; j < rev_paf[i].length; j++)
+        {
+            qn = Get_qn(rev_paf[i].buffer[j]);
+            tn = Get_tn(rev_paf[i].buffer[j]);
+            index = get_specific_overlap(&(paf[tn]), tn, qn);
+            if(index != -1)
+            {
+                flag = tn;
+                flag = flag << 32;
+                flag = flag | (uint64_t)(index);
+                kv_push(uint64_t, edge_vector, flag);
+                kv_push(uint64_t, edge_vector_index, j);
+            }
+        }
+
+        ///based on qn, all edges at edge_vector/edge_vector_index come from different haplotype
+        ///but at another direction, all these edges come from the same haplotype
+        //here we want to recover these edges
+        if(edge_vector_index.n >= rescue_threshold)
+        {
+            kv_resize(uint32_t, b, edge_vector_index.n);
+            b.n = 0;
+            for (j = 0; j < edge_vector_index.n; j++)
+            {
+                qs = Get_qs(rev_paf[i].buffer[edge_vector_index.a[j]]);
+                qe = Get_qe(rev_paf[i].buffer[edge_vector_index.a[j]]);
+                kv_push(uint32_t, b, qs<<1);
+                kv_push(uint32_t, b, qe<<1|1);
+            }
+
+            ks_introsort_uint32_t(b.n, b.a);
+            int dp, start, max_dp = 0;
+            ma_sub_t max_interval;
+            for (j = 0, dp = 0; j < b.n; ++j) 
+            {
+                int old_dp = dp;
+                ///if a[j] is qe
+                if (b.a[j]&1) 
+                {
+                    --dp;
+                }
+                else
+                {
+                    ++dp;
+                } 
+                
+                /**
+                there are two cases: 
+                    1. old_dp = dp + 1 (b.a[j] is qe); 2. old_dp = dp - 1 (b.a[j] is qs);
+                **/
+                ///if (old_dp < min_dp && dp >= min_dp) ///old_dp < dp, b.a[j] is qs
+                if(old_dp < dp) ///b.a[j] is qs
+                { 
+                    ///case 2, a[j] is qs
+                    //here should use dp >= max_dp, instead of dp > max_dp
+                    if(dp >= max_dp)
+                    {
+                        start = b.a[j]>>1;
+                        max_dp = dp;
+                    }
+                } 
+                ///else if (old_dp >= min_dp && dp < min_dp) ///old_dp > min_dp, b.a[j] is qe
+                else if (old_dp > dp) ///old_dp > min_dp, b.a[j] is qe
+                {
+                    if(old_dp == max_dp)
+                    {
+                        max_interval.s = start;
+                        max_interval.e = b.a[j]>>1;
+                    }
+                }
+                // else
+                // {
+                //     fprintf(stderr, "error\n");
+                // }
+                
+            }
+
+            if(max_dp>= rescue_threshold)
+            {
+                long long m = 0;
+                for (j = 0; j < edge_vector_index.n; j++)
+                {
+                    qs = Get_qs(rev_paf[i].buffer[edge_vector_index.a[j]]);
+                    qe = Get_qe(rev_paf[i].buffer[edge_vector_index.a[j]]);
+                    if(qs <= max_interval.s && qe >= max_interval.e)
+                    {
+                        edge_vector_index.a[m] = edge_vector_index.a[j];
+                        edge_vector.a[m] = edge_vector.a[j];
+                        m++;
+                    }
+                }
+                edge_vector_index.n = m;
+                edge_vector.n = m;
+
+                // if(max_dp != edge_vector_index.n)
+                // {
+                //     fprintf(stderr, "error\n");
+                // }
+
+                ///the read itself do not have these overlaps, but all related reads have
+                ///we need to remove all overlaps from rev_paf[i], and then add all overlaps to paf[i]
+                // fprintf(stderr,"\nadd following %d edges...\n", edge_vector.n);
+                // print_revise_edges(&(rev_paf[i]), edge_vector_index.a, edge_vector_index.n);
+                remove_overlaps(&(rev_paf[i]), edge_vector_index.a, edge_vector_index.n);
+                add_overlaps_from_different_sources(paf, &(paf[i]), edge_vector.a, edge_vector.n);
+                revises = revises + edge_vector.n;
+
+                ///for debug
+                /**
+                for (j = 0; j < edge_vector.n; j++)
+                {
+                    int index_qn, index_tn;
+                    qn = i;
+                    tn = (uint32_t)(edge_vector.a[j] >> 32);
+
+                    index_qn = get_specific_overlap(&(paf[qn]), qn, tn);
+                    if(index_qn == -1) fprintf(stderr, "error1\n");
+
+                    index_tn = get_specific_overlap(&(paf[tn]), tn, qn);
+                    if(index_tn == -1) fprintf(stderr, "error2\n");
+
+                    if(paf[qn].buffer[index_qn].el != paf[tn].buffer[index_tn].el ||
+                       paf[qn].buffer[index_qn].ml != paf[tn].buffer[index_tn].ml || 
+                       paf[qn].buffer[index_qn].no_l_indel != paf[tn].buffer[index_tn].no_l_indel ||
+                       paf[qn].buffer[index_qn].rev != paf[tn].buffer[index_tn].rev ||
+                       Get_qs(paf[qn].buffer[index_qn]) != Get_ts(paf[tn].buffer[index_tn]) ||
+                       Get_qe(paf[qn].buffer[index_qn]) != Get_te(paf[tn].buffer[index_tn]) ||
+                       Get_qn(paf[qn].buffer[index_qn]) != Get_tn(paf[tn].buffer[index_tn]) ||
+                       Get_tn(paf[qn].buffer[index_qn]) != Get_qn(paf[tn].buffer[index_tn])
+                       )
+                       {
+                           fprintf(stderr, "error full\n");
+                       }
+
+                    index_qn = get_specific_overlap(&(rev_paf[qn]), qn, tn);
+                    if(index_qn != -1) fprintf(stderr, "error3\n");
+
+
+                }
+                **/
+            }
+        }
+    }
+
+
+    kv_destroy(edge_vector);
+    kv_destroy(edge_vector_index);
+    kv_destroy(b);
+
+    fprintf(stderr, "[M::%s] took %0.2fs, rescue edges #: %lld\n\n", __func__, Get_T()-startTime, revises);
+}
+
+
+
 void build_string_graph_without_clean(
 int min_dp, ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, 
 long long n_read, uint64_t* readLen, 
@@ -9572,11 +10491,19 @@ char* output_file_name, long long bubble_dist, int read_graph, int write)
         &R_INF, output_file_name);
     }
 
+    
+    ///collect_abnormal_edges(sources, reverse_sources, n_read);
 
-    // debug_info_of_specfic_read("m64016_190918_162737/179635219/ccs", 
+    try_rescue_overlaps(sources, reverse_sources, n_read, 4);
+
+    ///collect_abnormal_edges(sources, reverse_sources, n_read);
+    
+
+
+    // debug_info_of_specfic_read("m64016_190918_162737/76482648/ccs", 
     // sources, reverse_sources, -1, "init");
 
-    // debug_info_of_specfic_read("m64016_190918_162737/130811282/ccs", 
+    // debug_info_of_specfic_read("m64016_190918_162737/133368200/ccs", 
     // sources, reverse_sources, -1, "init");
     
 
@@ -9617,8 +10544,13 @@ char* output_file_name, long long bubble_dist, int read_graph, int write)
     
 
     ma_hit_sub(min_dp, sources, n_read, readLen, mini_overlap_length, &coverage_cut);
+
+
+    detect_chimeric_reads(sources, reverse_sources, n_read, readLen, coverage_cut, 
+    FINAL_OVERLAP_ERROR_RATE*2);
+
     ////这个会断开
-    ma_hit_chimeric(1, sources, reverse_sources, n_read, readLen, coverage_cut);
+    ///ma_hit_chimeric(1, sources, reverse_sources, n_read, readLen, coverage_cut);
 
     ma_hit_cut(min_dp, sources, n_read, readLen, mini_overlap_length, &coverage_cut);
     ///it seems we do not need ma_hit_flt
