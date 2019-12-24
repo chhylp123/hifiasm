@@ -1246,30 +1246,72 @@ void collect_sides(ma_hit_t_alloc* paf, uint64_t rLen, ma_sub_t* max_left, ma_su
     }
 }
 
-void collect_contain(ma_hit_t_alloc* paf, uint64_t rLen, ma_sub_t* max_left, ma_sub_t* max_right)
+void collect_contain(ma_hit_t_alloc* paf1, ma_hit_t_alloc* paf2, uint64_t rLen, 
+ma_sub_t* max_left, ma_sub_t* max_right, float overlap_rate)
 {
-    long long j;
+    long long j, new_left_e, new_right_s;
+    new_left_e = max_left->e;
+    new_right_s = max_right->s;
     uint32_t qs, qe;
-    for (j = 0; j < paf->length; j++)
-    {
-        qs = Get_qs(paf->buffer[j]);
-        qe = Get_qe(paf->buffer[j]);
-        ///check contained overlaps
-        if(qs != 0 && qe != rLen)
-        {
-            ///[qs, qe), [max_left.s, max_left.e)
-            if(qs < max_left->e && qe > max_left->e)
-            {
-                if(qe > max_left->e) max_left->e = qe;
-            }
+    ma_hit_t_alloc* paf;
 
-            ///[qs, qe), [max_right.s, max_right.e)
-            if(qs < max_right->s && qe > max_right->s)
+    if(paf1 != NULL)
+    {
+        paf = paf1;
+        for (j = 0; j < paf->length; j++)
+        {
+            qs = Get_qs(paf->buffer[j]);
+            qe = Get_qe(paf->buffer[j]);
+            ///check contained overlaps
+            if(qs != 0 && qe != rLen)
             {
-                if(qs < max_right->s) max_right->s = qs;
+                ///[qs, qe), [max_left.s, max_left.e)
+                if(qs < max_left->e && qe > max_left->e && max_left->e - qs > (overlap_rate * (qe -qs)))
+                {
+                    ///if(qe > max_left->e) max_left->e = qe;
+                    if(qe > max_left->e && qe > new_left_e) new_left_e = qe;
+                }
+
+                ///[qs, qe), [max_right.s, max_right.e)
+                if(qs < max_right->s && qe > max_right->s && qe - max_right->s > (overlap_rate * (qe -qs)))
+                {
+                    ///if(qs < max_right->s) max_right->s = qs;
+                    if(qs < max_right->s && qs < new_right_s) new_right_s = qs;
+                }
             }
         }
     }
+
+    if(paf2 != NULL)
+    {
+        paf = paf2;
+        for (j = 0; j < paf->length; j++)
+        {
+            qs = Get_qs(paf->buffer[j]);
+            qe = Get_qe(paf->buffer[j]);
+            ///check contained overlaps
+            if(qs != 0 && qe != rLen)
+            {
+                ///[qs, qe), [max_left.s, max_left.e)
+                if(qs < max_left->e && qe > max_left->e && max_left->e - qs > (overlap_rate * (qe -qs)))
+                {
+                    ///if(qe > max_left->e) max_left->e = qe;
+                    if(qe > max_left->e && qe > new_left_e) new_left_e = qe;
+                }
+
+                ///[qs, qe), [max_right.s, max_right.e)
+                if(qs < max_right->s && qe > max_right->s && qe - max_right->s > (overlap_rate * (qe -qs)))
+                {
+                    ///if(qs < max_right->s) max_right->s = qs;
+                    if(qs < max_right->s && qs < new_right_s) new_right_s = qs;
+                }
+            }
+        }
+    }
+    
+
+    max_left->e = new_left_e;
+    max_right->s = new_right_s;
 }
 
 
@@ -1317,6 +1359,60 @@ char* bq, char* bt)
     return 0;
 }
 
+void print_overlaps(ma_hit_t_alloc* paf, long long rLen, long long interval_s, long long interval_e)
+{
+    long long j;
+
+    fprintf(stderr, "left: \n");
+    for (j = 0; j < paf->length; j++)
+    {
+        if(Get_qs(paf->buffer[j]) == 0)
+        {
+            fprintf(stderr, "?????? interval_s: %d, interval_e: %d, qn: %d, tn: %d, j: %d, qs: %d, qe: %d, ts: %d, te: %d, dir: %d\n",
+            interval_s, interval_e,
+            Get_qn(paf->buffer[j]), Get_tn(paf->buffer[j]),
+            j, Get_qs(paf->buffer[j]), Get_qe(paf->buffer[j]),
+            Get_ts(paf->buffer[j]), Get_te(paf->buffer[j]),
+            paf->buffer[j].rev);
+            fprintf(stderr, "%.*s\n", Get_NAME_LENGTH(R_INF, Get_tn(paf->buffer[j])),
+                Get_NAME(R_INF, Get_tn(paf->buffer[j])));
+        }   
+    }
+
+    fprintf(stderr, "right: \n");
+    for (j = 0; j < paf->length; j++)
+    {
+        if(Get_qe(paf->buffer[j]) == rLen)
+        {
+            fprintf(stderr, "?????? interval_s: %d, interval_e: %d, qn: %d, tn: %d, j: %d, qs: %d, qe: %d, ts: %d, te: %d, dir: %d\n",
+            interval_s, interval_e,
+            Get_qn(paf->buffer[j]), Get_tn(paf->buffer[j]),
+            j, Get_qs(paf->buffer[j]), Get_qe(paf->buffer[j]),
+            Get_ts(paf->buffer[j]), Get_te(paf->buffer[j]),
+            paf->buffer[j].rev);
+            fprintf(stderr, "%.*s\n", Get_NAME_LENGTH(R_INF, Get_tn(paf->buffer[j])),
+                Get_NAME(R_INF, Get_tn(paf->buffer[j])));
+        }
+    }
+
+
+    fprintf(stderr, "middle: \n");
+    for (j = 0; j < paf->length; j++)
+    {
+        if(Get_qs(paf->buffer[j]) != 0 && Get_qe(paf->buffer[j]) != rLen)
+        {
+            fprintf(stderr, "?????? interval_s: %d, interval_e: %d, qn: %d, tn: %d, j: %d, qs: %d, qe: %d, ts: %d, te: %d, dir: %d\n",
+            interval_s, interval_e,
+            Get_qn(paf->buffer[j]), Get_tn(paf->buffer[j]),
+            j, Get_qs(paf->buffer[j]), Get_qe(paf->buffer[j]),
+            Get_ts(paf->buffer[j]), Get_te(paf->buffer[j]),
+            paf->buffer[j].rev);
+            fprintf(stderr, "%.*s\n", Get_NAME_LENGTH(R_INF, Get_tn(paf->buffer[j])),
+                Get_NAME(R_INF, Get_tn(paf->buffer[j])));
+        }
+    }
+
+}
 
 
 void detect_chimeric_reads(ma_hit_t_alloc* paf, ma_hit_t_alloc* rev_paf, 
@@ -1324,7 +1420,7 @@ long long n_read, uint64_t* readLen, ma_sub_t* coverage_cut, float shift_rate)
 {
     double startTime = Get_T();
     init_aux_table();
-    long long i, j, rLen, /**cov,**/ n_simple_remove = 0, n_complex_remove = 0, n_complex_remove_real = 0;
+    long long i, rLen, /**cov,**/ n_simple_remove = 0, n_complex_remove = 0, n_complex_remove_real = 0;
     uint32_t qs, qe;
     uint32_t interval_s, interval_e;
     ma_sub_t max_left, max_right;
@@ -1339,6 +1435,14 @@ long long n_read, uint64_t* readLen, ma_sub_t* coverage_cut, float shift_rate)
         max_left.s = max_right.s = rLen;
         max_left.e = max_right.e = 0;
 
+        if(i == 5783410)
+        {
+            fprintf(stderr, "\n\npaf: \n");
+            print_overlaps(&paf[i], rLen, interval_s, interval_e);
+            fprintf(stderr, "\n\nrev_paf: \n");
+            print_overlaps(&rev_paf[i], rLen, interval_s, interval_e);
+        }
+
 
         collect_sides(&(paf[i]), rLen, &max_left, &max_right);
         collect_sides(&(rev_paf[i]), rLen, &max_left, &max_right);
@@ -1349,8 +1453,23 @@ long long n_read, uint64_t* readLen, ma_sub_t* coverage_cut, float shift_rate)
         }
 
 
-        collect_contain(&(paf[i]), rLen, &max_left, &max_right);
-        collect_contain(&(rev_paf[i]), rLen, &max_left, &max_right);
+        if(i == 5783410)
+        {
+            fprintf(stderr, "max_left.s: %d, max_left.e: %d, max_right.s: %d, max_right.e: %d\n", 
+            max_left.s, max_left.e, max_right.s, max_right.e);
+        }
+
+
+        collect_contain(&(paf[i]), &(rev_paf[i]), rLen, &max_left, &max_right, 0.1);
+        ///collect_contain(&(rev_paf[i]), rLen, &max_left, &max_right);
+
+        if(i == 5783410)
+        {
+            fprintf(stderr, "max_left.s: %d, max_left.e: %d, max_right.s: %d, max_right.e: %d\n", 
+            max_left.s, max_left.e, max_right.s, max_right.e);
+        }
+
+
         ////shift_rate should be (FINAL_OVERLAP_ERROR_RATE*2)
         ///this read is a normal read
         if(max_left.e > max_right.s && 
@@ -1369,6 +1488,12 @@ long long n_read, uint64_t* readLen, ma_sub_t* coverage_cut, float shift_rate)
             paf[i].length = 0;
             n_simple_remove++;
             continue;
+        }
+
+        if(i == 5783410)
+        {
+            fprintf(stderr, "max_left.s: %d, max_left.e: %d, max_right.s: %d, max_right.e: %d\n", 
+            max_left.s, max_left.e, max_right.s, max_right.e);
         }
 
         ///now max_left.e >  max_right.s && max_left.e - max_right.s is small enough
