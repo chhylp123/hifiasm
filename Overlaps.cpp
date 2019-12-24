@@ -1435,13 +1435,13 @@ long long n_read, uint64_t* readLen, ma_sub_t* coverage_cut, float shift_rate)
         max_left.s = max_right.s = rLen;
         max_left.e = max_right.e = 0;
 
-        if(i == 5783410)
-        {
-            fprintf(stderr, "\n\npaf: \n");
-            print_overlaps(&paf[i], rLen, interval_s, interval_e);
-            fprintf(stderr, "\n\nrev_paf: \n");
-            print_overlaps(&rev_paf[i], rLen, interval_s, interval_e);
-        }
+        // if(i == 5783410)
+        // {
+        //     fprintf(stderr, "\n\npaf: \n");
+        //     print_overlaps(&paf[i], rLen, interval_s, interval_e);
+        //     fprintf(stderr, "\n\nrev_paf: \n");
+        //     print_overlaps(&rev_paf[i], rLen, interval_s, interval_e);
+        // }
 
 
         collect_sides(&(paf[i]), rLen, &max_left, &max_right);
@@ -1453,21 +1453,21 @@ long long n_read, uint64_t* readLen, ma_sub_t* coverage_cut, float shift_rate)
         }
 
 
-        if(i == 5783410)
-        {
-            fprintf(stderr, "max_left.s: %d, max_left.e: %d, max_right.s: %d, max_right.e: %d\n", 
-            max_left.s, max_left.e, max_right.s, max_right.e);
-        }
+        // if(i == 5783410)
+        // {
+        //     fprintf(stderr, "max_left.s: %d, max_left.e: %d, max_right.s: %d, max_right.e: %d\n", 
+        //     max_left.s, max_left.e, max_right.s, max_right.e);
+        // }
 
 
         collect_contain(&(paf[i]), &(rev_paf[i]), rLen, &max_left, &max_right, 0.1);
         ///collect_contain(&(rev_paf[i]), rLen, &max_left, &max_right);
 
-        if(i == 5783410)
-        {
-            fprintf(stderr, "max_left.s: %d, max_left.e: %d, max_right.s: %d, max_right.e: %d\n", 
-            max_left.s, max_left.e, max_right.s, max_right.e);
-        }
+        // if(i == 5783410)
+        // {
+        //     fprintf(stderr, "max_left.s: %d, max_left.e: %d, max_right.s: %d, max_right.e: %d\n", 
+        //     max_left.s, max_left.e, max_right.s, max_right.e);
+        // }
 
 
         ////shift_rate should be (FINAL_OVERLAP_ERROR_RATE*2)
@@ -1490,11 +1490,11 @@ long long n_read, uint64_t* readLen, ma_sub_t* coverage_cut, float shift_rate)
             continue;
         }
 
-        if(i == 5783410)
-        {
-            fprintf(stderr, "max_left.s: %d, max_left.e: %d, max_right.s: %d, max_right.e: %d\n", 
-            max_left.s, max_left.e, max_right.s, max_right.e);
-        }
+        // if(i == 5783410)
+        // {
+        //     fprintf(stderr, "max_left.s: %d, max_left.e: %d, max_right.s: %d, max_right.e: %d\n", 
+        //     max_left.s, max_left.e, max_right.s, max_right.e);
+        // }
 
         ///now max_left.e >  max_right.s && max_left.e - max_right.s is small enough
         //[interval_s, interval_e)
