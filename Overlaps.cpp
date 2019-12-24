@@ -1415,7 +1415,7 @@ void print_overlaps(ma_hit_t_alloc* paf, long long rLen, long long interval_s, l
 }
 
 
-void detect_chimeric_reads(ma_hit_t_alloc* paf, ma_hit_t_alloc* rev_paf, 
+void detect_chimeric_reads(ma_hit_t_alloc* paf, ma_hit_t_alloc* rev_paf_x, 
 long long n_read, uint64_t* readLen, ma_sub_t* coverage_cut, float shift_rate)
 {
     double startTime = Get_T();
@@ -1435,7 +1435,7 @@ long long n_read, uint64_t* readLen, ma_sub_t* coverage_cut, float shift_rate)
         max_left.s = max_right.s = rLen;
         max_left.e = max_right.e = 0;
 
-        // if(i == 5783410)
+        // if(i == 6937245)
         // {
         //     fprintf(stderr, "\n\npaf: \n");
         //     print_overlaps(&paf[i], rLen, interval_s, interval_e);
@@ -1445,7 +1445,7 @@ long long n_read, uint64_t* readLen, ma_sub_t* coverage_cut, float shift_rate)
 
 
         collect_sides(&(paf[i]), rLen, &max_left, &max_right);
-        collect_sides(&(rev_paf[i]), rLen, &max_left, &max_right);
+        ///collect_sides(&(rev_paf[i]), rLen, &max_left, &max_right);
         ///that means this read is an end node
         if(max_left.s == rLen || max_right.s == rLen)
         {
@@ -1453,17 +1453,17 @@ long long n_read, uint64_t* readLen, ma_sub_t* coverage_cut, float shift_rate)
         }
 
 
-        // if(i == 5783410)
+        // if(i == 6937245)
         // {
         //     fprintf(stderr, "max_left.s: %d, max_left.e: %d, max_right.s: %d, max_right.e: %d\n", 
         //     max_left.s, max_left.e, max_right.s, max_right.e);
         // }
 
 
-        collect_contain(&(paf[i]), &(rev_paf[i]), rLen, &max_left, &max_right, 0.1);
-        ///collect_contain(&(rev_paf[i]), rLen, &max_left, &max_right);
+        collect_contain(&(paf[i]), NULL, rLen, &max_left, &max_right, 0.1);
+        ///collect_contain(&(paf[i]), &(rev_paf[i]), rLen, &max_left, &max_right, 0.1);
 
-        // if(i == 5783410)
+        // if(i == 6937245)
         // {
         //     fprintf(stderr, "max_left.s: %d, max_left.e: %d, max_right.s: %d, max_right.e: %d\n", 
         //     max_left.s, max_left.e, max_right.s, max_right.e);
@@ -1490,7 +1490,7 @@ long long n_read, uint64_t* readLen, ma_sub_t* coverage_cut, float shift_rate)
             continue;
         }
 
-        // if(i == 5783410)
+        // if(i == 6937245)
         // {
         //     fprintf(stderr, "max_left.s: %d, max_left.e: %d, max_right.s: %d, max_right.e: %d\n", 
         //     max_left.s, max_left.e, max_right.s, max_right.e);
@@ -1517,8 +1517,8 @@ long long n_read, uint64_t* readLen, ma_sub_t* coverage_cut, float shift_rate)
             kv_resize(char, b_q, WINDOW*4+20);
             kv_resize(char, b_t, WINDOW*4+20);
             if(intersection_check_by_base(&(paf[i]), rLen, interval_s, interval_e, b_q.a, b_t.a)
-              ||
-              intersection_check_by_base(&(rev_paf[i]), rLen, interval_s, interval_e, b_q.a, b_t.a))
+              /**||
+              intersection_check_by_base(&(rev_paf[i]), rLen, interval_s, interval_e, b_q.a, b_t.a)**/)
             {
                 coverage_cut[i].c = 1;
                 coverage_cut[i].del = 1;
