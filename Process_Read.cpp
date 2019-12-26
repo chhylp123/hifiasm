@@ -40,8 +40,8 @@ uint8_t seq_nt6_table[256] = {
     5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5
 };
 
-char bit_t_seq_table[256][4] = {0};
-char bit_t_seq_table_rc[256][4] = {0};
+char bit_t_seq_table[256][4] = {{0}};
+char bit_t_seq_table_rc[256][4] = {{0}};
 char s_H[5] = {'A', 'C', 'G', 'T', 'N'};
 char rc_Table[5] = {'T', 'G', 'C', 'A', 'N'};
 
@@ -950,8 +950,8 @@ void* input_reads_muti_threads(void* arg)
 
 	destory_R_buffer_block(&tmp_buf);
 
-	fprintf(stderr, "Reads #: %lu\n",total_reads);
-	fprintf(stderr, "Bases #: %lu\n",R_INF.total_reads_bases);
+	fprintf(stderr, "Reads #: %lu\n", (unsigned long)total_reads);
+	fprintf(stderr, "Bases #: %lu\n", (unsigned long)R_INF.total_reads_bases);
 	
 
 	return NULL;

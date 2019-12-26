@@ -79,10 +79,10 @@ unsigned int* return_err, int* return_p_end, int* return_t_end)
 	int i = 0;
 	Word tmp_Peq_1 = (Word)1;
 
-	Peq['A'] = (Word)0;
-	Peq['T'] = (Word)0;
-	Peq['G'] = (Word)0;
-	Peq['C'] = (Word)0;
+	Peq[(uint8_t)'A'] = (Word)0;
+	Peq[(uint8_t)'T'] = (Word)0;
+	Peq[(uint8_t)'G'] = (Word)0;
+	Peq[(uint8_t)'C'] = (Word)0;
 
 
 	Word Peq_A;
@@ -97,19 +97,19 @@ unsigned int* return_err, int* return_p_end, int* return_t_end)
 		tmp_Peq_1 = tmp_Peq_1 << 1;
 	}
 
-	Peq_A = Peq['A'];
-	Peq_C = Peq['C'];
-	Peq_T = Peq['T'];
-	Peq_G = Peq['G'];
+	Peq_A = Peq[(uint8_t)'A'];
+	Peq_C = Peq[(uint8_t)'C'];
+	Peq_T = Peq[(uint8_t)'T'];
+	Peq_G = Peq[(uint8_t)'G'];
 
 
 	memset(Peq, 0, sizeof(Word)* 256);
 
 
-	Peq['A'] = Peq_A;
-	Peq['C'] = Peq_C;
-	Peq['T'] = Peq_T;
-	Peq['G'] = Peq_G;
+	Peq[(uint8_t)'A'] = Peq_A;
+	Peq[(uint8_t)'C'] = Peq_C;
+	Peq[(uint8_t)'T'] = Peq_T;
+	Peq[(uint8_t)'G'] = Peq_G;
 
 
 	
@@ -166,10 +166,10 @@ unsigned int* return_err, int* return_p_end, int* return_t_end)
 			(*return_err) = line_error;
 		}
 
-		Peq['A'] = Peq['A'] >> 1;
-		Peq['C'] = Peq['C'] >> 1;
-		Peq['G'] = Peq['G'] >> 1;
-		Peq['T'] = Peq['T'] >> 1;
+		Peq[(uint8_t)'A'] = Peq[(uint8_t)'A'] >> 1;
+		Peq[(uint8_t)'C'] = Peq[(uint8_t)'C'] >> 1;
+		Peq[(uint8_t)'G'] = Peq[(uint8_t)'G'] >> 1;
+		Peq[(uint8_t)'T'] = Peq[(uint8_t)'T'] >> 1;
 
 
 		++i;
@@ -284,10 +284,10 @@ inline int Reserve_Banded_BPM
 	int i = 0;
 	Word tmp_Peq_1 = (Word)1;
 
-	Peq['A'] = (Word)0;
-	Peq['T'] = (Word)0;
-	Peq['G'] = (Word)0;
-	Peq['C'] = (Word)0;
+	Peq[(uint8_t)'A'] = (Word)0;
+	Peq[(uint8_t)'T'] = (Word)0;
+	Peq[(uint8_t)'G'] = (Word)0;
+	Peq[(uint8_t)'C'] = (Word)0;
 
 
 	Word Peq_A;
@@ -302,21 +302,21 @@ inline int Reserve_Banded_BPM
 		tmp_Peq_1 = tmp_Peq_1 << 1;
 	}
 
-	///Peq['T'] = Peq['T'] | Peq['C'];
+	///Peq[(uint8_t)'T'] = Peq[(uint8_t)'T'] | Peq[(uint8_t)'C'];
 
-	Peq_A = Peq['A'];
-	Peq_C = Peq['C'];
-	Peq_T = Peq['T'];
-	Peq_G = Peq['G'];
+	Peq_A = Peq[(uint8_t)'A'];
+	Peq_C = Peq[(uint8_t)'C'];
+	Peq_T = Peq[(uint8_t)'T'];
+	Peq_G = Peq[(uint8_t)'G'];
 
 
 	memset(Peq, 0, sizeof(Word)* 256);
 
 
-	Peq['A'] = Peq_A;
-	Peq['C'] = Peq_C;
-	Peq['T'] = Peq_T;
-	Peq['G'] = Peq_G;
+	Peq[(uint8_t)'A'] = Peq_A;
+	Peq[(uint8_t)'C'] = Peq_C;
+	Peq[(uint8_t)'T'] = Peq_T;
+	Peq[(uint8_t)'G'] = Peq_G;
 
 
 	
@@ -376,10 +376,10 @@ inline int Reserve_Banded_BPM
 		}
 
 
-		Peq['A'] = Peq['A'] >> 1;
-		Peq['C'] = Peq['C'] >> 1;
-		Peq['G'] = Peq['G'] >> 1;
-		Peq['T'] = Peq['T'] >> 1;
+		Peq[(uint8_t)'A'] = Peq[(uint8_t)'A'] >> 1;
+		Peq[(uint8_t)'C'] = Peq[(uint8_t)'C'] >> 1;
+		Peq[(uint8_t)'G'] = Peq[(uint8_t)'G'] >> 1;
+		Peq[(uint8_t)'T'] = Peq[(uint8_t)'T'] >> 1;
 
 
 		++i;
@@ -539,10 +539,10 @@ inline int Reserve_Banded_BPM_PATH
 	int i = 0;
 	Word tmp_Peq_1 = (Word)1;
 
-	Peq['A'] = (Word)0;
-	Peq['T'] = (Word)0;
-	Peq['G'] = (Word)0;
-	Peq['C'] = (Word)0;
+	Peq[(uint8_t)'A'] = (Word)0;
+	Peq[(uint8_t)'T'] = (Word)0;
+	Peq[(uint8_t)'G'] = (Word)0;
+	Peq[(uint8_t)'C'] = (Word)0;
 
 
 	Word Peq_A;
@@ -557,21 +557,21 @@ inline int Reserve_Banded_BPM_PATH
 		tmp_Peq_1 = tmp_Peq_1 << 1;
 	}
 
-	///Peq['T'] = Peq['T'] | Peq['C'];
+	///Peq[(uint8_t)'T'] = Peq[(uint8_t)'T'] | Peq[(uint8_t)'C'];
 
-	Peq_A = Peq['A'];
-	Peq_C = Peq['C'];
-	Peq_T = Peq['T'];
-	Peq_G = Peq['G'];
+	Peq_A = Peq[(uint8_t)'A'];
+	Peq_C = Peq[(uint8_t)'C'];
+	Peq_T = Peq[(uint8_t)'T'];
+	Peq_G = Peq[(uint8_t)'G'];
 
 
 	memset(Peq, 0, sizeof(Word)* 256);
 
 
-	Peq['A'] = Peq_A;
-	Peq['C'] = Peq_C;
-	Peq['T'] = Peq_T;
-	Peq['G'] = Peq_G;
+	Peq[(uint8_t)'A'] = Peq_A;
+	Peq[(uint8_t)'C'] = Peq_C;
+	Peq[(uint8_t)'T'] = Peq_T;
+	Peq[(uint8_t)'G'] = Peq_G;
 
 
 	
@@ -634,10 +634,10 @@ inline int Reserve_Banded_BPM_PATH
 		}
 
 
-		Peq['A'] = Peq['A'] >> 1;
-		Peq['C'] = Peq['C'] >> 1;
-		Peq['G'] = Peq['G'] >> 1;
-		Peq['T'] = Peq['T'] >> 1;
+		Peq[(uint8_t)'A'] = Peq[(uint8_t)'A'] >> 1;
+		Peq[(uint8_t)'C'] = Peq[(uint8_t)'C'] >> 1;
+		Peq[(uint8_t)'G'] = Peq[(uint8_t)'G'] >> 1;
+		Peq[(uint8_t)'T'] = Peq[(uint8_t)'T'] >> 1;
 
 
 		++i;
@@ -645,7 +645,7 @@ inline int Reserve_Banded_BPM_PATH
 		Peq[(uint8_t)pattern[i_bd]] = Peq[(uint8_t)pattern[i_bd]] | Mask;
 
 
-		///Peq['T'] = Peq['T'] | Peq['C'];
+		///Peq[(uint8_t)'T'] = Peq[(uint8_t)'T'] | Peq[(uint8_t)'C'];
 
 		column_start = i << 3;
 		matrix_bit[column_start] = D0;
@@ -906,10 +906,10 @@ inline int Reserve_Banded_BPM_4_SSE_only(char *pattern1, char *pattern2, char *p
 	Word_32 tmp_Peq_1 = 1;
 
 
-	memset(Peq['A'], 0, sizeof(Word_32)* 4);
-	memset(Peq['C'], 0, sizeof(Word_32)* 4);
-	memset(Peq['G'], 0, sizeof(Word_32)* 4);
-	memset(Peq['T'], 0, sizeof(Word_32)* 4);
+	memset(Peq[(uint8_t)'A'], 0, sizeof(Word_32)* 4);
+	memset(Peq[(uint8_t)'C'], 0, sizeof(Word_32)* 4);
+	memset(Peq[(uint8_t)'G'], 0, sizeof(Word_32)* 4);
+	memset(Peq[(uint8_t)'T'], 0, sizeof(Word_32)* 4);
 
 	for (i = 0; i<band_length; i++)
 	{
@@ -921,11 +921,11 @@ inline int Reserve_Banded_BPM_4_SSE_only(char *pattern1, char *pattern2, char *p
 		tmp_Peq_1 = tmp_Peq_1 << 1;
 	}
 
-	Peq_SSE['A'] = _mm_set_epi32(Peq['A'][3], Peq['A'][2], Peq['A'][1], Peq['A'][0]);
-	Peq_SSE['C'] = _mm_set_epi32(Peq['C'][3], Peq['C'][2], Peq['C'][1], Peq['C'][0]);
-	Peq_SSE['G'] = _mm_set_epi32(Peq['G'][3], Peq['G'][2], Peq['G'][1], Peq['G'][0]);
-	Peq_SSE['T'] = _mm_set_epi32(Peq['T'][3], Peq['T'][2], Peq['T'][1], Peq['T'][0]);
-	///Peq_SSE['T'] = _mm_or_si128(Peq_SSE['T'], Peq_SSE['C']);
+	Peq_SSE[(uint8_t)'A'] = _mm_set_epi32(Peq[(uint8_t)'A'][3], Peq[(uint8_t)'A'][2], Peq[(uint8_t)'A'][1], Peq[(uint8_t)'A'][0]);
+	Peq_SSE[(uint8_t)'C'] = _mm_set_epi32(Peq[(uint8_t)'C'][3], Peq[(uint8_t)'C'][2], Peq[(uint8_t)'C'][1], Peq[(uint8_t)'C'][0]);
+	Peq_SSE[(uint8_t)'G'] = _mm_set_epi32(Peq[(uint8_t)'G'][3], Peq[(uint8_t)'G'][2], Peq[(uint8_t)'G'][1], Peq[(uint8_t)'G'][0]);
+	Peq_SSE[(uint8_t)'T'] = _mm_set_epi32(Peq[(uint8_t)'T'][3], Peq[(uint8_t)'T'][2], Peq[(uint8_t)'T'][1], Peq[(uint8_t)'T'][0]);
+	///Peq_SSE[(uint8_t)'T'] = _mm_or_si128(Peq_SSE[(uint8_t)'T'], Peq_SSE[(uint8_t)'C']);
 
 	Word_32 Mask = ((Word_32)1 << (errthold << 1));
 
@@ -1017,10 +1017,10 @@ inline int Reserve_Banded_BPM_4_SSE_only(char *pattern1, char *pattern2, char *p
 		/**************** */
 
 
-		Peq_SSE['A'] = _mm_srli_epi32(Peq_SSE['A'], 1);
-		Peq_SSE['T'] = _mm_srli_epi32(Peq_SSE['T'], 1);
-		Peq_SSE['G'] = _mm_srli_epi32(Peq_SSE['G'], 1);
-		Peq_SSE['C'] = _mm_srli_epi32(Peq_SSE['C'], 1);
+		Peq_SSE[(uint8_t)'A'] = _mm_srli_epi32(Peq_SSE[(uint8_t)'A'], 1);
+		Peq_SSE[(uint8_t)'T'] = _mm_srli_epi32(Peq_SSE[(uint8_t)'T'], 1);
+		Peq_SSE[(uint8_t)'G'] = _mm_srli_epi32(Peq_SSE[(uint8_t)'G'], 1);
+		Peq_SSE[(uint8_t)'C'] = _mm_srli_epi32(Peq_SSE[(uint8_t)'C'], 1);
 
 		++i;
 		++i_bd;
@@ -1029,7 +1029,7 @@ inline int Reserve_Banded_BPM_4_SSE_only(char *pattern1, char *pattern2, char *p
 		Peq_SSE[(uint8_t)pattern2[i_bd]] = _mm_or_si128(Mask2, Peq_SSE[(uint8_t)pattern2[i_bd]]);
 		Peq_SSE[(uint8_t)pattern3[i_bd]] = _mm_or_si128(Mask3, Peq_SSE[(uint8_t)pattern3[i_bd]]);
 		Peq_SSE[(uint8_t)pattern4[i_bd]] = _mm_or_si128(Mask4, Peq_SSE[(uint8_t)pattern4[i_bd]]);
-		///Peq_SSE['T'] = _mm_or_si128(Peq_SSE['T'], Peq_SSE['C']);
+		///Peq_SSE[(uint8_t)'T'] = _mm_or_si128(Peq_SSE[(uint8_t)'T'], Peq_SSE[(uint8_t)'C']);
 	}
 
 
