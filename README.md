@@ -50,4 +50,9 @@ In this example, hifiasm will remove 20 bases from both ends of each read.
 The `-h` option of hifiasm provides detailed description of options. If you have further questions, 
 please raise an issue at the issue page.
 
-##Limitations and future works 
+## Limitations and future works 
+1. For genome with low heterozygous rate, hifiasm only outputs haplotype-resolved assembly graph, instead of the phased chromosome-level assembly (will support such output in the near future).
+
+2. The running time and memory usage should be further reduced.
+
+3. The N50 should be further improved. 
