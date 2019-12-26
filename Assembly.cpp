@@ -1644,8 +1644,8 @@ void* Final_overlap_calculate_heap_merge(void* arg)
 
     uint8_t c2n[256];
     memset(c2n, 4, 256);
-    c2n['A'] = c2n['a'] = 0; c2n['C'] = c2n['c'] = 1;
-	c2n['G'] = c2n['g'] = 2; c2n['T'] = c2n['t'] = 3; // build the encoding table
+    c2n[(uint8_t)'A'] = c2n[(uint8_t)'a'] = 0; c2n[(uint8_t)'C'] = c2n[(uint8_t)'c'] = 1;
+	c2n[(uint8_t)'G'] = c2n[(uint8_t)'g'] = 2; c2n[(uint8_t)'T'] = c2n[(uint8_t)'t'] = 3; // build the encoding table
     
 
 
@@ -1729,7 +1729,7 @@ void Output_PAF()
             fwrite(Get_NAME(R_INF, Get_qn(sources[i].buffer[j])), 1, 
             Get_NAME_LENGTH(R_INF, Get_qn(sources[i].buffer[j])), output_file);
             fwrite("\t", 1, 1, output_file);
-            fprintf(output_file, "%lu\t", Get_READ_LENGTH(R_INF, Get_qn(sources[i].buffer[j])));
+            fprintf(output_file, "%lu\t", (unsigned long)Get_READ_LENGTH(R_INF, Get_qn(sources[i].buffer[j])));
             fprintf(output_file, "%d\t", Get_qs(sources[i].buffer[j]));
             fprintf(output_file, "%d\t", Get_qe(sources[i].buffer[j]));
             if(sources[i].buffer[j].rev)
@@ -1743,7 +1743,7 @@ void Output_PAF()
             fwrite(Get_NAME(R_INF, Get_tn(sources[i].buffer[j])), 1, 
             Get_NAME_LENGTH(R_INF, Get_tn(sources[i].buffer[j])), output_file);
             fwrite("\t", 1, 1, output_file);
-            fprintf(output_file, "%lu\t", Get_READ_LENGTH(R_INF, Get_tn(sources[i].buffer[j])));
+            fprintf(output_file, "%lu\t", (unsigned long)Get_READ_LENGTH(R_INF, Get_tn(sources[i].buffer[j])));
             fprintf(output_file, "%d\t", Get_ts(sources[i].buffer[j]));
             fprintf(output_file, "%d\t", Get_te(sources[i].buffer[j]));
             fprintf(output_file, "%d\t", sources[i].buffer[j].ml);
