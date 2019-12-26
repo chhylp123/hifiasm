@@ -20,3 +20,10 @@ Hifiasm is a standalone and lightweight assembler, which does not need external 
 |[Human CHM13]   |   3Gb|x27   |-k 40 -t 42 -r 2      |       ?|        ?|    ?|         NA<sup>[2]</sup>/39.8Mb|
 |[Butterfly]     | 358Mb|x35   |-k 40 -t 42 -r 2 -z 20|   17.1h|      36m|  16G|         NA<sup>[3]</sup>/7.5Mb|
 
+
+<style>
+  .markdown-body table td {
+    font-size: 1px !important;
+  }
+</style>
+
