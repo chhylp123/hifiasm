@@ -16,12 +16,11 @@
 #define INSERTION 2
 #define DELETION 3
 
-#define MIN(x,y) ((x)<=(y)?(x):(y)) 
 
 ///#define FLAG_THRE 0
 
-#define MAX(x, y) ((x >= y)?x:y)
-#define MIN(x, y) ((x <= y)?x:y)
+#define MAX(x, y) ((x >= y)?(x):(y))
+#define MIN(x, y) ((x <= y)?(x):(y))
 #define DIFF(x, y) ((MAX((x), (y))) - (MIN((x), (y))))
 #define OVERLAP(x_start, x_end, y_start, y_end) (MIN(x_end, y_end) - MAX(x_start, y_start) + 1) 
 ///#define OVERLAP(x_start, x_end, y_start, y_end) MIN(x_end, y_end) - MAX(x_start, y_start) + 1 
@@ -36,8 +35,6 @@
 #define Get_Max_DP_ID(RECORD) (RECORD&(uint64_t)0xffffffff)
 
 #define Adjust_Threshold(threshold, x_len) ((threshold == 0 && x_len >= 4)? 1: threshold)
-
-
 
 typedef struct
 {
@@ -67,7 +64,6 @@ inline void init_Window_Pool(Window_Pool* dumy, long long read_length, long long
     dumy->window_num = (dumy->read_length + dumy->window_length - 1) / dumy->window_length;
 }
 
-
 inline int get_Window(Window_Pool* dumy, long long* w_beg, long long* w_end)
 {   
     (*w_beg) = dumy->window_start;
@@ -92,26 +88,8 @@ inline int get_Window(Window_Pool* dumy, long long* w_beg, long long* w_end)
     {
         dumy->window_end = dumy->read_length - 1;
     }
-    // else if (dumy->read_length - dumy->window_end - 1 <= dumy->tail_length)
-    // {
-    //     dumy->window_end = dumy->read_length - 1;
-    // }
-    
-
-    /**
-    if((*w_end) - (*w_beg) + 1 < 375 && (*w_end) + 1 != dumy->read_length)
-    {
-        fprintf(stderr, "(*w_beg):%d, (*w_end): %d, dumy->read_length: %d\n", 
-        (*w_beg), (*w_end), dumy->read_length);
-    }
-    **/
-
-
     return 1;
 }
-
-
-
 
 
 typedef struct
@@ -326,45 +304,6 @@ inline int filter_one_snp(int occ_0, int occ_1, int total)
     return 1;
 }
 
-
-inline int filter_one_snp_advance_back(int occ_0, int occ_1, int total, int group_size,
-long long homopolymer_num, long long non_homopolymer_num)
-{
-    
-
-    double available;
-
-    if(occ_0 <= occ_1)
-    {
-        available = occ_0;
-    }
-    else
-    {
-        available = occ_1;
-    }
-    int min = available;
-
-    double threshold1 = 0.35;
-    double threshold2 = 0.24;
-    available = available/((double)(total));
-
-
-    //if(non_homopolymer_num > 0 && min >= 5 && group_size > 1)
-    if(non_homopolymer_num > 0 && min >= 5)
-    {
-        if(available < threshold2 || total < 10)
-        {
-            return 0;
-        }
-    }
-    else if(available < threshold1 || occ_0 < MIN_COVERAGE_THRESHOLD + 1 || total < 10)
-    {
-        return 0;
-    }
-    return 1;
-}
-
-
 inline void count_nearby_snps(haplotype_evdience_alloc* hap, uint32_t* SNPs, int SNPsLen, int* nearsnp, int* non_nearsnps)
 {
     long long i, current_id, large_id, small_id;
@@ -502,96 +441,6 @@ uint32_t* SNPs, int SNPsLen)
     return 1;
 }
 
-/**
-inline int if_is_homopolymer(long long site, char* read, long long read_length)
-{
-    long long beg, end, i;
-
-    beg = site - 10;
-    if(beg < 0)
-    {
-        beg = 0;
-    }
-
-    end = site + 10;
-
-    if(end >= read_length)
-    {
-        end = read_length - 1;
-    }
-
-    char f_homopolymer_ch = 0;
-    long long f_homopolymer_len = 0;
-
-    for (i = site + 1; i <= end; i++)
-    {
-        if(f_homopolymer_ch == 0)
-        {
-            f_homopolymer_ch = read[i];
-            f_homopolymer_len = 1;
-        }
-        else 
-        {
-            if(read[i] != f_homopolymer_ch)
-            {
-                break;
-            }
-            else
-            {
-                f_homopolymer_len++;
-            }
-        }
-    }
-
-    char b_homopolymer_ch = 0;
-    long long b_homopolymer_len = 0;
-
-    for (i = site - 1; i >= beg; i--)
-    {
-        if(b_homopolymer_ch == 0)
-        {
-            b_homopolymer_ch = read[i];
-            b_homopolymer_len = 1;
-        }
-        else
-        {
-            if(read[i] != b_homopolymer_ch)
-            {
-                break;
-            }
-            else
-            {
-                b_homopolymer_len++;
-            }
-        }
-    }
-
-    if(f_homopolymer_ch == read[site])
-    {
-        f_homopolymer_len++;
-    }
-    else if(b_homopolymer_ch == read[site])
-    {
-        b_homopolymer_len++;
-    }
-
-
-    if(f_homopolymer_len >= 5 || b_homopolymer_len >= 5)
-    {
-        return 1;
-    }
-
-    if (b_homopolymer_ch == f_homopolymer_ch 
-        && 
-        (f_homopolymer_len + b_homopolymer_len >= 5))
-    {
-        return 1;
-    }
-    
-    
-    return 0;
-}
-**/
 
 inline int if_is_homopolymer_strict(long long site, char* read, long long read_length)
 {
@@ -665,22 +514,6 @@ inline int if_is_homopolymer_strict(long long site, char* read, long long read_l
     {
         b_homopolymer_len++;
     }
-
-    /**
-    fprintf(stderr, "site: %d, beg: %d, end: %d\n", site, beg, end);
-    for (i = beg; i <= end; i++)
-    {
-        if (i == site)
-        {
-            fprintf(stderr, "|%c|", read[i]);
-        }
-        else
-        {
-            fprintf(stderr, "%c", read[i]);
-        }
-    }
-    fprintf(stderr, "\n");
-    **/
 
     if(f_homopolymer_len >= threshold || b_homopolymer_len >= threshold)
     {
@@ -774,22 +607,6 @@ inline int if_is_homopolymer_repeat(long long site, char* read, long long read_l
         b_homopolymer_len++;
     }
 
-    /**
-    fprintf(stderr, "site: %d, beg: %d, end: %d\n", site, beg, end);
-    for (i = beg; i <= end; i++)
-    {
-        if (i == site)
-        {
-            fprintf(stderr, "|%c|", read[i]);
-        }
-        else
-        {
-            fprintf(stderr, "%c", read[i]);
-        }
-    }
-    fprintf(stderr, "\n");
-    **/
-
     if(f_homopolymer_len >= threshold || b_homopolymer_len >= threshold)
     {
         return 1;
@@ -824,8 +641,6 @@ UC_Read* g_read)
 
     h->snp_stat[h->available_snp].is_homopolymer = 
     if_is_homopolymer_strict(h->snp_stat[h->available_snp].site, g_read->seq, g_read->length);
-
-    ///fprintf(stderr, "is_homopolymer: %d\n", h->snp_stat[h->available_snp].is_homopolymer);
 
     int8_t* vector = Get_SNP_Vector((*h), h->available_snp);
     for (i = 0; i < sub_length; i++)
@@ -1053,7 +868,7 @@ inline void insert_SNP_IDs_addition(Snp_ID_Vector_Alloc* SNP_IDs, uint32_t* IDs_
 }
 
 
-inline void init_DP_matrix(DP_matrix* dp, int32_t snp_num)
+inline void init_DP_matrix(DP_matrix* dp, uint32_t snp_num)
 {
 
     if(snp_num > dp->snp_size)
@@ -1147,9 +962,6 @@ inline void destoryHaplotypeEvdience(haplotype_evdience_alloc* h)
     free(h->dp.buffer);
     free(h->dp.max_buffer);
     destory_SNP_IDs(&(h->dp.SNP_IDs));
-    
-
-    
 }
 
 inline void ResizeInitHaplotypeEvdience(haplotype_evdience_alloc* h)
@@ -1237,115 +1049,22 @@ void clear_Round2_alignment(Round2_alignment* h);
 
 void correct_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF, 
                         UC_Read* g_read, Correct_dumy* dumy, UC_Read* overlap_read, Graph* g, Graph* DAGCon, 
-                        long long* matched_overlap_0, long long* matched_overlap_1, 
-                        long long* potiental_matched_overlap_0, long long* potiental_matched_overlap_1,
                         Cigar_record* current_cigar, haplotype_evdience_alloc* hap,
                         Round2_alignment* second_round, int force_repeat, int is_consensus,
-                        int* fully_cov, int* abnormal, uint8_t* c2n);
+                        int* fully_cov, int* abnormal);
 void init_Correct_dumy(Correct_dumy* list);
 void destory_Correct_dumy(Correct_dumy* list);
 void clear_Correct_dumy(Correct_dumy* list, overlap_region_alloc* overlap_list);
 void clear_Correct_dumy_pure(Correct_dumy* list);
-void pre_filter_by_nearby(k_mer_pos* new_n_list, k_mer_pos* old_n_list, uint64_t n_length, uint64_t n_end_pos, UC_Read* g_read, 
-All_reads* R_INF, Correct_dumy* dumy, uint64_t* new_n_length);
-void pre_filter_by_nearby_single(k_mer_pos* new_n_list, k_mer_pos* old_n_list, uint64_t n_length, uint64_t n_end_pos, UC_Read* g_read, 
-All_reads* R_INF, Correct_dumy* dumy, uint64_t* new_n_length);
 void get_seq_from_Graph(Graph* backbone, Graph* DAGCon, Correct_dumy* dumy, Cigar_record* current_cigar, char* self_string,
 char* r_string, long long r_string_length, long long r_string_site);
-
 void init_Cigar_record(Cigar_record* dummy);
 void destory_Cigar_record(Cigar_record* dummy);
 void clear_Cigar_record(Cigar_record* dummy);
-
-
-
-
-inline void add_new_cell_to_cigar_record(Cigar_record* dummy, uint32_t len, uint32_t type)
-{
-    uint32_t tmp;
-    tmp = len;
-    tmp = tmp << 2;
-    tmp = tmp | type;
-
-    dummy->length++;
-
-
-    if(dummy->length > dummy->size)
-    {
-        dummy->size = dummy->size * 2;
-        dummy->record = (uint32_t*)realloc(dummy->record, dummy->size*sizeof(uint32_t));
-    }
-
-    dummy->record[dummy->length - 1] = tmp;
-}
-
-inline void add_existing_cell_to_cigar_record(Cigar_record* dummy, uint32_t len, uint32_t type)
-{
-    uint32_t tmp;
-
-    tmp = dummy->record[dummy->length - 1] >> 2;
-    tmp = tmp + len;
-    tmp = tmp << 2;
-    tmp = tmp | type;
-    dummy->record[dummy->length - 1] = tmp;
-}
-
-
-inline void add_new_cell_to_cigar_record_with_different_base(Cigar_record* dummy, uint32_t len, uint32_t type, char* seq)
-{
-    uint32_t tmp;
-    tmp = len;
-    tmp = tmp << 2;
-    tmp = tmp | type;
-   
-
-    dummy->length++;
-
-    if(dummy->length > dummy->size)
-    {
-        dummy->size = dummy->size * 2;
-        dummy->record = (uint32_t*)realloc(dummy->record, dummy->size*sizeof(uint32_t));
-    }
-
-    dummy->record[dummy->length - 1] = tmp;
-
-    
-
-    if (dummy->lost_base_length + len> dummy->lost_base_size)
-    {
-        dummy->lost_base_size = (dummy->lost_base_length + len) * 2;
-        dummy->lost_base = (char*)realloc(dummy->lost_base, dummy->lost_base_size*sizeof(char));
-    }
-
-    int i = 0;
-    for (i = 0; i < len; i++, dummy->lost_base_length++)
-    {
-        dummy->lost_base[dummy->lost_base_length] = seq[i];
-    }
-}
-
-inline void add_existing_cell_to_cigar_record_with_different_base(Cigar_record* dummy, uint32_t len, uint32_t type, char* seq)
-{
-    uint32_t tmp;
-
-    tmp = dummy->record[dummy->length - 1] >> 2;
-    tmp = tmp + len;
-    tmp = tmp << 2;
-    tmp = tmp | type;
-    dummy->record[dummy->length - 1] = tmp;
-
-    if (dummy->lost_base_length + len> dummy->lost_base_size)
-    {
-        dummy->lost_base_size = (dummy->lost_base_length + len) * 2;
-        dummy->lost_base = (char*)realloc(dummy->lost_base, dummy->lost_base_size*sizeof(char));
-    }
-
-    int i = 0;
-    for (i = 0; i < len; i++, dummy->lost_base_length++)
-    {
-        dummy->lost_base[dummy->lost_base_length] = seq[i];
-    }
-}
+void add_new_cell_to_cigar_record(Cigar_record* dummy, uint32_t len, uint32_t type);
+void add_existing_cell_to_cigar_record(Cigar_record* dummy, uint32_t len, uint32_t type);
+void add_new_cell_to_cigar_record_with_different_base(Cigar_record* dummy, uint32_t len, uint32_t type, char* seq);
+void add_existing_cell_to_cigar_record_with_different_base(Cigar_record* dummy, uint32_t len, uint32_t type, char* seq);
 
 
 /***
@@ -1356,15 +1075,11 @@ inline void add_existing_cell_to_cigar_record_with_different_base(Cigar_record* 
  3. deletion
  ***/
 inline void add_cigar_record(char* seq, uint32_t len, Cigar_record* dummy, uint32_t type)
-{
-
-    
-    uint32_t tmp;
-    
+{    
     if(type == 0)///match
     {
         ///add to existing cell, just increase length
-        if(dummy->current_operation == type)
+        if((uint32_t)dummy->current_operation == type)
         {
             add_existing_cell_to_cigar_record(dummy, len, type);
         }
@@ -1379,7 +1094,7 @@ inline void add_cigar_record(char* seq, uint32_t len, Cigar_record* dummy, uint3
     {
         ///add to existing cell, just increase length
         ///and add different bases
-        if(dummy->current_operation == type)
+        if((uint32_t)dummy->current_operation == type)
         {
             add_existing_cell_to_cigar_record_with_different_base(dummy, len, type, seq);
         }
@@ -1394,7 +1109,7 @@ inline void add_cigar_record(char* seq, uint32_t len, Cigar_record* dummy, uint3
     {
         ///add to existing cell, just increase length
         ///and add different bases
-        if(dummy->current_operation == type)
+        if((uint32_t)dummy->current_operation == type)
         {
             add_existing_cell_to_cigar_record_with_different_base(dummy, len, type, seq);
         }
@@ -1418,7 +1133,7 @@ inline void add_cigar_record(char* seq, uint32_t len, Cigar_record* dummy, uint3
         **/
        ///add to existing cell, just increase length
         ///and add different bases
-        if(dummy->current_operation == type)
+        if((uint32_t)dummy->current_operation == type)
         {
             add_existing_cell_to_cigar_record_with_different_base(dummy, len, type, seq);
         }
@@ -1431,21 +1146,10 @@ inline void add_cigar_record(char* seq, uint32_t len, Cigar_record* dummy, uint3
     }
     
     dummy->current_operation = type;
-
-
-
-
-
-    
 }
 
 int verify_cigar_2(char* x, int x_len, char* y, int y_len, Cigar_record* cigar, int error);
 
-/**********************for prefilter************************ */
-void destory_k_mer_pos_list_alloc_prefilter(k_mer_pos_list_alloc* list);
-void append_k_mer_pos_list_alloc_prefilter(k_mer_pos_list_alloc* list, k_mer_pos* n_list, uint64_t n_length, 
-uint64_t n_end_pos, uint8_t n_direction, UC_Read* g_read, All_reads* R_INF, Correct_dumy* dumy);
-/**********************for prefilter************************ */
 
 int verify_single_window(long long x_start, long long x_end, 
 long long overlap_x_s, long long overlap_y_s, int x_id,

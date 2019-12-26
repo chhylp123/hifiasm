@@ -150,18 +150,18 @@ inline void push_single_buffer(Output_buffer_sub_block* curr_sub_block)
 void* pop_buffer(void*)
 {
 
-	FILE* output_file = fopen(output_file_name, "w");
+	FILE* output_file = fopen(asm_opt.output_file_name, "w");
 
 	init_buffer_sub_block(&tmp_buffer_sub_block);
 
 	
 
-	while (buffer_out.all_buffer_end < thread_num)
+	while (buffer_out.all_buffer_end < asm_opt.thread_num)
 	{
 
 		pthread_mutex_lock(&o_queueMutex);
 
-		while (if_empty_buffer() && (buffer_out.all_buffer_end < thread_num))
+		while (if_empty_buffer() && (buffer_out.all_buffer_end < asm_opt.thread_num))
 		{
 			pthread_cond_signal(&o_stallCond);
 			pthread_cond_wait(&o_flushCond, &o_queueMutex);
@@ -196,6 +196,7 @@ void* pop_buffer(void*)
 
     fclose(output_file);
 
+	return NULL;
 }
 
 
@@ -225,7 +226,7 @@ void finish_output_buffer()
     buffer_out.all_buffer_end++;
 
 
-    if (buffer_out.all_buffer_end == thread_num)
+    if (buffer_out.all_buffer_end == asm_opt.thread_num)
     {
         pthread_cond_signal(&o_flushCond);
     }

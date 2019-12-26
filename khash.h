@@ -372,18 +372,19 @@ static const double __ac_HASH_UPPER = 0.77;
 	}    \
 	SCOPE void kh_load_##name(kh_##name##_t *h, FILE* fp)\
 	{\
-		fread(&(h->n_buckets), sizeof(khint_t), 1, fp);\
-		fread(&(h->size), sizeof(khint_t), 1, fp);\
-		fread(&(h->n_occupied), sizeof(khint_t), 1, fp);\
-		fread(&(h->upper_bound), sizeof(khint_t), 1, fp);\
+		int f_flag;\
+		f_flag = fread(&(h->n_buckets), sizeof(khint_t), 1, fp);\
+		f_flag += fread(&(h->size), sizeof(khint_t), 1, fp);\
+		f_flag += fread(&(h->n_occupied), sizeof(khint_t), 1, fp);\
+		f_flag += fread(&(h->upper_bound), sizeof(khint_t), 1, fp);\
 		if (h->n_buckets)\
 		{\
 			h->flags = (khint32_t*)kmalloc(__ac_fsize(h->n_buckets) * sizeof(khint32_t));\
-			fread(h->flags, sizeof(khint32_t), __ac_fsize(h->n_buckets), fp);\
+			f_flag += fread(h->flags, sizeof(khint32_t), __ac_fsize(h->n_buckets), fp);\
 			h->keys = (khkey_t*)kmalloc(sizeof(khkey_t)*h->n_buckets);\
-			fread(h->keys, sizeof(khkey_t), h->n_buckets, fp);\
+			f_flag += fread(h->keys, sizeof(khkey_t), h->n_buckets, fp);\
 			h->vals = (khval_t*)kmalloc(sizeof(khval_t)*h->n_buckets);\
-			fread(h->vals, sizeof(khval_t), h->n_buckets, fp);\
+			f_flag += fread(h->vals, sizeof(khval_t), h->n_buckets, fp);\
 		}\
 	}
 
