@@ -20,9 +20,7 @@ Hifiasm is a standalone and lightweight assembler, which does not need external 
 |<sub>[Human CHM13]<sub>|<sub>3Gb<sub>|<sub>x27<sub>|<sub>-k 40 -t 42 -r 2<sub>|<sub>?<sub>|<sub>?<sub>|<sub>?<sub>|<sub>NA<sup>[2]</sup>/39.8Mb<sub>|
 |<sub>[Butterfly]<sub>|<sub>358Mb<sub>|<sub>x35<sub>|<sub>-k 40 -t 42 -r 2 -z 20<sub>|<sub>17.1h<sub>|<sub>36m<sub>|<sub>16G<sub>|<sub>7.5Mb/NA<sup>[3]</sup><sub>|
 
-<sub>[1] unitig N50 is the N50 of assembly graph with haplotype information (i.e., bubbles), while the contig N50 is the N50 of haplotype collapsed assembly (i.e., without bubbles).<sub>
-
-<sub>[2] CHM13 is a homozygous sample, so unitig N50 makes no sense.<sub>
-
-<sub>[3] Butterfly has high heterozygous rate, so most chromosomes have been fully separated into two haplotypes. In this case, contig N50 makes no sense.<sub>
+<sub>[1] unitig N50 is the N50 of assembly graph with haplotype information (i.e., bubbles), while the contig N50 is the N50 of haplotype collapsed assembly (i.e., without bubbles).
+[2] CHM13 is a homozygous sample, so unitig N50 makes no sense.
+[3] Butterfly has high heterozygous rate, so most chromosomes have been fully separated into two haplotypes. In this case, contig N50 makes no sense.<sub>
 
