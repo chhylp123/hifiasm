@@ -104,6 +104,7 @@ uint64_t* source_index, long long listLen)
         source_i = (uint32_t)(source_index[i]);
         tmp = &(source_paf_list[source_n].buffer[source_i]);
 
+        ele.del = 0;
         ele.rev = tmp->rev;
         ele.qns = Get_tn((*tmp));
         ele.qns = ele.qns << 32;
@@ -445,6 +446,7 @@ void normalize_ma_hit_t(ma_hit_t_alloc* sources, long long num_sources)
             else
             {
                 ///must have this line
+                new_element.del = 0;
                 new_element.ml = 1;
                 new_element.no_l_indel = 1;
                 set_reverse_overlap(&new_element, &(sources[i].buffer[j]));
@@ -4388,7 +4390,7 @@ int asg_arc_del_short_diploid_unclean(asg_t *g, float drop_ratio, ma_hit_t_alloc
 		///remove short overlaps
 		thres = (uint32_t)(av[0].ol * drop_ratio + .499);
 		///av has been sorted by overlap length
-		for (i = nv - 1; i >= 1 && av[i].ol < thres; --i);
+		for (i = nv - 1; i >= 1 && av[i].ol < thres; --i) {}
         last_e = i + 1;
 
 		for (i = i + 1; i < nv; ++i)
@@ -4685,7 +4687,7 @@ int asg_arc_del_too_short_overlaps(asg_t *g, long long dropLen, float drop_ratio
     double startTime = Get_T();
 
 	uint32_t v, v_max, v_maxLen, n_vtx = g->n_seq * 2, n_short = 0;
-    long long drop_ratio_Len;
+    long long drop_ratio_Len = 0;
     
     for (v = 0; v < n_vtx; ++v) 
     {
@@ -5741,7 +5743,7 @@ int asg_arc_del_tri_link(asg_t *g, int max_dist)
             
             if(f1 && f2)
             {
-                if((l1 <= min_thres) || (l2 <= min_thres))
+                if(l1 <= min_thres || l2 <= min_thres) // TODO: check this block: it is always false
                 {
                     continue;
                 } 
@@ -7104,7 +7106,7 @@ int load_ma_hit_ts(ma_hit_t_alloc** x, char* read_file_name)
     long long n_read;
     long long i, k;
     int f_flag;
-    f_flag += fread(&n_read, sizeof(n_read), 1, fp);
+    f_flag = fread(&n_read, sizeof(n_read), 1, fp);
     (*x) = (ma_hit_t_alloc*)malloc(sizeof(ma_hit_t_alloc)*n_read);
 
 
@@ -7396,7 +7398,7 @@ int asg_pop_bubble(asg_t *g, int max_dist)
 	///fprintf(stderr, "[M::%s] popped %d bubbles and trimmed %d tips\n", __func__, (uint32_t)n_pop, (uint32_t)(n_pop>>32));
 	if(VERBOSE >= 1)
     {
-        fprintf(stderr, "[M::%s] popped %lu bubbles\n", __func__, n_pop);
+        fprintf(stderr, "[M::%s] popped %lu bubbles\n", __func__, (unsigned long)n_pop);
     }
     return n_pop;
 }
@@ -7607,6 +7609,7 @@ int asg_arc_del_orthology_multiple_way(asg_t *g, ma_hit_t_alloc* reverse_sources
         n_arc = get_real_length(g, v, NULL);
         if (n_arc < 2) continue;
         v_max = (uint32_t)-1;
+        v_maxLen = 0;
 
         for (i = 0, n_arc = 0; i < nv; i++)
         {
