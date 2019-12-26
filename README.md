@@ -9,7 +9,7 @@ cd hifiasm && make
 ```
 
 ## Introduction
-Hifiasm is an ultrafast haplotype-resolved de novo assembler based on PacBio Hifi reads. Unlike most existing assemblers, hifiasm starts from uncollapsed genome. Thus, it is able to keep the haplotype information as much as possible. The input of hifiasm is the PacBio Hifi reads in fasta/fastq format, and there are two types of output: (1) haplotype-resolved assembly graph in [GFA][gfa] format; (2) haplotype-aware error corrected reads. So far hifiasm is in early development stage, it will output phased chromosome-level high-quality assembly in the near future.
+Hifiasm is an ultrafast haplotype-resolved de novo assembler based on PacBio Hifi reads. Unlike most existing assemblers, hifiasm starts from uncollapsed genome. Thus, it is able to keep the haplotype information as much as possible. The input of hifiasm is the PacBio Hifi reads in fasta/fastq format, and there are two types of output: (1) haplotype-resolved assembly graph in [GFA][gfa] format; (2) haplotype-aware error corrected reads. So far hifiasm is still in early development stage, it will output phased chromosome-level high-quality assembly in the near future.
 
 Hifiasm is a standalone and lightweight assembler, which does not need external libraries (except zlib). For large genomes, it can generate high-quality assembly in a few hours. Hifiasm has been tested on the following datasets:
 
@@ -21,8 +21,8 @@ Hifiasm is a standalone and lightweight assembler, which does not need external 
 |<sub>[Butterfly]<sub>|<sub>358Mb<sub>|<sub>x35<sub>|<sub>-k 40 -t 42 -r 2 -z 20<sub>|<sub>17.1h<sub>|<sub>36m<sub>|<sub>16G<sub>|<sub>7.5Mb/NA<sup>[3]</sup><sub>|
 
 <sub>[1] unitig N50 is the N50 of assembly graph with haplotype information (i.e., bubbles), while the contig N50 is the N50 of haplotype collapsed assembly (i.e., without bubbles).
-[2] CHM13 is a homozygous sample, so unitig N50 makes no sense.
-[3] Butterfly has high heterozygous rate, so most chromosomes have been fully separated into two haplotypes. In this case, contig N50 makes no sense.<sub>
+[2] CHM13 is a homozygous sample, so that unitig N50 makes no sense.
+[3] Butterfly has high heterozygous rate, so that most chromosomes have been fully separated into two haplotypes. In this case, contig N50 makes no sense.<sub>
 
 ## Usage
 For Hifi reads assembly, a typical command line looks like:
