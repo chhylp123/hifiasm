@@ -104,7 +104,7 @@ uint64_t* source_index, long long listLen)
         source_i = (uint32_t)(source_index[i]);
         tmp = &(source_paf_list[source_n].buffer[source_i]);
 
-		ele.del = 0;
+        ele.del = 0;
         ele.rev = tmp->rev;
         ele.qns = Get_tn((*tmp));
         ele.qns = ele.qns << 32;
@@ -446,7 +446,7 @@ void normalize_ma_hit_t(ma_hit_t_alloc* sources, long long num_sources)
             else
             {
                 ///must have this line
-				new_element.del = 0;
+                new_element.del = 0;
                 new_element.ml = 1;
                 new_element.no_l_indel = 1;
                 set_reverse_overlap(&new_element, &(sources[i].buffer[j]));
