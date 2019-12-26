@@ -3141,8 +3141,8 @@ long long type, long long edgeID, Cigar_record* current_cigar, char* self_string
     else
     {
         fprintf(stderr, "error type\n");
+        return -1;
     }
-    
 }
 
 
@@ -3436,14 +3436,14 @@ void print_graph(Graph* DAGCon)
 
         if(If_Node_Exist(*currentStartNode))
         {
-            fprintf(stderr, "ID: %lu (%c) (w: %lu)\n", (*currentStartNode).ID, (*currentStartNode).base, (*currentStartNode).weight);
+            fprintf(stderr, "ID: %lu (%c) (w: %lu)\n", (unsigned long)(*currentStartNode).ID, (*currentStartNode).base, (unsigned long)(*currentStartNode).weight);
             clear_RSet(&iter_out);
             Edge* e;
             fprintf(stderr, "****Out-node: ");
             while(getOutputEdges(&iter_out, DAGCon, currentStartNode, &e))
             {
                 //fprintf(stderr, "%d[%c], ", G_Node(*DAGCon, e->out_node).ID, G_Node(*DAGCon, e->out_node).base);
-                fprintf(stderr, "%lu(w: %lu), ", G_Node(*DAGCon, e->out_node).ID, e->weight);
+                fprintf(stderr, "%lu(w: %lu), ", (unsigned long)G_Node(*DAGCon, e->out_node).ID, (unsigned long)e->weight);
             }
             fprintf(stderr, "\n");
 
@@ -3483,14 +3483,14 @@ void debug_DAGCon(Graph* DAGCon)
                 if(Visit(*e_self) == 0)
                 {
                     fprintf(stderr, "Visit(*e_self): %lu, error visit flag: in_node: %lu, out_node: %lu\n", 
-                    Visit(*e_self), (*e_self).in_node, (*e_self).out_node);
+                    (unsigned long)Visit(*e_self), (unsigned long)(*e_self).in_node, (unsigned long)(*e_self).out_node);
                 }
 
 
                 if(Visit(*e_reverse) == 0)
                 {
                     fprintf(stderr, "Visit(*e_reverse): %lu, error visit flag: in_node: %lu, out_node: %lu\n", 
-                    Visit(*e_reverse), (*e_reverse).in_node, (*e_reverse).out_node);
+                    (unsigned long)Visit(*e_reverse), (unsigned long)(*e_reverse).in_node, (unsigned long)(*e_reverse).out_node);
                 }
 
 
@@ -3518,14 +3518,14 @@ void debug_DAGCon(Graph* DAGCon)
                 if(Visit(*e_self) == 0)
                 {
                     fprintf(stderr, "Visit(*e_self): %lu, error visit flag: in_node: %lu, out_node: %lu\n", 
-                    Visit(*e_self), (*e_self).in_node, (*e_self).out_node);
+                    (unsigned long)Visit(*e_self), (unsigned long)(*e_self).in_node, (unsigned long)(*e_self).out_node);
                 }
 
 
                 if(Visit(*e_reverse) == 0)
                 {
                     fprintf(stderr, "Visit(*e_reverse): %lu, error visit flag: in_node: %lu, out_node: %lu\n", 
-                    Visit(*e_reverse), (*e_reverse).in_node, (*e_reverse).out_node);
+                    (unsigned long)Visit(*e_reverse), (unsigned long)(*e_reverse).in_node, (unsigned long)(*e_reverse).out_node);
                 }
 
 
@@ -3958,7 +3958,7 @@ void debug_whole_graph(Graph* g)
         g->g_nodes.list[i].deletion_edges.length!= 1)
         {
             fprintf(stderr, "g->g_nodes.list[i].deletion_edges.length: %lu\n",
-            g->g_nodes.list[i].deletion_edges.length);
+            (unsigned long)g->g_nodes.list[i].deletion_edges.length);
         }
     }
 
@@ -3969,7 +3969,7 @@ void debug_whole_graph(Graph* g)
         g->g_nodes.list[i].mismatch_edges.length < 1)
         {
             fprintf(stderr, "g->s_end_nodeID: %lu, g->g_nodes.list[%lld].mismatch_edges.length: %lu\n",
-            g->s_end_nodeID, i, g->g_nodes.list[i].mismatch_edges.length);
+            (unsigned long)g->s_end_nodeID, i, (unsigned long)g->g_nodes.list[i].mismatch_edges.length);
         }
     }
 
@@ -5928,7 +5928,7 @@ void print_core_snp(haplotype_evdience_alloc* hap)
     for (i = 0; i < hap->core_snp; i++)
     {
         fprintf(stderr, "core(i): %lu, site: %u, occ_0: %u, occ_1: %u, occ_2: %u, score: %d\n", 
-    i, hap->snp_stat[i].site, hap->snp_stat[i].occ_0, hap->snp_stat[i].occ_1,
+    (unsigned long)i, hap->snp_stat[i].site, hap->snp_stat[i].occ_0, hap->snp_stat[i].occ_1,
     hap->snp_stat[i].occ_2,
     hap->snp_stat[i].score); 
 
@@ -5939,7 +5939,7 @@ void print_core_snp(haplotype_evdience_alloc* hap)
         {
             if(vector[j] == 0)
             {
-                fprintf(stderr, "type: %d, ID: %lu\n", vector[j], j);
+                fprintf(stderr, "type: %d, ID: %lu\n", vector[j], (unsigned long)j);
             }
         }
 
@@ -5948,7 +5948,7 @@ void print_core_snp(haplotype_evdience_alloc* hap)
         {
             if(vector[j] == 1)
             {
-                fprintf(stderr, "type: %d, ID: %lu\n", vector[j], j);
+                fprintf(stderr, "type: %d, ID: %lu\n", vector[j], (unsigned long)j);
             }
         }
 
@@ -5957,7 +5957,7 @@ void print_core_snp(haplotype_evdience_alloc* hap)
         {
             if(vector[j] == 2)
             {
-                fprintf(stderr, "type: %d, ID: %lu\n", vector[j], j);
+                fprintf(stderr, "type: %d, ID: %lu\n", vector[j], (unsigned long)j);
             }
         }
         

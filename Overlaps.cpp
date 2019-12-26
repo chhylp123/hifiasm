@@ -4388,7 +4388,7 @@ int asg_arc_del_short_diploid_unclean(asg_t *g, float drop_ratio, ma_hit_t_alloc
 		///remove short overlaps
 		thres = (uint32_t)(av[0].ol * drop_ratio + .499);
 		///av has been sorted by overlap length
-		for (i = nv - 1; i >= 1 && av[i].ol < thres; --i);
+		for (i = nv - 1; i >= 1 && av[i].ol < thres; --i) {}
         last_e = i + 1;
 
 		for (i = i + 1; i < nv; ++i)
@@ -7104,7 +7104,7 @@ int load_ma_hit_ts(ma_hit_t_alloc** x, char* read_file_name)
     long long n_read;
     long long i, k;
     int f_flag;
-    f_flag += fread(&n_read, sizeof(n_read), 1, fp);
+    f_flag = fread(&n_read, sizeof(n_read), 1, fp);
     (*x) = (ma_hit_t_alloc*)malloc(sizeof(ma_hit_t_alloc)*n_read);
 
 
@@ -7396,7 +7396,7 @@ int asg_pop_bubble(asg_t *g, int max_dist)
 	///fprintf(stderr, "[M::%s] popped %d bubbles and trimmed %d tips\n", __func__, (uint32_t)n_pop, (uint32_t)(n_pop>>32));
 	if(VERBOSE >= 1)
     {
-        fprintf(stderr, "[M::%s] popped %lu bubbles\n", __func__, n_pop);
+        fprintf(stderr, "[M::%s] popped %lu bubbles\n", __func__, (unsigned long)n_pop);
     }
     return n_pop;
 }
