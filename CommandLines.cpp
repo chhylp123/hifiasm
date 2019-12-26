@@ -33,7 +33,7 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "    -y FLOAT      min overlap drop ratio [%.2g]\n", asm_opt->min_drop_rate);
     fprintf(stderr, "    -v            show version number\n");
     fprintf(stderr, "    -h            show help information\n");
-    fprintf(stderr, "Example: ./hifiasm -w -l -q NA12878.fq.gz -o NA12878.asm -k 40 -t 32 -r 2 -a 4 -z 0\n");
+    fprintf(stderr, "Example: ./hifiasm -w -l -q NA12878.fq.gz -o NA12878.asm -k 40 -t 32 -r 2\n");
 
     
 }
