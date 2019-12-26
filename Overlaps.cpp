@@ -5722,7 +5722,7 @@ int asg_arc_del_tri_link(asg_t *g, int max_dist)
             to_del = 1;   
         }
 
-    
+        ///here both f1 and f2 must be false
         if(to_del == 0)
         {
             if(!f1)
@@ -5741,12 +5741,14 @@ int asg_arc_del_tri_link(asg_t *g, int max_dist)
                 l2 = min_thres + 10;
             }
             
+            ///since both f1 and f2 must be false before 'if(to_del == 0)'
+            ///here l1 = min_thres + 10, l2 = min_thres + 10
             if(f1 && f2)
             {
-                if(l1 <= min_thres || l2 <= min_thres) // TODO: check this block: it is always false
-                {
-                    continue;
-                } 
+                // if(l1 <= min_thres || l2 <= min_thres) // TODO: check this block: it is always false
+                // {
+                //     continue;
+                // } 
                 to_del = 1;
             }
             else if(f1)
