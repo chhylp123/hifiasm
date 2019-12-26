@@ -15,4 +15,5 @@ Hifiasm is a standalone and lightweight assembler, which does not need external 
 
 |Dataset                 |GSize |Cov     |Asm options        |CPU time |Wall time |     RAM|
 |:-----------------------|-----:|-------:|:------------------|--------:|---------:|-------:|
-|[Human NA12878]         |3Gb   |x28     |-k 40 -t 42 -r 2   |     200h|     5h32m|  114.1G|
+|[Human NA12878]         |3Gb   |x28     |-k 40 -t 42 -r 2   |     200h|     5h32m| ?114.1G|
+|[Human HG002]           |3Gb   |x43     |-k 40 -t 42 -r 2   |    ?405h|   ?10h12m| ?122.1G|
