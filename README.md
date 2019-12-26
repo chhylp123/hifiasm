@@ -13,7 +13,9 @@ Hifiasm is an ultrafast haplotype-resolved de novo assembler based on PacBio Hif
 
 Hifiasm is a standalone and lightweight assembler, which does not need external libraries (except zlib). For large genomes, it can generate high-quality assembly in a few hours. Hifiasm has been tested on the following datasets:
 
-|Dataset                 |GSize |Cov     |Asm options        |CPU time |Wall time |     RAM|
-|:-----------------------|-----:|-------:|:------------------|--------:|---------:|-------:|
-|[Human NA12878]         |3Gb   |x28     |-k 40 -t 42 -r 2   |     200h|     5h32m| ?114.1G|
-|[Human HG002]           |3Gb   |x43     |-k 40 -t 42 -r 2   |    ?405h|   ?10h12m| ?122.1G|
+|Dataset                 |GSize |Cov     |Asm options           |CPU time |Wall time |     RAM|
+|:-----------------------|-----:|-------:|:---------------------|--------:|---------:|-------:|
+|[Human NA12878]         |   3Gb|x28     |-k 40 -t 42 -r 2      |     200h|     5h32m| ?114.1G|
+|[Human HG002]           |   3Gb|x43     |-k 40 -t 42 -r 2      |    ?405h|   ?10h12m| ?122.1G|
+|[Human CHM13]           |   3Gb|x27     |-k 40 -t 42 -r 2      |        ?|         ?|       ?|
+|[Butterfly]             | 358Mb|x35     |-k 40 -t 42 -r 2 -z 20|    17.1h|       36m|   16.7G|
