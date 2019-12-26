@@ -7609,7 +7609,7 @@ int asg_arc_del_orthology_multiple_way(asg_t *g, ma_hit_t_alloc* reverse_sources
         n_arc = get_real_length(g, v, NULL);
         if (n_arc < 2) continue;
         v_max = (uint32_t)-1;
-		v_maxLen = 0;
+        v_maxLen = 0;
 
         for (i = 0, n_arc = 0; i < nv; i++)
         {
