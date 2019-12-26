@@ -31,7 +31,7 @@ typedef khash_t(POS64) Pos_Table;
 #define FINAL_OVERLAP_ERROR_RATE 0.03
 
 #define GROUP_SIZE 4
-///最长是10M10D10M10D10M这种
+///the max cigar likes 10M10D10M10D10M
 ///#define CIGAR_MAX_LENGTH THRESHOLD*2+2
 #define CIGAR_MAX_LENGTH 31*2+4
 
@@ -93,8 +93,6 @@ typedef struct
   int extra_begin;
   int extra_end;
   int error_threshold;
-  ///int y_pre_start;
-  ///error小于等于0都要重新算
   int error;
   CIGAR cigar;
 } window_list;
@@ -218,20 +216,7 @@ typedef struct
 } Total_Pos_Table;
 
 
-/********************************for debug***************************************/
-inline void print_64bit(uint64_t x)
-{
-    int i;
-    for(i = 63; i >= 0; i--)
-	{
-		if(x & ((1ULL<<i)))
-			fprintf(stderr, "1");
-		else
-			fprintf(stderr, "0");
-	}
 
-    fprintf(stderr, "\n");
-}
 
 inline uint64_t mod_d(uint64_t h_key, uint64_t low_key, uint64_t d)
 {
@@ -243,22 +228,7 @@ inline uint64_t mod_d(uint64_t h_key, uint64_t low_key, uint64_t d)
     return result;
 }
 
-inline int if_k_mer_available(Hash_code* code, int k)
-{
-    uint64_t h_key, low_key;
-    ///k有可能是64，所以可能会有问题
-    ///low_key = code->x[0] | (code->x[1] << k);
-    low_key = code->x[0] | (code->x[1] << SAFE_SHIFT(k));
-    //k不可能为0, 所以这个右移不会有问题
-    h_key = code->x[1] >> (64 - k);
 
-    if(mod_d(h_key, low_key, MODE_VALUE) > 3)
-    {
-        return 0;
-    }
-
-    return 1;
-}
 
 ////suffix_bits = 64 in default
 inline int recover_hash_code(uint64_t sub_ID, uint64_t sub_key, Hash_code* code,
@@ -278,6 +248,8 @@ uint64_t suffix_mode, int suffix_bits, int k)
 
     code->x[1] = h_key << (64 - k);
     code->x[1] = code->x[1] | (low_key >> SAFE_SHIFT(k));
+
+    return 1;
 }
 
 ///inline int get_sub_table(uint64_t* get_sub_ID, uint64_t* get_sub_key, Total_Count_Table* TCB, Hash_code* code, int k)
@@ -285,10 +257,10 @@ inline int get_sub_table(uint64_t* get_sub_ID, uint64_t* get_sub_key, uint64_t s
 Hash_code* code, int k)
 {
     uint64_t h_key, low_key;
-    ///k有可能是64，所以可能会有问题
+    ///k might be 64，so it is unsafe
     ///low_key = code->x[0] | (code->x[1] << k);
     low_key = code->x[0] | (code->x[1] << SAFE_SHIFT(k));
-    //k不可能为0, 所以这个右移不会有问题
+    //k cannot be 0, so this shift is safe
     h_key = code->x[1] >> (64 - k);
 
     if(mod_d(h_key, low_key, MODE_VALUE) > 3)
@@ -296,25 +268,13 @@ Hash_code* code, int k)
         return 0;
     }
 
-
-    ///注意suffix_bits最大就是64
-    ///前一个右移不安全，因为TCB->suffix_bits有可能为64
-    ///后一个左移安全，因为TCB->suffix_bits不可能为0
-    //uint64_t sub_ID = (low_key >> TCB->suffix_bits) | (h_key << (64 - TCB->suffix_bits));
     uint64_t sub_ID = (low_key >> SAFE_SHIFT(suffix_bits)) | (h_key << (64 - suffix_bits));
     uint64_t sub_key = (low_key & suffix_mode);
 
     *get_sub_ID = sub_ID;
     *get_sub_key = sub_key;
 
-
-    // Hash_code de_code;
-    // recover_hash_code(sub_ID, sub_key, &de_code, suffix_mode, suffix_bits, k);
-    ///if(de_code.x[0] != (*code).x[0] || de_code.x[1] != (*code).x[1]) fprintf(stderr, "hehe\n");
-    ///if(de_code.x[0] == (*code).x[0] || de_code.x[1] == (*code).x[1]) fprintf(stderr, "hehe\n");
-
     return 1;
-
 }
 
 
@@ -326,7 +286,7 @@ inline int insert_Total_Count_Table(Total_Count_Table* TCB, Hash_code* code, int
         return 0;
     }
 
-    khint_t t;  ///这就是个迭代器
+    khint_t t;  
     int absent;
 
 
@@ -340,7 +300,7 @@ inline int insert_Total_Count_Table(Total_Count_Table* TCB, Hash_code* code, int
     {
         kh_value(TCB->sub_h[sub_ID], t) = 1;
     }
-    else   ///哈希表中已有的元素
+    else   
     {
         //kh_value(TCB->sub_h[sub_ID], t) = kh_value(TCB->sub_h[sub_ID], t) + 1;
         kh_value(TCB->sub_h[sub_ID], t)++;
@@ -360,10 +320,9 @@ inline int get_Total_Count_Table(Total_Count_Table* TCB, Hash_code* code, int k)
         return 0;
     }
 
-    khint_t t;  ///这就是个迭代器
-    int absent;
+    khint_t t;  
 
-    ///查询哈希表，key为k
+    ///query hash table，key is k
     t = kh_get(COUNT64, TCB->sub_h[sub_ID], sub_key);
 
     if (t != kh_end(TCB->sub_h[sub_ID]))
@@ -389,10 +348,9 @@ inline uint64_t get_Total_Pos_Table(Total_Pos_Table* PCB, Hash_code* code, int k
         return (uint64_t)-1;
     }
 
-    khint_t t;  ///这就是个迭代器
-    int absent;
+    khint_t t;  
 
-    ///查询哈希表，key为k
+    ///query hash table，key is k
     t = kh_get(POS64, PCB->sub_h[sub_ID], sub_key);
 
     if (t != kh_end(PCB->sub_h[sub_ID]))
@@ -441,7 +399,6 @@ inline uint64_t locate_Total_Pos_Table(Total_Pos_Table* PCB, Hash_code* code, k_
 int cmp_k_mer_pos(const void * a, const void * b);
 
 
-//inline uint64_t insert_Total_Pos_Table(Total_Pos_Table* PCB, Hash_code* code, int k, uint64_t readID, uint64_t pos, uint64_t direction)
 inline uint64_t insert_Total_Pos_Table(Total_Pos_Table* PCB, Hash_code* code, int k, uint64_t readID, uint64_t pos)
 {
     k_mer_pos* list;
@@ -474,8 +431,7 @@ inline uint64_t insert_Total_Pos_Table(Total_Pos_Table* PCB, Hash_code* code, in
 
         __sync_lock_release(&PCB->sub_h_lock[sub_ID].lock);
 
-        ///当所有位置都存好后，不会再有其他线程修改该list
-        ///所以可以在临界区外排序
+        //if all pos has been saved, it is safe to sort
         if (flag && occ>1)
         {
             qsort(list, occ, sizeof(k_mer_pos), cmp_k_mer_pos);
@@ -510,7 +466,6 @@ void Traverse_Counting_Table(Total_Count_Table* TCB, Total_Pos_Table* PCB, int k
 void init_Candidates_list(Candidates_list* l);
 void clear_Candidates_list(Candidates_list* l);
 void destory_Candidates_list(Candidates_list* l);
-void merge_Candidates_list(Candidates_list* l, k_mer_pos* n_list, uint64_t n_lengh, uint64_t end_pos, int strand);
 
 
 void init_k_mer_pos_list_alloc(k_mer_pos_list_alloc* list);
@@ -521,9 +476,7 @@ uint64_t n_end_pos, uint8_t n_direction);
 
 
 
-void merge_k_mer_pos_list_alloc(k_mer_pos_list_alloc* list, Candidates_list* candidates);
 void merge_k_mer_pos_list_alloc_heap_sort(k_mer_pos_list_alloc* list, Candidates_list* candidates, HeapSq* HBT);
-void merge_k_mer_pos_list_alloc_heap_sort_advance(k_mer_pos_list_alloc* list, Candidates_list* candidates, HeapSq* HBT);
 
 void Init_Heap(HeapSq* HBT);
 void destory_Heap(HeapSq* HBT);
@@ -532,48 +485,24 @@ void clear_Heap(HeapSq* HBT);
 void init_overlap_region_alloc(overlap_region_alloc* list);
 void clear_overlap_region_alloc(overlap_region_alloc* list);
 void destory_overlap_region_alloc(overlap_region_alloc* list);
-void append_overlap_region_alloc(overlap_region_alloc* list, overlap_region* tmp, All_reads* R_INF);
-void calculate_overlap_region(Candidates_list* candidates, overlap_region_alloc* overlap_list, 
-uint64_t readID, uint64_t readLength, All_reads* R_INF);
 void append_window_list(overlap_region* region, uint64_t x_start, uint64_t x_end, int y_start, int y_end, int error,
 int extra_begin, int extra_end, int error_threshold);
 
 
-void insert_kv_list_to_candidates(k_v* list, long long occ, long long y_id, long long y_offset, long long y_strand,
-Candidates_list* candidates);
 
 void overlap_region_sort_y_id(overlap_region *a, long long n);
 
-void calculate_inexact_overlap_region(Candidates_list* candidates, overlap_region_alloc* overlap_list, 
-uint64_t readID, uint64_t readLength, All_reads* R_INF);
 
 void calculate_overlap_region_by_chaining(Candidates_list* candidates, overlap_region_alloc* overlap_list, 
 uint64_t readID, uint64_t readLength, All_reads* R_INF, double band_width_threshold, int add_beg_end);
 
 
 
-
-
-
-static const char LogTable256[256] = {
-#define LT(n) n, n, n, n, n, n, n, n, n, n, n, n, n, n, n, n
-	-1, 0, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3,
-	LT(4), LT(5), LT(5), LT(6), LT(6), LT(6), LT(6),
-	LT(7), LT(7), LT(7), LT(7), LT(7), LT(7), LT(7), LT(7)
-};
-
-static inline int ilog2_32(uint32_t v)
-{
-	uint32_t t, tt;
-	if ((tt = v>>16)) return (t = tt>>8) ? 24 + LogTable256[t] : 16 + LogTable256[tt];
-	return (t = v>>8) ? 8 + LogTable256[t] : LogTable256[v];
-}
-
 void init_fake_cigar(Fake_Cigar* x);
 void destory_fake_cigar(Fake_Cigar* x);
 void clear_fake_cigar(Fake_Cigar* x);
 void add_fake_cigar(Fake_Cigar* x, uint32_t gap_site, int32_t gap_shift);
-void resize_fake_cigar(Fake_Cigar* x, long long size);
+void resize_fake_cigar(Fake_Cigar* x, uint64_t size);
 int get_fake_gap_pos(Fake_Cigar* x, int index);
 int get_fake_gap_shift(Fake_Cigar* x, int index);
 inline long long y_start_offset(long long x_start, Fake_Cigar* o)
@@ -585,7 +514,7 @@ inline long long y_start_offset(long long x_start, Fake_Cigar* o)
     
     
     long long i;
-    for (i = 0; i < o->length; i++)
+    for (i = 0; i < (long long)o->length; i++)
     {
         if(x_start < get_fake_gap_pos(o, i))
         {
@@ -593,7 +522,7 @@ inline long long y_start_offset(long long x_start, Fake_Cigar* o)
         }
     }
 
-    if(i == 0 || i == o->length)
+    if(i == 0 || i == (long long)o->length)
     {
         fprintf(stderr, "ERROR\n");
         exit(0);
@@ -606,139 +535,16 @@ inline long long y_start_offset(long long x_start, Fake_Cigar* o)
 inline void print_fake_gap(Fake_Cigar* o)
 {
     long long i;
-    for (i = 0; i < o->length; i++)
+    for (i = 0; i < (long long)o->length; i++)
     {
-        fprintf(stderr, "**i: %d, gap_pos_in_x: %d, gap_shift: %d\n", 
+        fprintf(stderr, "**i: %lld, gap_pos_in_x: %d, gap_shift: %d\n", 
            i, get_fake_gap_pos(o, i),
            get_fake_gap_shift(o, i));
     }
 
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-/********************************for debug***************************************/
-inline int verify_Total_Count_Table(Total_Count_Table* TCB, Hash_code* code, int k)
-{
-    uint64_t sub_ID, sub_key;
-    if(!get_sub_table(&sub_ID, &sub_key, TCB->suffix_mode, TCB->suffix_bits, code, k))
-    {
-        return 0;
-    }
-
-    khint_t t;  ///这就是个迭代器
-    int absent;
-
-    ///查询哈希表，key为k
-    t = kh_get(COUNT64, TCB->sub_h[sub_ID], sub_key);
-
-    if (t != kh_end(TCB->sub_h[sub_ID]))
-    {
-        kh_value(TCB->sub_h[sub_ID], t)--;
-        if (kh_value(TCB->sub_h[sub_ID], t)<0)
-        {
-           return -1;
-        }
-        else
-        {
-            return 1;
-        }
-    }
-    else
-    {
-        return -1;
-    }
-}
-
-
-
-
-
-
-/********************************for debug***************************************/
-inline int Traverse_Total_Count_Table(Total_Count_Table* TCB)
-{
-    int i;
-    Count_Table* h;
-    khint_t k;
-
-    long long non_empty_k_mer = 0;
-
-    for (i = 0; i < TCB->size; i++)
-    {
-        h = TCB->sub_h[i];
-        for (k = kh_begin(h); k != kh_end(h); ++k)
-        {
-            if (kh_exist(h, k))            // test if a bucket contains data
-            {
-                non_empty_k_mer++;
-
-                if (kh_value(h, k)!= 0)
-                {
-                    fprintf(stderr, "ERROR when Traversing!\n");
-                }
-            }
-        }
-    }
-    
-    fprintf(stdout, "non_empty_k_mer: %lld\n", non_empty_k_mer);
-}
-
-
-/********************************for debug***************************************/
-void test_COUNT64();
-
-/********************************for debug***************************************/
-void debug_mode(uint64_t d, uint64_t thread_ID, uint64_t thread_num);
-
-
-
-/********************************for debug***************************************/
-void merge_Candidates_list_version(Candidates_list* l, k_mer_pos* n_list, uint64_t n_lengh, uint64_t end_pos, int strand);
-
-void sort_candidates(Candidates_list* candidates, long long readID,
-overlap_region_alloc* overlap_list, All_reads* R_INF);
-void append_overlap_region_alloc_from_existing(overlap_region_alloc* list, overlap_region* tmp, All_reads* R_INF);
-int cmp_by_x_pos_s(const void * a, const void * b);
 void resize_Chain_Data(Chain_Data* x, long long size);
-
-
-
 void init_window_list_alloc(window_list_alloc* x);
 void clear_window_list_alloc(window_list_alloc* x);
 void destory_window_list_alloc(window_list_alloc* x);

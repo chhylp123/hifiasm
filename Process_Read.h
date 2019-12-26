@@ -30,29 +30,13 @@ KSEQ_INIT(gzFile, gzread)
 
 
 
-static uint8_t seq_nt6_table[256] = {
-    5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,
-    5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,
-    5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,
-    5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,
-    5, 0, 5, 1,  5, 5, 5, 2,  5, 5, 5, 5,  5, 5, 5, 5,
-    5, 5, 5, 5,  3, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,
-    5, 0, 5, 1,  5, 5, 5, 2,  5, 5, 5, 5,  5, 5, 5, 5,
-    5, 5, 5, 5,  3, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,
-    5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,
-    5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,
-    5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,
-    5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,
-    5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,
-    5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,
-    5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,
-    5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5
-};
+extern uint8_t seq_nt6_table[256];
+extern char bit_t_seq_table[256][4];
+extern char bit_t_seq_table_rc[256][4];
+extern char s_H[5];
+extern char rc_Table[5];
 
-static char bit_t_seq_table[256][4] = {0};
-static char bit_t_seq_table_rc[256][4] = {0};
-static char s_H[5] = {'A', 'C', 'G', 'T', 'N'};
-static char rc_Table[5] = {'T', 'G', 'C', 'A', 'N'};
+
 
 #define RC_CHAR(x) rc_Table[seq_nt6_table[(uint8_t)x]]
 
@@ -204,7 +188,6 @@ void write_All_reads(All_reads* r, char* read_file_name);
 int load_All_reads(All_reads* r, char* read_file_name);
 void destory_All_reads(All_reads* r);
 
-void Counting_block();
 void destory_R_buffer_block(R_buffer_block* curr_sub_block);
 void destory_R_buffer();
 void clear_R_buffer();
