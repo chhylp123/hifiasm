@@ -33,7 +33,7 @@ For Hifi reads assembly, a typical command line looks like:
 
 where `-q` specifies the input reads and `-o` specifies the output files. In this example, the assembly graph can be found at NA12878.asm.fa.gfa, and the corrected reads can be found at NA12878.asm.fa. `-k`, `-t` and `-r` specify the length of k-mer, the number of CPU threads, and the number of correction rounds, respectively. Note that `-w` means hifiasm will save all overlaps to disk, which can avoid the time-consuming all-to-all overlap calculation next time. For hifiasm with `-l`, if the overlap information has been obtained by `-w` in advance, it is able to load all overlaps from disk and then directly do assembly.
 
-Please note that some old hifi reads may consist of short adapters. To improve the assembly quality, adapters should be removed by `-z` as follow:
+Please note that some old Hifi reads may consist of short adapters. To improve the assembly quality, adapters should be removed by `-z` as follow:
 
 ```sh
 ./hifiasm -w -l -q butterfly.fq.gz -o butterfly_asm_clean.fa -k 40 -t 42 -r 2 -z 20
