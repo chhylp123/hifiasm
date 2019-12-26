@@ -24,3 +24,11 @@ Hifiasm is a standalone and lightweight assembler, which does not need external 
 [2] CHM13 is a homozygous sample, so unitig N50 makes no sense.
 [3] Butterfly has high heterozygous rate, so most chromosomes have been fully separated into two haplotypes. In this case, contig N50 makes no sense.<sub>
 
+## Usage
+For Hifi reads assembly, a typical command line looks like:
+
+```sh
+./hifiasm -w -l -q NA12878.fq.gz -o NA12878.asm.fa -k 40 -t 32 -r 2
+```
+where `-q` specifies the input reads and `-o` specifies the output files. In this example, the assembly graph can be found at NA12878.asm.fa.gfa, and the corrected reads can be found at NA12878.asm.fa. `-k`, `-t` and `-r` specify the length of k-mer, the number of CPU threads, and the number of correction rounds, respectively. Note that `-w` means hifiasm will save all overlaps to disk, which can avoid the time-consuming all-to-all overlap calculation next time. In this case, hifiasm with `-l` is able to load all overlaps from disk and then directly do assembly.
+
