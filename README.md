@@ -17,8 +17,8 @@ Hifiasm is a standalone and lightweight assembler, which does not need external 
 |:---------------|-----:|-----:|:---------------------|-------:|--------:|----:|----------------:|
 |<sub>[Human NA12878]<sub>|<sub>3Gb<sub>|<sub>x28<sub>|<sub>-k 40 -t 42 -r 2<sub>|<sub>200h<sub>|    <sub>5h32m<sub>|<sub>?114G<sub>|<sub>93.5Kb/18.6Mb<sub>|
 |<sub>[Human HG002]<sub>|<sub>3Gb<sub>|<sub>x43<sub>|<sub>-k 40 -t 42 -r 2<sub>|<sub>?405h<sub>|<sub>?10h12m<sub>|<sub>?122G<sub>|<sub>320kb/29Mb<sub>|
-|[Human CHM13]   |   3Gb|x27   |-k 40 -t 42 -r 2      |       ?|        ?|    ?|         NA<sup>[2]</sup>/39.8Mb|
-|[Butterfly]     | 358Mb|x35   |-k 40 -t 42 -r 2 -z 20|   17.1h|      36m|  16G|         NA<sup>[3]</sup>/7.5Mb|
+|<sub>[Human CHM13]<sub>|<sub>3Gb<sub>|<sub>x27<sub>|<sub>-k 40 -t 42 -r 2<sub>|<sub>?<sub>|<sub>?<sub>|<sub>?<sub>|<sub>NA<sup>[2]</sup>/39.8Mb<sub>|
+|<sub>[Butterfly]<sub>|<sub>358Mb<sub>|<sub>x35<sub>|<sub>-k 40 -t 42 -r 2 -z 20<sub>|<sub>17.1h<sub>|<sub>36m<sub>|<sub>16G<sub>|<sub>NA<sup>[3]</sup>/7.5Mb<sub>|
 
 
 <style>
