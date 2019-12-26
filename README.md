@@ -15,8 +15,8 @@ Hifiasm is a standalone and lightweight assembler, which does not need external 
 
 |<sub>Dataset<sub>|<sub>GSize<sub>|<sub>Cov<sub>|<sub>Asm options<sub>|<sub>CPU time<sub>|<sub>Wall time<sub>|<sub>RAM<sub>|<sub>unitig/contig N50<sup>[1]</sup><sub>|
 |:---------------|-----:|-----:|:---------------------|-------:|--------:|----:|----------------:|
-|[Human NA12878] |   3Gb|x28   |-k 40 -t 42 -r 2      |    200h|    5h32m|?114G|    93.5Kb/18.6Mb|
-|[Human HG002]   |   3Gb|x43   |-k 40 -t 42 -r 2      |   ?405h|  ?10h12m|?122G|       320kb/29Mb|
+|<sub>[Human NA12878]<sub>|<sub>3Gb<sub>|<sub>x28<sub>|<sub>-k 40 -t 42 -r 2<sub>|<sub>200h<sub>|    <sub>5h32m<sub>|<sub>?114G<sub>|<sub>93.5Kb/18.6Mb<sub>|
+|<sub>[Human HG002]<sub>|<sub>3Gb<sub>|<sub>x43<sub>|<sub>-k 40 -t 42 -r 2<sub>|<sub>?405h<sub>|<sub>?10h12m<sub>|<sub>?122G<sub>|<sub>320kb/29Mb<sub>|
 |[Human CHM13]   |   3Gb|x27   |-k 40 -t 42 -r 2      |       ?|        ?|    ?|         NA<sup>[2]</sup>/39.8Mb|
 |[Butterfly]     | 358Mb|x35   |-k 40 -t 42 -r 2 -z 20|   17.1h|      36m|  16G|         NA<sup>[3]</sup>/7.5Mb|
 
