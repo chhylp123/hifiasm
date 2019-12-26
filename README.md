@@ -45,3 +45,9 @@ In this example, hifiasm will remove 20 bases from both ends of each read.
 
 [unitig]: http://wgs-assembler.sourceforge.net/wiki/index.php/Celera_Assembler_Terminology
 [gfa]: https://github.com/pmelsted/GFA-spec/blob/master/GFA-spec.md
+
+## Getting Help
+The `-h` option of hifiasm provides detailed description of options. If you have further questions, 
+please raise an issue at the issue page.
+
+##Limitations and future works 
