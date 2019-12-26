@@ -3,7 +3,6 @@
 #include <stdint.h>
 #include "kvec.h"
 #include "kdq.h"
-///#include "Hash_Table.h"
 
 ///#define MIN_OVERLAP_LEN 2000
 ///#define MIN_OVERLAP_LEN 500
@@ -68,16 +67,7 @@ void ma_hit_sort_qns(ma_hit_t *a, long long n);
 int load_all_data_from_disk(ma_hit_t_alloc **sources, ma_hit_t_alloc **reverse_sources, 
 char* output_file_name);
 
-
-typedef struct {
-	ma_hit_t_alloc overlaps;
-} Assembly_Graph;
-
-void init_Assembly_Graph(Assembly_Graph* x);
-void destory_Assembly_Graph(Assembly_Graph* x);
-void collect_ma_hit_t(ma_hit_t_alloc* dest, ma_hit_t_alloc* sources, long long num_sources);
 void normalize_ma_hit_t(ma_hit_t_alloc* sources, long long num_sources);
-void debug_normalize_ma_hit_t(ma_hit_t_alloc* sources, long long num_sources);
 
 
 typedef struct {
@@ -93,7 +83,6 @@ void ma_hit_flt(ma_hit_t_alloc* sources, long long n_read, const ma_sub_t *cover
 int max_hang, int min_ovlp);
 long long get_specific_overlap(ma_hit_t_alloc* x, uint32_t qn, uint32_t tn);
 
-void debug_cut_ma_hit_t(ma_hit_t_alloc* sources, long long num_sources, ma_sub_t *coverage_cut);
 
 typedef struct {
 	uint64_t ul;
@@ -139,7 +128,7 @@ static inline int ma_hit2arc(const ma_hit_t *h, int ql, int tl, int max_hang, fl
 
 	///ext5 and ext3 is the hang on left side and right side, respectively
 	ext5 = qs < tl5? qs : tl5;
-	ext3 = ql - h->qe < tl3? ql - h->qe : tl3;
+	ext3 = ql - (int)h->qe < tl3? ql - (int)h->qe : tl3;
 
 
 	/**
@@ -179,11 +168,11 @@ static inline int ma_hit2arc(const ma_hit_t *h, int ql, int tl, int max_hang, fl
 	********************************target-to-query overlap****************************
 	**/
 
-	if (qs <= tl5 && ql - h->qe <= tl3) return MA_HT_QCONT; // query contained in target
-	else if (qs >= tl5 && ql - h->qe >= tl3) return MA_HT_TCONT; // target contained in query 
+	if (qs <= tl5 && ql - (int)h->qe <= tl3) return MA_HT_QCONT; // query contained in target
+	else if (qs >= tl5 && ql - (int)h->qe >= tl3) return MA_HT_TCONT; // target contained in query 
 	else if (qs > tl5) u = 0, v = !!h->rev, l = qs - tl5; ///u = 0 means query-to-target overlap, l is the length of node in string graph (not the overlap length)
 	else u = 1, v = !h->rev, l = (ql - h->qe) - tl3; ///u = 1 means target-to-query overlaps, l is the length of node in string graph (not the overlap length)
-	if (h->qe - qs + ext5 + ext3 < min_ovlp || h->te - h->ts + ext5 + ext3 < min_ovlp) return MA_HT_SHORT_OVLP; // short overlap
+	if ((int)h->qe - qs + ext5 + ext3 < min_ovlp || (int)h->te - (int)h->ts + ext5 + ext3 < min_ovlp) return MA_HT_SHORT_OVLP; // short overlap
 	///u = 0 / 1 means query-to-target / target-to-query overlaps, 
 	///l is the length of node in string graph (not the overlap length between two reads)
 	u |= h->qns>>32<<1, v |= h->tn<<1;
@@ -205,11 +194,6 @@ static inline int ma_hit2arc(const ma_hit_t *h, int ql, int tl, int max_hang, fl
 	return l;
 }
 
-
-void build_string_graph(int min_dp, ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, long long n_read, uint64_t* readLen, 
-long long mini_overlap_length, long long max_hang_length,
-long long clean_round, float min_ovlp_drop_ratio, float max_ovlp_drop_ratio,
-float final_ovlp_drop_ratio, char* output_file_name, long long bubble_dist);
 
 
 #define asg_arc_len(arc) ((uint32_t)(arc).ul)
@@ -296,13 +280,7 @@ typedef struct {
 // count the number of outgoing arcs, including reduced arcs
 static inline int count_out_with_del(const asg_t *g, uint32_t v)
 {
-	uint32_t i, n, nv = asg_arc_n(g, v);
-	const asg_arc_t *av = asg_arc_a(g, v);
-	/**
-	for (i = n = 0; i < nv; ++i)
-		if (!av[i].del) ++n;
-	return n;
-	**/
+	uint32_t nv = asg_arc_n(g, v);
 	return nv;
 }
 
@@ -318,14 +296,13 @@ static inline int count_out_without_del(const asg_t *g, uint32_t v)
 	return n;
 }
 
-void debug_info_of_specfic_read(char* name, ma_hit_t_alloc* sources, 
-ma_hit_t_alloc* reverse_sources, int id, char* fun);
 
-void build_string_graph_without_clean(int min_dp, ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, long long n_read, uint64_t* readLen, 
-long long mini_overlap_length, long long max_hang_length,
-long long clean_round, float min_ovlp_drop_ratio, float max_ovlp_drop_ratio, 
-float corase_ovlp_drop_ratio, char* output_file_name, long long bubble_dist, int read_graph,
-int write);
+void build_string_graph_without_clean(
+int min_dp, ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, 
+long long n_read, uint64_t* readLen, long long mini_overlap_length, 
+long long max_hang_length, long long clean_round, long long pop_bubble_size, 
+float min_ovlp_drop_ratio, float max_ovlp_drop_ratio, char* output_file_name, 
+long long bubble_dist, int read_graph, int write);
 
 void debug_info_of_specfic_read(char* name, ma_hit_t_alloc* sources, 
 ma_hit_t_alloc* reverse_sources, int id, char* command);

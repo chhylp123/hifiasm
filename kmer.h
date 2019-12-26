@@ -15,11 +15,8 @@
 
 typedef struct
 {
-    ///最大64-mer
-    ///x[0]低位
-    ///x[1]高位
+    //can represent at most 64-mer
     uint64_t x[2];
-
 } Hash_code;
 
 typedef struct {
@@ -64,7 +61,7 @@ inline uint64_t get_HPC_code(HPC_seq* seq, uint64_t* end_pos)
 
         for (; seq->i < seq->l; seq->i++)
         {
-            ///统计N的个数
+            ///number of Ns
             if (seq_nt6_table[(uint8_t)seq->str[seq->i]] >= 4)
             {
                 seq->N_occ++;

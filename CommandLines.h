@@ -3,25 +3,37 @@
 
 #include <pthread.h>
 
+#define VERBOSE 0
 
-extern char* read_file_name;
-extern char* output_file_name;
-extern int thread_num;
-extern int k_mer_length;
-extern int k_mer_min_freq;
-extern int k_mer_max_freq;
-extern int load_index_from_disk;
-extern int write_index_to_disk;
-extern int number_of_round;
-extern int roundID;
-extern int coverage;
-extern int read_graph;
-extern int c_round;
-extern char* required_read_name;
-extern int adapterLen;
+typedef struct {
+    char* read_file_name;
+    char* output_file_name;
+    char* required_read_name;
+    int thread_num;
+    int k_mer_length;
+    int k_mer_min_freq;
+    int k_mer_max_freq;
+    int load_index_from_disk;
+    int write_index_to_disk;
+    int number_of_round;
+    int adapterLen;
+    int clean_round;
+    int complete_threads;
+    int roundID;
+    float min_drop_rate;
+    float max_drop_rate;
 
+    long long pop_bubble_size;
+    long long num_bases;
+    long long num_corrected_bases;
+    long long num_recorrected_bases;
+} hifiasm_opt_t;
 
-int CommandLine_process (int argc, char *argv[]);
+extern hifiasm_opt_t asm_opt;
+
+void init_opt(hifiasm_opt_t* asm_opt);
+void clear_opt(hifiasm_opt_t* asm_opt, int last_round);
+int CommandLine_process (int argc, char *argv[], hifiasm_opt_t* asm_opt);
 double Get_T(void);
 
 #endif

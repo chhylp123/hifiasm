@@ -12,152 +12,18 @@
 typedef uint64_t Word;
 typedef uint32_t Word_32;
 
-
-typedef struct
-{
-	/**
-     * vec[num_words-1], vec[num_words-2], ..., vec[1], vec[0]
-     * num_bits-1, num_bits-2, num_bits-3, ..., 8, 7, 6, 5, 4, 3, 2, 1, 0
-    **/
-	Word* vec;
-    Word num_words;
-	Word num_bits;
-	///for vec[num_words-1]
-	Word last_bit_mode;
-	Word last_bit_shift;
-} bit_vectors;
-
-inline void init_bit_vector(bit_vectors* b, Word num_bits)
-{
-	b->num_bits = num_bits;
-	b->num_words = ((b->num_bits)>>6);
-	b->last_bit_mode = (Word)-1;
-	b->last_bit_shift = b->num_bits&63;
-	if(b->last_bit_shift != 0)
-	{
-		b->num_words++;
-		b->last_bit_mode = b->last_bit_mode >> (64 - b->last_bit_shift); 
-	}
-	b->vec = (Word*)calloc(b->num_words, sizeof(Word));
-}
-
-inline void destory_bit_vector(bit_vectors* b, Word num_bits)
-{
-	free(b->vec);
-}
-
-///&
-inline int AND_bit_vector(bit_vectors* x, bit_vectors* y, bit_vectors* dest)
-{
-	if(x->num_bits != y->num_bits || x->num_bits != dest->num_bits) return 0;
-
-	Word i;
-	for (i = 0; i < x->num_words; i++)
-	{
-		dest->vec[i] = x->vec[i] & y->vec[i];
-	}
-
-	if(dest->num_words > 0)
-	{
-		dest->vec[dest->num_words - 1] = dest->vec[dest->num_words - 1] & dest->last_bit_mode;
-	}
-
-	return 1;
-}
-
-///|
-inline int OR_bit_vector(bit_vectors* x, bit_vectors* y, bit_vectors* dest)
-{
-	if(x->num_bits != y->num_bits || x->num_bits != dest->num_bits) return 0;
-
-	Word i;
-	for (i = 0; i < x->num_words; i++)
-	{
-		dest->vec[i] = x->vec[i] | y->vec[i];
-	}
-
-	if(dest->num_words > 0)
-	{
-		dest->vec[dest->num_words - 1] = dest->vec[dest->num_words - 1] & dest->last_bit_mode;
-	}
-
-	return 1;
-}
-
-
-///^
-inline int XOR_bit_vector(bit_vectors* x, bit_vectors* y, bit_vectors* dest)
-{
-	if(x->num_bits != y->num_bits || x->num_bits != dest->num_bits) return 0;
-
-	Word i;
-	for (i = 0; i < x->num_words; i++)
-	{
-		dest->vec[i] = x->vec[i] ^ y->vec[i];
-	}
-
-	if(dest->num_words > 0)
-	{
-		dest->vec[dest->num_words - 1] = dest->vec[dest->num_words - 1] & dest->last_bit_mode;
-	}
-
-	return 1;
-}
-
-///~
-inline int NOT_bit_vector(bit_vectors* source, bit_vectors* dest)
-{
-	if(source->num_bits != dest->num_bits) return 0;
-
-	Word i;
-	for (i = 0; i < source->num_words; i++)
-	{
-		dest->vec[i] = ~(source->vec[i]);
-	}
-
-	if(dest->num_words > 0)
-	{
-		dest->vec[dest->num_words - 1] = dest->vec[dest->num_words - 1] & dest->last_bit_mode;
-	}
-
-	return 1;
-}
-
-///<< 1
-inline int L_shift_1_bit_vector(bit_vectors* source, bit_vectors* dest)
-{
-	/**
-     * vec[num_words-1], vec[num_words-2], ..., vec[1], vec[0]
-     * num_bits-1, num_bits-2, num_bits-3, ..., 8, 7, 6, 5, 4, 3, 2, 1, 0
-    **/
-	if(source->num_bits != dest->num_bits || source->num_words < 1) return 0;
-	Word i;
-	for (i = source->num_words - 1; i >= 1; i--)
-	{
-		dest->vec[i] = (source->vec[i])<<1;
-		dest->vec[i] = dest->vec[i] | ((source->vec[i-1])>>63);
-	}
-
-	dest->vec[0] = (source->vec[0])<<1;
-	dest->vec[dest->num_words - 1] = dest->vec[dest->num_words - 1] & dest->last_bit_mode;
-	return 1;
-}
-
-
 inline void get_error(int t_length, int errthold, int init_err, Word VP, Word VN, 
 unsigned int* return_err, int* back_site)
 {
 	(*return_err) = (unsigned int)-1;
 	int site = t_length - 1;
 	int return_site = -1;
-	///p_length大部分情况下应该是t_length + 2 * errthold，这是i要小于last_high = 2 * errthold
-	///也就是p_length - t_length
-	///那么当p_length < t_length + 2 * errthold, available_i也应该是这个值
+	///in most cases, p_length should be t_length + 2 * errthold
 	///int available_i = p_length - t_length;
 	int available_i = 2 * errthold;
 	
 
-	if ((init_err <= errthold) && (init_err <= (*return_err)))
+	if ((init_err <= errthold) && ((unsigned int)init_err <= (*return_err)))
 	{
 		(*return_err) = init_err;
 		return_site = site;
@@ -173,7 +39,7 @@ unsigned int* return_err, int* back_site)
 		init_err = init_err - ((VN >> i)&(Word)1);
 		++i;
 
-		if ((init_err <= errthold) && (init_err <= *return_err))
+		if ((init_err <= errthold) && ((unsigned int)init_err <= *return_err))
 		{
 			*return_err = init_err;
 			return_site = site + i;
@@ -188,7 +54,7 @@ unsigned int* return_err, int* back_site)
 	}
 
 	/****************************may have bugs********************************/
-	if((ungap_error<=errthold) && (ungap_error == (*return_err)))
+	if((ungap_error<=(unsigned int)errthold) && (ungap_error == (*return_err)))
 	{
 		return_site = site + errthold;
 	}
@@ -227,7 +93,7 @@ unsigned int* return_err, int* return_p_end, int* return_t_end)
 	///band_length = 2k + 1
 	for (i = 0; i<band_length; i++)
 	{
-		Peq[pattern[i]] = Peq[pattern[i]] | tmp_Peq_1;
+		Peq[(uint8_t)pattern[i]] = Peq[(uint8_t)pattern[i]] | tmp_Peq_1;
 		tmp_Peq_1 = tmp_Peq_1 << 1;
 	}
 
@@ -273,7 +139,7 @@ unsigned int* return_err, int* return_p_end, int* return_t_end)
 
 	while (i<t_length_1)
 	{
-		X = Peq[text[i]] | VN;
+		X = Peq[(uint8_t)text[i]] | VN;
 
 		D0 = ((VP + (X&VP)) ^ VP) | X;
 
@@ -308,14 +174,14 @@ unsigned int* return_err, int* return_p_end, int* return_t_end)
 
 		++i;
 		++i_bd;
-		Peq[pattern[i_bd]] = Peq[pattern[i_bd]] | Mask;
+		Peq[(uint8_t)pattern[i_bd]] = Peq[(uint8_t)pattern[i_bd]] | Mask;
 	}
 
 
 
 
 
-	X = Peq[text[i]] | VN;
+	X = Peq[(uint8_t)text[i]] | VN;
 	D0 = ((VP + (X&VP)) ^ VP) | X;
 	HN = VP&D0;
 	HP = VN | ~(VP | D0);
@@ -405,13 +271,7 @@ int* return_t_end, int* return_aligned_t_len)
 
 
 /**
- pattern是长的那个，是y
- p_length是长的那个的长度,  p_length实际没用
- text是短的那个，是x
- t_length是短的那个的长度
- errthold是阈值
- return_err是编辑距离
- 返回值是结束位置
+ pattern is the longer one, while text is the shorter one
  **/
 inline int Reserve_Banded_BPM
 (char *pattern, int p_length, char *text, int t_length, unsigned short errthold, unsigned int* return_err)
@@ -438,7 +298,7 @@ inline int Reserve_Banded_BPM
 	///band_length = 2k + 1
 	for (i = 0; i<band_length; i++)
 	{
-		Peq[pattern[i]] = Peq[pattern[i]] | tmp_Peq_1;
+		Peq[(uint8_t)pattern[i]] = Peq[(uint8_t)pattern[i]] | tmp_Peq_1;
 		tmp_Peq_1 = tmp_Peq_1 << 1;
 	}
 
@@ -493,8 +353,7 @@ inline int Reserve_Banded_BPM
 
 	while (i<t_length_1)
 	{
-		///pattern[0]ÔÚPeq[2k], ¶øpattern[2k]ÔÚPeq[0]
-		X = Peq[text[i]] | VN;
+		X = Peq[(uint8_t)text[i]] | VN;
 
 		D0 = ((VP + (X&VP)) ^ VP) | X;
 
@@ -509,10 +368,8 @@ inline int Reserve_Banded_BPM
 		{
 			++err;
 
-			///¼´Ê¹È«²¿µÝ¼õ£¬Ò²¾Í¼õ2k
-			if ((err - last_high)>errthold)
+			if ((err - last_high)>(int)errthold)
 			{
-				///fprintf(stderr, "0 ######, i: %u\n", i);
 				return -1;
 			}
 				
@@ -527,17 +384,14 @@ inline int Reserve_Banded_BPM
 
 		++i;
 		++i_bd;
-		Peq[pattern[i_bd]] = Peq[pattern[i_bd]] | Mask;
-
-
-		///Peq['T'] = Peq['T'] | Peq['C'];
+		Peq[(uint8_t)pattern[i_bd]] = Peq[(uint8_t)pattern[i_bd]] | Mask;
 	}
 
 
 
 
 
-	X = Peq[text[i]] | VN;
+	X = Peq[(uint8_t)text[i]] | VN;
 	D0 = ((VP + (X&VP)) ^ VP) | X;
 	HN = VP&D0;
 	HP = VN | ~(VP | D0);
@@ -560,16 +414,13 @@ inline int Reserve_Banded_BPM
 	///int site = p_length - last_high - 1;
 	int site = t_length - 1;
 	int return_site = -1;
-	///p_length大部分情况下应该是t_length + 2 * errthold，这是i要小于last_high = 2 * errthold
-	///也就是p_length - t_length
-	///那么当p_length < t_length + 2 * errthold, available_i也应该是这个值
+	///in most cases, p_lengthshould be t_length + 2 * errthold
 	int available_i = p_length - t_length;
-	if ((err <= errthold) && (err<=*return_err))
+	if ((err <= errthold) && ((unsigned int)err<=*return_err))
 	{
 		*return_err = err;
 		return_site = site;
 	}
-	int i_last = i;
 	i = 0;
 
 	/****************************may have bugs********************************/
@@ -582,14 +433,14 @@ inline int Reserve_Banded_BPM
 		err = err - ((VN >> i)&(Word)1);
 		++i;
 
-		if ((err <= errthold) && (err <= *return_err))
+		if ((err <= (int)errthold) && ((unsigned int)err <= *return_err))
 		{
 			*return_err = err;
 			return_site = site + i;
 		}
 
 		/****************************may have bugs********************************/
-		if(i == errthold)
+		if(i == (int)errthold)
 		{
 			ungap_error = err;
 		}
@@ -617,7 +468,7 @@ inline int try_cigar(char *pattern, int p_length,
 {
 	int i = 0;
 	int tmp_err = 0;
-	///y上的起始位置
+	///start pos of y
 	int start_site = end_site - t_length + 1;
 
 	if (start_site >= 0)
@@ -626,7 +477,7 @@ inline int try_cigar(char *pattern, int p_length,
 		for (i = 0; i < t_length; i++)
 		{
 			///path[i] = 0;
-			///path倒着存
+			///path is saved backwards
 			path[t_length - i - 1] = 0;
 			if (text[i] != pattern[i + start_site])
 			{
@@ -655,8 +506,8 @@ inline int try_cigar(char *pattern, int p_length,
 }
 
 
-///p_length有可能不够，但是t_length总是够的
-///就是p_length有可能小于t_length + 2 * errthold
+
+///p_length might be samller than t_length + 2 * errthold
 inline int Reserve_Banded_BPM_PATH
 (char *pattern, int p_length, char *text, int t_length, unsigned short errthold, 
 		unsigned int* return_err, int* return_start_site, int* return_path_length, Word* matrix_bit, char* path, 
@@ -666,7 +517,6 @@ inline int Reserve_Banded_BPM_PATH
 	{
 		if (old_error == 0)
 		{
-			///fprintf(stderr, "0 error\n");
 			(*return_err) = old_error;
 			(*return_start_site) = old_end_site - t_length + 1;
 			return old_end_site;
@@ -675,7 +525,6 @@ inline int Reserve_Banded_BPM_PATH
 		if (try_cigar(pattern, p_length, text, t_length, old_end_site, path,
 		old_error, return_start_site, return_path_length))
 		{
-			///fprintf(stderr, "no gap error\n");
 			(*return_err) = old_error;
 			return old_end_site;
 		}
@@ -704,7 +553,7 @@ inline int Reserve_Banded_BPM_PATH
 	///band_length = 2k + 1
 	for (i = 0; i<band_length; i++)
 	{
-		Peq[pattern[i]] = Peq[pattern[i]] | tmp_Peq_1;
+		Peq[(uint8_t)pattern[i]] = Peq[(uint8_t)pattern[i]] | tmp_Peq_1;
 		tmp_Peq_1 = tmp_Peq_1 << 1;
 	}
 
@@ -762,7 +611,7 @@ inline int Reserve_Banded_BPM_PATH
 	while (i<t_length_1)
 	{
 		///pattern[0]ÔÚPeq[2k], ¶øpattern[2k]ÔÚPeq[0]
-		X = Peq[text[i]] | VN;
+		X = Peq[(uint8_t)text[i]] | VN;
 
 		D0 = ((VP + (X&VP)) ^ VP) | X;
 
@@ -777,7 +626,7 @@ inline int Reserve_Banded_BPM_PATH
 		{
 			++err;
 
-			if ((err - last_high)>errthold)
+			if ((err - last_high)>(int)errthold)
 			{
 				return -1;
 			}
@@ -793,7 +642,7 @@ inline int Reserve_Banded_BPM_PATH
 
 		++i;
 		++i_bd;
-		Peq[pattern[i_bd]] = Peq[pattern[i_bd]] | Mask;
+		Peq[(uint8_t)pattern[i_bd]] = Peq[(uint8_t)pattern[i_bd]] | Mask;
 
 
 		///Peq['T'] = Peq['T'] | Peq['C'];
@@ -810,7 +659,7 @@ inline int Reserve_Banded_BPM_PATH
 
 
 
-	X = Peq[text[i]] | VN;
+	X = Peq[(uint8_t)text[i]] | VN;
 	D0 = ((VP + (X&VP)) ^ VP) | X;
 	HN = VP&D0;
 	HP = VN | ~(VP | D0);
@@ -820,7 +669,7 @@ inline int Reserve_Banded_BPM_PATH
 	if (!(D0&err_mask))
 	{
 		++err;
-		if ((err - last_high)>errthold)
+		if ((err - last_high)>(int)errthold)
 			return -1;
 	}
 
@@ -846,16 +695,13 @@ inline int Reserve_Banded_BPM_PATH
 	unsigned int ungap_error = (unsigned int)-1;
 	/****************************may have bugs********************************/
 
-	///p_length大部分情况下应该是t_length + 2 * errthold，这是i要小于last_high = 2 * errthold
-	///也就是p_length - t_length
-	///那么当p_length < t_length + 2 * errthold, available_i也应该是这个值
+	///in most cases, p_length should be t_length + 2 * errthold
 	int available_i = p_length - t_length;
-	if ((err <= errthold) && (err<=*return_err))
+	if ((err <= (int)errthold) && ((unsigned int)err<=*return_err))
 	{
 		*return_err = err;
 		return_site = site;
 	}
-	int i_last = i;
 	i = 0;
 
 	while (i < available_i)
@@ -864,14 +710,14 @@ inline int Reserve_Banded_BPM_PATH
 		err = err - ((VN >> i)&(Word)1);
 		++i;
 
-		if ((err <= errthold) && (err <= *return_err))
+		if ((err <= (int)errthold) && ((unsigned int)err <= *return_err))
 		{
 			*return_err = err;
 			return_site = site + i;
 		}
 
 		/****************************may have bugs********************************/
-		if(i == errthold)
+		if(i == (int)errthold)
 		{
 			ungap_error = err;
 		}
@@ -894,24 +740,19 @@ inline int Reserve_Banded_BPM_PATH
 	}
 	/****************************may have bugs********************************/
 	
-    ////注意，这里p_length要矫正啊啊
-	///不矫正会出错
-	///因为p_length有可能不够
+
+	///need to correct p_length here, since p_length might be smaller than t_length + 2* err_threashlod
 	p_length = t_length + 2 * errthold;
-	///end_site是正确的
+	///end_site is always correct
 	int end_site = return_site;
 	int start_site = end_site;
-	///这个是各个bit-vector里面，end_site对应bit所在的位置
 	int back_track_site = band_length - (p_length - end_site);
 
 	Word v_value, h_value, delta_value, min_value, current_value;
-	Word direction, is_mismatch; ///0 is match, 1 is mismatch, 2 is up, 3 is left
-
-	///代表pattern到哪了，就是短的那个到哪了
+	///Word direction; ///0 is match, 1 is mismatch, 2 is up, 3 is left
+	Word direction = 0; ///0 is match, 1 is mismatch, 2 is up, 3 is left
 	i = t_length;
 	int path_length = 0;
-
-	///到0就结束了，后面的路径可以直接match
 	current_value = *return_err;
 
 
@@ -1044,15 +885,11 @@ inline int Reserve_Banded_BPM_PATH
 	(*return_start_site) = start_site;
 	(*return_path_length) = path_length;
 
-
-
-
 	return return_site;
-
 }
 
 
-////这个p_length四个是一样的
+////four patterns have the same p_length
 inline int Reserve_Banded_BPM_4_SSE_only(char *pattern1, char *pattern2, char *pattern3, char *pattern4, int p_length, char *text, int t_length,
 	int* return_sites, unsigned int* return_sites_error, unsigned short errthold, __m128i* Peq_SSE)
 
@@ -1076,10 +913,10 @@ inline int Reserve_Banded_BPM_4_SSE_only(char *pattern1, char *pattern2, char *p
 
 	for (i = 0; i<band_length; i++)
 	{
-		Peq[pattern1[i]][0] = Peq[pattern1[i]][0] | tmp_Peq_1;
-		Peq[pattern2[i]][1] = Peq[pattern2[i]][1] | tmp_Peq_1;
-		Peq[pattern3[i]][2] = Peq[pattern3[i]][2] | tmp_Peq_1;
-		Peq[pattern4[i]][3] = Peq[pattern4[i]][3] | tmp_Peq_1;
+		Peq[(uint8_t)pattern1[i]][0] = Peq[(uint8_t)pattern1[i]][0] | tmp_Peq_1;
+		Peq[(uint8_t)pattern2[i]][1] = Peq[(uint8_t)pattern2[i]][1] | tmp_Peq_1;
+		Peq[(uint8_t)pattern3[i]][2] = Peq[(uint8_t)pattern3[i]][2] | tmp_Peq_1;
+		Peq[(uint8_t)pattern4[i]][3] = Peq[(uint8_t)pattern4[i]][3] | tmp_Peq_1;
 
 		tmp_Peq_1 = tmp_Peq_1 << 1;
 	}
@@ -1132,7 +969,7 @@ inline int Reserve_Banded_BPM_4_SSE_only(char *pattern1, char *pattern2, char *p
 	while (i<t_length_1)
 	{
 		///X = Peq[text[i]] | VN;
-		X = _mm_or_si128(Peq_SSE[text[i]], VN);
+		X = _mm_or_si128(Peq_SSE[(uint8_t)text[i]], VN);
 
 
 
@@ -1188,17 +1025,17 @@ inline int Reserve_Banded_BPM_4_SSE_only(char *pattern1, char *pattern2, char *p
 		++i;
 		++i_bd;
 
-		Peq_SSE[pattern1[i_bd]] = _mm_or_si128(Mask1, Peq_SSE[pattern1[i_bd]]);
-		Peq_SSE[pattern2[i_bd]] = _mm_or_si128(Mask2, Peq_SSE[pattern2[i_bd]]);
-		Peq_SSE[pattern3[i_bd]] = _mm_or_si128(Mask3, Peq_SSE[pattern3[i_bd]]);
-		Peq_SSE[pattern4[i_bd]] = _mm_or_si128(Mask4, Peq_SSE[pattern4[i_bd]]);
+		Peq_SSE[(uint8_t)pattern1[i_bd]] = _mm_or_si128(Mask1, Peq_SSE[(uint8_t)pattern1[i_bd]]);
+		Peq_SSE[(uint8_t)pattern2[i_bd]] = _mm_or_si128(Mask2, Peq_SSE[(uint8_t)pattern2[i_bd]]);
+		Peq_SSE[(uint8_t)pattern3[i_bd]] = _mm_or_si128(Mask3, Peq_SSE[(uint8_t)pattern3[i_bd]]);
+		Peq_SSE[(uint8_t)pattern4[i_bd]] = _mm_or_si128(Mask4, Peq_SSE[(uint8_t)pattern4[i_bd]]);
 		///Peq_SSE['T'] = _mm_or_si128(Peq_SSE['T'], Peq_SSE['C']);
 	}
 
 
 
 		///X = Peq[text[i]] | VN;
-	X = _mm_or_si128(Peq_SSE[text[i]], VN);
+	X = _mm_or_si128(Peq_SSE[(uint8_t)text[i]], VN);
 
 	/*************D0 = ((VP + (X&VP)) ^ VP) | X*********************/
 	///X&VP
@@ -1249,22 +1086,22 @@ inline int Reserve_Banded_BPM_4_SSE_only(char *pattern1, char *pattern2, char *p
 	err4 = _mm_extract_epi32(Err_4, 3);
 
 
-	if ((err1 <= errthold) && (err1 <= return_sites_error[0]))
+	if ((err1 <= (int)errthold) && ((unsigned int)err1 <= return_sites_error[0]))
 	{
 		return_sites[0] = site;
 		return_sites_error[0] = err1;
 	}
-	if ((err2 <= errthold) && (err2 <= return_sites_error[1]))
+	if ((err2 <= (int)errthold) && ((unsigned int)err2 <= return_sites_error[1]))
 	{
 		return_sites[1] = site;
 		return_sites_error[1] = err2;
 	}
-	if ((err3 <= errthold) && (err3 <= return_sites_error[2]))
+	if ((err3 <= (int)errthold) && ((unsigned int)err3 <= return_sites_error[2]))
 	{
 		return_sites[2] = site;
 		return_sites_error[2] = err3;
 	}
-	if ((err4 <= errthold) && (err4 <= return_sites_error[3]))
+	if ((err4 <= (int)errthold) && ((unsigned int)err4 <= return_sites_error[3]))
 	{
 		return_sites[3] = site;
 		return_sites_error[3] = err4;
@@ -1281,9 +1118,7 @@ inline int Reserve_Banded_BPM_4_SSE_only(char *pattern1, char *pattern2, char *p
 	/****************************may have bugs********************************/
 
 
-	///p_length大部分情况下应该是t_length + 2 * errthold，这是i要小于last_high = 2 * errthold
-	///也就是p_length - t_length
-	///那么当p_length < t_length + 2 * errthold, available_i也应该是这个值
+	///in most cases, p_length should be t_length + 2 * errthold
 	int available_i = p_length - t_length;
 
 	while (i < available_i)
@@ -1305,29 +1140,29 @@ inline int Reserve_Banded_BPM_4_SSE_only(char *pattern1, char *pattern2, char *p
 		err4 = _mm_extract_epi32(Err_4, 3);
 
 
-		if ((err1 <= errthold) && (err1 <= return_sites_error[0]))
+		if ((err1 <= (int)errthold) && ((unsigned int)err1 <= return_sites_error[0]))
 		{
 			return_sites[0] = site + i;
 			return_sites_error[0] = err1;
 		}
-		if ((err2 <= errthold) && (err2 <= return_sites_error[1]))
+		if ((err2 <= (int)errthold) && ((unsigned int)err2 <= return_sites_error[1]))
 		{
 			return_sites[1] = site + i;
 			return_sites_error[1] = err2;
 		}
-		if ((err3 <= errthold) && (err3 <= return_sites_error[2]))
+		if ((err3 <= (int)errthold) && ((unsigned int)err3 <= return_sites_error[2]))
 		{
 			return_sites[2] = site + i;
 			return_sites_error[2] = err3;
 		}
-		if ((err4 <= errthold) && (err4 <= return_sites_error[3]))
+		if ((err4 <= (int)errthold) && ((unsigned int)err4 <= return_sites_error[3]))
 		{
 			return_sites[3] = site + i;
 			return_sites_error[3] = err4;
 		}
 
 		/****************************may have bugs********************************/
-		if(i == errthold)
+		if(i == (int)errthold)
 		{
 			ungap_error1 = err1;
 			ungap_error2 = err2;
@@ -1362,16 +1197,5 @@ inline int Reserve_Banded_BPM_4_SSE_only(char *pattern1, char *pattern2, char *p
 	return 1;
 }
 
-
-void output_bit_myers(Word x, int length);
-void prase_vertical(Word VP, Word VN, int length, int matrix[1000][1000], int i);
-void prase_D0(Word D0, int length, int matrix[1000][1000], int i);
-void prase_H(Word HP, Word HN, int length, int matrix[1000][1000], int i);
-int Reserve_Banded_BPM_debug(char *pattern, int p_length, char *text, int t_length, unsigned short errthold, 
-unsigned int* return_err, int matrix[1000][1000]);
-int Reserve_Banded_BPM_new(char *pattern,int p_length,char *text,int t_length,unsigned short errthold,
-unsigned short band_down,unsigned short band_below,unsigned short band_length,int* return_err, int thread_id);
-int BS_Reserve_Banded_BPM
-(char *pattern, int p_length, char *text, int t_length, unsigned short errthold, unsigned int* return_err);
 
 #endif

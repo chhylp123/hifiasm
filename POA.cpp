@@ -191,7 +191,7 @@ void init_Node_alloc(Node_alloc* list)
     list->sort.iterative_buffer_visit = NULL;
 
 
-    long long i;
+    uint64_t i;
     for (i = 0; i < list->size; i++)
     {
         list->list[i].insertion_edges.list=NULL;
@@ -238,10 +238,8 @@ uint64_t append_Node_alloc(Node_alloc* list, char base)
    
     if (list->length + 1 > list->size)
     {
-        long long i = list->size;
+        uint64_t i = list->size;
 
-        ///list->topo_order这里用不到，所以不用先分配空间
-        ///但是还是一起分配了吧，免得麻烦
         list->size = list->size * 2;
         list->list = (Node*)realloc(list->list, sizeof(Node)*list->size);
         ///list->topo_order = (uint64_t*)realloc(list->topo_order, sizeof(uint64_t)*list->size);
@@ -336,8 +334,6 @@ void addUnmatchedSeqToGraph(Graph* g, char* g_read_seq, long long g_read_length,
     for (i = 0; i < g_read_length; i++)
     {
         nodeID = add_Node_Graph(g, g_read_seq[i]);
-
-        ////fprintf(stderr, "nodeID: %llu\n", nodeID);
         
         if (firstID == -1)
         {
@@ -345,12 +341,7 @@ void addUnmatchedSeqToGraph(Graph* g, char* g_read_seq, long long g_read_length,
         }
         if (lastID != -1)
         {
-            /** 
-            ///0是match边
-            add_Edge_Graph(g, lastID, nodeID, 0);
-            **/
-            ///只有match边长度是0
-            ///mismatch边长度都是1
+            ///the legnth of match edge is 0, while the length of musmatch is 1
             append_Edge_alloc(&(g->g_nodes.list[lastID].mismatch_edges), lastID, nodeID, 1, 0);
         }
 
@@ -364,287 +355,6 @@ void addUnmatchedSeqToGraph(Graph* g, char* g_read_seq, long long g_read_length,
     g->s_end_nodeID = lastID;
     
 }
-
-
-
-inline void add_insertionEdge_weight_print(Graph* g, long long alignNodeID, char* insert, long long insert_length)
-{
-    
-    long long nodeID;
-    long long edgeID;
-    Edge_alloc* edge = &(g->g_nodes.list[alignNodeID].insertion_edges);
-
-    /******************************for homopolymer*************************/
-    long long i = 0;
-    char hom;
-    if (insert_length > 0)
-    {
-        hom = insert[0];
-    }
-
-    for (i = 0; i < insert_length; i++)
-    {
-        if(insert[i] != hom)
-        {
-            break;
-        }
-    }
-
-    fprintf(stderr, "###insert_length: %d\n", insert_length);
-
-    ///if it is a homopolymer
-    if(i == insert_length)
-    {
-        ///single base
-        edgeID = getEdge(g, edge, 1, insert[0]);
-        if (edgeID != -1)
-        {
-            ///这条路均只有一个出度
-            edge->list[edgeID].weight++;
-        }
-        else ///不存在这么一条边
-        {
-            nodeID  = add_Node_Graph(g, insert[0]);
-            append_Edge_alloc(edge, alignNodeID, nodeID, 1, 1);
-            ///将新加入的节点通过insertion_edges接回backbone上
-            ///应该连回到原节点，而不是原节点的下一个节点
-            ///append_Edge_alloc(&(g->g_nodes.list[nodeID].insertion_edges), nodeID, alignNodeID + 1, 1, 0);
-            append_Edge_alloc(&(g->g_nodes.list[nodeID].insertion_edges), nodeID, alignNodeID, 1, 0);
-        }
-
-        ///multiple bases
-        for (i = 1; i < insert_length; i++)
-        {
-            edgeID = get_insertion_Edges(g, edge, i + 1, insert);
-            if (edgeID != -1)
-            {
-                ///这条路均只有一个出度
-                edge->list[edgeID].weight++;
-            }
-            else
-            {
-                create_insertion_Edges(g, alignNodeID, i + 1, insert);
-            }
-        }
-
-        return;
-    }
-    /******************************for homopolymer*************************/
-
-    fprintf(stderr, "###not homopolymer: %d\n", insert_length);
-
-    if (insert_length == 1)
-    {
-        edgeID = getEdge(g, edge, 1, insert[0]);
-        if (edgeID != -1)
-        {
-            ///这条路均只有一个出度
-            edge->list[edgeID].weight++;
-        }
-        else ///不存在这么一条边
-        {
-            nodeID  = add_Node_Graph(g, insert[0]);
-            append_Edge_alloc(edge, alignNodeID, nodeID, 1, 1);
-            ///将新加入的节点通过insertion_edges接回backbone上
-            ///应该连回到原节点，而不是原节点的下一个节点
-            ///append_Edge_alloc(&(g->g_nodes.list[nodeID].insertion_edges), nodeID, alignNodeID + 1, 1, 0);
-            append_Edge_alloc(&(g->g_nodes.list[nodeID].insertion_edges), nodeID, alignNodeID, 1, 0);
-        }
-    }
-    else if (insert_length == 2)
-    {
-        /*******************第0个字符********************* */
-        edgeID = getEdge(g, edge, 1, insert[0]);
-        fprintf(stderr, "edgeID[0]: %d, length: %d\n", edgeID, edge->list[edgeID].length);
-        if (edgeID != -1)
-        {
-            ///这条路均只有一个出度
-            edge->list[edgeID].weight++;
-        }
-        else ///不存在这么一条边
-        {
-            nodeID  = add_Node_Graph(g, insert[0]);
-            append_Edge_alloc(edge, alignNodeID, nodeID, 1, 1);
-            ///将新加入的节点通过insertion_edges接回backbone上
-            ///应该连回到原节点，而不是原节点的下一个节点
-            ///append_Edge_alloc(&(g->g_nodes.list[nodeID].insertion_edges), nodeID, alignNodeID + 1, 1, 0);
-            append_Edge_alloc(&(g->g_nodes.list[nodeID].insertion_edges), nodeID, alignNodeID, 1, 0);
-        }
-
-        fprintf(stderr, "edge->length: %d\n", edge->length);
-        
-        /*******************第0个字符********************* */
-
-        /*******************第1个字符********************* */
-        if (insert[1] != insert[0])
-        {
-            edgeID = getEdge(g, edge, 1, insert[1]);
-            fprintf(stderr, "edgeID[1]: %d, length: %d\n", edgeID, edge->list[edgeID].length);
-            if (edgeID != -1)
-            {
-                ///这条路均只有一个出度
-                edge->list[edgeID].weight++;
-            }
-            else ///不存在这么一条边
-            {
-                nodeID  = add_Node_Graph(g, insert[1]);
-                append_Edge_alloc(edge, alignNodeID, nodeID, 1, 1);
-                ///将新加入的节点通过insertion_edges接回backbone上
-                ///应该连回到原节点，而不是原节点的下一个节点
-                ///append_Edge_alloc(&(g->g_nodes.list[nodeID].insertion_edges), nodeID, alignNodeID + 1, 1, 0);
-                append_Edge_alloc(&(g->g_nodes.list[nodeID].insertion_edges), nodeID, alignNodeID, 1, 0);
-            }
-
-            fprintf(stderr, "edge->length: %d\n", edge->length);
-        }
-        /*******************第1个字符********************* */
-
-        /**********************两个字符******************* */
-        
-        edgeID = get_insertion_Edges(g, edge, 2, insert);
-        fprintf(stderr, "edgeID[len2]: %d, length: %d\n", edgeID, edge->list[edgeID].length);
-        if (edgeID != -1)
-        {
-            ///这条路均只有一个出度
-            edge->list[edgeID].weight++;
-        }
-        else
-        {
-            create_insertion_Edges(g, alignNodeID, insert_length, insert);
-        }
-
-        fprintf(stderr, "edge->length: %d\n", edge->length);
-
-        for (i = 0; i < edge->length; i++)
-        {
-            fprintf(stderr, "edgeID[%d].length: %d\n", i, edge->list[i].length);
-        }
-        
-        
-        /**********************两个字符******************* */
-    }
-    else if (insert_length > 2)
-    {
-        ////fprintf(stderr, "too long insertion\n");
-        /*************************大于2个字符************************** */
-
-        edgeID = get_insertion_Edges(g, edge, insert_length, insert);
-        if (edgeID != -1)
-        {
-            ///这条路均只有一个出度
-            edge->list[edgeID].weight++;
-        }
-        else
-        {
-            create_insertion_Edges(g, alignNodeID, insert_length, insert);
-        }
-    }
-    
-    
-    
-}
-
-
-
-void addmatchedSeqToGraph_print(Graph* backbone, long long currentNodeID, char* x_string, long long x_length, 
-        char* y_string, long long y_length, CIGAR* cigar, long long backbone_start, long long backbone_end)
-{
-    
-    int x_i, y_i, cigar_i;
-    x_i = 0;
-    y_i = 0;
-    cigar_i = 0;
-    int operation;
-    int operationLen;
-    int i;
-    int last_operation = -1;
-
-    fprintf(stderr,"*******\n");
-    ///note that node 0 is the start node
-    ///0 is match, 1 is mismatch, 2 is up, 3 is left
-    ///2是x缺字符（y多字符），而3是y缺字符（x多字符）
-    while (cigar_i < cigar->length)
-    {
-        operation = cigar->C_C[cigar_i];
-        operationLen = cigar->C_L[cigar_i];
-
-        // fprintf(stderr, "operation: %d, operationLen: %d\n", 
-        // operation, operationLen);
-
-        ///这种情况代表匹配和mismatch
-        if (operation == 0 || operation == 1)
-        {
-            
-            for (i = 0; i < operationLen; i++)
-            {
-                //backbone->g_nodes.list[currentNodeID].weight++;
-                ///前面是插入，后面有可能是误配，也有可能是匹配
-                add_mismatchEdge_weight(backbone, currentNodeID, y_string[y_i], last_operation);    
-                x_i++;
-                y_i++;
-                currentNodeID++;
-            }
-        }///insertion
-        else if (operation == 2)
-        {
-            ///cigar的起始和结尾不可能是2，所以这里-1没问题
-            ///if (operationLen <= CORRECT_INDEL_LENGTH)
-            {
-                add_insertionEdge_weight_print(backbone, currentNodeID, y_string + y_i, operationLen);
-                backbone->g_nodes.list[currentNodeID].num_insertions++;
-            }
-
-            ///fprintf(stderr, "y_string: %.*s\n",  operationLen, y_string+y_i);
-            y_i += operationLen;
-        }
-        else if (operation == 3)
-        {
-            ///3是y缺字符（x多字符），也就是backbone多字符
-            ///这个相当于在backbone对应字符处变成了‘——’
-            ///因此可以用mismatch类似的方法处理
-            ///if (operationLen <= CORRECT_INDEL_LENGTH)
-            {
-                ///add_deletion_to_backbone(backbone, &currentNodeID, operationLen);
-                ///在编辑距离中，前面是个插入，后面是个删除，这种情况是不存在的
-                ///为了保险要不还给他加上吧
-                ///先不加
-                add_deletionEdge_weight(backbone, currentNodeID, operationLen);
-            }
-
-            
-            currentNodeID += operationLen;
-            x_i += operationLen;
-        }
-
-        last_operation = operation;
-        
-        cigar_i++;
-    }
-    
-
-
-    /**
-    ///cigar的起始和结尾不可能是2
-    if (cigar->C_C[0] == 2 || cigar->C_C[cigar->length - 1] == 2)
-    {
-        fprintf(stderr, "error\n");
-    }
-    
-
-    if (x_i != x_length)
-    {
-        fprintf(stderr, "x_i: %d, x_length: %d\n", x_i, x_length);
-    }
-
-    if (y_i != y_length)
-    {
-        fprintf(stderr, "y_i: %d, y_length: %d\n", y_i, y_length);
-    }
-    **/
-    
-}
-
-
 
 
 
@@ -664,20 +374,19 @@ void addmatchedSeqToGraph(Graph* backbone, long long currentNodeID, char* x_stri
     
     ///note that node 0 is the start node
     ///0 is match, 1 is mismatch, 2 is up, 3 is left
-    ///2是x缺字符（y多字符），而3是y缺字符（x多字符）
+    ///2 mean y has more bases, while 3 means x has more bases
     while (cigar_i < cigar->length)
     {
         operation = cigar->C_C[cigar_i];
         operationLen = cigar->C_L[cigar_i];
 
-        ///这种情况代表匹配和mismatch
+        ///match/mismatch
         if (operation == 0 || operation == 1)
         {
             
             for (i = 0; i < operationLen; i++)
             {
-                //backbone->g_nodes.list[currentNodeID].weight++;
-                ///前面是插入，后面有可能是误配，也有可能是匹配
+                ///if the previous node is insertion, this node might be mismatch/match
                 add_mismatchEdge_weight(backbone, currentNodeID, y_string[y_i], last_operation);    
                 x_i++;
                 y_i++;
@@ -686,7 +395,7 @@ void addmatchedSeqToGraph(Graph* backbone, long long currentNodeID, char* x_stri
         }///insertion
         else if (operation == 2)
         {
-            ///cigar的起始和结尾不可能是2，所以这里-1没问题
+            ///the begin and end of cigar cannot be 2, so -1 is right here
             ///if (operationLen <= CORRECT_INDEL_LENGTH)
             {
                 add_insertionEdge_weight(backbone, currentNodeID, y_string + y_i, operationLen);
@@ -696,15 +405,10 @@ void addmatchedSeqToGraph(Graph* backbone, long long currentNodeID, char* x_stri
         }
         else if (operation == 3)
         {
-            ///3是y缺字符（x多字符），也就是backbone多字符
-            ///这个相当于在backbone对应字符处变成了‘——’
-            ///因此可以用mismatch类似的方法处理
+            ///3 means x has more bases, that means backbone has more bases
+            ///like a mismatch (-)
             ///if (operationLen <= CORRECT_INDEL_LENGTH)
             {
-                ///add_deletion_to_backbone(backbone, &currentNodeID, operationLen);
-                ///在编辑距离中，前面是个插入，后面是个删除，这种情况是不存在的
-                ///为了保险要不还给他加上吧
-                ///先不加
                 add_deletionEdge_weight(backbone, currentNodeID, operationLen);
             }
 
@@ -720,284 +424,6 @@ void addmatchedSeqToGraph(Graph* backbone, long long currentNodeID, char* x_stri
 }
 
 
-void debug_graph(Graph* g, long long backbone_length)
-{
-    long long i = 0;
-
-    if (g->s_start_nodeID != 0 || g->s_end_nodeID != backbone_length)
-    {
-        fprintf(stderr, "error\n");
-    }
-    
-    
-    for (i = g->s_start_nodeID; i <= g->s_end_nodeID; i++)
-    {
-        if(g->g_nodes.list[i].weight != 1)
-        {
-            fprintf(stderr, "error node weight\n");
-        }
-        
-        if(g->g_nodes.list[i].mismatch_edges.length > 4)
-        {
-            fprintf(stderr, "error mismatch_edges\n");
-        }
-
-        if(g->g_nodes.list[i].mismatch_edges.length < 1 && i != g->s_end_nodeID)
-        {
-            fprintf(stderr, "i: %d, error mismatch_edges: %d\n", i, g->g_nodes.list[i].mismatch_edges.length);
-        }
-    }
-
-    
-    for (i = 0; i < g->g_nodes.length; i++)
-    {
-        if(g->g_nodes.list[i].ID < g->s_start_nodeID || g->g_nodes.list[i].ID > g->s_end_nodeID)
-        {
-            if (g->g_nodes.list[i].deletion_edges.length +
-                g->g_nodes.list[i].insertion_edges.length +
-                g->g_nodes.list[i].mismatch_edges.length
-                != 1)
-            {
-                fprintf(stderr, "g->s_start_nodeID: %lld\n", 
-                g->s_start_nodeID);
-                fprintf(stderr, "g->s_end_nodeID: %lld\n", 
-                g->s_end_nodeID);
-                fprintf(stderr, "deletion_edges_length: %lld\n", 
-                g->g_nodes.list[i].deletion_edges.length);
-                fprintf(stderr, "insertion_edges_length: %lld, \n", 
-                g->g_nodes.list[i].insertion_edges.length);
-                fprintf(stderr, "g->g_nodes.list[i].insertion_edges.list[0].length: %lld, \n", 
-                g->g_nodes.list[i].insertion_edges.list[0].length);
-                fprintf(stderr, "g->g_nodes.list[i].insertion_edges.list[1].length: %lld, \n", 
-                g->g_nodes.list[i].insertion_edges.list[1].length);
-
-                fprintf(stderr, "mismatch_edges_length: %lld\n", 
-                g->g_nodes.list[i].mismatch_edges.length);
-            }
-            else
-            {
-                ///不是0肯定是1
-                if (g->g_nodes.list[i].deletion_edges.length != 0)
-                {
-                    long long step = g->g_nodes.list[i].deletion_edges.list[0].length;
-                    long long nodeID = i;
-                    for (int j = 0; j < step; j++)
-                    {
-                        nodeID = g->g_nodes.list[nodeID].deletion_edges.list[0].out_node;
-                    }
-                    
-                    nodeID = g->g_nodes.list[nodeID].deletion_edges.list[0].out_node;
-
-                    if (nodeID < g->s_start_nodeID || nodeID > g->s_end_nodeID)
-                    {
-                        fprintf(stderr, "error\n");
-                    }
-                }
-
-                if (g->g_nodes.list[i].insertion_edges.length != 0)
-                {
-                    
-                    long long step = g->g_nodes.list[i].insertion_edges.list[0].length;
-                    long long nodeID = i;
-
-
-                    for (int j = 0; j < step; j++)
-                    {
-                        nodeID = g->g_nodes.list[nodeID].insertion_edges.list[0].out_node;
-                    }
-
-                    nodeID = g->g_nodes.list[nodeID].insertion_edges.list[0].out_node;
-
-                    if ((nodeID < g->s_start_nodeID || nodeID > g->s_end_nodeID))
-                    {
-                        fprintf(stderr, "error: step: %d\n", step);
-                    }
-                    
-                }
-
-
-                if (g->g_nodes.list[i].mismatch_edges.length != 0)
-                {
-                    
-                    long long step = g->g_nodes.list[i].mismatch_edges.list[0].length;
-                    long long nodeID = i;
-
-                    for (int j = 0; j < step; j++)
-                    {
-                        nodeID = g->g_nodes.list[nodeID].mismatch_edges.list[0].out_node;
-                    }
-
-                    nodeID = g->g_nodes.list[nodeID].mismatch_edges.list[0].out_node;
-
-                    if (nodeID < g->s_start_nodeID || nodeID > g->s_end_nodeID)
-                    {
-                        fprintf(stderr, "error\n");
-                    }
-                    
-                }
-                
-            }
-            
-            
-        }
-    }
-    
-
-
-    
-}
-
-void Graph_debug(Graph* backbone, long long currentNodeID, char* x_string, long long x_length, 
-        char* y_string, long long y_length, CIGAR* cigar, long long backbone_start, long long backbone_end)
-{
-    /**
-    int x_i, y_i, cigar_i;
-    x_i = 0;
-    y_i = 0;
-    cigar_i = 0;
-    int operation;
-    int operationLen;
-    int i;
-
-    
-    
-
-    ///0 is match, 1 is mismatch, 2 is up, 3 is left
-    ///2是x缺字符（y多字符），而3是y缺字符（x多字符）
-    ///while (x_i < x_len && y_i < y_len && cigar_i < cigar->length)
-    while (cigar_i < cigar->length)
-    {
-        operation = cigar->C_C[cigar_i];
-        operationLen = cigar->C_L[cigar_i];
-
-        ///这种情况代表匹配
-        if (operation == 0)
-        {
-            
-            for (i = 0; i < operationLen; i++)
-            {
-                if (backbone->g_nodes.list[currentNodeID].base != y_string[y_i])
-                {
-                    fprintf(stderr, "error match\n");
-                }
-
-                backbone->g_nodes.list[currentNodeID].weight--;
-            
-                x_i++;
-                y_i++;
-                currentNodeID++;
-            }
-        }
-        else if (operation == 1)
-        {
-            for (i = 0; i < operationLen; i++)
-            {
-                if (backbone->g_nodes.list[currentNodeID].base == y_string[y_i])
-                {
-                    fprintf(stderr, "error mismatch 1\n");
-                }
-
-                long long mismatchID = get_alignToNode(backbone, currentNodeID, y_string[y_i]);
-
-
-
-                if(mismatchID == -1)
-                {
-                    fprintf(stderr, "error mismatch 2\n");
-                }
-                else
-                {
-                    backbone->g_nodes.list[mismatchID].weight--;
-                }
-                
-
-                x_i++;
-                y_i++;
-                currentNodeID++;
-            } 
-        }
-        else if (operation == 2)
-        {
-            long long nodeID = currentNodeID - 1;
-            long long mismatchID;
-
-            for (i = 0; i < operationLen; i++)
-            {
-                mismatchID = get_insertion_Node(backbone, nodeID, y_string[y_i]);
-
-                if (mismatchID == -1)
-                {
-                    fprintf(stderr, "error insertion 1, i: %d\n", i);
-                }
-                else
-                {
-                    backbone->g_nodes.list[mismatchID].weight--;
-                }
-
-                nodeID = mismatchID;
-                
-                y_i++;
-            }
-            ///注意这里是x_string[x_i]而不是x_string[currentNodeID]
-            mismatchID = get_insertion_Node(backbone, nodeID, x_string[x_i]);
-            if (mismatchID == -1)
-            {
-                fprintf(stderr, "error insertion 2, i: %d, x_i: %d\n", i, x_i);
-            }
-
-            
-            if (mismatchID != currentNodeID)
-            {
-                fprintf(stderr, "error insertion 3, i: mismatchID: %d, currentNodeID: %d\n", mismatchID, currentNodeID);
-            }
-            
-            
-
-
-        }
-        else if (operation == 3)
-        {
-            for (i = 0; i < operationLen; i++)
-            {
- 
-                long long mismatchID = get_alignToNode(backbone, currentNodeID, 'D');
-
-                if(mismatchID == -1)
-                {
-                    fprintf(stderr, "error deletion 2\n");
-                }
-                else
-                {
-                    backbone->g_nodes.list[mismatchID].weight--;
-                }
-
-                x_i++;
-                currentNodeID++;
-            } 
-        }
-        
-        cigar_i++;
-    }
-
-
-    if (cigar->C_C[0] == 2 || cigar->C_C[cigar->length - 1] == 2)
-    {
-        fprintf(stderr, "error\n");
-    }
-    
-
-    if (x_i != x_length)
-    {
-        fprintf(stderr, "x_i: %d, x_length: %d\n", x_i, x_length);
-    }
-
-    if (y_i != y_length)
-    {
-        fprintf(stderr, "y_i: %d, y_length: %d\n", y_i, y_length);
-    }
-    **/
-    
-}
 
 
 

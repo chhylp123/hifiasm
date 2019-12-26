@@ -21,30 +21,44 @@ pthread_cond_t i_readinputstallCond;
 pthread_mutex_t i_doneMutex;
 
 
+uint8_t seq_nt6_table[256] = {
+    5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,
+    5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,
+    5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,
+    5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,
+    5, 0, 5, 1,  5, 5, 5, 2,  5, 5, 5, 5,  5, 5, 5, 5,
+    5, 5, 5, 5,  3, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,
+    5, 0, 5, 1,  5, 5, 5, 2,  5, 5, 5, 5,  5, 5, 5, 5,
+    5, 5, 5, 5,  3, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,
+    5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,
+    5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,
+    5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,
+    5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,
+    5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,
+    5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,
+    5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,
+    5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5
+};
+
+char bit_t_seq_table[256][4] = {0};
+char bit_t_seq_table_rc[256][4] = {0};
+char s_H[5] = {'A', 'C', 'G', 'T', 'N'};
+char rc_Table[5] = {'T', 'G', 'C', 'A', 'N'};
+
+
 void init_All_reads(All_reads* r)
 {
 	r->index_size = READ_INIT_NUMBER;
-	/**********should remove**********/
-	///r->index = (uint64_t*)malloc(sizeof(uint64_t)*r->index_size);
-	///r->index[0] = 0;
-	///r->read = NULL;
-	/**********should remove**********/
 	r->read_length = (uint64_t*)malloc(sizeof(uint64_t)*r->index_size);
 	r->read_sperate = NULL;
-
-
 	r->N_site = NULL;
 	r->total_reads_bases = 0;
-
-
 	r->name_index_size = READ_INIT_NUMBER;
 	r->name_index = (uint64_t*)malloc(sizeof(uint64_t)*r->name_index_size);
 	r->name_index[0] = 0;
 	r->name = NULL;
 	r->total_name_length = 0;
-	
 	r->total_reads = 0;
-	
 }
 
 void destory_All_reads(All_reads* r)
@@ -60,24 +74,19 @@ void destory_All_reads(All_reads* r)
 	}
 	free(r->N_site);
 	free(r->read_sperate);
-
-	
-
-	///free(r->read);
 	free(r->name);
 	free(r->name_index);
 	free(r->read_length);
-	
 }
 
 
 void write_All_reads(All_reads* r, char* read_file_name)
 {
-    fprintf(stdout, "Writing reads to disk ...... \n");
+    fprintf(stderr, "Writing reads to disk... \n");
     char* index_name = (char*)malloc(strlen(read_file_name)+15);
     sprintf(index_name, "%s.bin", read_file_name);
     FILE* fp = fopen(index_name, "w");
-	fwrite(&adapterLen, sizeof(adapterLen), 1, fp);
+	fwrite(&asm_opt.adapterLen, sizeof(asm_opt.adapterLen), 1, fp);
     fwrite(&r->index_size, sizeof(r->index_size), 1, fp);
 	fwrite(&r->name_index_size, sizeof(r->name_index_size), 1, fp);
 	fwrite(&r->total_reads, sizeof(r->total_reads), 1, fp);
@@ -90,12 +99,10 @@ void write_All_reads(All_reads* r, char* read_file_name)
 	{
 		if (r->N_site[i] != NULL)
 		{
-			///这个实际上是N的个数
+			///number of Ns
 			fwrite(&r->N_site[i][0], sizeof(r->N_site[i][0]), 1, fp);
 			if (r->N_site[i][0])
 			{
-				///r->N_site[i]这实际是个长为r->N_site[i][0]+1
-				///这里从r->N_site[i] + 1写入了r->N_site[i][0]个元素
 				fwrite(r->N_site[i]+1, sizeof(r->N_site[i][0]), r->N_site[i][0], fp);
 			}
 		}
@@ -108,36 +115,25 @@ void write_All_reads(All_reads* r, char* read_file_name)
 		
 	}
 
-	/**********should remove**********/
-	///fwrite(r->index, sizeof(uint64_t), r->index_size, fp);
-	/**********should remove**********/
 	fwrite(r->read_length, sizeof(uint64_t), r->total_reads, fp);
-
-	/**********should remove**********/
-	///fwrite(r->read, sizeof(uint8_t), (r->total_reads_bases/4 + r->total_reads + 5), fp);
-	/**********should remove**********/
 	for (i = 0; i < r->total_reads; i++)
 	{
 		fwrite(r->read_sperate[i], sizeof(uint8_t), r->read_length[i]/4+1, fp);
 	}
 	
-
-
 	fwrite(r->name, sizeof(char), r->total_name_length, fp);
 	fwrite(r->name_index, sizeof(uint64_t), r->name_index_size, fp);
-
-
     free(index_name);    
 	fflush(fp);
     fclose(fp);
-    fprintf(stdout, "Reads has been written.\n");
+    fprintf(stderr, "Reads has been written.\n");
 }
 
 
 
 int load_All_reads(All_reads* r, char* read_file_name)
 {
-    fprintf(stdout, "Loading reads to disk ...... \n");
+    fprintf(stderr, "Loading reads from disk... \n");
     char* index_name = (char*)malloc(strlen(read_file_name)+15);
     sprintf(index_name, "%s.bin", read_file_name);
     FILE* fp = fopen(index_name, "r");
@@ -145,20 +141,20 @@ int load_All_reads(All_reads* r, char* read_file_name)
     {
         return 0;
     }
-
 	int local_adapterLen;
-    fread(&local_adapterLen, sizeof(local_adapterLen), 1, fp);
-    if(local_adapterLen != adapterLen)
+	int f_flag;
+    f_flag = fread(&local_adapterLen, sizeof(local_adapterLen), 1, fp);
+    if(local_adapterLen != asm_opt.adapterLen)
     {
-        fprintf(stdout, "the adapterLen of index is: %d, but the adapterLen set by user is: %d\n", 
-        local_adapterLen, adapterLen);
+        fprintf(stderr, "the adapterLen of index is: %d, but the adapterLen set by user is: %d\n", 
+        local_adapterLen, asm_opt.adapterLen);
 		exit(1);
     }
-    fread(&r->index_size, sizeof(r->index_size), 1, fp);
-	fread(&r->name_index_size, sizeof(r->name_index_size), 1, fp);
-	fread(&r->total_reads, sizeof(r->total_reads), 1, fp);
-	fread(&r->total_reads_bases, sizeof(r->total_reads_bases), 1, fp);
-	fread(&r->total_name_length, sizeof(r->total_name_length), 1, fp);
+    f_flag += fread(&r->index_size, sizeof(r->index_size), 1, fp);
+	f_flag += fread(&r->name_index_size, sizeof(r->name_index_size), 1, fp);
+	f_flag += fread(&r->total_reads, sizeof(r->total_reads), 1, fp);
+	f_flag += fread(&r->total_reads_bases, sizeof(r->total_reads_bases), 1, fp);
+	f_flag += fread(&r->total_name_length, sizeof(r->total_name_length), 1, fp);
 
 	uint64_t i = 0;
 	uint64_t zero = 0;
@@ -166,7 +162,7 @@ int load_All_reads(All_reads* r, char* read_file_name)
 	for (i = 0; i < r->total_reads; i++)
 	{
 
-		fread(&zero, sizeof(zero), 1, fp);
+		f_flag += fread(&zero, sizeof(zero), 1, fp);
 
 		if (zero)
 		{
@@ -175,9 +171,7 @@ int load_All_reads(All_reads* r, char* read_file_name)
 			r->N_site[i][0] = zero;
 			if (r->N_site[i][0])
 			{
-				///r->N_site[i]这实际是个长为r->N_site[i][0]+1
-				///这里从r->N_site[i] + 1写入了r->N_site[i][0]个元素
-				fread(r->N_site[i]+1, sizeof(r->N_site[i][0]), r->N_site[i][0], fp);
+				f_flag += fread(r->N_site[i]+1, sizeof(r->N_site[i][0]), r->N_site[i][0], fp);
 			}
 		}
 		else
@@ -187,34 +181,25 @@ int load_All_reads(All_reads* r, char* read_file_name)
 
 	}
 
-
-	/**********should remove**********/
-	///r->index = (uint64_t*)malloc(sizeof(uint64_t)*r->index_size);
-	///fread(r->index, sizeof(uint64_t), r->index_size, fp);
-	/**********should remove**********/
 	r->read_length = (uint64_t*)malloc(sizeof(uint64_t)*r->total_reads);
-	fread(r->read_length, sizeof(uint64_t), r->total_reads, fp);
+	f_flag += fread(r->read_length, sizeof(uint64_t), r->total_reads, fp);
 
 	r->read_size = (uint64_t*)malloc(sizeof(uint64_t)*r->total_reads);
 	memcpy (r->read_size, r->read_length, sizeof(uint64_t)*r->total_reads);
 
-	/**********should remove**********/
-	///r->read = (uint8_t*)malloc(sizeof(uint8_t)*(r->total_reads_bases/4 + r->total_reads + 5));
-	///fread(r->read, sizeof(uint8_t), (r->total_reads_bases/4 + r->total_reads + 5), fp);
-	/**********should remove**********/
 	r->read_sperate = (uint8_t**)malloc(sizeof(uint8_t*)*r->total_reads);
 	for (i = 0; i < r->total_reads; i++)
     {
 		r->read_sperate[i] = (uint8_t*)malloc(sizeof(uint8_t)*(r->read_length[i]/4+1));
-		fread(r->read_sperate[i], sizeof(uint8_t), r->read_length[i]/4+1, fp);
+		f_flag += fread(r->read_sperate[i], sizeof(uint8_t), r->read_length[i]/4+1, fp);
 	}
 
 
 	r->name = (char*)malloc(sizeof(char)*r->total_name_length);
-	fread(r->name, sizeof(char), r->total_name_length, fp);
+	f_flag += fread(r->name, sizeof(char), r->total_name_length, fp);
 
 	r->name_index = (uint64_t*)malloc(sizeof(uint64_t)*r->name_index_size);
-	fread(r->name_index, sizeof(uint64_t), r->name_index_size, fp);
+	f_flag += fread(r->name_index, sizeof(uint64_t), r->name_index_size, fp);
 
 
 	r->cigars = (Compressed_Cigar_record*)malloc(sizeof(Compressed_Cigar_record)*r->total_reads);
@@ -234,13 +219,9 @@ int load_All_reads(All_reads* r, char* read_file_name)
 		init_ma_hit_t_alloc(&(r->reverse_paf[i]));
 	}
 
-
-	
-
-
     free(index_name);    
     fclose(fp);
-    fprintf(stdout, "Reads has been loaded.\n");
+    fprintf(stderr, "Reads has been loaded.\n");
 
 	return 1;
 }
@@ -253,27 +234,17 @@ inline void insert_read(All_reads* r, kstring_t* read, kstring_t* name)
 	r->total_reads_bases = r->total_reads_bases + read->l;
 	r->total_name_length = r->total_name_length + name->l;
 
-	///必须要+1
+	///must +1
 	if (r->index_size < r->total_reads + 2)
 	{
 		r->index_size = r->index_size * 2 + 2;
-		/**********should remove**********/
-		///r->index = (uint64_t*)realloc(r->index,sizeof(uint64_t)*(r->index_size));
-		/**********should remove**********/
 		r->read_length = (uint64_t*)realloc(r->read_length,sizeof(uint64_t)*(r->index_size));
-
 		r->name_index_size = r->name_index_size * 2 + 2;
 		r->name_index = (uint64_t*)realloc(r->name_index,sizeof(uint64_t)*(r->name_index_size));
 	}
-	/**********should remove**********/
-	///r->index[r->total_reads] = r->index[r->total_reads-1] + read->l;
-	/**********should remove**********/
+
 	r->read_length[r->total_reads - 1] = read->l;
-
-
-	//r->index[r->total_reads] = r->index[r->total_reads-1] + read->l/4 + 1;
 	r->name_index[r->total_reads] = r->name_index[r->total_reads-1] + name->l;
-
 }
 
 void malloc_All_reads(All_reads* r)
@@ -282,13 +253,9 @@ void malloc_All_reads(All_reads* r)
 	r->read_size = (uint64_t*)malloc(sizeof(uint64_t)*r->total_reads);
 	memcpy (r->read_size, r->read_length, sizeof(uint64_t)*r->total_reads);
 
-	///必须加r->total_reads
-	/**********should remove**********/
-	///r->read = (uint8_t*)malloc(sizeof(uint8_t)*(r->total_reads_bases/4 + r->total_reads + 5));
-	/**********should remove**********/
 	r->read_sperate = (uint8_t**)malloc(sizeof(uint8_t*)*r->total_reads);
 	long long i = 0;
-	for (i = 0; i < r->total_reads; i++)
+	for (i = 0; i < (long long)r->total_reads; i++)
 	{
 		r->read_sperate[i] = (uint8_t*)malloc(sizeof(uint8_t)*(r->read_length[i]/4+1));
 	}
@@ -297,7 +264,7 @@ void malloc_All_reads(All_reads* r)
 	r->second_round_cigar = (Compressed_Cigar_record*)malloc(sizeof(Compressed_Cigar_record)*r->total_reads);
 	r->paf = (ma_hit_t_alloc*)malloc(sizeof(ma_hit_t_alloc)*r->total_reads);
 	r->reverse_paf = (ma_hit_t_alloc*)malloc(sizeof(ma_hit_t_alloc)*r->total_reads);
-	for (i = 0; i < r->total_reads; i++)
+	for (i = 0; i < (long long)r->total_reads; i++)
 	{
 		r->second_round_cigar[i].size = r->cigars[i].size = 0;
 		r->second_round_cigar[i].length = r->cigars[i].length = 0;
@@ -309,15 +276,6 @@ void malloc_All_reads(All_reads* r)
 		init_ma_hit_t_alloc(&(r->paf[i]));
 		init_ma_hit_t_alloc(&(r->reverse_paf[i]));
 	}
-
-
-
-
-
-
-
-
-
 
 	r->name = (char*)malloc(sizeof(char)*r->total_name_length);
 	r->N_site = (uint64_t**)calloc(r->total_reads, sizeof(uint64_t*));
@@ -422,13 +380,13 @@ void recover_UC_Read_sub_region_begin_end
 		
 		if (R_INF->N_site[ID])
 		{
-			for (i = 1; i <= R_INF->N_site[ID][0]; i++)
+			for (i = 1; i <= (long long)R_INF->N_site[ID][0]; i++)
 			{
-				if (R_INF->N_site[ID][i] >= start_pos && R_INF->N_site[ID][i] <= end_pos)
+				if ((long long)R_INF->N_site[ID][i] >= start_pos && (long long)R_INF->N_site[ID][i] <= end_pos)
 				{
 					r[R_INF->N_site[ID][i] - start_pos] = 'N';
 				}
-				else if(R_INF->N_site[ID][i] > end_pos)
+				else if((long long)R_INF->N_site[ID][i] > end_pos)
 				{
 					break;
 				}
@@ -468,14 +426,14 @@ void recover_UC_Read_sub_region_begin_end
 		{
 			long long offset = readLen - start_pos - 1;
 
-			for (i = 1; i <= R_INF->N_site[ID][0]; i++)
+			for (i = 1; i <= (long long)R_INF->N_site[ID][0]; i++)
 			{
 
-				if (R_INF->N_site[ID][i] >= end_pos && R_INF->N_site[ID][i] <= start_pos)
+				if ((long long)R_INF->N_site[ID][i] >= end_pos && (long long)R_INF->N_site[ID][i] <= start_pos)
 				{
 					r[readLen - R_INF->N_site[ID][i] - 1 - offset] = 'N';
 				}
-				else if(R_INF->N_site[ID][i] > start_pos)
+				else if((long long)R_INF->N_site[ID][i] > start_pos)
 				{
 					break;
 				}
@@ -529,13 +487,13 @@ void recover_UC_Read_sub_region(char* r, long long start_pos, long long length, 
 		
 		if (R_INF->N_site[ID])
 		{
-			for (i = 1; i <= R_INF->N_site[ID][0]; i++)
+			for (i = 1; i <= (long long)R_INF->N_site[ID][0]; i++)
 			{
-				if (R_INF->N_site[ID][i] >= start_pos && R_INF->N_site[ID][i] <= end_pos)
+				if ((long long)R_INF->N_site[ID][i] >= start_pos && (long long)R_INF->N_site[ID][i] <= end_pos)
 				{
 					r[R_INF->N_site[ID][i] - start_pos] = 'N';
 				}
-				else if(R_INF->N_site[ID][i] > end_pos)
+				else if((long long)R_INF->N_site[ID][i] > end_pos)
 				{
 					break;
 				}
@@ -575,14 +533,14 @@ void recover_UC_Read_sub_region(char* r, long long start_pos, long long length, 
 		{
 			long long offset = readLen - start_pos - 1;
 
-			for (i = 1; i <= R_INF->N_site[ID][0]; i++)
+			for (i = 1; i <= (long long)R_INF->N_site[ID][0]; i++)
 			{
 
-				if (R_INF->N_site[ID][i] >= end_pos && R_INF->N_site[ID][i] <= start_pos)
+				if ((long long)R_INF->N_site[ID][i] >= end_pos && (long long)R_INF->N_site[ID][i] <= start_pos)
 				{
 					r[readLen - R_INF->N_site[ID][i] - 1 - offset] = 'N';
 				}
-				else if(R_INF->N_site[ID][i] > start_pos)
+				else if((long long)R_INF->N_site[ID][i] > start_pos)
 				{
 					break;
 				}
@@ -609,7 +567,7 @@ void recover_UC_Read(UC_Read* r, All_reads* R_INF, uint64_t ID)
 
 	uint64_t i = 0;
 
-	while (i < r->length)
+	while ((long long)i < r->length)
 	{
 		memcpy(r->seq+i, bit_t_seq_table[src[i>>2]], 4);
 		i = i + 4;
@@ -660,7 +618,7 @@ void recover_UC_Read_RC(UC_Read* r, All_reads* R_INF, uint64_t ID)
 
 	if (R_INF->N_site[ID])
 	{
-		for (i = 1; i <= R_INF->N_site[ID][0]; i++)
+		for (i = 1; i <= (long long)R_INF->N_site[ID][0]; i++)
 		{
 			r->seq[r->length - R_INF->N_site[ID][i] - 1] = 'N';
 		}
@@ -670,7 +628,7 @@ void recover_UC_Read_RC(UC_Read* r, All_reads* R_INF, uint64_t ID)
 
 
 
-#define COMPRESS_BASE {c = seq_nt6_table[src[i]];\
+#define COMPRESS_BASE {c = seq_nt6_table[(uint8_t)src[i]];\
 		if (c >= 4)\
 		{\
 			c = 0;\
@@ -699,59 +657,31 @@ void compress_base(uint8_t* dest, char* src, uint64_t src_l, uint64_t** N_site_l
 	uint64_t dest_i = 0;
 	uint8_t tmp = 0;
 	uint8_t c = 0;
-	/**
-	fprintf(stderr, "src_l: %lld\n", src_l);
-    fflush(stderr);
-	**/
-	
+
 
 	while (i + 4 <= src_l)
 	{
-
-		// fprintf(stderr, "0 i: %d, dest_i: %d, src_l: %d\n",
-		// i, dest_i, src_l);
-		// fflush(stderr);
 
 		tmp = 0;
 
 		COMPRESS_BASE;
 		tmp = tmp | (c<<6);
 
-		// fprintf(stderr, "*******1******1 i: %d, tmp: %d, c: %d\n",
-		// i, tmp, c);
-		// fflush(stderr);
-
 		COMPRESS_BASE;
 		tmp = tmp | (c<<4);
-
-		// fprintf(stderr, "*******2******1 i: %d, tmp: %d, c: %d\n",
-		// i, tmp, c);
-		// fflush(stderr);
 
 		COMPRESS_BASE;
 		tmp = tmp | (c<<2);
 
-		// fprintf(stderr, "*******3******1 i: %d, tmp: %d, c: %d\n",
-		// i, tmp, c);
-		// fflush(stderr);
-
 		COMPRESS_BASE;
 		tmp = tmp | c;
 
-		// fprintf(stderr, "*******4******1 i: %d, tmp: %d, c: %d\n",
-		// i, tmp, c);
-		// fflush(stderr);
-
 		dest[dest_i] = tmp;
-
-		// fprintf(stderr, "2 i: %d, dest_i: %d, src_l: %d\n",
-		// i, dest_i, src_l);
-		// fflush(stderr);
 
 		dest_i++;
 	}
 
-	//最多还剩3个字符
+	//at most 3 bases here
 	uint64_t shift = 6;
 	if (i < src_l)
 	{
@@ -773,6 +703,11 @@ void compress_base(uint8_t* dest, char* src, uint64_t src_l, uint64_t** N_site_l
 void init_kseq(char* file)
 {
 	fp = gzopen(file, "r");
+	if (fp == 0)
+	{
+		fprintf(stderr, "[ERROR] Cannot find the input file: %s\n", file);
+		exit(0);
+	} 
   	seq = kseq_init(fp);
 }
 
@@ -805,14 +740,14 @@ int get_read(kseq_t *s, int adapterLen)
 
 		if(adapterLen > 0)
 		{
-			if(s->seq.l <= adapterLen*2)
+			if((int)s->seq.l <= adapterLen*2)
 			{
 				s->seq.l = 0;
 			}
 			else
 			{
 				long long i;
-				for (i = 0; i < (s->seq.l - adapterLen*2); i++)
+				for (i = 0; i < ((int)s->seq.l - adapterLen*2); i++)
 				{
 					s->seq.s[i] = s->seq.s[i + adapterLen];
 				}
@@ -864,7 +799,6 @@ void init_R_buffer(int thread_num)
 void destory_R_buffer_block(R_buffer_block* curr_sub_block)
 {
 	kseq_destroy(curr_sub_block->read);
-	///free(curr_sub_block->read);
 }
 
 
@@ -975,7 +909,6 @@ void* input_reads_muti_threads(void* arg)
 	total_reads = 0;
 
 
-	int i = 0;
 	int file_flag = 1;
 
 	R_buffer_block tmp_buf;
@@ -986,10 +919,7 @@ void* input_reads_muti_threads(void* arg)
 
 	while (1)
 	{
-
-
-
-		load_read_block(&tmp_buf, RDB.block_inner_size, &file_flag, is_insert, adapterLen);
+		load_read_block(&tmp_buf, RDB.block_inner_size, &file_flag, is_insert, asm_opt.adapterLen);
 
 		if (file_flag == 0)
 		{
@@ -1020,13 +950,11 @@ void* input_reads_muti_threads(void* arg)
 
 	destory_R_buffer_block(&tmp_buf);
 
-	fprintf(stdout, "total_reads: %llu\n",total_reads);
-	///fprintf(stdout, "R_INF.total_reads: %llu\n",R_INF.total_reads);
-	///fprintf(stdout, "R_INF.index[R_INF.total_reads]: %llu\n",R_INF.index[R_INF.total_reads]);
-	fprintf(stdout, "R_INF.total_reads_bases: %llu\n",R_INF.total_reads_bases);
-	///fprintf(stdout, "R_INF.name_index[R_INF.total_reads]: %llu\n",R_INF.name_index[R_INF.total_reads]);
-	fprintf(stdout, "R_INF.total_name_length: %llu\n",R_INF.total_name_length);
+	fprintf(stderr, "Reads #: %lu\n",total_reads);
+	fprintf(stderr, "Bases #: %lu\n",R_INF.total_reads_bases);
 	
+
+	return NULL;
 }
 
 
@@ -1078,7 +1006,7 @@ int get_reads_mul_thread(R_buffer_block* curr_sub_block)
 
 void reverse_complement(char* pattern, uint64_t length)
 {
-	int i = 0;
+	uint64_t i = 0;
 	uint64_t end = length / 2;
 	char k;
 	uint64_t index;
@@ -1099,44 +1027,3 @@ void reverse_complement(char* pattern, uint64_t length)
 }
 
 
-void Counting_block()
-{
-
-	long long read_number = 0;
-    int i = 0;
-	int file_flag = 1;
-
-	R_buffer_block tmp_buf;
-
-	init_R_buffer_block(&tmp_buf);
-
-	while (1)
-	{
-
-
-		load_read_block(&tmp_buf, RDB.block_inner_size,
-			&file_flag, 0, adapterLen);
-
-
-		if (file_flag == 0)
-		{
-			break;
-		}
-
-		for (i = 0; i < tmp_buf.num; i++)
-		{
-			fprintf(stderr,"@%s\n", tmp_buf.read[i].name.s);
-			fprintf(stderr,"%s\n",tmp_buf.read[i].seq.s);
-			fprintf(stderr,"+\n");
-			fprintf(stderr,"%s\n",tmp_buf.read[i].qual.s);
-
-			read_number++;
-		}
-		
-	}
-
-    fprintf(stdout, "read_number: %lld\n",read_number);
-
-
-
-}
