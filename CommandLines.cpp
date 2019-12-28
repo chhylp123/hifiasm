@@ -1,10 +1,12 @@
 #include "CommandLines.h"
+#include <zlib.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include "ketopt.h"
 #include <sys/time.h>
 
 #define VERSION "0.0.0.1"
+#define DEFAULT_OUTPUT "hifiasm.asm"
 
 hifiasm_opt_t asm_opt;
 
@@ -17,38 +19,39 @@ double Get_T(void)
 
 void Print_H(hifiasm_opt_t* asm_opt)
 {
-    fprintf(stderr, "Usage: hifiasm [options] -q <input.fa> -o <output_asm>\n");
+    fprintf(stderr, "Usage: hifiasm [options] <in_1.fq> <in_2.fq> <...>\n");
     fprintf(stderr, "Options:\n");
-    fprintf(stderr, "    -q FILE       input in the fastq(.gz)/fasta(.gz) formats\n");
-    fprintf(stderr, "    -k FILE       output assembly (in gfa format) and corrected reads (in fasta format)\n");
+    ///fprintf(stderr, "    -q FILE       input in the fastq(.gz)/fasta(.gz) formats\n");
+    fprintf(stderr, "    -o FILE       output assembly (in gfa format) and corrected reads [%s]\n", asm_opt->output_file_name);
     fprintf(stderr, "    -t INT        number of threads [%d]\n", asm_opt->thread_num);
     fprintf(stderr, "    -r INT        round of correction [%d]\n", asm_opt->number_of_round);
     fprintf(stderr, "    -a INT        round of assembly cleaning [%d]\n", asm_opt->clean_round);
     fprintf(stderr, "    -k INT        k-mer length [%d] (must be < 64)\n", asm_opt->k_mer_length);
-    fprintf(stderr, "    -w            write all overlaps to disk, can accelerate assembly next time\n");
-    fprintf(stderr, "    -l            load all overlaps from disk, can avoid overlap calculation\n");
+    fprintf(stderr, "    -w            write all overlaps to disk, can accelerate assembly next time [%d]\n", asm_opt->write_index_to_disk);
+    fprintf(stderr, "    -l            load all overlaps from disk, can avoid overlap calculation [%d]\n", asm_opt->load_index_from_disk);
     fprintf(stderr, "    -z INT        length of adapters that should be removed [%d]\n", asm_opt->adapterLen);
     fprintf(stderr, "    -p INT        size of popped bubbles [%lld]\n", asm_opt->pop_bubble_size);
     fprintf(stderr, "    -x FLOAT      max overlap drop ratio [%.2g]\n", asm_opt->max_drop_rate);
     fprintf(stderr, "    -y FLOAT      min overlap drop ratio [%.2g]\n", asm_opt->min_drop_rate);
     fprintf(stderr, "    -v            show version number\n");
     fprintf(stderr, "    -h            show help information\n");
-    fprintf(stderr, "Example: ./hifiasm -w -l -q NA12878.fq.gz -o NA12878.asm -k 40 -t 32 -r 2\n");
+    fprintf(stderr, "Example: ./hifiasm -w -l -o NA12878.asm -k 40 -t 32 -r 2 NA12878.fq.gz\n");
 
     
 }
 
 void init_opt(hifiasm_opt_t* asm_opt)
 {
-    asm_opt->read_file_name = NULL;
-    asm_opt->output_file_name = NULL;
+    asm_opt->num_reads = 0;
+    asm_opt->read_file_names = NULL;
+    asm_opt->output_file_name = (char*)(DEFAULT_OUTPUT);
     asm_opt->required_read_name = NULL;
     asm_opt->thread_num = 1;
     asm_opt->k_mer_length = 40;
     asm_opt->k_mer_min_freq = 3;
     asm_opt->k_mer_max_freq = 66;
-    asm_opt->load_index_from_disk = 0;
-    asm_opt->write_index_to_disk = 0;
+    asm_opt->load_index_from_disk = 1;
+    asm_opt->write_index_to_disk = 1;
     asm_opt->number_of_round = 2;
     asm_opt->adapterLen = 0;
     asm_opt->clean_round = 4;
@@ -56,6 +59,14 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->pop_bubble_size = 100000;
     asm_opt->min_drop_rate = 0.2;
     asm_opt->max_drop_rate = 0.8;
+}
+
+void destory_opt(hifiasm_opt_t* asm_opt)
+{
+    if(asm_opt->read_file_names != NULL)
+    {
+        free(asm_opt->read_file_names);
+    }
 }
 
 void clear_opt(hifiasm_opt_t* asm_opt, int last_round)
@@ -70,7 +81,7 @@ void clear_opt(hifiasm_opt_t* asm_opt, int last_round)
 
 int check_option(hifiasm_opt_t* asm_opt)
 {
-    if(asm_opt->read_file_name == NULL)
+    if(asm_opt->read_file_names == NULL || asm_opt->num_reads == 0)
     {
         fprintf(stderr, "[ERROR] missing input: please specify a read file\n");
         return 0;
@@ -141,7 +152,7 @@ int check_option(hifiasm_opt_t* asm_opt)
     }
 
 
-    // fprintf(stderr, "input file: %s\n", asm_opt->read_file_name);
+    // fprintf(stderr, "input file num: %d\n", asm_opt->num_reads);
     // fprintf(stderr, "output file: %s\n", asm_opt->output_file_name);
     // fprintf(stderr, "number of threads: %d\n", asm_opt->thread_num);
     // fprintf(stderr, "number of rounds for correction: %d\n", asm_opt->number_of_round);
@@ -155,6 +166,32 @@ int check_option(hifiasm_opt_t* asm_opt)
     return 1;
 }
 
+void get_queries(int argc, char *argv[], ketopt_t* opt, hifiasm_opt_t* asm_opt)
+{
+    if(opt->ind == argc)
+    {
+        return;
+    }
+
+    asm_opt->num_reads = argc - opt->ind;
+    asm_opt->read_file_names = (char**)malloc(sizeof(char*)*asm_opt->num_reads);
+    
+    long long i;
+    gzFile dfp;
+    for (i = 0; i < asm_opt->num_reads; i++)
+    {
+        asm_opt->read_file_names[i] = argv[i + opt->ind];
+        dfp = gzopen(asm_opt->read_file_names[i], "r");
+        if (dfp == 0)
+        {
+            fprintf(stderr, "[ERROR] Cannot find the input read file: %s\n", 
+                    asm_opt->read_file_names[i]);
+		    exit(0);
+        }
+        gzclose(dfp);
+    }
+}
+
 
 int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
 {
@@ -162,7 +199,7 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
 
     int c;
 
-    while ((c = ketopt(&opt, argc, argv, 1, "hvt:o:q:k:lwm:n:r:a:b:z:x:y:p:", 0)) >= 0) {
+    while ((c = ketopt(&opt, argc, argv, 1, "hvt:o:k:lwm:n:r:a:b:z:x:y:p:", 0)) >= 0) {
         if (c == 'h')
         {
             Print_H(asm_opt);
@@ -175,7 +212,6 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         } 
         else if (c == 't') asm_opt->thread_num = atoi(opt.arg); 
         else if (c == 'o') asm_opt->output_file_name = opt.arg;
-        else if (c == 'q') asm_opt->read_file_name = opt.arg;
         else if (c == 'n') asm_opt->k_mer_min_freq = atoi(opt.arg);
         else if (c == 'm') asm_opt->k_mer_max_freq = atoi(opt.arg);
         else if (c == 'r') asm_opt->number_of_round = atoi(opt.arg);
@@ -206,6 +242,7 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         return 0;
     }
 
+    get_queries(argc, argv, &opt, asm_opt);
 
     return check_option(asm_opt);
 }

@@ -41,8 +41,6 @@ extern char rc_Table[5];
 #define RC_CHAR(x) rc_Table[seq_nt6_table[(uint8_t)x]]
 
 void init_aux_table();
-void init_kseq(char* file);
-void destory_kseq();
 int get_read(kseq_t *s, int adapterLen);
 
 
@@ -172,6 +170,15 @@ typedef struct
 	long long RID;
 } UC_Read;
 
+typedef struct
+{
+	gzFile fp;
+	kseq_t *seq;
+	char** reads;
+	int num_reads;
+	int idx;
+} gz_files;
+
 void init_R_buffer(int thread_num);
 void init_All_reads(All_reads* r);
 void* input_reads_muti_threads(void*);
@@ -191,6 +198,9 @@ void destory_All_reads(All_reads* r);
 void destory_R_buffer_block(R_buffer_block* curr_sub_block);
 void destory_R_buffer();
 void clear_R_buffer();
+
+void init_gz_files(hifiasm_opt_t* asm_opt);
+void destory_gz_files();
 
 
 #endif

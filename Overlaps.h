@@ -235,6 +235,32 @@ static inline void asg_seq_del(asg_t *g, uint32_t s)
 	}
 }
 
+static inline void asg_seq_drop(asg_t *g, uint32_t s)
+{
+	///s is not at primary
+	if(g->seq[s].c)
+	{
+		uint32_t k;
+		for (k = 0; k < 2; ++k) 
+		{
+			///two directions of this node
+			uint32_t i, v = s<<1 | k;
+			uint32_t nv = asg_arc_n(g, v);
+			asg_arc_t *av = asg_arc_a(g, v);
+			for (i = 0; i < nv; ++i) 
+			{
+				if(av[i].del) continue;
+				///if output node is at primary
+				if(g->seq[(av[i].v>>1)].c == 0)
+				{
+					av[i].del = 1;
+					asg_arc_del(g, av[i].v^1, v^1, 1);
+				}
+			}
+		}
+	}
+}
+
 
 typedef struct {
 	uint32_t len:31, circ:1; // len: length of the unitig; circ: circular if non-zero
