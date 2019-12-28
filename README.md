@@ -10,11 +10,12 @@ cd hifiasm && make
 
 ## Introduction
 Hifiasm is an ultrafast haplotype-resolved de novo assembler based on PacBio Hifi reads. Unlike most existing assemblers, hifiasm starts from uncollapsed genome. Thus, it is able to keep the haplotype information as much as possible. The input of hifiasm is the PacBio Hifi reads in fasta/fastq format, and its output consists of: 
-1. haplotype-resolved assembly [unitig][unitig] graph in [GFA][gfa] format ([unitig][unitig] graph).
-2. haplotype-resolved assembly [unitig][unitig] graph in [GFA][gfa] format without small bubbles. 
-3. primary assembly [contig][unitig] graph in [GFA][gfa] format.
-4. alternate assembly [contig][unitig] graph in [GFA][gfa] format.
-5. haplotype-aware error corrected reads
+1. Haplotype-resolved assembly [unitig][unitig] graph in [GFA][gfa] format (hifiasm.asm.utg.gfa in dafault).
+2. Haplotype-resolved assembly [unitig][unitig] graph in [GFA][gfa] format without small bubbles (hifiasm.asm.wsb.utg.gfa in dafault). Small bubbles might be caused by somatic mutations, which are useless for some applications. 
+3. Primary assembly [contig][unitig] graph in [GFA][gfa] format (hifiasm.asm.utg.gfa in dafault).
+4. Plternate assembly [contig][unitig] graph in [GFA][gfa] format (hifiasm.asm.alter.ctg.gfa in dafault).
+5. Haplotype-aware error corrected reads in fasta format (hifiasm.asm.ec.fa in dafault).
+6. All-to-all overlaps in [paf][paf] format (hifiasm.asm.paf).
 So far hifiasm is still in early development stage, it will output phased chromosome-level high-quality assembly in the near future.
 
 Hifiasm is a standalone and lightweight assembler, which does not need external libraries (except zlib). For large genomes, it can generate high-quality assembly in a few hours. Hifiasm has been tested on the following datasets:
@@ -51,6 +52,7 @@ In this example, hifiasm will remove 20 bases from both ends of each read.
 
 [unitig]: http://wgs-assembler.sourceforge.net/wiki/index.php/Celera_Assembler_Terminology
 [gfa]: https://github.com/pmelsted/GFA-spec/blob/master/GFA-spec.md
+[paf]: https://github.com/lh3/miniasm/blob/master/PAF.md
 
 ## Getting Help
 The `-h` option of hifiasm provides detailed description of options. If you have further questions, 
