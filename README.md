@@ -17,7 +17,7 @@ Hifiasm is an ultrafast haplotype-resolved de novo assembler based on PacBio Hif
 5. Haplotype-aware error corrected reads in fasta format (hifiasm.asm.ec.fa in dafault).
 6. All-to-all overlaps in [paf][paf] format (hifiasm.asm.paf).
 
-So far hifiasm is still in early development stage, it will output phased chromosome-level high-quality assembly in the near future. In addition, hifiasm also outputs three binary files that save all overlap inforamtion (hifiasm.asm.gfa.aux.bin/hifiasm.asm.gfa.aux.reverse.bin/hifiasm.asm.gfa.aux.source.bin in dafault). With these files, hifiasm can avoid the time-consuming all-to-all overlap calculation step, and do the assembly directly and quickly. This might be helpful when you want to get an optimized assembly by multiple round of experiments with different parameters.
+So far hifiasm is still in early development stage, it will output phased chromosome-level high-quality assembly in the near future. In addition, hifiasm also outputs three binary files that save all overlap inforamtion (hifiasm.asm.gfa.aux.bin/hifiasm.asm.gfa.aux.reverse.bin/hifiasm.asm.gfa.aux.source.bin in default). With these files, hifiasm can avoid the time-consuming all-to-all overlap calculation step, and do the assembly directly and quickly. This might be helpful when you want to get an optimized assembly by multiple round of experiments with different parameters.
 
 Hifiasm is a standalone and lightweight assembler, which does not need external libraries (except zlib). For large genomes, it can generate high-quality assembly in a few hours. Hifiasm has been tested on the following datasets:
 
