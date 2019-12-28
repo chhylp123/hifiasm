@@ -4,12 +4,18 @@
 # Install hifiasm (requiring g++ and zlib)
 git clone https://github.com/chhylp123/hifiasm.git
 cd hifiasm && make
-# Assembly (corrected reads are at NA12878.asm.fa, assembly graph is at NA12878.asm.fa.gfa)
-./hifiasm -w -l -q NA12878.fq.gz -o NA12878.asm.fa -k 40 -t 32 -r 2
+# Assembly
+./hifiasm -t 32 NA12878.fq.gz
 ```
 
 ## Introduction
-Hifiasm is an ultrafast haplotype-resolved de novo assembler based on PacBio Hifi reads. Unlike most existing assemblers, hifiasm starts from uncollapsed genome. Thus, it is able to keep the haplotype information as much as possible. The input of hifiasm is the PacBio Hifi reads in fasta/fastq format, and there are two types of output: (1) haplotype-resolved assembly graph in [GFA][gfa] format; (2) haplotype-aware error corrected reads. So far hifiasm is still in early development stage, it will output phased chromosome-level high-quality assembly in the near future.
+Hifiasm is an ultrafast haplotype-resolved de novo assembler based on PacBio Hifi reads. Unlike most existing assemblers, hifiasm starts from uncollapsed genome. Thus, it is able to keep the haplotype information as much as possible. The input of hifiasm is the PacBio Hifi reads in fasta/fastq format, and its output consists of: 
+1. haplotype-resolved assembly [unitig][unitig] graph in [GFA][gfa] format ([unitig][unitig] graph).
+2. haplotype-resolved assembly [unitig][unitig] graph in [GFA][gfa] format without small bubbles. 
+3. primary assembly [contig][unitig] graph in [GFA][gfa] format.
+4. alternate assembly [contig][unitig] graph in [GFA][gfa] format.
+5. haplotype-aware error corrected reads
+So far hifiasm is still in early development stage, it will output phased chromosome-level high-quality assembly in the near future.
 
 Hifiasm is a standalone and lightweight assembler, which does not need external libraries (except zlib). For large genomes, it can generate high-quality assembly in a few hours. Hifiasm has been tested on the following datasets:
 
@@ -28,7 +34,7 @@ Hifiasm is a standalone and lightweight assembler, which does not need external 
 For Hifi reads assembly, a typical command line looks like:
 
 ```sh
-./hifiasm -w -l -q NA12878.fq.gz -o NA12878.asm.fa -k 40 -t 32 -r 2
+./hifiasm -t 32 NA12878.fq.gz
 ```
 
 where `-q` specifies the input reads and `-o` specifies the output files. In this example, the assembly graph can be found at NA12878.asm.fa.gfa, and the corrected reads can be found at NA12878.asm.fa. `-k`, `-t` and `-r` specify the length of k-mer, the number of CPU threads, and the number of correction rounds, respectively. Note that `-w` means hifiasm will save all overlaps to disk, which can avoid the time-consuming all-to-all overlap calculation next time. For hifiasm with `-l`, if the overlap information has been obtained by `-w` in advance, it is able to load all overlaps from disk and then directly do assembly.

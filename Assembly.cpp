@@ -297,7 +297,7 @@ void Counting_multiple_thr()
 
     if (asm_opt.roundID == 0)
     {
-        init_kseq(asm_opt.read_file_name);
+        init_gz_files(&asm_opt);
         init_All_reads(&R_INF);
         init_R_buffer(asm_opt.thread_num);
         pthread_create(&inputReadsHandle, NULL, input_reads_muti_threads, (void*)is_insert);
@@ -336,7 +336,8 @@ void Counting_multiple_thr()
     if (asm_opt.roundID == 0)
     {
         pthread_join(inputReadsHandle, NULL);
-        destory_kseq();
+        ///destory_kseq();
+        destory_gz_files();
     }
 
     fprintf(stderr, "Counting has been completed.\n");
@@ -372,12 +373,9 @@ void Build_hash_table_multiple_thr()
 
     if (asm_opt.roundID == 0)
     {
-        init_kseq(asm_opt.read_file_name);
-
+        init_gz_files(&asm_opt);
         clear_R_buffer();
-
         malloc_All_reads(&R_INF);
-
         pthread_create(&inputReadsHandle, NULL, input_reads_muti_threads, (void*)is_insert);
     }
 
@@ -422,7 +420,8 @@ void Build_hash_table_multiple_thr()
 
     if (asm_opt.roundID == 0)
     {
-        destory_kseq();
+        ///destory_kseq();
+        destory_gz_files();
         destory_R_buffer();
     }
     
@@ -1234,7 +1233,10 @@ void Output_corrected_reads()
     long long i;
     UC_Read g_read;
     init_UC_Read(&g_read);
-    FILE* output_file = fopen(asm_opt.output_file_name, "w");
+    char* gfa_name = (char*)malloc(strlen(asm_opt.output_file_name)+35);
+    sprintf(gfa_name, "%s.ec.fa", asm_opt.output_file_name);
+    FILE* output_file = fopen(gfa_name, "w");
+    free(gfa_name);
 
     for (i = 0; i < (long long)R_INF.total_reads; i++)
     {
@@ -1325,18 +1327,18 @@ void Overlap_calculate_multipe_thr()
 }
 
 
-int load_pre_cauculated_index()
-{
-    if(load_Total_Pos_Table(&PCB, asm_opt.read_file_name) && load_All_reads(&R_INF, asm_opt.read_file_name))
-    {
-        return 1;
-    }
-    else
-    {
-        return 0;
-    }
+// int load_pre_cauculated_index()
+// {
+//     if(load_Total_Pos_Table(&PCB, asm_opt.read_file_name) && load_All_reads(&R_INF, asm_opt.read_file_name))
+//     {
+//         return 1;
+//     }
+//     else
+//     {
+//         return 0;
+//     }
     
-}
+// }
 
 
 void update_overlaps(overlap_region_alloc* overlap_list, ma_hit_t_alloc* paf, 

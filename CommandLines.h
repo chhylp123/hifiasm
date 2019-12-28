@@ -6,7 +6,8 @@
 #define VERBOSE 0
 
 typedef struct {
-    char* read_file_name;
+    int num_reads;
+    char** read_file_names;
     char* output_file_name;
     char* required_read_name;
     int thread_num;
@@ -32,6 +33,7 @@ typedef struct {
 extern hifiasm_opt_t asm_opt;
 
 void init_opt(hifiasm_opt_t* asm_opt);
+void destory_opt(hifiasm_opt_t* asm_opt);
 void clear_opt(hifiasm_opt_t* asm_opt, int last_round);
 int CommandLine_process (int argc, char *argv[], hifiasm_opt_t* asm_opt);
 double Get_T(void);
