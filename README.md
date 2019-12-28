@@ -13,9 +13,10 @@ Hifiasm is an ultrafast haplotype-resolved de novo assembler based on PacBio Hif
 1. Haplotype-resolved assembly [unitig][unitig] graph in [GFA][gfa] format (hifiasm.asm.utg.gfa in dafault).
 2. Haplotype-resolved assembly [unitig][unitig] graph in [GFA][gfa] format without small bubbles (hifiasm.asm.wsb.utg.gfa in dafault). Small bubbles might be caused by somatic mutations, which are useless for some applications. 
 3. Primary assembly [contig][unitig] graph in [GFA][gfa] format (hifiasm.asm.utg.gfa in dafault).
-4. Plternate assembly [contig][unitig] graph in [GFA][gfa] format (hifiasm.asm.alter.ctg.gfa in dafault).
+4. Alternate assembly [contig][unitig] graph in [GFA][gfa] format (hifiasm.asm.alter.ctg.gfa in dafault).
 5. Haplotype-aware error corrected reads in fasta format (hifiasm.asm.ec.fa in dafault).
 6. All-to-all overlaps in [paf][paf] format (hifiasm.asm.paf).
+
 So far hifiasm is still in early development stage, it will output phased chromosome-level high-quality assembly in the near future.
 
 Hifiasm is a standalone and lightweight assembler, which does not need external libraries (except zlib). For large genomes, it can generate high-quality assembly in a few hours. Hifiasm has been tested on the following datasets:
@@ -35,15 +36,15 @@ Hifiasm is a standalone and lightweight assembler, which does not need external 
 For Hifi reads assembly, a typical command line looks like:
 
 ```sh
-./hifiasm -t 32 NA12878.fq.gz
+./hifiasm -w -l -o NA12878.asm -k 40 -t 32 -r 2 NA12878.fq.gz
 ```
 
-where `-q` specifies the input reads and `-o` specifies the output files. In this example, the assembly graph can be found at NA12878.asm.fa.gfa, and the corrected reads can be found at NA12878.asm.fa. `-k`, `-t` and `-r` specify the length of k-mer, the number of CPU threads, and the number of correction rounds, respectively. Note that `-w` means hifiasm will save all overlaps to disk, which can avoid the time-consuming all-to-all overlap calculation next time. For hifiasm with `-l`, if the overlap information has been obtained by `-w` in advance, it is able to load all overlaps from disk and then directly do assembly.
+where `NA12878.fq.gz` is the input reads and `-o` specifies the output files. In this example, all output files can be found at `NA12878.asm.*`. `-k`, `-t` and `-r` specify the length of k-mer, the number of CPU threads, and the number of correction rounds, respectively. Note that `-w` means hifiasm will save all overlaps to disk, which can avoid the time-consuming all-to-all overlap calculation next time. For hifiasm with `-l`, if the overlap information has been obtained by `-w` in advance, it is able to load all overlaps from disk and then directly do assembly.
 
 Please note that some old Hifi reads may consist of short adapters. To improve the assembly quality, adapters should be removed by `-z` as follow:
 
 ```sh
-./hifiasm -w -l -q butterfly.fq.gz -o butterfly_asm_clean.fa -k 40 -t 42 -r 2 -z 20
+./hifiasm -w -l -k 40 -t 42 -r 2 -z 20 butterfly.fq.gz
 ```
 
 In this example, hifiasm will remove 20 bases from both ends of each read.
