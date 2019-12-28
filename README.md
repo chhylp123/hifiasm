@@ -9,10 +9,10 @@ cd hifiasm && make
 ```
 
 ## Introduction
-Hifiasm is an ultrafast haplotype-resolved de novo assembler based on PacBio Hifi reads. Unlike most existing assemblers, hifiasm starts from uncollapsed genome. Thus, it is able to keep the haplotype information as much as possible. The input of hifiasm is the PacBio Hifi reads in fasta/fastq format, and its output consists of: 
+Hifiasm is an ultrafast haplotype-resolved de novo assembler based on PacBio Hifi reads. Unlike most existing assemblers, hifiasm starts from uncollapsed genome. Thus, it is able to keep the haplotype information as much as possible. The input of hifiasm is the PacBio Hifi reads in fasta/fastq format, and its outputs consist of: 
 1. Haplotype-resolved assembly [unitig][unitig] graph in [GFA][gfa] format (hifiasm.asm.utg.gfa in dafault).
 2. Haplotype-resolved assembly [unitig][unitig] graph in [GFA][gfa] format without small bubbles (hifiasm.asm.wsb.utg.gfa in dafault). Small bubbles might be caused by somatic mutations, which are useless for some applications. 
-3. Primary assembly [contig][unitig] graph in [GFA][gfa] format (hifiasm.asm.utg.gfa in dafault).
+3. Primary assembly [contig][unitig] graph in [GFA][gfa] format (hifiasm.asm.ctg.gfa in dafault).
 4. Alternate assembly [contig][unitig] graph in [GFA][gfa] format (hifiasm.asm.alter.ctg.gfa in dafault).
 5. Haplotype-aware error corrected reads in fasta format (hifiasm.asm.ec.fa in dafault).
 6. All-to-all overlaps in [paf][paf] format (hifiasm.asm.paf).
