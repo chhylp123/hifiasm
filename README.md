@@ -36,15 +36,15 @@ Hifiasm is a standalone and lightweight assembler, which does not need external 
 For Hifi reads assembly, a typical command line looks like:
 
 ```sh
-./hifiasm -w -l -o NA12878.asm -k 40 -t 32 -r 2 NA12878.fq.gz
+./hifiasm -o NA12878.asm -k 40 -t 32 -r 2 NA12878.fq.gz
 ```
 
-where `NA12878.fq.gz` is the input reads and `-o` specifies the output files. In this example, all output files can be found at `NA12878.asm.*`. `-k`, `-t` and `-r` specify the length of k-mer, the number of CPU threads, and the number of correction rounds, respectively. Note that `-w` means hifiasm will save all overlaps to disk, which can avoid the time-consuming all-to-all overlap calculation next time. For hifiasm with `-l`, if the overlap information has been obtained by `-w` in advance, it is able to load all overlaps from disk and then directly do assembly.
+where `NA12878.fq.gz` is the input reads and `-o` specifies the output files. In this example, all output files can be found at `NA12878.asm.*`. `-k`, `-t` and `-r` specify the length of k-mer, the number of CPU threads, and the number of correction rounds, respectively. Note that at first time, hifiasm will save all overlaps to disk, which can avoid the time-consuming all-to-all overlap calculation next time. For hifiasm, if the overlap information has been obtained by `-w` in advance, it is able to load all overlaps from disk and then directly do assembly.
 
 Please note that some old Hifi reads may consist of short adapters. To improve the assembly quality, adapters should be removed by `-z` as follow:
 
 ```sh
-./hifiasm -w -l -k 40 -t 42 -r 2 -z 20 butterfly.fq.gz
+./hifiasm -k 40 -t 42 -r 2 -z 20 butterfly.fq.gz
 ```
 
 In this example, hifiasm will remove 20 bases from both ends of each read.
