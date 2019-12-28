@@ -410,8 +410,8 @@ inline long long get_bi_Edge(Graph* DAGCon, Node* inNode, Node* outNode, Edge** 
 
 inline long long get_Edge_Weight(Graph* DAGCon, Node* inNode, Node* outNode)
 {
-    Edge* e_forward;
-    Edge* e_backward;
+    Edge* e_forward = NULL;
+    Edge* e_backward = NULL;
     get_bi_Edge(DAGCon, inNode, outNode, &e_forward, &e_backward);
     return e_forward->weight;
 }

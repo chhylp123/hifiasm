@@ -6,8 +6,8 @@
 #include <pthread.h>
 
 
-gzFile fp;
-kseq_t *seq;
+gz_files fps;
+
 R_buffer RDB;
 static uint64_t total_reads;
 
@@ -700,21 +700,58 @@ void compress_base(uint8_t* dest, char* src, uint64_t src_l, uint64_t** N_site_l
 
 }
 
-void init_kseq(char* file)
+
+
+
+void open_file(gz_files* nfps, char* name)
 {
-	fp = gzopen(file, "r");
-	if (fp == 0)
+	nfps->fp = gzopen(name, "r");
+	if(nfps->fp == 0)
 	{
-		fprintf(stderr, "[ERROR] Cannot find the input file: %s\n", file);
+		fprintf(stderr, "[ERROR] Cannot find the input file: %s\n", name);
 		exit(0);
-	} 
-  	seq = kseq_init(fp);
+	}
+	nfps->seq = kseq_init(nfps->fp);
 }
 
-void destory_kseq()
+
+void close_file(gz_files* nfps)
 {
-	kseq_destroy(seq);
-  	gzclose(fp);
+	kseq_destroy(nfps->seq);
+  	gzclose(nfps->fp);
+}
+
+void init_gz_files(hifiasm_opt_t* asm_opt)
+{
+	fps.idx = 0;
+	fps.num_reads = asm_opt->num_reads;
+	fps.reads = asm_opt->read_file_names;
+	fps.seq = NULL;
+	fps.fp = NULL;
+	if(fps.num_reads > 0)
+	{
+		open_file(&fps, fps.reads[fps.idx]);
+		fps.idx++;
+	}
+}
+
+void destory_gz_files()
+{
+	close_file(&fps);
+}
+
+int read_item()
+{
+	int l = kseq_read(fps.seq);
+	if(l >= 0 || (l < 0 && fps.idx >= fps.num_reads))
+	{
+		return l;
+	}
+	///l < 0 && fps.idx < fps.num_reads
+	close_file(&fps);
+	open_file(&fps, fps.reads[fps.idx]);
+	fps.idx++;
+	return read_item();
 }
 
 
@@ -729,14 +766,15 @@ inline void exchage_kstring_t(kstring_t* a, kstring_t* b)
 int get_read(kseq_t *s, int adapterLen)
 {
 	int l;
-
-	if ((l = kseq_read(seq)) >= 0)
+	
+	///if ((l = kseq_read(seq)) >= 0)
+	if ((l = read_item()) >= 0)
 	{
 		
-		exchage_kstring_t(&seq->comment, &s->comment);
-		exchage_kstring_t(&seq->name, &s->name);
-		exchage_kstring_t(&seq->qual, &s->qual);
-		exchage_kstring_t(&seq->seq, &s->seq);
+		exchage_kstring_t(&(fps.seq->comment), &s->comment);
+		exchage_kstring_t(&(fps.seq->name), &s->name);
+		exchage_kstring_t(&(fps.seq->qual), &s->qual);
+		exchage_kstring_t(&(fps.seq->seq), &s->seq);
 
 		if(adapterLen > 0)
 		{

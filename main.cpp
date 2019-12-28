@@ -12,6 +12,8 @@ int main(int argc, char *argv[])
     if (!CommandLine_process(argc, argv, &asm_opt)) return 1;
 
     Correct_Reads(asm_opt.number_of_round);
+
+    destory_opt(&asm_opt);
     
     return 1;
 }

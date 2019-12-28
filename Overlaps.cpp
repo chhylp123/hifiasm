@@ -1074,15 +1074,12 @@ long long n_read, uint64_t* readLen, ma_sub_t* coverage_cut, float shift_rate)
         if(max_left.e > max_right.s && 
            (max_left.e - max_right.s >= rLen * shift_rate))
         {
-            ///coverage_cut[i].c = 0;
             continue;
         }
 
         ///simple chimeric reads
         if(max_left.e <= max_right.s)
         {
-            ///coverage_cut[i].c = 2;
-            coverage_cut[i].c = 1;
             coverage_cut[i].del = 1;
             paf[i].length = 0;
             n_simple_remove++;
@@ -1106,7 +1103,6 @@ long long n_read, uint64_t* readLen, ma_sub_t* coverage_cut, float shift_rate)
         cov += intersection_check(&(rev_paf[i]), rLen, interval_s, interval_e);
         if(interval_e - interval_s < WINDOW && cov <= 2)
         {
-            coverage_cut[i].c = 1;
             coverage_cut[i].del = 1;
             paf[i].length = 0;
             n_complex_remove_real++;
@@ -1119,7 +1115,6 @@ long long n_read, uint64_t* readLen, ma_sub_t* coverage_cut, float shift_rate)
               /**||
               intersection_check_by_base(&(rev_paf[i]), rLen, interval_s, interval_e, b_q.a, b_t.a)**/)
             {
-                coverage_cut[i].c = 1;
                 coverage_cut[i].del = 1;
                 paf[i].length = 0;
                 n_complex_remove_real++;
@@ -4215,14 +4210,16 @@ int asg_cut_tip(asg_t *g, int max_ext)
 
 
 ///max_ext is 4
-int debug_asg_cut_tip(asg_t *g, int max_ext)
+int asg_cut_tip_primary(asg_t *g, int max_ext)
 {
+    double startTime = Get_T();
+
 	asg64_v a = {0,0,0};
 	uint32_t n_vtx = g->n_seq * 2, v, i, cnt = 0;
     
 	for (v = 0; v < n_vtx; ++v) {
 		//if this seq has been deleted
-		if (g->seq[v>>1].del) continue;
+		if (g->seq[v>>1].del || g->seq[v>>1].c) continue;
 		///check if the another direction of v has no overlaps
 		///if the self direction of v has no overlaps, we don't have the overlaps of them
 		///here is check if the reverse direction of v 
@@ -4250,19 +4247,30 @@ int debug_asg_cut_tip(asg_t *g, int max_ext)
 		 *                             |
 		 *                              ----->n(5)
 		**/
-		for (i = 0; i < a.n; ++i)
+        for (i = 0; i < a.n; ++i)
         {
-            asg_seq_del(g, (uint32_t)a.a[i]>>1);
-            fprintf(stderr, "removed node: %u\n", (uint32_t)a.a[i]>>1);
+            g->seq[((uint32_t)a.a[i]>>1)].c = 1;
         }
-			
+
+        for (i = 0; i < a.n; ++i)
+        {
+            asg_seq_drop(g, (uint32_t)a.a[i]>>1);
+        }
+
 		++cnt;
 	}
 	free(a.a);
 	if (cnt > 0) asg_cleanup(g);
-	fprintf(stderr, "[M::%s] cut %d tips\n", __func__, cnt);
+    if(VERBOSE >= 1)
+    {
+        fprintf(stderr, "[M::%s] cut %d tips\n", __func__, cnt);
+        fprintf(stderr, "[M::%s] takes %0.2f s\n\n", __func__, Get_T()-startTime);
+    }
 	return cnt;
 }
+
+
+
 
 
 // delete short arcs
@@ -4969,7 +4977,7 @@ ma_hit_t_alloc* reverse_sources, long long miniedgeLen)
 
 
 int asg_arc_del_short_false_link(asg_t *g, float drop_ratio, float o_drop_ratio, int max_dist, 
-ma_hit_t_alloc* reverse_sources, long long miniedgeLen)
+ma_hit_t_alloc* reverse_sources, long long miniedgeLen, int is_drop)
 {
     double startTime = Get_T();
     
@@ -4994,6 +5002,8 @@ ma_hit_t_alloc* reverse_sources, long long miniedgeLen)
     
     for (v = 0; v < n_vtx; ++v) 
     {
+        if(is_drop && g->seq[v>>1].c) continue;
+
         if(g->seq_vis[v] == 0)
         {
             asg_arc_t *av = asg_arc_a(g, v);
@@ -6311,6 +6321,16 @@ int asg_arc_del_false_node(asg_t *g, int max_ext)
 }
 
 
+void check_node_lable(asg_t *g)
+{
+	uint32_t v, n_vtx = g->n_seq * 2;
+	for (v = 0; v < n_vtx; ++v) 
+    {
+        if(g->seq[v>>1].c != 0) fprintf(stderr, "error\n");
+    }
+}
+
+
 
 #define arc_cnt(g, v) ((uint32_t)(g)->idx[(v)])
 #define arc_first(g, v) ((g)->arc[(g)->idx[(v)]>>32])
@@ -6325,6 +6345,7 @@ ma_ug_t *ma_ug_gen(asg_t *g)
 
 	ug = (ma_ug_t*)calloc(1, sizeof(ma_ug_t));
 	ug->g = asg_init();
+    ///each node has two directions
 	mark = (int32_t*)calloc(n_vtx, 4);
 
 	q = kdq_init(uint64_t);
@@ -6332,7 +6353,7 @@ ma_ug_t *ma_ug_gen(asg_t *g)
 		uint32_t w, x, l, start, end, len;
 		ma_utg_t *p;
         ///what's the usage of mark array
-        ///mark array is used to select another direction of node
+        ///mark array is used to mark if this node has already been included in a contig
 		if (g->seq[v>>1].del || arc_cnt(g, v) == 0 || mark[v]) continue;
 		mark[v] = 1;
 		q->count = 0, start = v, end = v^1, len = 0;
@@ -6400,7 +6421,7 @@ add_unitig:
 	//ug saves all unitigs
 	for (v = 0; v < n_vtx; ++v) mark[v] = -1;
 
-
+    //mark all start nodes and end nodes of all unitigs
 	for (i = 0; i < ug->u.n; ++i) {
 		if (ug->u.a[i].circ) continue;
 		mark[ug->u.a[i].start] = i<<1 | 0;
@@ -6422,6 +6443,138 @@ add_unitig:
 	**/
 		///to connect two unitigs, we need to connect the end of unitig x to the start of unitig y
 		///so we need to ^1 to get the reverse direction of (x's end)?
+        ///>=0 means this node is a start/end node of an unitig
+        ///means this node is a intersaction node
+		if (mark[p->ul>>32^1] >= 0 && mark[p->v] >= 0) {
+			asg_arc_t *q;
+			uint32_t u = mark[p->ul>>32^1]^1;
+			int l = ug->u.a[u>>1].len - p->ol;
+			if (l < 0) l = 1;
+			q = asg_arc_pushp(ug->g);
+			q->ol = p->ol, q->del = 0;
+			q->ul = (uint64_t)u<<32 | l;
+			q->v = mark[p->v];
+		}
+	}
+	for (i = 0; i < ug->u.n; ++i)
+		asg_seq_set(ug->g, i, ug->u.a[i].len, 0);
+	asg_cleanup(ug->g);
+	free(mark);
+	return ug;
+}
+
+
+
+ma_ug_t *ma_ug_gen_primary(asg_t *g, uint8_t flag)
+{
+	int32_t *mark;
+	uint32_t i, v, n_vtx = g->n_seq * 2;
+	///is a queue
+	kdq_t(uint64_t) *q;
+	ma_ug_t *ug;
+
+	ug = (ma_ug_t*)calloc(1, sizeof(ma_ug_t));
+	ug->g = asg_init();
+    ///each node has two directions
+	mark = (int32_t*)calloc(n_vtx, 4);
+
+	q = kdq_init(uint64_t);
+	for (v = 0; v < n_vtx; ++v) {
+		uint32_t w, x, l, start, end, len;
+		ma_utg_t *p;
+        ///what's the usage of mark array
+        ///mark array is used to mark if this node has already been included in a contig
+		if (g->seq[v>>1].del || arc_cnt(g, v) == 0 || mark[v] || g->seq[v>>1].c != flag) continue;
+		mark[v] = 1;
+		q->count = 0, start = v, end = v^1, len = 0;
+		// forward
+		w = v;
+		while (1) {
+			/**
+			 * w----->x
+			 * w<-----x
+			 * that means the only suffix of w is x, and the only prefix of x is w
+			 **/
+			if (arc_cnt(g, w) != 1) break;
+			x = arc_first(g, w).v; // w->x
+			if (arc_cnt(g, x^1) != 1) break;
+
+			/**
+			 * another direction of w would be marked as used (since w has been used)
+			**/
+			mark[x] = mark[w^1] = 1;
+			///l is the edge length, instead of overlap length
+            ///note: edge length is different with overlap length
+			l = asg_arc_len(arc_first(g, w));
+			kdq_push(uint64_t, q, (uint64_t)w<<32 | l);
+			end = x^1, len += l;
+			w = x;
+			if (x == v) break;
+		}
+		if (start != (end^1) || kdq_size(q) == 0) { // linear unitig
+			///length of seq, instead of edge
+			l = g->seq[end>>1].len;
+			kdq_push(uint64_t, q, (uint64_t)(end^1)<<32 | l);
+			len += l;
+		} else { // circular unitig
+			start = end = UINT32_MAX;
+			goto add_unitig; // then it is not necessary to do the backward
+		}
+		// backward
+		x = v;
+		while (1) { // similar to forward but not the same
+			if (arc_cnt(g, x^1) != 1) break;
+			w = arc_first(g, x^1).v ^ 1; // w->x
+			if (arc_cnt(g, w) != 1) break;
+			mark[x] = mark[w^1] = 1;
+			l = asg_arc_len(arc_first(g, w));
+			///w is the seq id + direction, l is the length of edge
+			///push element to the front of a queue
+			kdq_unshift(uint64_t, q, (uint64_t)w<<32 | l);
+			start = w, len += l;
+			x = w;
+		}
+add_unitig:
+		if (start != UINT32_MAX) mark[start] = mark[end] = 1;
+		kv_pushp(ma_utg_t, ug->u, &p);
+		p->s = 0, p->start = start, p->end = end, p->len = len, p->n = kdq_size(q), p->circ = (start == UINT32_MAX);
+		p->m = p->n;
+		kv_roundup32(p->m);
+		p->a = (uint64_t*)malloc(8 * p->m);
+		//all elements are saved here
+		for (i = 0; i < kdq_size(q); ++i)
+			p->a[i] = kdq_at(q, i);
+	}
+	kdq_destroy(uint64_t, q);
+
+	// add arcs between unitigs; reusing mark for a different purpose
+	//ug saves all unitigs
+	for (v = 0; v < n_vtx; ++v) mark[v] = -1;
+
+    //mark all start nodes and end nodes of all unitigs
+	for (i = 0; i < ug->u.n; ++i) {
+		if (ug->u.a[i].circ) continue;
+		mark[ug->u.a[i].start] = i<<1 | 0;
+		mark[ug->u.a[i].end] = i<<1 | 1;
+	}
+
+	//scan all edges
+	for (i = 0; i < g->n_arc; ++i) {
+		asg_arc_t *p = &g->arc[i];
+		if (p->del) continue;
+		/**
+	p->ul: |____________31__________|__________1___________|______________32_____________|
+	                    qns            direction of overlap       length of this node (not overlap length)
+						                 (based on query)
+	p->v : |___________31___________|__________1___________|
+				        tns             reverse direction of overlap
+						                  (based on target)
+	p->ol: overlap length
+	**/
+		///to connect two unitigs, we need to connect the end of unitig x to the start of unitig y
+		///so we need to ^1 to get the reverse direction of (x's end)?
+        ///>=0 means this node is a start/end node of an unitig
+        ///means this node is a intersaction node
 		if (mark[p->ul>>32^1] >= 0 && mark[p->v] >= 0) {
 			asg_arc_t *q;
 			uint32_t u = mark[p->ul>>32^1]^1;
@@ -6864,6 +7017,81 @@ int asg_arc_cut_long_tip(asg_t *g, float drop_ratio)
     return n_reduced;
 }
 
+
+int asg_arc_cut_long_tip_primary(asg_t *g, float drop_ratio)
+{
+    double startTime = Get_T();
+    ///the reason is that each read has two direction (query->target, target->query)
+    uint32_t v, n_vtx = g->n_seq * 2, n_reduced = 0, convex;
+    long long ll, v_maxLen;
+
+    buf_t b;
+    memset(&b, 0, sizeof(buf_t));
+
+    for (v = 0; v < n_vtx; ++v) 
+    {
+        uint32_t i, n_arc = 0, nv = asg_arc_n(g, v);
+        asg_arc_t *av = asg_arc_a(g, v);
+        ///some node could be deleted
+        if (nv < 2 || g->seq[v>>1].del || g->seq[v>>1].c) continue;
+        n_arc = get_real_length(g, v, NULL);
+        if (n_arc < 2) continue;
+
+        v_maxLen = -1;
+
+        for (i = 0, n_arc = 0; i < nv; i++)
+        {
+            if (!av[i].del)
+            {
+                detect_single_path_with_dels(g, av[i].v, &convex, &ll, NULL);
+                if(v_maxLen < ll)
+                {
+                    v_maxLen = ll;
+                }
+            }
+        }
+
+        for (i = 0, n_arc = 0; i < nv; i++)
+        {
+            if (!av[i].del)
+            {
+                b.b.n = 0;
+                if(detect_single_path_with_dels(g, av[i].v, &convex, &ll, &b) == END_TIPS)
+                {
+                    if(v_maxLen*drop_ratio > ll)
+                    {
+                        n_reduced++;
+                        uint64_t k;
+
+                        for (k = 0; k < b.b.n; k++)
+                        {
+                            g->seq[b.b.a[k]].c = 1;
+                        }
+
+                        for (k = 0; k < b.b.n; k++)
+                        {
+                            asg_seq_drop(g, b.b.a[k]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+
+    asg_cleanup(g);
+    asg_symm(g);
+    
+    if(VERBOSE >= 1)
+    {
+        fprintf(stderr, "[M::%s] removed %d long tips\n", 
+        __func__, n_reduced);
+        fprintf(stderr, "[M::%s] takes %0.2f s\n\n", __func__, Get_T()-startTime);
+    }
+
+    return n_reduced;
+}
+
 uint32_t detect_single_path_with_dels_contigLen(asg_t *g, uint32_t begNode, uint32_t* endNode, long long* baseLen, buf_t* b)
 {
     
@@ -7029,6 +7257,104 @@ int asg_arc_cut_long_equal_tips(asg_t *g, ma_hit_t_alloc* reverse_sources, long 
     return n_reduced;
 }
 
+
+
+int asg_arc_cut_long_equal_tips_assembly(asg_t *g, ma_hit_t_alloc* reverse_sources, long long miniedgeLen)
+{
+    double startTime = Get_T();
+    ///the reason is that each read has two direction (query->target, target->query)
+    uint32_t v, n_vtx = g->n_seq * 2, n_reduced = 0, convex, flag;
+    long long ll, base_maxLen, base_maxLen_i;
+
+    buf_t b;
+    memset(&b, 0, sizeof(buf_t));
+
+    for (v = 0; v < n_vtx; ++v) 
+    {
+        uint32_t i, n_arc = 0, nv = asg_arc_n(g, v), n_tips;
+        asg_arc_t *av = asg_arc_a(g, v);
+        ///some node could be deleted
+        if (nv < 2 || g->seq[v>>1].del || g->seq[v>>1].c) continue;
+        n_arc = get_real_length(g, v, NULL);
+        if (n_arc < 2) continue;
+
+        base_maxLen = -1;
+        base_maxLen_i = -1;
+        n_tips = 0;
+
+        for (i = 0; i < nv; i++)
+        {
+            if (!av[i].del)
+            {
+                flag = detect_single_path_with_dels_contigLen(g, av[i].v, &convex, &ll, NULL);
+                
+                if(base_maxLen < ll)
+                {
+                    base_maxLen = ll;
+                    base_maxLen_i = i;
+                }
+
+                if(flag == END_TIPS)
+                {
+                    n_tips++;
+                }
+            }
+        }
+
+        ///at least one tip
+        if(n_tips > 0)
+        {
+            for (i = 0; i < nv; i++)
+            {
+                if(i == base_maxLen_i) continue;
+                if (!av[i].del)
+                {
+                    b.b.n = 0;
+                    if(detect_single_path_with_dels_contigLen(g, av[i].v, &convex, &ll, &b) 
+                    != END_TIPS)
+                    {
+                        continue;
+                    }
+                    //we can only cut tips
+                    if(check_if_diploid(av[base_maxLen_i].v, av[i].v, g, 
+                    reverse_sources, miniedgeLen)==1)
+                    {
+                        n_reduced++;
+                        uint64_t k;
+                        // for (k = 0; k < b.b.n; k++)
+                        // {
+                        //     asg_seq_del(g, b.b.a[k]);
+                        // }
+
+                        for (k = 0; k < b.b.n; k++)
+                        {
+                            g->seq[b.b.a[k]].c = 1;
+                        }
+                        for (k = 0; k < b.b.n; k++)
+                        {
+                            asg_seq_drop(g, b.b.a[k]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+
+    asg_cleanup(g);
+    asg_symm(g);
+    
+    if(VERBOSE >= 1)
+    {
+        fprintf(stderr, "[M::%s] removed %d long tips\n", 
+        __func__, n_reduced);
+        fprintf(stderr, "[M::%s] takes %0.2f s\n\n", __func__, Get_T()-startTime);
+    }
+    
+
+    return n_reduced;
+}
+
 void output_unitig_graph(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name, long long n_read)
 {
     ma_ug_t *ug = NULL;
@@ -7037,19 +7363,14 @@ void output_unitig_graph(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_na
 
     fprintf(stderr, "Writing unitig GFA to disk... \n");
     char* gfa_name = (char*)malloc(strlen(output_file_name)+25);
-    sprintf(gfa_name, "%s.gfa", output_file_name);
+    sprintf(gfa_name, "%s.utg.gfa", output_file_name);
     FILE* output_file = fopen(gfa_name, "w");
     ma_ug_print(ug, &R_INF, coverage_cut, output_file);
     fclose(output_file);
-    
-    
-
-
-
-    sprintf(gfa_name, "%s.simple.gfa", output_file_name);
-    output_file = fopen(gfa_name, "w");
-    ma_ug_print_simple(ug, &R_INF, coverage_cut, output_file);
-    fclose(output_file);
+    // sprintf(gfa_name, "%s.simple.gfa", output_file_name);
+    // output_file = fopen(gfa_name, "w");
+    // ma_ug_print_simple(ug, &R_INF, coverage_cut, output_file);
+    // fclose(output_file);
 
     free(gfa_name);
     ma_ug_destroy(ug);
@@ -7406,9 +7727,166 @@ int asg_pop_bubble(asg_t *g, int max_dist)
 }
 
 
+// in a resolved bubble, mark unused vertices and arcs as "reduced"
+static void asg_bub_backtrack_primary(asg_t *g, uint32_t v0, buf_t *b)
+{
+	uint32_t i, v;
+
+	///assert(b->S.n == 1);
+	///first remove all nodes in this bubble
+	for (i = 0; i < b->b.n; ++i)
+    {
+        g->seq[b->b.a[i]>>1].c = 1;
+    }
+
+    ///v is the sink of this bubble
+	v = b->S.a[0];
+	///recover node
+	do {
+		uint32_t u = b->a[v].p; // u->v
+		g->seq[v>>1].c = 0;
+		v = u;
+	} while (v != v0);
+
+    for (i = 0; i < b->b.n; ++i)
+    {
+        v = b->b.a[i];
+        ///if v is not at primary
+        if(g->seq[v>>1].c)
+        {
+            asg_seq_drop(g, v>>1);
+        }
+    }
+}
+
+// pop bubbles from vertex v0; the graph MJUST BE symmetric: if u->v present, v'->u' must be present as well
+static uint64_t asg_bub_pop1_primary(asg_t *g, uint32_t v0, int max_dist, buf_t *b)
+{
+	uint32_t i, n_pending = 0;
+	uint64_t n_pop = 0;
+	///if this node has been deleted
+	if (g->seq[v0>>1].del || g->seq[v0>>1].c) return 0; // already deleted
+	///asg_arc_n(n0)
+	if ((uint32_t)g->idx[v0] < 2) return 0; // no bubbles
+	///S saves nodes with all incoming edges visited
+	b->S.n = b->T.n = b->b.n = b->e.n = 0;
+	///for each node, b->a saves all related information
+	b->a[v0].c = b->a[v0].d = 0;
+	///b->S is the nodes with all incoming edges visited
+	kv_push(uint32_t, b->S, v0);
+
+	do {
+		///v is a node that all incoming edges have been visited
+		///d is the distance from v0 to v
+		uint32_t v = kv_pop(b->S), d = b->a[v].d, c = b->a[v].c;
+		uint32_t nv = asg_arc_n(g, v);
+		asg_arc_t *av = asg_arc_a(g, v);
+		///why we have this assert?
+		///assert(nv > 0);
+
+		///all out-edges of v
+		for (i = 0; i < nv; ++i) { // loop through v's neighbors
+			/**
+			p->ul: |____________31__________|__________1___________|______________32_____________|
+								qn            direction of overlap       length of this node (not overlap length)
+												(in the view of query)
+			p->v : |___________31___________|__________1___________|
+								tn             reverse direction of overlap
+											(in the view of target)
+			p->ol: overlap length
+			**/
+			uint32_t w = av[i].v, l = (uint32_t)av[i].ul; // v->w with length l
+			binfo_t *t = &b->a[w];
+			///that means there is a circle, directly terminate the whole bubble poping
+			///if (w == v0) goto pop_reset;
+            if ((w>>1) == (v0>>1)) goto pop_reset;
+			///if this edge has been deleted
+			if (av[i].del) continue;
+
+			///push the edge
+            ///high 32-bit of g->idx[v] is the start point of v's edges
+            //so here is the point of this specfic edge
+			kv_push(uint32_t, b->e, (g->idx[v]>>32) + i);
+
+			///find a too far path? directly terminate the whole bubble poping
+			if (d + l > (uint32_t)max_dist) break; // too far
+
+            ///if this node
+			if (t->s == 0) { // this vertex has never been visited
+				kv_push(uint32_t, b->b, w); // save it for revert
+				///t->p is the parent node of 
+				///t->s = 1 means w has been visited
+				///d is len(v0->v), l is len(v->w), so t->d is len(v0->w)
+				t->p = v, t->s = 1, t->d = d + l;
+				///incoming edges of w
+				t->r = count_out(g, w^1);
+				++n_pending;
+			} else { // visited before
+				///c is the weight (is very likely the number of node in this edge) of the parent node
+				///select the longest edge (longest meams most reads/longest edge)
+                if (c + 1 > t->c || (c + 1 == t->c && d + l > t->d)) t->p = v;
+				if (c + 1 > t->c) t->c = c + 1;
+				///update len(v0->w)
+                ///node: t->d is not the length from this node's parent
+                ///it is the shortest edge
+				if (d + l < t->d) t->d = d + l; // update dist
+			}
+			///assert(t->r > 0);
+			//if all incoming edges of w have visited
+			//push it to b->S
+			if (--(t->r) == 0) {
+				uint32_t x = asg_arc_n(g, w);
+				if (x) kv_push(uint32_t, b->S, w);
+				///else kv_push(uint32_t, b->T, w); // a tip
+                else goto pop_reset;
+				--n_pending;
+			}
+		}
+		///if i < nv, that means (d + l > max_dist)
+		if (i < nv || b->S.n == 0) goto pop_reset;
+	} while (b->S.n > 1 || n_pending);
+	asg_bub_backtrack_primary(g, v0, b);
+    n_pop = 1;
+pop_reset:
+	for (i = 0; i < b->b.n; ++i) { // clear the states of visited vertices
+		binfo_t *t = &b->a[b->b.a[i]];
+		t->s = t->c = t->d = 0;
+	}
+	return n_pop;
+}
 
 
+// pop bubbles
+int asg_pop_bubble_primary(asg_t *g, int max_dist)
+{
+	uint32_t v, n_vtx = g->n_seq * 2;
+	uint64_t n_pop = 0;
+	buf_t b;
+	if (!g->is_symm) asg_symm(g);
+	memset(&b, 0, sizeof(buf_t));
+	///set information for each node
+	b.a = (binfo_t*)calloc(n_vtx, sizeof(binfo_t));
+	//traverse all node with two directions 
+	for (v = 0; v < n_vtx; ++v) {
+		uint32_t i, n_arc = 0, nv = asg_arc_n(g, v);
+		asg_arc_t *av = asg_arc_a(g, v);
+		///some node could be deleted
+		if (nv < 2 || g->seq[v>>1].del || g->seq[v>>1].c) continue;
+		///some edges could be deleted
+		for (i = 0; i < nv; ++i) // asg_bub_pop1() may delete some edges/arcs
+			if (!av[i].del) ++n_arc;
+		if (n_arc > 1)
+			n_pop += asg_bub_pop1_primary(g, v, max_dist, &b);
+	}
+	free(b.a); free(b.S.a); free(b.T.a); free(b.b.a); free(b.e.a);
+	if (n_pop) asg_cleanup(g);
 
+	if(VERBOSE >= 1)
+    {
+        fprintf(stderr, "[M::%s] popped %lu bubbles\n", __func__, (unsigned long)n_pop);
+    }
+    return n_pop;
+}
 
 
 
@@ -7771,7 +8249,7 @@ uint32_t detect_single_path_with_dels_by_length
 
 
 
-long long asg_arc_del_self_circle_untig(asg_t *g, long long circleLen)
+long long asg_arc_del_self_circle_untig(asg_t *g, long long circleLen, int is_drop)
 {
     uint32_t v, w, n_vtx = g->n_seq * 2, n_reduced = 0, convex, flag;
     long long ll;
@@ -7783,6 +8261,8 @@ long long asg_arc_del_self_circle_untig(asg_t *g, long long circleLen)
         asg_arc_t *av = asg_arc_a(g, v);
         ///some node could be deleted
         if (g->seq[v>>1].del) continue;
+        if(is_drop && g->seq[v>>1].c) continue;
+
         n_arc = get_real_length(g, v, NULL);
         if (n_arc != 1) continue;
 
@@ -7814,12 +8294,6 @@ long long asg_arc_del_self_circle_untig(asg_t *g, long long circleLen)
                     {
                         if ((!aw[k].del) && (aw[k].v == (convex^1)))
                         {
-                            // fprintf(stderr, "v: %u, w: %u, aw[%d].v: %u, convex: %u, ll: %d\n", 
-                            // v>>1, w>>1, k, aw[k].v>>1, convex>>1, ll);
-
-                            // fprintf(stderr, "*aw[k].v: %u, *convex: %u\n\n", 
-                            // aw[k].v, convex);
-
                             aw[k].del = 1;
                             asg_arc_del(g, aw[k].v^1, aw[k].ul>>32^1, 1);
                             n_reduced++;
@@ -7843,6 +8317,8 @@ long long asg_arc_del_self_circle_untig(asg_t *g, long long circleLen)
 
     return n_reduced;
 }
+
+
 
 
 void output_unitig_graph_without_small_bubbles(asg_t *sg, ma_sub_t* coverage_cut, 
@@ -7874,6 +8350,35 @@ char* output_file_name, long long n_read, long long bubble_dist, long long tipsL
 }
 
 
+void output_unitig_graph_without_small_bubbles_primary(asg_t *sg, ma_sub_t* coverage_cut, 
+char* output_file_name, long long n_read, long long bubble_dist, long long tipsLen)
+{
+    asg_cut_tip_primary(sg, tipsLen);
+    asg_pop_bubble_primary(sg, bubble_dist);
+    asg_cut_tip_primary(sg, tipsLen);
+    
+    ma_ug_t *ug = NULL;
+    ug = ma_ug_gen_primary(sg, 0);
+    ma_ug_seq(ug, &R_INF, coverage_cut, n_read);
+
+    fprintf(stderr, "Writing unitig GFA to disk... \n");
+    char* gfa_name = (char*)malloc(strlen(output_file_name)+35);
+    sprintf(gfa_name, "%s.wsb.utg.gfa", output_file_name);
+    FILE* output_file = fopen(gfa_name, "w");
+    ma_ug_print(ug, &R_INF, coverage_cut, output_file);
+    fclose(output_file);
+    
+    // sprintf(gfa_name, "%s.simple.no_s_bub.gfa", output_file_name);
+    // output_file = fopen(gfa_name, "w");
+    // ma_ug_print_simple(ug, &R_INF, coverage_cut, output_file);
+    // fclose(output_file);
+
+    free(gfa_name);
+    ma_ug_destroy(ug);
+}
+
+
+
 void output_contig_graph(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name, long long n_read, long long bubble_dist, long long tipsLen, float tip_drop_ratio, long long circleLen,
 ma_hit_t_alloc* reverse_sources, long long miniedgeLen)
 {
@@ -7889,7 +8394,7 @@ ma_hit_t_alloc* reverse_sources, long long miniedgeLen)
         pre_cons = sg->n_seq + sg->n_arc;
         n_ac = 0;
         n_ac += asg_pop_bubble(sg, bubble_dist);
-        n_ac += asg_arc_del_self_circle_untig(sg, circleLen);
+        n_ac += asg_arc_del_self_circle_untig(sg, circleLen, 0);
         n_ac += asg_arc_cut_long_tip(sg, tip_drop_ratio);
         n_ac += asg_arc_cut_long_equal_tips(sg, reverse_sources, 2);
 
@@ -7897,7 +8402,7 @@ ma_hit_t_alloc* reverse_sources, long long miniedgeLen)
     }
 
     asg_arc_identify_simple_bubbles_multi(sg, 1);
-    asg_arc_del_short_false_link(sg, 0.6, 0.85, bubble_dist, reverse_sources, MAX_SHORT_TIPS);
+    asg_arc_del_short_false_link(sg, 0.6, 0.85, bubble_dist, reverse_sources, MAX_SHORT_TIPS, 0);
 
     ///asg_arc_del_self_circle_untig(sg, circleLen);
     
@@ -7925,6 +8430,92 @@ ma_hit_t_alloc* reverse_sources, long long miniedgeLen)
     ma_ug_destroy(ug);
 }
 
+long long get_graph_statistic(asg_t *g)
+{
+    long long num_arc = 0;
+	uint32_t n_vtx = g->n_seq * 2, v;
+    
+	for (v = 0; v < n_vtx; ++v) 
+    {
+		if (g->seq[v>>1].del || g->seq[v>>1].c) continue;
+        num_arc += asg_arc_n(g, v);
+    }
+
+    return num_arc;
+}
+
+void output_contig_graph_primary(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name, long long n_read, long long bubble_dist, long long tipsLen, float tip_drop_ratio, long long circleLen,
+ma_hit_t_alloc* reverse_sources, long long miniedgeLen)
+{
+    asg_cut_tip_primary(sg, tipsLen);
+    long long n_ac = 1;
+    long long pre_cons = get_graph_statistic(sg);
+    long long cur_cons = 0;
+    ///while(n_ac > 0)
+    while(pre_cons != cur_cons)
+    {
+        pre_cons = get_graph_statistic(sg);
+        n_ac = 0;
+        n_ac += asg_pop_bubble_primary(sg, bubble_dist);
+        ///we don't need a special function here since it just removes edges instead of nodes
+        n_ac += asg_arc_del_self_circle_untig(sg, circleLen, 1);
+        n_ac += asg_arc_cut_long_tip_primary(sg, tip_drop_ratio);
+        n_ac += asg_arc_cut_long_equal_tips_assembly(sg, reverse_sources, 2);
+
+        cur_cons = get_graph_statistic(sg);
+    }
+
+    asg_arc_identify_simple_bubbles_multi(sg, 1);
+    ///we don't need a special function here since it just removes edges instead of nodes
+    asg_arc_del_short_false_link(sg, 0.6, 0.85, bubble_dist, reverse_sources, MAX_SHORT_TIPS, 1);
+
+    
+    ma_ug_t *ug = NULL;
+    ug = ma_ug_gen_primary(sg, 0);
+    ma_ug_seq(ug, &R_INF, coverage_cut, n_read);
+
+    fprintf(stderr, "Writing unitig GFA to disk... \n");
+    char* gfa_name = (char*)malloc(strlen(output_file_name)+35);
+    sprintf(gfa_name, "%s.ctg.gfa", output_file_name);
+    FILE* output_file = fopen(gfa_name, "w");
+    ma_ug_print(ug, &R_INF, coverage_cut, output_file);
+    fclose(output_file);
+    
+    
+
+
+
+    // sprintf(gfa_name, "%s.simple.contig.gfa", output_file_name);
+    // output_file = fopen(gfa_name, "w");
+    // ma_ug_print_simple(ug, &R_INF, coverage_cut, output_file);
+    // fclose(output_file);
+
+    free(gfa_name);
+    ma_ug_destroy(ug);
+}
+
+
+void output_contig_graph_alternative(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name, long long n_read)
+{
+    ma_ug_t *ug = NULL;
+    ug = ma_ug_gen_primary(sg, 1);
+    ma_ug_seq(ug, &R_INF, coverage_cut, n_read);
+
+    fprintf(stderr, "Writing unitig GFA to disk... \n");
+    char* gfa_name = (char*)malloc(strlen(output_file_name)+35);
+    sprintf(gfa_name, "%s.alter.ctg.gfa", output_file_name);
+    FILE* output_file = fopen(gfa_name, "w");
+    ma_ug_print(ug, &R_INF, coverage_cut, output_file);
+    fclose(output_file);
+    
+    // sprintf(gfa_name, "%s.simple.alter.ctg.gfa", output_file_name);
+    // output_file = fopen(gfa_name, "w");
+    // ma_ug_print_simple(ug, &R_INF, coverage_cut, output_file);
+    // fclose(output_file);
+
+    free(gfa_name);
+    ma_ug_destroy(ug);
+}
 
 int output_tips(asg_t *g, const All_reads *RNF)
 {
@@ -8259,10 +8850,18 @@ long long bubble_dist, int read_graph, int write)
     asg_t *sg = NULL;
     sg = ma_sg_gen(sources, n_read, coverage_cut, max_hang_length, mini_overlap_length);
     asg_arc_del_trans(sg, GAP_FUZZ);
-    char* unlean_name = (char*)malloc(strlen(output_file_name)+25);
-    sprintf(unlean_name, "%s.unclean", output_file_name);
-    output_read_graph(sg, coverage_cut, unlean_name, n_read);
-    free(unlean_name);
+
+
+    if(VERBOSE >= 1)
+    {
+        char* unlean_name = (char*)malloc(strlen(output_file_name)+25);
+        sprintf(unlean_name, "%s.unclean", output_file_name);
+        output_read_graph(sg, coverage_cut, unlean_name, n_read);
+        free(unlean_name);
+    }
+
+
+    
     asg_cut_tip(sg, MAX_SHORT_TIPS);
     
     // debug_info_of_specfic_node("m64016_190918_162737/72220752/ccs", sg, "cut_tip");
@@ -8342,7 +8941,7 @@ long long bubble_dist, int read_graph, int write)
             asg_cut_tip(sg, MAX_SHORT_TIPS);
 
             asg_arc_identify_simple_bubbles_multi(sg, 1);
-            asg_arc_del_short_false_link(sg, 0.6, 0.85, bubble_dist, reverse_sources, MAX_SHORT_TIPS);
+            asg_arc_del_short_false_link(sg, 0.6, 0.85, bubble_dist, reverse_sources, MAX_SHORT_TIPS, 0);
 
             asg_arc_identify_simple_bubbles_multi(sg, 1);
             asg_arc_del_complex_false_link(sg, 0.6, 0.85, bubble_dist, reverse_sources, MAX_SHORT_TIPS);
@@ -8455,20 +9054,22 @@ long long bubble_dist, int read_graph, int write)
     ///out:
     ///output_tips(sg, &R_INF);
 
+    ///check_node_lable(sg);
 
     output_unitig_graph(sg, coverage_cut, output_file_name, n_read);
-    output_read_graph(sg, coverage_cut, output_file_name, n_read);
 
-    /****************************may have bugs********************************/
-    output_unitig_graph_without_small_bubbles(sg, coverage_cut, output_file_name, n_read, 
+    if(VERBOSE >= 1)
+    {
+        output_read_graph(sg, coverage_cut, output_file_name, n_read);
+    }
+
+    output_unitig_graph_without_small_bubbles_primary(sg, coverage_cut, output_file_name, n_read, 
     pop_bubble_size, MAX_SHORT_TIPS);
-    /****************************may have bugs********************************/
-
-    output_contig_graph(sg, coverage_cut, output_file_name, n_read, 10000000, MAX_SHORT_TIPS, 0.1, 20,
+    output_contig_graph_primary(sg, coverage_cut, output_file_name, n_read, 10000000, MAX_SHORT_TIPS, 0.1, 20,
     reverse_sources, MAX_SHORT_TIPS);
-    ///output_contig_graph(sg, coverage_cut, output_file_name, n_read, 10000000);
+    output_contig_graph_alternative(sg, coverage_cut, output_file_name, n_read);
 
-    
+
     asg_destroy(sg);
     free(coverage_cut);
 }
