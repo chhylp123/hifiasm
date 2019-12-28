@@ -29,6 +29,7 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "    -k INT        k-mer length [%d] (must be < 64)\n", asm_opt->k_mer_length);
     ///fprintf(stderr, "    -w            write all overlaps to disk, can accelerate assembly next time [%d]\n", asm_opt->write_index_to_disk);
     ///fprintf(stderr, "    -l            load all overlaps from disk, can avoid overlap calculation [%d]\n", asm_opt->load_index_from_disk);
+    fprintf(stderr, "    -i            do the overlap calculation even if there are overlaps of previous run on disk.\n");
     fprintf(stderr, "    -z INT        length of adapters that should be removed [%d]\n", asm_opt->adapterLen);
     fprintf(stderr, "    -p INT        size of popped bubbles [%lld]\n", asm_opt->pop_bubble_size);
     fprintf(stderr, "    -x FLOAT      max overlap drop ratio [%.2g]\n", asm_opt->max_drop_rate);
@@ -199,7 +200,7 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
 
     int c;
 
-    while ((c = ketopt(&opt, argc, argv, 1, "hvt:o:k:lwm:n:r:a:b:z:x:y:p:", 0)) >= 0) {
+    while ((c = ketopt(&opt, argc, argv, 1, "hvt:o:k:lwm:n:r:a:b:z:x:y:p:i", 0)) >= 0) {
         if (c == 'h')
         {
             Print_H(asm_opt);
@@ -215,7 +216,8 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         else if (c == 'n') asm_opt->k_mer_min_freq = atoi(opt.arg);
         else if (c == 'm') asm_opt->k_mer_max_freq = atoi(opt.arg);
         else if (c == 'r') asm_opt->number_of_round = atoi(opt.arg);
-        else if (c == 'k') asm_opt->k_mer_length = atoi(opt.arg); 
+        else if (c == 'k') asm_opt->k_mer_length = atoi(opt.arg);
+        else if (c == 'i') asm_opt->load_index_from_disk = 0; 
         else if (c == 'l') asm_opt->load_index_from_disk = 1; 
         else if (c == 'w') asm_opt->write_index_to_disk = 1;
         else if (c == 'a') asm_opt->clean_round = atoi(opt.arg); 
