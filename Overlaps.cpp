@@ -4596,6 +4596,94 @@ ma_hit_t_alloc* reverse_sources, long long min_edge_length)
 
 }
 
+long long check_if_diploid_primary(uint32_t v1, uint32_t v2, asg_t *g, 
+ma_hit_t_alloc* reverse_sources, long long min_edge_length)
+{
+    buf_t b_0, b_1;
+    memset(&b_0, 0, sizeof(buf_t));
+    memset(&b_1, 0, sizeof(buf_t));
+
+    uint32_t convex1, convex2;
+    long long l1, l2;
+
+    b_0.b.n = 0;
+    b_1.b.n = 0;
+    ///uint32_t flag1 = detect_single_path(g, v1, &convex1, &l1, &b_0);
+    uint32_t flag1 = detect_single_path_with_dels(g, v1, &convex1, &l1, &b_0);
+    
+    ///uint32_t flag2 = detect_single_path(g, v2, &convex2, &l2, &b_1);
+    uint32_t flag2 = detect_single_path_with_dels(g, v2, &convex2, &l2, &b_1);
+    
+    if(flag1 == LOOP || flag2 == LOOP)
+    {
+        return -1;
+    }
+
+    if(flag1 != END_TIPS && flag1 != LONG_TIPS)
+    {
+        l1--;
+        b_0.b.n--;
+    }
+
+    if(flag2 != END_TIPS && flag2 != LONG_TIPS)
+    {
+        l2--;
+        b_1.b.n--;
+    }
+
+
+    if(l1 <= min_edge_length || l2 <= min_edge_length)
+    {
+        return -1;
+    }
+
+    buf_t* b_min;
+    buf_t* b_max;
+    if(l1<=l2)
+    {
+        b_min = &b_0;
+        b_max = &b_1;
+    }
+    else
+    {
+        b_min = &b_1;
+        b_max = &b_0;
+    }
+
+    long long i, j, k;
+    double max_count = 0;
+    double min_count = 0;
+    uint32_t qn, tn;
+    for (i = 0; i < (long long)b_min->b.n; i++)
+    {
+        qn = b_min->b.a[i];
+        for (j = 0; j < (long long)reverse_sources[qn].length; j++)
+        {
+            tn = Get_tn(reverse_sources[qn].buffer[j]);
+            if(g->seq[tn].del == 1 || g->seq[tn].c) continue;
+            min_count++;
+            for (k = 0; k < (long long)b_max->b.n; k++)
+            {
+                if(b_max->b.a[k]==tn)
+                {
+                    max_count++;
+                    break;
+                }
+            }
+        }
+    }
+
+
+    free(b_0.b.a);
+    free(b_1.b.a);
+
+    if(min_count == 0) return -1;
+    if(max_count == 0) return 0;
+    if(max_count/min_count>0.3) return 1;
+    return 0;
+
+}
+
 
 long long check_if_diploid_aggressive(uint32_t v1, uint32_t v2, asg_t *g, 
 ma_hit_t_alloc* reverse_sources, long long min_edge_length)
@@ -7316,7 +7404,7 @@ int asg_arc_cut_long_equal_tips_assembly(asg_t *g, ma_hit_t_alloc* reverse_sourc
                         continue;
                     }
                     //we can only cut tips
-                    if(check_if_diploid(av[base_maxLen_i].v, av[i].v, g, 
+                    if(check_if_diploid_primary(av[base_maxLen_i].v, av[i].v, g, 
                     reverse_sources, miniedgeLen)==1)
                     {
                         n_reduced++;
@@ -7730,7 +7818,7 @@ int asg_pop_bubble(asg_t *g, int max_dist)
 // in a resolved bubble, mark unused vertices and arcs as "reduced"
 static void asg_bub_backtrack_primary(asg_t *g, uint32_t v0, buf_t *b)
 {
-	uint32_t i, v;
+	uint32_t i, v, qn, tn;
 
 	///assert(b->S.n == 1);
 	///first remove all nodes in this bubble
@@ -7748,6 +7836,38 @@ static void asg_bub_backtrack_primary(asg_t *g, uint32_t v0, buf_t *b)
 		v = u;
 	} while (v != v0);
 
+
+    ///remove all edges (self/reverse for each edge) in this bubble
+	for (i = 0; i < b->e.n; ++i) {
+		asg_arc_t *a = &g->arc[b->e.a[i]];
+        qn = a->ul>>33;
+        tn = a->v>>1;
+        ///there are three cases: 
+        ///1. two nodes are at primary
+        ///2. two nodes are not at primary
+        ///3. one node is at primary, while another is not
+        ///for case 1 and case 3, we need to remove edges
+        if(g->seq[qn].c == 1 && g->seq[tn].c == 1)
+        {
+            continue;
+        }
+		///remove this edge self
+		a->del = 1;
+		///remove the reverse direction
+		asg_arc_del(g, a->v^1, a->ul>>32^1, 1);
+	}
+
+    ///v is the sink of this bubble
+	v = b->S.a[0];
+	///recover node
+	do {
+		uint32_t u = b->a[v].p; // u->v
+		g->seq[v>>1].del = 0;
+		asg_arc_del(g, u, v, 0);
+		asg_arc_del(g, v^1, u^1, 0);
+		v = u;
+	} while (v != v0);
+    /**
     for (i = 0; i < b->b.n; ++i)
     {
         v = b->b.a[i];
@@ -7757,6 +7877,7 @@ static void asg_bub_backtrack_primary(asg_t *g, uint32_t v0, buf_t *b)
             asg_seq_drop(g, v>>1);
         }
     }
+    **/
 }
 
 // pop bubbles from vertex v0; the graph MJUST BE symmetric: if u->v present, v'->u' must be present as well
@@ -8397,9 +8518,9 @@ ma_hit_t_alloc* reverse_sources, long long miniedgeLen)
         n_ac += asg_arc_del_self_circle_untig(sg, circleLen, 0);
         n_ac += asg_arc_cut_long_tip(sg, tip_drop_ratio);
         n_ac += asg_arc_cut_long_equal_tips(sg, reverse_sources, 2);
-
         cur_cons = sg->n_seq + sg->n_arc;
     }
+
 
     asg_arc_identify_simple_bubbles_multi(sg, 1);
     asg_arc_del_short_false_link(sg, 0.6, 0.85, bubble_dist, reverse_sources, MAX_SHORT_TIPS, 0);
@@ -8461,14 +8582,14 @@ ma_hit_t_alloc* reverse_sources, long long miniedgeLen)
         n_ac += asg_arc_del_self_circle_untig(sg, circleLen, 1);
         n_ac += asg_arc_cut_long_tip_primary(sg, tip_drop_ratio);
         n_ac += asg_arc_cut_long_equal_tips_assembly(sg, reverse_sources, 2);
-
         cur_cons = get_graph_statistic(sg);
     }
+
 
     asg_arc_identify_simple_bubbles_multi(sg, 1);
     ///we don't need a special function here since it just removes edges instead of nodes
     asg_arc_del_short_false_link(sg, 0.6, 0.85, bubble_dist, reverse_sources, MAX_SHORT_TIPS, 1);
-
+    
     
     ma_ug_t *ug = NULL;
     ug = ma_ug_gen_primary(sg, 0);
