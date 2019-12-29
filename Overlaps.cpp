@@ -5065,7 +5065,7 @@ ma_hit_t_alloc* reverse_sources, long long miniedgeLen)
 
 
 int asg_arc_del_short_false_link(asg_t *g, float drop_ratio, float o_drop_ratio, int max_dist, 
-ma_hit_t_alloc* reverse_sources, long long miniedgeLen, int is_drop)
+ma_hit_t_alloc* reverse_sources, long long miniedgeLen)
 {
     double startTime = Get_T();
     
@@ -5090,8 +5090,6 @@ ma_hit_t_alloc* reverse_sources, long long miniedgeLen, int is_drop)
     
     for (v = 0; v < n_vtx; ++v) 
     {
-        if(is_drop && g->seq[v>>1].c) continue;
-
         if(g->seq_vis[v] == 0)
         {
             asg_arc_t *av = asg_arc_a(g, v);
@@ -5354,6 +5352,296 @@ ma_hit_t_alloc* reverse_sources, long long miniedgeLen, int is_drop)
 	return n_cut;
 }
 
+
+int asg_arc_del_short_false_link_primary(asg_t *g, float drop_ratio, float o_drop_ratio, int max_dist, 
+ma_hit_t_alloc* reverse_sources, long long miniedgeLen)
+{
+    double startTime = Get_T();
+    
+    kvec_t(uint64_t) b;
+    memset(&b, 0, sizeof(b));
+
+
+    kvec_t(uint32_t) b_f;
+    memset(&b_f, 0, sizeof(b_f));
+
+    kvec_t(uint32_t) b_r;
+    memset(&b_r, 0, sizeof(b_r));
+
+
+	uint32_t v, w, n_vtx = g->n_seq * 2, n_cut = 0;
+    uint32_t sink;
+
+    buf_t bub;
+    if (!g->is_symm) asg_symm(g);
+    memset(&bub, 0, sizeof(buf_t));
+    bub.a = (binfo_t*)calloc(n_vtx, sizeof(binfo_t));
+    
+    for (v = 0; v < n_vtx; ++v) 
+    {
+        if(g->seq[v>>1].c) continue;
+
+        if(g->seq_vis[v] == 0)
+        {
+            asg_arc_t *av = asg_arc_a(g, v);
+            uint32_t nv = asg_arc_n(g, v);
+            if(nv == 1 && asg_arc_n(g, v^1) == 1) continue;
+
+            uint64_t t_ol = 0;
+            long long i;
+            for (i = 0; i < nv; ++i)
+            {
+                t_ol += av[i].ol;
+            }
+            kv_push(uint64_t, b, (uint64_t)(t_ol << 32 | v));  
+        }
+	}
+
+    radix_sort_arch64(b.a, b.a + b.n);
+
+    uint32_t min_edge;
+    
+    
+    uint64_t k, t;
+    for (k = 0; k < b.n; k++)
+    {
+        ///v is the node
+        v = (uint32_t)b.a[k];
+        if (g->seq[v>>1].del) continue;
+        uint32_t nv = asg_arc_n(g, v), nw, to_del_l, to_del_r;
+        if (nv < 2) continue;
+        uint32_t kv = get_real_length(g, v, NULL), kw;
+        if (kv < 2) continue;
+        uint32_t i;
+        asg_arc_t *av = asg_arc_a(g, v), *aw;
+
+        b_f.n = 0;
+        b_r.n = 0;
+        to_del_l = 0;
+        for (i = 0; i < nv; i++)
+        {
+            if (av[i].del) continue;
+            
+            w = av[i].v^1;
+            nw = asg_arc_n(g, w);
+            if(nw < 2) break;
+            kw = get_real_length(g, w, NULL);
+            if(kw < 2) break;
+
+            kv_push(uint32_t, b_f, av[i].v);
+            kv_push(uint32_t, b_r, w);
+
+            aw = asg_arc_a(g, w);
+            min_edge = (u_int32_t)-1;
+            for (t = 0; t < nw; t++)
+            {
+                if(aw[t].del) continue;
+                if((aw[t].v>>1) == (v>>1)) continue;
+                if(aw[t].ol < min_edge) min_edge = aw[t].ol;
+                ///kv_push(uint32_t, b_r, aw[t].v);
+            }
+
+            if(av[i].ol < min_edge * drop_ratio) to_del_l++;
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+        /****************************may have bugs********************************/
+        if(to_del_l != kv)
+        {
+            b_f.n = 0;
+            b_r.n = 0;
+            to_del_l = 0;
+
+            for (i = 0; i < nv; i++)
+            {
+                if (av[i].del) continue;
+
+                w = av[i].v^1;
+                nw = asg_arc_n(g, w);
+                if(nw < 2) break;
+                kw = get_real_length(g, w, NULL);
+                if(kw < 2) break;
+
+                kv_push(uint32_t, b_f, av[i].v);
+                kv_push(uint32_t, b_r, w);
+
+                aw = asg_arc_a(g, w);
+                min_edge = (u_int32_t)-1;
+                for (t = 0; t < nw; t++)
+                {
+                    if(aw[t].del) continue;
+                    if((aw[t].v>>1) == (v>>1)) continue;
+                    if(aw[t].ol < min_edge) min_edge = aw[t].ol;
+                }
+
+                if(av[i].ol < min_edge * o_drop_ratio) to_del_l++;
+            }
+
+            if(to_del_l == kv)
+            {
+                ///forward
+                to_del_l = 1;
+                for (i = 1; i < b_f.n; i++)
+                {
+                    if(check_if_diploid_primary(b_f.a[0], b_f.a[i], g, reverse_sources, miniedgeLen) == 1)
+                    {
+                        to_del_l++;
+                    }
+                }
+
+                ///backward
+                if(to_del_l != kv && b_r.n >= 2)
+                {
+                    to_del_l = 0;
+                    uint32_t w0 = 0, w1 = 0;
+
+
+                    w = b_r.a[0];
+                    kw = get_real_length(g, w, NULL);
+                    if(kw != 2) goto terminal;
+                    aw = asg_arc_a(g, w);
+                    nw = asg_arc_n(g, w);
+                    for (t = 0; t < nw; t++)
+                    {
+                        if(aw[t].del) continue;
+                        if((aw[t].v>>1) == (v>>1)) continue;
+                        w0 = aw[t].v;
+                    }
+                    to_del_l = 1;
+
+
+                    for (i = 1; i < b_r.n; i++)
+                    {
+                        w = b_r.a[i];
+                        kw = get_real_length(g, w, NULL);
+                        if(kw != 2) goto terminal;
+                        aw = asg_arc_a(g, w);
+                        nw = asg_arc_n(g, w);
+                        for (t = 0; t < nw; t++)
+                        {
+                            if(aw[t].del) continue;
+                            if((aw[t].v>>1) == (v>>1)) continue;
+                            w1 = aw[t].v;
+                        }
+
+                        if(check_if_diploid_primary(w0, w1, g, reverse_sources, miniedgeLen) == 1)
+                        {
+                            to_del_l++;
+                        }
+                    }
+
+                }
+            }
+        }
+
+        terminal:
+        /****************************may have bugs********************************/
+
+
+        if(to_del_l != kv) continue;
+
+
+
+
+
+        uint32_t convex1;
+        long long l1;
+
+
+
+
+        ////forward bubble
+        to_del_l = 0;
+        for (i = 0; i < b_f.n; i++)
+        {
+            if(b_f.a[i] == b_f.a[0])
+            {
+                to_del_l = 1;
+            } 
+            else
+            {
+                to_del_l = 0;
+                break;
+            }
+        }
+        //check the length
+        if(to_del_l == 0 && asg_bub_end_finder_with_del_advance(g, 
+        b_f.a, b_f.n, max_dist, &bub, 0, (u_int32_t)-1, &sink)==1)
+        {
+            to_del_l = 1;
+        }
+        if(to_del_l == 0 && detect_mul_bubble_end_with_bubbles(g, b_f.a, b_f.n, &convex1, &l1, NULL))
+        {
+            to_del_l = 1;
+        }
+
+        ////backward bubble
+        to_del_r = 0;
+        for (i = 0; i < b_r.n; i++)
+        {
+            if(b_r.a[i] == b_r.a[0])
+            {
+                to_del_r = 1;
+            } 
+            else
+            {
+                to_del_r = 0;
+                break;
+            }
+        }
+        if(to_del_r == 0 && asg_bub_end_finder_with_del_advance
+        (g, b_r.a, b_r.n, max_dist, &bub, 1, v^1, &sink)==1)
+        {
+            to_del_r = 1;
+        }
+        if(to_del_r == 0 && detect_mul_bubble_end_with_bubbles(g, b_r.a, b_r.n, &convex1, &l1, NULL))
+        {
+            to_del_r = 1;
+        }
+
+        
+    
+
+
+
+		if (to_del_l && to_del_r)
+        {
+            for (i = 0; i < nv; ++i) 
+            {
+			    if (av[i].del) continue;
+                ++n_cut;
+                av[i].del = 1;
+                asg_arc_del(g, av[i].v^1, av[i].ul>>32^1, 1);
+		    }
+
+        }
+    }
+    
+    free(b.a); free(b_f.a); free(b_r.a);
+    free(bub.a); free(bub.S.a); free(bub.T.a); free(bub.b.a); free(bub.e.a);
+	if (n_cut) 
+    {
+		asg_cleanup(g);
+		asg_symm(g);
+	}
+
+    if(VERBOSE >= 1)
+    {
+        fprintf(stderr, "[M::%s] removed %u false overlaps\n", __func__, n_cut);
+        fprintf(stderr, "[M::%s] takes %0.2f s\n\n", __func__, Get_T()-startTime);
+    }
+	return n_cut;
+}
 
 int asg_arc_del_short_false_link_advance(asg_t *g, float drop_ratio, float o_drop_ratio, int max_dist, 
 ma_hit_t_alloc* reverse_sources, long long miniedgeLen)
@@ -8523,7 +8811,7 @@ ma_hit_t_alloc* reverse_sources, long long miniedgeLen)
 
 
     asg_arc_identify_simple_bubbles_multi(sg, 1);
-    asg_arc_del_short_false_link(sg, 0.6, 0.85, bubble_dist, reverse_sources, MAX_SHORT_TIPS, 0);
+    asg_arc_del_short_false_link(sg, 0.6, 0.85, bubble_dist, reverse_sources, MAX_SHORT_TIPS);
 
     ///asg_arc_del_self_circle_untig(sg, circleLen);
     
@@ -8588,7 +8876,7 @@ ma_hit_t_alloc* reverse_sources, long long miniedgeLen)
 
     asg_arc_identify_simple_bubbles_multi(sg, 1);
     ///we don't need a special function here since it just removes edges instead of nodes
-    asg_arc_del_short_false_link(sg, 0.6, 0.85, bubble_dist, reverse_sources, MAX_SHORT_TIPS, 1);
+    asg_arc_del_short_false_link_primary(sg, 0.6, 0.85, bubble_dist, reverse_sources, MAX_SHORT_TIPS);
     
     
     ma_ug_t *ug = NULL;
@@ -9062,7 +9350,7 @@ long long bubble_dist, int read_graph, int write)
             asg_cut_tip(sg, MAX_SHORT_TIPS);
 
             asg_arc_identify_simple_bubbles_multi(sg, 1);
-            asg_arc_del_short_false_link(sg, 0.6, 0.85, bubble_dist, reverse_sources, MAX_SHORT_TIPS, 0);
+            asg_arc_del_short_false_link(sg, 0.6, 0.85, bubble_dist, reverse_sources, MAX_SHORT_TIPS);
 
             asg_arc_identify_simple_bubbles_multi(sg, 1);
             asg_arc_del_complex_false_link(sg, 0.6, 0.85, bubble_dist, reverse_sources, MAX_SHORT_TIPS);
