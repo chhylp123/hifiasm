@@ -15,5 +15,5 @@ int main(int argc, char *argv[])
 
     destory_opt(&asm_opt);
     
-    return 1;
+    return 0;
 }
