@@ -7897,7 +7897,7 @@ int load_all_data_from_disk(ma_hit_t_alloc **sources, ma_hit_t_alloc **reverse_s
 char* output_file_name)
 {
     char* gfa_name = (char*)malloc(strlen(output_file_name)+25);
-    sprintf(gfa_name, "%s.ovlp.aux", output_file_name);
+    sprintf(gfa_name, "%s.ovlp", output_file_name);
     if(!load_All_reads(&R_INF, gfa_name))
     {
         return 0;
