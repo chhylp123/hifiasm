@@ -21,8 +21,7 @@ void Print_H(hifiasm_opt_t* asm_opt)
 {
     fprintf(stderr, "Usage: hifiasm [options] <in_1.fq> <in_2.fq> <...>\n");
     fprintf(stderr, "Options:\n");
-    ///fprintf(stderr, "    -q FILE       input in the fastq(.gz)/fasta(.gz) formats\n");
-    fprintf(stderr, "    -o FILE       output assembly (in gfa format) and corrected reads [%s]\n", asm_opt->output_file_name);
+    fprintf(stderr, "    -o FILE       prefix of output files [%s]\n", asm_opt->output_file_name);
     fprintf(stderr, "    -t INT        number of threads [%d]\n", asm_opt->thread_num);
     fprintf(stderr, "    -r INT        round of correction [%d]\n", asm_opt->number_of_round);
     fprintf(stderr, "    -a INT        round of assembly cleaning [%d]\n", asm_opt->clean_round);
@@ -36,7 +35,7 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "    -y FLOAT      min overlap drop ratio [%.2g]\n", asm_opt->min_drop_rate);
     fprintf(stderr, "    -v            show version number\n");
     fprintf(stderr, "    -h            show help information\n");
-    fprintf(stderr, "Example: ./hifiasm -o NA12878.asm -k 40 -t 32 -r 2 NA12878.fq.gz\n");
+    fprintf(stderr, "Example: ./hifiasm -o NA12878.asm -t 32 NA12878.fq.gz\n");
 
     
 }
