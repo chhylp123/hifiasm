@@ -7041,27 +7041,32 @@ const long long n_read)
 	return 0;
 }
 
-void ma_ug_print(const ma_ug_t *ug, All_reads *RNF, const ma_sub_t *coverage_cut, FILE *fp)
+void ma_ug_print2(const ma_ug_t *ug, All_reads *RNF, const ma_sub_t *coverage_cut, int print_seq, FILE *fp)
 {
 	uint32_t i, j, l;
 	char name[32];
 	for (i = 0; i < ug->u.n; ++i) { // the Segment lines in GFA
 		ma_utg_t *p = &ug->u.a[i];
 		sprintf(name, "utg%.6d%c", i + 1, "lc"[p->circ]);
-		fprintf(fp, "S\t%s\t%s\tLN:i:%d\n", name, p->s? p->s : "*", p->len);
+		if (print_seq) fprintf(fp, "S\t%s\t%s\tLN:i:%d\n", name, p->s? p->s : "*", p->len);
+		else fprintf(fp, "S\t%s\t*\tLN:i:%d\n", name, p->len);
         
 		for (j = l = 0; j < p->n; l += (uint32_t)p->a[j++]) {
 			uint32_t x = p->a[j]>>33;
-            fprintf(fp, "a\t%s\t%d\t%.*s(%u):%d-%d\t%c\t%d\n", name, l, 
-            (int)Get_NAME_LENGTH((*RNF), x), Get_NAME((*RNF), x), x,
-            coverage_cut[x].s + 1, coverage_cut[x].e, "+-"[p->a[j]>>32&1], (uint32_t)p->a[j]);
+			fprintf(fp, "A\t%s\t%d\t%c\t%.*s\t%d\t%d\tid:i:%d\n", name, l, "+-"[p->a[j]>>32&1], (int)Get_NAME_LENGTH((*RNF), x),
+					Get_NAME((*RNF), x), coverage_cut[x].s, coverage_cut[x].e, x);
         }
 	}
 	for (i = 0; i < ug->g->n_arc; ++i) { // the Link lines in GFA
 		uint32_t u = ug->g->arc[i].ul>>32, v = ug->g->arc[i].v;
-		fprintf(fp, "L\tutg%.6d%c\t%c\tutg%.6d%c\t%c\t%dM\tSD:i:%d\n", (u>>1)+1, "lc"[ug->u.a[u>>1].circ], "+-"[u&1],
+		fprintf(fp, "L\tutg%.6d%c\t%c\tutg%.6d%c\t%c\t%dM\tL1:i:%d\n", (u>>1)+1, "lc"[ug->u.a[u>>1].circ], "+-"[u&1],
 				(v>>1)+1, "lc"[ug->u.a[v>>1].circ], "+-"[v&1], ug->g->arc[i].ol, asg_arc_len(ug->g->arc[i]));
 	}    
+}
+
+void ma_ug_print(const ma_ug_t *ug, All_reads *RNF, const ma_sub_t *coverage_cut, FILE *fp)
+{
+	ma_ug_print2(ug, RNF, coverage_cut, 1, fp);
 }
 
 int asg_cut_internal(asg_t *g, int max_ext)
@@ -7310,18 +7315,7 @@ void ma_sg_print(const asg_t *g, const All_reads *RNF, const ma_sub_t *sub, FILE
 
 void ma_ug_print_simple(const ma_ug_t *ug, All_reads *RNF, const ma_sub_t *coverage_cut, FILE *fp)
 {
-	uint32_t i;
-	char name[32];
-	for (i = 0; i < ug->u.n; ++i) { // the Segment lines in GFA
-		ma_utg_t *p = &ug->u.a[i];
-		sprintf(name, "utg%.6d%c", i + 1, "lc"[p->circ]);
-		fprintf(fp, "S\t%s\t%s\tLN:i:%d\n", name, "*", p->len);        
-	}
-	for (i = 0; i < ug->g->n_arc; ++i) { // the Link lines in GFA
-		uint32_t u = ug->g->arc[i].ul>>32, v = ug->g->arc[i].v;
-		fprintf(fp, "L\tutg%.6d%c\t%c\tutg%.6d%c\t%c\t%dM\tSD:i:%d\n", (u>>1)+1, "lc"[ug->u.a[u>>1].circ], "+-"[u&1],
-				(v>>1)+1, "lc"[ug->u.a[v>>1].circ], "+-"[v&1], ug->g->arc[i].ol, asg_arc_len(ug->g->arc[i]));
-	}    
+	ma_ug_print2(ug, RNF, coverage_cut, 0, fp);
 }
 
 
@@ -7737,16 +7731,16 @@ void output_unitig_graph(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_na
     ug = ma_ug_gen(sg);
     ma_ug_seq(ug, &R_INF, coverage_cut, n_read);
 
-    fprintf(stderr, "Writing unitig GFA to disk... \n");
+    fprintf(stderr, "Writing raw unitig GFA to disk... \n");
     char* gfa_name = (char*)malloc(strlen(output_file_name)+25);
-    sprintf(gfa_name, "%s.utg.gfa", output_file_name);
+    sprintf(gfa_name, "%s.r_utg.gfa", output_file_name);
     FILE* output_file = fopen(gfa_name, "w");
     ma_ug_print(ug, &R_INF, coverage_cut, output_file);
     fclose(output_file);
-    // sprintf(gfa_name, "%s.simple.gfa", output_file_name);
-    // output_file = fopen(gfa_name, "w");
-    // ma_ug_print_simple(ug, &R_INF, coverage_cut, output_file);
-    // fclose(output_file);
+    sprintf(gfa_name, "%s.r_utg.noseq.gfa", output_file_name);
+    output_file = fopen(gfa_name, "w");
+    ma_ug_print_simple(ug, &R_INF, coverage_cut, output_file);
+    fclose(output_file);
 
     free(gfa_name);
     ma_ug_destroy(ug);
@@ -7887,13 +7881,13 @@ void write_all_data_to_disk(ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sou
 All_reads *RNF, char* output_file_name)
 {
     char* gfa_name = (char*)malloc(strlen(output_file_name)+25);
-    sprintf(gfa_name, "%s.gfa.aux", output_file_name);
+    sprintf(gfa_name, "%s.ovlp", output_file_name);
     write_All_reads(RNF, gfa_name);
     
-    sprintf(gfa_name, "%s.gfa.aux.source", output_file_name);
+    sprintf(gfa_name, "%s.ovlp.source", output_file_name);
     write_ma_hit_ts(sources, RNF->total_reads, gfa_name);
 
-    sprintf(gfa_name, "%s.gfa.aux.reverse", output_file_name);
+    sprintf(gfa_name, "%s.ovlp.reverse", output_file_name);
     write_ma_hit_ts(reverse_sources, RNF->total_reads, gfa_name);
 
     free(gfa_name);
@@ -7903,20 +7897,20 @@ int load_all_data_from_disk(ma_hit_t_alloc **sources, ma_hit_t_alloc **reverse_s
 char* output_file_name)
 {
     char* gfa_name = (char*)malloc(strlen(output_file_name)+25);
-    sprintf(gfa_name, "%s.gfa.aux", output_file_name);
+    sprintf(gfa_name, "%s.ovlp.aux", output_file_name);
     if(!load_All_reads(&R_INF, gfa_name))
     {
         return 0;
     }
 
-    sprintf(gfa_name, "%s.gfa.aux.source", output_file_name);
+    sprintf(gfa_name, "%s.ovlp.source", output_file_name);
     if(!load_ma_hit_ts(sources, gfa_name))
     {
         return 0;
     }
 
 
-    sprintf(gfa_name, "%s.gfa.aux.reverse", output_file_name);
+    sprintf(gfa_name, "%s.ovlp.reverse", output_file_name);
     if(!load_ma_hit_ts(reverse_sources, gfa_name))
     {
         return 0;
@@ -8770,17 +8764,17 @@ char* output_file_name, long long n_read, long long bubble_dist, long long tipsL
     ug = ma_ug_gen_primary(sg, 0);
     ma_ug_seq(ug, &R_INF, coverage_cut, n_read);
 
-    fprintf(stderr, "Writing unitig GFA to disk... \n");
+    fprintf(stderr, "Writing processed unitig GFA to disk... \n");
     char* gfa_name = (char*)malloc(strlen(output_file_name)+35);
-    sprintf(gfa_name, "%s.wsb.utg.gfa", output_file_name);
+    sprintf(gfa_name, "%s.p_utg.gfa", output_file_name);
     FILE* output_file = fopen(gfa_name, "w");
     ma_ug_print(ug, &R_INF, coverage_cut, output_file);
     fclose(output_file);
     
-    // sprintf(gfa_name, "%s.simple.no_s_bub.gfa", output_file_name);
-    // output_file = fopen(gfa_name, "w");
-    // ma_ug_print_simple(ug, &R_INF, coverage_cut, output_file);
-    // fclose(output_file);
+    sprintf(gfa_name, "%s.p_utg.noseq.gfa", output_file_name);
+    output_file = fopen(gfa_name, "w");
+    ma_ug_print_simple(ug, &R_INF, coverage_cut, output_file);
+    fclose(output_file);
 
     free(gfa_name);
     ma_ug_destroy(ug);
@@ -8883,21 +8877,17 @@ ma_hit_t_alloc* reverse_sources, long long miniedgeLen)
     ug = ma_ug_gen_primary(sg, 0);
     ma_ug_seq(ug, &R_INF, coverage_cut, n_read);
 
-    fprintf(stderr, "Writing unitig GFA to disk... \n");
+    fprintf(stderr, "Writing primary contig GFA to disk... \n");
     char* gfa_name = (char*)malloc(strlen(output_file_name)+35);
-    sprintf(gfa_name, "%s.ctg.gfa", output_file_name);
+    sprintf(gfa_name, "%s.p_ctg.gfa", output_file_name);
     FILE* output_file = fopen(gfa_name, "w");
     ma_ug_print(ug, &R_INF, coverage_cut, output_file);
     fclose(output_file);
-    
-    
 
-
-
-    // sprintf(gfa_name, "%s.simple.contig.gfa", output_file_name);
-    // output_file = fopen(gfa_name, "w");
-    // ma_ug_print_simple(ug, &R_INF, coverage_cut, output_file);
-    // fclose(output_file);
+    sprintf(gfa_name, "%s.p_ctg.noseq.gfa", output_file_name);
+    output_file = fopen(gfa_name, "w");
+    ma_ug_print_simple(ug, &R_INF, coverage_cut, output_file);
+    fclose(output_file);
 
     free(gfa_name);
     ma_ug_destroy(ug);
@@ -8910,17 +8900,17 @@ void output_contig_graph_alternative(asg_t *sg, ma_sub_t* coverage_cut, char* ou
     ug = ma_ug_gen_primary(sg, 1);
     ma_ug_seq(ug, &R_INF, coverage_cut, n_read);
 
-    fprintf(stderr, "Writing unitig GFA to disk... \n");
+    fprintf(stderr, "Writing alternate contig GFA to disk... \n");
     char* gfa_name = (char*)malloc(strlen(output_file_name)+35);
-    sprintf(gfa_name, "%s.alter.ctg.gfa", output_file_name);
+    sprintf(gfa_name, "%s.a_ctg.gfa", output_file_name);
     FILE* output_file = fopen(gfa_name, "w");
     ma_ug_print(ug, &R_INF, coverage_cut, output_file);
     fclose(output_file);
     
-    // sprintf(gfa_name, "%s.simple.alter.ctg.gfa", output_file_name);
-    // output_file = fopen(gfa_name, "w");
-    // ma_ug_print_simple(ug, &R_INF, coverage_cut, output_file);
-    // fclose(output_file);
+    sprintf(gfa_name, "%s.a_ctg.noseq.gfa", output_file_name);
+    output_file = fopen(gfa_name, "w");
+    ma_ug_print_simple(ug, &R_INF, coverage_cut, output_file);
+    fclose(output_file);
 
     free(gfa_name);
     ma_ug_destroy(ug);
