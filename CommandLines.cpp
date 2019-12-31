@@ -5,7 +5,7 @@
 #include "ketopt.h"
 #include <sys/time.h>
 
-#define VERSION "0.0.0.1"
+#define VERSION "0.1.0"
 #define DEFAULT_OUTPUT "hifiasm.asm"
 
 hifiasm_opt_t asm_opt;
@@ -21,22 +21,21 @@ void Print_H(hifiasm_opt_t* asm_opt)
 {
     fprintf(stderr, "Usage: hifiasm [options] <in_1.fq> <in_2.fq> <...>\n");
     fprintf(stderr, "Options:\n");
-    ///fprintf(stderr, "    -q FILE       input in the fastq(.gz)/fasta(.gz) formats\n");
-    fprintf(stderr, "    -o FILE       output assembly (in gfa format) and corrected reads [%s]\n", asm_opt->output_file_name);
+    fprintf(stderr, "    -o FILE       prefix of output files [%s]\n", asm_opt->output_file_name);
     fprintf(stderr, "    -t INT        number of threads [%d]\n", asm_opt->thread_num);
     fprintf(stderr, "    -r INT        round of correction [%d]\n", asm_opt->number_of_round);
     fprintf(stderr, "    -a INT        round of assembly cleaning [%d]\n", asm_opt->clean_round);
     fprintf(stderr, "    -k INT        k-mer length [%d] (must be < 64)\n", asm_opt->k_mer_length);
     ///fprintf(stderr, "    -w            write all overlaps to disk, can accelerate assembly next time [%d]\n", asm_opt->write_index_to_disk);
     ///fprintf(stderr, "    -l            load all overlaps from disk, can avoid overlap calculation [%d]\n", asm_opt->load_index_from_disk);
-    fprintf(stderr, "    -i            do the overlap calculation even if there are overlaps of previous run on disk.\n");
+    fprintf(stderr, "    -i            ignore saved overlaps in *.ovlp*.bin files\n");
     fprintf(stderr, "    -z INT        length of adapters that should be removed [%d]\n", asm_opt->adapterLen);
     fprintf(stderr, "    -p INT        size of popped bubbles [%lld]\n", asm_opt->pop_bubble_size);
     fprintf(stderr, "    -x FLOAT      max overlap drop ratio [%.2g]\n", asm_opt->max_drop_rate);
     fprintf(stderr, "    -y FLOAT      min overlap drop ratio [%.2g]\n", asm_opt->min_drop_rate);
     fprintf(stderr, "    -v            show version number\n");
     fprintf(stderr, "    -h            show help information\n");
-    fprintf(stderr, "Example: ./hifiasm -o NA12878.asm -k 40 -t 32 -r 2 NA12878.fq.gz\n");
+    fprintf(stderr, "Example: ./hifiasm -o NA12878.asm -t 32 NA12878.fq.gz\n");
 
     
 }
