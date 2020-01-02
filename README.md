@@ -33,9 +33,7 @@ outputs consist of:
 So far hifiasm is still in early development stage, it will output phased
 chromosome-level high-quality assembly in the near future. In addition, hifiasm
 also outputs three binary files that save all overlap inforamtion
-(hifiasm.asm.gfa.aux.bin, hifiasm.asm.gfa.aux.reverse.bin,
-hifiasm.asm.gfa.aux.source.bin in default). With these files, hifiasm can avoid
-the time-consuming all-to-all overlap calculation step, and do the assembly
+(hifiasm.asm.ovlp, hifiasm.asm.ovlp.source, hifiasm.asm.ovlp.reverse in default). With these files, hifiasm can avoid the time-consuming all-to-all overlap calculation step, and do the assembly
 directly and quickly. This might be helpful when you want to get an optimized
 assembly by multiple round of experiments with different parameters.
 
@@ -70,8 +68,7 @@ all overlaps to disk, which can avoid the time-consuming all-to-all overlap
 calculation next time. For hifiasm, once the overlap information has been
 obtained during the previous run in advance, it is able to load all overlaps
 from disk and then directly do assembly. If you want to ignore the pre-computed
-overlap information, please specify `-i` or simply delete `*gfa.aux.bin`,
-`*gfa.aux.reverse.bin` and `*gfa.aux.source.bin`.
+overlap information, please specify `-i` or simply delete `*.ovlp`, `*.ovlp.source` and `*.ovlp.reverse`.
 
 Please note that some old Hifi reads may consist of short adapters. To improve
 the assembly quality, adapters should be removed by `-z` as follow:

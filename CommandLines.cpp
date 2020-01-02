@@ -28,7 +28,8 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "    -k INT        k-mer length [%d] (must be < 64)\n", asm_opt->k_mer_length);
     ///fprintf(stderr, "    -w            write all overlaps to disk, can accelerate assembly next time [%d]\n", asm_opt->write_index_to_disk);
     ///fprintf(stderr, "    -l            load all overlaps from disk, can avoid overlap calculation [%d]\n", asm_opt->load_index_from_disk);
-    fprintf(stderr, "    -i            ignore saved overlaps in *.ovlp*.bin files\n");
+    ///fprintf(stderr, "    -i            ignore saved overlaps in *.ovlp*.bin files\n");
+    fprintf(stderr, "    -i            ignore saved overlaps in *.ovlp* files\n");
     fprintf(stderr, "    -z INT        length of adapters that should be removed [%d]\n", asm_opt->adapterLen);
     fprintf(stderr, "    -p INT        size of popped bubbles [%lld]\n", asm_opt->pop_bubble_size);
     fprintf(stderr, "    -x FLOAT      max overlap drop ratio [%.2g]\n", asm_opt->max_drop_rate);
