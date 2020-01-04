@@ -1918,10 +1918,10 @@ void generate_overlaps(int last_round)
 
     Output_PAF();
     
-    build_string_graph_without_clean(MIN_OVERLAP_COVERAGE, R_INF.paf, R_INF.reverse_paf, 
-    R_INF.total_reads, R_INF.read_length, MIN_OVERLAP_LEN, MAX_HANG_LEN, asm_opt.clean_round, 
-    asm_opt.pop_bubble_size, asm_opt.min_drop_rate, asm_opt.max_drop_rate, asm_opt.output_file_name, 
-    MAX_BUBBLE_DIST, 0, 1);
+    build_string_graph_without_clean(asm_opt.min_overlap_coverage, R_INF.paf, R_INF.reverse_paf, 
+    R_INF.total_reads, R_INF.read_length, asm_opt.min_overlap_Len, asm_opt.max_hang_Len, asm_opt.clean_round, 
+    asm_opt.gap_fuzz, asm_opt.min_drop_rate, asm_opt.max_drop_rate, asm_opt.output_file_name, 
+    asm_opt.large_pop_bubble_size, 0, 1);
 }
 
 
@@ -1931,10 +1931,9 @@ void Correct_Reads(int last_round)
     if(asm_opt.load_index_from_disk && load_all_data_from_disk(&R_INF.paf, &R_INF.reverse_paf, 
     asm_opt.output_file_name))
     {
-        build_string_graph_without_clean(MIN_OVERLAP_COVERAGE, R_INF.paf, R_INF.reverse_paf, 
-        R_INF.total_reads, R_INF.read_length, MIN_OVERLAP_LEN, MAX_HANG_LEN, asm_opt.clean_round, 
-        asm_opt.pop_bubble_size, asm_opt.min_drop_rate, asm_opt.max_drop_rate, 
-        asm_opt.output_file_name, MAX_BUBBLE_DIST, 0, 0);
+        build_string_graph_without_clean(asm_opt.min_overlap_coverage, R_INF.paf, R_INF.reverse_paf, 
+        R_INF.total_reads, R_INF.read_length, asm_opt.min_overlap_Len, asm_opt.max_hang_Len, asm_opt.clean_round, 
+        asm_opt.gap_fuzz, asm_opt.min_drop_rate, asm_opt.max_drop_rate, asm_opt.output_file_name, asm_opt.large_pop_bubble_size, 0, 0);
         exit(1);
     }
     else

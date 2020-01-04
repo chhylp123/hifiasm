@@ -17,25 +17,24 @@ The input of hifiasm is the PacBio Hifi reads in fasta/fastq format, and its
 outputs consist of: 
 
 1. Haplotype-resolved raw [unitig][unitig] graph in [GFA][gfa] format
-   (hifiasm.asm.r\_utg.gfa by default).
+   (hifiasm.asm.r\_utg.gfa by default). This graph keeps all haplotype information
 2. Haplotype-resolved processed [unitig][unitig] graph in [GFA][gfa] format
-   without small bubbles (hifiasm.asm.p\_utg.gfa by default). Small bubbles
-   might be caused by somatic mutations, which are useless for some
-   applications.
+   without small bubbles (hifiasm.asm.p\_utg.gfa by default). Small bubbles might be 
+   caused by somatic mutations or noise in data, which are not the real haplotype information.
 3. Primary assembly [contig][unitig] graph in [GFA][gfa] format
    (hifiasm.asm.p\_ctg.gfa by default).
 4. Alternate assembly [contig][unitig] graph in [GFA][gfa] format
    (hifiasm.asm.a\_ctg.gfa by default).
 5. Haplotype-aware error corrected reads in fasta format (hifiasm.asm.ec.fa by
    default).
-6. All-to-all overlaps in [paf][paf] format (hifiasm.asm.paf).
+6. All-to-all overlaps in [paf][paf] format (hifiasm.asm.ovlp.paf).
 
 So far hifiasm is still in early development stage, it will output phased
 chromosome-level high-quality assembly in the near future. In addition, hifiasm
 also outputs three binary files that save all overlap inforamtion
 (hifiasm.asm.ovlp, hifiasm.asm.ovlp.source, hifiasm.asm.ovlp.reverse in default). With these files, hifiasm can avoid the time-consuming all-to-all overlap calculation step, and do the assembly
 directly and quickly. This might be helpful when you want to get an optimized
-assembly by multiple round of experiments with different parameters.
+assembly by multiple rounds of experiments with different parameters.
 
 Hifiasm is a standalone and lightweight assembler, which does not need external
 libraries (except zlib). For large genomes, it can generate high-quality
@@ -51,6 +50,18 @@ assembly in a few hours. Hifiasm has been tested on the following datasets:
 <sub>[1] unitig N50 is the N50 of assembly graph with haplotype information (i.e., bubbles), while the contig N50 is the N50 of haplotype collapsed assembly (i.e., without bubbles).
 [2] CHM13 is a homozygous sample, so that unitig N50 makes no sense.
 [3] Butterfly has high heterozygous rate, so that most chromosomes have been fully separated into two haplotypes. In this case, contig N50 makes no sense.<sub>
+
+Note that different species need different assembly graphs. For homozygous genomes,
+the primary assembly contig graph is the best choice. 
+For species with high heterozygous rate, different haplotypes can be fully separated.
+It is important to remove small bubbles from the haplotype-resolved unitig graph. The
+reason is that there are some somatic mutations or noise in data, which are not
+the real haplotype information. In this case, haplotype-resolved processed unitig graph
+without small bubbles should be better.
+For ordinary human genome, different haplotypes cannot be fully separated due to the low
+heterozygous rate. There are many small bubbles including haplotype information,
+which cannot be simply removed. Thus, it is necessary to use the haplotype-resolved raw
+unitig graph. **Hifiasm will generate a universal haplotype contig graph for all species in the near future.**
 
 ## Usage
 
@@ -92,8 +103,11 @@ have further questions, please raise an issue at the issue page.
 
 1. For genome with low heterozygous rate, hifiasm only outputs
    haplotype-resolved assembly graph, instead of the phased chromosome-level
-   assembly (will support such output in the near future).
+   assembly (**will support such output in the near future**).
 
-2. The running time and memory usage should be further reduced.
+2. For different species, hifiasm outputs different assembly graphs, which are not easy to use.
+   **Hifiasm will generate a universal haplotype contig graph for all species in the near future.**
 
-3. The N50 should be further improved. 
+3. The running time and memory usage should be further reduced.
+
+4. The N50 should be further improved. 
