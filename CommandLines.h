@@ -21,10 +21,18 @@ typedef struct {
     int clean_round;
     int complete_threads;
     int roundID;
+    int max_hang_Len;
+    int gap_fuzz;
+    int min_overlap_Len;
+    int min_overlap_coverage;
+    int max_short_tip;
+
+    float max_hang_rate;
     float min_drop_rate;
     float max_drop_rate;
 
-    long long pop_bubble_size;
+    long long small_pop_bubble_size;
+    long long large_pop_bubble_size;
     long long num_bases;
     long long num_corrected_bases;
     long long num_recorrected_bases;

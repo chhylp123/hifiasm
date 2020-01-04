@@ -25,8 +25,8 @@ KRADIX_SORT_INIT(arch64, uint64_t, generic_key, 8)
 
 KSORT_INIT_GENERIC(uint32_t)
 
-///actually min_thres = MAX_SHORT_TIPS + 1 there are MAX_SHORT_TIPS reads
-long long min_thres = MAX_SHORT_TIPS + 1;
+///this value has been updated at the first line of build_string_graph_without_clean
+long long min_thres;
 
 void ma_hit_sort_tn(ma_hit_t *a, long long n)
 {
@@ -530,7 +530,7 @@ void ma_hit_contained(ma_hit_t_alloc* sources, long long n_read, ma_sub_t *cover
             //check the corresponding two reads 
 		    ma_sub_t *sq = &(coverage_cut[Get_qn(*h)]);
             ma_sub_t *st = &(coverage_cut[Get_tn(*h)]);
-            r = ma_hit2arc(h, sq->e - sq->s, st->e - st->s, max_hang, MAX_HANG_PRE, min_ovlp, &t);
+            r = ma_hit2arc(h, sq->e - sq->s, st->e - st->s, max_hang, asm_opt.max_hang_rate, min_ovlp, &t);
             ///r could not be MA_HT_SHORT_OVLP or MA_HT_INT
             if (r == MA_HT_QCONT) 
             {
@@ -598,9 +598,10 @@ void ma_hit_flt(ma_hit_t_alloc* sources, long long n_read, ma_sub_t *coverage_cu
             /**note!!! h->qn and h->qs have been normalized by sq->s
              * h->ts and h->tn have been normalized by sq->e
              **/  
-            ///here the max_hang = 1000, MAX_HANG_PRE = 0.8, min_ovlp = 500
+            ///here the max_hang = 1000, asm_opt.max_hang_rate = 0.8, min_ovlp = 50
             ///for me, there should not have any overhang..so r cannot be equal to MA_HT_INT
-            r = ma_hit2arc(h, sq->e - sq->s, st->e - st->s, max_hang, MAX_HANG_PRE, min_ovlp, &t);
+            ///sq->e - sq->s = the length of query; st->e - st->s = the length od target
+            r = ma_hit2arc(h, sq->e - sq->s, st->e - st->s, max_hang, asm_opt.max_hang_rate, min_ovlp, &t);
 
 
             ///for me, there should not have any overhang..so r cannot be equal to MA_HT_INT
@@ -1138,7 +1139,7 @@ long long n_read, uint64_t* readLen, ma_sub_t* coverage_cut, float shift_rate)
 
 
 
-void ma_hit_cut(int min_dp, ma_hit_t_alloc* sources, long long n_read, uint64_t* readLen, 
+void ma_hit_cut(ma_hit_t_alloc* sources, long long n_read, uint64_t* readLen, 
 long long mini_overlap_length, ma_sub_t** coverage_cut)
 {
     double startTime = Get_T();
@@ -1491,7 +1492,7 @@ int max_hang, int min_ovlp)
             int ql = coverage_cut[Get_qn(*h)].e - coverage_cut[Get_qn(*h)].s;
             //high coverage region [sub[qn].e, sub[qn].s) in target
             int tl = coverage_cut[Get_tn(*h)].e - coverage_cut[Get_tn(*h)].s;
-		    r = ma_hit2arc(h, ql, tl, max_hang, MAX_HANG_PRE, min_ovlp, &t);
+		    r = ma_hit2arc(h, ql, tl, max_hang, asm_opt.max_hang_rate, min_ovlp, &t);
             /**
             #define MA_HT_INT       (-1)
             #define MA_HT_QCONT      (-2)
@@ -6139,7 +6140,6 @@ int asg_arc_del_tri_link(asg_t *g, int max_dist)
             }
             else if(f1)
             {
-
                 if(l1 <= min_thres)
                 {
                     continue;
@@ -6148,7 +6148,6 @@ int asg_arc_del_tri_link(asg_t *g, int max_dist)
             }
             else if(f2)
             {
-
                 if(l2 <= min_thres)
                 {
                     continue;
@@ -8724,35 +8723,6 @@ long long asg_arc_del_self_circle_untig(asg_t *g, long long circleLen, int is_dr
 
 
 
-void output_unitig_graph_without_small_bubbles(asg_t *sg, ma_sub_t* coverage_cut, 
-char* output_file_name, long long n_read, long long bubble_dist, long long tipsLen)
-{
-    asg_cut_tip(sg, tipsLen);
-    asg_pop_bubble(sg, bubble_dist);
-    asg_cut_tip(sg, tipsLen);
-    
-    ma_ug_t *ug = NULL;
-    ug = ma_ug_gen(sg);
-    ma_ug_seq(ug, &R_INF, coverage_cut, n_read);
-
-    fprintf(stderr, "Writing unitig GFA to disk... \n");
-    char* gfa_name = (char*)malloc(strlen(output_file_name)+35);
-    sprintf(gfa_name, "%s.no_s_bub.gfa", output_file_name);
-    FILE* output_file = fopen(gfa_name, "w");
-    ma_ug_print(ug, &R_INF, coverage_cut, output_file);
-    fclose(output_file);
-    
-    
-    sprintf(gfa_name, "%s.simple.no_s_bub.gfa", output_file_name);
-    output_file = fopen(gfa_name, "w");
-    ma_ug_print_simple(ug, &R_INF, coverage_cut, output_file);
-    fclose(output_file);
-
-    free(gfa_name);
-    ma_ug_destroy(ug);
-}
-
-
 void output_unitig_graph_without_small_bubbles_primary(asg_t *sg, ma_sub_t* coverage_cut, 
 char* output_file_name, long long n_read, long long bubble_dist, long long tipsLen)
 {
@@ -8782,57 +8752,6 @@ char* output_file_name, long long n_read, long long bubble_dist, long long tipsL
 
 
 
-void output_contig_graph(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name, long long n_read, long long bubble_dist, long long tipsLen, float tip_drop_ratio, long long circleLen,
-ma_hit_t_alloc* reverse_sources, long long miniedgeLen)
-{
-    asg_cut_tip(sg, tipsLen);
-    // asg_pop_bubble(sg, bubble_dist);
-    // asg_arc_del_self_circle_untig(sg, circleLen);
-    long long n_ac = 1;
-    long long pre_cons = sg->n_seq + sg->n_arc;
-    long long cur_cons = 0;
-    ///while(n_ac > 0)
-    while(pre_cons != cur_cons)
-    {
-        pre_cons = sg->n_seq + sg->n_arc;
-        n_ac = 0;
-        n_ac += asg_pop_bubble(sg, bubble_dist);
-        n_ac += asg_arc_del_self_circle_untig(sg, circleLen, 0);
-        n_ac += asg_arc_cut_long_tip(sg, tip_drop_ratio);
-        n_ac += asg_arc_cut_long_equal_tips(sg, reverse_sources, 2);
-        cur_cons = sg->n_seq + sg->n_arc;
-    }
-
-
-    asg_arc_identify_simple_bubbles_multi(sg, 1);
-    asg_arc_del_short_false_link(sg, 0.6, 0.85, bubble_dist, reverse_sources, MAX_SHORT_TIPS);
-
-    ///asg_arc_del_self_circle_untig(sg, circleLen);
-    
-    ma_ug_t *ug = NULL;
-    ug = ma_ug_gen(sg);
-    ma_ug_seq(ug, &R_INF, coverage_cut, n_read);
-
-    fprintf(stderr, "Writing unitig GFA to disk... \n");
-    char* gfa_name = (char*)malloc(strlen(output_file_name)+35);
-    sprintf(gfa_name, "%s.contig.gfa", output_file_name);
-    FILE* output_file = fopen(gfa_name, "w");
-    ma_ug_print(ug, &R_INF, coverage_cut, output_file);
-    fclose(output_file);
-    
-    
-
-
-
-    sprintf(gfa_name, "%s.simple.contig.gfa", output_file_name);
-    output_file = fopen(gfa_name, "w");
-    ma_ug_print_simple(ug, &R_INF, coverage_cut, output_file);
-    fclose(output_file);
-
-    free(gfa_name);
-    ma_ug_destroy(ug);
-}
-
 long long get_graph_statistic(asg_t *g)
 {
     long long num_arc = 0;
@@ -8848,7 +8767,7 @@ long long get_graph_statistic(asg_t *g)
 }
 
 void output_contig_graph_primary(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name, long long n_read, long long bubble_dist, long long tipsLen, float tip_drop_ratio, long long circleLen,
-ma_hit_t_alloc* reverse_sources, long long miniedgeLen)
+ma_hit_t_alloc* reverse_sources)
 {
     asg_cut_tip_primary(sg, tipsLen);
     long long n_ac = 1;
@@ -8870,7 +8789,7 @@ ma_hit_t_alloc* reverse_sources, long long miniedgeLen)
 
     asg_arc_identify_simple_bubbles_multi(sg, 1);
     ///we don't need a special function here since it just removes edges instead of nodes
-    asg_arc_del_short_false_link_primary(sg, 0.6, 0.85, bubble_dist, reverse_sources, MAX_SHORT_TIPS);
+    asg_arc_del_short_false_link_primary(sg, 0.6, 0.85, bubble_dist, reverse_sources, asm_opt.max_short_tip);
     
     
     ma_ug_t *ug = NULL;
@@ -9221,10 +9140,13 @@ long long rescue_threshold)
 void build_string_graph_without_clean(
 int min_dp, ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, 
 long long n_read, uint64_t* readLen, long long mini_overlap_length, 
-long long max_hang_length, long long clean_round, long long pop_bubble_size, 
+long long max_hang_length, long long clean_round, long long gap_fuzz,
 float min_ovlp_drop_ratio, float max_ovlp_drop_ratio, char* output_file_name, 
 long long bubble_dist, int read_graph, int write)
 {
+    ///actually min_thres = asm_opt.max_short_tip + 1 there are asm_opt.max_short_tip reads
+    min_thres = asm_opt.max_short_tip + 1;
+
     if (asm_opt.write_index_to_disk && write)
     {
         write_all_data_to_disk(sources, reverse_sources, 
@@ -9242,13 +9164,13 @@ long long bubble_dist, int read_graph, int write)
     ma_hit_sub(min_dp, sources, n_read, readLen, mini_overlap_length, &coverage_cut);
     detect_chimeric_reads(sources, reverse_sources, n_read, readLen, coverage_cut, 
     FINAL_OVERLAP_ERROR_RATE*2);
-    ma_hit_cut(min_dp, sources, n_read, readLen, mini_overlap_length, &coverage_cut);
+    ma_hit_cut(sources, n_read, readLen, mini_overlap_length, &coverage_cut);
     ///it seems we do not need ma_hit_flt
     ma_hit_flt(sources, n_read, coverage_cut, max_hang_length, mini_overlap_length);
     ma_hit_contained(sources, n_read, coverage_cut, max_hang_length, mini_overlap_length);
     asg_t *sg = NULL;
     sg = ma_sg_gen(sources, n_read, coverage_cut, max_hang_length, mini_overlap_length);
-    asg_arc_del_trans(sg, GAP_FUZZ);
+    asg_arc_del_trans(sg, gap_fuzz);
 
 
     if(VERBOSE >= 1)
@@ -9261,14 +9183,14 @@ long long bubble_dist, int read_graph, int write)
 
 
     
-    asg_cut_tip(sg, MAX_SHORT_TIPS);
+    asg_cut_tip(sg, asm_opt.max_short_tip);
     
     // debug_info_of_specfic_node("m64016_190918_162737/72220752/ccs", sg, "cut_tip");
     ///asg_arc_del_short_diploid_unclean(sg, corase_ovlp_drop_ratio, sources, reverse_sources);
 
     // asg_arc_del_single_node_bubble(sg, bubble_dist);
-    // asg_cut_tip(sg, MAX_SHORT_TIPS);
-    ///asg_cut_tip(sg, MAX_SHORT_TIPS);
+    // asg_cut_tip(sg, asm_opt.max_short_tip);
+    ///asg_cut_tip(sg, asm_opt.max_short_tip);
     
     if(clean_round > 0)
     {
@@ -9303,11 +9225,11 @@ long long bubble_dist, int read_graph, int write)
                 int tri_flag = 0;
                 tri_flag += asg_arc_del_self_circle_contig(sg);
                 ///asg_arc_del_single_node_bubble(sg, bubble_dist);
-                tri_flag += asg_arc_del_single_node_directly(sg, MAX_SHORT_TIPS, sources);
+                tri_flag += asg_arc_del_single_node_directly(sg, asm_opt.max_short_tip, sources);
                 tri_flag += asg_arc_del_triangular_advance(sg, bubble_dist);
                 tri_flag += asg_arc_del_cross_bubble(sg, bubble_dist);
                 ///asg_arc_del_single_node_bubble(sg, bubble_dist);
-                tri_flag += asg_arc_del_single_node_directly(sg, MAX_SHORT_TIPS, sources);
+                tri_flag += asg_arc_del_single_node_directly(sg, asm_opt.max_short_tip, sources);
                 if(tri_flag == 0)
                 {
                     break;
@@ -9315,37 +9237,38 @@ long long bubble_dist, int read_graph, int write)
             }
 
 
-            ///asg_arc_del_orthology(sg, reverse_sources, drop_ratio, MAX_SHORT_TIPS);
-            // asg_arc_del_orthology_multiple_way(sg, reverse_sources, drop_ratio, MAX_SHORT_TIPS);
-            // asg_cut_tip(sg, MAX_SHORT_TIPS);
+            ///asg_arc_del_orthology(sg, reverse_sources, drop_ratio, asm_opt.max_short_tip);
+            // asg_arc_del_orthology_multiple_way(sg, reverse_sources, drop_ratio, asm_opt.max_short_tip);
+            // asg_cut_tip(sg, asm_opt.max_short_tip);
             
             /****************************may have bugs********************************/
             asg_arc_identify_simple_bubbles_multi(sg, 1);
             //reomve edge between two chromesomes
-            asg_arc_del_false_node(sg, MAX_SHORT_TIPS);
-            asg_cut_tip(sg, MAX_SHORT_TIPS);
+            asg_arc_del_false_node(sg, asm_opt.max_short_tip);
+            asg_cut_tip(sg, asm_opt.max_short_tip);
             /****************************may have bugs********************************/
 
             /****************************may have bugs********************************/
             ///asg_arc_identify_simple_bubbles_multi(sg, 1);
             asg_arc_identify_simple_bubbles_multi(sg, 0);
             ///asg_arc_del_short_diploid_unclean_exact(sg, drop_ratio, sources);
-            asg_arc_del_short_diploid_by_exact(sg, MAX_SHORT_TIPS, sources);
-            asg_cut_tip(sg, MAX_SHORT_TIPS);
+            asg_arc_del_short_diploid_by_exact(sg, asm_opt.max_short_tip, sources);
+            asg_cut_tip(sg, asm_opt.max_short_tip);
             /****************************may have bugs********************************/
 
 
             asg_arc_identify_simple_bubbles_multi(sg, 1);
-            asg_arc_del_short_diploid_by_length(sg, drop_ratio, MAX_SHORT_TIPS, reverse_sources, MAX_SHORT_TIPS);
-            asg_cut_tip(sg, MAX_SHORT_TIPS);
+            asg_arc_del_short_diploid_by_length(sg, drop_ratio, asm_opt.max_short_tip, reverse_sources, 
+            asm_opt.max_short_tip);
+            asg_cut_tip(sg, asm_opt.max_short_tip);
 
             asg_arc_identify_simple_bubbles_multi(sg, 1);
-            asg_arc_del_short_false_link(sg, 0.6, 0.85, bubble_dist, reverse_sources, MAX_SHORT_TIPS);
+            asg_arc_del_short_false_link(sg, 0.6, 0.85, bubble_dist, reverse_sources, asm_opt.max_short_tip);
 
             asg_arc_identify_simple_bubbles_multi(sg, 1);
-            asg_arc_del_complex_false_link(sg, 0.6, 0.85, bubble_dist, reverse_sources, MAX_SHORT_TIPS);
+            asg_arc_del_complex_false_link(sg, 0.6, 0.85, bubble_dist, reverse_sources, asm_opt.max_short_tip);
 
-            asg_cut_tip(sg, MAX_SHORT_TIPS);
+            asg_cut_tip(sg, asm_opt.max_short_tip);
         }
     }
 
@@ -9358,10 +9281,10 @@ long long bubble_dist, int read_graph, int write)
     {
         int tri_flag = 0;
         tri_flag += asg_arc_del_self_circle_contig(sg);
-        tri_flag += asg_arc_del_single_node_directly(sg, MAX_SHORT_TIPS, sources);
+        tri_flag += asg_arc_del_single_node_directly(sg, asm_opt.max_short_tip, sources);
         tri_flag += asg_arc_del_triangular_advance(sg, bubble_dist);
         tri_flag += asg_arc_del_cross_bubble(sg, bubble_dist);
-        tri_flag += asg_arc_del_single_node_directly(sg, MAX_SHORT_TIPS, sources);
+        tri_flag += asg_arc_del_single_node_directly(sg, asm_opt.max_short_tip, sources);
 
         if(tri_flag == 0)
         {
@@ -9371,32 +9294,32 @@ long long bubble_dist, int read_graph, int write)
 
     
 
-    asg_arc_del_short_diploi_by_suspect_edge(sg, MAX_SHORT_TIPS, sources);
-    asg_cut_tip(sg, MAX_SHORT_TIPS);
-    asg_arc_del_triangular_directly(sg, MAX_SHORT_TIPS, reverse_sources);
+    asg_arc_del_short_diploi_by_suspect_edge(sg, asm_opt.max_short_tip, sources);
+    asg_cut_tip(sg, asm_opt.max_short_tip);
+    asg_arc_del_triangular_directly(sg, asm_opt.max_short_tip, reverse_sources);
 
 
     ///asg_arc_identify_simple_bubbles_multi(sg, 0);
-    // asg_arc_del_chimeric_read(sg, MAX_SHORT_TIPS*2);
-    // asg_cut_tip(sg, MAX_SHORT_TIPS);
+    // asg_arc_del_chimeric_read(sg, asm_opt.max_short_tip*2);
+    // asg_cut_tip(sg, asm_opt.max_short_tip);
     
 
     asg_arc_identify_simple_bubbles_multi(sg, 0);
-    asg_arc_del_orthology_multiple_way(sg, reverse_sources, 0.4, MAX_SHORT_TIPS);
-    asg_cut_tip(sg, MAX_SHORT_TIPS);
+    asg_arc_del_orthology_multiple_way(sg, reverse_sources, 0.4, asm_opt.max_short_tip);
+    asg_cut_tip(sg, asm_opt.max_short_tip);
 
     
 
 
 
     asg_arc_identify_simple_bubbles_multi(sg, 0);
-    asg_arc_del_too_short_overlaps(sg, 2000, min_ovlp_drop_ratio, reverse_sources, MAX_SHORT_TIPS);
-    asg_cut_tip(sg, MAX_SHORT_TIPS);
+    asg_arc_del_too_short_overlaps(sg, 2000, min_ovlp_drop_ratio, reverse_sources, asm_opt.max_short_tip);
+    asg_cut_tip(sg, asm_opt.max_short_tip);
 
 
     /**
     asg_arc_identify_simple_bubbles_multi(sg, 1);
-    asg_arc_del_short_false_link_advance(sg, 0.6, 0.85, bubble_dist, reverse_sources, MAX_SHORT_TIPS);
+    asg_arc_del_short_false_link_advance(sg, 0.6, 0.85, bubble_dist, reverse_sources, asm_opt.max_short_tip);
     **/
     
     
@@ -9435,7 +9358,7 @@ long long bubble_dist, int read_graph, int write)
         asg_arc_identify_simple_bubbles_multi(sg, 0);
         c_tips += asg_arc_del_complex_false_link(sg, 0.7, bubble_dist);
 
-        if(c_tips) asg_cut_tip(sg, MAX_SHORT_TIPS);
+        if(c_tips) asg_cut_tip(sg, asm_opt.max_short_tip);
         i++;
     }
     **/
@@ -9444,15 +9367,13 @@ long long bubble_dist, int read_graph, int write)
 
     /**
     memset(sg->seq_vis, 0, sg->n_seq*2*sizeof(uint8_t));
-    asg_arc_del_short_diploid_by_exact(sg, MAX_SHORT_TIPS, sources);
-    asg_cut_tip(sg, MAX_SHORT_TIPS);
+    asg_arc_del_short_diploid_by_exact(sg, asm_opt.max_short_tip, sources);
+    asg_cut_tip(sg, asm_opt.max_short_tip);
     **/
     
-    // debug_info_of_specfic_node("m64016_190918_162737/141297762/ccs", sg);
     
     ///out:
     ///output_tips(sg, &R_INF);
-
     ///check_node_lable(sg);
 
     output_unitig_graph(sg, coverage_cut, output_file_name, n_read);
@@ -9463,9 +9384,9 @@ long long bubble_dist, int read_graph, int write)
     }
 
     output_unitig_graph_without_small_bubbles_primary(sg, coverage_cut, output_file_name, n_read, 
-    pop_bubble_size, MAX_SHORT_TIPS);
-    output_contig_graph_primary(sg, coverage_cut, output_file_name, n_read, 10000000, MAX_SHORT_TIPS, 0.1, 20,
-    reverse_sources, MAX_SHORT_TIPS);
+    asm_opt.small_pop_bubble_size, asm_opt.max_short_tip);
+    output_contig_graph_primary(sg, coverage_cut, output_file_name, n_read, bubble_dist, 
+    asm_opt.max_short_tip, 0.1, 20, reverse_sources);
     output_contig_graph_alternative(sg, coverage_cut, output_file_name, n_read);
 
 

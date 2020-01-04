@@ -7,14 +7,14 @@
 ///#define MIN_OVERLAP_LEN 2000
 ///#define MIN_OVERLAP_LEN 500
 ///#define MIN_OVERLAP_LEN 50
-#define MIN_OVERLAP_LEN 50
+///#define MIN_OVERLAP_LEN 50
 ///#define MIN_OVERLAP_COVERAGE 1
-#define MIN_OVERLAP_COVERAGE 0
-#define MAX_HANG_LEN 1000
-#define MAX_HANG_PRE 0.8
-#define GAP_FUZZ 1000
-#define MAX_SHORT_TIPS 3
-#define MAX_BUBBLE_DIST 10000000
+///#define MIN_OVERLAP_COVERAGE 0
+///#define MAX_HANG_LEN 1000
+///#define MAX_HANG_PRE 0.8
+///#define GAP_FUZZ 1000
+///#define MAX_SHORT_TIPS 3
+///#define MAX_BUBBLE_DIST 10000000
 #define SMALL_BUBBLE_SIZE (uint32_t)-1
 //#define SMALL_BUBBLE_SIZE 1000
 
@@ -77,7 +77,7 @@ typedef struct {
 
 void ma_hit_sub(int min_dp, ma_hit_t_alloc* sources, long long n_read, uint64_t* readLen, 
 long long mini_overlap_length, ma_sub_t** coverage_cut);
-void ma_hit_cut(int min_dp, ma_hit_t_alloc* sources, long long n_read, uint64_t* readLen, 
+void ma_hit_cut(ma_hit_t_alloc* sources, long long n_read, uint64_t* readLen, 
 long long mini_overlap_length, ma_sub_t** coverage_cut);
 void ma_hit_flt(ma_hit_t_alloc* sources, long long n_read, const ma_sub_t *coverage_cut, 
 int max_hang, int min_ovlp);
@@ -116,7 +116,7 @@ typedef struct { size_t n, m; uint64_t *a; } asg64_v;
 #define MA_HT_TCONT      (-3)
 #define MA_HT_SHORT_OVLP (-4)
 
-///in default, max_hang = 1000, int_frac = 0.05, min_ovlp = 2000
+///in default, max_hang = 1000, int_frac = 0.8, min_ovlp = 50
 static inline int ma_hit2arc(const ma_hit_t *h, int ql, int tl, int max_hang, float int_frac, int min_ovlp, asg_arc_t *p)
 {
 	int32_t tl5, tl3, ext5, ext3, qs = (int32_t)h->qns;
@@ -135,6 +135,7 @@ static inline int ma_hit2arc(const ma_hit_t *h, int ql, int tl, int max_hang, fl
 	if (ext5 > max_hang || ext3 > max_hang || h->qe - qs < (h->qe - qs + ext5 + ext3) * int_frac)
 		return MA_HT_INT;
 	**/
+	///ext3 and ext5 should be always 0
 	if (ext5 > max_hang || ext3 > max_hang 
 	|| h->qe - qs < (h->qe - qs + ext5 + ext3) * int_frac
 	|| h->te - h->ts < (h->te - h->ts + ext5 + ext3) * int_frac)
@@ -326,7 +327,7 @@ static inline int count_out_without_del(const asg_t *g, uint32_t v)
 void build_string_graph_without_clean(
 int min_dp, ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, 
 long long n_read, uint64_t* readLen, long long mini_overlap_length, 
-long long max_hang_length, long long clean_round, long long pop_bubble_size, 
+long long max_hang_length, long long clean_round, long long gap_fuzz,
 float min_ovlp_drop_ratio, float max_ovlp_drop_ratio, char* output_file_name, 
 long long bubble_dist, int read_graph, int write);
 

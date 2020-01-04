@@ -1,0 +1,233 @@
+.TH hifiasm 1 "3 Jan 2020" "hifiasm-0.1.0" "Bioinformatics tools"
+
+.SH NAME
+.PP
+hifiasm - haplotype-resolved de novo assembler for PacBio Hifi reads.
+
+.SH SYNOPSIS
+.PP
+hifiasm
+.RB [ -o
+.IR outPrefix ]
+.RB [ -t
+.IR numThres ]
+.RB [ -r
+.IR roundCorrection ]
+.RB [ -a
+.IR roundGraphClean ]
+.RB [ -k
+.IR kmerLen ]
+.RB [ -z
+.IR adapterLen ]
+.RB [ -m
+.IR maxLargeBubbles ]
+.RB [ -p
+.IR maxSmallBubbles ]
+.RB [ -n
+.IR maxSmallUnitig ]
+.RB [ -x
+.IR maxDropRatio ]
+.RB [ -y
+.IR minDropRatio ]
+.RB [ -i ]
+.RB [ -v ]
+.RB [ -h ]
+.I <in_1.fq> <in_2.fq> <...>
+
+.SH DESCRIPTION
+.PP
+Hifiasm is an ultrafast haplotype-resolved de novo assembler for PacBio
+Hifi reads. Unlike most existing assemblers, hifiasm starts from uncollapsed
+genome. Thus, it is able to keep the haplotype information as much as possible.
+The input of hifiasm is the PacBio Hifi reads in fasta/fastq format, and its
+outputs consist of multiple types of assembly graph in GFA format.
+
+
+.SH OPTIONS
+
+.SS General options
+
+.TP 10
+.BI -o \ FILE
+Prefix of output files [hifiasm.asm]. The outputs of hifiasm include error corrected
+reads in fasta format, all-to-all overlaps in paf format, and four types of assembly
+graph in GFA format. For detailed description of all assembly graphs, please see
+.I 'Outputs'
+section of this man-page. 
+
+.TP 10
+.BI -t \ INT
+Number of CPU threads used by hifiasm [1]. 
+
+
+.TP 10
+.BI -v
+Show version number. 
+
+.TP 10
+.BI -h
+Show help information. 
+
+.SS Error correction options
+
+.TP 10
+.BI -k \ INT
+K-mer length [40]. This option must be less than 64.
+
+.TP 10
+.BI -r \ INT
+Rounds of haplotype-aware error corrections [2]. This option affects all outputs of hifiasm.
+
+.SS Assembly options
+
+.TP 10
+.BI -a \ INT
+Rounds of assembly graph cleaning [4]. This option is used with
+.I [-x maxDropRatio]
+and
+.I [-y minDropRatio].
+Note that unlike
+.I [-r],
+this option does not affect error corrected reads and all-to-all overlaps.
+
+
+.TP 10
+.BI -z \ INT
+Length of adapters that should be removed [0]. This option remove
+.I INT
+bases from both ends of each read.
+Some old Hifi reads may consist of
+short adapters (e.g., 20bp adapter at one end). For such data, trimming short adapters would 
+significantly improve the assembly quality.
+
+
+.TP 10
+.BI -m \ INT
+Maximal probing distance for bubble popping when generating primary/alternate assembly
+contig graphs [10000000]. Bubbles longer than
+.I INT
+bases will not be popped. For detailed description of these graphs, please see
+.I 'Outputs'
+section of this man-page. 
+
+
+.TP 10
+.BI -p \ INT
+Maximal probing distance for bubble popping when generating haplotype-resolved processed unitig graph
+without small bubbles [100000]. Bubbles longer than
+.I INT
+bases will not be popped. Small bubbles might be caused by somatic mutations or noise in data, which
+are not the real haplotype information. For detailed description of this graph, please see
+.I 'Outputs'
+section of this man-page. 
+
+
+.TP 10
+.BI -n \ INT
+A unitig is considered small if it is composed of less than 
+.I INT
+reads [3]. Hifiasm may try to remove small unitigs at various steps.
+
+
+
+.TP 10
+.BI -x \ FLOAT, -y \ FLOAT
+Max and min overlap drop ratio [0.8, 0.2]. This option is used with
+.I [-r roundCorrection].
+Given a node
+.I N
+in the assembly graph, let max(N)
+be the length of the largest overlap of
+.I N.
+Hifiasm iteratively drops overlaps of
+.I N
+if their length / max(N)
+are below a threshold controlled by
+.I [-x maxDropRatio]
+and
+.I [-y minDropRatio].
+Hifiasm applies
+.I [-r roundCorrection]
+rounds of short overlap removal with an increasing threshold between
+.I [-x maxDropRatio]
+and
+.I [-y minDropRatio].
+
+.TP 10
+.BI -i
+Ignore saved overlaps in [*.ovlp*] files.
+Apart from assembly graphs, hifiasm also outputs three binary files
+that save all overlap information during assembly step.
+With these files, hifiasm can avoid the time-consuming all-to-all overlap calculation step,
+and do the assembly directly and quickly.
+This might be helpful when users want to get an optimized assembly by multiple rounds of experiments
+with different parameters.
+
+
+.SH EXAMPLES
+
+.TP
+.BR ./hifiasm " " \-o " " NA12878.asm " " \-t " " 32 " " NA12878_1.fq.gz " " NA12878_2.fq.gz
+In this example, hifiasm will be run with 32 CPU threads. The input read files are [NA12878_1.fq.gz]
+and [NA12878_2.fq.gz],
+while all output files can be found at [NA12878.asm.*].
+
+.TP
+.BR ./hifiasm " " \-o " " butterfly.asm " " \-t " " 32 " " \-z " " 20 " " butterfly.fq.gz
+In this example, hifiasm will be run with 32 CPU threads. The input read file is [butterfly.fq.gz],
+while all output files can be found at [butterfly.asm.*].
+With
+.I [-z 20],
+hifiasm will remove 20 bases from both ends of each read.
+
+.SH OUTPUTS
+
+
+.PP
+Consider the prefix of output files has been specified by
+.I [-o outPrefix].
+During the error correction step, hifiasm outputs the following two files:
+
+.IP
+1. Haplotype-aware error corrected reads in fasta format [outPrefix.ec.fa].
+
+2. All-to-all overlaps in paf format [outPrefix.ovlp.paf].
+
+.PP
+During the assembly step, hifiasm outputs the following four assembly graphs in GFA format:
+
+
+.IP
+1. Haplotype-resolved raw unitig graph [outPrefix.r_utg.gfa].
+This graph keeps all haplotype information.
+
+
+2. Haplotype-resolved processed unitig graph without small bubbles [outPrefix.p_utg.gfa].
+Small bubbles might be caused by somatic mutations or noise in data, which are not the real haplotype information.
+The size of popped small bubbles should be specified by
+.I [-p maxSmallBubbles].
+
+
+3. Primary assembly contig graph [outPrefix.p_ctg.gfa].
+This graph collapses different haplotypes.
+
+4. Alternate assembly contig graph [outPrefix.a_ctg.gfa].
+This graph consists of all assemblies that are discarded in primary assembly contig graph.
+
+.PP
+For each graph, hifiasm also outputs a simplified version without sequences. These simplified
+graphs can be easily visualized.
+
+.PP
+Note that different species need different assembly graphs. For homozygous genomes,
+the primary assembly contig graph is the best choice. 
+For species with high heterozygous rate, different haplotypes can be fully separated.
+It is important to remove small bubbles from the haplotype-resolved unitig graph. The
+reason is that there are some somatic mutations or noise in data, which are not
+the real haplotype information. In this case, haplotype-resolved processed unitig graph
+without small bubbles should be better.
+For ordinary human genome, different haplotypes cannot be fully separated due to the low
+heterozygous rate. There are many small bubbles including haplotype information,
+which cannot be simply removed. Thus, it is necessary to use the haplotype-resolved raw
+unitig graph.
+
