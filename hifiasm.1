@@ -223,9 +223,9 @@ Note that different species need different assembly graphs. For homozygous genom
 the primary assembly contig graph is the best choice. 
 For species with high heterozygous rate, different haplotypes can be fully separated.
 It is important to remove small bubbles from the haplotype-resolved unitig graph. The
-reason is that there are some somatic mutations or noise in data, which are not
-the real haplotype information. In this case, haplotype-resolved processed unitig graph
-without small bubbles should be better.
+reason is that some small bubbles are caused by some somatic mutations or noise in data,
+which are not the real haplotype information. In this case, haplotype-resolved processed
+unitig graph without small bubbles should be better.
 For ordinary human genome, different haplotypes cannot be fully separated due to the low
 heterozygous rate. There are many small bubbles including haplotype information,
 which cannot be simply removed. Thus, it is necessary to use the haplotype-resolved raw
