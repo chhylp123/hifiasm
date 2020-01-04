@@ -31,7 +31,11 @@ void Print_H(hifiasm_opt_t* asm_opt)
     ///fprintf(stderr, "    -i            ignore saved overlaps in *.ovlp*.bin files\n");
     fprintf(stderr, "    -i            ignore saved overlaps in *.ovlp* files\n");
     fprintf(stderr, "    -z INT        length of adapters that should be removed [%d]\n", asm_opt->adapterLen);
-    fprintf(stderr, "    -p INT        size of popped bubbles [%lld]\n", asm_opt->pop_bubble_size);
+    fprintf(stderr, "    -m INT        size of popped large bubbles for contig graph [%lld]\n", 
+    asm_opt->large_pop_bubble_size);
+    fprintf(stderr, "    -p INT        size of popped small bubbles for haplotype-resolved unitig graph [%lld]\n", 
+    asm_opt->small_pop_bubble_size);
+    fprintf(stderr, "    -n INT        small removed unitig threshold [%d]\n", asm_opt->max_short_tip);
     fprintf(stderr, "    -x FLOAT      max overlap drop ratio [%.2g]\n", asm_opt->max_drop_rate);
     fprintf(stderr, "    -y FLOAT      min overlap drop ratio [%.2g]\n", asm_opt->min_drop_rate);
     fprintf(stderr, "    -v            show version number\n");
@@ -57,9 +61,16 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->adapterLen = 0;
     asm_opt->clean_round = 4;
     asm_opt->complete_threads = 0;
-    asm_opt->pop_bubble_size = 100000;
+    asm_opt->small_pop_bubble_size = 100000;
+    asm_opt->large_pop_bubble_size = 10000000;
     asm_opt->min_drop_rate = 0.2;
     asm_opt->max_drop_rate = 0.8;
+    asm_opt->max_hang_Len = 1000;
+    asm_opt->max_hang_rate = 0.8;
+    asm_opt->gap_fuzz = 1000;
+    asm_opt->min_overlap_Len = 50;
+    asm_opt->min_overlap_coverage = 0;
+    asm_opt->max_short_tip = 3;
 }
 
 void destory_opt(hifiasm_opt_t* asm_opt)
@@ -90,68 +101,110 @@ int check_option(hifiasm_opt_t* asm_opt)
 
     if(asm_opt->output_file_name == NULL)
     {
-        fprintf(stderr, "[ERROR] missing output: please specify the output name\n");
+        fprintf(stderr, "[ERROR] missing output: please specify the output name (-o)\n");
         return 0;
     }
 
     if(asm_opt->thread_num < 1)
     {
-        fprintf(stderr, "[ERROR] the number of threads must be > 0\n");
+        fprintf(stderr, "[ERROR] the number of threads must be > 0 (-t)\n");
         return 0;
     }
 
 
     if(asm_opt->number_of_round < 1)
     {
-        fprintf(stderr, "[ERROR] the number of rounds for correction must be > 0\n");
+        fprintf(stderr, "[ERROR] the number of rounds for correction must be > 0 (-r)\n");
         return 0;
     }
 
     if(asm_opt->clean_round < 1)
     {
-        fprintf(stderr, "[ERROR] the number of rounds for assembly cleaning must be > 0\n");
+        fprintf(stderr, "[ERROR] the number of rounds for assembly cleaning must be > 0 (-a)\n");
         return 0;
     }
 
     if(asm_opt->adapterLen < 0)
     {
-        fprintf(stderr, "[ERROR] the length of removed adapters must be >= 0\n");
+        fprintf(stderr, "[ERROR] the length of removed adapters must be >= 0 (-z)\n");
         return 0;
     }
 
 
     if(asm_opt->k_mer_length >= 64)
     {
-        fprintf(stderr, "[ERROR] the length of k_mer must be < 64\n");
+        fprintf(stderr, "[ERROR] the length of k_mer must be < 64 (-k)\n");
         return 0;
     }
 
 
     if(asm_opt->max_drop_rate < 0 || asm_opt->max_drop_rate >= 1 ) 
     {
-        fprintf(stderr, "[ERROR] max overlap drop ratio must be [0.0, 1.0)\n");
+        fprintf(stderr, "[ERROR] max overlap drop ratio must be [0.0, 1.0) (-x)\n");
         return 0;
     }
 
     
     if(asm_opt->min_drop_rate < 0 || asm_opt->min_drop_rate >= 1)
     {
-        fprintf(stderr, "[ERROR] min overlap drop ratio must be [0.0, 1.0)\n");
+        fprintf(stderr, "[ERROR] min overlap drop ratio must be [0.0, 1.0) (-y)\n");
         return 0;
     }
 
     if(asm_opt->max_drop_rate <= asm_opt->min_drop_rate)
     {
-        fprintf(stderr, "[ERROR] min overlap drop ratio must be less than max overlap drop ratio\n");
+        fprintf(stderr, "[ERROR] min overlap drop ratio must be less than max overlap drop ratio (-x/-y)\n");
         return 0;
     }
 
-    if(asm_opt->pop_bubble_size < 0)
+    if(asm_opt->small_pop_bubble_size < 0)
     {
-        fprintf(stderr, "[ERROR] the size of popped bubbles must be >= 0\n");
+        fprintf(stderr, "[ERROR] the size of popped small bubbles must be >= 0 (-p)\n");
         return 0;
     }
 
+    if(asm_opt->large_pop_bubble_size < 0)
+    {
+        fprintf(stderr, "[ERROR] the size of popped large bubbles must be >= 0 (-m)\n");
+        return 0;
+    }
+
+    if(asm_opt->max_hang_Len < 0)
+    {
+        fprintf(stderr, "[ERROR] max_hang_Len must be >= 0\n");
+        return 0;
+    }
+
+    if(asm_opt->max_hang_rate < 0)
+    {
+        fprintf(stderr, "[ERROR] max_hang_rate must be >= 0\n");
+        return 0;
+    }
+
+    if(asm_opt->gap_fuzz < 0)
+    {
+        fprintf(stderr, "[ERROR] gap_fuzz must be >= 0\n");
+        return 0;
+    }
+
+    if(asm_opt->min_overlap_Len < 0)
+    {
+        fprintf(stderr, "[ERROR] min_overlap_Len must be >= 0\n");
+        return 0;
+    }
+
+    if(asm_opt->min_overlap_coverage < 0)
+    {
+        fprintf(stderr, "[ERROR] min_overlap_coverage must be >= 0\n");
+        return 0;
+    }
+
+
+    if(asm_opt->max_short_tip < 0)
+    {
+        fprintf(stderr, "[ERROR] the length of removal tips must be >= 0 (-n)\n");
+        return 0;
+    }
 
     // fprintf(stderr, "input file num: %d\n", asm_opt->num_reads);
     // fprintf(stderr, "output file: %s\n", asm_opt->output_file_name);
@@ -162,7 +215,9 @@ int check_option(hifiasm_opt_t* asm_opt)
     // fprintf(stderr, "length of k_mer: %d\n", asm_opt->k_mer_length);
     // fprintf(stderr, "min overlap drop ratio: %.2g\n", asm_opt->min_drop_rate);
     // fprintf(stderr, "max overlap drop ratio: %.2g\n", asm_opt->max_drop_rate);
-    // fprintf(stderr, "size of popped bubbles: %lld\n", asm_opt->pop_bubble_size);
+    // fprintf(stderr, "size of popped small bubbles: %lld\n", asm_opt->small_pop_bubble_size);
+    // fprintf(stderr, "size of popped large bubbles: %lld\n", asm_opt->large_pop_bubble_size);
+    // fprintf(stderr, "small removed unitig threshold: %d\n", asm_opt->max_short_tip);
 
     return 1;
 }
@@ -213,8 +268,6 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         } 
         else if (c == 't') asm_opt->thread_num = atoi(opt.arg); 
         else if (c == 'o') asm_opt->output_file_name = opt.arg;
-        else if (c == 'n') asm_opt->k_mer_min_freq = atoi(opt.arg);
-        else if (c == 'm') asm_opt->k_mer_max_freq = atoi(opt.arg);
         else if (c == 'r') asm_opt->number_of_round = atoi(opt.arg);
         else if (c == 'k') asm_opt->k_mer_length = atoi(opt.arg);
         else if (c == 'i') asm_opt->load_index_from_disk = 0; 
@@ -225,7 +278,9 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         else if (c == 'b') asm_opt->required_read_name = opt.arg;
         else if (c == 'x') asm_opt->max_drop_rate = atof(opt.arg);
         else if (c == 'y') asm_opt->min_drop_rate = atof(opt.arg);
-        else if (c == 'p') asm_opt->pop_bubble_size = atoll(opt.arg);
+        else if (c == 'p') asm_opt->small_pop_bubble_size = atoll(opt.arg);
+        else if (c == 'm') asm_opt->large_pop_bubble_size = atoll(opt.arg);
+        else if (c == 'n') asm_opt->max_short_tip = atoll(opt.arg);
         else if (c == ':') 
         {
 			fprintf(stderr, "[ERROR] missing option argument in \"%s\"\n", argv[opt.i - 1]);
