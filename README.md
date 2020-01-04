@@ -10,24 +10,25 @@ cd hifiasm && make
 
 ## Introduction
 
-Hifiasm is an ultrafast haplotype-resolved de novo assembler based on PacBio
+Hifiasm is a fast haplotype-reserved de novo assembler for PacBio
 Hifi reads. Unlike most existing assemblers, hifiasm starts from uncollapsed
 genome. Thus, it is able to keep the haplotype information as much as possible.
 The input of hifiasm is the PacBio Hifi reads in fasta/fastq format, and its
 outputs consist of: 
 
 1. Haplotype-resolved raw [unitig][unitig] graph in [GFA][gfa] format
-   (hifiasm.asm.r\_utg.gfa by default). This graph keeps all haplotype information.
-2. Haplotype-resolved processed [unitig][unitig] graph in [GFA][gfa] format
-   without small bubbles (hifiasm.asm.p\_utg.gfa by default). Small bubbles might be 
-   caused by somatic mutations or noise in data, which are not the real haplotype information.
-3. Primary assembly [contig][unitig] graph in [GFA][gfa] format
-   (hifiasm.asm.p\_ctg.gfa by default).
-4. Alternate assembly [contig][unitig] graph in [GFA][gfa] format
-   (hifiasm.asm.a\_ctg.gfa by default).
-5. Haplotype-aware error corrected reads in fasta format (hifiasm.asm.ec.fa by
-   default).
-6. All-to-all overlaps in [paf][paf] format (hifiasm.asm.ovlp.paf).
+   (*prefix*.r\_utg.gfa). This graph keeps all haplotype information, including
+   somatic mutations and recurrent sequencing errors.
+2. Haplotype-resolved processed unitig graph without small bubbles
+   (*prefix*.p\_utg.gfa). This is usually the preferred output for highly
+   heterozygous genomes.
+3. Primary assembly [contig][unitig] graph (*prefix*.p\_ctg.gfa). This is the
+   preferred output for inbred strains or human. For highly heterozygous
+   genomes, this graph may represent multiple haplotypes. We plan to change
+   this to represent one set of haplotypes.
+4. Alternate assembly contig graph (*prefix*.a\_ctg.gfa).
+5. Haplotype-aware error corrected reads in fasta format (*prefix*.ec.fa).
+6. All-to-all overlaps in the [PAF][paf] format (*prefix*.ovlp.paf).
 
 So far hifiasm is still in early development stage, it will output phased
 chromosome-level high-quality assembly in the near future. In addition, hifiasm
@@ -98,10 +99,10 @@ have further questions, please raise an issue at the issue page.
 
 1. For genome with low heterozygous rate, hifiasm only outputs
    haplotype-resolved assembly graph, instead of the phased chromosome-level
-   assembly (**will support such output in the near future**).
+   assembly (will support such output in future).
 
 2. For different species, hifiasm outputs different assembly graphs, which are not easy to use.
-   **Hifiasm will generate a universal haplotype-resolved contig graph for all species in the near future.**
+   Hifiasm will generate a universal haplotype-resolved contig graph for all species in future.
 
 3. The running time and memory usage should be further reduced.
 
