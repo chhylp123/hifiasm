@@ -90,7 +90,7 @@ In this example, hifiasm will remove 20 bases from both ends of each read.
 
 ## Getting Help
 
-For detailed description of options, please see `man ./hifiasm.1'.
+For detailed description of options, please see `man ./hifiasm.1`.
 The `-h` option of hifiasm also provides simple description of options. If you
 have further questions, please raise an issue at the issue page.
 
