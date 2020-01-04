@@ -73,7 +73,7 @@ all overlaps to disk, which can avoid the time-consuming all-to-all overlap
 calculation next time. For hifiasm, once the overlap information has been
 obtained during the previous run in advance, it is able to load all overlaps
 from disk and then directly do assembly. If you want to ignore the pre-computed
-overlap information, please specify `-i` or simply delete `*.ovlp`, `*.ovlp.source` and `*.ovlp.reverse`.
+overlap information, please specify `-i`.
 
 Please note that some old Hifi reads may consist of short adapters. To improve
 the assembly quality, adapters should be removed by `-z` as follow:
