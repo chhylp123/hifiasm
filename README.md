@@ -55,7 +55,7 @@ Note that different species need different assembly graphs. For homozygous genom
 For species with high heterozygous rate (i.e., Butterfly), different haplotypes can be fully separated. It is important to remove small bubbles from the haplotype-resolved unitig graph. The
 reason is that some small bubbles are caused by somatic mutations or noise in data, which are not
 the real haplotype information. In this case, haplotype-resolved processed unitig graph
-without small bubbles should be better. For ordinary human genome (i.e., Human NA12878 and HG002), different haplotypes cannot be fully separated due to the low heterozygous rate. There are many small bubbles including haplotype information, which cannot be simply removed. Thus, it is necessary to use the haplotype-resolved raw unitig graph. **Hifiasm will generate a universal haplotype contig graph for all species in the near future.**
+without small bubbles should be better. For ordinary human genome (i.e., Human NA12878 and HG002), different haplotypes cannot be fully separated due to the low heterozygous rate. There are many small bubbles including haplotype information, which cannot be simply removed. Thus, it is necessary to use the haplotype-resolved raw unitig graph. **Hifiasm will generate a universal haplotype-resolved contig graph for all species in the near future.**
 
 ## Usage
 
@@ -101,7 +101,7 @@ have further questions, please raise an issue at the issue page.
    assembly (**will support such output in the near future**).
 
 2. For different species, hifiasm outputs different assembly graphs, which are not easy to use.
-   **Hifiasm will generate a universal haplotype contig graph for all species in the near future.**
+   **Hifiasm will generate a universal haplotype-resolved contig graph for all species in the near future.**
 
 3. The running time and memory usage should be further reduced.
 
