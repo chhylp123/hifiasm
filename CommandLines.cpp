@@ -41,8 +41,7 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "    -v            show version number\n");
     fprintf(stderr, "    -h            show help information\n");
     fprintf(stderr, "Example: ./hifiasm -o NA12878.asm -t 32 NA12878.fq.gz\n");
-
-    
+    fprintf(stderr, "See `man ./hifiasm.1' for detailed description of these command-line options.\n");
 }
 
 void init_opt(hifiasm_opt_t* asm_opt)
