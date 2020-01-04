@@ -17,7 +17,7 @@ The input of hifiasm is the PacBio Hifi reads in fasta/fastq format, and its
 outputs consist of: 
 
 1. Haplotype-resolved raw [unitig][unitig] graph in [GFA][gfa] format
-   (hifiasm.asm.r\_utg.gfa by default). This graph keeps all haplotype information
+   (hifiasm.asm.r\_utg.gfa by default). This graph keeps all haplotype information.
 2. Haplotype-resolved processed [unitig][unitig] graph in [GFA][gfa] format
    without small bubbles (hifiasm.asm.p\_utg.gfa by default). Small bubbles might be 
    caused by somatic mutations or noise in data, which are not the real haplotype information.
@@ -51,17 +51,11 @@ assembly in a few hours. Hifiasm has been tested on the following datasets:
 [2] CHM13 is a homozygous sample, so that unitig N50 makes no sense.
 [3] Butterfly has high heterozygous rate, so that most chromosomes have been fully separated into two haplotypes. In this case, contig N50 makes no sense.<sub>
 
-Note that different species need different assembly graphs. For homozygous genomes,
-the primary assembly contig graph is the best choice. 
-For species with high heterozygous rate, different haplotypes can be fully separated.
-It is important to remove small bubbles from the haplotype-resolved unitig graph. The
+Note that different species need different assembly graphs. For homozygous genomes (i.e., Human CHM13), the primary assembly contig graph is the best choice. 
+For species with high heterozygous rate (i.e., Butterfly), different haplotypes can be fully separated. It is important to remove small bubbles from the haplotype-resolved unitig graph. The
 reason is that there are some somatic mutations or noise in data, which are not
 the real haplotype information. In this case, haplotype-resolved processed unitig graph
-without small bubbles should be better.
-For ordinary human genome, different haplotypes cannot be fully separated due to the low
-heterozygous rate. There are many small bubbles including haplotype information,
-which cannot be simply removed. Thus, it is necessary to use the haplotype-resolved raw
-unitig graph. **Hifiasm will generate a universal haplotype contig graph for all species in the near future.**
+without small bubbles should be better. For ordinary human genome (i.e., Human NA12878 and HG002), different haplotypes cannot be fully separated due to the low heterozygous rate. There are many small bubbles including haplotype information, which cannot be simply removed. Thus, it is necessary to use the haplotype-resolved raw unitig graph. **Hifiasm will generate a universal haplotype contig graph for all species in the near future.**
 
 ## Usage
 
