@@ -53,7 +53,7 @@ assembly in a few hours. Hifiasm has been tested on the following datasets:
 
 Note that different species need different assembly graphs. For homozygous genomes (i.e., Human CHM13), the primary assembly contig graph is the best choice. 
 For species with high heterozygous rate (i.e., Butterfly), different haplotypes can be fully separated. It is important to remove small bubbles from the haplotype-resolved unitig graph. The
-reason is that some small bubbles are caused by some somatic mutations or noise in data, which are not
+reason is that some small bubbles are caused by somatic mutations or noise in data, which are not
 the real haplotype information. In this case, haplotype-resolved processed unitig graph
 without small bubbles should be better. For ordinary human genome (i.e., Human NA12878 and HG002), different haplotypes cannot be fully separated due to the low heterozygous rate. There are many small bubbles including haplotype information, which cannot be simply removed. Thus, it is necessary to use the haplotype-resolved raw unitig graph. **Hifiasm will generate a universal haplotype contig graph for all species in the near future.**
 
