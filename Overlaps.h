@@ -102,6 +102,8 @@ typedef struct {
 	uint32_t m_arc, n_arc:31, is_srt:1;
 	asg_arc_t *arc;
 	uint32_t m_seq, n_seq:31, is_symm:1;
+	uint32_t r_seq;
+
 	asg_seq_t *seq;
 	uint64_t *idx;
 
@@ -303,6 +305,13 @@ typedef struct {
 	kvec_t(uint32_t) b; // visited vertices
 	kvec_t(uint32_t) e; // visited edges/arcs
 } buf_t;
+
+
+typedef struct {
+	kvec_t(uint64_t) Nodes; 
+	kvec_t(uint64_t) Edges; 
+	uint32_t pre_n_seq, seqID; 
+} C_graph;
 
 // count the number of outgoing arcs, including reduced arcs
 static inline int count_out_with_del(const asg_t *g, uint32_t v)
