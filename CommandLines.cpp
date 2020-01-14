@@ -46,6 +46,7 @@ void Print_H(hifiasm_opt_t* asm_opt)
 
 void init_opt(hifiasm_opt_t* asm_opt)
 {
+    asm_opt->coverage = -1;
     asm_opt->num_reads = 0;
     asm_opt->read_file_names = NULL;
     asm_opt->output_file_name = (char*)(DEFAULT_OUTPUT);

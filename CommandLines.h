@@ -36,6 +36,7 @@ typedef struct {
     long long num_bases;
     long long num_corrected_bases;
     long long num_recorrected_bases;
+    long long coverage;
 } hifiasm_opt_t;
 
 extern hifiasm_opt_t asm_opt;
