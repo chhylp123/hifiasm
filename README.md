@@ -10,7 +10,7 @@ cd hifiasm && make
 
 ## Introduction
 
-Hifiasm is a fast haplotype-reserved de novo assembler for PacBio
+Hifiasm is a fast haplotype-resolved de novo assembler for PacBio
 Hifi reads. Unlike most existing assemblers, hifiasm starts from uncollapsed
 genome. Thus, it is able to keep the haplotype information as much as possible.
 The input of hifiasm is the PacBio Hifi reads in fasta/fastq format, and its
