@@ -1716,7 +1716,7 @@ void Output_PAF()
 {
 
     fprintf(stderr, "Writing PAF to disk ...... \n");
-    char* paf_name = (char*)malloc(strlen(asm_opt.output_file_name)+5);
+    char* paf_name = (char*)malloc(strlen(asm_opt.output_file_name)+50);
     sprintf(paf_name, "%s.ovlp.paf", asm_opt.output_file_name);
     FILE* output_file = fopen(paf_name, "w");
     uint64_t i, j;
@@ -1757,6 +1757,8 @@ void Output_PAF()
 
     free(paf_name);
     fclose(output_file);
+
+    fprintf(stderr, "PAF has beem written.\n");
 }
 
 

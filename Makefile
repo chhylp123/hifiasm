@@ -1,11 +1,11 @@
 CXX=		g++
-CXXFLAGS=	-g -O3 -msse4.2 -mpopcnt -fomit-frame-pointer -Wall #-Winline 
+CXXFLAGS=	-g -O3 -msse4.2 -mpopcnt -fomit-frame-pointer -Wall #-fsanitize=address -fno-omit-frame-pointer#-Winline 
 CPPFLAGS=
 INCLUDES=
 OBJS=		Output.o CommandLines.o Process_Read.o Assembly.o kmer.o Hash_Table.o \
 			POA.o Correct.o Levenshtein_distance.o Overlaps.o #ksw2_extz2_sse.o
 EXE=		hifiasm
-LIBS=		-lz -lpthread -lm
+LIBS=		-lz -lpthread -lm #-fsanitize=address -fno-omit-frame-pointer
 
 ifneq ($(asan),)
 	CXXFLAGS+=-fsanitize=address

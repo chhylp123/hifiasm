@@ -17,7 +17,12 @@
 ///#define MAX_BUBBLE_DIST 10000000
 #define SMALL_BUBBLE_SIZE (uint32_t)-1
 //#define SMALL_BUBBLE_SIZE 1000
-
+#define PRIMARY_LABLE 0
+#define ALTER_LABLE 1
+#define HAP_LABLE 2
+// #define PRIMARY_LABLE 1
+// #define ALTER_LABLE 2
+// #define HAP_LABLE 4
 
 #define Get_qn(RECORD) ((uint32_t)((RECORD).qns>>32))
 #define Get_qs(RECORD) ((uint32_t)((RECORD).qns))
@@ -36,6 +41,8 @@
 #define LOOP 7
 
 
+
+
 ///query is the read itself
 typedef struct {
 	uint64_t qns;
@@ -45,7 +52,6 @@ typedef struct {
 	uint8_t el;
 	uint8_t no_l_indel;
 } ma_hit_t;
-
 
 typedef struct {
 	ma_hit_t* buffer;
@@ -241,7 +247,7 @@ static inline void asg_seq_del(asg_t *g, uint32_t s)
 static inline void asg_seq_drop(asg_t *g, uint32_t s)
 {
 	///s is not at primary
-	if(g->seq[s].c)
+	if(g->seq[s].c == ALTER_LABLE)
 	{
 		uint32_t k;
 		for (k = 0; k < 2; ++k) 
@@ -254,8 +260,10 @@ static inline void asg_seq_drop(asg_t *g, uint32_t s)
 			{
 				if(av[i].del) continue;
 				///if output node is at primary
-				if(g->seq[(av[i].v>>1)].c == 0)
-				{
+				/****************************may have hap bugs********************************/
+				///if(g->seq[(av[i].v>>1)].c == PRIMARY_LABLE)
+				if(g->seq[(av[i].v>>1)].c == PRIMARY_LABLE || g->seq[(av[i].v>>1)].c == HAP_LABLE)
+				{/****************************may have hap bugs********************************/
 					av[i].del = 1;
 					asg_arc_del(g, av[i].v^1, v^1, 1);
 				}
@@ -313,6 +321,36 @@ typedef struct {
 	uint32_t pre_n_seq, seqID; 
 } C_graph;
 
+typedef struct {
+	kvec_t(uint32_t) a;
+	uint32_t i;
+} kvec_t_u32_warp;
+
+typedef struct {
+	kvec_t(uint64_t) a;
+	uint64_t i;
+} kvec_t_u64_warp;
+
+
+typedef struct {
+	uint32_t q_pos;
+	uint32_t t_pos;
+	uint32_t t_id;
+	uint32_t is_color;
+} Hap_Align;
+
+typedef struct {
+	kvec_t(Hap_Align) x;
+	uint64_t i;
+} Hap_Align_warp;
+
+typedef struct {
+	buf_t* b_0;
+    uint32_t untigI;
+    uint32_t readI;
+    uint32_t offset;
+} rIdContig;
+
 // count the number of outgoing arcs, including reduced arcs
 static inline int count_out_with_del(const asg_t *g, uint32_t v)
 {
@@ -350,4 +388,38 @@ void remove_overlaps(ma_hit_t_alloc* source_paf, uint64_t* source_index, long lo
 void add_overlaps_from_different_sources(ma_hit_t_alloc* source_paf_list, ma_hit_t_alloc* dest_paf, 
 uint64_t* source_index, long long listLen);
 void print_revise_edges(ma_hit_t_alloc* source_paf, uint64_t* source_index, long long listLen);
+
+#define EvaluateLen(U, id) ((U).a[(id)].start)
+#define IsMerge(U, id) ((U).a[(id)].end)
+#define kv_reuse(v, rn, rm, r) ((v).n = (rn), (v).m = (rm), (v).a = (r))
+#define long_tip(U, id, threshold) ((EvaluateLen((U), (id))>=(threshold))&&(!((U).a[(id)].circ)))
+///there are threee cases: 
+///1. if this untig is too long (>maxShortUntig), it must be not short untig/must be a long untig
+///2. if this untig is long (>minLongUntig && EvaluateLen(ug->u, av[i].v>>1) > (EvaluateLen(ug->u, v>>1)*l_untig_rate)), it might be a long tip
+#define check_long_tip(U, id, minLongUntig, maxShortUntig, ShortUntigRate, mainLen) \
+                        ((!((U).a[(id)].circ)) \
+                        && \
+                        ((EvaluateLen((U), (id)) > (maxShortUntig))\
+                        ||\
+                        ((long_tip((U), (id), (minLongUntig)))\
+                        &&\
+                        (EvaluateLen((U), (id)) > (ShortUntigRate)*(mainLen)))))
+#define Get_vis(visit, v, d) (((visit)[(v)>>1])&(((((v)<<(d))&1)+1)))
+#define Set_vis(visit, v, d) (((visit)[(v)>>1])|=(((((v)<<(d))&1)+1)))
+
+
+
+
+
+typedef struct {
+	uint64_t len;
+	uint32_t* index;
+} R_to_U;
+
+void init_R_to_U(R_to_U* x, uint64_t len);
+void destory_R_to_U(R_to_U* x);
+void set_R_to_U(R_to_U* x, uint32_t rID, uint32_t uID, uint32_t is_Unitig);
+void get_R_to_U(R_to_U* x, uint32_t rID, uint32_t* uID, uint32_t* is_Unitig);
+void transfor_R_to_U(R_to_U* x);
+
 #endif
