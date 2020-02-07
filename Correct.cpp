@@ -5024,7 +5024,8 @@ long long xBeg, long long xEnd, long long flag_offset)
             for (i = 0; i < operationLen; i++)
             {
                 /// note we need to deal with flag_offset carefully
-                if(flag[x_i - flag_offset] < 127 && x_i >= xBeg && x_i <= xEnd)
+                ///if(flag[x_i - flag_offset] < 127 && x_i >= xBeg && x_i <= xEnd)
+                if(x_i >= xBeg && x_i <= xEnd && flag[x_i - flag_offset] < 127)
                 {
                     flag[x_i - flag_offset]++;
                 }
@@ -5275,7 +5276,8 @@ haplotype_evdience_alloc* hap, long long snp_threshold)
             {
                 ///should be at least 2 mismatches
                 /// note we need to deal with flag_offset carefully
-                if(flag[x_i - flag_offset] > snp_threshold && x_i >= xBeg && x_i <= xEnd)
+                ///if(flag[x_i - flag_offset] > snp_threshold && x_i >= xBeg && x_i <= xEnd)
+                if(x_i >= xBeg && x_i <= xEnd && flag[x_i - flag_offset] > snp_threshold)
                 {
                     ev.misBase =  y_string[y_i];
                     ev.overlapID = overlapID;
@@ -5296,7 +5298,8 @@ haplotype_evdience_alloc* hap, long long snp_threshold)
 
                 /// should be at least 2 mismatches
                 /// note we need to deal with flag_offset carefully
-                if(flag[x_i - flag_offset] > snp_threshold && x_i >= xBeg && x_i <= xEnd)
+                ///if(flag[x_i - flag_offset] > snp_threshold && x_i >= xBeg && x_i <= xEnd)
+                if(x_i >= xBeg && x_i <= xEnd && flag[x_i - flag_offset] > snp_threshold)
                 {
                     ev.misBase =  y_string[y_i];
                     ev.overlapID = overlapID;
@@ -5323,7 +5326,8 @@ haplotype_evdience_alloc* hap, long long snp_threshold)
                 ///if(hap->flag[inner_offset] > snp_threshold)
                 /// should be at least 2 mismatches
                 /// note we need to deal with flag_offset carefully
-                if(flag[x_i - flag_offset] > snp_threshold && x_i >= xBeg && x_i <= xEnd)
+                ///if(flag[x_i - flag_offset] > snp_threshold && x_i >= xBeg && x_i <= xEnd)
+                if(x_i >= xBeg && x_i <= xEnd && flag[x_i - flag_offset] > snp_threshold)
                 {
                     ev.misBase =  'N';
                     ev.overlapID = overlapID;

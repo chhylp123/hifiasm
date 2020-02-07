@@ -43,9 +43,9 @@ assembly in a few hours. Hifiasm has been tested on the following datasets:
 
 |<sub>Dataset<sub>|<sub>GSize<sub>|<sub>Cov<sub>|<sub>Asm options<sub>|<sub>CPU time<sub>|<sub>Wall time<sub>|<sub>RAM<sub>|<sub>[unitig][unitig]/[contig][unitig] N50<sup>[1]</sup><sub>|
 |:---------------|-----:|-----:|:---------------------|-------:|--------:|----:|----------------:|
-|<sub>[Human NA12878]<sub>|<sub>3Gb<sub>|<sub>x28<sub>|<sub>-k 40 -t 42 -r 2<sub>|<sub>200h<sub>|    <sub>5h32m<sub>|<sub>114G<sub>|<sub>93.5Kb/21.5Mb<sub>|
-|<sub>[Human HG002]<sub>|<sub>3Gb<sub>|<sub>x43<sub>|<sub>-k 40 -t 42 -r 2<sub>|<sub>405h10m<sub>|<sub>12h7m<sub>|<sub>146G<sub>|<sub>320kb/31.9Mb<sub>|
-|<sub>[Human CHM13]<sub>|<sub>3Gb<sub>|<sub>x27<sub>|<sub>-k 40 -t 42 -r 2<sub>|<sub>157h28m<sub>|<sub>5h10m<sub>|<sub>85.8G<sub>|<sub>NA<sup>[2]</sup>/39.8Mb<sub>|
+|<sub>[Human NA12878]<sub>|<sub>3Gb<sub>|<sub>x28<sub>|<sub>-k 40 -t 42 -r 2<sub>|<sub>200h<sub>|    <sub>5h32m<sub>|<sub>114G<sub>|<sub>93.5Kb/28.2Mb<sub>|
+|<sub>[Human HG002]<sub>|<sub>3Gb<sub>|<sub>x43<sub>|<sub>-k 40 -t 42 -r 2<sub>|<sub>405h10m<sub>|<sub>12h7m<sub>|<sub>146G<sub>|<sub>320kb/35.3Mb<sub>|
+|<sub>[Human CHM13]<sub>|<sub>3Gb<sub>|<sub>x27<sub>|<sub>-k 40 -t 42 -r 2<sub>|<sub>157h28m<sub>|<sub>5h10m<sub>|<sub>85.8G<sub>|<sub>NA<sup>[2]</sup>/41.4Mb<sub>|
 |<sub>[Butterfly]<sub>|<sub>358Mb<sub>|<sub>x35<sub>|<sub>-k 40 -t 42 -r 2 -z 20<sub>|<sub>17h6m<sub>|<sub>36m<sub>|<sub>16G<sub>|<sub>7.5Mb/NA<sup>[3]</sup><sub>|
 
 <sub>[1] unitig N50 is the N50 of assembly graph with haplotype information (i.e., bubbles), while the contig N50 is the N50 of haplotype collapsed assembly (i.e., without bubbles).

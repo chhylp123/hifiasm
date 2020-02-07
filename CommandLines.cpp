@@ -5,7 +5,7 @@
 #include "ketopt.h"
 #include <sys/time.h>
 
-#define VERSION "0.1.0"
+#define VERSION "0.2.0"
 #define DEFAULT_OUTPUT "hifiasm.asm"
 
 hifiasm_opt_t asm_opt;
