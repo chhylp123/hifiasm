@@ -47,6 +47,7 @@ assembly in a few hours. Hifiasm has been tested on the following datasets:
 |<sub>[Human HG002]<sub>|<sub>3Gb<sub>|<sub>x43<sub>|<sub>-k 40 -t 42 -r 2<sub>|<sub>405h10m<sub>|<sub>12h7m<sub>|<sub>146G<sub>|<sub>320kb/35.3Mb<sub>|
 |<sub>[Human CHM13]<sub>|<sub>3Gb<sub>|<sub>x27<sub>|<sub>-k 40 -t 42 -r 2<sub>|<sub>157h28m<sub>|<sub>5h10m<sub>|<sub>85.8G<sub>|<sub>NA<sup>[2]</sup>/41.4Mb<sub>|
 |<sub>[Butterfly]<sub>|<sub>358Mb<sub>|<sub>x35<sub>|<sub>-k 40 -t 42 -r 2 -z 20<sub>|<sub>17h6m<sub>|<sub>36m<sub>|<sub>16G<sub>|<sub>7.5Mb/NA<sup>[3]</sup><sub>|
+|<sub>[\[Redwood\]](https://downloads.pacbcloud.com/public/dataset/redwood2020/)<sub>|<sub>26.5Gb<sub>|<sub>x23<sub>|<sub>-k 40 -t 64 -r 2<sub>|<sub>7274h30m<sub>|<sub>141h30m<sub>|<sub>512G<sub>|<sub>1.7Mb/1.9Mb<sub>|
 
 <sub>[1] unitig N50 is the N50 of assembly graph with haplotype information (i.e., bubbles), while the contig N50 is the N50 of haplotype collapsed assembly (i.e., without bubbles).
 [2] CHM13 is a homozygous sample, so that unitig N50 makes no sense.
