@@ -13496,34 +13496,6 @@ char* output_file_name)
 }
 
 
-// in a resolved bubble, mark unused vertices and arcs as "reduced"
-static void asg_bub_backtrack(asg_t *g, uint32_t v0, buf_t *b)
-{
-	uint32_t i, v;
-	///assert(b->S.n == 1);
-	///first remove all nodes in this bubble
-	for (i = 0; i < b->b.n; ++i)
-		g->seq[b->b.a[i]>>1].del = 1;
-
-	///second remove all edges (self/reverse for each edge) in this bubble
-	for (i = 0; i < b->e.n; ++i) {
-		asg_arc_t *a = &g->arc[b->e.a[i]];
-		///remove this edge self
-		a->del = 1;
-		///remove the reverse direction
-		asg_arc_del(g, a->v^1, a->ul>>32^1, 1);
-	}
-	///v is the sink of this bubble
-	v = b->S.a[0];
-	///recover node
-	do {
-		uint32_t u = b->a[v].p; // u->v
-		g->seq[v>>1].del = 0;
-		asg_arc_del(g, u, v, 0);
-		asg_arc_del(g, v^1, u^1, 0);
-		v = u;
-	} while (v != v0);
-}
 
 
 // count the number of outgoing arcs, excluding reduced arcs
@@ -13536,109 +13508,7 @@ static inline int count_out(const asg_t *g, uint32_t v)
 	return n;
 }
 
-// pop bubbles from vertex v0; the graph MJUST BE symmetric: if u->v present, v'->u' must be present as well
-static uint64_t asg_bub_pop1(asg_t *g, uint32_t v0, int max_dist, buf_t *b)
-{
-	uint32_t i, n_pending = 0;
-	uint64_t n_pop = 0;
-	///if this node has been deleted
-	if (g->seq[v0>>1].del) return 0; // already deleted
-	///asg_arc_n(n0)
-	if ((uint32_t)g->idx[v0] < 2) return 0; // no bubbles
-	///S saves nodes with all incoming edges visited
-	b->S.n = b->T.n = b->b.n = b->e.n = 0;
-	///for each node, b->a saves all related information
-	b->a[v0].c = b->a[v0].d = 0;
-	///b->S is the nodes with all incoming edges visited
-	kv_push(uint32_t, b->S, v0);
 
-	do {
-		///v is a node that all incoming edges have been visited
-		///d is the distance from v0 to v
-		uint32_t v = kv_pop(b->S), d = b->a[v].d, c = b->a[v].c;
-		uint32_t nv = asg_arc_n(g, v);
-		asg_arc_t *av = asg_arc_a(g, v);
-		///why we have this assert?
-		///assert(nv > 0);
-
-		///all out-edges of v
-		for (i = 0; i < nv; ++i) { // loop through v's neighbors
-			/**
-			p->ul: |____________31__________|__________1___________|______________32_____________|
-								qn            direction of overlap       length of this node (not overlap length)
-												(in the view of query)
-			p->v : |___________31___________|__________1___________|
-								tn             reverse direction of overlap
-											(in the view of target)
-			p->ol: overlap length
-			**/
-			uint32_t w = av[i].v, l = (uint32_t)av[i].ul; // v->w with length l
-			binfo_t *t = &b->a[w];
-			///that means there is a circle, directly terminate the whole bubble poping
-			///if (w == v0) goto pop_reset;
-            if ((w>>1) == (v0>>1)) goto pop_reset;
-			///if this edge has been deleted
-			if (av[i].del) continue;
-
-			///push the edge
-            ///high 32-bit of g->idx[v] is the start point of v's edges
-            //so here is the point of this specfic edge
-			kv_push(uint32_t, b->e, (g->idx[v]>>32) + i);
-
-			///find a too far path? directly terminate the whole bubble poping
-			if (d + l > (uint32_t)max_dist) break; // too far
-
-            ///if this node
-			if (t->s == 0) { // this vertex has never been visited
-				kv_push(uint32_t, b->b, w); // save it for revert
-				///t->p is the parent node of 
-				///t->s = 1 means w has been visited
-				///d is len(v0->v), l is len(v->w), so t->d is len(v0->w)
-				t->p = v, t->s = 1, t->d = d + l, t->c = c + 1;
-				///incoming edges of w
-				t->r = count_out(g, w^1);
-				++n_pending;
-			} else { // visited before
-				///c is the weight (is very likely the number of node in this edge) of the parent node
-				///select the longest edge (longest meams most reads/longest edge)
-                if (c + 1 > t->c || (c + 1 == t->c && d + l > t->d)) t->p = v;
-				if (c + 1 > t->c) t->c = c + 1;
-				///update len(v0->w)
-                ///node: t->d is not the length from this node's parent
-                ///it is the shortest edge
-				if (d + l < t->d) t->d = d + l; // update dist
-			}
-			///assert(t->r > 0);
-			//if all incoming edges of w have visited
-			//push it to b->S
-			if (--(t->r) == 0) {
-				uint32_t x = asg_arc_n(g, w);
-				if (x) kv_push(uint32_t, b->S, w);
-				///else kv_push(uint32_t, b->T, w); // a tip
-                else goto pop_reset;
-				--n_pending;
-			}
-		}
-		///if i < nv, that means (d + l > max_dist)
-		if (i < nv || b->S.n == 0) goto pop_reset;
-	} while (b->S.n > 1 || n_pending);
-    ///fprintf(stderr, "\nbeg>>1: %u, sink>>1: %u, num nodes: %d\n", v0>>1, (b->S.a[0])>>1, b->b.n);
-	asg_bub_backtrack(g, v0, b);
-	///n_pop = 1 | (uint64_t)b->T.n<<32;
-    n_pop = 1;
-    
-    // for (i = 0; i < b->b.n; ++i)
-    // {
-    //     fprintf(stderr, "b->b.a[%d]: %d\n", i, b->b.a[i]>>1);
-    // }
-    
-pop_reset:
-	for (i = 0; i < b->b.n; ++i) { // clear the states of visited vertices
-		binfo_t *t = &b->a[b->b.a[i]];
-		t->s = t->c = t->d = 0;
-	}
-	return n_pop;
-}
 
 
 // in a resolved bubble, mark unused vertices and arcs as "reduced"
