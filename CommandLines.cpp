@@ -21,7 +21,9 @@ void Print_H(hifiasm_opt_t* asm_opt)
 {
     fprintf(stderr, "Usage: hifiasm [options] <in_1.fq> <in_2.fq> <...>\n");
     fprintf(stderr, "Options:\n");
+    fprintf(stderr, "  Assembly:\n");
     fprintf(stderr, "    -o FILE       prefix of output files [%s]\n", asm_opt->output_file_name);
+    ///fprintf(stderr, "    -c FILE       file including trio information\n");
     fprintf(stderr, "    -t INT        number of threads [%d]\n", asm_opt->thread_num);
     fprintf(stderr, "    -r INT        round of correction [%d]\n", asm_opt->number_of_round);
     fprintf(stderr, "    -a INT        round of assembly cleaning [%d]\n", asm_opt->clean_round);
@@ -40,6 +42,13 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "    -y FLOAT      min overlap drop ratio [%.2g]\n", asm_opt->min_drop_rate);
     fprintf(stderr, "    -v            show version number\n");
     fprintf(stderr, "    -h            show help information\n");
+
+    fprintf(stderr, "  Trio-partition:\n");
+    fprintf(stderr, "    -P FILE       paternal trio index [NULL]\n");
+    fprintf(stderr, "    -M FILE       Maternal trio index [NULL]\n");
+    fprintf(stderr, "    -c INT        lower bound of the binned k-mer's frequency [%d]\n", asm_opt->min_cnt);
+    fprintf(stderr, "    -d INT        upper bound of the binned k-mer's frequency [%d]\n", asm_opt->mid_cnt);
+
     fprintf(stderr, "Example: ./hifiasm -o NA12878.asm -t 32 NA12878.fq.gz\n");
     fprintf(stderr, "See `man ./hifiasm.1' for detailed description of these command-line options.\n");
 }
@@ -51,6 +60,8 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->read_file_names = NULL;
     asm_opt->output_file_name = (char*)(DEFAULT_OUTPUT);
     asm_opt->required_read_name = NULL;
+    asm_opt->pat_index = NULL;
+    asm_opt->mat_index = NULL;
     asm_opt->thread_num = 1;
     asm_opt->k_mer_length = 40;
     asm_opt->k_mer_min_freq = 3;
@@ -71,6 +82,8 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->min_overlap_Len = 50;
     asm_opt->min_overlap_coverage = 0;
     asm_opt->max_short_tip = 3;
+    asm_opt->min_cnt = 2;
+    asm_opt->mid_cnt = 5;
 }
 
 void destory_opt(hifiasm_opt_t* asm_opt)
@@ -90,6 +103,24 @@ void clear_opt(hifiasm_opt_t* asm_opt, int last_round)
     asm_opt->roundID = asm_opt->number_of_round - last_round;
 }
 
+int check_file(char* name, const char* opt)
+{
+    if(!name)
+    {
+        fprintf(stderr, "[ERROR] file does not exist (-%s)\n", opt);
+        return 0;
+    } 
+    FILE* is_exist = NULL;
+    is_exist = fopen(name,"r");
+    if(!is_exist)
+    {
+        fprintf(stderr, "[ERROR] %s does not exist (-%s)\n", name, opt);
+        return 0;
+    } 
+
+    fclose(is_exist);
+    return 1;
+}
 
 int check_option(hifiasm_opt_t* asm_opt)
 {
@@ -206,6 +237,10 @@ int check_option(hifiasm_opt_t* asm_opt)
         return 0;
     }
 
+
+    if(asm_opt->pat_index != NULL && check_file(asm_opt->pat_index, "P") == 0) return 0;
+    if(asm_opt->mat_index != NULL && check_file(asm_opt->mat_index, "M") == 0) return 0;
+
     // fprintf(stderr, "input file num: %d\n", asm_opt->num_reads);
     // fprintf(stderr, "output file: %s\n", asm_opt->output_file_name);
     // fprintf(stderr, "number of threads: %d\n", asm_opt->thread_num);
@@ -255,7 +290,7 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
 
     int c;
 
-    while ((c = ketopt(&opt, argc, argv, 1, "hvt:o:k:lwm:n:r:a:b:z:x:y:p:i", 0)) >= 0) {
+    while ((c = ketopt(&opt, argc, argv, 1, "hvt:o:k:lwm:n:r:a:b:z:x:y:p:c:d:M:P:i", 0)) >= 0) {
         if (c == 'h')
         {
             Print_H(asm_opt);
@@ -276,6 +311,10 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         else if (c == 'a') asm_opt->clean_round = atoi(opt.arg); 
         else if (c == 'z') asm_opt->adapterLen = atoi(opt.arg);
         else if (c == 'b') asm_opt->required_read_name = opt.arg;
+        else if (c == 'c') asm_opt->min_cnt = atoi(opt.arg);
+        else if (c == 'd') asm_opt->mid_cnt = atoi(opt.arg);
+        else if (c == 'P') asm_opt->pat_index = opt.arg;
+        else if (c == 'M') asm_opt->mat_index = opt.arg;
         else if (c == 'x') asm_opt->max_drop_rate = atof(opt.arg);
         else if (c == 'y') asm_opt->min_drop_rate = atof(opt.arg);
         else if (c == 'p') asm_opt->small_pop_bubble_size = atoll(opt.arg);

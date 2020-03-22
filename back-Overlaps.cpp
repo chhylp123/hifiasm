@@ -147,7 +147,20 @@ uint64_t* source_index, long long listLen)
     }
 }
 
+void print_revise_edges(ma_hit_t_alloc* source_paf, uint64_t* source_index, long long listLen)
+{
+    long long i;
+    ma_hit_t* tmp;
+    for (i = 0; i < listLen; i++)
+    {
+        tmp = &(source_paf->buffer[(uint32_t)(source_index[i])]);
 
+        fprintf(stderr, "%.*s(%d) ---(+)--> %.*s(%d), Len: %d\n", 
+        (int)Get_NAME_LENGTH(R_INF, Get_qn((*tmp))), Get_NAME(R_INF, Get_qn((*tmp))), Get_qn((*tmp)),
+        (int)Get_NAME_LENGTH(R_INF, Get_tn((*tmp))), Get_NAME(R_INF, Get_tn((*tmp))), Get_tn((*tmp)),
+        Get_qe((*tmp)) - Get_qs((*tmp)));
+    }
+}
 
 void ma_ug_destroy(ma_ug_t *ug)
 {
@@ -266,6 +279,52 @@ void asg_cleanup(asg_t *g)
 
 
 
+void asg_cleanup_debug(asg_t *g)
+{
+    uint32_t i;
+    asg_arc_t* p = NULL;
+    fprintf(stderr, "\n+g->n_arc: %u\n", g->n_arc);
+    for (i = 0; i < g->n_arc; i++)
+    {
+        p = &(g->arc[i]);
+        if((p->ul>>33) == 1467 || (p->ul>>33) == 2509262 ||
+           (p->v>>1) == 1467 || (p->v>>1) == 2509262)
+        {
+            fprintf(stderr, "debug (%u) v>>1: %u, v&1: %u, w>>1: %u, w&1: %u, %s\n", 
+                    i, (uint32_t)(p->ul>>33), (uint32_t)((p->ul>>32)&1), p->v>>1, p->v&1,
+                    p->del == 0?"no del" : "del");
+        }
+    }
+    ///remove overlaps, instead of reads
+    ///remove edges with del, and free idx
+	asg_arc_rm(g);
+	if (!g->is_srt) {
+		/**
+		 * sort by ul, that is, sort by qns + direction
+		 * ul: |____________31__________|__________1___________|______________32_____________|
+	                       qns            direction of overlap       length of this node (not overlap length)
+		**/
+		asg_arc_sort(g);
+		g->is_srt = 1;
+	}
+
+    
+    fprintf(stderr, "\n-g->n_arc: %u\n", g->n_arc);
+    for (i = 0; i < g->n_arc; i++)
+    {
+        p = &(g->arc[i]);
+        if((p->ul>>33) == 1467 || (p->ul>>33) == 2509262 ||
+           (p->v>>1) == 1467 || (p->v>>1) == 2509262)
+        {
+            fprintf(stderr, "debug (%u) v>>1: %u, v&1: %u, w>>1: %u, w&1: %u, %s\n", 
+                    i, (uint32_t)(p->ul>>33), (uint32_t)((p->ul>>32)&1), p->v>>1, p->v&1,
+                    p->del == 0?"no del" : "del");
+        }
+    }
+    
+	///index the overlaps in graph with query id
+	if (g->idx == 0) asg_arc_index(g);
+}
 
 
 // delete multi-arcs
@@ -439,7 +498,62 @@ inline void set_reverse_overlap(ma_hit_t* dest, ma_hit_t* source)
     dest->bl = Get_qe(*dest) - Get_qs(*dest);
 }
 
+void normalize_ma_hit_t(ma_hit_t_alloc* sources, long long num_sources)
+{
+    long long bi_overlaps = 0;
+    long long si_overlaps = 0;
+    long long i, j, index;
+    uint32_t qn, tn;
+    ma_hit_t new_element;
+    long long qLen_0, qLen_1;
+    for (i = 0; i < num_sources; i++)
+    {
+        for (j = 0; j < sources[i].length; j++)
+        {
+            qn = Get_qn(sources[i].buffer[j]);
+            tn = Get_tn(sources[i].buffer[j]);
+            
+            sources[i].buffer[j].bl = Get_qe(sources[i].buffer[j]) - Get_qs(sources[i].buffer[j]);
 
+            index = get_specific_overlap(&(sources[tn]), tn, qn);
+
+
+            if(index != -1)
+            {
+                qLen_0 = Get_qe(sources[i].buffer[j]) - Get_qs(sources[i].buffer[j]);
+                qLen_1 = Get_qe(sources[tn].buffer[index]) - Get_qs(sources[tn].buffer[index]);
+
+                if(qLen_0 == qLen_1)
+                {
+                    ///qn must be not equal to tn
+                    ///make sources[qn] = sources[tn] if qn > tn
+                    if(qn < tn)
+                    {   
+                        set_reverse_overlap(&(sources[tn].buffer[index]), &(sources[i].buffer[j]));
+                    }
+                }
+                else if(qLen_0 > qLen_1)
+                {
+                    
+                    set_reverse_overlap(&(sources[tn].buffer[index]), &(sources[i].buffer[j]));
+                }
+                
+
+                bi_overlaps++;
+            }
+            else
+            {
+                ///must have this line
+                new_element.del = 0;
+                new_element.ml = 1;
+                new_element.no_l_indel = 1;
+                set_reverse_overlap(&new_element, &(sources[i].buffer[j]));
+                add_ma_hit_t_alloc(&(sources[tn]), &new_element);
+                si_overlaps++;
+            }
+        }
+    } 
+}
 
 
 void normalize_ma_hit_t_single_side_advance(ma_hit_t_alloc* sources, long long num_sources)
@@ -509,6 +623,62 @@ void normalize_ma_hit_t_single_side_advance(ma_hit_t_alloc* sources, long long n
     }
 }
 
+
+void normalize_ma_hit_t_single_side_back(ma_hit_t_alloc* sources, long long num_sources)
+{
+    double startTime = Get_T();
+
+    long long bi_overlaps = 0;
+    long long i, j, index;
+    uint32_t qn, tn;
+    long long qLen_0, qLen_1, m;
+    for (i = 0; i < num_sources; i++)
+    {
+
+        m = 0;
+        for (j = 0; j < sources[i].length; j++)
+        {
+            qn = Get_qn(sources[i].buffer[j]);
+            tn = Get_tn(sources[i].buffer[j]);
+
+            sources[i].buffer[j].bl = Get_qe(sources[i].buffer[j]) - Get_qs(sources[i].buffer[j]);
+
+            index = get_specific_overlap(&(sources[tn]), tn, qn);
+
+
+            if(index != -1)
+            {
+                qLen_0 = Get_qe(sources[i].buffer[j]) - Get_qs(sources[i].buffer[j]);
+                qLen_1 = Get_qe(sources[tn].buffer[index]) - Get_qs(sources[tn].buffer[index]);
+
+                if(qLen_0 == qLen_1)
+                {
+                    ///qn must be not equal to tn
+                    ///make sources[qn] = sources[tn] if qn > tn
+                    if(qn < tn)
+                    {
+                        set_reverse_overlap(&(sources[tn].buffer[index]), &(sources[i].buffer[j]));
+                    }
+                }
+                else if(qLen_0 > qLen_1)
+                {
+                    set_reverse_overlap(&(sources[tn].buffer[index]), &(sources[i].buffer[j]));
+                }
+                
+                sources[i].buffer[m] = sources[i].buffer[j];
+                m++;
+                bi_overlaps++;
+            }
+        }
+
+        sources[i].length = m;
+    }
+
+    if(VERBOSE >= 1)
+    {
+        fprintf(stderr, "[M::%s] takes %0.2fs\n\n", __func__, Get_T()-startTime);
+    }
+}
 
 void get_end_match_length(ma_hit_t* edge, UC_Read* query, UC_Read* target,
 uint32_t* left, uint32_t* right)
@@ -831,6 +1001,87 @@ void normalize_ma_hit_t_single_side(ma_hit_t_alloc* sources, long long num_sourc
 }
 
 
+void debug_trio(ma_hit_t_alloc* sources, long long num_sources, const char* error_info)
+{
+    double startTime = Get_T();
+
+    long long i, j;
+    uint32_t qn, tn;
+    for (i = 0; i < num_sources; i++)
+    {
+        for (j = 0; j < sources[i].length; j++)
+        {
+            qn = Get_qn(sources[i].buffer[j]);
+            tn = Get_tn(sources[i].buffer[j]);
+
+            if(R_INF.trio_flag[qn] != AMBIGU
+                && R_INF.trio_flag[qn] != FATHER
+                && R_INF.trio_flag[qn] != MOTHER)
+            {
+                fprintf(stderr, "%s: ERROR\n", error_info);
+            } 
+            
+            
+            if(R_INF.trio_flag[tn] != AMBIGU 
+                && R_INF.trio_flag[tn] != FATHER
+                && R_INF.trio_flag[tn] != MOTHER)
+            {
+                fprintf(stderr, "%s: ERROR\n", error_info);
+            } 
+            
+
+            if(R_INF.trio_flag[qn] != AMBIGU && R_INF.trio_flag[tn] != AMBIGU)
+            {
+                if(R_INF.trio_flag[qn] != R_INF.trio_flag[tn])
+                {
+                    fprintf(stderr, "%s, qn: %u, qn_pm: %c, tn: %u, tn_pm: %c\n", error_info,
+                    qn, "apmaaa"[R_INF.trio_flag[qn]], tn, "apmaaa"[R_INF.trio_flag[tn]]);
+                }
+            }
+        }
+    }
+
+    if(VERBOSE >= 1)
+    {
+        fprintf(stderr, "[M::%s] takes %0.2fs\n\n", __func__, Get_T()-startTime);
+    }
+}
+
+
+void drop_edges_by_trio_back(ma_hit_t_alloc* sources, long long num_sources)
+{
+    double startTime = Get_T();
+
+    long long i, j, m;
+    uint32_t qn, tn;
+    for (i = 0; i < num_sources; i++)
+    {
+        m = 0;
+        for (j = 0; j < sources[i].length; j++)
+        {
+            qn = Get_qn(sources[i].buffer[j]);
+            tn = Get_tn(sources[i].buffer[j]);
+
+            if(R_INF.trio_flag[qn] != AMBIGU && R_INF.trio_flag[tn] != AMBIGU)
+            {
+                if(R_INF.trio_flag[qn] != R_INF.trio_flag[tn])
+                {
+                    continue;
+                }
+            }
+
+            sources[i].buffer[m] = sources[i].buffer[j];
+            sources[i].buffer[m].del = 0;
+            m++;
+        }
+        sources[i].length = m;
+    }
+
+    if(VERBOSE >= 1)
+    {
+        fprintf(stderr, "[M::%s] takes %0.2fs\n\n", __func__, Get_T()-startTime);
+    }
+}
 
 void drop_edges_by_trio(ma_hit_t_alloc* sources, long long num_sources)
 {
@@ -868,6 +1119,91 @@ void drop_edges_by_trio(ma_hit_t_alloc* sources, long long num_sources)
 
 
 
+
+void ma_hit_contained(ma_hit_t_alloc* sources, long long n_read, ma_sub_t *coverage_cut, 
+R_to_U* ruIndex, int max_hang, int min_ovlp, uint32_t trio_flag)
+{
+    double startTime = Get_T();
+	int32_t r;
+	long long i, j, m;
+	asg_arc_t t;
+    /****************************may have trio bugs********************************/
+    uint32_t non_trio_flag = (uint32_t)-1;
+    if(trio_flag == FATHER) non_trio_flag = MOTHER;
+    if(trio_flag == MOTHER) non_trio_flag = FATHER;
+    /****************************may have trio bugs********************************/
+
+    for (i = 0; i < n_read; ++i) 
+    {
+        /****************************may have trio bugs********************************/
+        if(R_INF.trio_flag[i] == non_trio_flag)
+        {
+            coverage_cut[i].del = 1;
+            continue;
+        }
+        /****************************may have trio bugs********************************/
+        for (j = 0; j < (long long)sources[i].length; j++)
+        {
+            ma_hit_t *h = &(sources[i].buffer[j]);
+            //check the corresponding two reads 
+		    ma_sub_t *sq = &(coverage_cut[Get_qn(*h)]);
+            ma_sub_t *st = &(coverage_cut[Get_tn(*h)]);
+            /****************************may have trio bugs********************************/
+            if(R_INF.trio_flag[Get_qn(*h)] == non_trio_flag) continue;
+            if(R_INF.trio_flag[Get_tn(*h)] == non_trio_flag) continue;
+            /****************************may have trio bugs********************************/
+            r = ma_hit2arc(h, sq->e - sq->s, st->e - st->s, max_hang, asm_opt.max_hang_rate, min_ovlp, &t);
+            ///r could not be MA_HT_SHORT_OVLP or MA_HT_INT
+            if (r == MA_HT_QCONT) 
+            {
+                if(st->del == 1) continue;
+                sq->del = 1;
+                set_R_to_U(ruIndex, Get_qn(*h), Get_tn(*h), 0);
+            }
+		    else if (r == MA_HT_TCONT) 
+            {
+                if(sq->del == 1) continue;
+                st->del = 1;
+                set_R_to_U(ruIndex, Get_tn(*h), Get_qn(*h), 0);
+            }
+        }
+    }
+
+    transfor_R_to_U(ruIndex);
+
+
+    for (i = 0; i < n_read; ++i) 
+    {
+        m = 0;
+        for (j = 0; j < (long long)sources[i].length; j++)
+        {
+            ma_hit_t *h = &(sources[i].buffer[j]);
+            ///both the qn and tn have not been deleted
+            if(coverage_cut[Get_qn(*h)].del != 1 && coverage_cut[Get_tn(*h)].del != 1)
+            {
+                h->del = 0;
+                m++;
+            }
+            else
+            {
+                h->del = 1;
+            }
+        }
+
+        ///if sources[i].length == 0, that means all overlapped reads with read i are the contained reads
+        if(m == 0)
+        {
+            coverage_cut[i].del = 1;
+        }
+    }
+
+    if(VERBOSE >= 1)
+    {
+        fprintf(stderr, "[M::%s] takes %0.2f s\n\n", __func__, Get_T()-startTime);
+    }
+
+}
+
 ma_hit_t* get_specific_overlap_with_del(ma_hit_t_alloc* sources, ma_sub_t *coverage_cut, 
 uint32_t qn, uint32_t tn)
 {
@@ -891,7 +1227,53 @@ uint32_t qn, uint32_t tn)
     return NULL;
 }
 
+int if_fully_contained(ma_hit_t_alloc* sources, ma_sub_t *coverage_cut, 
+uint32_t small, uint32_t large)
+{
+    if(coverage_cut[small].del || coverage_cut[large].del) return 0;
+    ma_hit_t_alloc* small_edges = &(sources[small]);
+    uint32_t i, qn, tn;
+    for (i = 0; i < small_edges->length; i++)
+    {
+        qn = Get_qn(small_edges->buffer[i]);
+        tn = Get_tn(small_edges->buffer[i]);
 
+        if(small_edges->buffer[i].del) continue;
+        if(coverage_cut[qn].del || coverage_cut[tn].del) continue;
+
+        if(get_specific_overlap_with_del(sources, coverage_cut, large, tn) == NULL)
+        {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+int if_fully_contained_debug(ma_hit_t_alloc* sources, ma_sub_t *coverage_cut, 
+uint32_t small, uint32_t large)
+{
+    if(coverage_cut[small].del || coverage_cut[large].del) return 0;
+    ma_hit_t_alloc* small_edges = &(sources[small]);
+    uint32_t i, qn, tn;
+    for (i = 0; i < small_edges->length; i++)
+    {
+        qn = Get_qn(small_edges->buffer[i]);
+        tn = Get_tn(small_edges->buffer[i]);
+
+        if(small_edges->buffer[i].del) continue;
+        if(coverage_cut[qn].del || coverage_cut[tn].del) continue;
+
+        if(get_specific_overlap_with_del(sources, coverage_cut, large, tn) == NULL)
+        {
+            fprintf(stderr, ">%.*s is overlapped with %.*s, but isn't overlapped with %.*s\n", 
+            (int)Get_NAME_LENGTH((R_INF), tn),Get_NAME((R_INF), tn),
+            (int)Get_NAME_LENGTH((R_INF), small),Get_NAME((R_INF), small),
+            (int)Get_NAME_LENGTH((R_INF), large),Get_NAME((R_INF), large));
+            return 0;
+        }
+    }
+    return 1;
+}
 
 void delete_single_edge(ma_hit_t_alloc* sources, ma_sub_t *coverage_cut, uint32_t qn, uint32_t tn)
 {
@@ -941,6 +1323,57 @@ int max_hang, int min_ovlp, uint32_t query)
 
     return occ;
 }
+
+uint32_t delete_all_edges_carefully_back(ma_hit_t_alloc* sources, ma_sub_t *coverage_cut, 
+int max_hang, int min_ovlp, uint32_t qn)
+{
+    if(coverage_cut[qn].del) return 0;
+
+    int32_t r;
+    asg_arc_t t;
+    ma_hit_t *h = NULL;
+    ma_sub_t *sq = NULL;
+    ma_sub_t *st = NULL;
+    ma_hit_t_alloc* x = &(sources[qn]);
+    uint32_t i, keep_edge = 0;
+    for (i = 0; i < x->length; i++)
+    {
+        h = &(x->buffer[i]);
+        if(h->del) continue;
+        ///now the edge has not been removed
+        sq = &(coverage_cut[Get_qn(*h)]);
+        st = &(coverage_cut[Get_tn(*h)]);
+        if(sq->del || st->del)
+        {
+            h->del = 1;
+            delete_single_edge(sources, coverage_cut, Get_tn(*h), Get_qn(*h));
+            continue;
+        }
+        
+        r = ma_hit2arc(h, sq->e - sq->s, st->e - st->s, max_hang, 
+                                asm_opt.max_hang_rate, min_ovlp, &t);
+        ///if it is a contained read
+        if(r < 0)
+        {
+            h->del = 1;
+            delete_single_edge(sources, coverage_cut, Get_tn(*h), Get_qn(*h));
+            continue;
+        }
+        
+        if(get_real_sources_length(sources, coverage_cut, max_hang, min_ovlp, (t.v^1))==1)
+        {
+            keep_edge++;
+            continue;
+        }
+
+        h->del = 1;
+        delete_single_edge(sources, coverage_cut, Get_tn(*h), Get_qn(*h));
+    }
+
+    if(keep_edge == 0) coverage_cut[qn].del = 1;
+    return keep_edge;
+}
+
 
 
 uint32_t delete_all_edges_carefully(ma_hit_t_alloc* sources, ma_sub_t *coverage_cut, 
@@ -1023,17 +1456,36 @@ int max_hang, int min_ovlp, uint32_t qn)
 }
 
 
+
+
+
+
+
 void ma_hit_contained_advance(ma_hit_t_alloc* sources, long long n_read, ma_sub_t *coverage_cut, 
-R_to_U* ruIndex, int max_hang, int min_ovlp)
+R_to_U* ruIndex, int max_hang, int min_ovlp, uint32_t trio_flag)
 {
     ///uint32_t qn_num = 0, no_fully_qn_num = 0, tn_num = 0, no_fully_tn_num = 0;
     double startTime = Get_T();
 	int32_t r;
 	long long i, j, m;
 	asg_arc_t t;
+    /****************************may have trio bugs********************************/
+    uint32_t non_trio_flag = (uint32_t)-1;
+    if(trio_flag == FATHER) non_trio_flag = MOTHER;
+    if(trio_flag == MOTHER) non_trio_flag = FATHER;
+    /****************************may have trio bugs********************************/
     ma_hit_t *h = NULL;
     ma_sub_t *sq = NULL;
     ma_sub_t *st = NULL;
+    /****************************may have trio bugs********************************/
+    for (i = 0; i < n_read; ++i) 
+    {
+        if(R_INF.trio_flag[i] == non_trio_flag)
+        {
+            delete_all_edges(sources, coverage_cut, i);
+        } 
+    }
+    /****************************may have trio bugs********************************/
 
 
     for (i = 0; i < n_read; ++i) 
@@ -1776,6 +2228,9 @@ ma_sub_t* coverage_cut, float shift_rate)
         __func__, Get_T()-startTime, n_simple_remove, n_complex_remove_real, n_complex_remove);
     }
 }
+
+
+
 
 
 void ma_hit_cut(ma_hit_t_alloc* sources, long long n_read, uint64_t* readLen, 
@@ -6437,110 +6892,6 @@ int if_skip_bubble, int if_drop, int if_check_hap, R_to_U* ruIndex)
 	return n_cut;
 }
 
-int unitig_arc_del_short_diploid_by_length_topo(asg_t *g, ma_ug_t *ug, float drop_ratio, 
-int max_ext, ma_hit_t_alloc* reverse_sources, int if_skip_bubble, int if_drop)
-{
-    double startTime = Get_T();
-    kvec_t(uint64_t) b;
-    memset(&b, 0, sizeof(b));
-
-	uint32_t v, n_vtx = g->n_seq * 2, convex;
-    long long n_cut = 0, tmp, nodeLen, max_stop_nodeLen, max_stop_baseLen;
-    
-    for (v = 0; v < n_vtx; ++v) 
-    {
-        if(if_skip_bubble && g->seq_vis[v] != 0) continue;
-        if(if_drop && g->seq[v>>1].c == ALTER_LABLE) continue;
-        asg_arc_t *av = asg_arc_a(g, v);
-        uint32_t nv = asg_arc_n(g, v);
-        if (nv < 2) continue;
-        if(get_real_length(g, v, NULL) < 2) continue;
-        uint64_t i;
-        for (i = 0; i < nv; ++i)
-        {
-            kv_push(uint64_t, b, (uint64_t)((uint64_t)av[i].ol << 32 | (av - g->arc + i)));   
-        }
-	}
-
-    radix_sort_arch64(b.a, b.a + b.n);
-
-    uint64_t k;
-    for (k = 0; k < b.n; k++)
-    {
-        
-        asg_arc_t *a = &g->arc[(uint32_t)b.a[k]];
-		///v is self id, w is the id of another end
-		uint32_t i, iv, iw, v = (a->ul)>>32, w = a->v^1, to_del = 0;
-		uint32_t nv = asg_arc_n(g, v), nw = asg_arc_n(g, w), kv, kw;
-		uint32_t ov_max = 0, ow_max = 0;
-		asg_arc_t *av, *aw;
-		///nv must be >= 2
-		if (nv == 1 && nw == 1) continue;
-        av = asg_arc_a(g, v);
-		aw = asg_arc_a(g, w);
-
-
-        ///calculate the longest edge for v and w
-		for (i = 0, kv = 0; i < nv; ++i) {
-			if (av[i].del) continue;
-			if (ov_max < av[i].ol) ov_max = av[i].ol; 
-			++kv;
-		}
-		if (kv >= 2 && a->ol > ov_max * drop_ratio) continue;
-
-
-		for (i = 0, kw = 0; i < nw; ++i) {
-			if (aw[i].del) continue;
-			if (ow_max < aw[i].ol) ow_max = aw[i].ol;
-			++kw;
-		}
-		if (kw >= 2 && a->ol > ow_max * drop_ratio) continue;
-		///if (kv == 1 && kw == 1) continue;
-        if (kv <= 1 && kw <= 1) continue;
-
-
-        ///to see which one is the current edge (from v and w)
-		for (iv = 0; iv < nv; ++iv)
-			if (av[iv].v == (w^1)) break;
-		for (iw = 0; iw < nw; ++iw)
-			if (aw[iw].v == (v^1)) break;
-        ///if one edge has been deleted, it should be deleted in both direction
-        if (av[iv].del && aw[iw].del) continue;
-
-        ///kv and kw is the avialiable 
-		if (kv > 1 && kw > 1) {
-			if (a->ol < ov_max * drop_ratio && a->ol < ow_max * drop_ratio)
-            {
-                to_del = 1;
-            }
-		} else if (kw == 1) {
-            get_unitig(g, ug, w^1, &convex, &nodeLen, &tmp, &max_stop_nodeLen, &max_stop_baseLen, 1, NULL);
-            if(nodeLen < max_ext) to_del = 1;
-            ///if (asg_topocut_aux(g, w^1, max_ext) < max_ext) to_del = 1;
-		} else if (kv == 1) {
-            get_unitig(g, ug, v^1, &convex, &nodeLen, &tmp, &max_stop_nodeLen, &max_stop_baseLen, 1, NULL);
-            if(nodeLen < max_ext) to_del = 1;
-			///if (asg_topocut_aux(g, v^1, max_ext) < max_ext) to_del = 1;
-		}
-		if (to_del)
-			av[iv].del = aw[iw].del = 1, ++n_cut;
-    }
-    
-    free(b.a);
-	if (n_cut) 
-    {
-		asg_cleanup(g);
-		asg_symm(g);
-	}
-
-    if(VERBOSE >= 1)
-    {
-        fprintf(stderr, "[M::%s] removed %lld short overlaps\n", __func__, n_cut);
-        fprintf(stderr, "[M::%s] takes %0.2f s\n\n", __func__, Get_T()-startTime);
-    }
-	return n_cut;
-}
-
 
 int unitig_arc_del_short_diploid_by_length(asg_t *g, float drop_ratio)
 {
@@ -8979,243 +9330,8 @@ All_reads *RNF, const ma_sub_t *coverage_cut)
         result->seq[j - u->start] = result->seq[j];
     }
 }
-
-void get_overlapLen(uint32_t rId, ma_hit_t_alloc* sources, uint32_t* exactLen, uint32_t* inexactLen)
-{
-    (*exactLen) = (*inexactLen) = 0;
-    ma_hit_t_alloc* x = &(sources[rId]);
-    ma_hit_t *h = NULL;
-    uint32_t i, len;
-    for (i = 0; i < x->length; i++)
-    {
-        h = &(x->buffer[i]);
-        len = Get_qe((*h)) + 1 - Get_qs((*h));
-        if(h->el == 1)
-        {
-            (*exactLen) += len;
-        }
-        else
-        {
-            (*inexactLen) += len;
-        }
-    }
-}
-
-uint32_t polish_unitig(ma_utg_t* collection, asg_t* read_g, ma_hit_t_alloc* sources, 
-ma_sub_t *coverage_cut, int max_hang, int min_ovlp)
-{
-    if(collection->m == 0) return 0;
-    if(collection->n < 3) return 0;
-    uint32_t i, k, v, pre, afte, nv, exactLen, inexactLen, tmp_exactLen, tmp_inexactLen, m = 0, skip = 0;
-    asg_arc_t* av = NULL;
-    asg_arc_t *pE = NULL, *aE = NULL;
-    asg_arc_t t_f, t_b;
-    
-    for (i = 1; i < collection->n - 1; i++)
-    {
-        v = (uint64_t)(collection->a[i])>>32;
-        pre = (uint64_t)(collection->a[i-1])>>32;
-        afte = (uint64_t)(collection->a[i+1])>>32;
-        if(v == (uint32_t)-1) continue;
-        if(pre == (uint32_t)-1) continue;
-        if(afte == (uint32_t)-1) continue;
-
-        av = asg_arc_a(read_g, v^1);
-        nv = asg_arc_n(read_g, v^1);
-        for (k = 0; k < nv; k++)
-        {
-            if(av[k].del) continue;
-            if(av[k].v == (pre^1)) 
-            {
-                pE = &(av[k]);
-                break;
-            }
-        }
-        if(k == nv) fprintf(stderr, "ERROR\n");
-
-        av = asg_arc_a(read_g, v);
-        nv = asg_arc_n(read_g, v);
-        for (k = 0; k < nv; k++)
-        {
-            if(av[k].del) continue;
-            if(av[k].v == afte)
-            {
-                aE = &(av[k]);
-                break;
-            }
-        }
-
-        if(k == nv) fprintf(stderr, "ERROR\n");
-
-        if(pE->el == 1 && aE->el == 1) continue;
-        
-        if(get_edge_from_source(sources, coverage_cut, NULL, max_hang, min_ovlp, pre, 
-            afte, &t_f) == 0)
-        {
-            continue;
-        }
-
-        if(get_edge_from_source(sources, coverage_cut, NULL, max_hang, min_ovlp, afte^1, 
-            pre^1, &t_b) == 0)
-        {
-            continue;
-        }
-
-        if(t_f.el == 0 || t_b.el == 0) continue;
-
-        get_overlapLen(v>>1, sources, &exactLen, &inexactLen);
-        if(pE->el == 0)
-        {
-            get_overlapLen(pre>>1, sources, &tmp_exactLen, &tmp_inexactLen);
-            if(inexactLen < tmp_inexactLen) continue;
-            if(inexactLen == tmp_inexactLen && exactLen > tmp_exactLen) continue;
-        }
-
-        if(aE->el == 0)
-        {
-            get_overlapLen(afte>>1, sources, &tmp_exactLen, &tmp_inexactLen);
-            if(inexactLen < tmp_inexactLen) continue;
-            if(inexactLen == tmp_inexactLen && exactLen > tmp_exactLen) continue;
-        }
-
-        collection->a[i] = (uint64_t)-1;
-        skip++;
-    }
-
-    if(skip == 0) return 0;
-
-    m = 0;
-    for (i = 0; i < collection->n; i++)
-    {
-        if(collection->a[i] == (uint64_t)-1) continue;
-        collection->a[m] = collection->a[i];
-        m++;
-    }
-    collection->n = m;
-
-
-    uint32_t totalLen = 0, w, l;
-    for (i = 0; i < collection->n - 1; i++)
-    {
-        v = (uint64_t)(collection->a[i])>>32;
-        w = (uint64_t)(collection->a[i + 1])>>32; 
-
-
-
-
-        /*******************************for debug************************************/
-        l = (uint32_t)-1;
-        av = asg_arc_a(read_g, v);
-        nv = asg_arc_n(read_g, v);
-        for (k = 0; k < nv; k++)
-        {
-            if(av[k].del) continue;
-            if(av[k].v == w) 
-            {
-                l = asg_arc_len(av[k]);
-                break;
-            }
-        }
-
-        if(k == nv) 
-        {
-            if(get_edge_from_source(sources, coverage_cut, NULL, max_hang, min_ovlp, v, w, &t_f)==0)
-            {
-                fprintf(stderr, "####ERROR1: v>>1: %u, v&1: %u, w>>1: %u, w&1: %u, r_seq: %u\n",
-                v>>1, v&1, w>>1, w&1, read_g->r_seq);
-            }
-            l = asg_arc_len(t_f);
-        }
-        if(l == (uint32_t)-1) fprintf(stderr, "ERROR\n");
-        /*******************************for debug************************************/
-
-
-
-
-
-
-
-
-
-        collection->a[i] = v; collection->a[i] = collection->a[i]<<32; 
-        collection->a[i] = collection->a[i] | (uint64_t)(l);
-        totalLen += l;
-    }
-
-    if(i < collection->n)
-    {
-        if(collection->circ)
-        {
-            v = (uint64_t)(collection->a[i])>>32;
-            w = (uint64_t)(collection->a[0])>>32; 
-            
-
-
-
-            /*******************************for debug************************************/
-            l = (uint32_t)-1;
-            av = asg_arc_a(read_g, v);
-            nv = asg_arc_n(read_g, v);
-            for (k = 0; k < nv; k++)
-            {
-                if(av[k].del) continue;
-                if(av[k].v == w) 
-                {
-                    l = asg_arc_len(av[k]);
-                    break;
-                }
-            }
-            
-            if(k == nv) 
-            {
-                if(get_edge_from_source(sources, coverage_cut, NULL, max_hang, min_ovlp, v, w, &t_f)==0)
-                {
-                    fprintf(stderr, "####ERROR1: v>>1: %u, v&1: %u, w>>1: %u, w&1: %u, r_seq: %u\n",
-                    v>>1, v&1, w>>1, w&1, read_g->r_seq);
-                }
-                l = asg_arc_len(t_f);
-            }
-            if(l == (uint32_t)-1) fprintf(stderr, "ERROR\n");
-            /*******************************for debug************************************/
-
-
-
-
-
-
-
-
-
-
-
-
-            collection->a[i] = v; collection->a[i] = collection->a[i]<<32; 
-            collection->a[i] = collection->a[i] | (uint64_t)(l);
-
-            totalLen += l;
-        }
-        else
-        {
-            v = (uint64_t)(collection->a[i])>>32;
-            l = read_g->seq[v>>1].len;
-            collection->a[i] = v;
-            collection->a[i] = collection->a[i]<<32;
-            collection->a[i] = collection->a[i] | (uint64_t)(l);
-            totalLen += l;
-        }
-    }
-
-    collection->len = totalLen;
-    if(!collection->circ)
-    {
-        collection->start = collection->a[0]>>32;
-        collection->end = (collection->a[collection->n-1]>>32)^1;
-    }
-
-    return 1;
-}
 // generate unitig sequences
-int ma_ug_seq_back(ma_ug_t *g, asg_t *read_g, All_reads *RNF, const ma_sub_t *coverage_cut)
+int ma_ug_seq(ma_ug_t *g, asg_t *read_g, All_reads *RNF, const ma_sub_t *coverage_cut)
 {
     UC_Read g_read;
     init_UC_Read(&g_read);
@@ -9234,7 +9350,6 @@ int ma_ug_seq_back(ma_ug_t *g, asg_t *read_g, All_reads *RNF, const ma_sub_t *co
 	for (i = 0; i < g->u.n; ++i) {
 		ma_utg_t *u = &g->u.a[i];
         if(u->m == 0) continue;
-
 		uint32_t l = 0;
 		u->s = (char*)calloc(1, u->len + 1);
 		memset(u->s, 'N', u->len);
@@ -9284,84 +9399,6 @@ int ma_ug_seq_back(ma_ug_t *g, asg_t *read_g, All_reads *RNF, const ma_sub_t *co
     destory_UC_Read(&tmp);
 	return 0;
 }
-
-
-
-
-// generate unitig sequences
-int ma_ug_seq(ma_ug_t *g, asg_t *read_g, All_reads *RNF, ma_sub_t *coverage_cut,
-ma_hit_t_alloc* sources, int max_hang, int min_ovlp)
-{
-    UC_Read g_read;
-    init_UC_Read(&g_read);
-    UC_Read tmp;
-    init_UC_Read(&tmp);
-	///utg_intv_t *tmp;
-	uint32_t i, j, k;
-    uint32_t rId, /**uId,**/ori, start, eLen, readLen;
-    char* readS = NULL;
-
-    
-    ///why we need n_read here? it is just beacuse one read can only be included in one untig
-    ///but it is not true
-	///tmp = (utg_intv_t*)calloc(n_read, sizeof(utg_intv_t));
-	///number of unitigs
-	for (i = 0; i < g->u.n; ++i) {
-		ma_utg_t *u = &g->u.a[i];
-        if(u->m == 0) continue;
-
-        polish_unitig(u, read_g, sources, coverage_cut, max_hang, min_ovlp);
-
-		uint32_t l = 0;
-		u->s = (char*)calloc(1, u->len + 1);
-		memset(u->s, 'N', u->len);
-		for (j = 0; j < u->n; ++j) {
-            rId = u->a[j]>>33;
-            ///uId = i;
-            ori = u->a[j]>>32&1;
-            start = l;
-            eLen = (uint32_t)u->a[j];
-			l += eLen;
-
-            if(eLen == 0) continue;
-            if(rId < read_g->r_seq)
-            {
-                recover_UC_Read(&g_read, RNF, rId);
-            }
-            else
-            {
-                recover_fake_read(&g_read, &tmp, &(read_g->F_seq[rId-read_g->r_seq]),
-                RNF, coverage_cut);
-            }
-
-            readS = g_read.seq + coverage_cut[rId].s;
-            readLen = coverage_cut[rId].e - coverage_cut[rId].s;
-            
-            if (!ori) // forward strand
-            {
-                for (k = 0; k < eLen; k++)
-                {
-                    u->s[start + k] = readS[k];
-                }
-            }
-            else
-            {
-                for (k = 0; k < eLen; k++)
-                {
-                    uint8_t c = (uint8_t)readS[readLen - 1 - k];
-                    u->s[start + k] = c >= 128? 'N' : comp_tab[c];
-                }
-            }
-            
-
-		}
-	}
-
-    destory_UC_Read(&g_read);
-    destory_UC_Read(&tmp);
-	return 0;
-}
-
 
 
 void ma_ug_print2(const ma_ug_t *ug, All_reads *RNF, const ma_sub_t *coverage_cut, int print_seq, FILE *fp)
@@ -11127,12 +11164,11 @@ R_to_U* ruIndex)
 }
 
 
-void output_unitig_graph(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name, 
-ma_hit_t_alloc* sources, int max_hang, int min_ovlp)
+void output_unitig_graph(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name)
 {
     ma_ug_t *ug = NULL;
     ug = ma_ug_gen(sg);
-    ma_ug_seq(ug, sg, &R_INF, coverage_cut, sources, max_hang, min_ovlp);
+    ma_ug_seq(ug, sg, &R_INF, coverage_cut);
 
     fprintf(stderr, "Writing raw unitig GFA to disk... \n");
     char* gfa_name = (char*)malloc(strlen(output_file_name)+25);
@@ -11212,10 +11248,36 @@ void merge_unitig_content(ma_utg_t* collection, ma_ug_t* ug, asg_t* read_g)
             }
         }
 
+        if((v>>1)==1467 || (w>>1)==1467)
+        {
+            uint32_t x = 0;
+            fprintf(stderr, "index: %u, collection->n: %u\n", index, collection->n);
+            for (x = 0; x < collection->n; x++)
+            {
+                uId = collection->a[x]>>33;
+                ori = collection->a[x]>>32&1;
+
+                fprintf(stderr, "\n(%u) uId: %u, ori: %u, u.n: %u, start>>1: %u, start&1: %u, end>>1: %u, end&1: %u\n", 
+                    x, uId, ori, ug->u.a[uId].n, ug->u.a[uId].start>>1, ug->u.a[uId].start&1,
+                    ug->u.a[uId].end>>1, ug->u.a[uId].end&1);            
+            }
+        }
+
         if(k == nv) 
         {
             fprintf(stderr, "####ERROR1: v>>1: %u, v&1: %u, w>>1: %u, w&1: %u, r_seq: %u\n",
             v>>1, v&1, w>>1, w&1, read_g->r_seq);
+            uint32_t x = 0;
+            for (x = 0; x < collection->n; x++)
+            {
+                uId = collection->a[x]>>33;
+                ori = collection->a[x]>>32&1;
+
+                fprintf(stderr, "\n(%u) uId: %u, ori: %u, u.n: %u, start>>1: %u, start&1: %u, end>>1: %u, end&1: %u\n", 
+                    x, uId, ori, ug->u.a[uId].n, ug->u.a[uId].start>>1, ug->u.a[uId].start&1,
+                    ug->u.a[uId].end>>1, ug->u.a[uId].end&1);            
+            }
+            
         }
         buffer[i] = v; buffer[i] = buffer[i]<<32; buffer[i] = buffer[i] | (uint64_t)(l);
         totalLen += l;
@@ -11248,6 +11310,22 @@ void merge_unitig_content(ma_utg_t* collection, ma_ug_t* ug, asg_t* read_g)
             }
             buffer[i] = v; buffer[i] = buffer[i]<<32; buffer[i] = buffer[i] | (uint64_t)(l);
             totalLen += l;
+
+
+            if((v>>1)==1467 || (w>>1)==1467)
+            {
+                uint32_t x = 0;
+                fprintf(stderr, "index: %u, collection->n: %u\n", index, collection->n);
+                for (x = 0; x < collection->n; x++)
+                {
+                    uId = collection->a[x]>>33;
+                    ori = collection->a[x]>>32&1;
+
+                    fprintf(stderr, "\n(%u) uId: %u, ori: %u, u.n: %u, start>>1: %u, start&1: %u, end>>1: %u, end&1: %u\n", 
+                        x, uId, ori, ug->u.a[uId].n, ug->u.a[uId].start>>1, ug->u.a[uId].start&1,
+                        ug->u.a[uId].end>>1, ug->u.a[uId].end&1);            
+                }
+            }
         }
         else
         {
@@ -11257,6 +11335,22 @@ void merge_unitig_content(ma_utg_t* collection, ma_ug_t* ug, asg_t* read_g)
             buffer[i] = buffer[i]<<32;
             buffer[i] = buffer[i] | (uint64_t)(l);
             totalLen += l;
+
+
+            if((v>>1)==1467)
+            {
+                uint32_t x = 0;
+                fprintf(stderr, "index: %u, collection->n: %u\n", index, collection->n);
+                for (x = 0; x < collection->n; x++)
+                {
+                    uId = collection->a[x]>>33;
+                    ori = collection->a[x]>>32&1;
+
+                    fprintf(stderr, "\n(%u) uId: %u, ori: %u, u.n: %u, start>>1: %u, start&1: %u, end>>1: %u, end&1: %u\n", 
+                        x, uId, ori, ug->u.a[uId].n, ug->u.a[uId].start>>1, ug->u.a[uId].start&1,
+                        ug->u.a[uId].end>>1, ug->u.a[uId].end&1);            
+                }
+            }
         }
     }
 
@@ -11482,6 +11576,40 @@ void renew_utg(ma_ug_t **ug, asg_t* read_g)
 }
 
 
+void renew_utg_debug(ma_ug_t **ug, asg_t* read_g)
+{
+    ma_ug_t* high_level_ug = NULL;
+    asg_t* nsg = (*ug)->g;
+    uint32_t i, k;
+    ma_utg_t *u;
+    high_level_ug = ma_ug_gen(nsg);
+    for (i = 0; i < high_level_ug->u.n; i++)
+    {
+        high_level_ug->g->seq[i].c = PRIMARY_LABLE;
+        u = &(high_level_ug->u.a[i]);
+        if(i == 160)
+        {
+            for (k = 0; k < u->n; k++)
+            {
+                fprintf(stderr, "u->a[%u]: %u\n", k, (uint32_t)(u->a[k]>>33));
+                print_untig(*ug, u->a[k]>>33, "debug", 1);
+            }
+            
+        }
+        if(u->m == 0) continue;
+        merge_unitig_content(u, (*ug), read_g);
+        if(i == 160)
+        {
+            for (k = 0; k < u->n; k++)
+            {
+                fprintf(stderr, "u->a[%u]: %u\n", k, (uint32_t)(u->a[k]>>33));
+            }
+            
+        }
+    }
+    ma_ug_destroy((*ug));
+    (*ug) = high_level_ug;
+}
 
 long long get_graph_statistic(asg_t *g)
 {
@@ -12694,6 +12822,7 @@ float drop_ratio, uint32_t trio_flag, float trio_drop_rate)
         pre_cons = get_graph_statistic(g);
         ///need consider tangles
         ///asg_pop_bubble_primary(g, bubble_dist);
+        ///asg_pop_bubble_primary_trio_debug(ug, bubble_dist, trio_flag, DROP);
         asg_pop_bubble_primary_trio(ug, bubble_dist, trio_flag, DROP);
 
 
@@ -12733,6 +12862,7 @@ float drop_ratio, uint32_t trio_flag, float trio_drop_rate)
     drop_semi_circle(ug, g, read_g, reverse_sources, ruIndex);
     all_to_all_deduplicate(ug, trio_flag, trio_drop_rate, reverse_sources, ruIndex);
 
+    fprintf(stderr, "**************************************\n");
 
     if(is_first)
     {
@@ -12742,81 +12872,6 @@ float drop_ratio, uint32_t trio_flag, float trio_drop_rate)
     }    
 }
 
-
-void clean_primary_untig_graph(ma_ug_t *ug, asg_t *read_g, ma_hit_t_alloc* reverse_sources,
-long long bubble_dist, long long tipsLen, float tip_drop_ratio, long long stops_threshold, 
-R_to_U* ruIndex, buf_t* b_0, uint8_t* visit, float density, uint32_t miniHapLen, 
-uint32_t miniBiGraph, float chimeric_rate, int is_final_clean, int just_bubble_pop, 
-float drop_ratio)
-{
-    #define T_ROUND 2
-    asg_t *g = ug->g;
-    int round = T_ROUND;
-
-    
-    redo:
-    asg_pop_bubble_primary_trio(ug, bubble_dist, (uint32_t)-1, DROP);
-    untig_asg_arc_simple_large_bubbles_trio(ug, read_g, reverse_sources, 2, ruIndex, (uint32_t)-1, DROP); 
-        
-    if(just_bubble_pop == 0)
-    {
-        cut_trio_tip_primary(g, ug, tipsLen, (uint32_t)-1, 0, read_g, reverse_sources, ruIndex, 
-        2);
-    }
-
-    long long pre_cons = get_graph_statistic(g);
-    long long cur_cons = 0;
-    while(pre_cons != cur_cons)
-    {
-        pre_cons = get_graph_statistic(g);
-        asg_pop_bubble_primary_trio(ug, bubble_dist, (uint32_t)-1, DROP);
-
-        if(just_bubble_pop == 0)
-        {
-            ///need consider tangles
-            asg_arc_cut_trio_long_tip_primary(g, ug, read_g, reverse_sources, ruIndex, 
-            2, tip_drop_ratio);
-            asg_arc_cut_trio_long_equal_tips_assembly(g, ug, read_g, reverse_sources, 2, ruIndex);
-            asg_arc_cut_trio_long_tip_primary_complex(g, ug, read_g, reverse_sources, ruIndex,
-            2, tip_drop_ratio, stops_threshold);
-            asg_arc_cut_trio_long_equal_tips_assembly_complex(g, ug, read_g, reverse_sources, 
-            2, ruIndex, stops_threshold);
-            detect_chimeric_by_topo(g, ug, read_g, reverse_sources, 2, stops_threshold, chimeric_rate,
-            ruIndex);
-            
-            if(round != T_ROUND)
-            {
-                unitig_arc_del_short_diploid_by_length_topo(g, ug, drop_ratio, asm_opt.max_short_tip, 
-                reverse_sources, 0, 1);
-            }
-        }
-        cur_cons = get_graph_statistic(g);
-    }
-    untig_asg_arc_simple_large_bubbles_trio(ug, read_g, reverse_sources, 2, ruIndex, (uint32_t)-1, DROP);
-
-    if(just_bubble_pop == 0)
-    {   
-        cut_trio_tip_primary(g, ug, tipsLen, (uint32_t)-1, 0, read_g, reverse_sources, ruIndex, 
-        2);
-    }
-
-
-    
-    resolve_tangles(ug, read_g, reverse_sources, 20, 100, 0.05, 0.2, ruIndex, (uint32_t)-1, drop_ratio);
-    drop_semi_circle(ug, g, read_g, reverse_sources, ruIndex);
-
-    unitig_arc_del_short_diploid_by_length_topo(g, ug, drop_ratio, asm_opt.max_short_tip, reverse_sources, 0, 1);
-
-    if(round > 0)
-    {
-        if(round != T_ROUND)
-        {
-            unitig_arc_del_short_diploid_by_length(ug->g, drop_ratio);
-        }
-        round--;
-        goto redo;
-    }    
-}
 
 void set_drop_trio_flag(ma_ug_t *ug)
 {
@@ -12847,6 +12902,10 @@ R_to_U* ruIndex, uint8_t flag, float drop_rate)
     asg_t* nsg = ug->g;
     uint32_t v, n_vtx = nsg->n_seq, k, rId, flag_occ, non_flag_occ, n_reduce = 1;
     ma_utg_t *u;
+
+    // print_read_all(ug, "m64011_190901_095311/91750423/ccs", "mat");
+    // print_read_all(ug, "m64011_190830_220126/113838893/ccs", "pat");
+    // print_read_all(ug, "m64011_190830_220126/164758877/ccs", "convex");
 
     drop_semi_circle(ug, nsg, read_g, reverse_sources, ruIndex);
 
@@ -12886,11 +12945,91 @@ R_to_U* ruIndex, uint8_t flag, float drop_rate)
         }
     }
 
+
+    // print_read_all(ug, "m64011_190901_095311/91750423/ccs", "after mat");
+    // print_read_all(ug, "m64011_190830_220126/113838893/ccs", "after pat");
+    // print_read_all(ug, "m64011_190830_220126/164758877/ccs", "after convex");
+
     drop_semi_circle(ug, nsg, read_g, reverse_sources, ruIndex);
     asg_cleanup(nsg);
 }
 
 
+void update_unitig_graph_advance(ma_ug_t* ug, uint8_t flag, float drop_rate,
+uint32_t only_test_tips)
+{
+    asg_t* nsg = ug->g;
+    uint32_t v_i, i, n_vtx = nsg->n_seq, k, uId, rId, flag_occ, non_flag_occ, is_drop, n_reduce = 1;
+    uint32_t convex;
+    long long ll, tmp, max_stop_nodeLen, max_stop_baseLen;
+    ma_utg_t *u;
+    buf_t b;
+    memset(&b, 0, sizeof(buf_t));
+
+    while (n_reduce)
+    {
+        n_reduce = 0;
+        n_vtx = nsg->n_seq*2;
+        for (v_i = 0; v_i < n_vtx; ++v_i) 
+        {
+            if(nsg->seq[v_i>>1].del) continue;
+            if(only_test_tips == 1 && get_real_length(nsg, v_i^1, NULL)!=0) continue;
+
+            if(get_real_length(nsg, v_i^1, NULL) == 1)
+            {
+                get_real_length(nsg, v_i^1, &convex);
+                if(get_real_length(nsg, convex^1, NULL) == 1) continue;
+            }
+
+            b.b.n = 0; 
+            get_unitig(nsg, ug, v_i, &convex, &ll, &tmp, &max_stop_nodeLen, 
+            &max_stop_baseLen, 1, &b);
+            
+
+            flag_occ = non_flag_occ = 0;
+            for (i = 0; i < b.b.n; i++)
+            {
+                uId = b.b.a[i]>>1;
+                u = &((ug)->u.a[uId]);
+                if(u->m == 0) continue;
+                for (k = 0; k < u->n; k++)
+                {
+                    rId = u->a[k]>>33;
+                    if(R_INF.trio_flag[rId] == AMBIGU) continue;
+                    if(R_INF.trio_flag[rId] == DROP) continue;
+                    if(R_INF.trio_flag[rId] == flag) flag_occ++;
+                    if(R_INF.trio_flag[rId] != flag) non_flag_occ++;
+                }
+            }
+
+            if((non_flag_occ+flag_occ) == 0) continue;
+
+            is_drop = 0;
+            if(non_flag_occ > ((non_flag_occ+flag_occ)*drop_rate)) is_drop = 1;
+
+            if(is_drop && (get_real_length(nsg, v_i, NULL) == 0 || 
+                                    get_real_length(nsg, (v_i^1), NULL) == 0))
+            {
+                for (i = 0; i < b.b.n; i++)
+                {
+                    uId = b.b.a[i]>>1;
+                    u = &((ug)->u.a[uId]);
+                    asg_seq_del(nsg, uId);
+                    if(u->m != 0)
+                    {
+                        u->circ = u->end = u->len = u->m = u->n = u->start = 0;
+                        free(u->a);
+                        u->a = NULL;
+                    }
+                }
+
+                n_reduce++;
+            }
+        }
+    }
+    asg_cleanup(nsg);
+    free(b.b.a);
+}
 
 
 void get_candidate_uids(asg_t* nsg, ma_utg_t* nsu, kvec_t_u64_warp* u_vecs, 
@@ -13210,7 +13349,27 @@ void drop_semi_circle(ma_ug_t *ug, asg_t* nsg, asg_t* read_g, ma_hit_t_alloc* re
 }
 
 
+uint32_t debug_print_untig_by_read(ma_ug_t *g, uint32_t in)
+{
+	uint32_t i, k, rId = in;
+    
 
+    for (i = 0; i < g->u.n; ++i) 
+    {
+        ma_utg_t *u = &g->u.a[i];
+        if(u->m == 0) continue;
+        for (k = 0; k < u->n; k++)
+        {
+            if(rId == (u->a[k]>>33))
+            {
+                fprintf(stderr, "%u is the %u-th read at %u-th unitig\n", in, k, i);
+            }
+        }
+    }
+
+    fprintf(stderr, "%u is not at any unitig\n", in);
+    return (uint32_t)-1;
+}
 
 void adjust_utg_by_trio(ma_ug_t **ug, asg_t* read_g, uint8_t flag, float drop_rate,
 ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, ma_sub_t* coverage_cut, 
@@ -13225,10 +13384,21 @@ R_to_U* ruIndex, float chimeric_rate, float drop_ratio, int max_hang, int min_ov
     kvec_t_u32_warp new_rtg_nodes;
     kv_init(new_rtg_nodes.a);
     **/
-   
+   if(flag == MOTHER)
+   {
+        fprintf(stderr, "-5 1467: %s\n", read_g->seq[1467].del == 0?"no del" : "del");
+        debug_print_untig_by_read(*ug, 1467);
+   }
+    
+
     update_unitig_graph((*ug), read_g, reverse_sources, ruIndex, flag, drop_rate);
     adjust_utg_advance(read_g, (*ug), reverse_sources, ruIndex);
-     
+     if(flag == MOTHER)
+   {
+    fprintf(stderr, "-4 1467: %s\n", read_g->seq[1467].del == 0?"no del" : "del");
+    debug_print_untig_by_read(*ug, 1467);
+   }
+
     nsg = (*ug)->g;
     n_vtx = nsg->n_seq;
     for (v = 0; v < n_vtx; ++v) 
@@ -13238,29 +13408,100 @@ R_to_U* ruIndex, float chimeric_rate, float drop_ratio, int max_hang, int min_ov
         EvaluateLen((*ug)->u, v) = (*ug)->u.a[v].n;
     }
 
+     if(flag == MOTHER)
+   {
+    fprintf(stderr, "-3 1467: %s\n", read_g->seq[1467].del == 0?"no del" : "del");
+    debug_print_untig_by_read(*ug, 1467);
+   }
+
     clean_trio_untig_graph(*ug, read_g, reverse_sources, bubble_dist, tipsLen, 
     tip_drop_ratio, stops_threshold, ruIndex, NULL, NULL, 0, 0, 0, 
     chimeric_rate, 0, 0, drop_ratio, flag, drop_rate);
 
+     if(flag == MOTHER)
+   {
+    fprintf(stderr, "-2 1467: %s\n", read_g->seq[1467].del == 0?"no del" : "del");
+    debug_print_untig_by_read(*ug, 1467);
+   }
+
     delete_useless_nodes(ug);
 
+     if(flag == MOTHER)
+   {
+    fprintf(stderr, "0 1467: %s\n", read_g->seq[1467].del == 0?"no del" : "del");
+    debug_print_untig_by_read(*ug, 1467);
+   }
+
     deduplicate(*ug, read_g, reverse_sources, 20, 100, 0.05, 0.2, ruIndex);
+
+     if(flag == MOTHER)
+   {
+    fprintf(stderr, "1 1467: %s\n", read_g->seq[1467].del == 0?"no del" : "del");
+    debug_print_untig_by_read(*ug, 1467);
+   }
     
     delete_useless_nodes(ug);
 
-    update_unitig_graph((*ug), read_g, reverse_sources, ruIndex, flag, drop_rate);
+     if(flag == MOTHER)
+   {
+    fprintf(stderr, "2 1467: %s\n", read_g->seq[1467].del == 0?"no del" : "del");
+    debug_print_untig_by_read(*ug, 1467);
+   }
 
+    update_unitig_graph_advance((*ug), flag, drop_rate, 0);
+    
+     if(flag == MOTHER)
+   {
+    fprintf(stderr, "3 1467: %s\n", read_g->seq[1467].del == 0?"no del" : "del");
+    debug_print_untig_by_read(*ug, 1467);
+   }
+
+    fprintf(stderr, "########## 0\n");
     renew_utg(ug, read_g);
+    ///renew_utg_debug(ug, read_g);
+
+     if(flag == MOTHER)
+   {
+    fprintf(stderr, "4 1467: %s\n", read_g->seq[1467].del == 0?"no del" : "del");
+    debug_print_untig_by_read(*ug, 1467);
+   }
+
 
     rescue_missing_overlaps_aggressive(*ug, read_g, sources, coverage_cut, ruIndex, max_hang,
     min_ovlp, 0, 0, 1, NULL);
 
+     if(flag == MOTHER)
+   {
+    fprintf(stderr, "5 1467: %s\n", read_g->seq[1467].del == 0?"no del" : "del");
+    debug_print_untig_by_read(*ug, 1467);
+   }
+
+    fprintf(stderr, "########## 1\n");
     renew_utg(ug, read_g);
+
+     if(flag == MOTHER)
+   {
+    fprintf(stderr, "6 1467: %s\n", read_g->seq[1467].del == 0?"no del" : "del");
+    debug_print_untig_by_read(*ug, 1467);
+   }
 
     rescue_contained_reads_aggressive(*ug, read_g, sources, coverage_cut, ruIndex, max_hang, 
     min_ovlp, 0, 10, 0, 1, NULL, NULL);
 
+     if(flag == MOTHER)
+   {
+    fprintf(stderr, "7 1467: %s\n", read_g->seq[1467].del == 0?"no del" : "del");
+    debug_print_untig_by_read(*ug, 1467);
+   }
+
+    fprintf(stderr, "########## 2\n");
     renew_utg(ug, read_g);
+
+     if(flag == MOTHER)
+   {
+    fprintf(stderr, "8 1467: %s\n", read_g->seq[1467].del == 0?"no del" : "del");
+    debug_print_untig_by_read(*ug, 1467);
+   }
 
     set_drop_trio_flag(*ug);
     /**
@@ -13293,9 +13534,9 @@ uint8_t flag, ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, long lon
 long long tipsLen, float tip_drop_ratio, long long stops_threshold, R_to_U* ruIndex, 
 float chimeric_rate, float drop_ratio, int max_hang, int min_ovlp)
 {
+    fprintf(stderr, "Writing trio unitig GFA to disk... \n");
     char* gfa_name = (char*)malloc(strlen(output_file_name)+100);
-    sprintf(gfa_name, "%s.%s.r_utg.gfa", output_file_name, (flag==FATHER?"p":"m"));
-    fprintf(stderr, "Writing %s to disk... \n", gfa_name);
+    sprintf(gfa_name, "%s.%s.trio.r_utg.gfa", output_file_name, (flag==FATHER?"p":"m"));
     FILE* output_file = fopen(gfa_name, "w");
 
     ma_ug_t *ug = NULL;
@@ -13308,11 +13549,11 @@ float chimeric_rate, float drop_ratio, int max_hang, int min_ovlp)
     ///debug_utg_graph(ug, sg, 0, 0);
     ///debug_untig_length(ug, tipsLen, gfa_name);
     ///print_untig_by_read(ug, "m64011_190901_095311/125831121/ccs", 2310925, "end");
-    ma_ug_seq(ug, sg, &R_INF, coverage_cut, sources, max_hang, min_ovlp);
+    ma_ug_seq(ug, sg, &R_INF, coverage_cut);
     ma_ug_print(ug, &R_INF, coverage_cut, output_file);
     fclose(output_file);
 
-    sprintf(gfa_name, "%s.%s.r_utg.noseq.gfa", output_file_name, (flag==FATHER?"p":"m"));
+    sprintf(gfa_name, "%s.%s.trio.r_utg.noseq.gfa", output_file_name, (flag==FATHER?"p":"m"));
     output_file = fopen(gfa_name, "w");
     ma_ug_print_simple(ug, &R_INF, coverage_cut, output_file);
     fclose(output_file);
@@ -13640,6 +13881,38 @@ pop_reset:
 	return n_pop;
 }
 
+// pop bubbles
+int asg_pop_bubble(asg_t *g, int max_dist)
+{
+	uint32_t v, n_vtx = g->n_seq * 2;
+	uint64_t n_pop = 0;
+	buf_t b;
+	if (!g->is_symm) asg_symm(g);
+	memset(&b, 0, sizeof(buf_t));
+	///set information for each node
+	b.a = (binfo_t*)calloc(n_vtx, sizeof(binfo_t));
+	//traverse all node with two directions 
+	for (v = 0; v < n_vtx; ++v) {
+		uint32_t i, n_arc = 0, nv = asg_arc_n(g, v);
+		asg_arc_t *av = asg_arc_a(g, v);
+		///some node could be deleted
+		if (nv < 2 || g->seq[v>>1].del) continue;
+		///some edges could be deleted
+		for (i = 0; i < nv; ++i) // asg_bub_pop1() may delete some edges/arcs
+			if (!av[i].del) ++n_arc;
+		if (n_arc > 1)
+			n_pop += asg_bub_pop1(g, v, max_dist, &b);
+	}
+	free(b.a); free(b.S.a); free(b.T.a); free(b.b.a); free(b.e.a);
+	if (n_pop) asg_cleanup(g);
+	///fprintf(stderr, "[M::%s] popped %d bubbles and trimmed %d tips\n", __func__, (uint32_t)n_pop, (uint32_t)(n_pop>>32));
+	if(VERBOSE >= 1)
+    {
+        fprintf(stderr, "[M::%s] popped %lu bubbles\n", __func__, (unsigned long)n_pop);
+    }
+    return n_pop;
+}
+
 
 // in a resolved bubble, mark unused vertices and arcs as "reduced"
 static void asg_bub_backtrack_primary(asg_t *g, uint32_t v0, buf_t *b)
@@ -13697,8 +13970,216 @@ static void asg_bub_backtrack_primary(asg_t *g, uint32_t v0, buf_t *b)
 	} while (v != v0);
 }
 
+// pop bubbles from vertex v0; the graph MJUST BE symmetric: if u->v present, v'->u' must be present as well
+uint64_t asg_bub_pop1_primary_trio_back(ma_ug_t *ug, uint32_t v0, int max_dist, buf_t *b, 
+uint32_t positive_flag, uint32_t negative_flag, uint32_t is_pop)
+{   
+    asg_t *g = ug->g;
+	uint32_t i, n_pending = 0, is_first = 1, cur_m, cur_c, cur_np, to_replace, n_tips, tip_end;
+	uint64_t n_pop = 0;
+	///if this node has been deleted
+	if (g->seq[v0>>1].del || g->seq[v0>>1].c == ALTER_LABLE) return 0; // already deleted
+	///asg_arc_n(n0)
+	if ((uint32_t)g->idx[v0] < 2) return 0; // no bubbles
+	///S saves nodes with all incoming edges visited
+	b->S.n = b->T.n = b->b.n = b->e.n = 0;
+	///for each node, b->a saves all related information
+	b->a[v0].c = b->a[v0].d = b->a[v0].m = b->a[v0].nc = b->a[v0].np = 0;
+	///b->S is the nodes with all incoming edges visited
+	kv_push(uint32_t, b->S, v0);
+    n_tips = 0;
+    tip_end = (uint32_t)-1;
+    uint32_t non_positive_flag = (uint32_t)-1;
+    if(positive_flag == FATHER) non_positive_flag = MOTHER;
+    if(positive_flag == MOTHER) non_positive_flag = FATHER;
+
+	do {
+		///v is a node that all incoming edges have been visited
+		///d is the distance from v0 to v
+		uint32_t v = kv_pop(b->S), d = b->a[v].d, c = b->a[v].c, m = b->a[v].m, nc = b->a[v].nc, np = b->a[v].np;
+		uint32_t nv = asg_arc_n(g, v);
+		asg_arc_t *av = asg_arc_a(g, v);
+		///why we have this assert?
+		///assert(nv > 0);
+		///all out-edges of v
+		for (i = 0; i < nv; ++i) { // loop through v's neighbors
+			/**
+			p->ul: |____________31__________|__________1___________|______________32_____________|
+								qn            direction of overlap       length of this node (not overlap length)
+												(in the view of query)
+			p->v : |___________31___________|__________1___________|
+								tn             reverse direction of overlap
+											(in the view of target)
+			p->ol: overlap length
+			**/
+            
+			uint32_t w = av[i].v, l = (uint32_t)av[i].ul; // v->w with length l
+			binfo_t *t = &b->a[w];
+			///that means there is a circle, directly terminate the whole bubble poping
+			///if (w == v0) goto pop_reset;
+            if ((w>>1) == (v0>>1)) goto pop_reset;
+            /****************************may have bugs********************************/
+            ///important when poping at long untig graph
+            if(is_first) l = 0;
+            /****************************may have bugs********************************/
+
+			///if this edge has been deleted
+			if (av[i].del) continue;
+
+			///push the edge
+            ///high 32-bit of g->idx[v] is the start point of v's edges
+            //so here is the point of this specfic edge
+			kv_push(uint32_t, b->e, (g->idx[v]>>32) + i);
+			///find a too far path? directly terminate the whole bubble poping
+			if (d + l > (uint32_t)max_dist) break; // too far
+
+            ///if this node
+			if (t->s == 0) { // this vertex has never been visited
+				kv_push(uint32_t, b->b, w); // save it for revert
+				///t->p is the parent node of 
+				///t->s = 1 means w has been visited
+				///d is len(v0->v), l is len(v->w), so t->d is len(v0->w)
+				t->p = v, t->s = 1, t->d = d + l;
+                /****************************may have bugs********************************/
+                cur_c = get_num_trio_flag(ug, w>>1, positive_flag);
+                cur_m = get_num_trio_flag(ug, w>>1, negative_flag);
+                cur_np = 0; 
+                if(non_positive_flag != (uint32_t)-1) 
+                {
+                    cur_np = get_num_trio_flag(ug, w>>1, non_positive_flag);
+                }
+
+                t->c = c + cur_c;
+                t->m = m + cur_m;
+                t->nc = nc + ug->u.a[(w>>1)].n;
+                t->np = np + cur_np;
+                /****************************may have bugs********************************/
+				///incoming edges of w
+				t->r = count_out(g, w^1);
+				++n_pending;
+			} else { // visited before
+                /****************************may have bugs********************************/
+                cur_c = get_num_trio_flag(ug, w>>1, positive_flag);
+                cur_m = get_num_trio_flag(ug, w>>1, negative_flag);
+                cur_np = 0; 
+                if(non_positive_flag != (uint32_t)-1) 
+                {
+                    cur_np = get_num_trio_flag(ug, w>>1, non_positive_flag);
+                }
+                ///select the way with less negative_flag, less non_positive_flag, more positive_flag, more distance
+                to_replace = 0;
+                if(m + cur_m < t->m)
+                {
+                    to_replace = 1;
+                }
+                else if(m + cur_m == t->m)
+                {
+                    if(np + cur_np < t->np)
+                    {
+                        to_replace = 1;
+                    }
+                    else if(np + cur_np == t->np)
+                    {
+                        if(c + cur_c > t->c)
+                        {
+                            to_replace = 1;
+                        }
+                        else if(c + cur_c == t->c)
+                        {
+                            if(nc + ug->u.a[(w>>1)].n > t->nc)
+                            {
+                                to_replace = 1;
+                            }
+                            else if(nc + ug->u.a[(w>>1)].n == t->nc)
+                            {
+                                if(d + l > t->d)
+                                {
+                                    to_replace = 1;
+                                }
+                            }
+                            
+                        }
+                        
+                    }
+                    
+                }
+                
+
+                if(to_replace)
+                {
+                    t->p = v;
+                    t->m = m + cur_m;
+                    t->c = c + cur_c;
+                    t->nc = nc + ug->u.a[(w>>1)].n;
+                    t->np = np + cur_np;
+                }
+				///c is the weight (is very likely the number of node in this edge) of the parent node
+				///select the longest edge (longest meams most reads/longest edge)
+                // if (c + 1 > t->c || (c + 1 == t->c && d + l > t->d)) t->p = v;
+				// if (c + 1 > t->c) t->c = c + 1;
+                /****************************may have bugs********************************/
+				///update len(v0->w)
+                ///node: t->d is not the length from this node's parent
+                ///it is the shortest edge
+				if (d + l < t->d) t->d = d + l; // update dist
+			}
+			///assert(t->r > 0);
+			//if all incoming edges of w have visited
+			//push it to b->S
+			if (--(t->r) == 0) {
+				uint32_t x = asg_arc_n(g, w);
+                /****************************may have bugs for bubble********************************/
+                /**
+                if (x) kv_push(uint32_t, b->S, w);
+				///else kv_push(uint32_t, b->T, w); // a tip
+                else goto pop_reset;
+                **/
+                if(x > 0)
+                {
+                    kv_push(uint32_t, b->S, w);
+                }
+                else
+                {
+                    ///at most one tip
+                    if(n_tips != 0) goto pop_reset;
+                    n_tips++;
+                    tip_end = w;
+                }
+                /****************************may have bugs for bubble********************************/
+				--n_pending;
+			}
+		}
+        is_first = 0;
+        //if found a tip
+        /****************************may have bugs for bubble********************************/
+        if(n_tips == 1)
+        {
+            if(tip_end != (uint32_t)-1 && n_pending == 0 && b->S.n == 0)
+            {
+                kv_push(uint32_t, b->S, tip_end);
+                break;
+            }
+            else
+            {
+                goto pop_reset;
+            }
+        }
+        /****************************may have bugs for bubble********************************/
+		///if i < nv, that means (d + l > max_dist)
+		if (i < nv || b->S.n == 0) goto pop_reset;
+	} while (b->S.n > 1 || n_pending);
 
 
+	if(is_pop) asg_bub_backtrack_primary(g, v0, b);
+
+    n_pop = 1;
+pop_reset:
+	for (i = 0; i < b->b.n; ++i) { // clear the states of visited vertices
+		binfo_t *t = &b->a[b->b.a[i]];
+		t->s = t->c = t->d = t->m = t->nc = t->np = 0;
+	}
+	return n_pop;
+}
 
 
 // pop bubbles from vertex v0; the graph MJUST BE symmetric: if u->v present, v'->u' must be present as well
@@ -13709,8 +14190,8 @@ uint32_t positive_flag, uint32_t negative_flag, uint32_t is_pop)
 	uint64_t n_pop = 0;
 	///if this node has been deleted
 	if (g->seq[v0>>1].del || g->seq[v0>>1].c == ALTER_LABLE) return 0; // already deleted
-	///if ((uint32_t)g->idx[v0] < 2) return 0; // no bubbles
-    if(get_real_length(g, v0, NULL)<2) return 0;
+	///asg_arc_n(n0)
+	if ((uint32_t)g->idx[v0] < 2) return 0; // no bubbles
 	///S saves nodes with all incoming edges visited
 	b->S.n = b->T.n = b->b.n = b->e.n = 0;
 	///for each node, b->a saves all related information
@@ -13791,8 +14272,7 @@ uint32_t positive_flag, uint32_t negative_flag, uint32_t is_pop)
                 t->np = np + cur_np;
                 /****************************may have bugs********************************/
 				///incoming edges of w
-				///t->r = count_out(g, w^1);
-                t->r = get_real_length(g, w^1, NULL);
+				t->r = count_out(g, w^1);
 				++n_pending;
 			} else { // visited before
                 /****************************may have bugs********************************/
@@ -13869,8 +14349,13 @@ uint32_t positive_flag, uint32_t negative_flag, uint32_t is_pop)
 			//if all incoming edges of w have visited
 			//push it to b->S
 			if (--(t->r) == 0) {
-                uint32_t x = get_real_length(g, w, NULL);
+				uint32_t x = asg_arc_n(g, w);
                 /****************************may have bugs for bubble********************************/
+                /**
+                if (x) kv_push(uint32_t, b->S, w);
+				///else kv_push(uint32_t, b->T, w); // a tip
+                else goto pop_reset;
+                **/
                 if(x > 0)
                 {
                     kv_push(uint32_t, b->S, w);
@@ -14110,7 +14595,82 @@ pop_reset:
 	return n_pop;
 }
 
+// pop bubbles
+int asg_pop_bubble_primary_trio_debug(ma_ug_t *ug, int max_dist, uint32_t positive_flag, uint32_t negative_flag)
+{
+    asg_t *g = ug->g;
+	uint32_t v, k, m, n_vtx = g->n_seq * 2, flag1, flag2, sink, qn;
+	uint64_t n_pop = 0;
+	buf_t b, b_r;
+	if (!g->is_symm) asg_symm(g);
+	memset(&b, 0, sizeof(buf_t));
+    memset(&b_r, 0, sizeof(buf_t));
+	///set information for each node
+	b.a = (binfo_t*)calloc(n_vtx, sizeof(binfo_t));
+    b_r.a = (binfo_t*)calloc(n_vtx, sizeof(binfo_t));
+	//traverse all node with two directions 
+	for (v = 0; v < n_vtx; ++v) {
+		uint32_t i, n_arc = 0, nv = asg_arc_n(g, v);
+		asg_arc_t *av = asg_arc_a(g, v);
+		///some node could be deleted
+		if (nv < 2 || g->seq[v>>1].del || g->seq[v>>1].c == ALTER_LABLE) continue;
+		///some edges could be deleted
+		for (i = 0; i < nv; ++i) // asg_bub_pop1() may delete some edges/arcs
+			if (!av[i].del) ++n_arc;
+		if (n_arc > 1)
+        {
+            flag1 = asg_bub_pop1_primary_trio_debug(ug, v, max_dist, &b, 
+                                                        positive_flag, negative_flag);
+            
+            if(flag1 == 1)
+            {
+                sink = b.S.a[0]^1;
 
+                flag2 = asg_bub_pop1_primary_trio_debug(ug, sink, max_dist, &b_r, 
+                                                        positive_flag, negative_flag);
+
+                for (k = 0; k < b.b.n; k++)
+                {
+                    qn = b.b.a[k];
+                    if(qn == v || qn == b.S.a[0]) continue;
+                    qn = qn^1;
+                    for (m = 0; m < b_r.b.n; m++)
+                    {
+                        if(b_r.b.a[m] == qn) break;
+                    }
+                    if(m==b_r.b.n) fprintf(stderr, "ERROR\n");
+                }
+                
+
+                if(flag1 != flag2)
+                {
+                    fprintf(stderr, "ERROR\n");
+                }
+
+                if(v != (b_r.S.a[0]^1))
+                {
+                    fprintf(stderr, "ERROR\n");
+                }
+
+                if(b.b.n != b_r.b.n)
+                {
+                    fprintf(stderr, "ERROR\n");
+                }
+
+
+            }
+        }
+	}
+	free(b.a); free(b.S.a); free(b.T.a); free(b.b.a); free(b.e.a);
+    free(b_r.a); free(b_r.S.a); free(b_r.T.a); free(b_r.b.a); free(b_r.e.a);
+	if (n_pop) asg_cleanup(g);
+
+	if(VERBOSE >= 1)
+    {
+        fprintf(stderr, "[M::%s] popped %lu bubbles\n", __func__, (unsigned long)n_pop);
+    }
+    return n_pop;
+}
 
 // pop bubbles from vertex v0; the graph MJUST BE symmetric: if u->v present, v'->u' must be present as well
 static uint64_t asg_bub_pop1_primary(asg_t *g, uint32_t v0, int max_dist, buf_t *b)
@@ -14783,8 +15343,7 @@ long long asg_arc_del_simple_circle_untig(ma_hit_t_alloc* sources, ma_sub_t* cov
 
 
 void output_unitig_graph_without_small_bubbles_primary(asg_t *sg, ma_sub_t* coverage_cut, 
-char* output_file_name, long long bubble_dist, long long tipsLen, 
-ma_hit_t_alloc* sources, int max_hang, int min_ovlp)
+char* output_file_name, long long bubble_dist, long long tipsLen)
 {
     asg_cut_tip_primary(sg, NULL, tipsLen);
     asg_pop_bubble_primary(sg, bubble_dist);
@@ -14792,7 +15351,7 @@ ma_hit_t_alloc* sources, int max_hang, int min_ovlp)
     
     ma_ug_t *ug = NULL;
     ug = ma_ug_gen_primary(sg, PRIMARY_LABLE);
-    ma_ug_seq(ug, sg, &R_INF, coverage_cut, sources, max_hang, min_ovlp);
+    ma_ug_seq(ug, sg, &R_INF, coverage_cut);
 
     fprintf(stderr, "Writing processed unitig GFA to disk... \n");
     char* gfa_name = (char*)malloc(strlen(output_file_name)+35);
@@ -17527,25 +18086,6 @@ uint32_t long_hap_overlap, float long_hap_overlap_rate, float lable_match_rate)
     ma_utg_t* reads;
     ///int flag;
     memset(visit, 0, nsg->n_seq);
-
-
-    /****************************may have bugs********************************/
-    for (v = 0; v < nsg->n_seq; ++v) 
-    {
-        uId = v;
-        if(nsg->seq[uId].c != HAP_LABLE) continue;
-        reads = &(ug->u.a[uId]);
-        for (k = 0; k < reads->n; k++)
-        {
-            rId = reads->a[k]>>33;
-            read_g->seq[rId].c = HAP_LABLE;
-        }
-    }
-    /****************************may have bugs********************************/
-
-
-
-    
     /******************************set ruIndex*********************************/
     for (v = 0; v < n_vtx; ++v) 
     {
@@ -20345,6 +20885,20 @@ void unroll_simple_case_advance(ma_ug_t *ug, asg_t* read_g, ma_hit_t_alloc* reve
     kv_destroy(u_vecs.a);
 }
 
+void adjust_utg(asg_t *sg, ma_ug_t *ug)
+{
+    double startTime = Get_T();
+
+    asg_t* nsg = ug->g;
+    unroll_simple_case(ug, sg);
+    asg_cleanup(nsg);
+    asg_symm(nsg);
+    ///debug_utg_graph(ug, sg, 0, 0);
+    if(VERBOSE >= 1)
+    {
+        fprintf(stderr, "[M::%s] takes %0.2f s\n", __func__, Get_T()-startTime);
+    }
+}
 
 
 void adjust_utg_advance(asg_t *sg, ma_ug_t *ug, ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex)
@@ -20845,7 +21399,10 @@ char* output_file_name, ma_hit_t_alloc** reverse_sources, R_to_U* ruIndex)
         asg_destroy(*sg);
     }
 
-    
+    if(R_INF.trio_flag != NULL)
+    {
+        free(R_INF.trio_flag);
+    }
 
     sprintf(gfa_name, "%s.all.debug.source", output_file_name);
     if(!load_ma_hit_ts(sources, gfa_name))
@@ -20881,10 +21438,10 @@ char* output_file_name, ma_hit_t_alloc** reverse_sources, R_to_U* ruIndex)
 }
 
 
-void output_contig_graph_primary_back(asg_t *sg, ma_hit_t_alloc* sources, ma_sub_t* coverage_cut, 
+void output_contig_graph_primary(asg_t *sg, ma_hit_t_alloc* sources, ma_sub_t* coverage_cut, 
 char* output_file_name, long long bubble_dist, long long tipsLen, float tip_drop_ratio, 
 long long circleLen, long long stops_threshold, float drop_ratio,
-ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, int max_hang, int min_ovlp)
+ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex)
 {
     asg_cut_tip_primary(sg, NULL, tipsLen);
     long long pre_cons = get_graph_statistic(sg);
@@ -20941,172 +21498,9 @@ ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, int max_hang, int min_ovlp)
 
     ma_ug_t *ug = NULL;
     ug = ma_ug_gen_primary(sg, PRIMARY_LABLE);
+    ///adjust_utg(sg, ug);
     adjust_utg_advance(sg, ug, reverse_sources, ruIndex);
-    ma_ug_seq(ug, sg, &R_INF, coverage_cut, sources, max_hang, min_ovlp);
-
-    
-    fprintf(stderr, "Writing primary contig GFA to disk... \n");
-    char* gfa_name = (char*)malloc(strlen(output_file_name)+35);
-    sprintf(gfa_name, "%s.p_ctg.gfa", output_file_name);
-    FILE* output_file = fopen(gfa_name, "w");
-    ma_ug_print(ug, &R_INF, coverage_cut, output_file);
-    fclose(output_file);
-
-    sprintf(gfa_name, "%s.p_ctg.noseq.gfa", output_file_name);
-    output_file = fopen(gfa_name, "w");
-    ma_ug_print_simple(ug, &R_INF, coverage_cut, output_file);
-    fclose(output_file);
-
-    free(gfa_name);
-    ma_ug_destroy(ug);
-}
-
-
-void adjust_utg_by_primary(ma_ug_t **ug, asg_t* read_g, float drop_rate,
-ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, ma_sub_t* coverage_cut, 
-long long bubble_dist, long long tipsLen, float tip_drop_ratio, long long stops_threshold, 
-R_to_U* ruIndex, float chimeric_rate, float drop_ratio, int max_hang, int min_ovlp)
-{
-    asg_t* nsg = (*ug)->g;
-    uint32_t v, n_vtx = nsg->n_seq, k, rId;
-    ma_utg_t* u = NULL;
-    /**
-    kvec_asg_arc_t_warp new_rtg_edges;
-    kv_init(new_rtg_edges.a);
-    kvec_t_u32_warp new_rtg_nodes;
-    kv_init(new_rtg_nodes.a);
-    **/
-
-    drop_semi_circle((*ug), nsg, read_g, reverse_sources, ruIndex);
-    asg_cleanup(nsg);
-    adjust_utg_advance(read_g, (*ug), reverse_sources, ruIndex);
-     
-    nsg = (*ug)->g;
-    n_vtx = nsg->n_seq;
-    for (v = 0; v < n_vtx; ++v) 
-    {
-        if(nsg->seq[v].del) continue;
-        nsg->seq[v].c = PRIMARY_LABLE;
-        EvaluateLen((*ug)->u, v) = (*ug)->u.a[v].n;
-    }
-
-    clean_primary_untig_graph(*ug, read_g, reverse_sources, bubble_dist, tipsLen, 
-    tip_drop_ratio, stops_threshold, ruIndex, NULL, NULL, 0, 0, 0, 
-    chimeric_rate, 0, 0, drop_ratio);
-
-    delete_useless_nodes(ug);
-
-    deduplicate(*ug, read_g, reverse_sources, 20, 100, 0.05, 0.2, ruIndex);
-    
-    delete_useless_nodes(ug);
-
-    renew_utg(ug, read_g);
-
-    rescue_missing_overlaps_aggressive(*ug, read_g, sources, coverage_cut, ruIndex, max_hang,
-    min_ovlp, 0, 0, 1, NULL);
-
-    renew_utg(ug, read_g);
-
-    rescue_contained_reads_aggressive(*ug, read_g, sources, coverage_cut, ruIndex, max_hang, 
-    min_ovlp, 0, 10, 0, 1, NULL, NULL);
-
-    renew_utg(ug, read_g);
-
-    ///set_drop_trio_flag(*ug);
-
-    n_vtx = read_g->n_seq;
-    for (v = 0; v < n_vtx; v++)
-    {
-        read_g->seq[v].c = ALTER_LABLE;
-    }
-    
-    
-    nsg = (*ug)->g;
-    n_vtx = nsg->n_seq;
-    for (v = 0; v < n_vtx; ++v) 
-    {
-        if(nsg->seq[v].del) continue;
-        if(nsg->seq[v].c == ALTER_LABLE) continue;
-        u = &((*ug)->u.a[v]);
-        if(u->m == 0) continue;
-        for (k = 0; k < u->n; k++)
-        {
-            rId = u->a[k]>>33;
-            read_g->seq[rId].c = nsg->seq[v].c;
-        }
-    }
-
-
-    n_vtx = read_g->n_seq;
-    for (v = 0; v < n_vtx; v++)
-    {
-        if(read_g->seq[v].c == ALTER_LABLE)
-        {
-            asg_seq_drop(read_g, v);
-        }
-    }
-    /**
-    kv_destroy(new_rtg_edges.a);
-    kv_destroy(new_rtg_nodes.a);
-    **/
-}
-
-
-void output_contig_graph_primary_pre(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name, 
-ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, long long bubble_dist, 
-long long tipsLen, R_to_U* ruIndex, int max_hang, int min_ovlp)
-{
-
-    ma_ug_t *ug = NULL;
-    ug = ma_ug_gen_primary(sg, PRIMARY_LABLE);
-
-    asg_t* nsg = ug->g;
-    uint32_t n_vtx = nsg->n_seq, v;
-    for (v = 0; v < n_vtx; ++v) 
-    {
-        if(nsg->seq[v].del) continue;
-        nsg->seq[v].c = PRIMARY_LABLE;
-        EvaluateLen(ug->u, v) = ug->u.a[v].n;
-    }
-    asg_pop_bubble_primary_trio(ug, bubble_dist, (uint32_t)-1, DROP);
-    cut_trio_tip_primary(ug->g, ug, tipsLen, (uint32_t)-1, 0, sg, reverse_sources, ruIndex, 2);
-    asg_pop_bubble_primary_trio(ug, bubble_dist, (uint32_t)-1, DROP);
-    cut_trio_tip_primary(ug->g, ug, tipsLen, (uint32_t)-1, 0, sg, reverse_sources, ruIndex, 2);
-    delete_useless_nodes(&ug);
-    renew_utg(&ug, sg);
-
-    ma_ug_seq(ug, sg, &R_INF, coverage_cut, sources, max_hang, min_ovlp);
-
-    fprintf(stderr, "Writing processed unitig GFA to disk... \n");
-    char* gfa_name = (char*)malloc(strlen(output_file_name)+35);
-    sprintf(gfa_name, "%s.p_utg.gfa", output_file_name);
-    FILE* output_file = fopen(gfa_name, "w");
-    ma_ug_print(ug, &R_INF, coverage_cut, output_file);
-    fclose(output_file);
-    
-    sprintf(gfa_name, "%s.p_utg.noseq.gfa", output_file_name);
-    output_file = fopen(gfa_name, "w");
-    ma_ug_print_simple(ug, &R_INF, coverage_cut, output_file);
-    fclose(output_file);
-
-    free(gfa_name);
-    ma_ug_destroy(ug);
-}
-
-void output_contig_graph_primary(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name, 
-ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, long long bubble_dist, 
-long long tipsLen, float tip_drop_ratio, long long stops_threshold, 
-R_to_U* ruIndex, float chimeric_rate, float drop_ratio, int max_hang, int min_ovlp)
-{
-
-    ma_ug_t *ug = NULL;
-    ug = ma_ug_gen_primary(sg, PRIMARY_LABLE);
-    
-    adjust_utg_by_primary(&ug, sg, TRIO_THRES, sources, reverse_sources, coverage_cut, 
-    bubble_dist, tipsLen, tip_drop_ratio, stops_threshold, ruIndex, chimeric_rate, drop_ratio, 
-    max_hang, min_ovlp);
-
-    ma_ug_seq(ug, sg, &R_INF, coverage_cut, sources, max_hang, min_ovlp);
+    ma_ug_seq(ug, sg, &R_INF, coverage_cut);
 
     
     fprintf(stderr, "Writing primary contig GFA to disk... \n");
@@ -21127,13 +21521,80 @@ R_to_U* ruIndex, float chimeric_rate, float drop_ratio, int max_hang, int min_ov
 
 
 
+void output_contig_graph_primary_bubble_poping(asg_t *sg, ma_hit_t_alloc* sources, ma_sub_t* coverage_cut, 
+char* output_file_name, long long bubble_dist, long long tipsLen, float tip_drop_ratio, 
+long long circleLen, long long stops_threshold, float drop_ratio,
+ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex)
+{
+    asg_cut_tip_primary(sg, NULL, tipsLen);
+    long long pre_cons = get_graph_statistic(sg);
+    long long cur_cons = 0;
+    while(pre_cons != cur_cons)
+    {
+        pre_cons = get_graph_statistic(sg);
+        ///need consider tangles
+        asg_pop_bubble_primary(sg, bubble_dist);
+        asg_arc_del_simple_circle_untig(sources, coverage_cut, sg, circleLen, 1);
+        cur_cons = get_graph_statistic(sg);
+    }
 
-void output_contig_graph_alternative(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name,
-ma_hit_t_alloc* sources, int max_hang, int min_ovlp)
+    
+    asg_arc_simple_large_bubbles(sg, reverse_sources, 2, ruIndex);
+    asg_arc_identify_simple_bubbles_multi(sg, 1);
+    ///we don't need a special function here since it just removes edges instead of nodes
+    asg_arc_del_short_false_link_primary(sg, 0.6, 0.85, bubble_dist, reverse_sources, 
+    asm_opt.max_short_tip, ruIndex);
+    
+
+    
+    asg_arc_del_short_diploid_by_length(sg, drop_ratio, asm_opt.max_short_tip, reverse_sources, 
+        asm_opt.max_short_tip, stops_threshold, 0, 1, 1, ruIndex);
+    asg_cut_tip_primary(sg, NULL, tipsLen);
+    ///second round
+    pre_cons = get_graph_statistic(sg);
+    cur_cons = 0;
+    while(pre_cons != cur_cons)
+    {
+        pre_cons = get_graph_statistic(sg);
+        asg_pop_bubble_primary(sg, bubble_dist);
+        asg_arc_del_simple_circle_untig(sources, coverage_cut, sg, circleLen, 1);
+        ////here is the difference
+        asg_arc_del_short_diploid_by_length(sg, drop_ratio, asm_opt.max_short_tip, reverse_sources, 
+        asm_opt.max_short_tip, stops_threshold, 0, 1, 1, ruIndex);
+        asg_cut_tip_primary(sg, NULL, tipsLen);
+        cur_cons = get_graph_statistic(sg);
+    }
+    label_tangles(sg, reverse_sources, 20, 100, 0.05, 0.2, bubble_dist, tipsLen, tip_drop_ratio,
+    stops_threshold, ruIndex, 1);
+    
+    
+    ma_ug_t *ug = NULL;
+    ug = ma_ug_gen_primary(sg, PRIMARY_LABLE);
+    ma_ug_seq(ug, sg, &R_INF, coverage_cut);
+
+    
+    fprintf(stderr, "Writing primary contig GFA to disk... \n");
+    char* gfa_name = (char*)malloc(strlen(output_file_name)+35);
+    sprintf(gfa_name, "%s.p_ctg.gfa", output_file_name);
+    FILE* output_file = fopen(gfa_name, "w");
+    ma_ug_print(ug, &R_INF, coverage_cut, output_file);
+    fclose(output_file);
+
+    sprintf(gfa_name, "%s.p_ctg.noseq.gfa", output_file_name);
+    output_file = fopen(gfa_name, "w");
+    ma_ug_print_simple(ug, &R_INF, coverage_cut, output_file);
+    fclose(output_file);
+
+    free(gfa_name);
+    ma_ug_destroy(ug);
+}
+
+
+void output_contig_graph_alternative(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name)
 {
     ma_ug_t *ug = NULL;
     ug = ma_ug_gen_primary(sg, ALTER_LABLE);
-    ma_ug_seq(ug, sg, &R_INF, coverage_cut, sources, max_hang, min_ovlp);
+    ma_ug_seq(ug, sg, &R_INF, coverage_cut);
 
     fprintf(stderr, "Writing alternate contig GFA to disk... \n");
     char* gfa_name = (char*)malloc(strlen(output_file_name)+35);
@@ -21431,6 +21892,8 @@ long long rescue_threshold)
 
                 ///the read itself do not have these overlaps, but all related reads have
                 ///we need to remove all overlaps from rev_paf[i], and then add all overlaps to paf[i]
+                // fprintf(stderr,"\nadd following %d edges...\n", edge_vector.n);
+                // print_revise_edges(&(rev_paf[i]), edge_vector_index.a, edge_vector_index.n);
                 remove_overlaps(&(rev_paf[i]), edge_vector_index.a, edge_vector_index.n);
                 add_overlaps_from_different_sources(paf, &(paf[i]), edge_vector.a, edge_vector.n);
                 revises = revises + edge_vector.n;
@@ -21480,7 +21943,7 @@ void pre_clean(ma_hit_t_alloc* sources, ma_sub_t* coverage_cut, asg_t *sg, long 
         ///remove isoloated single read
         tri_flag += asg_arc_del_single_node_directly(sg, asm_opt.max_short_tip, sources);
 
-        if (!((asm_opt.pat_index && asm_opt.mat_index)))
+        if (!(asm_opt.trio_name || (asm_opt.pat_index && asm_opt.mat_index)))
         {
             tri_flag += asg_arc_del_triangular_advance(sg, bubble_dist);
             ///remove the cross at the bubble carefully, just remove inexact cross
@@ -21510,6 +21973,11 @@ void destory_R_to_U(R_to_U* x)
 
 void set_R_to_U(R_to_U* x, uint32_t rID, uint32_t uID, uint32_t is_Unitig)
 {
+    // if(rID >= x->len)
+	// {
+    //     fprintf(stderr, "s: rID: %u, len: %lu\n", rID, x->len);
+    //     fflush(stderr);
+    // }
 	if(rID >= x->len)
 	{
 		x->index = (uint32_t*)realloc(x->index, (rID + 1)*sizeof(uint32_t));
@@ -21524,6 +21992,11 @@ void set_R_to_U(R_to_U* x, uint32_t rID, uint32_t uID, uint32_t is_Unitig)
 
 void get_R_to_U(R_to_U* x, uint32_t rID, uint32_t* uID, uint32_t* is_Unitig)
 {
+    // if(rID >= x->len)
+	// {
+    //     fprintf(stderr, "r: rID: %u, len: %lu\n", rID, x->len);
+    //     fflush(stderr);
+    // }
 	if(rID >= x->len || (x->index[rID] == (uint32_t)(-1)))
 	{
 		(*uID) = (uint32_t)-1;
@@ -21979,7 +22452,7 @@ uint32_t* index, asg_arc_t* t)
 
 
 
-uint32_t get_edge_from_source(ma_hit_t_alloc* sources, ma_sub_t *coverage_cut, 
+inline uint32_t get_edge_from_source(ma_hit_t_alloc* sources, ma_sub_t *coverage_cut, 
 R_to_U* ruIndex, int max_hang, int min_ovlp, uint32_t query, uint32_t target, asg_arc_t* t)
 {
     uint32_t qn = query>>1, i;
@@ -22106,13 +22579,277 @@ ma_hit_t_alloc* sources, ma_sub_t *coverage_cut, R_to_U* ruIndex, int max_hang, 
 }
 
 
+void rescue_contained_reads_back_back(asg_t *r_g, ma_hit_t_alloc* sources, ma_sub_t *coverage_cut,
+R_to_U* ruIndex, int max_hang, int min_ovlp, uint32_t trio_flag)
+{
+    uint32_t n_vtx, v, k, max_contain_uId = 0, contain_uId, contain_rId, is_Unitig, uId, rId, endRid, oLen, w;
+    uint32_t ava_max, ava_ol_max, ava_cur, test_oLen;
+    int32_t r;
+    asg_t* nsg = NULL;
+    ma_utg_t* nsu = NULL;
+    ma_ug_t *ug = NULL;
+    int ql, tl;
+    asg_arc_t t, t_max, r_edge;
+    t_max.v = t_max.ul = t.v = t.ul = (uint32_t)-1;
+    ma_hit_t *h = NULL;
+    ma_hit_t_alloc* x = NULL;
+    ma_sub_t *sq = NULL;
+    ma_sub_t *st = NULL;
+    uint32_t non_trio_flag = (uint32_t)-1;
+    if(trio_flag == FATHER) non_trio_flag = MOTHER;
+    if(trio_flag == MOTHER) non_trio_flag = FATHER;
+    kvec_t(asg_arc_t) new_edges;
+    kv_init(new_edges);
 
+    kvec_t(asg_arc_t) rbub_edges;
+    kv_init(rbub_edges);
+
+    kvec_t_u64_warp u_vecs;
+    kv_init(u_vecs.a);
+
+    ug = ma_ug_gen(r_g);
+    nsg = ug->g;
+    
+    for (v = 0; v < nsg->n_seq; v++)
+    {
+        uId = v;
+        nsu = &(ug->u.a[uId]);
+        if(nsu->m == 0) continue;
+        for (k = 0; k < nsu->n; k++)
+        {
+            rId = nsu->a[k]>>33;
+            ///ori = nsu->a[k]>>32&1;
+            set_R_to_U(ruIndex, rId, uId, 1);
+        }
+    }
+
+
+    n_vtx = nsg->n_seq * 2;
+    for (v = 0; v < n_vtx; v++)
+    {
+        uId = v>>1;
+        if(nsg->seq[uId].del) continue;
+        nsu = &(ug->u.a[uId]);
+        if(nsu->m == 0) continue;
+        if(nsu->circ || nsu->start == UINT32_MAX || nsu->end == UINT32_MAX) continue;
+        if(get_real_length(nsg, v, NULL) != 0) continue;
+        ///we probably don't need this line
+        if(get_real_length(nsg, v^1, NULL) == 0) continue;
+        if(v&1)
+        {
+            endRid = nsu->start^1;
+        }
+        else
+        {
+            endRid = nsu->end^1;
+        }
+
+
+        x = &(sources[(endRid>>1)]);
+        ava_ol_max = ava_max = 0;
+        for (k = 0; k < x->length; k++)
+        {
+            h = &(x->buffer[k]);
+            sq = &(coverage_cut[Get_qn(*h)]);
+            st = &(coverage_cut[Get_tn(*h)]);
+
+            if(R_INF.trio_flag[Get_tn(*h)] == non_trio_flag) continue;
+            ///just need deleted edges
+            if(!st->del) continue;
+            if(!h->del) continue;
+            ///sq is endRid itself, it cannot be deleted
+
+            ///tn must be contained in another existing read
+            get_R_to_U(ruIndex, Get_tn(*h), &contain_rId, &is_Unitig);
+            if(contain_rId == (uint32_t)-1 || is_Unitig == 1) continue;
+            if(r_g->seq[contain_rId].del) continue;
+
+            get_R_to_U(ruIndex, contain_rId, &contain_uId, &is_Unitig);
+            if(contain_uId == (uint32_t)-1 || is_Unitig != 1) continue;
+            ///contain_uId must be a unitig
+
+            ql = sq->e - sq->s; tl = st->e - st->s;
+            r = ma_hit2arc(h, ql, tl, max_hang, asm_opt.max_hang_rate, min_ovlp, &t);
+
+            ///if st is contained in sq, skip
+            if(r < 0) continue;
+
+            ///if sq and v are not in the same direction, skip
+            if((t.ul>>32) != endRid) continue;
+
+            ///note: t.v is a contained read
+            ///we need to find existing reads linked with w
+            ava_cur = 
+                get_num_edges2existing_nodes(ug, r_g, sources, coverage_cut, ruIndex, 
+                                    max_hang, min_ovlp, t.v, &test_oLen, contain_uId, uId);
+            if((ava_cur > ava_max) || (ava_cur == ava_max && test_oLen > ava_ol_max))
+            {
+                ava_max = ava_cur;
+                t_max = t;
+                max_contain_uId = contain_uId;
+                ava_ol_max = test_oLen;
+            }
+            
+        }
+
+        if(ava_max > 0)
+        {
+            k = 0;
+            rbub_edges.n = 0;
+            while(get_edge2existing_node(ug, r_g, sources, coverage_cut, ruIndex, 
+                    max_hang, min_ovlp, t_max.v, max_contain_uId, uId, &k, &r_edge))
+            {
+               kv_push(asg_arc_t, rbub_edges, r_edge);
+            }
+
+
+            //(t_max.ul>>32)----->(t_max.v/r_edge.ul>>32)----->r_edge.v
+            //need to recover (t_max.v/r_edge.ul>>32), 1. set .del = 0 2. set ruIndex
+            r_g->seq[t_max.v>>1].del = 0;
+            coverage_cut[t_max.v>>1].del = 0;
+            coverage_cut[t_max.v>>1].c = PRIMARY_LABLE;
+            //add recover to the end of the unitig
+            append_rId_to_Unitig(r_g, ug, v, t_max.v, sources, coverage_cut, ruIndex, max_hang, 
+            min_ovlp);
+
+            get_edge_from_source(sources, coverage_cut, ruIndex, max_hang, min_ovlp, 
+            (t_max.ul>>32), t_max.v, &t);
+            kv_push(asg_arc_t, new_edges, t);
+
+            get_edge_from_source(sources, coverage_cut, ruIndex, max_hang, min_ovlp, 
+            (t_max.v^1), ((t_max.ul>>32)^1), &t);
+            kv_push(asg_arc_t, new_edges, t);
+
+
+            for (k = 0; k < rbub_edges.n; k++)
+            {
+                t = rbub_edges.a[k];
+                get_R_to_U(ruIndex, t.v>>1, &uId, &is_Unitig);
+                w = (uint32_t)-1;
+                if(t.v == ug->u.a[uId].start) w = uId<<1;
+                if(t.v == ug->u.a[uId].end) w = (uId<<1)^1;
+                kv_push(asg_arc_t, new_edges, t);
+                oLen = t.ol;
+                asg_append_edges_to_srt(nsg, v, ug->u.a[v>>1].len, w, oLen, t.strong, t.el, t.no_l_indel);
+
+
+                get_edge_from_source(sources, coverage_cut, ruIndex, max_hang, min_ovlp, 
+                (t.v^1), ((t.ul>>32)^1), &t);
+                kv_push(asg_arc_t, new_edges, t);
+                oLen = t.ol;
+                asg_append_edges_to_srt(nsg, w^1, ug->u.a[w>>1].len, v^1, oLen, t.strong, t.el, t.no_l_indel);
+            }
+
+            
+
+
+
+            /*************************just for debug**************************/
+            // get_R_to_U(ruIndex, endRid>>1, &uId, &is_Unitig);
+            // fprintf(stderr, "\n>%.*s, uId: utg%.6dl, ava_max: %u\n", 
+            // (int)Get_NAME_LENGTH((R_INF), endRid>>1),
+            // Get_NAME((R_INF), endRid>>1), uId+1, ava_max);
+
+            // get_R_to_U(ruIndex, t_max.v>>1, &contain_rId, &is_Unitig);
+            // fprintf(stderr, ">%.*s (%u) is contained in >%.*s, contained uId: utg%.6dl\n", 
+            // (int)Get_NAME_LENGTH((R_INF), t_max.v>>1), Get_NAME((R_INF), t_max.v>>1), t_max.v>>1, 
+            // (int)Get_NAME_LENGTH((R_INF), contain_rId), Get_NAME((R_INF), contain_rId),
+            // max_contain_uId+1);
+            
+            // for (k = 0; k < rbub_edges.n; k++)
+            // {
+            //     get_R_to_U(ruIndex, rbub_edges.a[k].v>>1, &uId, &is_Unitig);
+            //     fprintf(stderr, "@%.*s, uId: utg%.6dl\n", 
+            //     (int)Get_NAME_LENGTH((R_INF), rbub_edges.a[k].v>>1),
+            //     Get_NAME((R_INF), rbub_edges.a[k].v>>1), uId+1);
+            // }
+            // if((uint32_t)rbub_edges.n != (uint32_t)get_real_length(nsg, v, NULL))
+            // {
+            //     fprintf(stderr, "ERROR\n");
+            // }
+            /*************************just for debug**************************/
+
+
+
+
+            u_vecs.a.n = 0;
+            ///rbub_edges.n == 1 mean get_real_length(nsg, v, NULL) == 1
+            if(rbub_edges.n == 1 && get_real_length(nsg, w^1, NULL) == 1 && (v>>1)!=(w>>1))
+            {
+                kv_push(uint64_t, u_vecs.a, v);
+                kv_push(uint64_t, u_vecs.a, w);
+                merge_ug_nodes_advance(ug, r_g, ruIndex, &u_vecs, new_edges.a, new_edges.n);
+            }
+        }
+    }
+
+
+
+    ///fprintf(stderr, "new_edges.n: %d, r_g->n_arc: %u\n", new_edges.n, r_g->n_arc);
+    asg_arc_t* p = NULL;
+    for (k = 0; k < new_edges.n; k++)
+    {
+        p = asg_arc_pushp(r_g);
+        *p = new_edges.a[k];
+    }
+
+    if(new_edges.n != 0)
+    {
+        free(r_g->idx);
+        r_g->idx = 0;
+        r_g->is_srt = 0;
+        asg_cleanup(r_g);
+    }
+    
+
+    
+
+
+    /*************************just for debug**************************/
+    // n_vtx = r_g->n_seq * 2;
+    // for (v = 0; v < n_vtx; v++)
+    // {
+    //     if(r_g->seq[v>>1].del) continue;
+    //     asg_arc_t *av = asg_arc_a(r_g, v);
+    //     uint32_t nv = asg_arc_n(r_g, v);
+    //     for (k = 0; k < nv; k++)
+    //     {
+    //         if(av[k].del) continue;
+
+    //         w = av[k].v^1;
+    //         uint32_t i;
+    //         for (i = 0; i < asg_arc_n(r_g, w); i++)
+    //         {
+    //             if(asg_arc_a(r_g, w)[i].del) continue;
+    //             if(asg_arc_a(r_g, w)[i].v == (v^1)) break;
+    //         }
+            
+    //         if(i == asg_arc_n(r_g, w))
+    //         {
+    //             fprintf(stderr, "ERROR: v>>1: %u, w>>1: %u\n", v>>1, w>>1);
+    //         }
+    //     }
+    // }
+
+    debug_utg_graph(ug, r_g, 0, 0);
+    /*************************just for debug**************************/
+
+
+
+    for (v = 0; v < ruIndex->len; v++)
+    {
+        get_R_to_U(ruIndex, v, &uId, &is_Unitig);
+        if(is_Unitig == 1) ruIndex->index[v] = (uint32_t)-1;
+    }
+    ma_ug_destroy(ug);
+    kv_destroy(new_edges);
+    kv_destroy(rbub_edges);
+    kv_destroy(u_vecs.a);
+    
+}
 
 void lable_all_bubbles(asg_t *r_g, long long bubble_dist)
 {
-    ///must have this line, otherwise asg_arc_identify_simple_bubbles_multi will be wrong
-
-    asg_cleanup(r_g);
     asg_arc_identify_simple_bubbles_multi(r_g, 0);
 
     uint32_t v, i, n_vtx = r_g->n_seq * 2;
@@ -22575,10 +23312,6 @@ kvec_t_u32_warp* new_rtg_nodes)
     else
     {
         ug = ma_ug_gen(r_g);
-        for (v = 0; v < ug->g->n_seq; v++)
-        {
-            ug->g->seq[v].c = PRIMARY_LABLE;
-        }
     }
     nsg = ug->g;
     
@@ -22704,12 +23437,27 @@ kvec_t_u32_warp* new_rtg_nodes)
                 w = get_corresponding_uId(ug, ruIndex, t.v);
                 if(w == ((uint32_t)(-1))) continue;
                 if(get_real_length(nsg, w^1, NULL)!=0) continue;
+                
+                if(is_primary_check && v == 303)
+                {
+                    fprintf(stderr, "\nv>>1: %u, v&1: %u, w>>1: %u, w&1: %u, endRid>>1: %u, endRid&1: %u, %s\n", 
+                                                    v>>1, v&1, w>>1, w&1, endRid>>1, endRid&1,
+                                                    r_g->seq[endRid>>1].del == 0?"no del" : "del");
+                }
+                
             }
             
             //recover all contained reads
             for (k = 0; k < chain_edges.a.n; k++)
             {
                 t_max = chain_edges.a.a[k];
+                if(is_primary_check && v == 303)
+                {
+                    fprintf(stderr, "k: %u, v>>1: %u, v&1: %u, w>>1: %u, w&1: %u\n", 
+                    k, (uint32_t)(t_max.ul>>33), (uint32_t)((t_max.ul>>32)&1), 
+                    t_max.v>>1, t_max.v&1);
+                }
+
                 ///save all infor for reverting
                 get_R_to_U(ruIndex, t_max.v>>1, &contain_rId, &is_Unitig);
                 a_nodes=contain_rId; 
@@ -22730,10 +23478,24 @@ kvec_t_u32_warp* new_rtg_nodes)
                 get_edge_from_source(sources, coverage_cut, ruIndex, max_hang, min_ovlp, 
                 (t_max.ul>>32), t_max.v, &t);
                 kv_push(asg_arc_t, new_edges, t);
+            
+                if(is_primary_check && v == 303)
+                {
+                    fprintf(stderr, "k+: %u, v>>1: %u, v&1: %u, w>>1: %u, w&1: %u\n", 
+                    k, (uint32_t)(t.ul>>33), (uint32_t)((t.ul>>32)&1), 
+                    t.v>>1, t.v&1);
+                }
 
                 get_edge_from_source(sources, coverage_cut, ruIndex, max_hang, min_ovlp, 
                 (t_max.v^1), ((t_max.ul>>32)^1), &t);
                 kv_push(asg_arc_t, new_edges, t);
+                
+                if(is_primary_check && v == 303)
+                {
+                    fprintf(stderr, "k-: %u, v>>1: %u, v&1: %u, w>>1: %u, w&1: %u\n", 
+                    k, (uint32_t)(t.ul>>33), (uint32_t)((t.ul>>32)&1), 
+                    t.v>>1, t.v&1);
+                }
             }
 
             if(is_primary_check)
@@ -22744,12 +23506,30 @@ kvec_t_u32_warp* new_rtg_nodes)
                 kv_push(asg_arc_t, new_edges, t);
                 oLen = t.ol;
                 asg_append_edges_to_srt(nsg, v, ug->u.a[v>>1].len, w, oLen, t.strong, t.el, t.no_l_indel);
+                
+                if(is_primary_check && v == 303)
+                {
+                    fprintf(stderr, "++: %u, v>>1: %u, v&1: %u, w>>1: %u, w&1: %u\n", 
+                    k, (uint32_t)(t.ul>>33), (uint32_t)((t.ul>>32)&1), 
+                    t.v>>1, t.v&1);
+
+                    fprintf(stderr, "Uv>>1: %u, Uv&1: %u, Uw>>1: %u, Uw&1: %u\n", 
+                    v>>1, v&1, w>>1, w&1);
+                }
 
                 get_edge_from_source(sources, coverage_cut, ruIndex, max_hang, min_ovlp, 
                 (t.v^1), ((t.ul>>32)^1), &t);
                 kv_push(asg_arc_t, new_edges, t);
                 oLen = t.ol;
                 asg_append_edges_to_srt(nsg, w^1, ug->u.a[w>>1].len, v^1, oLen, t.strong, t.el, t.no_l_indel);
+                
+                if(is_primary_check && v == 303)
+                {
+                    fprintf(stderr, "--: %u, v>>1: %u, v&1: %u, w>>1: %u, w&1: %u\n", 
+                    k, (uint32_t)(t.ul>>33), (uint32_t)((t.ul>>32)&1), 
+                    t.v>>1, t.v&1);
+                }
+            
             }
             else
             {
@@ -22799,7 +23579,7 @@ kvec_t_u32_warp* new_rtg_nodes)
             int tri_flag = 0;
             ///remove very simple circle
             tri_flag += asg_arc_del_simple_circle_untig(sources, coverage_cut, r_g, 100, 0);
-            if (!((asm_opt.pat_index && asm_opt.mat_index)))
+            if (!(asm_opt.trio_name || (asm_opt.pat_index && asm_opt.mat_index)))
             {
                 ///remove isoloated single read
                 tri_flag += asg_arc_del_triangular_advance(r_g, bubble_dist);
@@ -22875,6 +23655,10 @@ kvec_t_u32_warp* new_rtg_nodes)
             p = asg_arc_pushp(r_g);
             *p = new_edges.a[k];
             if(new_rtg_edges) kv_push(asg_arc_t, new_rtg_edges->a, new_edges.a[k]);
+
+            fprintf(stderr, "(%u) v>>1: %u, v&1: %u, w>>1: %u, w&1: %u, %s\n", 
+                    k, (uint32_t)(p->ul>>33), (uint32_t)((p->ul>>32)&1), p->v>>1, p->v&1,
+                    p->del == 0?"no del" : "del");
         }
 
         if(new_edges.n != 0)
@@ -22882,7 +23666,41 @@ kvec_t_u32_warp* new_rtg_nodes)
             free(r_g->idx);
             r_g->idx = 0;
             r_g->is_srt = 0;
-            asg_cleanup(r_g);
+            ///asg_cleanup(r_g);
+            asg_cleanup_debug(r_g);
+        }
+
+
+
+
+
+
+        asg_arc_t *aw = NULL;
+        uint32_t nw, i;
+        v = 1467; v = v<<1; v = v | 1;
+        fprintf(stderr, "\nNode: v>>1: %u, v&1: %u, %s\n", 
+                    v>>1, v&1, r_g->seq[v>>1].del == 0?"no del" : "del");
+        aw = asg_arc_a(r_g, v);
+        nw = asg_arc_n(r_g, v);
+        fprintf(stderr, "\nv>>1: %u, v&1: %u, nw: %u\n", v>>1, v&1, nw);
+        for (i = 0; i < nw; i++)
+        {
+            if(aw[i].del) continue;
+            fprintf(stderr, "&&&&i: %u, ul>>1: %u, ul&1: %u, v>>1: %u, v&1: %u\n", 
+            i, (uint32_t)(aw[i].ul>>33), ((uint32_t)(aw[i].ul>>32))&1, aw[i].v>>1, aw[i].v&1);
+        }
+
+        v = 2509262; v = v<<1; v = v | 1;
+        fprintf(stderr, "\nNode: v>>1: %u, v&1: %u, %s\n", 
+                    v>>1, v&1, r_g->seq[v>>1].del == 0?"no del" : "del");
+        aw = asg_arc_a(r_g, v);
+        nw = asg_arc_n(r_g, v);
+        fprintf(stderr, "\nv>>1: %u, v&1: %u, nw: %u\n", v>>1, v&1, nw);
+        for (i = 0; i < nw; i++)
+        {
+            if(aw[i].del) continue;
+            fprintf(stderr, "^^^^i: %u, ul>>1: %u, ul&1: %u, v>>1: %u, v&1: %u\n", 
+            i, (uint32_t)(aw[i].ul>>33), ((uint32_t)(aw[i].ul>>32))&1, aw[i].v>>1, aw[i].v&1);
         }
     }
 
@@ -22927,10 +23745,6 @@ kvec_asg_arc_t_warp* new_rtg_edges)
     else
     {
         ug = ma_ug_gen(r_g);
-        for (v = 0; v < ug->g->n_seq; v++)
-        {
-            ug->g->seq[v].c = PRIMARY_LABLE;
-        }
     }
     nsg = ug->g;
     
@@ -23070,7 +23884,7 @@ kvec_asg_arc_t_warp* new_rtg_edges)
             int tri_flag = 0;
             ///remove very simple circle
             tri_flag += asg_arc_del_simple_circle_untig(sources, coverage_cut, r_g, 100, 0);
-            if (!((asm_opt.pat_index && asm_opt.mat_index)))
+            if (!(asm_opt.trio_name || (asm_opt.pat_index && asm_opt.mat_index)))
             {
                 ///remove isoloated single read
                 tri_flag += asg_arc_del_triangular_advance(r_g, bubble_dist);
@@ -23224,10 +24038,6 @@ uint32_t is_bubble_check, uint32_t is_primary_check)
     else
     {
         ug = ma_ug_gen(r_g);
-        for (v = 0; v < ug->g->n_seq; v++)
-        {
-            ug->g->seq[v].c = PRIMARY_LABLE;
-        }
     }
     nsg = ug->g;
     
@@ -23448,7 +24258,7 @@ uint32_t is_bubble_check, uint32_t is_primary_check)
             int tri_flag = 0;
             ///remove very simple circle
             tri_flag += asg_arc_del_simple_circle_untig(sources, coverage_cut, r_g, 100, 0);
-            if (!((asm_opt.pat_index && asm_opt.mat_index)))
+            if (!(asm_opt.trio_name || (asm_opt.pat_index && asm_opt.mat_index)))
             {
                 ///remove isoloated single read
                 tri_flag += asg_arc_del_triangular_advance(r_g, bubble_dist);
@@ -23582,11 +24392,6 @@ kvec_asg_arc_t_warp* keep_edges)
     ma_utg_t* nsu = NULL;
     ma_ug_t *ug = NULL;
     asg_arc_t t, r_edge;
-    ma_hit_t_alloc* x = NULL;
-    ma_hit_t *h = NULL;
-    ma_sub_t *sq = NULL;
-    ma_sub_t *st = NULL;
-    int32_t r;
 
     kvec_t(asg_arc_t) new_utg_edges;
     kv_init(new_utg_edges);
@@ -23604,10 +24409,6 @@ kvec_asg_arc_t_warp* keep_edges)
     else
     {
         ug = ma_ug_gen(r_g);
-        for (v = 0; v < ug->g->n_seq; v++)
-        {
-            ug->g->seq[v].c = PRIMARY_LABLE;
-        }
     }
 
     nsg = ug->g;
@@ -23636,7 +24437,9 @@ kvec_asg_arc_t_warp* keep_edges)
         if(nsu->m == 0) continue;
         if(nsu->circ || nsu->start == UINT32_MAX || nsu->end == UINT32_MAX) continue;
         if(get_real_length(nsg, v, NULL) != 0) continue;
-        
+        ///if(uId == 2474) fprintf(stderr, "\nuId: %u, v: %u\n", uId, v);
+        // debug_info_of_specfic_read("m64011_190329_072846/80545633/ccs", 
+        // sources, reverse_sources, -1, "clean");
 
 
         if(v&1)
@@ -23649,30 +24452,6 @@ kvec_asg_arc_t_warp* keep_edges)
         }
 
 
-
-        /****************************may have bugs********************************/
-        x = &(sources[(endRid>>1)]);
-        for (k = 0; k < x->length; k++)
-        {
-            ///h is the edge of endRid
-            h = &(x->buffer[k]);
-            sq = &(coverage_cut[Get_qn(*h)]);
-            st = &(coverage_cut[Get_tn(*h)]);
-            ///sq, st, and h cannot be deleted
-            if(sq->del || st->del || h->del) continue;
-            r = ma_hit2arc(h, sq->e - sq->s, st->e - st->s, max_hang, 
-                                            asm_opt.max_hang_rate, min_ovlp, &t);
-            if(r < 0) continue;
-            if((t.ul>>32) != endRid) continue;
-            break;
-        }
-        ///means there is >0 edges
-        if(k != x->length) continue;
-        /****************************may have bugs********************************/
-
-
-
-
         k = 0;
         rbub_edges.n = 0;
         ///note here use reverse_sources instead of sources
@@ -23680,6 +24459,7 @@ kvec_asg_arc_t_warp* keep_edges)
                 max_hang, min_ovlp, endRid, &uId, 1, &k, &r_edge, 1))
         {
             kv_push(asg_arc_t, rbub_edges, r_edge);
+            ///if(uId == 2474) fprintf(stderr, "***uId: %u, v: %u, r_edge.v>>1: %u\n", uId, v, r_edge.v>>1);
         }
 
 
@@ -24506,7 +25286,6 @@ long long bubble_dist, uint32_t chainLenThres)
         nsu = &(ug->u.a[uId]);
         if(nsu->m == 0) continue;
         if(nsg->seq[v].del) continue;
-        nsg->seq[v].c = PRIMARY_LABLE;
         for (k = 0; k < nsu->n; k++)
         {
             rId = nsu->a[k]>>33;
@@ -25006,16 +25785,13 @@ int max_hang, int min_ovlp)
     }
 }
 
-
-
-
 void clean_graph(
 int min_dp, ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, 
 long long n_read, uint64_t* readLen, long long mini_overlap_length, 
 long long max_hang_length, long long clean_round, long long gap_fuzz,
 float min_ovlp_drop_ratio, float max_ovlp_drop_ratio, char* output_file_name, 
 long long bubble_dist, int read_graph, R_to_U* ruIndex, asg_t* sg, 
-ma_sub_t* coverage_cut, int debug_g)
+ma_sub_t* coverage_cut, uint32_t trio_flag, int debug_g)
 {
 
     if(debug_g) goto debug_gfa;
@@ -25028,6 +25804,7 @@ ma_sub_t* coverage_cut, int debug_g)
 
     ///it's hard to say which function is better       
     ///normalize_ma_hit_t_single_side(sources, n_read);
+    ///normalize_ma_hit_t_single_side_back(sources, n_read);
     normalize_ma_hit_t_single_side_advance(sources, n_read);
     normalize_ma_hit_t_single_side_advance(reverse_sources, n_read);
     
@@ -25036,7 +25813,7 @@ ma_sub_t* coverage_cut, int debug_g)
     // -1, "clean");
 
 
-    if ((asm_opt.pat_index && asm_opt.mat_index))
+    if (asm_opt.trio_name || (asm_opt.pat_index && asm_opt.mat_index))
     {
         drop_edges_by_trio(sources, n_read);
     }
@@ -25057,11 +25834,17 @@ ma_sub_t* coverage_cut, int debug_g)
     ///print_binned_reads(sources, n_read, coverage_cut);
     ma_hit_flt(sources, n_read, coverage_cut, max_hang_length, mini_overlap_length);
 
+    ///debug_trio(sources, n_read, "before");
     ///fix_binned_reads(sources, n_read, coverage_cut);
+    ///debug_trio(sources, n_read, "after");
+
+
+
 
 
     ///just need to deal with trio here
-    ma_hit_contained_advance(sources, n_read, coverage_cut, ruIndex, max_hang_length, mini_overlap_length);
+    ///ma_hit_contained(sources, n_read, coverage_cut, ruIndex, max_hang_length, mini_overlap_length,trio_flag);
+    ma_hit_contained_advance(sources, n_read, coverage_cut, ruIndex, max_hang_length, mini_overlap_length,trio_flag);
 
     sg = ma_sg_gen(sources, n_read, coverage_cut, max_hang_length, mini_overlap_length);
     asg_arc_del_trans(sg, gap_fuzz);
@@ -25125,7 +25908,7 @@ ma_sub_t* coverage_cut, int debug_g)
             ///asg_arc_identify_simple_bubbles_multi(sg, 1);
             asg_arc_identify_simple_bubbles_multi(sg, 0);
             ///asg_arc_del_short_diploid_unclean_exact(sg, drop_ratio, sources);
-            if((asm_opt.pat_index && asm_opt.mat_index))
+            if(asm_opt.trio_name || (asm_opt.pat_index && asm_opt.mat_index))
             {
                 asg_arc_del_short_diploid_by_exact_trio(sg, asm_opt.max_short_tip, sources);
             }
@@ -25138,7 +25921,7 @@ ma_sub_t* coverage_cut, int debug_g)
 
 
             asg_arc_identify_simple_bubbles_multi(sg, 1);
-            if((asm_opt.pat_index && asm_opt.mat_index))
+            if(asm_opt.trio_name || (asm_opt.pat_index && asm_opt.mat_index))
             {
                 asg_arc_del_short_diploid_by_length_trio(sg, drop_ratio, asm_opt.max_short_tip, reverse_sources, 
                 asm_opt.max_short_tip, 1, 1, 0, 0, ruIndex);
@@ -25209,14 +25992,18 @@ ma_sub_t* coverage_cut, int debug_g)
     mini_overlap_length, bubble_dist, 1, 0, NULL);
     rescue_missing_overlaps_backward(NULL, sg, sources, coverage_cut, ruIndex, max_hang_length, 
     mini_overlap_length, bubble_dist, 10, 1, 0);
-    // rescue_wrong_overlaps_to_unitigs(NULL, sg, sources, reverse_sources, coverage_cut, ruIndex, 
-    // max_hang_length, mini_overlap_length, bubble_dist, NULL);
+    rescue_wrong_overlaps_to_unitigs(NULL, sg, sources, reverse_sources, coverage_cut, ruIndex, 
+    max_hang_length, mini_overlap_length, bubble_dist, NULL);
     // rescue_no_coverage_aggressive(sg, sources, reverse_sources, &coverage_cut, ruIndex, max_hang_length, 
     // mini_overlap_length, bubble_dist, 10);
 
-    if ((asm_opt.pat_index && asm_opt.mat_index))
+
+    
+
+
+    if (asm_opt.trio_name || (asm_opt.pat_index && asm_opt.mat_index))
     {
-        output_unitig_graph(sg, coverage_cut, output_file_name, sources, max_hang_length, mini_overlap_length);
+        output_unitig_graph(sg, coverage_cut, output_file_name);
         
         output_trio_unitig_graph(sg, coverage_cut, output_file_name, FATHER, sources, 
         reverse_sources, bubble_dist, (asm_opt.max_short_tip*2), 0.15, 3, ruIndex, 
@@ -25227,23 +26014,23 @@ ma_sub_t* coverage_cut, int debug_g)
     }
     else
     {
-
-        output_unitig_graph(sg, coverage_cut, output_file_name, sources, max_hang_length, mini_overlap_length);
+        output_unitig_graph(sg, coverage_cut, output_file_name);
 
         if(VERBOSE >= 1)
         {
             output_read_graph(sg, coverage_cut, output_file_name, n_read);
         }
 
-        output_contig_graph_primary_pre(sg, coverage_cut, output_file_name, sources, reverse_sources, 
-        asm_opt.small_pop_bubble_size, asm_opt.max_short_tip, ruIndex, max_hang_length, mini_overlap_length);
-
-        output_contig_graph_primary(sg, coverage_cut, output_file_name, sources, reverse_sources, 
-        bubble_dist, (asm_opt.max_short_tip*2), 0.15, 3, ruIndex, 0.05, 0.9, max_hang_length,
-        mini_overlap_length);
+        output_unitig_graph_without_small_bubbles_primary(sg, coverage_cut, output_file_name, 
+        asm_opt.small_pop_bubble_size, asm_opt.max_short_tip);
 
 
-        output_contig_graph_alternative(sg, coverage_cut, output_file_name, sources, max_hang_length, mini_overlap_length);
+        output_contig_graph_primary(sg, sources, coverage_cut, output_file_name, bubble_dist, 
+        (asm_opt.max_short_tip*2), 0.15, 20, 3, 0.9, reverse_sources, ruIndex);
+        // output_contig_graph_primary_bubble_poping(sg, sources, coverage_cut, output_file_name, n_read, bubble_dist, 
+        // (asm_opt.max_short_tip*2), 0.15, 20, 3, 0.9, reverse_sources, &ruIndex);
+
+        output_contig_graph_alternative(sg, coverage_cut, output_file_name);
     }
 }
 
@@ -25261,24 +26048,33 @@ long long bubble_dist, int read_graph, int write)
     asg_t *sg = NULL;
     ma_sub_t* coverage_cut = NULL;
 
+    ///debug_trio(sources, n_read);
     // debug_info_of_specfic_read("m64011_190329_072846/80545633/ccs", 
     // sources, reverse_sources, -1, "clean");
     
     ///actually min_thres = asm_opt.max_short_tip + 1 there are asm_opt.max_short_tip reads
     min_thres = asm_opt.max_short_tip + 1;
 
-
-    if(load_debug_graph(&sg, &sources, &coverage_cut, output_file_name, &reverse_sources, &ruIndex))
+    if(1)
     {
-        fprintf(stderr, "debug gfa has been loaded\n");
-        
-        clean_graph(min_dp, sources, reverse_sources, n_read, readLen, mini_overlap_length, 
-        max_hang_length, clean_round, gap_fuzz, min_ovlp_drop_ratio, max_ovlp_drop_ratio, 
-        output_file_name, bubble_dist, read_graph, &ruIndex, sg, coverage_cut, 1);
-        asg_destroy(sg);
-        free(coverage_cut);
-        destory_R_to_U(&ruIndex);
-        return;
+        char* trio_name = (char*)malloc(strlen(output_file_name)+55);
+        sprintf(trio_name, "%s.mix", output_file_name);
+
+        if(load_debug_graph(&sg, &sources, &coverage_cut, trio_name, &reverse_sources, &ruIndex))
+        {
+            fprintf(stderr, "debug gfa has been loaded\n");
+            
+            clean_graph(min_dp, sources, reverse_sources, n_read, readLen, mini_overlap_length, 
+            max_hang_length, clean_round, gap_fuzz, min_ovlp_drop_ratio, max_ovlp_drop_ratio, 
+            trio_name, bubble_dist, read_graph, &ruIndex, sg, coverage_cut, MIX_TRIO, 1);
+            free(trio_name);
+            asg_destroy(sg);
+            free(coverage_cut);
+            destory_R_to_U(&ruIndex);
+            return;
+        }
+
+        free(trio_name);
     }
     
 
@@ -25288,13 +26084,39 @@ long long bubble_dist, int read_graph, int write)
         &R_INF, output_file_name);
     }
 
+    if (asm_opt.trio_name)
+    {
+        if(!load_trio_file(asm_opt.trio_name))
+        {
+            fprintf(stderr, "Cannot open trio information file: %s\n", asm_opt.trio_name);
+            exit(1);
+        }
+        
+    }
 
-    try_rescue_overlaps(sources, reverse_sources, n_read, 4); 
-
-    clean_graph(min_dp, sources, reverse_sources, n_read, readLen, mini_overlap_length, 
-    max_hang_length, clean_round, gap_fuzz, min_ovlp_drop_ratio, max_ovlp_drop_ratio, 
-    output_file_name, bubble_dist, read_graph, &ruIndex, sg, coverage_cut, 0);
     
+    try_rescue_overlaps(sources, reverse_sources, n_read, 4); 
+    
+
+    if (asm_opt.trio_name || (asm_opt.pat_index && asm_opt.mat_index))
+    {
+        char* trio_name = (char*)malloc(strlen(output_file_name)+55);
+        sprintf(trio_name, "%s.mix", output_file_name);
+        clean_graph(min_dp, sources, reverse_sources, n_read, readLen, mini_overlap_length, 
+        max_hang_length, clean_round, gap_fuzz, min_ovlp_drop_ratio, max_ovlp_drop_ratio, 
+        trio_name, bubble_dist, read_graph, &ruIndex, sg, coverage_cut, MIX_TRIO, 0);
+
+        free(trio_name);
+    }
+    else 
+    {
+        clean_graph(min_dp, sources, reverse_sources, n_read, readLen, mini_overlap_length, 
+        max_hang_length, clean_round, gap_fuzz, min_ovlp_drop_ratio, max_ovlp_drop_ratio, 
+        output_file_name, bubble_dist, read_graph, &ruIndex, sg, coverage_cut, NON_TRIO, 0);
+    }
+    
+    
+
     asg_destroy(sg);
     free(coverage_cut);
     destory_R_to_U(&ruIndex);

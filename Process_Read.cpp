@@ -59,6 +59,7 @@ void init_All_reads(All_reads* r)
 	r->name = NULL;
 	r->total_name_length = 0;
 	r->total_reads = 0;
+	r->trio_flag = NULL;
 }
 
 void destory_All_reads(All_reads* r)
@@ -77,6 +78,7 @@ void destory_All_reads(All_reads* r)
 	free(r->name);
 	free(r->name_index);
 	free(r->read_length);
+	free(r->trio_flag);
 }
 
 
@@ -123,6 +125,7 @@ void write_All_reads(All_reads* r, char* read_file_name)
 	
 	fwrite(r->name, sizeof(char), r->total_name_length, fp);
 	fwrite(r->name_index, sizeof(uint64_t), r->name_index_size, fp);
+	fwrite(r->trio_flag, sizeof(uint8_t), r->total_reads, fp);
     free(index_name);    
 	fflush(fp);
     fclose(fp);
@@ -201,6 +204,10 @@ int load_All_reads(All_reads* r, char* read_file_name)
 	r->name_index = (uint64_t*)malloc(sizeof(uint64_t)*r->name_index_size);
 	f_flag += fread(r->name_index, sizeof(uint64_t), r->name_index_size, fp);
 
+	/****************************may have bugs********************************/
+	r->trio_flag = (uint8_t*)malloc(sizeof(uint8_t)*r->total_reads);
+	f_flag += fread(r->trio_flag, sizeof(uint8_t), r->total_reads, fp);
+	/****************************may have bugs********************************/
 
 	r->cigars = (Compressed_Cigar_record*)malloc(sizeof(Compressed_Cigar_record)*r->total_reads);
 	r->second_round_cigar = (Compressed_Cigar_record*)malloc(sizeof(Compressed_Cigar_record)*r->total_reads);
@@ -279,7 +286,8 @@ void malloc_All_reads(All_reads* r)
 
 	r->name = (char*)malloc(sizeof(char)*r->total_name_length);
 	r->N_site = (uint64_t**)calloc(r->total_reads, sizeof(uint64_t*));
-
+	r->trio_flag = (uint8_t*)malloc(r->total_reads*sizeof(uint8_t));
+	memset(r->trio_flag, AMBIGU, r->total_reads*sizeof(uint8_t));
 }
 
 void destory_UC_Read(UC_Read* r)
@@ -1065,3 +1073,59 @@ void reverse_complement(char* pattern, uint64_t length)
 }
 
 
+
+typedef struct {
+  char* tmp;
+  long long tmpSize;
+  char* dest;
+  long long destSize;
+  FILE* fp;
+} LineReader;
+
+int get_single_line(LineReader* line)
+{
+    long long currentLen = 0, getLen = 0;
+    line->tmp[0] = '\0';
+    while (fgets(line->tmp, line->tmpSize, line->fp) != NULL)
+    {
+        getLen = strlen(line->tmp);
+        if(getLen + currentLen >= line->destSize)
+        {
+            line->destSize = getLen + currentLen + 1;
+            line->dest = (char*)realloc(line->dest, line->destSize);
+        }
+        memcpy(line->dest + currentLen, line->tmp, getLen+1);
+        currentLen = currentLen + getLen;
+        if(currentLen > 0 && line->dest[currentLen - 1] == '\n')
+        {
+            return 1;
+        }
+    }
+        
+    if(currentLen > 0)
+    {
+        return 1;
+    }
+    else
+    {
+        return 0;
+    }
+}
+
+void get_trio_info(char* input, uint8_t* pm)
+{
+    uint32_t i;
+    (*pm) = AMBIGU;
+    for (i = 0; input[i] != '\0'; i++)
+    {
+        if(input[i] == '\t')
+        {
+            break;
+        }
+    }
+
+    input[i] = '\0';
+    i++;
+    if(input[i] == 'p') (*pm) = FATHER;
+    if(input[i] == 'm') (*pm) = MOTHER;
+}
