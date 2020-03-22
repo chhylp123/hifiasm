@@ -4,12 +4,15 @@
 #include <pthread.h>
 
 #define VERBOSE 0
+#define VERBOSE_GFA 0
 
 typedef struct {
     int num_reads;
     char** read_file_names;
     char* output_file_name;
     char* required_read_name;
+    char* pat_index;
+    char* mat_index;
     int thread_num;
     int k_mer_length;
     int k_mer_min_freq;
@@ -26,6 +29,8 @@ typedef struct {
     int min_overlap_Len;
     int min_overlap_coverage;
     int max_short_tip;
+    int min_cnt;
+    int mid_cnt;
 
     float max_hang_rate;
     float min_drop_rate;

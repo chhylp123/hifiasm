@@ -9,6 +9,7 @@
 #include "POA.h"
 #include "Correct.h"
 #include "Output.h"
+#include "Trio.h"
 
 Total_Count_Table TCB;
 Total_Pos_Table PCB;
@@ -1257,7 +1258,7 @@ void Overlap_calculate_multipe_thr()
     double start_time = Get_T();
     
     fprintf(stderr, "Begin calculating overlaps... \n");
-
+    
     pthread_t *_r_threads;
 
 	_r_threads = (pthread_t *)malloc(sizeof(pthread_t)*asm_opt.thread_num);
@@ -1326,19 +1327,6 @@ void Overlap_calculate_multipe_thr()
     }
 }
 
-
-// int load_pre_cauculated_index()
-// {
-//     if(load_Total_Pos_Table(&PCB, asm_opt.read_file_name) && load_All_reads(&R_INF, asm_opt.read_file_name))
-//     {
-//         return 1;
-//     }
-//     else
-//     {
-//         return 0;
-//     }
-    
-// }
 
 
 void update_overlaps(overlap_region_alloc* overlap_list, ma_hit_t_alloc* paf, 
@@ -1758,7 +1746,7 @@ void Output_PAF()
     free(paf_name);
     fclose(output_file);
 
-    fprintf(stderr, "PAF has beem written.\n");
+    fprintf(stderr, "PAF has been written.\n");
 }
 
 
@@ -1838,9 +1826,6 @@ long long readNum, long long rescue_threshold, float cluster_threshold)
         if((long long)edge_vector.n >= rescue_threshold && 
         check_cluster(edge_vector.a, edge_vector.n, paf, cluster_threshold) == 1)
         {
-            // fprintf(stderr,"\nremove following %u edges...\n", edge_vector.n);
-            // print_revise_edges(&(paf[i]), edge_vector_index.a, edge_vector_index.n);
-
             add_overlaps(&(paf[i]), &(rev_paf[i]), edge_vector_index.a, edge_vector_index.n);
             remove_overlaps(&(paf[i]), edge_vector_index.a, edge_vector_index.n);
             revises = revises + edge_vector.n;
@@ -1868,10 +1853,6 @@ long long readNum, long long rescue_threshold, float cluster_threshold)
         if((long long)edge_vector.n >= rescue_threshold && 
         check_cluster(edge_vector.a, edge_vector.n, paf, cluster_threshold) == 1)
         {
-            // fprintf(stderr,"\nadd following %u edges...\n", edge_vector.n);
-            // print_revise_edges(&(rev_paf[i]), edge_vector_index.a, edge_vector_index.n);
-
-
             remove_overlaps(&(rev_paf[i]), edge_vector_index.a, edge_vector_index.n);
             add_overlaps_from_different_sources(paf, &(paf[i]), edge_vector.a, edge_vector.n);
             revises = revises + edge_vector.n;
@@ -1884,6 +1865,7 @@ long long readNum, long long rescue_threshold, float cluster_threshold)
 
     fprintf(stderr, "[M::%s] took %0.2fs, revise edges #: %lld\n\n", __func__, Get_T()-startTime, revises);
 }
+
 
 
 void generate_overlaps(int last_round)
@@ -1914,11 +1896,14 @@ void generate_overlaps(int last_round)
     free(_r_threads);
 
     ///rescue_edges(R_INF.paf, R_INF.reverse_paf, R_INF.total_reads, 4, 0.985);
+    destory_Total_Pos_Table(&PCB);
 
     fprintf(stderr, "Final overlaps have been calculated.\n");
     fprintf(stderr, "%-30s%18.2f\n\n", "Final overlaps calculation time:", Get_T() - start_time); 
 
     Output_PAF();
+
+    trio_partition();
     
     build_string_graph_without_clean(asm_opt.min_overlap_coverage, R_INF.paf, R_INF.reverse_paf, 
     R_INF.total_reads, R_INF.read_length, asm_opt.min_overlap_Len, asm_opt.max_hang_Len, asm_opt.clean_round, 

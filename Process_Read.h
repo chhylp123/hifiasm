@@ -106,7 +106,12 @@ typedef struct
 	uint32_t new_length;
 }Compressed_Cigar_record;
 
-
+#define AMBIGU 0
+#define FATHER 1
+#define MOTHER 2
+#define MIX_TRIO 3
+#define NON_TRIO 4
+#define DROP 5
 typedef struct
 {
 	uint64_t** N_site;
@@ -117,6 +122,7 @@ typedef struct
 	uint8_t** read_sperate;
 	uint64_t* read_length;
 	uint64_t* read_size;
+	uint8_t* trio_flag;
 
 	///seq start pos in uint8_t* read
 	///do not need it
