@@ -25060,11 +25060,14 @@ ma_sub_t* coverage_cut, int debug_g)
 
     asg_arc_del_simple_circle_untig(sources, coverage_cut, sg, 100, 0);
 
-
-    /*******************************for debug***************************************/
-    write_debug_graph(sg, sources, coverage_cut, output_file_name, n_read, reverse_sources, ruIndex);
-    debug_gfa:;
-    /*******************************for debug***************************************/
+    if(VERBOSE_GFA >= 1)
+    {
+        /*******************************for debug***************************************/
+        write_debug_graph(sg, sources, coverage_cut, output_file_name, n_read, reverse_sources, ruIndex);
+        debug_gfa:;
+        /*******************************for debug***************************************/
+    }
+    
     /**
     debug_ma_hit_t(sources, coverage_cut, n_read, max_hang_length, 
     mini_overlap_length);
@@ -25137,19 +25140,22 @@ long long bubble_dist, int read_graph, int write)
     ///actually min_thres = asm_opt.max_short_tip + 1 there are asm_opt.max_short_tip reads
     min_thres = asm_opt.max_short_tip + 1;
 
-
-    if(load_debug_graph(&sg, &sources, &coverage_cut, output_file_name, &reverse_sources, &ruIndex))
+    if(VERBOSE_GFA >= 1)
     {
-        fprintf(stderr, "debug gfa has been loaded\n");
-        
-        clean_graph(min_dp, sources, reverse_sources, n_read, readLen, mini_overlap_length, 
-        max_hang_length, clean_round, gap_fuzz, min_ovlp_drop_ratio, max_ovlp_drop_ratio, 
-        output_file_name, bubble_dist, read_graph, &ruIndex, sg, coverage_cut, 1);
-        asg_destroy(sg);
-        free(coverage_cut);
-        destory_R_to_U(&ruIndex);
-        return;
+        if(load_debug_graph(&sg, &sources, &coverage_cut, output_file_name, &reverse_sources, &ruIndex))
+        {
+            fprintf(stderr, "debug gfa has been loaded\n");
+            
+            clean_graph(min_dp, sources, reverse_sources, n_read, readLen, mini_overlap_length, 
+            max_hang_length, clean_round, gap_fuzz, min_ovlp_drop_ratio, max_ovlp_drop_ratio, 
+            output_file_name, bubble_dist, read_graph, &ruIndex, sg, coverage_cut, 1);
+            asg_destroy(sg);
+            free(coverage_cut);
+            destory_R_to_U(&ruIndex);
+            return;
+        }
     }
+    
     
 
     if (asm_opt.write_index_to_disk && write)
