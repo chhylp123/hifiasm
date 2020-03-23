@@ -1016,12 +1016,12 @@ void merge_k_mer_pos_list_alloc_heap_sort(k_mer_pos_list_alloc* list, Candidates
 
 void init_Count_Table(Count_Table** table)
 {
-    *table = kh_init(COUNT64);
+    *table = ha_ct_init();
 }
 
 void init_Pos_Table(Pos_Table** table)
 {
-    *table = kh_init(POS64);
+    *table = ha_pt_init();
 }
 
 void init_Total_Count_Table(int k, Total_Count_Table* TCB)
@@ -1091,7 +1091,7 @@ void destory_Total_Count_Table(Total_Count_Table* TCB)
     int i;
     for (i = 0; i < TCB->size; i++)
     {
-        kh_destroy(COUNT64, TCB->sub_h[i]);
+        ha_ct_destroy(TCB->sub_h[i]);
     }
     free(TCB->sub_h);
     free(TCB->sub_h_lock);
@@ -1107,12 +1107,12 @@ void destory_Total_Pos_Table(Total_Pos_Table* TCB)
     int i;
     for (i = 0; i < TCB->size; i++)
     {
-        kh_destroy(POS64, TCB->sub_h[i]);
+        ha_pt_destroy(TCB->sub_h[i]);
     }
     free(TCB->sub_h);
 }
 
-
+/*
 void write_Total_Pos_Table(Total_Pos_Table* TCB, char* read_file_name)
 {
     fprintf(stderr, "Writing index to disk... \n");
@@ -1212,6 +1212,7 @@ int load_Total_Pos_Table(Total_Pos_Table* TCB, char* read_file_name)
 
     return 1;
 }
+*/
 
 typedef struct
 {
@@ -1268,7 +1269,7 @@ void get_peak_debug(Total_Count_Table* TCB, long long* min, long long* max)
     for (i = 0; i < TCB->size; i++)
     {
         h = TCB->sub_h[i];
-        for (k = kh_begin(h); k != kh_end(h); ++k)
+        for (k = 0; k != kh_end(h); ++k)
         {
             if (kh_exist(h, k))            // test if a bucket contains data
             {
@@ -1308,7 +1309,7 @@ void get_peak_debug(Total_Count_Table* TCB, long long* min, long long* max)
 
                 ///get_Total_Count_Table(&TCB, &k_code, k_mer_length);
 
-                c_count = kh_value(h, k);
+                c_count = kh_val(h, k);
 
                 if(get_Total_Count_Table(TCB, &code, asm_opt.k_mer_length) != c_count)
                 {
@@ -1436,7 +1437,7 @@ void get_peak(Total_Count_Table* TCB, long long* min, long long* max, long long*
     for (i = 0; i < TCB->size; i++)
     {
         h = TCB->sub_h[i];
-        for (k = kh_begin(h); k != kh_end(h); ++k)
+        for (k = 0; k != kh_end(h); ++k)
         {
             if (kh_exist(h, k))            // test if a bucket contains data
             {
@@ -1548,7 +1549,7 @@ void Traverse_Counting_Table(Total_Count_Table* TCB, Total_Pos_Table* PCB, int k
     for (i = 0; i < TCB->size; i++)
     {
         h = TCB->sub_h[i];
-        for (k = kh_begin(h); k != kh_end(h); ++k)
+        for (k = 0; k != kh_end(h); ++k)
         {
             if (kh_exist(h, k))            // test if a bucket contains data
             {
@@ -1558,22 +1559,22 @@ void Traverse_Counting_Table(Total_Count_Table* TCB, Total_Pos_Table* PCB, int k
 
                 if (count>=k_mer_min_freq && count<=k_mer_max_freq)
                 {
-                    t = kh_put(POS64, PCB->sub_h[sub_ID], sub_key, &absent);
+                    t = ha_pt_put(PCB->sub_h[sub_ID], sub_key, &absent);
     
                     if (absent)
                     {
-                        ///kh_value(PCB->sub_h[sub_ID], t) = useful_k_mer + total_occ;
-                        kh_value(PCB->sub_h[sub_ID], t) = PCB->useful_k_mer;
+                        ///kh_val(PCB->sub_h[sub_ID], t) = useful_k_mer + total_occ;
+                        kh_val(PCB->sub_h[sub_ID], t) = PCB->useful_k_mer;
                     }
                     else   
                     {
-                        ///kh_value(PCB->sub_h[sub_ID], t)++;
+                        ///kh_val(PCB->sub_h[sub_ID], t)++;
                         fprintf(stderr, "ERROR\n");
                     }
 
                    
                     PCB->useful_k_mer++;
-                    PCB->total_occ = PCB->total_occ + kh_value(h, k);
+                    PCB->total_occ = PCB->total_occ + kh_val(h, k);
                 }
             }
         }
@@ -1593,7 +1594,7 @@ void Traverse_Counting_Table(Total_Count_Table* TCB, Total_Pos_Table* PCB, int k
     for (i = 0; i < TCB->size; i++)
     {
         h = TCB->sub_h[i];
-        for (k = kh_begin(h); k != kh_end(h); ++k)
+        for (k = 0; k != kh_end(h); ++k)
         {
             if (kh_exist(h, k))            // test if a bucket contains data
             {
@@ -1601,11 +1602,11 @@ void Traverse_Counting_Table(Total_Count_Table* TCB, Total_Pos_Table* PCB, int k
                 sub_key = kh_key(h, k);
                 get_total_freq(TCB, sub_ID, sub_key, &count);
 
-                ///if (kh_value(h, k)>=k_mer_min_freq && kh_value(h, k)<=k_mer_max_freq)
+                ///if (kh_val(h, k)>=k_mer_min_freq && kh_val(h, k)<=k_mer_max_freq)
                 if (count>=k_mer_min_freq && count<=k_mer_max_freq)
                 {
                     PCB->useful_k_mer++;
-                    PCB->total_occ = PCB->total_occ + kh_value(h, k);
+                    PCB->total_occ = PCB->total_occ + kh_val(h, k);
                     PCB->k_mer_index[PCB->useful_k_mer] = PCB->total_occ;
                 }
             }

@@ -1,13 +1,10 @@
 #ifndef __HASHTABLE__
 #define __HASHTABLE__
-#include "khash.h"
+#include "khashl.h"
 #include "kmer.h"
 
-KHASH_MAP_INIT_INT64(COUNT64, int) 
-typedef khash_t(COUNT64) Count_Table;
-
-KHASH_MAP_INIT_INT64(POS64, uint64_t) 
-typedef khash_t(POS64) Pos_Table;
+KHASHL_MAP_INIT(static inline, Count_Table, ha_ct, uint64_t, int, kh_hash_dummy, kh_eq_generic)
+KHASHL_MAP_INIT(static inline, Pos_Table, ha_pt, uint64_t, uint64_t, kh_hash_dummy, kh_eq_generic)
 
 #define PREFIX_BITS 16
 #define MAX_SUFFIX_BITS 64
@@ -295,15 +292,15 @@ inline int insert_Total_Count_Table(Total_Count_Table* TCB, Hash_code* code, int
         while (TCB->sub_h_lock[sub_ID].lock);
     }
 
-    t = kh_put(COUNT64, TCB->sub_h[sub_ID], sub_key, &absent);
+    t = ha_ct_put(TCB->sub_h[sub_ID], sub_key, &absent);
     if (absent)
     {
-        kh_value(TCB->sub_h[sub_ID], t) = 1;
+        kh_val(TCB->sub_h[sub_ID], t) = 1;
     }
     else   
     {
         //kh_value(TCB->sub_h[sub_ID], t) = kh_value(TCB->sub_h[sub_ID], t) + 1;
-        kh_value(TCB->sub_h[sub_ID], t)++;
+        kh_val(TCB->sub_h[sub_ID], t)++;
     }
 
     __sync_lock_release(&TCB->sub_h_lock[sub_ID].lock);
@@ -323,11 +320,11 @@ inline int get_Total_Count_Table(Total_Count_Table* TCB, Hash_code* code, int k)
     khint_t t;  
 
     ///query hash table，key is k
-    t = kh_get(COUNT64, TCB->sub_h[sub_ID], sub_key);
+    t = ha_ct_get(TCB->sub_h[sub_ID], sub_key);
 
     if (t != kh_end(TCB->sub_h[sub_ID]))
     {
-        return kh_value(TCB->sub_h[sub_ID], t);
+        return kh_val(TCB->sub_h[sub_ID], t);
     }
     else
     {
@@ -351,12 +348,12 @@ inline uint64_t get_Total_Pos_Table(Total_Pos_Table* PCB, Hash_code* code, int k
     khint_t t;  
 
     ///query hash table，key is k
-    t = kh_get(POS64, PCB->sub_h[sub_ID], sub_key);
+    t = ha_pt_get(PCB->sub_h[sub_ID], sub_key);
 
     if (t != kh_end(PCB->sub_h[sub_ID]))
     {
         *r_sub_ID = sub_ID;
-        return kh_value(PCB->sub_h[sub_ID], t);
+        return kh_val(PCB->sub_h[sub_ID], t);
     }
     else
     {
