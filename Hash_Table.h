@@ -52,8 +52,8 @@ typedef struct
 
 typedef struct
 {
-    uint32_t offset:31, rev:1;
-    uint32_t readID;
+    uint32_t offset;
+    uint32_t readID:31, rev:1;
 } k_mer_pos;
 
 typedef struct
