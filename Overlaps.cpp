@@ -11446,7 +11446,7 @@ void print_untig(ma_ug_t *g, uint32_t uId, const char* info, uint32_t is_print_r
     for (k = 0; k < u->n; k++)
     {
         fprintf(stderr, "%s: rId>>1: %lu, dir: %lu, name: %.*s\n", 
-        info, u->a[k]>>33, (u->a[k]>>32)&1, 
+        info, (unsigned long)(u->a[k]>>33), (unsigned long)((u->a[k]>>32)&1),
         (int)Get_NAME_LENGTH((R_INF), (u->a[k]>>33)), Get_NAME((R_INF), (u->a[k]>>33)));
     }
 }
@@ -24753,7 +24753,7 @@ void fix_binned_reads(ma_hit_t_alloc* paf, uint64_t n_read, ma_sub_t* coverage_c
     }
 
     fprintf(stderr, "n_read: %lu, binned_reads: %lu, binned_error_reads: %lu\n", 
-    n_read, binned_reads, binned_error_reads);
+    (unsigned long)n_read, (unsigned long)binned_reads, (unsigned long)binned_error_reads);
 }
 
 
