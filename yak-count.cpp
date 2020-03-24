@@ -11,9 +11,11 @@
 #define yak_ch_hash(a) ((a)>>YAK_COUNTER_BITS)
 KHASHL_SET_INIT(static klib_unused, yak_ht_t, yak_ht, uint64_t, yak_ch_hash, yak_ch_eq)
 
+KHASHL_SET_INIT(static klib_unused, yak_hh_t, yak_hh, uint64_t, kh_hash_dummy, kh_eq_generic)
+
 typedef struct {
 	int32_t bf_shift, bf_n_hash;
-	int32_t k;
+	int32_t k, is_HPC;
 	int32_t pre;
 	int32_t n_thread;
 	int64_t chunk_size;
@@ -255,6 +257,26 @@ static void count_seq_buf(ch_buf_t *buf, int k, int p, int len, const char *seq)
 	}
 }
 
+static void count_seq_buf_HPC(ch_buf_t *buf, int k, int p, int len, const char *seq) // insert k-mers in $seq to linear buffer $buf
+{
+	int i, l, last = -1;
+	uint64_t x[4], mask = (1ULL<<k) - 1, shift = k - 1;
+	for (i = l = 0, x[0] = x[1] = x[2] = x[3] = 0; i < len; ++i) {
+		int c = seq_nt4_table[(uint8_t)seq[i]];
+		if (c < 4) { // not an "N" base
+			if (c != last) {
+				x[0] = (x[0] << 1 | (c&1))  & mask;
+				x[1] = (x[1] << 1 | (c>>1)) & mask;
+				x[2] = x[2] >> 1 | (uint64_t)(1 - (c&1))  << shift;
+				x[3] = x[3] >> 1 | (uint64_t)(1 - (c>>1)) << shift;
+				if (++l >= k)
+					ch_insert_buf(buf, p, yak_hash_long(x));
+				last = c;
+			}
+		} else l = 0, last = -1, x[0] = x[1] = x[2] = x[3] = 0; // if there is an "N", restart
+	}
+}
+
 typedef struct { // global data structure for kt_pipeline()
 	const yak_copt_t *opt;
 	int create_new;
@@ -314,7 +336,10 @@ static void *worker_count_all(void *data, int step, void *in) // callback for kt
 			MALLOC(s->buf[i].a, m);
 		}
 		for (i = 0; i < s->n; ++i) {
-			count_seq_buf(s->buf, p->opt->k, p->opt->pre, s->len[i], s->seq[i]);
+			if (p->opt->is_HPC)
+				count_seq_buf_HPC(s->buf, p->opt->k, p->opt->pre, s->len[i], s->seq[i]);
+			else
+				count_seq_buf(s->buf, p->opt->k, p->opt->pre, s->len[i], s->seq[i]);
 			free(s->seq[i]);
 		}
 		free(s->seq); free(s->len);
@@ -457,13 +482,35 @@ int yak_analyze_count(int n_cnt, const int64_t *cnt, int *peak_het)
 	}
 }
 
-void ha_count_high(const hifiasm_opt_t *asm_opt)
+static yak_hh_t *gen_hh(const yak_ch_t *h)
 {
+	int i;
+	yak_hh_t *hh;
+	hh = yak_hh_init();
+	yak_hh_resize(hh, h->tot * 2);
+	for (i = 0; i < 1<<h->pre; ++i) {
+		yak_ht_t *ht = h->h[i].h;
+		khint_t k;
+		for (k = 0; k < kh_end(ht); ++k) {
+			if (kh_exist(ht, k)) {
+				uint64_t y = kh_key(ht, k) >> YAK_COUNTER_BITS << h->pre | i;
+				int absent;
+				yak_hh_put(hh, y, &absent);
+			}
+		}
+	}
+	return hh;
+}
+
+void *ha_count_high(const hifiasm_opt_t *asm_opt)
+{
+	yak_hh_t *high_ht;
 	int64_t cnt[YAK_N_COUNTS];
-	int peak_hom, peak_het;
+	int peak_hom, peak_het, cutoff;
 	yak_copt_t opt;
 	yak_ch_t *h;
 	yak_copt_init(&opt);
+	opt.is_HPC = !asm_opt->no_HPC;
 	opt.k = asm_opt->k_mer_length;
 	opt.n_thread = asm_opt->thread_num;
 	opt.bf_shift = asm_opt->bf_shift;
@@ -471,5 +518,12 @@ void ha_count_high(const hifiasm_opt_t *asm_opt)
 	yak_ch_hist(h, cnt, opt.n_thread);
 	peak_hom = yak_analyze_count(YAK_N_COUNTS, cnt, &peak_het);
 	if (peak_hom > 0) fprintf(stderr, "[M::%s] peak_hom: %d; peak_het: %d\n", __func__, peak_hom, peak_het);
+	cutoff = (int)(peak_hom * asm_opt->high_factor);
+	if (cutoff > YAK_MAX_COUNT - 1) cutoff = YAK_MAX_COUNT - 1;
+	yak_ch_shrink(h, cutoff, YAK_MAX_COUNT, opt.n_thread);
+	high_ht = gen_hh(h);
 	yak_ch_destroy(h);
+	fprintf(stderr, "[M::%s] filtered out %ld k-mers occurring %d or more times\n",
+			__func__, (long)kh_size(high_ht), cutoff);
+	return (void*)high_ht;
 }

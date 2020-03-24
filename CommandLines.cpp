@@ -66,6 +66,8 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->thread_num = 1;
     asm_opt->k_mer_length = 41;
 	asm_opt->bf_shift = 37;
+	asm_opt->high_factor = 10.0f;
+	asm_opt->no_HPC = 0;
     asm_opt->k_mer_min_freq = 3;
     asm_opt->k_mer_max_freq = 66;
     asm_opt->load_index_from_disk = 1;
