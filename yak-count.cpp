@@ -3,7 +3,7 @@
 #include "yak.h"
 #include "khashl.h"
 
-#define YAK_COUNTER_BITS 10
+#define YAK_COUNTER_BITS 12
 #define YAK_N_COUNTS     (1<<YAK_COUNTER_BITS)
 #define YAK_MAX_COUNT    ((1<<YAK_COUNTER_BITS)-1)
 
@@ -337,7 +337,7 @@ static void *worker_count_all(void *data, int step, void *in) // callback for kt
 	return 0;
 }
 
-yak_ch_t *yak_count(const char *fn, const yak_copt_t *opt, yak_ch_t *h0)
+static yak_ch_t *yak_count(const char *fn, const yak_copt_t *opt, yak_ch_t *h0)
 {
 	pldat_t pl;
 	gzFile fp;
@@ -357,7 +357,7 @@ yak_ch_t *yak_count(const char *fn, const yak_copt_t *opt, yak_ch_t *h0)
 	return pl.h;
 }
 
-yak_ch_t *yak_count_file(const yak_copt_t *opt, int n_fn, char **fn)
+static yak_ch_t *yak_count_file(const yak_copt_t *opt, int n_fn, char **fn)
 {
 	int i;
 	yak_ch_t *h = 0;
@@ -366,6 +366,50 @@ yak_ch_t *yak_count_file(const yak_copt_t *opt, int n_fn, char **fn)
 	if (opt->bf_shift > 0)
 		yak_ch_destroy_bf(h);
 	return h;
+}
+
+static void yak_hist_line(int c, int x, int exceed, int64_t cnt)
+{
+	int j;
+	if (c >= 0) fprintf(stderr, "[M::%s] %5d: ", __func__, c);
+	else fprintf(stderr, "[M::%s] %5s: ", __func__, "rest");
+	for (j = 0; j < x; ++j) fputc('*', stderr);
+	if (exceed) fputc('>', stderr);
+	fprintf(stderr, " %lld\n", (long long)cnt);
+}
+
+static int yak_analyze_count(int n_cnt, const int64_t *cnt)
+{
+	const int hist_max = 100;
+	int i, low_i, max_i;
+	int64_t max;
+	low_i = 2;
+	for (i = 3; i < n_cnt; ++i)
+		if (cnt[i] > cnt[i-1]) break;
+	low_i = i - 1;
+	fprintf(stderr, "[M::%s] lowest: count[%d] = %ld\n", __func__, low_i, (long)cnt[low_i]);
+	if (low_i == n_cnt - 1) return -1; // low coverage
+	max_i = low_i + 1, max = cnt[max_i];
+	for (i = low_i + 1; i < n_cnt; ++i)
+		if (cnt[i] > max)
+			max = cnt[i], max_i = i;
+	fprintf(stderr, "[M::%s] highest: count[%d] = %ld\n", __func__, max_i, (long)cnt[max_i]);
+	for (i = 2; i < n_cnt; ++i) {
+		int x, exceed = 0;
+		x = (int)((double)hist_max * cnt[i] / cnt[max_i] + .499);
+		if (x > hist_max) exceed = 1, x = hist_max; // may happen if cnt[2] is higher
+		if (i > max_i && x == 0) break;
+		yak_hist_line(i, x, exceed, cnt[i]);
+	}
+	{
+		int x, exceed = 0;
+		int64_t rest = 0;
+		for (; i < n_cnt; ++i) rest += cnt[i];
+		x = (int)((double)hist_max * rest / cnt[max_i] + .499);
+		if (x > hist_max) exceed = 1, x = hist_max;
+		yak_hist_line(-1, x, exceed, rest);
+	}
+	return 0;
 }
 
 void ha_count_high(const hifiasm_opt_t *asm_opt)
@@ -379,5 +423,6 @@ void ha_count_high(const hifiasm_opt_t *asm_opt)
 	opt.bf_shift = asm_opt->bf_shift;
 	h = yak_count_file(&opt, asm_opt->num_reads, asm_opt->read_file_names);
 	yak_ch_hist(h, cnt, opt.n_thread);
+	yak_analyze_count(YAK_N_COUNTS, cnt);
 	yak_ch_destroy(h);
 }
