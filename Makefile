@@ -1,11 +1,11 @@
 CXX=		g++
-CXXFLAGS=	-g -O3 -msse4.2 -mpopcnt -fomit-frame-pointer -Wall #-fsanitize=address -fno-omit-frame-pointer#-Winline 
+CXXFLAGS=	-g -O3 -msse4.2 -mpopcnt -fomit-frame-pointer -Wall
 CPPFLAGS=
 INCLUDES=
-OBJS=		Output.o CommandLines.o Process_Read.o Assembly.o kmer.o Hash_Table.o \
-			POA.o Correct.o Levenshtein_distance.o Overlaps.o Trio.o kthread.o #ksw2_extz2_sse.o
+OBJS=		Output.o CommandLines.o Process_Read.o Assembly.o Hash_Table.o \
+			POA.o Correct.o Levenshtein_distance.o Overlaps.o Trio.o kthread.o
 EXE=		hifiasm
-LIBS=		-lz -lpthread -lm #-fsanitize=address -fno-omit-frame-pointer
+LIBS=		-lz -lpthread -lm
 
 ifneq ($(asan),)
 	CXXFLAGS+=-fsanitize=address
@@ -51,7 +51,6 @@ POA.o: kvec.h kdq.h CommandLines.h Correct.h Levenshtein_distance.h
 Process_Read.o: Process_Read.h kseq.h Overlaps.h kvec.h kdq.h CommandLines.h
 Trio.o: khashl.h kthread.h Process_Read.h kseq.h Overlaps.h kvec.h kdq.h
 Trio.o: CommandLines.h Trio.h kmer.h
-kmer.o: kmer.h Process_Read.h kseq.h Overlaps.h kvec.h kdq.h CommandLines.h
 kthread.o: kthread.h
 main.o: CommandLines.h Process_Read.h kseq.h Overlaps.h kvec.h kdq.h
 main.o: Assembly.h Levenshtein_distance.h

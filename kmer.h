@@ -8,37 +8,11 @@
 #define SAFE_SHIFT(k) k & ((k < 64)?ALL:0)
 /****************************may have bugs********************************/
 
-
-
-
-
-
 typedef struct
 {
     //can represent at most 64-mer
     uint64_t x[4];
 } Hash_code;
-
-typedef struct {
-    Hash_code key; ///k-mer itself
-    uint64_t value;  ///offset
-} k_v;
-
-typedef struct {
-	k_v* buffer;
-    uint32_t size;
-    uint32_t length;
-} small_hash_table;
-
-void init_small_hash_table(small_hash_table* x);
-void clear_small_hash_table(small_hash_table* x);
-void resize_small_hash_table(small_hash_table* x, uint64_t size);
-void destory_small_hash_table(small_hash_table* x);
-void add_small_hash_table(small_hash_table* x, k_v* element);
-void sort_small_hash_table(small_hash_table* x);
-int compare_k_mer(k_v* x, k_v* y);
-int query_small_hash_table(small_hash_table* target, k_v* query, long long* l_end, long long* r_end);
-
 
 typedef struct
 {
@@ -49,6 +23,13 @@ typedef struct
 
 } HPC_seq;
 
+inline void init_HPC_seq(HPC_seq* seq, char* str, long long l)
+{
+    seq->i = 0;
+    seq->l = l;
+    seq->N_occ = 0;
+    seq->str = str;
+}
 
 inline uint64_t get_HPC_code(HPC_seq* seq, uint64_t* end_pos)
 {
