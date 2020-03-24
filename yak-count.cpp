@@ -378,22 +378,29 @@ static void yak_hist_line(int c, int x, int exceed, int64_t cnt)
 	fprintf(stderr, " %lld\n", (long long)cnt);
 }
 
-static int yak_analyze_count(int n_cnt, const int64_t *cnt)
+int yak_analyze_count(int n_cnt, const int64_t *cnt, int *peak_het)
 {
 	const int hist_max = 100;
-	int i, low_i, max_i;
-	int64_t max;
+	int i, low_i, max_i, max2_i, max3_i;
+	int64_t max, max2, max3, min;
+
+	// find the low point from the left
+	*peak_het = -1;
 	low_i = 2;
 	for (i = 3; i < n_cnt; ++i)
 		if (cnt[i] > cnt[i-1]) break;
 	low_i = i - 1;
 	fprintf(stderr, "[M::%s] lowest: count[%d] = %ld\n", __func__, low_i, (long)cnt[low_i]);
 	if (low_i == n_cnt - 1) return -1; // low coverage
+
+	// find the highest peak
 	max_i = low_i + 1, max = cnt[max_i];
 	for (i = low_i + 1; i < n_cnt; ++i)
 		if (cnt[i] > max)
 			max = cnt[i], max_i = i;
 	fprintf(stderr, "[M::%s] highest: count[%d] = %ld\n", __func__, max_i, (long)cnt[max_i]);
+
+	// print histogram
 	for (i = 2; i < n_cnt; ++i) {
 		int x, exceed = 0;
 		x = (int)((double)hist_max * cnt[i] / cnt[max_i] + .499);
@@ -409,12 +416,51 @@ static int yak_analyze_count(int n_cnt, const int64_t *cnt)
 		if (x > hist_max) exceed = 1, x = hist_max;
 		yak_hist_line(-1, x, exceed, rest);
 	}
-	return 0;
+
+	// look for smaller peak on the low end
+	max2 = -1; max2_i = -1;
+	for (i = max_i - 1; i > low_i; --i) {
+		if (cnt[i] >= cnt[i-1] && cnt[i] >= cnt[i+1]) {
+			if (cnt[i] > max2) max2 = cnt[i], max2_i = i;
+		}
+	}
+	if (max2_i > low_i && max2_i < max_i) {
+		for (i = max2_i + 1, min = max; i < max_i; ++i)
+			if (cnt[i] < min) min = cnt[i];
+		if (max2 < max * 0.05 || min > max2 * 0.95)
+			max2 = -1, max2_i = -1;
+	}
+	if (max2 > 0) fprintf(stderr, "[M::%s] left: count[%d] = %ld\n", __func__, max2_i, (long)cnt[max2_i]);
+	else fprintf(stderr, "[M::%s] left: none\n", __func__);
+
+	// look for smaller peak on the high end
+	max3 = -1; max3_i = -1;
+	for (i = max_i + 1; i < n_cnt - 1; ++i) {
+		if (cnt[i] >= cnt[i-1] && cnt[i] >= cnt[i+1]) {
+			if (cnt[i] > max3) max3 = cnt[i], max3_i = i;
+		}
+	}
+	if (max3_i > max_i) {
+		for (i = max_i + 1, min = max; i < max3_i; ++i)
+			if (cnt[i] < min) min = cnt[i];
+		if (max3 < max * 0.05 || min > max3 * 0.95 || max3_i > max_i * 2.5)
+			max3 = -1, max3_i = -1;
+	}
+	if (max3 > 0) fprintf(stderr, "[M::%s] right: count[%d] = %ld\n", __func__, max3_i, (long)cnt[max3_i]);
+	else fprintf(stderr, "[M::%s] right: none\n", __func__);
+	if (max3_i > 0) {
+		*peak_het = max_i;
+		return max3_i;
+	} else {
+		if (max2_i > 0) *peak_het = max2_i;
+		return max_i;
+	}
 }
 
 void ha_count_high(const hifiasm_opt_t *asm_opt)
 {
 	int64_t cnt[YAK_N_COUNTS];
+	int peak_hom, peak_het;
 	yak_copt_t opt;
 	yak_ch_t *h;
 	yak_copt_init(&opt);
@@ -423,6 +469,7 @@ void ha_count_high(const hifiasm_opt_t *asm_opt)
 	opt.bf_shift = asm_opt->bf_shift;
 	h = yak_count_file(&opt, asm_opt->num_reads, asm_opt->read_file_names);
 	yak_ch_hist(h, cnt, opt.n_thread);
-	yak_analyze_count(YAK_N_COUNTS, cnt);
+	peak_hom = yak_analyze_count(YAK_N_COUNTS, cnt, &peak_het);
+	if (peak_hom > 0) fprintf(stderr, "[M::%s] peak_hom: %d; peak_het: %d\n", __func__, peak_hom, peak_het);
 	yak_ch_destroy(h);
 }
