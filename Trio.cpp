@@ -6,45 +6,35 @@
 #include "khashl.h" // hash table
 #include "kthread.h"
 #include "Process_Read.h"
-#include "Trio.h"
+#include "yak.h"
 #include "CommandLines.h"
-#include "kmer.h"
 
-#define CALLOC(ptr, len) ((ptr) = (__typeof__(ptr))calloc((len), sizeof(*(ptr))))
-#define MALLOC(ptr, len) ((ptr) = (__typeof__(ptr))malloc((len) * sizeof(*(ptr))))
-#define REALLOC(ptr, len) ((ptr) = (__typeof__(ptr))realloc((ptr), (len) * sizeof(*(ptr))))
+#define YAK_MAX_KMER     31
+#define YAK_COUNTER_BITS 10
+#define YAK_N_COUNTS     (1<<YAK_COUNTER_BITS)
+#define YAK_MAX_COUNT    ((1<<YAK_COUNTER_BITS)-1)
+
+#define YAK_LOAD_ALL       1
+#define YAK_LOAD_TRIOBIN1  2
+#define YAK_LOAD_TRIOBIN2  3
+
+#define YAK_MAGIC "YAK\2"
+
 #define yak_ch_eq(a, b) ((a)>>YAK_COUNTER_BITS == (b)>>YAK_COUNTER_BITS) // lower 8 bits for counts; higher bits for k-mer
 #define yak_ch_hash(a) ((a)>>YAK_COUNTER_BITS)
-KHASHL_SET_INIT(, yak_ht_t, yak_ht, uint64_t, yak_ch_hash, yak_ch_eq)
+KHASHL_SET_INIT(static klib_unused, yak_ht_t, yak_ht, uint64_t, yak_ch_hash, yak_ch_eq)
 
-///#define CHUNK_SIZE 200000
+typedef struct {
+	struct yak_ht_t *h;
+} yak_ch1_t;
 
-unsigned char seq_nt4_table[256] = { // translate ACGT to 0123
-	0, 1, 2, 3,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,
-	4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,
-	4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,
-	4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,
-	4, 0, 4, 1,  4, 4, 4, 2,  4, 4, 4, 4,  4, 4, 4, 4,
-	4, 4, 4, 4,  3, 3, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,
-	4, 0, 4, 1,  4, 4, 4, 2,  4, 4, 4, 4,  4, 4, 4, 4,
-	4, 4, 4, 4,  3, 3, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,
-	4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,
-	4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,
-	4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,
-	4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,
-	4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,
-	4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,
-	4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,
-	4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4
-};
+typedef struct {
+	int k, pre, n_hash, n_shift;
+	uint64_t tot;
+	yak_ch1_t *h;
+} yak_ch_t;
 
-static inline uint64_t yak_hash_long(uint64_t x[4])
-{
-	int j = x[1] < x[3]? 0 : 1;
-	return yak_hash64_64(x[j<<1|0]) + yak_hash64_64(x[j<<1|1]);
-}
-
-int yak_ch_get(const yak_ch_t *h, uint64_t x)
+static int yak_ch_get(const yak_ch_t *h, uint64_t x)
 {
 	int mask = (1<<h->pre) - 1;
 	yak_ht_t *g = h->h[x&mask].h;
@@ -53,21 +43,7 @@ int yak_ch_get(const yak_ch_t *h, uint64_t x)
 	return k == kh_end(g)? -1 : kh_key(g, k)&YAK_MAX_COUNT;
 }
 
-yak_bf_t *yak_bf_init(int n_shift, int n_hashes)
-{
-	yak_bf_t *b;
-	void *ptr = 0;
-	if (n_shift + YAK_BLK_SHIFT > 64 || n_shift < YAK_BLK_SHIFT) return 0;
-	b = (yak_bf_t*)calloc(1, sizeof(yak_bf_t));
-	b->n_shift = n_shift;
-	b->n_hashes = n_hashes;
-	posix_memalign(&ptr, 1<<(YAK_BLK_SHIFT-3), 1ULL<<(n_shift-3));
-	b->b = (uint8_t*)ptr;
-	bzero(b->b, 1ULL<<(n_shift-3));
-	return b;
-}
-
-yak_ch_t *yak_ch_init(int k, int pre, int n_hash, int n_shift)
+static yak_ch_t *yak_ch_init(int k, int pre)
 {
 	yak_ch_t *h;
 	int i;
@@ -77,32 +53,10 @@ yak_ch_t *yak_ch_init(int k, int pre, int n_hash, int n_shift)
 	CALLOC(h->h, 1<<h->pre);
 	for (i = 0; i < 1<<h->pre; ++i)
 		h->h[i].h = yak_ht_init();
-	if (n_hash > 0 && n_shift > h->pre) {
-		h->n_hash = n_hash, h->n_shift = n_shift;
-		for (i = 0; i < 1<<h->pre; ++i)
-			h->h[i].b = yak_bf_init(h->n_shift - h->pre, h->n_hash);
-	}
 	return h;
 }
 
-void yak_bf_destroy(yak_bf_t *b)
-{
-	if (b == 0) return;
-	free(b->b); free(b);
-}
-
-void yak_ch_destroy_bf(yak_ch_t *h)
-{
-	int i;
-	for (i = 0; i < 1<<h->pre; ++i) {
-		if (h->h[i].b)
-			yak_bf_destroy(h->h[i].b);
-		h->h[i].b = 0;
-	}
-}
-
-
-yak_ch_t *yak_ch_restore_core(yak_ch_t *ch0, const char *fn, int mode, ...)
+static yak_ch_t *yak_ch_restore_core(yak_ch_t *ch0, const char *fn, int mode, ...)
 {
 	va_list ap;
 	FILE *fp;
@@ -138,7 +92,7 @@ yak_ch_t *yak_ch_restore_core(yak_ch_t *ch0, const char *fn, int mode, ...)
 		return 0;
 	}
 
-	ch = ch0 == 0? yak_ch_init(t[0], t[1], 0, 0) : ch0;
+	ch = ch0 == 0? yak_ch_init(t[0], t[1]) : ch0;
 	assert((int)t[0] == ch->k && (int)t[1] == ch->pre);
 	for (i = 0; i < 1<<ch->pre; ++i) {
 		yak_ht_t *h = ch->h[i].h;
@@ -172,17 +126,39 @@ yak_ch_t *yak_ch_restore_core(yak_ch_t *ch0, const char *fn, int mode, ...)
 	return ch;
 }
 
-
-void yak_ch_destroy(yak_ch_t *h)
+static void yak_ch_destroy(yak_ch_t *h)
 {
 	int i;
 	if (h == 0) return;
-	yak_ch_destroy_bf(h);
 	for (i = 0; i < 1<<h->pre; ++i)
 		yak_ht_destroy(h->h[i].h);
 	free(h->h); free(h);
 }
 
+typedef struct {
+	int max;
+	uint32_t *s;
+} tb_buf_t;
+
+typedef struct {
+	int k, n_threads, print_diff;
+	double ratio_thres;
+	const yak_ch_t *ch;
+	tb_buf_t *buf;
+	UC_Read *bseq;
+	All_reads* seq; 
+} tb_shared_t;
+
+typedef struct {
+	int c[16];
+	int sc[2];
+	int nk;
+} tb_cnt_t;
+
+typedef struct {
+	int n_seq;
+	tb_shared_t *aux;
+} tb_step_t;
 
 static char tb_classify(const int sc[2], const int *c, int k, double ratio_thres)
 {
@@ -206,8 +182,6 @@ static char tb_classify(const int sc[2], const int *c, int k, double ratio_thres
 
 static void tb_worker(void *_data, long k, int tid)
 {
-	///tb_step_t *t = (tb_step_t*)_data;
-	///tb_shared_t *aux = t->aux;
 	tb_shared_t *aux = (tb_shared_t*)_data;
 	UC_Read *s = &aux->bseq[tid]; 
 	recover_UC_Read(s, aux->seq, k);
@@ -243,12 +217,7 @@ static void tb_worker(void *_data, long k, int tid)
 			if (++l >= aux->k) {
 				int type = 0, c1, c2;
 				uint64_t y;
-
-
-				//++t->cnt[k].nk;
 				++cnt.nk;
-
-
 				if (aux->ch->k < 32)
 					y = yak_hash64(x[0] < x[1]? x[0] : x[1], mask);
 				else
@@ -259,27 +228,17 @@ static void tb_worker(void *_data, long k, int tid)
 				if (c1 == 2 && c2 == 0) type = 1;
 				else if (c2 == 2 && c1 == 0) type = 2;
 				b->s[i] = type;
-
-
-				///++t->cnt[k].c[flag];
 				++cnt.c[flag];
-
-				// if (aux->print_diff && (flag>>2&3) != (flag&3))
-				// 	printf("D\t%s\t%d\t%d\t%d\n", s->name, i, flag&3, flag>>2&3);
 			}
 		} else l = 0, x[0] = x[1] = x[2] = x[3] = 0;
 	}
 	for (l = 0, i = 1; i <= s->length; ++i) {
 		if (i == s->length || b->s[i] != b->s[l]) {
 			if (b->s[l] > 0 && i - l >= aux->k - 4)
-			{
-				///t->cnt[k].sc[b->s[l] - 1] += i - l;
 				cnt.sc[b->s[l] - 1] += i - l;
-			}
 			l = i;
 		}
 	}
-
 
 	int *c = cnt.c;
 	char type;
@@ -289,12 +248,9 @@ static void tb_worker(void *_data, long k, int tid)
 	if(type == 'm') aux->seq->trio_flag[k] = MOTHER;
 }
 
-
-
-void trio_partition()
+void trio_partition(void)
 {
-    if(asm_opt.pat_index == NULL || asm_opt.mat_index == NULL)
-	{
+    if (asm_opt.pat_index == NULL || asm_opt.mat_index == NULL) {
 		memset(R_INF.trio_flag, AMBIGU, R_INF.total_reads*sizeof(uint8_t));
 		return;
 	}
@@ -303,32 +259,26 @@ void trio_partition()
 	fprintf(stderr, "Start trio binning ...... \n");
 
     yak_ch_t *ch;
-    int i/**, min_cnt = 2, mid_cnt = 5**/;
+    int i /**, min_cnt = 2, mid_cnt = 5**/;
     tb_shared_t aux;
     memset(&aux, 0, sizeof(tb_shared_t));
 	aux.n_threads = asm_opt.thread_num, aux.print_diff = 0;
 	aux.ratio_thres = 0.33;
 	aux.seq = &R_INF;
 
-
     ch = yak_ch_restore_core(0,  asm_opt.pat_index, YAK_LOAD_TRIOBIN1, asm_opt.min_cnt, asm_opt.mid_cnt);
 	ch = yak_ch_restore_core(ch, asm_opt.mat_index, YAK_LOAD_TRIOBIN2, asm_opt.min_cnt, asm_opt.mid_cnt);
-
-
 
     aux.k = ch->k;
     aux.ch = ch;
 	aux.buf = (tb_buf_t*)calloc(aux.n_threads, sizeof(tb_buf_t));
 	aux.bseq = (UC_Read*)calloc(aux.n_threads, sizeof(UC_Read));
 	for (i = 0; i < aux.n_threads; ++i)
-	{
 		init_UC_Read(&aux.bseq[i]);
-	} 
 	
 	kt_for(aux.n_threads, tb_worker, &aux, aux.seq->total_reads);
 	
-    for (i = 0; i < aux.n_threads; ++i)
-	{
+    for (i = 0; i < aux.n_threads; ++i) {
 		free(aux.buf[i].s);
 		destory_UC_Read(&aux.bseq[i]);
 	} 

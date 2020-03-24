@@ -9,7 +9,7 @@
 #include "POA.h"
 #include "Correct.h"
 #include "Output.h"
-#include "Trio.h"
+#include "yak.h"
 
 Total_Count_Table TCB;
 Total_Pos_Table PCB;

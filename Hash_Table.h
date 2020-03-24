@@ -2,6 +2,7 @@
 #define __HASHTABLE__
 #include "khashl.h"
 #include "kmer.h"
+#include "yak.h"
 
 KHASHL_MAP_INIT(static inline, Count_Table, ha_ct, uint64_t, int, kh_hash_dummy, kh_eq_generic)
 KHASHL_MAP_INIT(static inline, Pos_Table, ha_pt, uint64_t, uint64_t, kh_hash_dummy, kh_eq_generic)

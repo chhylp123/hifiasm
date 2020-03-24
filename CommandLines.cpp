@@ -28,6 +28,7 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "    -r INT        round of correction [%d]\n", asm_opt->number_of_round);
     fprintf(stderr, "    -a INT        round of assembly cleaning [%d]\n", asm_opt->clean_round);
     fprintf(stderr, "    -k INT        k-mer length [%d] (must be < 64)\n", asm_opt->k_mer_length);
+	fprintf(stderr, "    -f INT        number of bits for bloom filter [%d]\n", asm_opt->bf_shift);
     ///fprintf(stderr, "    -w            write all overlaps to disk, can accelerate assembly next time [%d]\n", asm_opt->write_index_to_disk);
     ///fprintf(stderr, "    -l            load all overlaps from disk, can avoid overlap calculation [%d]\n", asm_opt->load_index_from_disk);
     ///fprintf(stderr, "    -i            ignore saved overlaps in *.ovlp*.bin files\n");
@@ -63,7 +64,8 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->pat_index = NULL;
     asm_opt->mat_index = NULL;
     asm_opt->thread_num = 1;
-    asm_opt->k_mer_length = 39;
+    asm_opt->k_mer_length = 41;
+	asm_opt->bf_shift = 37;
     asm_opt->k_mer_min_freq = 3;
     asm_opt->k_mer_max_freq = 66;
     asm_opt->load_index_from_disk = 1;
@@ -295,7 +297,7 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
 
     int c;
 
-    while ((c = ketopt(&opt, argc, argv, 1, "hvt:o:k:lwm:n:r:a:b:z:x:y:p:c:d:M:P:i", 0)) >= 0) {
+    while ((c = ketopt(&opt, argc, argv, 1, "hvt:o:k:lwm:n:r:a:b:z:x:y:p:c:d:M:P:if:", 0)) >= 0) {
         if (c == 'h')
         {
             Print_H(asm_opt);
@@ -305,7 +307,8 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         {
             fprintf(stderr, "[Version] %s\n", VERSION);
             return 0;
-        } 
+        }
+		else if (c == 'f') asm_opt->bf_shift = atoi(opt.arg);
         else if (c == 't') asm_opt->thread_num = atoi(opt.arg); 
         else if (c == 'o') asm_opt->output_file_name = opt.arg;
         else if (c == 'r') asm_opt->number_of_round = atoi(opt.arg);

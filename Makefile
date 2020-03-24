@@ -3,7 +3,8 @@ CXXFLAGS=	-g -O3 -msse4.2 -mpopcnt -fomit-frame-pointer -Wall
 CPPFLAGS=
 INCLUDES=
 OBJS=		Output.o CommandLines.o Process_Read.o Assembly.o Hash_Table.o \
-			POA.o Correct.o Levenshtein_distance.o Overlaps.o Trio.o kthread.o
+			POA.o Correct.o Levenshtein_distance.o Overlaps.o Trio.o kthread.o \
+			yak-bbf.o yak-count.o yak-sys.o
 EXE=		hifiasm
 LIBS=		-lz -lpthread -lm
 
@@ -32,25 +33,28 @@ depend:
 # DO NOT DELETE
 
 Assembly.o: Assembly.h CommandLines.h Process_Read.h kseq.h Overlaps.h kvec.h
-Assembly.o: kdq.h kmer.h Hash_Table.h khashl.h POA.h Correct.h
-Assembly.o: Levenshtein_distance.h Output.h Trio.h
+Assembly.o: kdq.h kmer.h Hash_Table.h khashl.h yak.h POA.h Correct.h
+Assembly.o: Levenshtein_distance.h Output.h
 CommandLines.o: CommandLines.h ketopt.h
 Correct.o: Correct.h Hash_Table.h khashl.h kmer.h Process_Read.h kseq.h
-Correct.o: Overlaps.h kvec.h kdq.h CommandLines.h Levenshtein_distance.h
-Correct.o: POA.h Assembly.h
+Correct.o: Overlaps.h kvec.h kdq.h CommandLines.h yak.h
+Correct.o: Levenshtein_distance.h POA.h Assembly.h
 Hash_Table.o: Hash_Table.h khashl.h kmer.h Process_Read.h kseq.h Overlaps.h
-Hash_Table.o: kvec.h kdq.h CommandLines.h Correct.h Levenshtein_distance.h
-Hash_Table.o: POA.h ksort.h
+Hash_Table.o: kvec.h kdq.h CommandLines.h yak.h Correct.h
+Hash_Table.o: Levenshtein_distance.h POA.h ksort.h
 Levenshtein_distance.o: Levenshtein_distance.h
 Output.o: Output.h CommandLines.h
 Overlaps.o: Overlaps.h kvec.h kdq.h ksort.h Process_Read.h kseq.h
-Overlaps.o: CommandLines.h Hash_Table.h khashl.h kmer.h Correct.h
+Overlaps.o: CommandLines.h Hash_Table.h khashl.h kmer.h yak.h Correct.h
 Overlaps.o: Levenshtein_distance.h POA.h
 POA.o: POA.h Hash_Table.h khashl.h kmer.h Process_Read.h kseq.h Overlaps.h
-POA.o: kvec.h kdq.h CommandLines.h Correct.h Levenshtein_distance.h
+POA.o: kvec.h kdq.h CommandLines.h yak.h Correct.h Levenshtein_distance.h
 Process_Read.o: Process_Read.h kseq.h Overlaps.h kvec.h kdq.h CommandLines.h
 Trio.o: khashl.h kthread.h Process_Read.h kseq.h Overlaps.h kvec.h kdq.h
-Trio.o: CommandLines.h Trio.h kmer.h
+Trio.o: CommandLines.h yak.h
 kthread.o: kthread.h
 main.o: CommandLines.h Process_Read.h kseq.h Overlaps.h kvec.h kdq.h
 main.o: Assembly.h Levenshtein_distance.h
+yak-bbf.o: yak.h
+yak-count.o: CommandLines.h yak.h khashl.h kthread.h kseq.h
+yak-sys.o: yak.h

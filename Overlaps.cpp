@@ -46,9 +46,6 @@ void ma_hit_sort_qns(ma_hit_t *a, long long n)
 	radix_sort_hit_qns(a, a + n);
 }
 
-
-
-
 asg_t *asg_init(void)
 {
 	return (asg_t*)calloc(1, sizeof(asg_t));
