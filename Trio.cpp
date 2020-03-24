@@ -8,6 +8,7 @@
 #include "Process_Read.h"
 #include "Trio.h"
 #include "CommandLines.h"
+#include "kmer.h"
 
 #define CALLOC(ptr, len) ((ptr) = (__typeof__(ptr))calloc((len), sizeof(*(ptr))))
 #define MALLOC(ptr, len) ((ptr) = (__typeof__(ptr))malloc((len) * sizeof(*(ptr))))
@@ -36,30 +37,6 @@ unsigned char seq_nt4_table[256] = { // translate ACGT to 0123
 	4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,
 	4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4
 };
-
-static inline uint64_t yak_hash64(uint64_t key, uint64_t mask) // invertible integer hash function
-{
-	key = (~key + (key << 21)) & mask; // key = (key << 21) - key - 1;
-	key = key ^ key >> 24;
-	key = ((key + (key << 3)) + (key << 8)) & mask; // key * 265
-	key = key ^ key >> 14;
-	key = ((key + (key << 2)) + (key << 4)) & mask; // key * 21
-	key = key ^ key >> 28;
-	key = (key + (key << 31)) & mask;
-	return key;
-}
-
-static inline uint64_t yak_hash64_64(uint64_t key)
-{
-	key = ~key + (key << 21);
-	key = key ^ key >> 24;
-	key = (key + (key << 3)) + (key << 8);
-	key = key ^ key >> 14;
-	key = (key + (key << 2)) + (key << 4);
-	key = key ^ key >> 28;
-	key = key + (key << 31);
-	return key;
-}
 
 static inline uint64_t yak_hash_long(uint64_t x[4])
 {

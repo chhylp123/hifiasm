@@ -35,8 +35,7 @@ KHASHL_MAP_INIT(static inline, Pos_Table, ha_pt, uint64_t, uint64_t, kh_hash_dum
 typedef struct
 {
     volatile int lock;
-
-}Hash_table_spin_lock;
+} Hash_table_spin_lock;
 
 typedef struct
 {
@@ -72,12 +71,11 @@ typedef struct
     uint64_t length;
 } k_mer_pos_list_alloc;
 
-
 typedef struct
 {
-  int C_L[CIGAR_MAX_LENGTH];
-  char C_C[CIGAR_MAX_LENGTH];
-  int length;
+    int C_L[CIGAR_MAX_LENGTH];
+    char C_C[CIGAR_MAX_LENGTH];
+    int length;
 } CIGAR;
 
 typedef struct
@@ -100,15 +98,14 @@ typedef struct
     window_list* buffer;
     long long length;
     long long size;
-}window_list_alloc;
-
+} window_list_alloc;
 
 typedef struct
 {
     uint64_t* buffer;
     uint64_t length;
     uint64_t size;
-}Fake_Cigar;
+} Fake_Cigar;
 
 typedef struct
 {
@@ -140,7 +137,6 @@ typedef struct
     window_list_alloc boundary_cigars;
 } overlap_region;
 
-
 typedef struct
 {
     overlap_region* list;
@@ -152,29 +148,24 @@ typedef struct
 
 typedef struct
 {
-    ///uint64_t offset;
-    long long offset;
-    ///uint64_t self_offset;
-    long long self_offset;
-    uint64_t readID;
-    uint8_t strand;
+	uint64_t opos;
+	uint32_t self_offset; // offset on the target read
 } k_mer_hit;
 
-
-typedef struct
+static inline uint32_t ha_hit_get_readID(const k_mer_hit *h)
 {
-  k_mer_hit node;
-  uint64_t ID;
-} ElemType;
+	return h->opos >> 33;
+}
 
-
-typedef struct 
+static inline uint32_t ha_hit_get_rev(const k_mer_hit *h)
 {
-    ElemType* heap; 
-    uint64_t* index_i;
-    int len; 
-    int MaxSize;    
-} HeapSq;
+	return h->opos >> 32 & 1;
+}
+
+static inline uint32_t ha_hit_get_offset(const k_mer_hit *h)
+{
+	return (uint32_t)h->opos;
+}
 
 typedef struct
 {
@@ -192,8 +183,6 @@ typedef struct
     k_mer_hit* tmp;
     long long length;
     long long size;
-    uint64_t foward_pos;
-    uint64_t rc_pos;
     Chain_Data chainDP;
 } Candidates_list;
 
@@ -212,24 +201,9 @@ typedef struct
     uint64_t* k_mer_index;
 } Total_Pos_Table;
 
-
-
-
-inline uint64_t mod_d(uint64_t h_key, uint64_t low_key, uint64_t d)
-{
-    uint64_t result = (h_key >> 32) % d;
-    result = ((result << 32) + (h_key & (uint64_t)0xffffffff)) % d;
-    result = ((result << 32) + (low_key >> 32)) % d;
-    result = ((result << 32) + (low_key & (uint64_t)0xffffffff)) % d;
-
-    return result;
-}
-
-
-
 ////suffix_bits = 64 in default
 inline int recover_hash_code(uint64_t sub_ID, uint64_t sub_key, Hash_code* code,
-uint64_t suffix_mode, int suffix_bits, int k)
+                             uint64_t suffix_mode, int suffix_bits, int k) // FIXME: not working right now
 {
     uint64_t h_key, low_key;
     h_key = low_key = 0;
@@ -249,31 +223,39 @@ uint64_t suffix_mode, int suffix_bits, int k)
     return 1;
 }
 
-///inline int get_sub_table(uint64_t* get_sub_ID, uint64_t* get_sub_key, Total_Count_Table* TCB, Hash_code* code, int k)
-inline int get_sub_table(uint64_t* get_sub_ID, uint64_t* get_sub_key, uint64_t suffix_mode, int suffix_bits,
-Hash_code* code, int k)
+static inline int ha_code2rev(const Hash_code *code)
 {
-    uint64_t h_key, low_key;
-    ///k might be 64，so it is unsafe
-    ///low_key = code->x[0] | (code->x[1] << k);
-    low_key = code->x[0] | (code->x[1] << SAFE_SHIFT(k));
-    //k cannot be 0, so this shift is safe
-    h_key = code->x[1] >> (64 - k);
-
-    if(mod_d(h_key, low_key, MODE_VALUE) > 3)
-    {
-        return 0;
-    }
-
-    uint64_t sub_ID = (low_key >> SAFE_SHIFT(suffix_bits)) | (h_key << (64 - suffix_bits));
-    uint64_t sub_key = (low_key & suffix_mode);
-
-    *get_sub_ID = sub_ID;
-    *get_sub_key = sub_key;
-
-    return 1;
+	return code->x[1] < code->x[3]? 0 : 1;
 }
 
+static inline int ha_get_sub_table_short(uint64_t* get_sub_ID, uint64_t* get_sub_key, uint64_t suffix_mode, int suffix_bits, Hash_code* code, int k)
+{ // for k < 32
+	int j = ha_code2rev(code);
+	uint64_t y = code->x[j<<1|1] << k | code->x[j<<1|0];
+	y = yak_hash64(y, (1ULL<<(k+k)) - 1);
+	if (y % MODE_VALUE > 3) return 0;
+	*get_sub_ID = y >> suffix_bits;
+	*get_sub_key = y & suffix_mode;
+	return 1;
+}
+
+static inline int ha_get_sub_table_long(uint64_t* get_sub_ID, uint64_t* get_sub_key, uint64_t suffix_mode, int suffix_bits, Hash_code* code, int k)
+{ // for k > 32
+	int j = ha_code2rev(code);
+	uint64_t y = code->x[j<<1|1] << k | code->x[j<<1|0];
+	y = yak_hash64_64(y);
+	if (y % MODE_VALUE > 3) return 0;
+	int s = 64 - k;
+	uint64_t z = code->x[j<<1|1] >> s ^ y << (s + s) >> (s + s);
+	*get_sub_ID = y >> suffix_bits | z << (64 - suffix_bits);
+	*get_sub_key = y & suffix_mode;
+	return 1;
+}
+
+inline int get_sub_table(uint64_t* get_sub_ID, uint64_t* get_sub_key, uint64_t suffix_mode, int suffix_bits, Hash_code* code, int k)
+{ // not really working for k<=32
+	return ha_get_sub_table_long(get_sub_ID, get_sub_key, suffix_mode, suffix_bits, code, k);
+}
 
 inline int insert_Total_Count_Table(Total_Count_Table* TCB, Hash_code* code, int k)
 {
@@ -285,7 +267,6 @@ inline int insert_Total_Count_Table(Total_Count_Table* TCB, Hash_code* code, int
 
     khint_t t;  
     int absent;
-
 
     while (__sync_lock_test_and_set(&TCB->sub_h_lock[sub_ID].lock, 1))
     {
@@ -310,7 +291,6 @@ inline int insert_Total_Count_Table(Total_Count_Table* TCB, Hash_code* code, int
 
 inline int get_Total_Count_Table(Total_Count_Table* TCB, Hash_code* code, int k)
 {
-
     uint64_t sub_ID, sub_key;
     if(!get_sub_table(&sub_ID, &sub_key, TCB->suffix_mode, TCB->suffix_bits, code, k))
     {
@@ -319,7 +299,6 @@ inline int get_Total_Count_Table(Total_Count_Table* TCB, Hash_code* code, int k)
 
     khint_t t;  
 
-    ///query hash table，key is k
     t = ha_ct_get(TCB->sub_h[sub_ID], sub_key);
 
     if (t != kh_end(TCB->sub_h[sub_ID]))
@@ -330,15 +309,10 @@ inline int get_Total_Count_Table(Total_Count_Table* TCB, Hash_code* code, int k)
     {
         return 0;
     }
-
-
 }
-
-
 
 inline uint64_t get_Total_Pos_Table(Total_Pos_Table* PCB, Hash_code* code, int k, uint64_t* r_sub_ID)
 {
-
     uint64_t sub_ID, sub_key;
     if(!get_sub_table(&sub_ID, &sub_key, PCB->suffix_mode, PCB->suffix_bits, code, k))
     {
@@ -347,7 +321,6 @@ inline uint64_t get_Total_Pos_Table(Total_Pos_Table* PCB, Hash_code* code, int k
 
     khint_t t;  
 
-    ///query hash table，key is k
     t = ha_pt_get(PCB->sub_h[sub_ID], sub_key);
 
     if (t != kh_end(PCB->sub_h[sub_ID]))
@@ -359,8 +332,6 @@ inline uint64_t get_Total_Pos_Table(Total_Pos_Table* PCB, Hash_code* code, int k
     {
         return (uint64_t)-1;
     }
-
-
 }
 
 inline uint64_t count_Total_Pos_Table(Total_Pos_Table* PCB, Hash_code* code, int k)
@@ -405,7 +376,6 @@ inline uint64_t insert_Total_Pos_Table(Total_Pos_Table* PCB, Hash_code* code, in
 
     if (occ)
     {   
-
         while (__sync_lock_test_and_set(&PCB->sub_h_lock[sub_ID].lock, 1))
         {
             while (PCB->sub_h_lock[sub_ID].lock);
@@ -413,16 +383,16 @@ inline uint64_t insert_Total_Pos_Table(Total_Pos_Table* PCB, Hash_code* code, in
 
         if (list[0].offset + 1 < occ)
         {
-            list[0].offset++;
+            list[0].offset++; // if not the last k-mer, this field is reused to keep the number of inserted positions
             list[list[0].offset].readID = readID;
-            ///list[list[0].offset].readID = readID|direction;
             list[list[0].offset].offset = pos;
+            list[list[0].offset].rev = ha_code2rev(code);
         }
-        else
+        else // now comes to the last k-mer position; then save it to list[0]
         {
             list[0].readID = readID;
-            ///list[0].readID = readID|direction;
             list[0].offset = pos;
+			list[0].rev = ha_code2rev(code);
             flag = 1;
         }
 
@@ -434,17 +404,13 @@ inline uint64_t insert_Total_Pos_Table(Total_Pos_Table* PCB, Hash_code* code, in
             qsort(list, occ, sizeof(k_mer_pos), cmp_k_mer_pos);
         }
 
-        
         return 1;
     }
     else
     {
         return 0;
     }
-    
-    
 }
-
 
 void init_Total_Count_Table(int k, Total_Count_Table* TCB);
 void init_Total_Pos_Table(Total_Pos_Table* TCB, Total_Count_Table* pre_TCB);
@@ -472,12 +438,6 @@ void append_k_mer_pos_list_alloc(k_mer_pos_list_alloc* list, k_mer_pos* n_list, 
 uint64_t n_end_pos, uint8_t n_direction);
 
 
-
-void merge_k_mer_pos_list_alloc_heap_sort(k_mer_pos_list_alloc* list, Candidates_list* candidates, HeapSq* HBT);
-
-void Init_Heap(HeapSq* HBT);
-void destory_Heap(HeapSq* HBT);
-void clear_Heap(HeapSq* HBT);
 
 void init_overlap_region_alloc(overlap_region_alloc* list);
 void clear_overlap_region_alloc(overlap_region_alloc* list);

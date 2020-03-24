@@ -18,141 +18,6 @@ void overlap_region_sort_y_id(overlap_region *a, long long n)
 	radix_sort_overlap_region_sort(a, a + n);
 }
 
-void Init_Heap(HeapSq* HBT)
-{
-    HBT->MaxSize = 1000;
-    HBT->heap = (ElemType*)malloc(HBT->MaxSize*sizeof(ElemType));
-    HBT->index_i = (uint64_t*)malloc(HBT->MaxSize*sizeof(uint64_t));
-    HBT->len = 0;
-}
-
-void destory_Heap(HeapSq* HBT)
-{
-    free(HBT->heap);
-    free(HBT->index_i);
-}
-
-void clear_Heap(HeapSq* HBT)
-{
-    HBT->len = 0;
-}
-
-
-
-inline int cmp_ElemType(ElemType* x, ElemType* y)
-{
-
-    if (x->node.readID < y->node.readID)
-    {
-        return 1;
-    }
-    else if (x->node.readID > y->node.readID)
-    {
-        return 2;
-    }
-    else
-    {   if (x->node.strand < y->node.strand)
-        {
-            return 1;
-        }
-        else if (x->node.strand > y->node.strand)
-        {
-            return 2;
-        }
-        else
-        {
-
-            if(x->node.offset < y->node.offset)
-            {
-                return 1;
-            }
-            else if(x->node.offset > y->node.offset)
-            {
-                return 2;
-            }
-            else
-            {
-                if (x->node.self_offset < y->node.self_offset)
-                {
-                    return 1;
-                }
-                else  if (x->node.self_offset > y->node.self_offset)
-                {
-                    return 2;
-                }
-                else  ///if both r_pos_x and self_offset are equal, offset must be equal
-                {
-                    return 0;
-                }
-                
-            }   
-        }    
-    }
-}
-
-
-inline void Insert_Heap(HeapSq* HBT, ElemType* x)
-{
-    long long i, j;
-    if (HBT->len == HBT->MaxSize) 
-    {
-        HBT->MaxSize = 2*HBT->MaxSize;
-        HBT->heap = (ElemType*)realloc(HBT->heap, HBT->MaxSize*sizeof(ElemType));
-        HBT->index_i = (uint64_t*)realloc(HBT->index_i,HBT->MaxSize*sizeof(uint64_t));
-    }
-    HBT->heap[HBT->len] = *x; //add element to tail
-    HBT->len++; 
-    i = HBT->len - 1; 
-    while (i != 0)
-    {
-        j = (i - 1) / 2; 
-        ///if (x >= HBT->heap[j]) 
-        ///1: x<y
-        if (cmp_ElemType(x, &HBT->heap[j])!=1)
-            break;
-        HBT->heap[i] = HBT->heap[j]; 
-        i = j; 
-    }
-    HBT->heap[i] = *x;
-}
-
-inline int DeleteHeap(HeapSq* HBT, ElemType* get)
-{
-    ElemType temp, x;
-    int i, j;
-    if (HBT->len == 0)
-    {
-        return 0;
-    }
-    temp = HBT->heap[0]; 
-    HBT->len--;
-    if (HBT->len == 0) 
-    {
-        *get = temp;
-        return 2;
-    }
-
-    x = HBT->heap[HBT->len]; 
-    i = 0; 
-    j = 2 * i + 1;
-    while (j <= HBT->len - 1)
-    {
-        ///if (j < HBT->len - 1 && HBT->heap[j] > HBT->heap[j+1])
-        if (j < HBT->len - 1 && cmp_ElemType(&HBT->heap[j], &HBT->heap[j + 1]) == 2)
-            j++;
-        ///if (x <= HBT->heap[j]) 
-        if (cmp_ElemType(&x, &HBT->heap[j])!=2)
-            break;
-        HBT->heap[i] = HBT->heap[j];
-        i = j; 
-        j = 2 * i + 1;
-    }
-    HBT->heap[i] = x; 
-
-    *get = temp;
-    return 1;
-}
-
 void init_overlap_region_alloc(overlap_region_alloc* list)
 {
     list->size = 1000;
@@ -219,10 +84,8 @@ int get_fake_gap_shift(Fake_Cigar* x, int index)
     return result;
 }
 
-
-
 int append_inexact_overlap_region_alloc(overlap_region_alloc* list, overlap_region* tmp, 
-All_reads* R_INF, int add_beg_end)
+                                        All_reads* R_INF, int add_beg_end)
 {
    
     if (list->length + 1 > list->size)
@@ -264,8 +127,6 @@ All_reads* R_INF, int add_beg_end)
     long long x_right_length = Get_READ_LENGTH((*R_INF), tmp->x_id) - tmp->x_pos_e - 1;
     long long y_right_length = Get_READ_LENGTH((*R_INF), tmp->y_id) - tmp->y_pos_e - 1;
 
-
-
     if(x_right_length <= y_right_length)
     {
         tmp->x_pos_e = Get_READ_LENGTH((*R_INF), tmp->x_id) - 1;
@@ -276,7 +137,6 @@ All_reads* R_INF, int add_beg_end)
         tmp->x_pos_e = tmp->x_pos_e + y_right_length;
         tmp->y_pos_e = Get_READ_LENGTH((*R_INF), tmp->y_id) - 1;
     }
-
     
     if (tmp->x_pos_strand == 1)
     {
@@ -289,9 +149,6 @@ All_reads* R_INF, int add_beg_end)
         list->list[list->length].y_pos_e = Get_READ_LENGTH((*R_INF), tmp->y_id) - tmp->y_pos_s - 1;
         list->list[list->length].y_pos_s = Get_READ_LENGTH((*R_INF), tmp->y_id) - tmp->y_pos_e - 1;
         list->list[list->length].y_pos_strand = 1;
-
-
-
 
         resize_fake_cigar(&(list->list[list->length].f_cigar), (tmp->f_cigar.length + 2));
         if(add_beg_end == 1)
@@ -388,7 +245,6 @@ All_reads* R_INF, int add_beg_end)
     return 1;
 }
 
-
 void append_overlap_region_alloc_debug(overlap_region_alloc* list, overlap_region* tmp)
 {
    
@@ -413,7 +269,6 @@ void append_overlap_region_alloc_debug(overlap_region_alloc* list, overlap_regio
 
     list->length++;
 }
-
 
 int cmp_by_x_pos_s(const void * a, const void * b)
 {
@@ -474,7 +329,6 @@ int cmp_by_x_pos_e(const void * a, const void * b)
     }
 }
 
-
 void debug_chain(k_mer_hit* a, long long a_n, Chain_Data* dp)
 {
     long long i, j, current_j;
@@ -493,7 +347,7 @@ void debug_chain(k_mer_hit* a, long long a_n, Chain_Data* dp)
             if(j != -1)
             {
                 distance_self_pos = a[current_j].self_offset - a[j].self_offset;
-                distance_pos = a[current_j].offset - a[j].offset;
+                distance_pos = ha_hit_get_offset(&a[current_j]) - ha_hit_get_offset(&a[j]);
                 distance_gap = distance_pos > distance_self_pos? distance_pos - distance_self_pos : distance_self_pos - distance_pos;
 
                 indels += distance_gap; 
@@ -517,7 +371,7 @@ void debug_chain(k_mer_hit* a, long long a_n, Chain_Data* dp)
 }
 
 long long get_chainLen(long long x_beg, long long x_end, long long xLen, 
-long long y_beg, long long y_end, long long yLen)
+                       long long y_beg, long long y_end, long long yLen)
 {
     if(x_beg <= y_beg)
     {
@@ -551,7 +405,7 @@ long long y_beg, long long y_end, long long yLen)
 
 ///double band_width_threshold = 0.05;
 void chain_DP(k_mer_hit* a, long long a_n, Chain_Data* dp, overlap_region* result, 
-double band_width_threshold, int max_skip, int x_readLen, int y_readLen)
+              double band_width_threshold, int max_skip, int x_readLen, int y_readLen)
 {
     long long i, j;
     long long self_pos, pos, max_j, max_i, max_score, score, n_skip;
@@ -567,7 +421,7 @@ double band_width_threshold, int max_skip, int x_readLen, int y_readLen)
     // fill the score and backtrack arrays
 	for (i = 0; i < a_n; ++i) 
     {
-        pos = a[i].offset;
+        pos = ha_hit_get_offset(&a[i]);
         self_pos = a[i].self_offset;
         max_j = -1;
         max_score = min_score;
@@ -579,7 +433,7 @@ double band_width_threshold, int max_skip, int x_readLen, int y_readLen)
         ///may have a pre-cut condition for j
         for (j = i - 1; j >= 0; --j) 
         {
-            distance_pos = pos - a[j].offset;
+            distance_pos = pos - ha_hit_get_offset(&a[j]);
             distance_self_pos = self_pos - a[j].self_offset;
             ///a has been sorted by a[].offset
             ///note for a, we do not have any two elements that have both equal offsets and self_offsets
@@ -636,11 +490,7 @@ double band_width_threshold, int max_skip, int x_readLen, int y_readLen)
         dp->self_length[i] = max_self_length;
     }
 
-
     ///debug_chain(a, a_n, dp);
-
-
-    
 
     max_score = -1;
     max_i = -1;
@@ -652,12 +502,12 @@ double band_width_threshold, int max_skip, int x_readLen, int y_readLen)
             max_score = dp->score[i];
             max_i = i;
             mini_xLen = get_chainLen(a[i].self_offset, a[i].self_offset, x_readLen, 
-            a[i].offset, a[i].offset, y_readLen);
+                                     ha_hit_get_offset(&a[i]), ha_hit_get_offset(&a[i]), y_readLen);
         }
         else if(dp->score[i] == max_score)
         {
             tmp_xLen = get_chainLen(a[i].self_offset, a[i].self_offset, x_readLen, 
-            a[i].offset, a[i].offset, y_readLen);
+                                    ha_hit_get_offset(&a[i]), ha_hit_get_offset(&a[i]), y_readLen);
 
             if(tmp_xLen < mini_xLen)
             {
@@ -670,17 +520,16 @@ double band_width_threshold, int max_skip, int x_readLen, int y_readLen)
         
     }
 
-
     clear_fake_cigar(&(result->f_cigar));
     ///not a has been sorted by offset, that means has been sorted by query offset
     i = max_i;
     result->x_pos_e = a[i].self_offset;
-    result->y_pos_e = a[i].offset;
+    result->y_pos_e = ha_hit_get_offset(&a[i]);
     result->shared_seed = max_score;
     result->overlapLen = mini_xLen;
 
     distance_self_pos = result->x_pos_e - a[i].self_offset;
-    distance_pos = result->y_pos_e - a[i].offset;
+    distance_pos = result->y_pos_e - ha_hit_get_offset(&a[i]);
     long long pre_distance_gap = distance_pos - distance_self_pos;
     ///record first site
     ///the length of f_cigar should be at least 1
@@ -692,7 +541,7 @@ double band_width_threshold, int max_skip, int x_readLen, int y_readLen)
         while (i >= 0)
         {
             distance_self_pos = result->x_pos_e - a[i].self_offset;
-            distance_pos = result->y_pos_e - a[i].offset;
+            distance_pos = result->y_pos_e - ha_hit_get_offset(&a[i]);
             distance_gap = distance_pos - distance_self_pos;
             if(distance_gap != pre_distance_gap)
             {
@@ -703,7 +552,7 @@ double band_width_threshold, int max_skip, int x_readLen, int y_readLen)
 
             chainLen++;
             result->x_pos_s = a[i].self_offset;
-            result->y_pos_s = a[i].offset;
+            result->y_pos_s = ha_hit_get_offset(&a[i]);
             i = dp->pre[i];
         }
     }
@@ -713,7 +562,7 @@ double band_width_threshold, int max_skip, int x_readLen, int y_readLen)
         while (i >= 0)
         {
             distance_self_pos = result->x_pos_e - a[i].self_offset;
-            distance_pos = result->y_pos_e - a[i].offset;
+            distance_pos = result->y_pos_e - ha_hit_get_offset(&a[i]);
             distance_gap = distance_pos - distance_self_pos;
             if(distance_gap == pre_distance_gap)
             {
@@ -728,16 +577,14 @@ double band_width_threshold, int max_skip, int x_readLen, int y_readLen)
 
             chainLen++;
             result->x_pos_s = a[i].self_offset;
-            result->y_pos_s = a[i].offset;
+            result->y_pos_s = ha_hit_get_offset(&a[i]);
             i = dp->pre[i];
         }
     }
 }
 
-
-
 void calculate_overlap_region_by_chaining(Candidates_list* candidates, overlap_region_alloc* overlap_list, 
-uint64_t readID, uint64_t readLength, All_reads* R_INF, double band_width_threshold, int add_beg_end)
+                                          uint64_t readID, uint64_t readLength, All_reads* R_INF, double band_width_threshold, int add_beg_end)
 {
     overlap_region tmp_region;
     long long i = 0;
@@ -757,8 +604,8 @@ uint64_t readID, uint64_t readLength, All_reads* R_INF, double band_width_thresh
     i = 0;
     while (i < candidates->length)
     {
-        current_ID = candidates->list[i].readID;
-        current_stand = candidates->list[i].strand;
+        current_ID = ha_hit_get_readID(&candidates->list[i]);
+        current_stand = ha_hit_get_rev(&candidates->list[i]);
 
         ///reference read
         tmp_region.x_id = readID;
@@ -776,9 +623,9 @@ uint64_t readID, uint64_t readLength, All_reads* R_INF, double band_width_thresh
 
         while (i < candidates->length 
         && 
-        current_ID == candidates->list[i].readID
+        current_ID == ha_hit_get_readID(&candidates->list[i])
         &&
-        current_stand == candidates->list[i].strand)
+        current_stand == ha_hit_get_rev(&candidates->list[i]))
         {
             sub_region_end = i;
             i++;
@@ -811,10 +658,8 @@ uint64_t readID, uint64_t readLength, All_reads* R_INF, double band_width_thresh
     qsort(overlap_list->list, overlap_list->length, sizeof(overlap_region), cmp_by_x_pos_s);
 }
 
-
-
 void append_window_list(overlap_region* region, uint64_t x_start, uint64_t x_end, int y_start, int y_end, int error,
-int extra_begin, int extra_end, int error_threshold)
+                        int extra_begin, int extra_end, int error_threshold)
 {
     
     long long length = region->x_pos_e - region->x_pos_s + 1;
@@ -843,8 +688,6 @@ int extra_begin, int extra_end, int error_threshold)
     region->w_list_length++;
 }
 
-
-
 void init_k_mer_pos_list_alloc(k_mer_pos_list_alloc* list)
 {
     list->size = 1000;
@@ -864,9 +707,8 @@ void destory_k_mer_pos_list_alloc(k_mer_pos_list_alloc* list)
 }
 
 void append_k_mer_pos_list_alloc(k_mer_pos_list_alloc* list, k_mer_pos* n_list, uint64_t n_length, 
-uint64_t n_end_pos, uint8_t n_direction)
+                                 uint64_t n_end_pos, uint8_t n_direction)
 {
-   
     if (list->length + 1 > list->size)
     {
         list->size = list->size * 2;
@@ -880,9 +722,6 @@ uint64_t n_end_pos, uint8_t n_direction)
 
     list->length++;
 }
-
-
-
 
 int cmp_k_mer_pos_list(const void * a, const void * b)
 {
@@ -898,17 +737,7 @@ int cmp_k_mer_pos_list(const void * a, const void * b)
     {
         return 0;
     }
-    
 }
-
-inline void append_pos_to_Candidates_list(Candidates_list* candidates, ElemType* x)
-{
-    candidates->list[candidates->length] = x->node;
-    candidates->length++;
-}
-
-
-
 
 void test_single_list(Candidates_list* candidates, k_mer_pos* n_list, uint64_t n_lengh, uint64_t end_pos, uint64_t strand)
 {
@@ -920,13 +749,13 @@ void test_single_list(Candidates_list* candidates, k_mer_pos* n_list, uint64_t n
         for (; j < candidates->length; j++)
         {
             if (
-                n_list[i].offset == (uint64_t)candidates->list[j].offset
+                n_list[i].offset == (uint64_t)ha_hit_get_offset(&candidates->list[j])
                 &&
-                n_list[i].readID == candidates->list[j].readID
+                n_list[i].readID == ha_hit_get_readID(&candidates->list[j])
                 &&
                 end_pos == (uint64_t)candidates->list[j].self_offset
                 &&
-                strand == candidates->list[j].strand
+                strand == ha_hit_get_rev(&candidates->list[j])
             )
             {
                 break;
@@ -938,81 +767,7 @@ void test_single_list(Candidates_list* candidates, k_mer_pos* n_list, uint64_t n
             fprintf(stderr, "ERROR 4\n");
         }
     }
-
 }
-
-
-void merge_k_mer_pos_list_alloc_heap_sort(k_mer_pos_list_alloc* list, Candidates_list* candidates, HeapSq* HBT)
-{
-    clear_Heap(HBT);
-
-    uint64_t total_length = 0;
-    uint64_t i;
-    ElemType x, y;
-    //add the first element of each list to stack
-    for (i = 0; i < list->length; i++)
-    {
-        x.ID = i;
-        x.node.offset = list->list[i].list[0].offset;
-        x.node.readID = list->list[i].list[0].readID;
-        x.node.self_offset = list->list[i].end_pos;
-        x.node.strand = list->list[i].direction;
-
-        Insert_Heap(HBT, &x);
-
-        HBT->index_i[i] = 1;
-        
-        total_length = total_length + list->list[i].length;
-    }
-
-
-    candidates->length = 0;
-    if(total_length > (uint64_t)candidates->size)
-    {
-        candidates->size = total_length;
-        candidates->list = (k_mer_hit*)realloc(candidates->list, sizeof(k_mer_hit)*candidates->size);
-        candidates->tmp = (k_mer_hit*)realloc(candidates->tmp, sizeof(k_mer_hit)*candidates->size);
-    }
-
-    uint64_t ID;
-    int flag;
-    ///while (flag = DeleteHeap(HBT, &x))
-    while ((flag = DeleteHeap(HBT, &x)))
-    {
-        append_pos_to_Candidates_list(candidates, &x);
-        
-        i = HBT->index_i[x.ID];
-        ID = x.ID;
-
-        if (flag == 2)
-        {
-            for (; i < list->list[x.ID].length; i++)
-            {
-                y.ID = ID;
-                y.node.offset = list->list[x.ID].list[i].offset;
-                y.node.readID = list->list[x.ID].list[i].readID;
-                y.node.self_offset = list->list[x.ID].end_pos;
-                y.node.strand = list->list[x.ID].direction;
-                append_pos_to_Candidates_list(candidates, &y);
-            }
-            
-            break;
-        }
-
-        if (i < list->list[x.ID].length)
-        {
-            y.ID = ID;
-            y.node.offset = list->list[x.ID].list[i].offset;
-            y.node.readID = list->list[x.ID].list[i].readID;
-            y.node.self_offset = list->list[x.ID].end_pos;
-            y.node.strand = list->list[x.ID].direction;
-            Insert_Heap(HBT, &y);
-            HBT->index_i[ID]++;
-        }
-    }     
-}
-
-
 
 void init_Count_Table(Count_Table** table)
 {
@@ -1233,127 +988,6 @@ void insert_H_peaks(H_peaks* h, long long index, long long value)
     h->list[index] += value;
 }
 
-inline void RC_Hash_code(Hash_code* code, Hash_code* rc_code, int k)
-{
-    rc_code->x[0] = 0;
-    rc_code->x[1] = 0;
-    int i;
-    for (i = 0; i < k; i++)
-    {
-        rc_code->x[0] = rc_code->x[0] << 1;
-        rc_code->x[1] = rc_code->x[1] << 1;
-        rc_code->x[0] |= (((uint64_t)((code->x[0] >> i) & 1))^((uint64_t)1));
-        rc_code->x[1] |= (((uint64_t)((code->x[1] >> i) & 1))^((uint64_t)1));
-    }
-}
-
-
-
-void get_peak_debug(Total_Count_Table* TCB, long long* min, long long* max)
-{
-    int i;
-    Count_Table* h;
-    khint_t k;
-    long long c_count;
-    H_peaks LH;
-    LH.list = NULL;
-    LH.length = 0;
-    uint64_t sub_ID;
-    uint64_t sub_key;
-    Hash_code code, rc_code, debug_code;
-    char str[100];
-    char rc_str[100];
-
-
-    
-    for (i = 0; i < TCB->size; i++)
-    {
-        h = TCB->sub_h[i];
-        for (k = 0; k != kh_end(h); ++k)
-        {
-            if (kh_exist(h, k))            // test if a bucket contains data
-            {
-                sub_ID = i;
-                sub_key = kh_key(h, k);
-
-                recover_hash_code(sub_ID, sub_key, &code, TCB->suffix_mode, 
-                TCB->suffix_bits, asm_opt.k_mer_length);
-                RC_Hash_code(&code, &rc_code, asm_opt.k_mer_length);
-                RC_Hash_code(&rc_code, &debug_code, asm_opt.k_mer_length);
-                if(code.x[0] != debug_code.x[0] || code.x[1] != debug_code.x[1])
-                {
-                    fprintf(stderr, "error\n");
-                }
-
-                Hashcode_to_string(&code, str, asm_opt.k_mer_length);
-                Hashcode_to_string(&rc_code, rc_str, asm_opt.k_mer_length);
-                reverse_complement(str, asm_opt.k_mer_length);
-                if(memcmp(str, rc_str, asm_opt.k_mer_length) != 0)
-                {
-                    fprintf(stderr, "error\n");
-                    int j;
-                    for (j = 0; j < asm_opt.k_mer_length; j++)
-                    {
-                        fprintf(stderr, "%c",str[j]);
-                    }
-                    fprintf(stderr, "\n");
-
-                    for (j = 0; j < asm_opt.k_mer_length; j++)
-                    {
-                        fprintf(stderr, "%c",rc_str[j]);
-                    }
-                    fprintf(stderr, "\n");
-                    
-                }
-
-
-                ///get_Total_Count_Table(&TCB, &k_code, k_mer_length);
-
-                c_count = kh_val(h, k);
-
-                if(get_Total_Count_Table(TCB, &code, asm_opt.k_mer_length) != c_count)
-                {
-                    fprintf(stderr, "error\n");
-                }
-
-                insert_H_peaks(&LH, c_count, c_count);
-            }
-        }
-    }
-
-    (*max) = -1;
-    (*min) = -1;
-    long long max_value = -1;
-    for (i = 0; i < (long long)LH.length; i++)
-    {
-        if(LH.list[i] >= max_value)
-        {
-            max_value = LH.list[i];
-            (*max) = i;
-        }
-    }
-
-    long long min_value = max_value;
-    for (i = 0; i < (long long)LH.length; i++)
-    {
-        if(LH.list[i] < min_value && LH.list[i] != 0)
-        {
-            min_value = LH.list[i];
-            (*min) = i;
-        }
-    }
-
-    for (i = 0; i < (long long)LH.length; i++)
-    {
-        ///fprintf(stderr, "%d, %d\n", i, LH.list[i]);
-        fprintf(stderr, "%lld\n", LH.list[i]);
-    }
-    
-    
-
-    free(LH.list);
-}
-
 ///1: a > b; -1: a < b; 0: a=b
 int cmp_Hash_code(Hash_code* a, Hash_code* b)
 {
@@ -1378,46 +1012,10 @@ int cmp_Hash_code(Hash_code* a, Hash_code* b)
     return 0;
 }
 
-int get_total_freq(Total_Count_Table* TCB, uint64_t sub_ID, uint64_t sub_key, long long* T_count)
+void get_total_freq(Total_Count_Table* TCB, uint64_t sub_ID, uint64_t sub_key, long long* T_count)
 {
-    Hash_code code, rc_code;
-    long long count, rc_count;
-
-    recover_hash_code(sub_ID, sub_key, &code, TCB->suffix_mode, 
-                TCB->suffix_bits, asm_opt.k_mer_length);
-    RC_Hash_code(&code, &rc_code, asm_opt.k_mer_length);
-
-    count = get_Total_Count_Table(TCB, &code, asm_opt.k_mer_length);
-    rc_count = get_Total_Count_Table(TCB, &rc_code, asm_opt.k_mer_length);
-    (*T_count) = count + rc_count;
-
-    if(count == 0)
-    {
-        return 0;
-    }///count > 0 && rc_count == 0
-    else if(rc_count == 0)
-    {
-        return 1;
-    }///count > 0 && rc_count > 0
-    else
-    {
-        int flag = cmp_Hash_code(&code, &rc_code);
-
-        ///code > rc_code
-        if(flag > 0)
-        {
-            return 1;
-        }///code < rc_code
-        else if(flag < 0)
-        {
-            return 0;
-        }
-        else
-        {
-            (*T_count) = (*T_count)/2;
-            return 1;
-        }
-    }
+	khint_t t = ha_ct_get(TCB->sub_h[sub_ID], sub_key);
+	*T_count = kh_val(TCB->sub_h[sub_ID], t);
 }
 
 void get_peak(Total_Count_Table* TCB, long long* min, long long* max, long long* up_boundary)
@@ -1432,8 +1030,6 @@ void get_peak(Total_Count_Table* TCB, long long* min, long long* max, long long*
     uint64_t sub_ID;
     uint64_t sub_key;
     
-    
-    
     for (i = 0; i < TCB->size; i++)
     {
         h = TCB->sub_h[i];
@@ -1444,10 +1040,8 @@ void get_peak(Total_Count_Table* TCB, long long* min, long long* max, long long*
                 sub_ID = i;
                 sub_key = kh_key(h, k);
 
-                if(get_total_freq(TCB, sub_ID, sub_key, &count)==1)
-                {
-                    insert_H_peaks(&LH, count, count);
-                }
+                get_total_freq(TCB, sub_ID, sub_key, &count);
+                insert_H_peaks(&LH, count, count);
             }
         }
     }
@@ -1492,9 +1086,6 @@ void get_peak(Total_Count_Table* TCB, long long* min, long long* max, long long*
         (*up_boundary) = (*max) * 10;
     }
 
-
-
-
     long long min_value = max_value;
     //// seed with freq 1 is useless
     for (i = 2; i < (long long)LH.length && i < (*max); i++)
@@ -1508,8 +1099,6 @@ void get_peak(Total_Count_Table* TCB, long long* min, long long* max, long long*
 
     free(LH.list);
 }
-
-
 
 void Traverse_Counting_Table(Total_Count_Table* TCB, Total_Pos_Table* PCB, int k_mer_min_freq, int k_mer_max_freq)
 {
@@ -1571,7 +1160,6 @@ void Traverse_Counting_Table(Total_Count_Table* TCB, Total_Pos_Table* PCB, int k
                         ///kh_val(PCB->sub_h[sub_ID], t)++;
                         fprintf(stderr, "ERROR\n");
                     }
-
                    
                     PCB->useful_k_mer++;
                     PCB->total_occ = PCB->total_occ + kh_val(h, k);
@@ -1579,7 +1167,6 @@ void Traverse_Counting_Table(Total_Count_Table* TCB, Total_Pos_Table* PCB, int k
             }
         }
     }
-
 
     // fprintf(stdout, "useful_k_mer: %lld\n",PCB->useful_k_mer);
     // fprintf(stdout, "total_occ: %lld\n",PCB->total_occ);
@@ -1615,12 +1202,7 @@ void Traverse_Counting_Table(Total_Count_Table* TCB, Total_Pos_Table* PCB, int k
 
     PCB->pos = (k_mer_pos*)malloc(sizeof(k_mer_pos)*PCB->total_occ);
     memset(PCB->pos, 0, sizeof(k_mer_pos)*PCB->total_occ);
-    
-    
 }
-
-
-
 
 int cmp_k_mer_pos(const void * a, const void * b)
 {
@@ -1657,7 +1239,6 @@ void clear_Chain_Data(Chain_Data* x)
     x->length = 0;
 }
 
-
 void destory_Chain_Data(Chain_Data* x)
 {
     free(x->score);
@@ -1665,7 +1246,6 @@ void destory_Chain_Data(Chain_Data* x)
     free(x->indels);
     free(x->self_length);
 }
-
 
 void resize_Chain_Data(Chain_Data* x, long long size)
 {
@@ -1679,23 +1259,18 @@ void resize_Chain_Data(Chain_Data* x, long long size)
     }
 }
 
-
 void init_Candidates_list(Candidates_list* l)
 {
     l->length = 0;
     l->size = 0;
     l->list = NULL;
     l->tmp = NULL;
-    l->foward_pos = 0;
-    l->rc_pos = 0;
     init_Chain_Data(&(l->chainDP));
 }
 
 void clear_Candidates_list(Candidates_list* l)
 {
     l->length = 0;
-    l->foward_pos = 0;
-    l->rc_pos = 0;
     clear_Chain_Data(&(l->chainDP));
 }
 
@@ -1705,52 +1280,6 @@ void destory_Candidates_list(Candidates_list* l)
     free(l->tmp);
     destory_Chain_Data(&(l->chainDP));
 }
-
-
-
-int cmp_candidates_list(const void * a, const void * b)
-{
-    long long r_pos_a, r_pos_b;
-
-    if((*((k_mer_hit*)a)).strand != (*((k_mer_hit*)b)).strand)
-    {
-        return (*((k_mer_hit*)a)).strand > (*((k_mer_hit*)b)).strand ? 1: -1;
-    }
-    else
-    {
-        if((*((k_mer_hit*)a)).readID != (*((k_mer_hit*)b)).readID)
-        {
-            return (*((k_mer_hit*)a)).readID > (*((k_mer_hit*)b)).readID ? 1: -1;
-        }
-        else
-        {
-            r_pos_a = (*((k_mer_hit*)a)).offset - (*((k_mer_hit*)a)).self_offset;
-            r_pos_b = (*((k_mer_hit*)b)).offset - (*((k_mer_hit*)b)).self_offset;
-
-            if(r_pos_a != r_pos_b)
-            {
-                return r_pos_a > r_pos_b ? 1: -1;
-            }
-            else
-            {
-                if((*((k_mer_hit*)a)).self_offset != (*((k_mer_hit*)b)).self_offset)
-                {
-                    return (*((k_mer_hit*)a)).self_offset > (*((k_mer_hit*)b)).self_offset ? 1: -1;
-                }
-                else
-                {
-                    return 0;
-                }
-                
-            }
-            
-        }
-        
-    }
-}
-
-
-
 
 void init_fake_cigar(Fake_Cigar* x)
 {
@@ -1847,7 +1376,5 @@ void resize_window_list_alloc(window_list_alloc* x, long long size)
     {
         x->buffer[i].error = -1; 
     }
-    
-
     x->length = 0;
 }

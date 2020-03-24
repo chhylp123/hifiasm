@@ -10,14 +10,6 @@ void init_HPC_seq(HPC_seq* seq, char* str, long long l)
     seq->str = str;
 }
 
-void init_Hash_code(Hash_code* code)
-{
-    code->x[0] = 0;
-    code->x[1] = 0;
-}
-
-
-
 void init_small_hash_table(small_hash_table* x)
 {
     x->size = 0;

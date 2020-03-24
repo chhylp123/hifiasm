@@ -50,7 +50,7 @@ POA.o: POA.h Hash_Table.h khashl.h kmer.h Process_Read.h kseq.h Overlaps.h
 POA.o: kvec.h kdq.h CommandLines.h Correct.h Levenshtein_distance.h
 Process_Read.o: Process_Read.h kseq.h Overlaps.h kvec.h kdq.h CommandLines.h
 Trio.o: khashl.h kthread.h Process_Read.h kseq.h Overlaps.h kvec.h kdq.h
-Trio.o: CommandLines.h Trio.h
+Trio.o: CommandLines.h Trio.h kmer.h
 kmer.o: kmer.h Process_Read.h kseq.h Overlaps.h kvec.h kdq.h CommandLines.h
 kthread.o: kthread.h
 main.o: CommandLines.h Process_Read.h kseq.h Overlaps.h kvec.h kdq.h
