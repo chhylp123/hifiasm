@@ -76,7 +76,7 @@ void ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc,
 			if (l >= k && kmer_span < 256) {
 				uint64_t y;
 				y = yak_hash64_64(kmer[z<<1|0]) + yak_hash64_64(kmer[z<<1|1]);
-				if (hf == 0 || ha_hf_isflt(hf, y) == 0)
+				if (hf == 0 || ha_ft_isflt(hf, y) == 0)
 					info.x = y, info.rid = rid, info.pos = i, info.rev = z, info.span = kmer_span;
 			}
 		} else l = 0, tq.count = tq.front = 0, kmer_span = 0;

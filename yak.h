@@ -11,6 +11,10 @@ typedef struct {
 	uint64_t rid:28, pos:27, rev:1, span:8;
 } ha_mz1_t;
 
+typedef struct {
+	uint64_t rid:28, pos:27, rev:1, span:8;
+} ha_seed_t;
+
 typedef struct { uint32_t n, m; ha_mz1_t *a; } ha_mz1_v;
 
 typedef struct {
@@ -20,8 +24,8 @@ typedef struct {
 
 extern const unsigned char seq_nt4_table[256];
 
-int ha_hf_isflt(const void *hh, uint64_t y);
-void ha_hf_destroy(void *h);
+int ha_ft_isflt(const void *hh, uint64_t y);
+void ha_ft_destroy(void *h);
 
 void trio_partition(void);
 

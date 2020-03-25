@@ -1,36 +1,18 @@
 #include <stdint.h>
-#include "CommandLines.h"
-#include "yak.h"
+#include <zlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <assert.h>
+#include "kthread.h"
 #include "khashl.h"
+#include "kseq.h"
+#include "yak.h"
+#include "CommandLines.h"
 
 #define YAK_COUNTER_BITS 12
 #define YAK_N_COUNTS     (1<<YAK_COUNTER_BITS)
 #define YAK_MAX_COUNT    ((1<<YAK_COUNTER_BITS)-1)
-
-#define yak_ch_eq(a, b) ((a)>>YAK_COUNTER_BITS == (b)>>YAK_COUNTER_BITS) // lower 8 bits for counts; higher bits for k-mer
-#define yak_ch_hash(a) ((a)>>YAK_COUNTER_BITS)
-KHASHL_SET_INIT(static klib_unused, yak_ht_t, yak_ht, uint64_t, yak_ch_hash, yak_ch_eq)
-
-KHASHL_SET_INIT(static klib_unused, yak_hh_t, yak_hh, uint64_t, kh_hash_dummy, kh_eq_generic)
-
-typedef struct {
-	int32_t bf_shift, bf_n_hash;
-	int32_t k, w, is_HPC;
-	int32_t pre;
-	int32_t n_thread;
-	int64_t chunk_size;
-} yak_copt_t;
-
-typedef struct {
-	yak_ht_t *h;
-	yak_bf_t *b;
-} yak_ch1_t;
-
-typedef struct {
-	int k, pre, n_hash, n_shift;
-	uint64_t tot;
-	yak_ch1_t *h;
-} yak_ch_t;
 
 const unsigned char seq_nt4_table[256] = { // translate ACGT to 0123
 	0, 1, 2, 3,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,
@@ -51,12 +33,48 @@ const unsigned char seq_nt4_table[256] = { // translate ACGT to 0123
 	4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4
 };
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <assert.h>
-#include "kthread.h"
+/***************************
+ * Yak specific parameters *
+ ***************************/
 
-/*** hash table ***/
+typedef struct {
+	int32_t bf_shift, bf_n_hash;
+	int32_t k, w, is_HPC;
+	int32_t pre;
+	int32_t n_thread;
+	int64_t chunk_size;
+} yak_copt_t;
+
+void yak_copt_init(yak_copt_t *o)
+{
+	memset(o, 0, sizeof(yak_copt_t));
+	o->bf_shift = 0;
+	o->bf_n_hash = 4;
+	o->k = 31;
+	o->w = 1;
+	o->pre = YAK_COUNTER_BITS;
+	o->n_thread = 4;
+	o->chunk_size = 10000000;
+}
+
+/********************
+ * Count hash table *
+ ********************/
+
+#define yak_ch_eq(a, b) ((a)>>YAK_COUNTER_BITS == (b)>>YAK_COUNTER_BITS) // lower 8 bits for counts; higher bits for k-mer
+#define yak_ch_hash(a) ((a)>>YAK_COUNTER_BITS)
+KHASHL_SET_INIT(static klib_unused, yak_ht_t, yak_ht, uint64_t, yak_ch_hash, yak_ch_eq)
+
+typedef struct {
+	yak_ht_t *h;
+	yak_bf_t *b;
+} yak_ch1_t;
+
+typedef struct {
+	int k, pre, n_hash, n_shift;
+	uint64_t tot;
+	yak_ch1_t *h;
+} yak_ch_t;
 
 static yak_ch_t *yak_ch_init(int k, int pre, int n_hash, int n_shift)
 {
@@ -207,22 +225,27 @@ static void yak_ch_shrink(yak_ch_t *h, int min, int max, int n_thread)
 		h->tot += kh_size(h->h[i].h);
 }
 
-#include <zlib.h>
-#include <string.h>
-#include "kseq.h" // FASTA/Q parser
-KSEQ_INIT(gzFile, gzread)
+/***********************
+ * Position hash table *
+ ***********************/
 
-void yak_copt_init(yak_copt_t *o)
-{
-	memset(o, 0, sizeof(yak_copt_t));
-	o->bf_shift = 0;
-	o->bf_n_hash = 4;
-	o->k = 31;
-	o->w = 1;
-	o->pre = YAK_COUNTER_BITS;
-	o->n_thread = 4;
-	o->chunk_size = 10000000;
-}
+KHASHL_MAP_INIT(static klib_unused, yak_pt_t, yak_pt, uint64_t, uint64_t, yak_ch_hash, yak_ch_eq)
+
+typedef struct {
+	yak_pt_t *h;
+	uint64_t n, m;
+	ha_seed_t *a;
+} ha_pt1_t;
+
+typedef struct {
+	int k, pre;
+	uint64_t tot;
+	ha_pt1_t *h;
+} ha_pt_t;
+
+/**********************************
+ * Buffer for counting all k-mers *
+ **********************************/
 
 typedef struct {
 	int n, m;
@@ -281,6 +304,8 @@ static void count_seq_buf_HPC(ch_buf_t *buf, int k, int p, int len, const char *
 /******************
  * K-mer counting *
  ******************/
+
+KSEQ_INIT(gzFile, gzread)
 
 typedef struct { // global data structure for kt_pipeline()
 	const yak_copt_t *opt;
@@ -452,12 +477,18 @@ yak_ch_t *ha_count(const hifiasm_opt_t *asm_opt, int is_exact, int count_all, co
 	return h;
 }
 
-static yak_hh_t *gen_hh(const yak_ch_t *h)
+/***************************
+ * High count filter table *
+ ***************************/
+
+KHASHL_SET_INIT(static klib_unused, yak_ft_t, yak_ft, uint64_t, kh_hash_dummy, kh_eq_generic)
+
+static yak_ft_t *gen_hh(const yak_ch_t *h)
 {
 	int i;
-	yak_hh_t *hh;
-	hh = yak_hh_init();
-	yak_hh_resize(hh, h->tot * 2);
+	yak_ft_t *hh;
+	hh = yak_ft_init();
+	yak_ft_resize(hh, h->tot * 2);
 	for (i = 0; i < 1<<h->pre; ++i) {
 		yak_ht_t *ht = h->h[i].h;
 		khint_t k;
@@ -465,16 +496,33 @@ static yak_hh_t *gen_hh(const yak_ch_t *h)
 			if (kh_exist(ht, k)) {
 				uint64_t y = kh_key(ht, k) >> YAK_COUNTER_BITS << h->pre | i;
 				int absent;
-				yak_hh_put(hh, y, &absent);
+				yak_ft_put(hh, y, &absent);
 			}
 		}
 	}
 	return hh;
 }
 
+int ha_ft_isflt(const void *hh, uint64_t y)
+{
+	yak_ft_t *h = (yak_ft_t*)hh;
+	khint_t k;
+	k = yak_ft_get(h, y);
+	return k == kh_end(h)? 0 : 1;
+}
+
+void ha_ft_destroy(void *h)
+{
+	yak_ft_destroy((yak_ft_t*)h);
+}
+
+/*************************
+ * High-level interfaces *
+ *************************/
+
 void *ha_gen_flt_tab(const hifiasm_opt_t *asm_opt)
 {
-	yak_hh_t *flt_tab;
+	yak_ft_t *flt_tab;
 	int64_t cnt[YAK_N_COUNTS];
 	int peak_hom, peak_het, cutoff;
 	yak_ch_t *h;
@@ -490,19 +538,6 @@ void *ha_gen_flt_tab(const hifiasm_opt_t *asm_opt)
 	fprintf(stderr, "[M::%s] filtered out %ld k-mers occurring %d or more times\n",
 			__func__, (long)kh_size(flt_tab), cutoff);
 	return (void*)flt_tab;
-}
-
-int ha_hf_isflt(const void *hh, uint64_t y)
-{
-	yak_hh_t *h = (yak_hh_t*)hh;
-	khint_t k;
-	k = yak_hh_get(h, y);
-	return k == kh_end(h)? 0 : 1;
-}
-
-void ha_hf_destroy(void *h)
-{
-	yak_hh_destroy((yak_hh_t*)h);
 }
 
 void *ha_gen_mzidx(const hifiasm_opt_t *asm_opt, const void *flt_tab)
