@@ -496,3 +496,24 @@ void ha_hf_destroy(void *h)
 {
 	yak_hh_destroy((yak_hh_t*)h);
 }
+
+void *ha_gen_mzidx(const hifiasm_opt_t *asm_opt, const void *flt_tab)
+{
+	int64_t cnt[YAK_N_COUNTS];
+	int peak_hom, peak_het;
+	yak_copt_t opt;
+	yak_ch_t *h;
+	yak_copt_init(&opt);
+	opt.is_HPC = !asm_opt->no_HPC;
+	opt.k = asm_opt->k_mer_length;
+	opt.w = asm_opt->mz_win;
+	opt.n_thread = asm_opt->thread_num;
+	opt.bf_shift = asm_opt->bf_shift;
+	h = yak_count_file(&opt, asm_opt->num_reads, asm_opt->read_file_names, flt_tab);
+	yak_ch_hist(h, cnt, opt.n_thread);
+	fprintf(stderr, "[M::%s] count[%d] = %ld (for sanity check)\n", __func__, YAK_MAX_COUNT, (long)cnt[YAK_MAX_COUNT]);
+	peak_hom = yak_analyze_count(YAK_N_COUNTS, cnt, &peak_het);
+	if (peak_hom > 0) fprintf(stderr, "[M::%s] peak_hom: %d; peak_het: %d\n", __func__, peak_hom, peak_het);
+	yak_ch_destroy(h);
+	return 0;
+}

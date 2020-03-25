@@ -15,6 +15,7 @@ typedef struct {
     char* mat_index;
     int thread_num;
     int k_mer_length;
+	int mz_win;
 	int bf_shift;
 	float high_factor;
 	int no_HPC;
