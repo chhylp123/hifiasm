@@ -8,7 +8,7 @@
 #define Get_Cigar_Type(RECORD) (RECORD&3)
 #define Get_Cigar_Length(RECORD) (RECORD>>2)
 
-void ha_count_high(const hifiasm_opt_t *asm_opt);
+void *ha_gen_flt_tab(const hifiasm_opt_t *asm_opt);
 void Counting_multiple_thr();
 void Build_hash_table_multiple_thr();
 void Overlap_calculate_multipe_thr();

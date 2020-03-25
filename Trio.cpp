@@ -98,7 +98,7 @@ static yak_ch_t *yak_ch_restore_core(yak_ch_t *ch0, const char *fn, int mode, ..
 		yak_ht_t *h = ch->h[i].h;
 		fread(t, 4, 2, fp);
 		if (ch0 == 0) yak_ht_resize(h, t[0]);
-		for (j = 0; j < t[1]; ++j) {
+		for (j = 0; j < (int)t[1]; ++j) {
 			uint64_t key;
 			fread(&key, 8, 1, fp);
 			if (mode == YAK_LOAD_ALL) {

@@ -36,7 +36,7 @@ static inline int tq_shift(tiny_queue_t *q)
  * @param is_hpc homopolymer-compressed or not
  * @param p      minimizers
  */
-void ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mz1_v *p, void *hf)
+void ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mz1_v *p, const void *hf)
 {
 	static const ha_mz1_t dummy = { UINT64_MAX, 0, 0, 0 };
 	uint64_t shift1 = k - 1, mask = (1ULL<<k) - 1, kmer[4] = {0,0,0,0};

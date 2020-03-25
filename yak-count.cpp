@@ -15,7 +15,7 @@ KHASHL_SET_INIT(static klib_unused, yak_hh_t, yak_hh, uint64_t, kh_hash_dummy, k
 
 typedef struct {
 	int32_t bf_shift, bf_n_hash;
-	int32_t k, is_HPC;
+	int32_t k, w, is_HPC;
 	int32_t pre;
 	int32_t n_thread;
 	int64_t chunk_size;
@@ -218,6 +218,7 @@ void yak_copt_init(yak_copt_t *o)
 	o->bf_shift = 0;
 	o->bf_n_hash = 4;
 	o->k = 31;
+	o->w = 1;
 	o->pre = YAK_COUNTER_BITS;
 	o->n_thread = 4;
 	o->chunk_size = 10000000;
@@ -283,10 +284,10 @@ static void count_seq_buf_HPC(ch_buf_t *buf, int k, int p, int len, const char *
 
 typedef struct { // global data structure for kt_pipeline()
 	const yak_copt_t *opt;
-	int create_new, is_mz, is_store, mz_win;
+	const void *flt_tab;
+	int create_new, is_store;
 	kseq_t *ks;
 	yak_ch_t *h;
-	void *hf;
 } pl_data_t;
 
 typedef struct { // data structure for each step in kt_pipeline()
@@ -312,9 +313,9 @@ static void worker_for_mz(void *data, long i, int tid)
 	st_data_t *s = (st_data_t*)data;
 	ha_mz1_v *b = &s->mz_buf[tid];
 	s->mz_buf[tid].n = 0;
-	ha_sketch(s->seq[i], s->len[i], s->p->mz_win, s->p->opt->k, 0, s->p->opt->is_HPC, b, s->p->hf);
+	ha_sketch(s->seq[i], s->len[i], s->p->opt->w, s->p->opt->k, 0, s->p->opt->is_HPC, b, s->p->flt_tab);
 	s->mz[i].n = s->mz[i].m = b->n;
-	MALLOC(s->mz[i].a, s->mz[i].n);
+	MALLOC(s->mz[i].a, b->n);
 	memcpy(s->mz[i].a, b->a, b->n * sizeof(ha_mz1_t));
 }
 
@@ -346,33 +347,42 @@ static void *worker_count(void *data, int step, void *in) // callback for kt_pip
 		else return s;
 	} else if (step == 1) { // step 2: extract k-mers
 		st_data_t *s = (st_data_t*)in;
-		int i, n = 1<<p->opt->pre, m;
-		if (!p->is_mz) { // enumerate all k-mers
-			CALLOC(s->buf, n);
-			m = (int)(s->nk * 1.2 / n) + 1;
-			for (i = 0; i < n; ++i) {
-				s->buf[i].m = m;
-				MALLOC(s->buf[i].a, m);
-			}
+		int i, n_pre = 1<<p->opt->pre, m;
+		// allocate the k-mer buffer
+		CALLOC(s->buf, n_pre);
+		m = (int)(s->nk * 1.2 / n_pre) + 1;
+		for (i = 0; i < n_pre; ++i) {
+			s->buf[i].m = m;
+			MALLOC(s->buf[i].a, m);
+		}
+		// fill the buffer
+		if (p->opt->w == 1) { // enumerate all k-mers
 			for (i = 0; i < s->n_seq; ++i) {
 				if (p->opt->is_HPC)
 					count_seq_buf_HPC(s->buf, p->opt->k, p->opt->pre, s->len[i], s->seq[i]);
 				else
 					count_seq_buf(s->buf, p->opt->k, p->opt->pre, s->len[i], s->seq[i]);
-				if (!p->is_store)
-					free(s->seq[i]);
+				if (!p->is_store) free(s->seq[i]);
 			}
 		} else { // minimizers only
-			CALLOC(s->mz_buf, p->opt->n_thread);
+			// compute minimizers
 			CALLOC(s->mz, s->n_seq);
+			CALLOC(s->mz_buf, p->opt->n_thread);
 			kt_for(p->opt->n_thread, worker_for_mz, s, s->n_seq);
 			for (i = 0; i < p->opt->n_thread; ++i)
 				free(s->mz_buf[i].a);
 			free(s->mz_buf);
-			if (!p->is_store) {
-				for (i = 0; i < s->n_seq; ++i)
-					free(s->seq[i]);
+			// insert minimizers
+			for (i = 0; i < s->n_seq; ++i) {
+				uint32_t j;
+				for (j = 0; j < s->mz[i].n; ++j)
+					ch_insert_buf(s->buf, p->opt->pre, s->mz[i].a[j].x);
 			}
+			for (i = 0; i < s->n_seq; ++i) {
+				free(s->mz[i].a);
+				if (!p->is_store) free(s->seq[i]);
+			}
+			free(s->mz);
 		}
 		free(s->seq); free(s->len);
 		s->seq = 0, s->len = 0;
@@ -395,13 +405,14 @@ static void *worker_count(void *data, int step, void *in) // callback for kt_pip
 	return 0;
 }
 
-static yak_ch_t *yak_count(const char *fn, const yak_copt_t *opt, yak_ch_t *h0)
+static yak_ch_t *yak_count(const char *fn, const yak_copt_t *opt, yak_ch_t *h0, const void *flt_tab)
 {
 	pl_data_t pl;
 	gzFile fp;
 	if ((fp = gzopen(fn, "r")) == 0) return 0;
 	memset(&pl, 0, sizeof(pl_data_t));
 	pl.ks = kseq_init(fp);
+	pl.flt_tab = flt_tab;
 	pl.opt = opt;
 	if (h0) {
 		pl.h = h0, pl.create_new = 0;
@@ -416,12 +427,12 @@ static yak_ch_t *yak_count(const char *fn, const yak_copt_t *opt, yak_ch_t *h0)
 	return pl.h;
 }
 
-static yak_ch_t *yak_count_file(const yak_copt_t *opt, int n_fn, char **fn)
+static yak_ch_t *yak_count_file(const yak_copt_t *opt, int n_fn, char **fn, const void *flt_tab)
 {
 	int i;
 	yak_ch_t *h = 0;
 	for (i = 0; i < n_fn; ++i)
-		h = yak_count(fn[i], opt, h);
+		h = yak_count(fn[i], opt, h, flt_tab);
 	if (opt->bf_shift > 0)
 		yak_ch_destroy_bf(h);
 	return h;
@@ -447,9 +458,9 @@ static yak_hh_t *gen_hh(const yak_ch_t *h)
 	return hh;
 }
 
-void *ha_count_high(const hifiasm_opt_t *asm_opt)
+void *ha_gen_flt_tab(const hifiasm_opt_t *asm_opt)
 {
-	yak_hh_t *high_ht;
+	yak_hh_t *flt_tab;
 	int64_t cnt[YAK_N_COUNTS];
 	int peak_hom, peak_het, cutoff;
 	yak_copt_t opt;
@@ -459,18 +470,18 @@ void *ha_count_high(const hifiasm_opt_t *asm_opt)
 	opt.k = asm_opt->k_mer_length;
 	opt.n_thread = asm_opt->thread_num;
 	opt.bf_shift = asm_opt->bf_shift;
-	h = yak_count_file(&opt, asm_opt->num_reads, asm_opt->read_file_names);
+	h = yak_count_file(&opt, asm_opt->num_reads, asm_opt->read_file_names, 0);
 	yak_ch_hist(h, cnt, opt.n_thread);
 	peak_hom = yak_analyze_count(YAK_N_COUNTS, cnt, &peak_het);
 	if (peak_hom > 0) fprintf(stderr, "[M::%s] peak_hom: %d; peak_het: %d\n", __func__, peak_hom, peak_het);
 	cutoff = (int)(peak_hom * asm_opt->high_factor);
 	if (cutoff > YAK_MAX_COUNT - 1) cutoff = YAK_MAX_COUNT - 1;
 	yak_ch_shrink(h, cutoff, YAK_MAX_COUNT, opt.n_thread);
-	high_ht = gen_hh(h);
+	flt_tab = gen_hh(h);
 	yak_ch_destroy(h);
 	fprintf(stderr, "[M::%s] filtered out %ld k-mers occurring %d or more times\n",
-			__func__, (long)kh_size(high_ht), cutoff);
-	return (void*)high_ht;
+			__func__, (long)kh_size(flt_tab), cutoff);
+	return (void*)flt_tab;
 }
 
 int ha_hf_isflt(const void *hh, uint64_t y)

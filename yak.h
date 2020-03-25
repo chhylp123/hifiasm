@@ -30,7 +30,7 @@ void yak_reset_realtime(void);
 double yak_realtime(void);
 long yak_peakrss(void);
 
-void ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mz1_v *p, void *hf);
+void ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mz1_v *p, const void *hf);
 int yak_analyze_count(int n_cnt, const int64_t *cnt, int *peak_het);
 
 yak_bf_t *yak_bf_init(int n_shift, int n_hashes);
