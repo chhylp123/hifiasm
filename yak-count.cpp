@@ -111,7 +111,7 @@ static int yak_ch_insert_list(yak_ch_t *h, int create_new, int n, const uint64_t
 			if (g->b)
 				ins = (yak_bf_insert(g->b, x) == h->n_hash);
 			if (ins) {
-				k = yak_ht_put(g->h, x<<YAK_COUNTER_BITS, &absent);
+				k = yak_ht_put(g->h, x << YAK_COUNTER_BITS | (g->b? 1 : 0), &absent);
 				if (absent) ++n_ins;
 				if ((kh_key(g->h, k)&YAK_MAX_COUNT) < YAK_MAX_COUNT)
 					++kh_key(g->h, k);
@@ -124,7 +124,7 @@ static int yak_ch_insert_list(yak_ch_t *h, int create_new, int n, const uint64_t
 	}
 	return n_ins;
 }
-
+/*
 static int yak_ch_get(const yak_ch_t *h, uint64_t x)
 {
 	int mask = (1<<h->pre) - 1;
@@ -133,7 +133,7 @@ static int yak_ch_get(const yak_ch_t *h, uint64_t x)
 	k = yak_ht_get(g, x >> h->pre << YAK_COUNTER_BITS);
 	return k == kh_end(g)? -1 : kh_key(g, k)&YAK_MAX_COUNT;
 }
-
+*/
 /*** generate histogram ***/
 
 typedef struct {
@@ -438,6 +438,20 @@ static yak_ch_t *yak_count_file(const yak_copt_t *opt, int n_fn, char **fn, cons
 	return h;
 }
 
+yak_ch_t *ha_count(const hifiasm_opt_t *asm_opt, int is_exact, int count_all, const void *flt_tab)
+{
+	yak_copt_t opt;
+	yak_ch_t *h;
+	yak_copt_init(&opt);
+	opt.k = asm_opt->k_mer_length;
+	opt.is_HPC = !asm_opt->no_HPC;
+	opt.w = count_all? 1 : asm_opt->mz_win;
+	opt.bf_shift = is_exact? 0 : asm_opt->bf_shift;
+	opt.n_thread = asm_opt->thread_num;
+	h = yak_count_file(&opt, asm_opt->num_reads, asm_opt->read_file_names, flt_tab);
+	return h;
+}
+
 static yak_hh_t *gen_hh(const yak_ch_t *h)
 {
 	int i;
@@ -463,20 +477,14 @@ void *ha_gen_flt_tab(const hifiasm_opt_t *asm_opt)
 	yak_hh_t *flt_tab;
 	int64_t cnt[YAK_N_COUNTS];
 	int peak_hom, peak_het, cutoff;
-	yak_copt_t opt;
 	yak_ch_t *h;
-	yak_copt_init(&opt);
-	opt.is_HPC = !asm_opt->no_HPC;
-	opt.k = asm_opt->k_mer_length;
-	opt.n_thread = asm_opt->thread_num;
-	opt.bf_shift = asm_opt->bf_shift;
-	h = yak_count_file(&opt, asm_opt->num_reads, asm_opt->read_file_names, 0);
-	yak_ch_hist(h, cnt, opt.n_thread);
+	h = ha_count(asm_opt, 0, 1, 0);
+	yak_ch_hist(h, cnt, asm_opt->thread_num);
 	peak_hom = yak_analyze_count(YAK_N_COUNTS, cnt, &peak_het);
 	if (peak_hom > 0) fprintf(stderr, "[M::%s] peak_hom: %d; peak_het: %d\n", __func__, peak_hom, peak_het);
 	cutoff = (int)(peak_hom * asm_opt->high_factor);
 	if (cutoff > YAK_MAX_COUNT - 1) cutoff = YAK_MAX_COUNT - 1;
-	yak_ch_shrink(h, cutoff, YAK_MAX_COUNT, opt.n_thread);
+	yak_ch_shrink(h, cutoff, YAK_MAX_COUNT, asm_opt->thread_num);
 	flt_tab = gen_hh(h);
 	yak_ch_destroy(h);
 	fprintf(stderr, "[M::%s] filtered out %ld k-mers occurring %d or more times\n",
@@ -501,19 +509,13 @@ void *ha_gen_mzidx(const hifiasm_opt_t *asm_opt, const void *flt_tab)
 {
 	int64_t cnt[YAK_N_COUNTS];
 	int peak_hom, peak_het;
-	yak_copt_t opt;
 	yak_ch_t *h;
-	yak_copt_init(&opt);
-	opt.is_HPC = !asm_opt->no_HPC;
-	opt.k = asm_opt->k_mer_length;
-	opt.w = asm_opt->mz_win;
-	opt.n_thread = asm_opt->thread_num;
-	opt.bf_shift = asm_opt->bf_shift;
-	h = yak_count_file(&opt, asm_opt->num_reads, asm_opt->read_file_names, flt_tab);
-	yak_ch_hist(h, cnt, opt.n_thread);
+	h = ha_count(asm_opt, 1, 0, flt_tab);
+	yak_ch_hist(h, cnt, asm_opt->thread_num);
 	fprintf(stderr, "[M::%s] count[%d] = %ld (for sanity check)\n", __func__, YAK_MAX_COUNT, (long)cnt[YAK_MAX_COUNT]);
 	peak_hom = yak_analyze_count(YAK_N_COUNTS, cnt, &peak_het);
 	if (peak_hom > 0) fprintf(stderr, "[M::%s] peak_hom: %d; peak_het: %d\n", __func__, peak_hom, peak_het);
+	yak_ch_shrink(h, 2, YAK_MAX_COUNT, asm_opt->thread_num);
 	yak_ch_destroy(h);
 	return 0;
 }

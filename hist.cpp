@@ -14,13 +14,14 @@ static void yak_hist_line(int c, int x, int exceed, int64_t cnt)
 int yak_analyze_count(int n_cnt, const int64_t *cnt, int *peak_het)
 {
 	const int hist_max = 100;
-	int i, low_i, max_i, max2_i, max3_i;
+	int i, start, low_i, max_i, max2_i, max3_i;
 	int64_t max, max2, max3, min;
 
 	// find the low point from the left
 	*peak_het = -1;
-	low_i = 2;
-	for (i = 3; i < n_cnt; ++i)
+	start = cnt[1] > 0? 1 : 2;
+	low_i = start;
+	for (i = low_i + 1; i < n_cnt; ++i)
 		if (cnt[i] > cnt[i-1]) break;
 	low_i = i - 1;
 	fprintf(stderr, "[M::%s] lowest: count[%d] = %ld\n", __func__, low_i, (long)cnt[low_i]);
@@ -34,7 +35,7 @@ int yak_analyze_count(int n_cnt, const int64_t *cnt, int *peak_het)
 	fprintf(stderr, "[M::%s] highest: count[%d] = %ld\n", __func__, max_i, (long)cnt[max_i]);
 
 	// print histogram
-	for (i = 2; i < n_cnt; ++i) {
+	for (i = start; i < n_cnt; ++i) {
 		int x, exceed = 0;
 		x = (int)((double)hist_max * cnt[i] / cnt[max_i] + .499);
 		if (x > hist_max) exceed = 1, x = hist_max; // may happen if cnt[2] is higher
