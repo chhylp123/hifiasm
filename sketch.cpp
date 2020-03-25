@@ -3,7 +3,7 @@
 #include <assert.h>
 #include <string.h>
 #include "kvec.h"
-#include "yak.h"
+#include "htab.h"
 
 typedef struct { // a simplified version of kdq
 	int front, count;

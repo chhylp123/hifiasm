@@ -1,5 +1,5 @@
-#ifndef __YAK_H__
-#define __YAK_H__
+#ifndef __HA_HTAB_H__
+#define __HA_HTAB_H__
 #define __STDC_LIMIT_MACROS
 #include <stdint.h>
 
@@ -17,11 +17,6 @@ typedef struct {
 
 typedef struct { uint32_t n, m; ha_mz1_t *a; } ha_mz1_v;
 
-typedef struct {
-	int n_shift, n_hashes;
-	uint8_t *b;
-} yak_bf_t;
-
 extern const unsigned char seq_nt4_table[256];
 
 int ha_ft_isflt(const void *hh, uint64_t y);
@@ -36,10 +31,6 @@ long yak_peakrss(void);
 
 void ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mz1_v *p, const void *hf);
 int yak_analyze_count(int n_cnt, const int64_t *cnt, int *peak_het);
-
-yak_bf_t *yak_bf_init(int n_shift, int n_hashes);
-void yak_bf_destroy(yak_bf_t *b);
-int yak_bf_insert(yak_bf_t *b, uint64_t hash);
 
 static inline uint64_t yak_hash64(uint64_t key, uint64_t mask) // invertible integer hash function
 {

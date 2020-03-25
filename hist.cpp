@@ -1,5 +1,5 @@
 #include <stdio.h>
-#include "yak.h"
+#include "htab.h"
 
 static void yak_hist_line(int c, int x, int exceed, int64_t cnt)
 {

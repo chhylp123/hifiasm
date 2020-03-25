@@ -7,7 +7,7 @@
 #include "kthread.h"
 #include "khashl.h"
 #include "kseq.h"
-#include "yak.h"
+#include "htab.h"
 #include "CommandLines.h"
 
 #define YAK_COUNTER_BITS 12
@@ -55,6 +55,54 @@ void yak_copt_init(yak_copt_t *o)
 	o->pre = YAK_COUNTER_BITS;
 	o->n_thread = 4;
 	o->chunk_size = 10000000;
+}
+
+/************************
+ * Blocked bloom filter *
+ ************************/
+
+typedef struct {
+	int n_shift, n_hashes;
+	uint8_t *b;
+} yak_bf_t;
+
+yak_bf_t *yak_bf_init(int n_shift, int n_hashes)
+{
+	yak_bf_t *b;
+	void *ptr = 0;
+	if (n_shift + YAK_BLK_SHIFT > 64 || n_shift < YAK_BLK_SHIFT) return 0;
+	CALLOC(b, 1);
+	b->n_shift = n_shift;
+	b->n_hashes = n_hashes;
+	posix_memalign(&ptr, 1<<(YAK_BLK_SHIFT-3), 1ULL<<(n_shift-3));
+	b->b = (uint8_t*)ptr;
+	bzero(b->b, 1ULL<<(n_shift-3));
+	return b;
+}
+
+void yak_bf_destroy(yak_bf_t *b)
+{
+	if (b == 0) return;
+	free(b->b); free(b);
+}
+
+int yak_bf_insert(yak_bf_t *b, uint64_t hash)
+{
+	int x = b->n_shift - YAK_BLK_SHIFT;
+	uint64_t y = hash & ((1ULL<<x) - 1);
+	int h1 = hash >> x & YAK_BLK_MASK;
+	int h2 = hash >> b->n_shift & YAK_BLK_MASK;
+	uint8_t *p = &b->b[y<<(YAK_BLK_SHIFT-3)];
+	int i, z = h1, cnt = 0;
+	if ((h2&31) == 0) h2 = (h2 + 1) & YAK_BLK_MASK; // otherwise we may repeatedly use a few bits
+	for (i = 0; i < b->n_hashes; z = (z + h2) & YAK_BLK_MASK) {
+		uint8_t *q = &p[z>>3], u;
+		u = 1<<(z&7);
+		cnt += !!(*q & u);
+		*q |= u;
+		++i;
+	}
+	return cnt;
 }
 
 /********************
@@ -306,7 +354,7 @@ typedef struct {
 	ha_mz1_t *b;
 } ch_buf_t;
 
-static inline void ch_insert_buf(ch_buf_t *buf, int p, uint64_t y) // insert a k-mer $y to a linear buffer
+static inline void ct_insert_buf(ch_buf_t *buf, int p, uint64_t y) // insert a k-mer $y to a linear buffer
 {
 	int pre = y & ((1<<p) - 1);
 	ch_buf_t *b = &buf[pre];
@@ -340,7 +388,7 @@ static void count_seq_buf(ch_buf_t *buf, int k, int p, int len, const char *seq)
 			x[2] = x[2] >> 1 | (uint64_t)(1 - (c&1))  << shift;
 			x[3] = x[3] >> 1 | (uint64_t)(1 - (c>>1)) << shift;
 			if (++l >= k)
-				ch_insert_buf(buf, p, yak_hash_long(x));
+				ct_insert_buf(buf, p, yak_hash_long(x));
 		} else l = 0, x[0] = x[1] = x[2] = x[3] = 0; // if there is an "N", restart
 	}
 }
@@ -358,7 +406,7 @@ static void count_seq_buf_HPC(ch_buf_t *buf, int k, int p, int len, const char *
 				x[2] = x[2] >> 1 | (uint64_t)(1 - (c&1))  << shift;
 				x[3] = x[3] >> 1 | (uint64_t)(1 - (c>>1)) << shift;
 				if (++l >= k)
-					ch_insert_buf(buf, p, yak_hash_long(x));
+					ct_insert_buf(buf, p, yak_hash_long(x));
 				last = c;
 			}
 		} else l = 0, last = -1, x[0] = x[1] = x[2] = x[3] = 0; // if there is an "N", restart
@@ -375,6 +423,8 @@ typedef struct { // global data structure for kt_pipeline()
 	const yak_copt_t *opt;
 	const void *flt_tab;
 	int create_new, is_store;
+	uint64_t batch_offset;
+	uint64_t n_base;
 	kseq_t *ks;
 	ha_ct_t *ct;
 	ha_pt_t *pt;
@@ -405,7 +455,7 @@ static void worker_for_mz(void *data, long i, int tid)
 	st_data_t *s = (st_data_t*)data;
 	ha_mz1_v *b = &s->mz_buf[tid];
 	s->mz_buf[tid].n = 0;
-	ha_sketch(s->seq[i], s->len[i], s->p->opt->w, s->p->opt->k, 0, s->p->opt->is_HPC, b, s->p->flt_tab);
+	ha_sketch(s->seq[i], s->len[i], s->p->opt->w, s->p->opt->k, s->p->batch_offset + i, s->p->opt->is_HPC, b, s->p->flt_tab);
 	s->mz[i].n = s->mz[i].m = b->n;
 	MALLOC(s->mz[i].a, b->n);
 	memcpy(s->mz[i].a, b->a, b->n * sizeof(ha_mz1_t));
@@ -421,7 +471,11 @@ static void *worker_count(void *data, int step, void *in) // callback for kt_pip
 		s->p = p;
 		while ((ret = kseq_read(p->ks)) >= 0) {
 			int l = p->ks->seq.l;
-			if (l < p->opt->k) continue;
+			if (p->batch_offset + s->n_seq >= (1<<28) - 1) {
+				fprintf(stderr, "ERROR: this implementation supports no more than %d reads\n", (1<<28) - 1);
+				exit(1);
+			}
+			p->n_base += l;
 			if (s->n_seq == s->m_seq) {
 				s->m_seq = s->m_seq < 16? 16 : s->m_seq + (s->m_seq>>1);
 				REALLOC(s->len, s->m_seq);
@@ -473,7 +527,7 @@ static void *worker_count(void *data, int step, void *in) // callback for kt_pip
 			} else {
 				for (i = 0; i < s->n_seq; ++i)
 					for (j = 0; j < s->mz[i].n; ++j)
-						ch_insert_buf(s->buf, p->opt->pre, s->mz[i].a[j].x);
+						ct_insert_buf(s->buf, p->opt->pre, s->mz[i].a[j].x);
 			}
 			for (i = 0; i < s->n_seq; ++i) {
 				free(s->mz[i].a);
@@ -494,6 +548,7 @@ static void *worker_count(void *data, int step, void *in) // callback for kt_pip
 			free(s->buf[i].a);
 		}
 		p->ct->tot += n_ins;
+		p->batch_offset += s->n_seq;
 		free(s->buf);
 		fprintf(stderr, "[M::%s::%.3f*%.2f] processed %d sequences; %ld distinct k-mers in the hash table\n", __func__,
 				yak_realtime(), yak_cputime() / yak_realtime(), s->n_seq, (long)p->ct->tot);

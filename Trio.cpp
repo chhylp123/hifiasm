@@ -6,7 +6,7 @@
 #include "khashl.h" // hash table
 #include "kthread.h"
 #include "Process_Read.h"
-#include "yak.h"
+#include "htab.h"
 #include "CommandLines.h"
 
 #define YAK_MAX_KMER     31
