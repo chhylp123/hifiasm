@@ -4,7 +4,7 @@ CPPFLAGS=
 INCLUDES=
 OBJS=		Output.o CommandLines.o Process_Read.o Assembly.o Hash_Table.o \
 			POA.o Correct.o Levenshtein_distance.o Overlaps.o Trio.o kthread.o \
-			yak-bbf.o yak-count.o yak-sys.o
+			yak-bbf.o yak-count.o hist.o sketch.o yak-sys.o
 EXE=		hifiasm
 LIBS=		-lz -lpthread -lm
 
@@ -52,9 +52,11 @@ POA.o: kvec.h kdq.h CommandLines.h yak.h Correct.h Levenshtein_distance.h
 Process_Read.o: Process_Read.h kseq.h Overlaps.h kvec.h kdq.h CommandLines.h
 Trio.o: khashl.h kthread.h Process_Read.h kseq.h Overlaps.h kvec.h kdq.h
 Trio.o: CommandLines.h yak.h
+hist.o: yak.h
 kthread.o: kthread.h
 main.o: CommandLines.h Process_Read.h kseq.h Overlaps.h kvec.h kdq.h
-main.o: Assembly.h Levenshtein_distance.h
+main.o: Assembly.h Levenshtein_distance.h yak.h
+sketch.o: kvec.h yak.h
 yak-bbf.o: yak.h
 yak-count.o: CommandLines.h yak.h khashl.h kthread.h kseq.h
 yak-sys.o: yak.h

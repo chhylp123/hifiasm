@@ -1,9 +1,17 @@
 #ifndef __YAK_H__
 #define __YAK_H__
+#define __STDC_LIMIT_MACROS
 #include <stdint.h>
 
 #define YAK_BLK_SHIFT  9 // 64 bytes, the size of a cache line
 #define YAK_BLK_MASK   ((1<<(YAK_BLK_SHIFT)) - 1)
+
+typedef struct {
+	uint64_t x;
+	uint64_t rid:28, pos:27, rev:1, span:8;
+} ha_mz1_t;
+
+typedef struct { uint32_t n, m; ha_mz1_t *a; } ha_mz1_v;
 
 typedef struct {
 	int n_shift, n_hashes;
@@ -12,12 +20,18 @@ typedef struct {
 
 extern const unsigned char seq_nt4_table[256];
 
+int ha_hf_isflt(const void *hh, uint64_t y);
+void ha_hf_destroy(void *h);
+
 void trio_partition(void);
 
 double yak_cputime(void);
 void yak_reset_realtime(void);
 double yak_realtime(void);
 long yak_peakrss(void);
+
+void ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mz1_v *p, void *hf);
+int yak_analyze_count(int n_cnt, const int64_t *cnt, int *peak_het);
 
 yak_bf_t *yak_bf_init(int n_shift, int n_hashes);
 void yak_bf_destroy(yak_bf_t *b);

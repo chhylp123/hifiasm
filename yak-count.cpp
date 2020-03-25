@@ -277,48 +277,66 @@ static void count_seq_buf_HPC(ch_buf_t *buf, int k, int p, int len, const char *
 	}
 }
 
+/******************
+ * K-mer counting *
+ ******************/
+
 typedef struct { // global data structure for kt_pipeline()
 	const yak_copt_t *opt;
-	int create_new;
+	int create_new, is_mz, is_store, mz_win;
 	kseq_t *ks;
 	yak_ch_t *h;
-} pldat_t;
+	void *hf;
+} pl_data_t;
 
 typedef struct { // data structure for each step in kt_pipeline()
-	pldat_t *p;
-	int n, m, sum_len, nk;
+	pl_data_t *p;
+	int n_seq, m_seq, sum_len, nk;
 	int *len;
 	char **seq;
+	ha_mz1_v *mz_buf;
+	ha_mz1_v *mz;
 	ch_buf_t *buf;
-} stepdat_t;
+} st_data_t;
 
-static void worker_for(void *data, long i, int tid) // callback for kt_for()
+static void worker_for_insert(void *data, long i, int tid) // callback for kt_for()
 {
-	stepdat_t *s = (stepdat_t*)data;
+	st_data_t *s = (st_data_t*)data;
 	ch_buf_t *b = &s->buf[i];
 	yak_ch_t *h = s->p->h;
 	b->n_ins += yak_ch_insert_list(h, s->p->create_new, b->n, b->a);
 }
 
-static void *worker_count_all(void *data, int step, void *in) // callback for kt_pipeline()
+static void worker_for_mz(void *data, long i, int tid)
 {
-	pldat_t *p = (pldat_t*)data;
+	st_data_t *s = (st_data_t*)data;
+	ha_mz1_v *b = &s->mz_buf[tid];
+	s->mz_buf[tid].n = 0;
+	ha_sketch(s->seq[i], s->len[i], s->p->mz_win, s->p->opt->k, 0, s->p->opt->is_HPC, b, s->p->hf);
+	s->mz[i].n = s->mz[i].m = b->n;
+	MALLOC(s->mz[i].a, s->mz[i].n);
+	memcpy(s->mz[i].a, b->a, b->n * sizeof(ha_mz1_t));
+}
+
+static void *worker_count(void *data, int step, void *in) // callback for kt_pipeline()
+{
+	pl_data_t *p = (pl_data_t*)data;
 	if (step == 0) { // step 1: read a block of sequences
 		int ret;
-		stepdat_t *s;
+		st_data_t *s;
 		CALLOC(s, 1);
 		s->p = p;
 		while ((ret = kseq_read(p->ks)) >= 0) {
 			int l = p->ks->seq.l;
 			if (l < p->opt->k) continue;
-			if (s->n == s->m) {
-				s->m = s->m < 16? 16 : s->m + (s->n>>1);
-				REALLOC(s->len, s->m);
-				REALLOC(s->seq, s->m);
+			if (s->n_seq == s->m_seq) {
+				s->m_seq = s->m_seq < 16? 16 : s->m_seq + (s->m_seq>>1);
+				REALLOC(s->len, s->m_seq);
+				REALLOC(s->seq, s->m_seq);
 			}
-			MALLOC(s->seq[s->n], l);
-			memcpy(s->seq[s->n], p->ks->seq.s, l);
-			s->len[s->n++] = l;
+			MALLOC(s->seq[s->n_seq], l);
+			memcpy(s->seq[s->n_seq], p->ks->seq.s, l);
+			s->len[s->n_seq++] = l;
 			s->sum_len += l;
 			s->nk += l - p->opt->k + 1;
 			if (s->sum_len >= p->opt->chunk_size)
@@ -327,28 +345,43 @@ static void *worker_count_all(void *data, int step, void *in) // callback for kt
 		if (s->sum_len == 0) free(s);
 		else return s;
 	} else if (step == 1) { // step 2: extract k-mers
-		stepdat_t *s = (stepdat_t*)in;
+		st_data_t *s = (st_data_t*)in;
 		int i, n = 1<<p->opt->pre, m;
-		CALLOC(s->buf, n);
-		m = (int)(s->nk * 1.2 / n) + 1;
-		for (i = 0; i < n; ++i) {
-			s->buf[i].m = m;
-			MALLOC(s->buf[i].a, m);
-		}
-		for (i = 0; i < s->n; ++i) {
-			if (p->opt->is_HPC)
-				count_seq_buf_HPC(s->buf, p->opt->k, p->opt->pre, s->len[i], s->seq[i]);
-			else
-				count_seq_buf(s->buf, p->opt->k, p->opt->pre, s->len[i], s->seq[i]);
-			free(s->seq[i]);
+		if (!p->is_mz) { // enumerate all k-mers
+			CALLOC(s->buf, n);
+			m = (int)(s->nk * 1.2 / n) + 1;
+			for (i = 0; i < n; ++i) {
+				s->buf[i].m = m;
+				MALLOC(s->buf[i].a, m);
+			}
+			for (i = 0; i < s->n_seq; ++i) {
+				if (p->opt->is_HPC)
+					count_seq_buf_HPC(s->buf, p->opt->k, p->opt->pre, s->len[i], s->seq[i]);
+				else
+					count_seq_buf(s->buf, p->opt->k, p->opt->pre, s->len[i], s->seq[i]);
+				if (!p->is_store)
+					free(s->seq[i]);
+			}
+		} else { // minimizers only
+			CALLOC(s->mz_buf, p->opt->n_thread);
+			CALLOC(s->mz, s->n_seq);
+			kt_for(p->opt->n_thread, worker_for_mz, s, s->n_seq);
+			for (i = 0; i < p->opt->n_thread; ++i)
+				free(s->mz_buf[i].a);
+			free(s->mz_buf);
+			if (!p->is_store) {
+				for (i = 0; i < s->n_seq; ++i)
+					free(s->seq[i]);
+			}
 		}
 		free(s->seq); free(s->len);
+		s->seq = 0, s->len = 0;
 		return s;
 	} else if (step == 2) { // step 3: insert k-mers to hash table
-		stepdat_t *s = (stepdat_t*)in;
+		st_data_t *s = (st_data_t*)in;
 		int i, n = 1<<p->opt->pre;
 		uint64_t n_ins = 0;
-		kt_for(p->opt->n_thread, worker_for, s, n);
+		kt_for(p->opt->n_thread, worker_for_insert, s, n);
 		for (i = 0; i < n; ++i) {
 			n_ins += s->buf[i].n_ins;
 			free(s->buf[i].a);
@@ -356,7 +389,7 @@ static void *worker_count_all(void *data, int step, void *in) // callback for kt
 		p->h->tot += n_ins;
 		free(s->buf);
 		fprintf(stderr, "[M::%s::%.3f*%.2f] processed %d sequences; %ld distinct k-mers in the hash table\n", __func__,
-				yak_realtime(), yak_cputime() / yak_realtime(), s->n, (long)p->h->tot);
+				yak_realtime(), yak_cputime() / yak_realtime(), s->n_seq, (long)p->h->tot);
 		free(s);
 	}
 	return 0;
@@ -364,9 +397,10 @@ static void *worker_count_all(void *data, int step, void *in) // callback for kt
 
 static yak_ch_t *yak_count(const char *fn, const yak_copt_t *opt, yak_ch_t *h0)
 {
-	pldat_t pl;
+	pl_data_t pl;
 	gzFile fp;
 	if ((fp = gzopen(fn, "r")) == 0) return 0;
+	memset(&pl, 0, sizeof(pl_data_t));
 	pl.ks = kseq_init(fp);
 	pl.opt = opt;
 	if (h0) {
@@ -376,7 +410,7 @@ static yak_ch_t *yak_count(const char *fn, const yak_copt_t *opt, yak_ch_t *h0)
 		pl.create_new = 1;
 		pl.h = yak_ch_init(opt->k, opt->pre, opt->bf_n_hash, opt->bf_shift);
 	}
-	kt_pipeline(3, worker_count_all, &pl, 3);
+	kt_pipeline(3, worker_count, &pl, 3);
 	kseq_destroy(pl.ks);
 	gzclose(fp);
 	return pl.h;
@@ -391,95 +425,6 @@ static yak_ch_t *yak_count_file(const yak_copt_t *opt, int n_fn, char **fn)
 	if (opt->bf_shift > 0)
 		yak_ch_destroy_bf(h);
 	return h;
-}
-
-static void yak_hist_line(int c, int x, int exceed, int64_t cnt)
-{
-	int j;
-	if (c >= 0) fprintf(stderr, "[M::%s] %5d: ", __func__, c);
-	else fprintf(stderr, "[M::%s] %5s: ", __func__, "rest");
-	for (j = 0; j < x; ++j) fputc('*', stderr);
-	if (exceed) fputc('>', stderr);
-	fprintf(stderr, " %lld\n", (long long)cnt);
-}
-
-int yak_analyze_count(int n_cnt, const int64_t *cnt, int *peak_het)
-{
-	const int hist_max = 100;
-	int i, low_i, max_i, max2_i, max3_i;
-	int64_t max, max2, max3, min;
-
-	// find the low point from the left
-	*peak_het = -1;
-	low_i = 2;
-	for (i = 3; i < n_cnt; ++i)
-		if (cnt[i] > cnt[i-1]) break;
-	low_i = i - 1;
-	fprintf(stderr, "[M::%s] lowest: count[%d] = %ld\n", __func__, low_i, (long)cnt[low_i]);
-	if (low_i == n_cnt - 1) return -1; // low coverage
-
-	// find the highest peak
-	max_i = low_i + 1, max = cnt[max_i];
-	for (i = low_i + 1; i < n_cnt; ++i)
-		if (cnt[i] > max)
-			max = cnt[i], max_i = i;
-	fprintf(stderr, "[M::%s] highest: count[%d] = %ld\n", __func__, max_i, (long)cnt[max_i]);
-
-	// print histogram
-	for (i = 2; i < n_cnt; ++i) {
-		int x, exceed = 0;
-		x = (int)((double)hist_max * cnt[i] / cnt[max_i] + .499);
-		if (x > hist_max) exceed = 1, x = hist_max; // may happen if cnt[2] is higher
-		if (i > max_i && x == 0) break;
-		yak_hist_line(i, x, exceed, cnt[i]);
-	}
-	{
-		int x, exceed = 0;
-		int64_t rest = 0;
-		for (; i < n_cnt; ++i) rest += cnt[i];
-		x = (int)((double)hist_max * rest / cnt[max_i] + .499);
-		if (x > hist_max) exceed = 1, x = hist_max;
-		yak_hist_line(-1, x, exceed, rest);
-	}
-
-	// look for smaller peak on the low end
-	max2 = -1; max2_i = -1;
-	for (i = max_i - 1; i > low_i; --i) {
-		if (cnt[i] >= cnt[i-1] && cnt[i] >= cnt[i+1]) {
-			if (cnt[i] > max2) max2 = cnt[i], max2_i = i;
-		}
-	}
-	if (max2_i > low_i && max2_i < max_i) {
-		for (i = max2_i + 1, min = max; i < max_i; ++i)
-			if (cnt[i] < min) min = cnt[i];
-		if (max2 < max * 0.05 || min > max2 * 0.95)
-			max2 = -1, max2_i = -1;
-	}
-	if (max2 > 0) fprintf(stderr, "[M::%s] left: count[%d] = %ld\n", __func__, max2_i, (long)cnt[max2_i]);
-	else fprintf(stderr, "[M::%s] left: none\n", __func__);
-
-	// look for smaller peak on the high end
-	max3 = -1; max3_i = -1;
-	for (i = max_i + 1; i < n_cnt - 1; ++i) {
-		if (cnt[i] >= cnt[i-1] && cnt[i] >= cnt[i+1]) {
-			if (cnt[i] > max3) max3 = cnt[i], max3_i = i;
-		}
-	}
-	if (max3_i > max_i) {
-		for (i = max_i + 1, min = max; i < max3_i; ++i)
-			if (cnt[i] < min) min = cnt[i];
-		if (max3 < max * 0.05 || min > max3 * 0.95 || max3_i > max_i * 2.5)
-			max3 = -1, max3_i = -1;
-	}
-	if (max3 > 0) fprintf(stderr, "[M::%s] right: count[%d] = %ld\n", __func__, max3_i, (long)cnt[max3_i]);
-	else fprintf(stderr, "[M::%s] right: none\n", __func__);
-	if (max3_i > 0) {
-		*peak_het = max_i;
-		return max3_i;
-	} else {
-		if (max2_i > 0) *peak_het = max2_i;
-		return max_i;
-	}
 }
 
 static yak_hh_t *gen_hh(const yak_ch_t *h)
@@ -526,4 +471,17 @@ void *ha_count_high(const hifiasm_opt_t *asm_opt)
 	fprintf(stderr, "[M::%s] filtered out %ld k-mers occurring %d or more times\n",
 			__func__, (long)kh_size(high_ht), cutoff);
 	return (void*)high_ht;
+}
+
+int ha_hf_isflt(const void *hh, uint64_t y)
+{
+	yak_hh_t *h = (yak_hh_t*)hh;
+	khint_t k;
+	k = yak_hh_get(h, y);
+	return k == kh_end(h)? 0 : 1;
+}
+
+void ha_hf_destroy(void *h)
+{
+	yak_hh_destroy((yak_hh_t*)h);
 }
