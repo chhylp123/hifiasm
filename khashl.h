@@ -276,6 +276,7 @@ static kh_inline khint_t __kh_h2b(khint_t hash, khint_t bits) { return hash * 26
 	KHASHL_INIT(KH_LOCAL, HType, prefix##_m, HType##_m_bucket_t, prefix##_m_hash, prefix##_m_eq) \
 	SCOPE HType *prefix##_init(void) { return prefix##_m_init(); } \
 	SCOPE void prefix##_destroy(HType *h) { prefix##_m_destroy(h); } \
+	SCOPE void prefix##_resize(HType *h, khint_t new_n_buckets) { prefix##_m_resize(h, new_n_buckets); } \
 	SCOPE khint_t prefix##_get(const HType *h, khkey_t key) { HType##_m_bucket_t t; t.key = key; return prefix##_m_getp(h, &t); } \
 	SCOPE int prefix##_del(HType *h, khint_t k) { return prefix##_m_del(h, k); } \
 	SCOPE khint_t prefix##_put(HType *h, khkey_t key, int *absent) { HType##_m_bucket_t t; t.key = key; return prefix##_m_putp(h, &t, absent); }

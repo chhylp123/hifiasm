@@ -142,16 +142,7 @@ static int yak_ch_insert_list(yak_ch_t *h, int create_new, int n, const uint64_t
 	}
 	return n_ins;
 }
-/*
-static int yak_ch_get(const yak_ch_t *h, uint64_t x)
-{
-	int mask = (1<<h->pre) - 1;
-	yak_ht_t *g = h->h[x&mask].h;
-	khint_t k;
-	k = yak_ht_get(g, x >> h->pre << YAK_COUNTER_BITS);
-	return k == kh_end(g)? -1 : kh_key(g, k)&YAK_MAX_COUNT;
-}
-*/
+
 /*** generate histogram ***/
 
 typedef struct {
@@ -233,7 +224,7 @@ KHASHL_MAP_INIT(static klib_unused, yak_pt_t, yak_pt, uint64_t, uint64_t, yak_ch
 
 typedef struct {
 	yak_pt_t *h;
-	uint64_t n, m;
+	uint64_t n;
 	ha_seed_t *a;
 } ha_pt1_t;
 
@@ -243,6 +234,67 @@ typedef struct {
 	ha_pt1_t *h;
 } ha_pt_t;
 
+typedef struct {
+	const yak_ch_t *ch;
+	ha_pt_t *ph;
+} pt_gen_aux_t;
+
+static void worker_pt_gen(void *data, long i, int tid) // callback for kt_for()
+{
+	pt_gen_aux_t *a = (pt_gen_aux_t*)data;
+	ha_pt1_t *b = &a->ph->h[i];
+	yak_ht_t *g = a->ch->h[i].h;
+	khint_t k;
+	for (k = 0, b->n = 0; k != kh_end(g); ++k) {
+		if (kh_exist(g, k)) {
+			int absent;
+			khint_t l;
+			l = yak_pt_put(b->h, kh_key(g, k) >> YAK_COUNTER_BITS << YAK_COUNTER_BITS, &absent);
+			kh_val(b->h, l) = b->n;
+			b->n += kh_key(g, k) & YAK_MAX_COUNT;
+		}
+	}
+	CALLOC(b->a, b->n);
+}
+
+ha_pt_t *ha_pt_gen(const yak_ch_t *ch, int n_thread)
+{
+	pt_gen_aux_t a;
+	int i;
+	ha_pt_t *ph;
+	CALLOC(ph, 1);
+	ph->k = ch->k, ph->pre = ch->pre, ph->tot = ch->tot;
+	CALLOC(ph->h, 1<<ph->pre);
+	for (i = 0; i < 1<<ph->pre; ++i) {
+		ph->h[i].h = yak_pt_init();
+		yak_pt_resize(ph->h[i].h, kh_size(ch->h[i].h));
+	}
+	a.ch = ch, a.ph = ph;
+	kt_for(n_thread, worker_pt_gen, &a, 1<<ph->pre);
+	return ph;
+}
+
+static int ha_pt_insert_list(ha_pt_t *h, int n, const ha_mz1_t *a)
+{
+	int j, mask = (1<<h->pre) - 1, n_ins = 0;
+	ha_pt1_t *g;
+	if (n == 0) return 0;
+	g = &h->h[a[0].x&mask];
+	for (j = 0; j < n; ++j) {
+		uint64_t x = a[j].x >> h->pre;
+		khint_t k;
+		ha_seed_t *s;
+		if ((a[j].x&mask) != (a[0].x&mask)) continue;
+		k = yak_pt_get(g->h, x<<YAK_COUNTER_BITS);
+		if (k == kh_end(g->h)) continue;
+		assert((kh_key(g->h, k)&YAK_MAX_COUNT) < YAK_MAX_COUNT);
+		s = &g->a[kh_val(g->h, k) + (kh_key(g->h, k)&YAK_MAX_COUNT)];
+		s->rid = a[j].rid, s->pos = a[j].pos, s->rev = a[j].rev, s->span = a[j].span;
+		++kh_key(g->h, k);
+	}
+	return n_ins;
+}
+
 /**********************************
  * Buffer for counting all k-mers *
  **********************************/
@@ -251,6 +303,7 @@ typedef struct {
 	int n, m;
 	uint64_t n_ins;
 	uint64_t *a;
+	ha_mz1_t *b;
 } ch_buf_t;
 
 static inline void ch_insert_buf(ch_buf_t *buf, int p, uint64_t y) // insert a k-mer $y to a linear buffer
@@ -262,6 +315,17 @@ static inline void ch_insert_buf(ch_buf_t *buf, int p, uint64_t y) // insert a k
 		REALLOC(b->a, b->m);
 	}
 	b->a[b->n++] = y;
+}
+
+static inline void pt_insert_buf(ch_buf_t *buf, int p, const ha_mz1_t *y)
+{
+	int pre = y->x & ((1<<p) - 1);
+	ch_buf_t *b = &buf[pre];
+	if (b->n == b->m) {
+		b->m = b->m < 8? 8 : b->m + (b->m>>1);
+		REALLOC(b->b, b->m);
+	}
+	b->b[b->n++] = *y;
 }
 
 static void count_seq_buf(ch_buf_t *buf, int k, int p, int len, const char *seq) // insert k-mers in $seq to linear buffer $buf
@@ -313,6 +377,7 @@ typedef struct { // global data structure for kt_pipeline()
 	int create_new, is_store;
 	kseq_t *ks;
 	yak_ch_t *h;
+	ha_pt_t *ph;
 } pl_data_t;
 
 typedef struct { // data structure for each step in kt_pipeline()
@@ -329,8 +394,10 @@ static void worker_for_insert(void *data, long i, int tid) // callback for kt_fo
 {
 	st_data_t *s = (st_data_t*)data;
 	ch_buf_t *b = &s->buf[i];
-	yak_ch_t *h = s->p->h;
-	b->n_ins += yak_ch_insert_list(h, s->p->create_new, b->n, b->a);
+	if (s->p->ph)
+		b->n_ins += ha_pt_insert_list(s->p->ph, b->n, b->b);
+	else
+		b->n_ins += yak_ch_insert_list(s->p->h, s->p->create_new, b->n, b->a);
 }
 
 static void worker_for_mz(void *data, long i, int tid)
@@ -390,6 +457,7 @@ static void *worker_count(void *data, int step, void *in) // callback for kt_pip
 				if (!p->is_store) free(s->seq[i]);
 			}
 		} else { // minimizers only
+			uint32_t j;
 			// compute minimizers
 			CALLOC(s->mz, s->n_seq);
 			CALLOC(s->mz_buf, p->opt->n_thread);
@@ -398,10 +466,14 @@ static void *worker_count(void *data, int step, void *in) // callback for kt_pip
 				free(s->mz_buf[i].a);
 			free(s->mz_buf);
 			// insert minimizers
-			for (i = 0; i < s->n_seq; ++i) {
-				uint32_t j;
-				for (j = 0; j < s->mz[i].n; ++j)
-					ch_insert_buf(s->buf, p->opt->pre, s->mz[i].a[j].x);
+			if (p->ph) {
+				for (i = 0; i < s->n_seq; ++i)
+					for (j = 0; j < s->mz[i].n; ++j)
+						pt_insert_buf(s->buf, p->opt->pre, &s->mz[i].a[j]);
+			} else {
+				for (i = 0; i < s->n_seq; ++i)
+					for (j = 0; j < s->mz[i].n; ++j)
+						ch_insert_buf(s->buf, p->opt->pre, s->mz[i].a[j].x);
 			}
 			for (i = 0; i < s->n_seq; ++i) {
 				free(s->mz[i].a);
@@ -550,7 +622,7 @@ void *ha_gen_mzidx(const hifiasm_opt_t *asm_opt, const void *flt_tab)
 	fprintf(stderr, "[M::%s] count[%d] = %ld (for sanity check)\n", __func__, YAK_MAX_COUNT, (long)cnt[YAK_MAX_COUNT]);
 	peak_hom = yak_analyze_count(YAK_N_COUNTS, cnt, &peak_het);
 	if (peak_hom > 0) fprintf(stderr, "[M::%s] peak_hom: %d; peak_het: %d\n", __func__, peak_hom, peak_het);
-	yak_ch_shrink(h, 2, YAK_MAX_COUNT, asm_opt->thread_num);
+	yak_ch_shrink(h, 2, YAK_MAX_COUNT - 1, asm_opt->thread_num);
 	yak_ch_destroy(h);
 	return 0;
 }
