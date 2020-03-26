@@ -5,7 +5,6 @@
 #include <string.h>
 #include <stdlib.h>
 #include <zlib.h>
-#include "kseq.h"
 #include "Overlaps.h"
 #include "CommandLines.h"
 ///#include "Hash_Table.h"
@@ -25,7 +24,6 @@
 #define Get_NAME(R_INF, ID) ((R_INF).name + (R_INF).name_index[(ID)])
 
 
-KSEQ_INIT(gzFile, gzread)
 
 
 extern uint8_t seq_nt6_table[256];
@@ -39,7 +37,6 @@ extern char rc_Table[5];
 #define RC_CHAR(x) rc_Table[seq_nt6_table[(uint8_t)x]]
 
 void init_aux_table();
-int get_read(kseq_t *s, int adapterLen);
 
 typedef struct
 {

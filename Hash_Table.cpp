@@ -753,35 +753,6 @@ void test_single_list(Candidates_list* candidates, k_mer_pos* n_list, uint64_t n
     }
 }
 
-void init_Count_Table(Count_Table** table)
-{
-    *table = ha_ct_init();
-}
-
-void init_Pos_Table(Pos_Table** table)
-{
-    *table = ha_pt_init();
-}
-
-
-typedef struct
-{
-    long long* list;
-    uint64_t length;
-} H_peaks;
-
-void insert_H_peaks(H_peaks* h, long long index, long long value)
-{
-    if(h->length <= (uint64_t)index)
-    {
-        long long newLen = index + 1;
-        h->list = (long long*)realloc(h->list, newLen*sizeof(long long));
-        memset(h->list + h->length, 0, sizeof(long long) * (newLen - h->length));
-        h->length = newLen;
-    }
-
-    h->list[index] += value;
-}
 
 void init_Chain_Data(Chain_Data* x)
 {

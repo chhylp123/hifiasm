@@ -462,7 +462,7 @@ static void count_seq_buf_HPC(ch_buf_t *buf, int k, int p, int len, const char *
  * K-mer counting *
  ******************/
 
-//KSEQ_INIT(gzFile, gzread)
+KSEQ_INIT(gzFile, gzread)
 
 #define HAF_COUNT_EXACT  0x1
 #define HAF_COUNT_ALL    0x2

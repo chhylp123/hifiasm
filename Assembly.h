@@ -8,8 +8,6 @@
 #define Get_Cigar_Type(RECORD) (RECORD&3)
 #define Get_Cigar_Length(RECORD) (RECORD>>2)
 
-void Counting_multiple_thr();
-void Build_hash_table_multiple_thr();
 void Overlap_calculate_multipe_thr();
 void Correct_Reads(int last_round);
 #endif

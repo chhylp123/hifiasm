@@ -32,31 +32,30 @@ depend:
 
 # DO NOT DELETE
 
-Assembly.o: Assembly.h CommandLines.h Process_Read.h kseq.h Overlaps.h kvec.h
-Assembly.o: kdq.h kmer.h Hash_Table.h khashl.h htab.h POA.h Correct.h
-Assembly.o: Levenshtein_distance.h Output.h
+Assembly.o: Assembly.h CommandLines.h Process_Read.h Overlaps.h kvec.h kdq.h
+Assembly.o: kmer.h Hash_Table.h htab.h POA.h Correct.h Levenshtein_distance.h
+Assembly.o: Output.h
 CommandLines.o: CommandLines.h ketopt.h
-Correct.o: Correct.h Hash_Table.h khashl.h kmer.h Process_Read.h kseq.h
-Correct.o: Overlaps.h kvec.h kdq.h CommandLines.h htab.h
-Correct.o: Levenshtein_distance.h POA.h Assembly.h
-Hash_Table.o: Hash_Table.h khashl.h kmer.h Process_Read.h kseq.h Overlaps.h
-Hash_Table.o: kvec.h kdq.h CommandLines.h htab.h Correct.h
-Hash_Table.o: Levenshtein_distance.h POA.h ksort.h
+Correct.o: Correct.h Hash_Table.h kmer.h Process_Read.h Overlaps.h kvec.h
+Correct.o: kdq.h CommandLines.h htab.h Levenshtein_distance.h POA.h
+Correct.o: Assembly.h
+Hash_Table.o: Hash_Table.h kmer.h Process_Read.h Overlaps.h kvec.h kdq.h
+Hash_Table.o: CommandLines.h htab.h Correct.h Levenshtein_distance.h POA.h
+Hash_Table.o: ksort.h
 Levenshtein_distance.o: Levenshtein_distance.h
 Output.o: Output.h CommandLines.h
-Overlaps.o: Overlaps.h kvec.h kdq.h ksort.h Process_Read.h kseq.h
-Overlaps.o: CommandLines.h Hash_Table.h khashl.h kmer.h htab.h Correct.h
-Overlaps.o: Levenshtein_distance.h POA.h
-POA.o: POA.h Hash_Table.h khashl.h kmer.h Process_Read.h kseq.h Overlaps.h
-POA.o: kvec.h kdq.h CommandLines.h htab.h Correct.h Levenshtein_distance.h
-Process_Read.o: Process_Read.h kseq.h Overlaps.h kvec.h kdq.h CommandLines.h
-Trio.o: khashl.h kthread.h Process_Read.h kseq.h Overlaps.h kvec.h kdq.h
+Overlaps.o: Overlaps.h kvec.h kdq.h ksort.h Process_Read.h CommandLines.h
+Overlaps.o: Hash_Table.h kmer.h htab.h Correct.h Levenshtein_distance.h POA.h
+POA.o: POA.h Hash_Table.h kmer.h Process_Read.h Overlaps.h kvec.h kdq.h
+POA.o: CommandLines.h htab.h Correct.h Levenshtein_distance.h
+Process_Read.o: Process_Read.h Overlaps.h kvec.h kdq.h CommandLines.h
+Trio.o: khashl.h kthread.h Process_Read.h Overlaps.h kvec.h kdq.h
 Trio.o: CommandLines.h htab.h
-hist.o: htab.h Process_Read.h kseq.h Overlaps.h kvec.h kdq.h CommandLines.h
+hist.o: htab.h Process_Read.h Overlaps.h kvec.h kdq.h CommandLines.h
 htab.o: kthread.h khashl.h kseq.h ksort.h htab.h Process_Read.h Overlaps.h
 htab.o: kvec.h kdq.h CommandLines.h
 kthread.o: kthread.h
-main.o: CommandLines.h Process_Read.h kseq.h Overlaps.h kvec.h kdq.h
-main.o: Assembly.h Levenshtein_distance.h htab.h
-sketch.o: kvec.h htab.h Process_Read.h kseq.h Overlaps.h kdq.h CommandLines.h
-sys.o: htab.h Process_Read.h kseq.h Overlaps.h kvec.h kdq.h CommandLines.h
+main.o: CommandLines.h Process_Read.h Overlaps.h kvec.h kdq.h Assembly.h
+main.o: Levenshtein_distance.h htab.h
+sketch.o: kvec.h htab.h Process_Read.h Overlaps.h kdq.h CommandLines.h
+sys.o: htab.h Process_Read.h Overlaps.h kvec.h kdq.h CommandLines.h
