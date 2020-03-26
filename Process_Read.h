@@ -141,42 +141,14 @@ extern All_reads R_INF;
 
 typedef struct
 {
-	kseq_t* read;
-	long long num;
-} R_buffer_block;
-
-typedef struct
-{
-	R_buffer_block* sub_block;
-	long long block_inner_size;
-	long long size;
-	long long num;
-	int all_read_end;
-} R_buffer;
-
-typedef struct
-{
 	char* seq;
 	long long length;
 	long long size;
 	long long RID;
 } UC_Read;
 
-typedef struct
-{
-	gzFile fp;
-	kseq_t *seq;
-	char** reads;
-	int num_reads;
-	int idx;
-} gz_files;
-
-void init_R_buffer(int thread_num);
 void init_All_reads(All_reads* r);
 void malloc_All_reads(All_reads* r);
-void* input_reads_muti_threads(void*);
-void init_R_buffer_block(R_buffer_block* curr_sub_block);
-int get_reads_mul_thread(R_buffer_block* curr_sub_block);
 void ha_insert_read_len(All_reads *r, int read_len, int name_len);
 void ha_compress_base(uint8_t* dest, char* src, uint64_t src_l, uint64_t** N_site_lis, uint64_t N_site_occ);
 void init_UC_Read(UC_Read* r);
@@ -188,12 +160,5 @@ void reverse_complement(char* pattern, uint64_t length);
 void write_All_reads(All_reads* r, char* read_file_name);
 int load_All_reads(All_reads* r, char* read_file_name);
 void destory_All_reads(All_reads* r);
-
-void destory_R_buffer_block(R_buffer_block* curr_sub_block);
-void destory_R_buffer();
-void clear_R_buffer();
-
-void init_gz_files(hifiasm_opt_t* asm_opt);
-void destory_gz_files();
 
 #endif
