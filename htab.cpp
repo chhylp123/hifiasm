@@ -9,6 +9,7 @@
 #include "kseq.h"
 #include "ksort.h"
 #include "htab.h"
+#include "Process_Read.h"
 #include "CommandLines.h"
 
 #define YAK_COUNTER_BITS 12
@@ -308,7 +309,6 @@ static void worker_pt_gen(void *data, long i, int tid) // callback for kt_for()
 			b->n += kh_key(g, k) & YAK_MAX_COUNT;
 		}
 	}
-//	fprintf(stderr, "X\t%ld\t%d\t%ld\n", i, kh_size(g), (long)b->n);
 	yak_ct_destroy(g);
 	a->ct->h[i].h = 0;
 	CALLOC(b->a, b->n);
@@ -464,12 +464,15 @@ static void count_seq_buf_HPC(ch_buf_t *buf, int k, int p, int len, const char *
  * K-mer counting *
  ******************/
 
-KSEQ_INIT(gzFile, gzread)
+//KSEQ_INIT(gzFile, gzread)
+
+#define HAF_COUNT_EXACT  0x1
+#define HAF_COUNT_ALL    0x2
 
 typedef struct { // global data structure for kt_pipeline()
 	const yak_copt_t *opt;
 	const void *flt_tab;
-	int create_new, is_store;
+	int flag, create_new, is_store;
 	uint64_t batch_offset;
 	uint64_t n_base;
 	kseq_t *ks;
@@ -608,7 +611,7 @@ static void *worker_count(void *data, int step, void *in) // callback for kt_pip
 	return 0;
 }
 
-static ha_ct_t *yak_count(const char *fn, const yak_copt_t *opt, ha_pt_t *p0, ha_ct_t *c0, const void *flt_tab)
+static ha_ct_t *yak_count(const yak_copt_t *opt, const char *fn, int flag, ha_pt_t *p0, ha_ct_t *c0, const void *flt_tab)
 {
 	pl_data_t pl;
 	gzFile fp;
@@ -633,28 +636,28 @@ static ha_ct_t *yak_count(const char *fn, const yak_copt_t *opt, ha_pt_t *p0, ha
 	return pl.ct;
 }
 
-static ha_ct_t *yak_count_file(const yak_copt_t *opt, ha_pt_t *p0, int n_fn, char **fn, const void *flt_tab)
+static ha_ct_t *yak_count_file(const yak_copt_t *opt, int flag, ha_pt_t *p0, int n_fn, char **fn, const void *flt_tab)
 {
 	int i;
 	ha_ct_t *h = 0;
 	for (i = 0; i < n_fn; ++i)
-		h = yak_count(fn[i], opt, p0, h, flt_tab);
+		h = yak_count(opt, fn[i], flag, p0, h, flt_tab);
 	if (h && opt->bf_shift > 0)
 		ha_ct_destroy_bf(h);
 	return h;
 }
 
-ha_ct_t *ha_count(const hifiasm_opt_t *asm_opt, ha_pt_t *p0, int is_exact, int count_all, const void *flt_tab)
+ha_ct_t *ha_count(const hifiasm_opt_t *asm_opt, int flag, ha_pt_t *p0, const void *flt_tab)
 {
 	yak_copt_t opt;
 	ha_ct_t *h;
 	yak_copt_init(&opt);
 	opt.k = asm_opt->k_mer_length;
 	opt.is_HPC = !asm_opt->no_HPC;
-	opt.w = count_all? 1 : asm_opt->mz_win;
-	opt.bf_shift = is_exact? 0 : asm_opt->bf_shift;
+	opt.w = flag & HAF_COUNT_ALL? 1 : asm_opt->mz_win;
+	opt.bf_shift = flag & HAF_COUNT_EXACT? 0 : asm_opt->bf_shift;
 	opt.n_thread = asm_opt->thread_num;
-	h = yak_count_file(&opt, p0, asm_opt->num_reads, asm_opt->read_file_names, flt_tab);
+	h = yak_count_file(&opt, flag, p0, asm_opt->num_reads, asm_opt->read_file_names, flt_tab);
 	return h;
 }
 
@@ -707,7 +710,7 @@ void *ha_gen_flt_tab(const hifiasm_opt_t *asm_opt)
 	int64_t cnt[YAK_N_COUNTS];
 	int peak_hom, peak_het, cutoff;
 	ha_ct_t *h;
-	h = ha_count(asm_opt, 0, 0, 1, 0);
+	h = ha_count(asm_opt, HAF_COUNT_ALL, NULL, NULL);
 	ha_ct_hist(h, cnt, asm_opt->thread_num);
 	peak_hom = yak_analyze_count(YAK_N_COUNTS, cnt, &peak_het);
 	if (peak_hom > 0) fprintf(stderr, "[M::%s] peak_hom: %d; peak_het: %d\n", __func__, peak_hom, peak_het);
@@ -727,7 +730,7 @@ void *ha_gen_mzidx(const hifiasm_opt_t *asm_opt, const void *flt_tab)
 	int peak_hom, peak_het, i;
 	ha_ct_t *ct;
 	ha_pt_t *pt;
-	ct = ha_count(asm_opt, 0, 1, 0, flt_tab);
+	ct = ha_count(asm_opt, HAF_COUNT_EXACT, NULL, flt_tab);
 	fprintf(stderr, "[M::%s::%.3f*%.2f] ==> counted %ld distinct minimizer k-mers\n", __func__,
 			yak_realtime(), yak_cputime() / yak_realtime(), (long)ct->tot);
 	ha_ct_hist(ct, cnt, asm_opt->thread_num);
@@ -737,7 +740,7 @@ void *ha_gen_mzidx(const hifiasm_opt_t *asm_opt, const void *flt_tab)
 	ha_ct_shrink(ct, 2, YAK_MAX_COUNT - 1, asm_opt->thread_num);
 	for (i = 2, tot_cnt = 0; i <= YAK_MAX_COUNT - 1; ++i) tot_cnt += cnt[i] * i;
 	pt = ha_pt_gen(ct, asm_opt->thread_num);
-	ha_count(asm_opt, pt, 1, 0, flt_tab);
+	ha_count(asm_opt, HAF_COUNT_EXACT, pt, flt_tab);
 	assert((uint64_t)tot_cnt == pt->tot_pos);
 	ha_pt_sort(pt, asm_opt->thread_num);
 	fprintf(stderr, "[M::%s::%.3f*%.2f] ==> indexed %ld positions\n", __func__,

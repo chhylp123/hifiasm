@@ -81,7 +81,6 @@ void destory_All_reads(All_reads* r)
 	free(r->trio_flag);
 }
 
-
 void write_All_reads(All_reads* r, char* read_file_name)
 {
     fprintf(stderr, "Writing reads to disk... \n");
@@ -112,9 +111,6 @@ void write_All_reads(All_reads* r, char* read_file_name)
 		{
 			fwrite(&zero, sizeof(zero), 1, fp);
 		}
-		
-		
-		
 	}
 
 	fwrite(r->read_length, sizeof(uint64_t), r->total_reads, fp);
@@ -131,8 +127,6 @@ void write_All_reads(All_reads* r, char* read_file_name)
     fclose(fp);
     fprintf(stderr, "Reads has been written.\n");
 }
-
-
 
 int load_All_reads(All_reads* r, char* read_file_name)
 {
@@ -164,7 +158,6 @@ int load_All_reads(All_reads* r, char* read_file_name)
 	r->N_site = (uint64_t**)malloc(sizeof(uint64_t*)*r->total_reads);
 	for (i = 0; i < r->total_reads; i++)
 	{
-
 		f_flag += fread(&zero, sizeof(zero), 1, fp);
 
 		if (zero)
@@ -233,32 +226,33 @@ int load_All_reads(All_reads* r, char* read_file_name)
 	return 1;
 }
 
-
-
-inline void insert_read(All_reads* r, kstring_t* read, kstring_t* name)
+void ha_insert_read_len(All_reads *r, int read_len, int name_len)
 {
 	r->total_reads++;
-	r->total_reads_bases = r->total_reads_bases + read->l;
-	r->total_name_length = r->total_name_length + name->l;
+	r->total_reads_bases += (uint64_t)read_len;
+	r->total_name_length += (uint64_t)name_len;
 
-	///must +1
-	if (r->index_size < r->total_reads + 2)
-	{
+	// must +1
+	if (r->index_size < r->total_reads + 2) {
 		r->index_size = r->index_size * 2 + 2;
-		r->read_length = (uint64_t*)realloc(r->read_length,sizeof(uint64_t)*(r->index_size));
+		r->read_length = (uint64_t*)realloc(r->read_length, sizeof(uint64_t) * r->index_size);
 		r->name_index_size = r->name_index_size * 2 + 2;
-		r->name_index = (uint64_t*)realloc(r->name_index,sizeof(uint64_t)*(r->name_index_size));
+		r->name_index = (uint64_t*)realloc(r->name_index, sizeof(uint64_t) * r->name_index_size);
 	}
 
-	r->read_length[r->total_reads - 1] = read->l;
-	r->name_index[r->total_reads] = r->name_index[r->total_reads-1] + name->l;
+	r->read_length[r->total_reads - 1] = read_len;
+	r->name_index[r->total_reads] = r->name_index[r->total_reads - 1] + name_len;
+}
+
+static inline void insert_read(All_reads* r, kstring_t* read, kstring_t* name)
+{
+	ha_insert_read_len(r, read->l, name->l);
 }
 
 void malloc_All_reads(All_reads* r)
 {
-
 	r->read_size = (uint64_t*)malloc(sizeof(uint64_t)*r->total_reads);
-	memcpy (r->read_size, r->read_length, sizeof(uint64_t)*r->total_reads);
+	memcpy(r->read_size, r->read_length, sizeof(uint64_t)*r->total_reads);
 
 	r->read_sperate = (uint8_t**)malloc(sizeof(uint8_t*)*r->total_reads);
 	long long i = 0;
@@ -313,7 +307,6 @@ void init_aux_table()
 			bit_t_seq_table_rc[i][2] = RC_CHAR(bit_t_seq_table[i][1]);
 			bit_t_seq_table_rc[i][3] = RC_CHAR(bit_t_seq_table[i][0]);
 		}
-		
 	}
 }
 
@@ -338,18 +331,12 @@ void init_UC_Read(UC_Read* r)
 			bit_t_seq_table_rc[i][2] = RC_CHAR(bit_t_seq_table[i][1]);
 			bit_t_seq_table_rc[i][3] = RC_CHAR(bit_t_seq_table[i][0]);
 		}
-		
 	}
-	
 }
 
-
-void recover_UC_Read_sub_region_begin_end
-(char* r, long long start_pos, long long length, uint8_t strand, All_reads* R_INF, long long ID, int extra_begin, int extra_end)
+void recover_UC_Read_sub_region_begin_end(char* r, long long start_pos, long long length, uint8_t strand,
+										  All_reads* R_INF, long long ID, int extra_begin, int extra_end)
 {
-
-
-
 	long long readLen = Get_READ_LENGTH((*R_INF), ID);
 	uint8_t* src = Get_READ((*R_INF), ID);
 
@@ -357,16 +344,10 @@ void recover_UC_Read_sub_region_begin_end
 	long long copyLen;
 	long long end_pos = start_pos + length - 1;
 
-
-	
-
 	if (strand == 0)
 	{
-		
 		i = start_pos;
 		copyLen = 0;
-
-
 
 		long long initLen = start_pos % 4;
 
@@ -376,8 +357,6 @@ void recover_UC_Read_sub_region_begin_end
 			copyLen = copyLen + 4 - initLen;
 			i = i + copyLen;
 		}
-		
-		
 		while (copyLen < length)
 		{
 			memcpy(r+copyLen, bit_t_seq_table[src[i>>2]], 4);
@@ -385,7 +364,6 @@ void recover_UC_Read_sub_region_begin_end
 			i = i + 4;
 		}
 
-		
 		if (R_INF->N_site[ID])
 		{
 			for (i = 1; i <= (long long)R_INF->N_site[ID][0]; i++)
@@ -400,16 +378,11 @@ void recover_UC_Read_sub_region_begin_end
 				}
 			}
 		}
-		
-		
 	}
 	else
 	{
-		
 		start_pos = readLen - start_pos - 1;
 		end_pos = readLen - end_pos - 1;
-
-
 
 		///start_pos > end_pos
 		i = start_pos;
@@ -436,7 +409,6 @@ void recover_UC_Read_sub_region_begin_end
 
 			for (i = 1; i <= (long long)R_INF->N_site[ID][0]; i++)
 			{
-
 				if ((long long)R_INF->N_site[ID][i] >= end_pos && (long long)R_INF->N_site[ID][i] <= start_pos)
 				{
 					r[readLen - R_INF->N_site[ID][i] - 1 - offset] = 'N';
@@ -447,21 +419,11 @@ void recover_UC_Read_sub_region_begin_end
 				}
 			}
 		}
-		
-
-		
 	}
-		
 }
-
-
-
 
 void recover_UC_Read_sub_region(char* r, long long start_pos, long long length, uint8_t strand, All_reads* R_INF, long long ID)
 {
-
-
-
 	long long readLen = Get_READ_LENGTH((*R_INF), ID);
 	uint8_t* src = Get_READ((*R_INF), ID);
 
@@ -471,7 +433,6 @@ void recover_UC_Read_sub_region(char* r, long long start_pos, long long length, 
 
 	if (strand == 0)
 	{
-		
 		i = start_pos;
 		copyLen = 0;
 
@@ -483,8 +444,7 @@ void recover_UC_Read_sub_region(char* r, long long start_pos, long long length, 
 			copyLen = copyLen + 4 - initLen;
 			i = i + copyLen;
 		}
-		
-		
+
 		while (copyLen < length)
 		{
 			memcpy(r+copyLen, bit_t_seq_table[src[i>>2]], 4);
@@ -492,7 +452,6 @@ void recover_UC_Read_sub_region(char* r, long long start_pos, long long length, 
 			i = i + 4;
 		}
 
-		
 		if (R_INF->N_site[ID])
 		{
 			for (i = 1; i <= (long long)R_INF->N_site[ID][0]; i++)
@@ -507,16 +466,11 @@ void recover_UC_Read_sub_region(char* r, long long start_pos, long long length, 
 				}
 			}
 		}
-		
-		
 	}
 	else
 	{
-		
 		start_pos = readLen - start_pos - 1;
 		end_pos = readLen - end_pos - 1;
-
-
 
 		///start_pos > end_pos
 		i = start_pos;
@@ -543,7 +497,6 @@ void recover_UC_Read_sub_region(char* r, long long start_pos, long long length, 
 
 			for (i = 1; i <= (long long)R_INF->N_site[ID][0]; i++)
 			{
-
 				if ((long long)R_INF->N_site[ID][i] >= end_pos && (long long)R_INF->N_site[ID][i] <= start_pos)
 				{
 					r[readLen - R_INF->N_site[ID][i] - 1 - offset] = 'N';
@@ -554,11 +507,7 @@ void recover_UC_Read_sub_region(char* r, long long start_pos, long long length, 
 				}
 			}
 		}
-		
-
-		
 	}
-		
 }
 
 
@@ -623,7 +572,6 @@ void recover_UC_Read_RC(UC_Read* r, All_reads* R_INF, uint64_t ID)
 		index = index + 4;
 	}
 
-
 	if (R_INF->N_site[ID])
 	{
 		for (i = 1; i <= (long long)R_INF->N_site[ID][0]; i++)
@@ -631,10 +579,7 @@ void recover_UC_Read_RC(UC_Read* r, All_reads* R_INF, uint64_t ID)
 			r->seq[r->length - R_INF->N_site[ID][i] - 1] = 'N';
 		}
 	}
-		
 }
-
-
 
 #define COMPRESS_BASE {c = seq_nt6_table[(uint8_t)src[i]];\
 		if (c >= 4)\
@@ -647,7 +592,6 @@ void recover_UC_Read_RC(UC_Read* r, All_reads* R_INF, uint64_t ID)
 
 void compress_base(uint8_t* dest, char* src, uint64_t src_l, uint64_t** N_site_lis, uint64_t N_site_occ)
 {
-
 	///N_site_lis saves the pos of all Ns in this read
 	///N_site_lis[0] is the number of Ns
 	if (N_site_occ)
@@ -666,10 +610,8 @@ void compress_base(uint8_t* dest, char* src, uint64_t src_l, uint64_t** N_site_l
 	uint8_t tmp = 0;
 	uint8_t c = 0;
 
-
 	while (i + 4 <= src_l)
 	{
-
 		tmp = 0;
 
 		COMPRESS_BASE;
@@ -705,11 +647,7 @@ void compress_base(uint8_t* dest, char* src, uint64_t src_l, uint64_t** N_site_l
 		dest[dest_i] = tmp;
 		dest_i++;
 	}
-
 }
-
-
-
 
 void open_file(gz_files* nfps, char* name)
 {
@@ -721,7 +659,6 @@ void open_file(gz_files* nfps, char* name)
 	}
 	nfps->seq = kseq_init(nfps->fp);
 }
-
 
 void close_file(gz_files* nfps)
 {
@@ -774,11 +711,9 @@ inline void exchage_kstring_t(kstring_t* a, kstring_t* b)
 int get_read(kseq_t *s, int adapterLen)
 {
 	int l;
-	
 	///if ((l = kseq_read(seq)) >= 0)
 	if ((l = read_item()) >= 0)
 	{
-		
 		exchage_kstring_t(&(fps.seq->comment), &s->comment);
 		exchage_kstring_t(&(fps.seq->name), &s->name);
 		exchage_kstring_t(&(fps.seq->qual), &s->qual);
@@ -801,15 +736,12 @@ int get_read(kseq_t *s, int adapterLen)
 			} 
 			
 		}
-		
 		return 1;
 	}
 	else
 	{
 		return 0;
 	}
-	
-	
 }
 
 void init_R_buffer_block(R_buffer_block* curr_sub_block)
@@ -823,6 +755,7 @@ void clear_R_buffer()
 	RDB.all_read_end = 0;
 	RDB.num = 0;
 }
+
 void init_R_buffer(int thread_num)
 {
 	RDB.all_read_end = 0;
@@ -841,12 +774,10 @@ void init_R_buffer(int thread_num)
 	
 }
 
-
 void destory_R_buffer_block(R_buffer_block* curr_sub_block)
 {
 	kseq_destroy(curr_sub_block->read);
 }
-
 
 void destory_R_buffer()
 {
@@ -858,7 +789,6 @@ void destory_R_buffer()
 	}
 
 	free(RDB.sub_block);
-	
 }
 
 
@@ -868,19 +798,14 @@ inline void load_read_block(R_buffer_block* read_batch, int batch_read_size,
 	int inner_i = 0;
 	int file_flag = 1;
 
-
-
-
 	while (inner_i<batch_read_size)
 	{
-
 		file_flag = get_read(&read_batch->read[inner_i], adapterLen);
 
 		if (file_flag == 1)
 		{
 			read_batch->read[inner_i].ID = total_reads;
 			total_reads++;
-
 
 			if (is_insert)
 			{
@@ -903,14 +828,11 @@ inline void load_read_block(R_buffer_block* read_batch, int batch_read_size,
 
 	*return_file_flag = file_flag;
 	read_batch->num = inner_i;
-
 }
 
 
 inline void push_R_block(R_buffer_block* tmp_sub_block)
 {
-	
-
 	///only exchange pointers
 	kseq_t *k1;
 	k1 = RDB.sub_block[RDB.num].read;
@@ -940,28 +862,19 @@ inline void pop_R_block(R_buffer_block* curr_sub_block)
 
 	curr_sub_block->num = RDB.sub_block[RDB.num].num;
 	RDB.sub_block[RDB.num].num = 0;
-
-
-
 }
-
-
 
 void* input_reads_muti_threads(void* arg)
 {
 	int is_insert = *((int*)arg);
 
-
 	total_reads = 0;
-
 
 	int file_flag = 1;
 
 	R_buffer_block tmp_buf;
 
 	init_R_buffer_block(&tmp_buf);
-
-
 
 	while (1)
 	{
@@ -972,7 +885,6 @@ void* input_reads_muti_threads(void* arg)
 			break;
 		}
 
-
 		pthread_mutex_lock(&i_readinputMutex);
 		while (IS_FULL(RDB))
 		{
@@ -981,13 +893,11 @@ void* input_reads_muti_threads(void* arg)
 			pthread_cond_wait(&i_readinputflushCond, &i_readinputMutex);
 		}
 
-
 		push_R_block(&tmp_buf);
 
 		pthread_cond_signal(&i_readinputstallCond);
 		pthread_mutex_unlock(&i_readinputMutex);
 	}
-
 
 	pthread_mutex_lock(&i_readinputMutex);
 	RDB.all_read_end = 1;
@@ -999,33 +909,24 @@ void* input_reads_muti_threads(void* arg)
 	fprintf(stderr, "Reads #: %lu\n", (unsigned long)total_reads);
 	fprintf(stderr, "Bases #: %lu\n", (unsigned long)R_INF.total_reads_bases);
 	
-
 	return NULL;
 }
 
-
-
 int get_reads_mul_thread(R_buffer_block* curr_sub_block)
 {
-
-
 	pthread_mutex_lock(&i_readinputMutex);
-
 
 	while (IS_EMPTY(RDB) && RDB.all_read_end == 0)
 	{
-
 		pthread_cond_signal(&i_readinputflushCond);
 		pthread_cond_wait(&i_readinputstallCond, &i_readinputMutex);
 	}
-
 
 	if (!IS_EMPTY(RDB))
 	{
 		pop_R_block(curr_sub_block);
 		pthread_cond_signal(&i_readinputflushCond);
 		pthread_mutex_unlock(&i_readinputMutex);
-
 
 		return 1;
 	}
@@ -1039,16 +940,7 @@ int get_reads_mul_thread(R_buffer_block* curr_sub_block)
 
 		return 0;
 	}
-	
-
 }
-
-
-
-
-
-
-
 
 void reverse_complement(char* pattern, uint64_t length)
 {
@@ -1069,10 +961,7 @@ void reverse_complement(char* pattern, uint64_t length)
 	{
 		pattern[end] = RC_CHAR(pattern[end]);
 	}
-
 }
-
-
 
 typedef struct {
   char* tmp;

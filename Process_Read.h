@@ -25,9 +25,7 @@
 #define Get_NAME(R_INF, ID) R_INF.name + R_INF.name_index[(ID)]
 
 
-
 KSEQ_INIT(gzFile, gzread)
-
 
 
 extern uint8_t seq_nt6_table[256];
@@ -42,7 +40,6 @@ extern char rc_Table[5];
 
 void init_aux_table();
 int get_read(kseq_t *s, int adapterLen);
-
 
 typedef struct
 {
@@ -76,7 +73,6 @@ inline void init_PAF_alloc(PAF_alloc* list)
     list->list = (PAF*)malloc(sizeof(PAF)*list->size);
 }
 
-
 inline void append_PAF_alloc(PAF_alloc* list, PAF* e)
 {
     if(list->length+1 > list->size)
@@ -88,9 +84,6 @@ inline void append_PAF_alloc(PAF_alloc* list, PAF* e)
     list->list[list->length] = (*e);
     list->length++;
 }
-
-
-
 
 typedef struct
 {
@@ -104,7 +97,7 @@ typedef struct
     uint32_t lost_base_length;
 	uint32_t lost_base_size;
 	uint32_t new_length;
-}Compressed_Cigar_record;
+} Compressed_Cigar_record;
 
 #define AMBIGU 0
 #define FATHER 1
@@ -112,12 +105,12 @@ typedef struct
 #define MIX_TRIO 3
 #define NON_TRIO 4
 #define DROP 5
+
 typedef struct
 {
 	uint64_t** N_site;
 	///uint8_t* read;
 	char* name;
-
 
 	uint8_t** read_sperate;
 	uint64_t* read_length;
@@ -128,7 +121,6 @@ typedef struct
 	///do not need it
 	///uint64_t* index;
 	uint64_t index_size;
-
 
     ///name start pos in char* name
 	uint64_t* name_index;
@@ -143,7 +135,6 @@ typedef struct
     ma_hit_t_alloc* paf;
     ma_hit_t_alloc* reverse_paf;
     ma_sub_t* coverage_cut;
-
 } All_reads;
 
 extern All_reads R_INF;
@@ -154,9 +145,7 @@ typedef struct
 {
 	kseq_t* read;
 	long long num;
-
 } R_buffer_block;
-
 
 typedef struct
 {
@@ -166,7 +155,6 @@ typedef struct
 	long long num;
 	int all_read_end;
 } R_buffer;
-
 
 typedef struct
 {
@@ -208,5 +196,6 @@ void clear_R_buffer();
 void init_gz_files(hifiasm_opt_t* asm_opt);
 void destory_gz_files();
 
+void ha_insert_read_len(All_reads *r, int read_len, int name_len);
 
 #endif
