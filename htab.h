@@ -3,9 +3,6 @@
 #define __STDC_LIMIT_MACROS
 #include <stdint.h>
 
-#define YAK_BLK_SHIFT  9 // 64 bytes, the size of a cache line
-#define YAK_BLK_MASK   ((1<<(YAK_BLK_SHIFT)) - 1)
-
 typedef struct {
 	uint64_t x;
 	uint64_t rid:28, pos:27, rev:1, span:8;
@@ -21,6 +18,7 @@ extern const unsigned char seq_nt4_table[256];
 
 int ha_ft_isflt(const void *hh, uint64_t y);
 void ha_ft_destroy(void *h);
+void ha_idx_destroy(void *h);
 
 void trio_partition(void);
 

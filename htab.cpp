@@ -7,6 +7,7 @@
 #include "kthread.h"
 #include "khashl.h"
 #include "kseq.h"
+#include "ksort.h"
 #include "htab.h"
 #include "CommandLines.h"
 
@@ -61,6 +62,9 @@ void yak_copt_init(yak_copt_t *o)
  * Blocked bloom filter *
  ************************/
 
+#define YAK_BLK_SHIFT  9 // 64 bytes, the size of a cache line
+#define YAK_BLK_MASK   ((1<<(YAK_BLK_SHIFT)) - 1)
+
 typedef struct {
 	int n_shift, n_hashes;
 	uint8_t *b;
@@ -111,10 +115,10 @@ int yak_bf_insert(yak_bf_t *b, uint64_t hash)
 
 #define yak_ct_eq(a, b) ((a)>>YAK_COUNTER_BITS == (b)>>YAK_COUNTER_BITS) // lower 8 bits for counts; higher bits for k-mer
 #define yak_ct_hash(a) ((a)>>YAK_COUNTER_BITS)
-KHASHL_SET_INIT(static klib_unused, yak_ht_t, yak_ht, uint64_t, yak_ct_hash, yak_ct_eq)
+KHASHL_SET_INIT(static klib_unused, yak_ct_t, yak_ct, uint64_t, yak_ct_hash, yak_ct_eq)
 
 typedef struct {
-	yak_ht_t *h;
+	yak_ct_t *h;
 	yak_bf_t *b;
 } ha_ct1_t;
 
@@ -133,7 +137,7 @@ static ha_ct_t *ha_ct_init(int k, int pre, int n_hash, int n_shift)
 	h->k = k, h->pre = pre;
 	CALLOC(h->h, 1<<h->pre);
 	for (i = 0; i < 1<<h->pre; ++i)
-		h->h[i].h = yak_ht_init();
+		h->h[i].h = yak_ct_init();
 	if (n_hash > 0 && n_shift > h->pre) {
 		h->n_hash = n_hash, h->n_shift = n_shift;
 		for (i = 0; i < 1<<h->pre; ++i)
@@ -158,7 +162,7 @@ static void ha_ct_destroy(ha_ct_t *h)
 	if (h == 0) return;
 	ha_ct_destroy_bf(h);
 	for (i = 0; i < 1<<h->pre; ++i)
-		yak_ht_destroy(h->h[i].h);
+		yak_ct_destroy(h->h[i].h);
 	free(h->h); free(h);
 }
 
@@ -177,13 +181,13 @@ static int ha_ct_insert_list(ha_ct_t *h, int create_new, int n, const uint64_t *
 			if (g->b)
 				ins = (yak_bf_insert(g->b, x) == h->n_hash);
 			if (ins) {
-				k = yak_ht_put(g->h, x << YAK_COUNTER_BITS | (g->b? 1 : 0), &absent);
+				k = yak_ct_put(g->h, x << YAK_COUNTER_BITS | (g->b? 1 : 0), &absent);
 				if (absent) ++n_ins;
 				if ((kh_key(g->h, k)&YAK_MAX_COUNT) < YAK_MAX_COUNT)
 					++kh_key(g->h, k);
 			}
 		} else {
-			k = yak_ht_get(g->h, x<<YAK_COUNTER_BITS);
+			k = yak_ct_get(g->h, x<<YAK_COUNTER_BITS);
 			if (k != kh_end(g->h) && (kh_key(g->h, k)&YAK_MAX_COUNT) < YAK_MAX_COUNT)
 				++kh_key(g->h, k);
 		}
@@ -202,11 +206,11 @@ typedef struct {
 	buf_cnt_t *cnt;
 } hist_aux_t;
 
-static void worker_hist(void *data, long i, int tid) // callback for kt_for()
+static void worker_ct_hist(void *data, long i, int tid) // callback for kt_for()
 {
 	hist_aux_t *a = (hist_aux_t*)data;
 	uint64_t *cnt = a->cnt[tid].c;
-	yak_ht_t *g = a->h->h[i].h;
+	yak_ct_t *g = a->h->h[i].h;
 	khint_t k;
 	for (k = 0; k < kh_end(g); ++k)
 		if (kh_exist(g, k))
@@ -220,7 +224,7 @@ static void ha_ct_hist(const ha_ct_t *h, int64_t cnt[YAK_N_COUNTS], int n_thread
 	a.h = h;
 	memset(cnt, 0, YAK_N_COUNTS * sizeof(uint64_t));
 	CALLOC(a.cnt, n_thread);
-	kt_for(n_thread, worker_hist, &a, 1<<h->pre);
+	kt_for(n_thread, worker_ct_hist, &a, 1<<h->pre);
 	for (i = 0; i < YAK_N_COUNTS; ++i) cnt[i] = 0;
 	for (j = 0; j < n_thread; ++j)
 		for (i = 0; i < YAK_N_COUNTS; ++i)
@@ -235,22 +239,22 @@ typedef struct {
 	ha_ct_t *h;
 } shrink_aux_t;
 
-static void worker_shrink(void *data, long i, int tid) // callback for kt_for()
+static void worker_ct_shrink(void *data, long i, int tid) // callback for kt_for()
 {
 	shrink_aux_t *a = (shrink_aux_t*)data;
 	ha_ct_t *h = a->h;
-	yak_ht_t *g = h->h[i].h, *f;
+	yak_ct_t *g = h->h[i].h, *f;
 	khint_t k;
-	f = yak_ht_init();
-	yak_ht_resize(f, kh_size(g));
+	f = yak_ct_init();
+	yak_ct_resize(f, kh_size(g));
 	for (k = 0; k < kh_end(g); ++k) {
 		if (kh_exist(g, k)) {
 			int absent, c = kh_key(g, k) & YAK_MAX_COUNT;
 			if (c >= a->min && c <= a->max)
-				yak_ht_put(f, kh_key(g, k), &absent);
+				yak_ct_put(f, kh_key(g, k), &absent);
 		}
 	}
-	yak_ht_destroy(g);
+	yak_ct_destroy(g);
 	h->h[i].h = f;
 }
 
@@ -259,7 +263,7 @@ static void ha_ct_shrink(ha_ct_t *h, int min, int max, int n_thread)
 	int i;
 	shrink_aux_t a;
 	a.h = h, a.min = min, a.max = max;
-	kt_for(n_thread, worker_shrink, &a, 1<<h->pre);
+	kt_for(n_thread, worker_ct_shrink, &a, 1<<h->pre);
 	for (i = 0, h->tot = 0; i < 1<<h->pre; ++i)
 		h->tot += kh_size(h->h[i].h);
 }
@@ -269,16 +273,18 @@ static void ha_ct_shrink(ha_ct_t *h, int min, int max, int n_thread)
  ***********************/
 
 KHASHL_MAP_INIT(static klib_unused, yak_pt_t, yak_pt, uint64_t, uint64_t, yak_ct_hash, yak_ct_eq)
+#define generic_key(x) (x)
+KRADIX_SORT_INIT(ha64, uint64_t, generic_key, 8)
 
 typedef struct {
 	yak_pt_t *h;
 	uint64_t n;
-	ha_seed_t *a;
+	uint64_t *a;
 } ha_pt1_t;
 
 typedef struct {
 	int k, pre;
-	uint64_t tot;
+	uint64_t tot, tot_pos;
 	ha_pt1_t *h;
 } ha_pt_t;
 
@@ -291,7 +297,7 @@ static void worker_pt_gen(void *data, long i, int tid) // callback for kt_for()
 {
 	pt_gen_aux_t *a = (pt_gen_aux_t*)data;
 	ha_pt1_t *b = &a->pt->h[i];
-	yak_ht_t *g = a->ct->h[i].h;
+	yak_ct_t *g = a->ct->h[i].h;
 	khint_t k;
 	for (k = 0, b->n = 0; k != kh_end(g); ++k) {
 		if (kh_exist(g, k)) {
@@ -302,14 +308,18 @@ static void worker_pt_gen(void *data, long i, int tid) // callback for kt_for()
 			b->n += kh_key(g, k) & YAK_MAX_COUNT;
 		}
 	}
+//	fprintf(stderr, "X\t%ld\t%d\t%ld\n", i, kh_size(g), (long)b->n);
+	yak_ct_destroy(g);
+	a->ct->h[i].h = 0;
 	CALLOC(b->a, b->n);
 }
 
-ha_pt_t *ha_pt_gen(const ha_ct_t *ct, int n_thread)
+ha_pt_t *ha_pt_gen(ha_ct_t *ct, int n_thread)
 {
 	pt_gen_aux_t a;
 	int i;
 	ha_pt_t *pt;
+	ha_ct_destroy_bf(ct);
 	CALLOC(pt, 1);
 	pt->k = ct->k, pt->pre = ct->pre, pt->tot = ct->tot;
 	CALLOC(pt->h, 1<<pt->pre);
@@ -319,6 +329,7 @@ ha_pt_t *ha_pt_gen(const ha_ct_t *ct, int n_thread)
 	}
 	a.ct = ct, a.pt = pt;
 	kt_for(n_thread, worker_pt_gen, &a, 1<<pt->pre);
+	free(ct->h); free(ct);
 	return pt;
 }
 
@@ -331,16 +342,50 @@ static int ha_pt_insert_list(ha_pt_t *h, int n, const ha_mz1_t *a)
 	for (j = 0; j < n; ++j) {
 		uint64_t x = a[j].x >> h->pre;
 		khint_t k;
-		ha_seed_t *s;
 		if ((a[j].x&mask) != (a[0].x&mask)) continue;
 		k = yak_pt_get(g->h, x<<YAK_COUNTER_BITS);
 		if (k == kh_end(g->h)) continue;
 		assert((kh_key(g->h, k)&YAK_MAX_COUNT) < YAK_MAX_COUNT);
-		s = &g->a[kh_val(g->h, k) + (kh_key(g->h, k)&YAK_MAX_COUNT)];
-		s->rid = a[j].rid, s->pos = a[j].pos, s->rev = a[j].rev, s->span = a[j].span;
+		g->a[kh_val(g->h, k) + (kh_key(g->h, k)&YAK_MAX_COUNT)]
+			= (uint64_t)a[j].rid<<36 | (uint64_t)a[j].rev<<35 | (uint64_t)a[j].pos<<8 | (uint64_t)a[j].span;
 		++kh_key(g->h, k);
+		++n_ins;
 	}
 	return n_ins;
+}
+
+static void worker_pt_sort(void *data, long i, int tid)
+{
+	ha_pt_t *h = (ha_pt_t*)data;
+	ha_pt1_t *g = &h->h[i];
+	khint_t k;
+	for (k = 0; k < kh_end(g->h); ++k) {
+		int n;
+		uint64_t *p;
+		if (!kh_exist(g->h, k)) continue;
+		n = kh_key(g->h, k) & YAK_MAX_COUNT;
+		p = &g->a[kh_val(g->h, k)];
+		radix_sort_ha64(p, p + n);
+	}
+}
+
+static void ha_pt_sort(ha_pt_t *h, int n_thread)
+{
+	kt_for(n_thread, worker_pt_sort, h, 1<<h->pre);
+}
+
+static void ha_pt_destroy(ha_pt_t *h)
+{
+	int i;
+	if (h == 0) return;
+	for (i = 0; i < 1<<h->pre; ++i)
+		yak_pt_destroy(h->h[i].h);
+	free(h->h); free(h);
+}
+
+void ha_idx_destroy(void *h)
+{
+	ha_pt_destroy((ha_pt_t*)h);
 }
 
 /**********************************
@@ -499,7 +544,8 @@ static void *worker_count(void *data, int step, void *in) // callback for kt_pip
 		m = (int)(s->nk * 1.2 / n_pre) + 1;
 		for (i = 0; i < n_pre; ++i) {
 			s->buf[i].m = m;
-			MALLOC(s->buf[i].a, m);
+			if (p->pt) MALLOC(s->buf[i].b, m);
+			else MALLOC(s->buf[i].a, m);
 		}
 		// fill the buffer
 		if (p->opt->w == 1) { // enumerate all k-mers
@@ -545,19 +591,22 @@ static void *worker_count(void *data, int step, void *in) // callback for kt_pip
 		kt_for(p->opt->n_thread, worker_for_insert, s, n);
 		for (i = 0; i < n; ++i) {
 			n_ins += s->buf[i].n_ins;
-			free(s->buf[i].a);
+			if (p->pt) free(s->buf[i].b);
+			else free(s->buf[i].a);
 		}
-		p->ct->tot += n_ins;
+		if (p->ct) p->ct->tot += n_ins;
+		if (p->pt) p->pt->tot_pos += n_ins;
 		p->batch_offset += s->n_seq;
 		free(s->buf);
-		fprintf(stderr, "[M::%s::%.3f*%.2f] processed %d sequences; %ld distinct k-mers in the hash table\n", __func__,
-				yak_realtime(), yak_cputime() / yak_realtime(), s->n_seq, (long)p->ct->tot);
+		fprintf(stderr, "[M::%s::%.3f*%.2f] processed %ld sequences; %ld %s in the hash table\n", __func__,
+				yak_realtime(), yak_cputime() / yak_realtime(), (long)p->batch_offset,
+				(long)(p->pt? p->pt->tot_pos : p->ct->tot), p->pt? "positions" : "distinct k-mers");
 		free(s);
 	}
 	return 0;
 }
 
-static ha_ct_t *yak_count(const char *fn, const yak_copt_t *opt, ha_ct_t *h0, const void *flt_tab)
+static ha_ct_t *yak_count(const char *fn, const yak_copt_t *opt, ha_pt_t *p0, ha_ct_t *c0, const void *flt_tab)
 {
 	pl_data_t pl;
 	gzFile fp;
@@ -566,9 +615,12 @@ static ha_ct_t *yak_count(const char *fn, const yak_copt_t *opt, ha_ct_t *h0, co
 	pl.ks = kseq_init(fp);
 	pl.flt_tab = flt_tab;
 	pl.opt = opt;
-	if (h0) {
-		pl.ct = h0, pl.create_new = 0;
-		assert(h0->k == opt->k && h0->pre == opt->pre);
+	if (p0) {
+		pl.pt = p0, pl.create_new = 0;
+		assert(p0->k == opt->k && p0->pre == opt->pre);
+	} else if (c0) {
+		pl.ct = c0, pl.create_new = 0;
+		assert(c0->k == opt->k && c0->pre == opt->pre);
 	} else {
 		pl.create_new = 1;
 		pl.ct = ha_ct_init(opt->k, opt->pre, opt->bf_n_hash, opt->bf_shift);
@@ -579,18 +631,18 @@ static ha_ct_t *yak_count(const char *fn, const yak_copt_t *opt, ha_ct_t *h0, co
 	return pl.ct;
 }
 
-static ha_ct_t *yak_count_file(const yak_copt_t *opt, int n_fn, char **fn, const void *flt_tab)
+static ha_ct_t *yak_count_file(const yak_copt_t *opt, ha_pt_t *p0, int n_fn, char **fn, const void *flt_tab)
 {
 	int i;
 	ha_ct_t *h = 0;
 	for (i = 0; i < n_fn; ++i)
-		h = yak_count(fn[i], opt, h, flt_tab);
-	if (opt->bf_shift > 0)
+		h = yak_count(fn[i], opt, p0, h, flt_tab);
+	if (h && opt->bf_shift > 0)
 		ha_ct_destroy_bf(h);
 	return h;
 }
 
-ha_ct_t *ha_count(const hifiasm_opt_t *asm_opt, int is_exact, int count_all, const void *flt_tab)
+ha_ct_t *ha_count(const hifiasm_opt_t *asm_opt, ha_pt_t *p0, int is_exact, int count_all, const void *flt_tab)
 {
 	yak_copt_t opt;
 	ha_ct_t *h;
@@ -600,7 +652,7 @@ ha_ct_t *ha_count(const hifiasm_opt_t *asm_opt, int is_exact, int count_all, con
 	opt.w = count_all? 1 : asm_opt->mz_win;
 	opt.bf_shift = is_exact? 0 : asm_opt->bf_shift;
 	opt.n_thread = asm_opt->thread_num;
-	h = yak_count_file(&opt, asm_opt->num_reads, asm_opt->read_file_names, flt_tab);
+	h = yak_count_file(&opt, p0, asm_opt->num_reads, asm_opt->read_file_names, flt_tab);
 	return h;
 }
 
@@ -617,7 +669,7 @@ static yak_ft_t *gen_hh(const ha_ct_t *h)
 	hh = yak_ft_init();
 	yak_ft_resize(hh, h->tot * 2);
 	for (i = 0; i < 1<<h->pre; ++i) {
-		yak_ht_t *ht = h->h[i].h;
+		yak_ct_t *ht = h->h[i].h;
 		khint_t k;
 		for (k = 0; k < kh_end(ht); ++k) {
 			if (kh_exist(ht, k)) {
@@ -653,7 +705,7 @@ void *ha_gen_flt_tab(const hifiasm_opt_t *asm_opt)
 	int64_t cnt[YAK_N_COUNTS];
 	int peak_hom, peak_het, cutoff;
 	ha_ct_t *h;
-	h = ha_count(asm_opt, 0, 1, 0);
+	h = ha_count(asm_opt, 0, 0, 1, 0);
 	ha_ct_hist(h, cnt, asm_opt->thread_num);
 	peak_hom = yak_analyze_count(YAK_N_COUNTS, cnt, &peak_het);
 	if (peak_hom > 0) fprintf(stderr, "[M::%s] peak_hom: %d; peak_het: %d\n", __func__, peak_hom, peak_het);
@@ -662,22 +714,31 @@ void *ha_gen_flt_tab(const hifiasm_opt_t *asm_opt)
 	ha_ct_shrink(h, cutoff, YAK_MAX_COUNT, asm_opt->thread_num);
 	flt_tab = gen_hh(h);
 	ha_ct_destroy(h);
-	fprintf(stderr, "[M::%s] filtered out %ld k-mers occurring %d or more times\n",
-			__func__, (long)kh_size(flt_tab), cutoff);
+	fprintf(stderr, "[M::%s::%.3f*%.2f] ==> filtered out %ld k-mers occurring %d or more times\n", __func__,
+			yak_realtime(), yak_cputime() / yak_realtime(), (long)kh_size(flt_tab), cutoff);
 	return (void*)flt_tab;
 }
 
 void *ha_gen_mzidx(const hifiasm_opt_t *asm_opt, const void *flt_tab)
 {
-	int64_t cnt[YAK_N_COUNTS];
-	int peak_hom, peak_het;
-	ha_ct_t *h;
-	h = ha_count(asm_opt, 1, 0, flt_tab);
-	ha_ct_hist(h, cnt, asm_opt->thread_num);
+	int64_t cnt[YAK_N_COUNTS], tot_cnt;
+	int peak_hom, peak_het, i;
+	ha_ct_t *ct;
+	ha_pt_t *pt;
+	ct = ha_count(asm_opt, 0, 1, 0, flt_tab);
+	fprintf(stderr, "[M::%s::%.3f*%.2f] ==> counted %ld distinct minimizer k-mers\n", __func__,
+			yak_realtime(), yak_cputime() / yak_realtime(), (long)ct->tot);
+	ha_ct_hist(ct, cnt, asm_opt->thread_num);
 	fprintf(stderr, "[M::%s] count[%d] = %ld (for sanity check)\n", __func__, YAK_MAX_COUNT, (long)cnt[YAK_MAX_COUNT]);
 	peak_hom = yak_analyze_count(YAK_N_COUNTS, cnt, &peak_het);
 	if (peak_hom > 0) fprintf(stderr, "[M::%s] peak_hom: %d; peak_het: %d\n", __func__, peak_hom, peak_het);
-	ha_ct_shrink(h, 2, YAK_MAX_COUNT - 1, asm_opt->thread_num);
-	ha_ct_destroy(h);
-	return 0;
+	ha_ct_shrink(ct, 2, YAK_MAX_COUNT - 1, asm_opt->thread_num);
+	for (i = 2, tot_cnt = 0; i <= YAK_MAX_COUNT - 1; ++i) tot_cnt += cnt[i] * i;
+	pt = ha_pt_gen(ct, asm_opt->thread_num);
+	ha_count(asm_opt, pt, 1, 0, flt_tab);
+	assert((uint64_t)tot_cnt == pt->tot_pos);
+	ha_pt_sort(pt, asm_opt->thread_num);
+	fprintf(stderr, "[M::%s::%.3f*%.2f] ==> indexed %ld positions\n", __func__,
+			yak_realtime(), yak_cputime() / yak_realtime(), (long)pt->tot_pos);
+	return pt;
 }

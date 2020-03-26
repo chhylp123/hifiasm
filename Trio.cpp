@@ -10,7 +10,7 @@
 #include "CommandLines.h"
 
 #define YAK_MAX_KMER     31
-#define YAK_COUNTER_BITS 10
+#define YAK_COUNTER_BITS 10 // yak uses 10, but hifiasm uses 12; we have to copy over some yak code here due to this
 #define YAK_N_COUNTS     (1<<YAK_COUNTER_BITS)
 #define YAK_MAX_COUNT    ((1<<YAK_COUNTER_BITS)-1)
 
