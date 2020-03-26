@@ -35,23 +35,6 @@ KHASHL_MAP_INIT(static inline, Pos_Table, ha_pt, uint64_t, uint64_t, kh_hash_dum
 
 typedef struct
 {
-    volatile int lock;
-} Hash_table_spin_lock;
-
-typedef struct
-{
-	Count_Table** sub_h;
-    Hash_table_spin_lock* sub_h_lock;
-    int prefix_bits;
-    int suffix_bits;
-    ///number of subtable
-	int size;
-    uint64_t suffix_mode;
-    uint64_t non_unique_k_mer;
-} Total_Count_Table;
-
-typedef struct
-{
     uint32_t offset;
     uint32_t readID:31, rev:1;
 } k_mer_pos;
@@ -187,21 +170,6 @@ typedef struct
     Chain_Data chainDP;
 } Candidates_list;
 
-typedef struct
-{
-	Pos_Table** sub_h;
-    Hash_table_spin_lock* sub_h_lock;
-    int prefix_bits;
-    int suffix_bits;
-    ///number of subtable
-	int size;
-    uint64_t suffix_mode;
-    k_mer_pos* pos;
-    uint64_t useful_k_mer;
-    uint64_t total_occ;
-    uint64_t* k_mer_index;
-} Total_Pos_Table;
-
 ////suffix_bits = 64 in default
 inline int recover_hash_code(uint64_t sub_ID, uint64_t sub_key, Hash_code* code,
                              uint64_t suffix_mode, int suffix_bits, int k) // FIXME: not working right now
@@ -258,179 +226,11 @@ inline int get_sub_table(uint64_t* get_sub_ID, uint64_t* get_sub_key, uint64_t s
 	return ha_get_sub_table_long(get_sub_ID, get_sub_key, suffix_mode, suffix_bits, code, k);
 }
 
-inline int insert_Total_Count_Table(Total_Count_Table* TCB, Hash_code* code, int k)
-{
-    uint64_t sub_ID, sub_key;
-    if(!get_sub_table(&sub_ID, &sub_key, TCB->suffix_mode, TCB->suffix_bits, code, k))
-    {
-        return 0;
-    }
-
-    khint_t t;  
-    int absent;
-
-    while (__sync_lock_test_and_set(&TCB->sub_h_lock[sub_ID].lock, 1))
-    {
-        while (TCB->sub_h_lock[sub_ID].lock);
-    }
-
-    t = ha_ct_put(TCB->sub_h[sub_ID], sub_key, &absent);
-    if (absent)
-    {
-        kh_val(TCB->sub_h[sub_ID], t) = 1;
-    }
-    else   
-    {
-        //kh_value(TCB->sub_h[sub_ID], t) = kh_value(TCB->sub_h[sub_ID], t) + 1;
-        kh_val(TCB->sub_h[sub_ID], t)++;
-    }
-
-    __sync_lock_release(&TCB->sub_h_lock[sub_ID].lock);
-
-    return 1;
-}
-
-inline int get_Total_Count_Table(Total_Count_Table* TCB, Hash_code* code, int k)
-{
-    uint64_t sub_ID, sub_key;
-    if(!get_sub_table(&sub_ID, &sub_key, TCB->suffix_mode, TCB->suffix_bits, code, k))
-    {
-        return 0;
-    }
-
-    khint_t t;  
-
-    t = ha_ct_get(TCB->sub_h[sub_ID], sub_key);
-
-    if (t != kh_end(TCB->sub_h[sub_ID]))
-    {
-        return kh_val(TCB->sub_h[sub_ID], t);
-    }
-    else
-    {
-        return 0;
-    }
-}
-
-inline uint64_t get_Total_Pos_Table(Total_Pos_Table* PCB, Hash_code* code, int k, uint64_t* r_sub_ID)
-{
-    uint64_t sub_ID, sub_key;
-    if(!get_sub_table(&sub_ID, &sub_key, PCB->suffix_mode, PCB->suffix_bits, code, k))
-    {
-        return (uint64_t)-1;
-    }
-
-    khint_t t;  
-
-    t = ha_pt_get(PCB->sub_h[sub_ID], sub_key);
-
-    if (t != kh_end(PCB->sub_h[sub_ID]))
-    {
-        *r_sub_ID = sub_ID;
-        return kh_val(PCB->sub_h[sub_ID], t);
-    }
-    else
-    {
-        return (uint64_t)-1;
-    }
-}
-
-inline uint64_t count_Total_Pos_Table(Total_Pos_Table* PCB, Hash_code* code, int k)
-{
-    uint64_t sub_ID;
-    uint64_t ret = get_Total_Pos_Table(PCB, code, k, &sub_ID);
-    if(ret != (uint64_t)-1)
-    {
-        return PCB->k_mer_index[ret + 1] - PCB->k_mer_index[ret];
-    }
-    else
-    {
-        return 0;
-    }
-}
-
-
-inline uint64_t locate_Total_Pos_Table(Total_Pos_Table* PCB, Hash_code* code, k_mer_pos** list, int k, uint64_t* r_sub_ID)
-{
-    uint64_t ret = get_Total_Pos_Table(PCB, code, k, r_sub_ID);
-    if(ret != (uint64_t)-1)
-    {
-        *list = PCB->k_mer_index[ret] + PCB->pos;
-        return PCB->k_mer_index[ret + 1] - PCB->k_mer_index[ret];
-    }
-    else
-    {
-        *list = NULL;
-        return 0;
-    }
-}
-
 int cmp_k_mer_pos(const void * a, const void * b);
-
-
-inline uint64_t insert_Total_Pos_Table(Total_Pos_Table* PCB, Hash_code* code, int k, uint64_t readID, uint64_t pos)
-{
-    k_mer_pos* list;
-    int flag = 0;
-    uint64_t sub_ID;
-    uint64_t occ = locate_Total_Pos_Table(PCB, code, &list, k, &sub_ID);
-
-    if (occ)
-    {   
-        while (__sync_lock_test_and_set(&PCB->sub_h_lock[sub_ID].lock, 1))
-        {
-            while (PCB->sub_h_lock[sub_ID].lock);
-        }
-
-        if (list[0].offset + 1 < occ)
-        {
-            list[0].offset++; // if not the last k-mer, this field is reused to keep the number of inserted positions
-            list[list[0].offset].readID = readID;
-            list[list[0].offset].offset = pos;
-            list[list[0].offset].rev = ha_code2rev(code);
-        }
-        else // now comes to the last k-mer position; then save it to list[0]
-        {
-            list[0].readID = readID;
-            list[0].offset = pos;
-			list[0].rev = ha_code2rev(code);
-            flag = 1;
-        }
-
-        __sync_lock_release(&PCB->sub_h_lock[sub_ID].lock);
-
-        //if all pos has been saved, it is safe to sort
-        if (flag && occ>1)
-        {
-            qsort(list, occ, sizeof(k_mer_pos), cmp_k_mer_pos);
-        }
-
-        return 1;
-    }
-    else
-    {
-        return 0;
-    }
-}
-
-void init_Total_Count_Table(int k, Total_Count_Table* TCB);
-void init_Total_Pos_Table(Total_Pos_Table* TCB, Total_Count_Table* pre_TCB);
-void destory_Total_Count_Table(Total_Count_Table* TCB);
-
-void init_Count_Table(Count_Table** table);
-void init_Pos_Table(Count_Table** pre_table, Pos_Table** table);
-void destory_Total_Pos_Table(Total_Pos_Table* TCB);
-void write_Total_Pos_Table(Total_Pos_Table* TCB, char* read_file_name);
-int load_Total_Pos_Table(Total_Pos_Table* TCB, char* read_file_name);
-
-
-
-void Traverse_Counting_Table(Total_Count_Table* TCB, Total_Pos_Table* PCB, int k_mer_min_freq, int k_mer_max_freq);
 
 void init_Candidates_list(Candidates_list* l);
 void clear_Candidates_list(Candidates_list* l);
 void destory_Candidates_list(Candidates_list* l);
-
 
 void init_k_mer_pos_list_alloc(k_mer_pos_list_alloc* list);
 void destory_k_mer_pos_list_alloc(k_mer_pos_list_alloc* list);
@@ -438,23 +238,16 @@ void clear_k_mer_pos_list_alloc(k_mer_pos_list_alloc* list);
 void append_k_mer_pos_list_alloc(k_mer_pos_list_alloc* list, k_mer_pos* n_list, uint64_t n_length, 
 uint64_t n_end_pos, uint8_t n_direction);
 
-
-
 void init_overlap_region_alloc(overlap_region_alloc* list);
 void clear_overlap_region_alloc(overlap_region_alloc* list);
 void destory_overlap_region_alloc(overlap_region_alloc* list);
 void append_window_list(overlap_region* region, uint64_t x_start, uint64_t x_end, int y_start, int y_end, int error,
 int extra_begin, int extra_end, int error_threshold);
 
-
-
 void overlap_region_sort_y_id(overlap_region *a, long long n);
-
 
 void calculate_overlap_region_by_chaining(Candidates_list* candidates, overlap_region_alloc* overlap_list, 
 uint64_t readID, uint64_t readLength, All_reads* R_INF, double band_width_threshold, int add_beg_end);
-
-
 
 void init_fake_cigar(Fake_Cigar* x);
 void destory_fake_cigar(Fake_Cigar* x);
@@ -463,13 +256,13 @@ void add_fake_cigar(Fake_Cigar* x, uint32_t gap_site, int32_t gap_shift);
 void resize_fake_cigar(Fake_Cigar* x, uint64_t size);
 int get_fake_gap_pos(Fake_Cigar* x, int index);
 int get_fake_gap_shift(Fake_Cigar* x, int index);
+
 inline long long y_start_offset(long long x_start, Fake_Cigar* o)
 {
     if(x_start == get_fake_gap_pos(o, o->length - 1))
     {
         return get_fake_gap_shift(o, o->length - 1);
     }
-    
     
     long long i;
     for (i = 0; i < (long long)o->length; i++)
@@ -507,6 +300,5 @@ void init_window_list_alloc(window_list_alloc* x);
 void clear_window_list_alloc(window_list_alloc* x);
 void destory_window_list_alloc(window_list_alloc* x);
 void resize_window_list_alloc(window_list_alloc* x, long long size);
-
 
 #endif

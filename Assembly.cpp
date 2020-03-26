@@ -11,426 +11,13 @@
 #include "Output.h"
 #include "htab.h"
 
-Total_Count_Table TCB;
-Total_Pos_Table PCB;
+void *ha_flt_tab;
+void *ha_idx;
+
 All_reads R_INF;
 pthread_mutex_t statistics;
 
-void* Perform_Counting(void* arg)
-{
-    int i = 0;
-    HPC_seq HPC_read;
-
-    R_buffer_block curr_sub_block;
-
-    init_R_buffer_block(&curr_sub_block);
-
-    long long read_number = 0;
-    long long select_k_mer_number = 0 ;
-    long long k_mer_number = 0 ;
-
-	int file_flag = 1;
-
-    uint64_t code;
-
-    uint64_t end_pos;
-
-    Hash_code k_code;
-
-    int avalible_k = 0;
-
-
-	while (file_flag != 0)
-	{
-
-        file_flag = get_reads_mul_thread(&curr_sub_block);
-
-        read_number = read_number + curr_sub_block.num; 
-
-        for (i = 0; i < curr_sub_block.num; i++)
-        {
-            ///forward strand
-            init_HPC_seq(&HPC_read, curr_sub_block.read[i].seq.s, curr_sub_block.read[i].seq.l);
-            init_Hash_code(&k_code);
-
-            avalible_k = 0;
-
-            while ((code = get_HPC_code(&HPC_read, &end_pos)) != 6)
-            {
-                if(code < 4)
-                {
-                    k_mer_append(&k_code,code, asm_opt.k_mer_length);
-                    avalible_k++;
-                    if (avalible_k >= asm_opt.k_mer_length)
-                    {
-                        if(insert_Total_Count_Table(&TCB, &k_code, asm_opt.k_mer_length))
-                        {
-                            select_k_mer_number++;
-                        }
-
-                        k_mer_number++;
-                    }
-                }
-                else
-                {
-                    avalible_k = 0;
-                    init_Hash_code(&k_code);
-                }
-            }
-        }
-    }
-
-    destory_R_buffer_block(&curr_sub_block);
-    free(arg);
-
-    return NULL;
-}
-
-void* Perform_Counting_non_first(void* arg)
-{
-    int thr_ID = *((int*)arg);
-
-    uint64_t i = 0;
-    HPC_seq HPC_read;
-
-    long long select_k_mer_number = 0 ;
-    long long k_mer_number = 0 ;
-
-    uint64_t code;
-
-    uint64_t end_pos;
-
-    Hash_code k_code;
-
-    int avalible_k = 0;
-
-    UC_Read g_read;
-    init_UC_Read(&g_read);
-
-    for (i = thr_ID; i < R_INF.total_reads; i = i + asm_opt.thread_num)
-    {
-        recover_UC_Read(&g_read, &R_INF, i);
-        ///forward strand
-        init_HPC_seq(&HPC_read, g_read.seq, g_read.length);
-        init_Hash_code(&k_code);
-
-        avalible_k = 0;
-
-        while ((code = get_HPC_code(&HPC_read, &end_pos)) != 6)
-        {
-            if(code < 4)
-            {
-                k_mer_append(&k_code,code, asm_opt.k_mer_length);
-                avalible_k++;
-                if (avalible_k >= asm_opt.k_mer_length)
-                {
-                    if(insert_Total_Count_Table(&TCB, &k_code, asm_opt.k_mer_length))
-                    {
-                        select_k_mer_number++;
-                    }
-                    k_mer_number++;
-                }
-            }
-            else
-            {
-                avalible_k = 0;
-                init_Hash_code(&k_code);
-            }
-        }
-    }
-    
-    destory_UC_Read(&g_read);
-    free(arg);
-
-    return NULL;
-}
-
-void* Build_hash_table_non_first(void* arg)
-{
-    int thr_ID = *((int*)arg);
-
-    uint64_t i = 0;
-    HPC_seq HPC_read;
-    uint64_t code;
-    uint64_t end_pos;
-
-    ///long long HPC_base;
-
-    Hash_code k_code;
-
-    int avalible_k = 0;
-
-    UC_Read g_read;
-    init_UC_Read(&g_read);
-
-    for (i = thr_ID; i < R_INF.total_reads; i = i + asm_opt.thread_num)
-    {
-        recover_UC_Read(&g_read, &R_INF, i);
-        ///forward strand
-        init_HPC_seq(&HPC_read, g_read.seq, g_read.length);
-        init_Hash_code(&k_code);
-
-        avalible_k = 0;
-
-        ///HPC_base = 0;
-
-        while ((code = get_HPC_code(&HPC_read, &end_pos)) != 6)
-        {
-            if(code < 4)
-            {
-                k_mer_append(&k_code,code, asm_opt.k_mer_length);
-                avalible_k++;
-                if (avalible_k >= asm_opt.k_mer_length)
-                {
-                    ///there are two requirements
-                    ///1. hash(k-mer) 
-                    ///2. occ(k-mer) 
-                    ///TCB just meet the first requirement，while PCB needs to meet both of them
-                    insert_Total_Pos_Table(&PCB, &k_code, asm_opt.k_mer_length, i, end_pos);
-                }
-            }
-            else
-            {
-                avalible_k = 0;
-                init_Hash_code(&k_code);
-            }
-        }
-    }
-
-    destory_UC_Read(&g_read);
-    free(arg);
-
-    return NULL;
-}
-
-
-void* Build_hash_table(void* arg)
-{
-
-    int i = 0;
-    HPC_seq HPC_read;
-
-    R_buffer_block curr_sub_block;
-
-    init_R_buffer_block(&curr_sub_block);
-
-	int file_flag = 1;
-
-    uint64_t code;
-    uint64_t end_pos;
-
-    ///long long HPC_base;
-
-    Hash_code k_code;
-
-    int avalible_k = 0;
-
-	while (file_flag != 0)
-	{
-
-        file_flag = get_reads_mul_thread(&curr_sub_block);
-
-
-        for (i = 0; i < curr_sub_block.num; i++)
-        {
- 
-            ///forward strand
-            init_HPC_seq(&HPC_read, curr_sub_block.read[i].seq.s, curr_sub_block.read[i].seq.l);
-            init_Hash_code(&k_code);
-
-            avalible_k = 0;
-
-            ///HPC_base = 0;
-
-            while ((code = get_HPC_code(&HPC_read, &end_pos)) != 6)
-            {
-                if(code < 4)
-                {
-                    k_mer_append(&k_code,code, asm_opt.k_mer_length);
-                    avalible_k++;
-                    if (avalible_k >= asm_opt.k_mer_length)
-                    {
-                       ///there are two requirements
-                       ///1. hash(k-mer) 
-                       ///2. occ(k-mer) 
-                       ///TCB just meet the first requirement，while PCB needs to meet both of them
-                        insert_Total_Pos_Table(&PCB, &k_code, asm_opt.k_mer_length, curr_sub_block.read[i].ID, end_pos);
-                    }
-                }
-                else
-                {
-                    avalible_k = 0;
-                    init_Hash_code(&k_code);
-                }
-            }
-
-            ///load read
-            ha_compress_base(Get_READ(R_INF, curr_sub_block.read[i].ID),
-            curr_sub_block.read[i].seq.s, curr_sub_block.read[i].seq.l, 
-            &R_INF.N_site[curr_sub_block.read[i].ID], HPC_read.N_occ);
-            
-            memcpy(R_INF.name+R_INF.name_index[curr_sub_block.read[i].ID], 
-            curr_sub_block.read[i].name.s, curr_sub_block.read[i].name.l);
-        }
-    }
-
-    destory_R_buffer_block(&curr_sub_block);
-    free(arg);
-
-    return NULL;
-}
-
-
-void Counting_multiple_thr()
-{
-
-    double start_time = Get_T();
-
-    fprintf(stderr, "Begin Counting... \n");
-
-    init_Total_Count_Table(asm_opt.k_mer_length, &TCB);
-
-    pthread_t inputReadsHandle;
-
-    int *is_insert = (int*)malloc(sizeof(*is_insert));
-	*is_insert = 1;
-
-    if (asm_opt.roundID == 0)
-    {
-        init_gz_files(&asm_opt);
-        init_All_reads(&R_INF);
-        init_R_buffer(asm_opt.thread_num);
-        pthread_create(&inputReadsHandle, NULL, input_reads_muti_threads, (void*)is_insert);
-    }
-    
-
-    pthread_t *_r_threads;
-
-	_r_threads = (pthread_t *)malloc(sizeof(pthread_t)*asm_opt.thread_num);
-
-    int i = 0;
-
-	for (i = 0; i < asm_opt.thread_num; i++)
-	{
-		int *arg = (int*)malloc(sizeof(*arg));
-		*arg = i;
-        if (asm_opt.roundID == 0)
-        {
-            pthread_create(_r_threads + i, NULL, Perform_Counting, (void*)arg);
-        }
-        else
-        {
-            pthread_create(_r_threads + i, NULL, Perform_Counting_non_first, (void*)arg);
-        }
-	}
-
-
-    for (i = 0; i < asm_opt.thread_num; i++)
-		pthread_join(_r_threads[i], NULL);
-
-    free(_r_threads);
-
-    ///destory_R_buffer();
-    
-    ///destory_Total_Count_Table(&TCB);
-    if (asm_opt.roundID == 0)
-    {
-        pthread_join(inputReadsHandle, NULL);
-        ///destory_kseq();
-        destory_gz_files();
-    }
-
-    fprintf(stderr, "Counting has been completed.\n");
-
-    fprintf(stderr, "%-30s%18.2f\n\n", "Counting time:", Get_T() - start_time);
-   
-    free(is_insert);
-
-}
-
-
-void Build_hash_table_multiple_thr()
-{
-    double start_time = Get_T();
-
-    fprintf(stderr, "Begin building hash table... \n");
-
-    init_Total_Pos_Table(&PCB, &TCB);
-
-    double T_start_time = Get_T();
-
-    Traverse_Counting_Table(&TCB, &PCB, asm_opt.k_mer_min_freq, asm_opt.k_mer_max_freq);
-
-    fprintf(stderr, "%-30s%18.2f\n\n", "Traverse time:", Get_T() - T_start_time);
-   
-    ///at this moment, TCB can be free
-    destory_Total_Count_Table(&TCB);
-
-    pthread_t inputReadsHandle;
-
-    int *is_insert = (int*)malloc(sizeof(*is_insert));
-	*is_insert = 0;
-
-    if (asm_opt.roundID == 0)
-    {
-        init_gz_files(&asm_opt);
-        clear_R_buffer();
-        malloc_All_reads(&R_INF);
-        pthread_create(&inputReadsHandle, NULL, input_reads_muti_threads, (void*)is_insert);
-    }
-
-
-
-    pthread_t *_r_threads;
-
-	_r_threads = (pthread_t *)malloc(sizeof(pthread_t) * asm_opt.thread_num);
-
-    int i = 0;
-
-	for (i = 0; i < asm_opt.thread_num; i++)
-	{
-		int *arg = (int*)malloc(sizeof(*arg));
-		*arg = i;
-
-        if (asm_opt.roundID == 0)
-        {
-            pthread_create(_r_threads + i, NULL, Build_hash_table, (void*)arg);
-        }
-        else
-        {
-            pthread_create(_r_threads + i, NULL, Build_hash_table_non_first, (void*)arg);
-        }
-	}
-
-    if (asm_opt.roundID == 0)
-    {
-        pthread_join(inputReadsHandle, NULL);
-    }
-
-    for (i = 0; i < asm_opt.thread_num; i++)
-		pthread_join(_r_threads[i], NULL);
-
-    free(_r_threads);
-
-    
-
-    fprintf(stderr, "Hash table has been built.\n");
-
-    fprintf(stderr, "%-30s%18.2f\n\n", "Build hash table time:", Get_T() - start_time);
-
-    if (asm_opt.roundID == 0)
-    {
-        ///destory_kseq();
-        destory_gz_files();
-        destory_R_buffer();
-    }
-    
-    free(is_insert);
-}
-
-
-void get_corrected_read_from_cigar(Cigar_record* cigar, char* pre_read, int pre_length,
-char* new_read, int* new_length)
+void get_corrected_read_from_cigar(Cigar_record* cigar, char* pre_read, int pre_length, char* new_read, int* new_length)
 {
     int i, j;
     int pre_i, new_i;
@@ -452,7 +39,7 @@ char* new_read, int* new_length)
         }
         else if (operation == 1)
         {
-            
+
             for (j = 0; j < operation_length; j++)
             {
                 new_read[new_i] = Get_MisMatch_Base(cigar->lost_base[diff_char_i]);
@@ -499,7 +86,7 @@ void get_uncorrected_read_from_cigar(Cigar_record* cigar, char* new_read, int ne
         }
         else if (operation == 1)
         {
-            
+
             for (j = 0; j < operation_length; j++)
             {
                 pre_read[pre_i] = Get_Match_Base(cigar->lost_base[diff_char_i]);
@@ -538,8 +125,7 @@ inline int get_cigar_errors(Cigar_record* cigar)
     return total_errors;
 }
 
-int debug_cigar(Cigar_record* cigar, char* pre_read, int pre_length,
-char* new_read, int new_length, int correct_base)
+int debug_cigar(Cigar_record* cigar, char* pre_read, int pre_length, char* new_read, int new_length, int correct_base)
 {
     int i;
     int total_errors = 0;
@@ -556,12 +142,9 @@ char* new_read, int new_length, int correct_base)
         fprintf(stderr, "total_errors: %d, correct_base: %d\n", total_errors, correct_base);
     }
 
-    
-
     int pre_i, new_i;
     int operation, operation_length;
     pre_i = new_i = 0;
-
 
     for (i = 0; i < (long long)cigar->length; i++)
     {
@@ -589,24 +172,21 @@ char* new_read, int new_length, int correct_base)
         {
             new_i = new_i + operation_length;
         }
-        
+
     }
-
-
 
     if (pre_i != pre_length)
     {
         fprintf(stderr, "pre_i: %d, pre_length: %d\n", pre_i, pre_length);
     }
-    
-    
+
+
     if(new_i != new_length)
     {
         fprintf(stderr, "new_i: %d, new_length: %d\n", new_i, new_length);
     }
 
     return 1;
-    
 
     char* tmp_seq = (char*)malloc(new_length + pre_length);
     int tmp_length;
@@ -624,12 +204,9 @@ char* new_read, int new_length, int correct_base)
     }
 
 
-
-
-    
     get_uncorrected_read_from_cigar(cigar, new_read, new_length, tmp_seq, &tmp_length);
 
-    
+
     if(tmp_length != pre_length)
     {
         fprintf(stderr, "tmp_length: %d, pre_length: %d\n", tmp_length, pre_length);
@@ -639,7 +216,7 @@ char* new_read, int new_length, int correct_base)
     {
         fprintf(stderr, "error pre string\n");
     }
-    
+
 
     free(tmp_seq);
 
@@ -652,7 +229,6 @@ char* new_read, int new_length, int correct_base)
 
 inline void push_cigar(Compressed_Cigar_record* records, long long ID, Cigar_record* input)
 {
-
     if (input->length > records[ID].size)
     {
         records[ID].size = input->length;
@@ -673,8 +249,7 @@ inline void push_cigar(Compressed_Cigar_record* records, long long ID, Cigar_rec
 }
 
 
-void push_overlaps(ma_hit_t_alloc* paf, overlap_region_alloc* overlap_list, int flag, 
-All_reads* R_INF, int if_reverse)
+void push_overlaps(ma_hit_t_alloc* paf, overlap_region_alloc* overlap_list, int flag, All_reads* R_INF, int if_reverse)
 {
     long long i = 0, xLen, yLen;
     ma_hit_t tmp;
@@ -689,7 +264,7 @@ All_reads* R_INF, int if_reverse)
             tmp.qns = overlap_list->list[i].x_id;
             tmp.qns = tmp.qns << 32;
             tmp.tn = overlap_list->list[i].y_id;
-        
+
             if(if_reverse != 0)
             {
                 tmp.qns = tmp.qns | (uint64_t)(xLen - overlap_list->list[i].x_pos_s - 1);
@@ -704,8 +279,8 @@ All_reads* R_INF, int if_reverse)
                 tmp.ts = overlap_list->list[i].y_pos_s;
                 tmp.te = overlap_list->list[i].y_pos_e;
             }
-            
-    
+
+
             ///for overlap_list, the x_strand of all overlaps are 0, so the tmp.rev is the same as the y_strand
             tmp.rev = overlap_list->list[i].y_pos_strand;
 
@@ -717,12 +292,9 @@ All_reads* R_INF, int if_reverse)
             add_ma_hit_t_alloc(paf, &tmp);
         }
     }
-    
 }
 
-
-int if_exact_match(char* x, long long xLen, char* y, long long yLen, 
-long long xBeg, long long xEnd, long long yBeg, long long yEnd)
+int if_exact_match(char* x, long long xLen, char* y, long long yLen, long long xBeg, long long xEnd, long long yBeg, long long yEnd)
 {
     long long overlapLen = xEnd - xBeg + 1;
 
@@ -743,12 +315,11 @@ long long xBeg, long long xEnd, long long yBeg, long long yEnd)
             return 1;
         }
     }
-    
+
     return 0;
 }
 
-long long push_final_overlaps(ma_hit_t_alloc* paf, ma_hit_t_alloc* reverse_paf_list, 
-overlap_region_alloc* overlap_list, int flag)
+long long push_final_overlaps(ma_hit_t_alloc* paf, ma_hit_t_alloc* reverse_paf_list, overlap_region_alloc* overlap_list, int flag)
 {
     long long i = 0;
     long long available_overlaps = 0;
@@ -790,7 +361,7 @@ overlap_region_alloc* overlap_list, int flag)
             ///the end pos is open
             tmp.te++;
             /**********************target***************************/
-            
+
             tmp.bl = R_INF.read_length[overlap_list->list[i].y_id];
             tmp.ml = overlap_list->list[i].strong;
             tmp.no_l_indel = overlap_list->list[i].without_large_indel;
@@ -835,7 +406,7 @@ void get_new_candidates(long long readID, UC_Read* g_read, overlap_region_alloc*
             avalible_k++;
             if (avalible_k >= asm_opt.k_mer_length)
             {
-                list_length = locate_Total_Pos_Table(&PCB, &k_code, &list, asm_opt.k_mer_length, &sub_ID);
+                //list_length = locate_Total_Pos_Table(&PCB, &k_code, &list, asm_opt.k_mer_length, &sub_ID);
 
                 if (list_length != 0)
                 {
@@ -950,7 +521,7 @@ void* Overlap_calculate_heap_merge(void* arg)
     destory_Correct_dumy(&correct);
     destoryHaplotypeEvdience(&hap);
     destory_Round2_alignment(&second_round);
-    
+
 
 
     pthread_mutex_lock(&statistics);
@@ -988,7 +559,7 @@ void* Output_related_reads(void* arg)
     init_Graph(&DAGCon);
     init_Graph(&POA_Graph);
 
-    
+
     init_Candidates_list(&l);
     //init_Candidates_list(&debug_l);
 
@@ -1021,7 +592,7 @@ void* Output_related_reads(void* arg)
     long long required_read_name_length = strlen(asm_opt.required_read_name);
     for (i = thr_ID; i < (long long)R_INF.total_reads; i = i + asm_opt.thread_num)
     {
-        
+
         if(required_read_name_length == (long long)Get_NAME_LENGTH((R_INF),i)
             &&
            memcmp(asm_opt.required_read_name, Get_NAME((R_INF), i), Get_NAME_LENGTH((R_INF),i)) == 0)
@@ -1043,7 +614,7 @@ void* Output_related_reads(void* arg)
                 recover_UC_Read(&g_read, &R_INF, overlap_list.list[k].y_id);
                 fprintf(stderr, "%.*s\n", (int)g_read.length, g_read.seq);
             }
-            
+
         }
     }
 
@@ -1061,7 +632,7 @@ void* Output_related_reads(void* arg)
     destory_Correct_dumy(&correct);
     destoryHaplotypeEvdience(&hap);
     destory_Round2_alignment(&second_round);
-    
+
 
     free(arg);
 
@@ -1103,7 +674,7 @@ void* Save_corrected_reads(void* arg)
 
     char* new_read;
     int new_read_length;
-    
+
     for (i = thr_ID; i < (long long)R_INF.total_reads; i = i + asm_opt.thread_num)
     {
         recover_UC_Read(&g_read, &R_INF, i);
@@ -1121,7 +692,7 @@ void* Save_corrected_reads(void* arg)
         cigar.lost_base = R_INF.cigars[i].lost_base;
 
         get_corrected_read_from_cigar(&cigar, g_read.seq, g_read.length, first_round_read, &first_round_read_length);
-        
+
         /********************************1 round******************************/
 
         /********************************2 round******************************/
@@ -1136,16 +707,16 @@ void* Save_corrected_reads(void* arg)
         cigar.lost_base = R_INF.second_round_cigar[i].lost_base;
         get_corrected_read_from_cigar(&cigar, first_round_read, first_round_read_length, 
         second_round_read, &second_round_read_length);
-        
+
         /********************************2 round******************************/
 
 
-        
+
 
         new_read = second_round_read;
         new_read_length = second_round_read_length;
 
-        
+
         if (asm_opt.roundID != asm_opt.number_of_round - 1)
         {
             ///need modification
@@ -1157,10 +728,10 @@ void* Save_corrected_reads(void* arg)
             reverse_complement(new_read, new_read_length);
         }
 
-        
+
         N_occ = get_N_occ(new_read, new_read_length);
 
-        
+
         if((long long)R_INF.read_size[i] < new_read_length)
         {
             R_INF.read_size[i] = new_read_length;
@@ -1168,7 +739,7 @@ void* Save_corrected_reads(void* arg)
         }
 
         R_INF.read_length[i] = new_read_length;
-        
+
 
         ha_compress_base(Get_READ(R_INF, i),
             new_read, new_read_length, 
@@ -1210,9 +781,9 @@ void Output_corrected_reads()
 void Overlap_calculate_multipe_thr()
 {
     double start_time = Get_T();
-    
+
     fprintf(stderr, "Begin calculating overlaps... \n");
-    
+
     pthread_t *_r_threads;
 
 	_r_threads = (pthread_t *)malloc(sizeof(pthread_t)*asm_opt.thread_num);
@@ -1232,7 +803,7 @@ void Overlap_calculate_multipe_thr()
             pthread_create(_r_threads + i, NULL, Output_related_reads, (void*)arg);
         }
 	}
-    
+
 
     for (i = 0; i < asm_opt.thread_num; i++)
 		pthread_join(_r_threads[i], NULL);
@@ -1246,7 +817,8 @@ void Overlap_calculate_multipe_thr()
     }
 
 
-    destory_Total_Pos_Table(&PCB);
+	ha_idx_destroy(ha_idx);
+	ha_idx = 0;
 
     fprintf(stderr, "All overlaps have been calculated.\n");
 
@@ -1269,14 +841,14 @@ void Overlap_calculate_multipe_thr()
 
     fprintf(stderr, "%-30s%18.2f\n\n", "Corrected read saving time:", Get_T() - start_time);   
 
-    
+
     ///only the last round can output read to disk
     if (asm_opt.roundID == asm_opt.number_of_round - 1)
     {
         start_time = Get_T();
-        
+
         Output_corrected_reads();
-        
+
         fprintf(stderr, "%-30s%18.2f\n\n", "Output time:", Get_T() - start_time);    
     }
 }
@@ -1357,7 +929,7 @@ UC_Read* g_read, UC_Read* overlap_read, int is_match, int is_exact)
             {
                 overlap_list->list[j].is_match = 3;
             }
-            
+
             j++;
             inner_j++;
         }
@@ -1400,7 +972,7 @@ void statistic(ma_hit_t_alloc* paf, ma_hit_t_alloc* rev_paf, long long readNum)
     long long forward, reverse, strong, weak, exact, no_l_indel;
     no_l_indel = forward = reverse = exact = strong = weak = 0;
     long long i, j;
-    
+
     for (i = 0; i < readNum; i++)
     {
         forward += paf[i].length;
@@ -1495,7 +1067,7 @@ long long x_readLen, long long y_readLen, Cigar_record* cigar, uint8_t* c2n)
             // if(bandLen == 0) bandLen = MIN(xRegionLen, yRegionLen);
         }
 
-        
+
         ///do alignment forward
         kv_resize(uint8_t, x_num, (uint64_t)xRegionLen);
         kv_resize(uint8_t, y_num, (uint64_t)yRegionLen);
@@ -1519,9 +1091,9 @@ UC_Read* g_read, UC_Read* overlap_read, uint8_t* c2n)
     char* y_string;
     Cigar_record* cigar;
     resize_Cigar_record_alloc(cigarline, overlap_list->length);
-    
 
-    
+
+
     for (i = 0; i < overlap_list->length; i++)
     {
         if(overlap_list->list[i].is_match == 1 ||
@@ -1554,10 +1126,10 @@ UC_Read* g_read, UC_Read* overlap_read, uint8_t* c2n)
                 Get_READ_LENGTH(R_INF, overlap_list->list[i].x_id), 
                 Get_READ_LENGTH(R_INF, overlap_list->list[i].y_id), cigar, c2n);
             }
-            
+
         }
     }
-    
+
 }
 
 void* Final_overlap_calculate_heap_merge(void* arg)
@@ -1617,7 +1189,7 @@ void* Final_overlap_calculate_heap_merge(void* arg)
         push_final_overlaps(&(R_INF.reverse_paf[i]), R_INF.reverse_paf, 
         &overlap_list, 2);
 
-        
+
     }
 
     finish_output_buffer();
@@ -1628,7 +1200,7 @@ void* Final_overlap_calculate_heap_merge(void* arg)
     destory_UC_Read(&g_read);
     destory_UC_Read(&overlap_read);
     destory_Cigar_record_alloc(&cigarline);
-    
+
 
     pthread_mutex_lock(&statistics);
     asm_opt.complete_threads++;
@@ -1685,7 +1257,7 @@ void Output_PAF()
             fprintf(output_file, "%d\t", sources[i].buffer[j].ml);
             fprintf(output_file, "%d\t", sources[i].buffer[j].bl);
             fprintf(output_file, "255\n");
-            
+
         }
     }
 
@@ -1712,7 +1284,7 @@ int check_cluster(uint64_t* list, long long listLen, ma_hit_t_alloc* paf, float 
             {
                 A_edges++;
             }
-            
+
             if(get_specific_overlap(&(paf[tn]), tn, qn) != -1)
             {
                 A_edges++;
@@ -1720,7 +1292,7 @@ int check_cluster(uint64_t* list, long long listLen, ma_hit_t_alloc* paf, float 
 
             T_edges = T_edges + 2;
         }
-        
+
     }
 
     if(A_edges >= (T_edges*threshold))
@@ -1747,7 +1319,7 @@ long long readNum, long long rescue_threshold, float cluster_threshold)
     kv_init(edge_vector_index);
     uint64_t flag;
     int index;
-    
+
     for (i = 0; i < readNum; i++)
     {
         edge_vector.n = 0;
@@ -1813,15 +1385,13 @@ long long readNum, long long rescue_threshold, float cluster_threshold)
 }
 
 
-
 void generate_overlaps(int last_round)
 {
     double start_time = Get_T();
     asm_opt.roundID = asm_opt.number_of_round - last_round;
     fprintf(stderr, "Begin calculting final overlaps ...\n");
 
-    Counting_multiple_thr();
-    Build_hash_table_multiple_thr();
+	ha_idx = ha_gen_mzidx(&asm_opt, ha_flt_tab, asm_opt.roundID == 0? 0 : 1, &R_INF);
 
     pthread_t *_r_threads;
 
@@ -1835,14 +1405,15 @@ void generate_overlaps(int last_round)
         *arg = i;
         pthread_create(_r_threads + i, NULL, Final_overlap_calculate_heap_merge, (void*)arg);
     }
-    
+
 
     for (i = 0; i < asm_opt.thread_num; i++)
         pthread_join(_r_threads[i], NULL);
     free(_r_threads);
 
     ///rescue_edges(R_INF.paf, R_INF.reverse_paf, R_INF.total_reads, 4, 0.985);
-    destory_Total_Pos_Table(&PCB);
+	ha_idx_destroy(ha_idx);
+	ha_idx = 0;
 
     fprintf(stderr, "Final overlaps have been calculated.\n");
     fprintf(stderr, "%-30s%18.2f\n\n", "Final overlaps calculation time:", Get_T() - start_time); 
@@ -1850,7 +1421,7 @@ void generate_overlaps(int last_round)
     Output_PAF();
 
     trio_partition();
-    
+
     build_string_graph_without_clean(asm_opt.min_overlap_coverage, R_INF.paf, R_INF.reverse_paf, 
     R_INF.total_reads, R_INF.read_length, asm_opt.min_overlap_Len, asm_opt.max_hang_Len, asm_opt.clean_round, 
     asm_opt.gap_fuzz, asm_opt.min_drop_rate, asm_opt.max_drop_rate, asm_opt.output_file_name, 
@@ -1860,20 +1431,18 @@ void generate_overlaps(int last_round)
 
 void Correct_Reads(int last_round)
 {
-    
-    if(asm_opt.load_index_from_disk && load_all_data_from_disk(&R_INF.paf, &R_INF.reverse_paf, 
-    asm_opt.output_file_name))
+    if (asm_opt.load_index_from_disk && load_all_data_from_disk(&R_INF.paf, &R_INF.reverse_paf, asm_opt.output_file_name))
     {
         build_string_graph_without_clean(asm_opt.min_overlap_coverage, R_INF.paf, R_INF.reverse_paf, 
         R_INF.total_reads, R_INF.read_length, asm_opt.min_overlap_Len, asm_opt.max_hang_Len, asm_opt.clean_round, 
         asm_opt.gap_fuzz, asm_opt.min_drop_rate, asm_opt.max_drop_rate, asm_opt.output_file_name, asm_opt.large_pop_bubble_size, 0, 0);
-        exit(1);
+        exit(0);
     }
     else
     {
         ///fprintf(stderr, "Cannot find overlap file. Please run the whole hifiasm.\n");
     }
-    
+
     clear_opt(&asm_opt, last_round);
 
     if(last_round == 0)
@@ -1881,12 +1450,12 @@ void Correct_Reads(int last_round)
         generate_overlaps(last_round);
         return;
     }
-        
+
     fprintf(stderr, "Error correction: Start the %d-th round ...\n", asm_opt.roundID);
-    
-    Counting_multiple_thr();
-    Build_hash_table_multiple_thr();
+
+	ha_idx = ha_gen_mzidx(&asm_opt, ha_flt_tab, asm_opt.roundID == 0? 0 : 1, &R_INF);
     Overlap_calculate_multipe_thr();
+	ha_idx_destroy(ha_idx);
 
     fprintf(stderr, "Error correction: The %d-th round has been completed.\n", asm_opt.roundID);
 

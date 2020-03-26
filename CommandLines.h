@@ -53,7 +53,7 @@ extern hifiasm_opt_t asm_opt;
 void init_opt(hifiasm_opt_t* asm_opt);
 void destory_opt(hifiasm_opt_t* asm_opt);
 void clear_opt(hifiasm_opt_t* asm_opt, int last_round);
-int CommandLine_process (int argc, char *argv[], hifiasm_opt_t* asm_opt);
+int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt);
 double Get_T(void);
 
 #endif
