@@ -170,64 +170,6 @@ typedef struct
     Chain_Data chainDP;
 } Candidates_list;
 
-////suffix_bits = 64 in default
-inline int recover_hash_code(uint64_t sub_ID, uint64_t sub_key, Hash_code* code,
-                             uint64_t suffix_mode, int suffix_bits, int k) // FIXME: not working right now
-{
-    uint64_t h_key, low_key;
-    h_key = low_key = 0;
-
-    low_key = sub_ID << SAFE_SHIFT(suffix_bits);
-    low_key = low_key | sub_key;
-
-    h_key = sub_ID >> (64 - suffix_bits);
-
-    code->x[0] = code->x[1] = 0;
-    uint64_t mask = ALL >> (64 - k);
-    code->x[0] = low_key & mask;
-
-    code->x[1] = h_key << (64 - k);
-    code->x[1] = code->x[1] | (low_key >> SAFE_SHIFT(k));
-
-    return 1;
-}
-
-static inline int ha_code2rev(const Hash_code *code)
-{
-	return code->x[1] < code->x[3]? 0 : 1;
-}
-
-static inline int ha_get_sub_table_short(uint64_t* get_sub_ID, uint64_t* get_sub_key, uint64_t suffix_mode, int suffix_bits, Hash_code* code, int k)
-{ // for k < 32
-	int j = ha_code2rev(code);
-	uint64_t y = code->x[j<<1|1] << k | code->x[j<<1|0];
-	y = yak_hash64(y, (1ULL<<(k+k)) - 1);
-	if (y % MODE_VALUE > 3) return 0;
-	*get_sub_ID = y >> suffix_bits;
-	*get_sub_key = y & suffix_mode;
-	return 1;
-}
-
-static inline int ha_get_sub_table_long(uint64_t* get_sub_ID, uint64_t* get_sub_key, uint64_t suffix_mode, int suffix_bits, Hash_code* code, int k)
-{ // for k > 32
-	int j = ha_code2rev(code);
-	uint64_t y = code->x[j<<1|1] << k | code->x[j<<1|0];
-	y = yak_hash64_64(y);
-	if (y % MODE_VALUE > 3) return 0;
-	int s = 64 - k;
-	uint64_t z = code->x[j<<1|1] >> s ^ y << (s + s) >> (s + s);
-	*get_sub_ID = y >> suffix_bits | z << (64 - suffix_bits);
-	*get_sub_key = y & suffix_mode;
-	return 1;
-}
-
-inline int get_sub_table(uint64_t* get_sub_ID, uint64_t* get_sub_key, uint64_t suffix_mode, int suffix_bits, Hash_code* code, int k)
-{ // not really working for k<=32
-	return ha_get_sub_table_long(get_sub_ID, get_sub_key, suffix_mode, suffix_bits, code, k);
-}
-
-int cmp_k_mer_pos(const void * a, const void * b);
-
 void init_Candidates_list(Candidates_list* l);
 void clear_Candidates_list(Candidates_list* l);
 void destory_Candidates_list(Candidates_list* l);

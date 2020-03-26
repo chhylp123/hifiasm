@@ -723,22 +723,6 @@ void append_k_mer_pos_list_alloc(k_mer_pos_list_alloc* list, k_mer_pos* n_list, 
     list->length++;
 }
 
-int cmp_k_mer_pos_list(const void * a, const void * b)
-{
-    if ((*(k_mer_pos_list*)a).length > (*(k_mer_pos_list*)b).length)
-    {
-        return 1;
-    }
-    else if ((*(k_mer_pos_list*)a).length < (*(k_mer_pos_list*)b).length)
-    {
-        return -1;
-    }
-    else
-    {
-        return 0;
-    }
-}
-
 void test_single_list(Candidates_list* candidates, k_mer_pos* n_list, uint64_t n_lengh, uint64_t end_pos, uint64_t strand)
 {
     uint64_t i;
