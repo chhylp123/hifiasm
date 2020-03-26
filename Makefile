@@ -52,10 +52,11 @@ POA.o: kvec.h kdq.h CommandLines.h htab.h Correct.h Levenshtein_distance.h
 Process_Read.o: Process_Read.h kseq.h Overlaps.h kvec.h kdq.h CommandLines.h
 Trio.o: khashl.h kthread.h Process_Read.h kseq.h Overlaps.h kvec.h kdq.h
 Trio.o: CommandLines.h htab.h
-hist.o: htab.h
-htab.o: kthread.h khashl.h kseq.h htab.h CommandLines.h
+hist.o: htab.h Process_Read.h kseq.h Overlaps.h kvec.h kdq.h CommandLines.h
+htab.o: kthread.h khashl.h kseq.h ksort.h htab.h Process_Read.h Overlaps.h
+htab.o: kvec.h kdq.h CommandLines.h
 kthread.o: kthread.h
 main.o: CommandLines.h Process_Read.h kseq.h Overlaps.h kvec.h kdq.h
 main.o: Assembly.h Levenshtein_distance.h htab.h
-sketch.o: kvec.h htab.h
-sys.o: htab.h
+sketch.o: kvec.h htab.h Process_Read.h kseq.h Overlaps.h kdq.h CommandLines.h
+sys.o: htab.h Process_Read.h kseq.h Overlaps.h kvec.h kdq.h CommandLines.h

@@ -17,13 +17,14 @@ int main(int argc, char *argv[])
     if (!CommandLine_process(argc, argv, &asm_opt)) return 1;
 
 	yak_reset_realtime();
-	flt_tab = ha_gen_flt_tab(&asm_opt);
-	idx = ha_gen_mzidx(&asm_opt, flt_tab);
+	flt_tab = ha_gen_flt_tab(&asm_opt, &R_INF);
+	idx = ha_gen_mzidx(&asm_opt, flt_tab, &R_INF);
 	ha_idx_destroy(idx);
 	ha_ft_destroy(flt_tab);
 	if (0) {
 	    Correct_Reads(asm_opt.number_of_round);
 	}
+	destory_All_reads(&R_INF);
     destory_opt(&asm_opt);
 	fprintf(stderr, "[M::%s] Version: %s\n", __func__, "dummy");
 	fprintf(stderr, "[M::%s] CMD:", __func__);

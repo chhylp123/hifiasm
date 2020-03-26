@@ -9,8 +9,6 @@
 #include "kseq.h"
 #include "ksort.h"
 #include "htab.h"
-#include "Process_Read.h"
-#include "CommandLines.h"
 
 #define YAK_COUNTER_BITS 12
 #define YAK_N_COUNTS     (1<<YAK_COUNTER_BITS)
@@ -468,20 +466,25 @@ static void count_seq_buf_HPC(ch_buf_t *buf, int k, int p, int len, const char *
 
 #define HAF_COUNT_EXACT  0x1
 #define HAF_COUNT_ALL    0x2
+#define HAF_RS_WRITE_LEN 0x4
+#define HAF_RS_WRITE_SEQ 0x8
+#define HAF_RS_READ      0x10
 
 typedef struct { // global data structure for kt_pipeline()
 	const yak_copt_t *opt;
 	const void *flt_tab;
 	int flag, create_new, is_store;
-	uint64_t batch_offset;
-	uint64_t n_base;
+	uint64_t n_seq;
 	kseq_t *ks;
 	ha_ct_t *ct;
 	ha_pt_t *pt;
+	const All_reads *rs_in;
+	All_reads *rs_out;
 } pl_data_t;
 
 typedef struct { // data structure for each step in kt_pipeline()
 	pl_data_t *p;
+	uint64_t n_seq0;
 	int n_seq, m_seq, sum_len, nk;
 	int *len;
 	char **seq;
@@ -505,7 +508,7 @@ static void worker_for_mz(void *data, long i, int tid)
 	st_data_t *s = (st_data_t*)data;
 	ha_mz1_v *b = &s->mz_buf[tid];
 	s->mz_buf[tid].n = 0;
-	ha_sketch(s->seq[i], s->len[i], s->p->opt->w, s->p->opt->k, s->p->batch_offset + i, s->p->opt->is_HPC, b, s->p->flt_tab);
+	ha_sketch(s->seq[i], s->len[i], s->p->opt->w, s->p->opt->k, s->n_seq0 + i, s->p->opt->is_HPC, b, s->p->flt_tab);
 	s->mz[i].n = s->mz[i].m = b->n;
 	MALLOC(s->mz[i].a, b->n);
 	memcpy(s->mz[i].a, b->a, b->n * sizeof(ha_mz1_t));
@@ -519,25 +522,42 @@ static void *worker_count(void *data, int step, void *in) // callback for kt_pip
 		st_data_t *s;
 		CALLOC(s, 1);
 		s->p = p;
-		while ((ret = kseq_read(p->ks)) >= 0) {
-			int l = p->ks->seq.l;
-			if (p->batch_offset + s->n_seq >= (1<<28) - 1) {
-				fprintf(stderr, "ERROR: this implementation supports no more than %d reads\n", (1<<28) - 1);
-				exit(1);
+		s->n_seq0 = p->n_seq;
+		if (p->rs_in && (p->flag & HAF_RS_READ)) {
+		} else {
+			while ((ret = kseq_read(p->ks)) >= 0) {
+				int l = p->ks->seq.l;
+				if (p->n_seq >= 1<<28) {
+					fprintf(stderr, "ERROR: this implementation supports no more than %d reads\n", 1<<28);
+					exit(1);
+				}
+				if (p->rs_out) {
+					if (p->flag & HAF_RS_WRITE_LEN) {
+						assert(p->n_seq == p->rs_out->total_reads);
+						ha_insert_read_len(p->rs_out, l, p->ks->name.l);
+					} else if (p->flag & HAF_RS_WRITE_SEQ) {
+						int i, n_N;
+						for (i = n_N = 0; i < l; ++i) // count number of ambiguous bases
+							if (seq_nt4_table[(uint8_t)p->ks->seq.s[i]] >= 4)
+								++n_N;
+						assert(l == (int)p->rs_out->read_length[p->n_seq]);
+						ha_compress_base(Get_READ(*p->rs_out, p->n_seq), p->ks->seq.s, l, &p->rs_out->N_site[p->n_seq], n_N);
+					}
+				}
+				if (s->n_seq == s->m_seq) {
+					s->m_seq = s->m_seq < 16? 16 : s->m_seq + (s->m_seq>>1);
+					REALLOC(s->len, s->m_seq);
+					REALLOC(s->seq, s->m_seq);
+				}
+				MALLOC(s->seq[s->n_seq], l);
+				memcpy(s->seq[s->n_seq], p->ks->seq.s, l);
+				s->len[s->n_seq++] = l;
+				++p->n_seq;
+				s->sum_len += l;
+				s->nk += l - p->opt->k + 1;
+				if (s->sum_len >= p->opt->chunk_size)
+					break;
 			}
-			p->n_base += l;
-			if (s->n_seq == s->m_seq) {
-				s->m_seq = s->m_seq < 16? 16 : s->m_seq + (s->m_seq>>1);
-				REALLOC(s->len, s->m_seq);
-				REALLOC(s->seq, s->m_seq);
-			}
-			MALLOC(s->seq[s->n_seq], l);
-			memcpy(s->seq[s->n_seq], p->ks->seq.s, l);
-			s->len[s->n_seq++] = l;
-			s->sum_len += l;
-			s->nk += l - p->opt->k + 1;
-			if (s->sum_len >= p->opt->chunk_size)
-				break;
 		}
 		if (s->sum_len == 0) free(s);
 		else return s;
@@ -601,17 +621,16 @@ static void *worker_count(void *data, int step, void *in) // callback for kt_pip
 		}
 		if (p->ct) p->ct->tot += n_ins;
 		if (p->pt) p->pt->tot_pos += n_ins;
-		p->batch_offset += s->n_seq;
 		free(s->buf);
 		fprintf(stderr, "[M::%s::%.3f*%.2f] processed %ld sequences; %ld %s in the hash table\n", __func__,
-				yak_realtime(), yak_cputime() / yak_realtime(), (long)p->batch_offset,
+				yak_realtime(), yak_cputime() / yak_realtime(), (long)s->n_seq0 + s->n_seq,
 				(long)(p->pt? p->pt->tot_pos : p->ct->tot), p->pt? "positions" : "distinct k-mers");
 		free(s);
 	}
 	return 0;
 }
 
-static ha_ct_t *yak_count(const yak_copt_t *opt, const char *fn, int flag, ha_pt_t *p0, ha_ct_t *c0, const void *flt_tab)
+static ha_ct_t *yak_count(const yak_copt_t *opt, const char *fn, int flag, ha_pt_t *p0, ha_ct_t *c0, const void *flt_tab, All_reads *rs)
 {
 	pl_data_t pl;
 	gzFile fp;
@@ -620,6 +639,11 @@ static ha_ct_t *yak_count(const yak_copt_t *opt, const char *fn, int flag, ha_pt
 	pl.ks = kseq_init(fp);
 	pl.flt_tab = flt_tab;
 	pl.opt = opt;
+	pl.flag = flag;
+	if (flag & (HAF_RS_WRITE_LEN|HAF_RS_WRITE_SEQ))
+		pl.rs_out = rs;
+	else if (flag & HAF_RS_READ)
+		pl.rs_in = rs;
 	if (p0) {
 		pl.pt = p0, pl.create_new = 0;
 		assert(p0->k == opt->k && p0->pre == opt->pre);
@@ -636,28 +660,26 @@ static ha_ct_t *yak_count(const yak_copt_t *opt, const char *fn, int flag, ha_pt
 	return pl.ct;
 }
 
-static ha_ct_t *yak_count_file(const yak_copt_t *opt, int flag, ha_pt_t *p0, int n_fn, char **fn, const void *flt_tab)
+ha_ct_t *ha_count(const hifiasm_opt_t *asm_opt, int flag, ha_pt_t *p0, const void *flt_tab, All_reads *rs)
 {
 	int i;
-	ha_ct_t *h = 0;
-	for (i = 0; i < n_fn; ++i)
-		h = yak_count(opt, fn[i], flag, p0, h, flt_tab);
-	if (h && opt->bf_shift > 0)
-		ha_ct_destroy_bf(h);
-	return h;
-}
-
-ha_ct_t *ha_count(const hifiasm_opt_t *asm_opt, int flag, ha_pt_t *p0, const void *flt_tab)
-{
 	yak_copt_t opt;
-	ha_ct_t *h;
+	ha_ct_t *h = 0;
+	assert(!(flag & HAF_RS_WRITE_LEN) || !(flag & HAF_RS_WRITE_SEQ)); // not both
+	if (flag & HAF_RS_WRITE_LEN)
+		init_All_reads(rs);
+	else if (flag & HAF_RS_WRITE_SEQ)
+		malloc_All_reads(rs);
 	yak_copt_init(&opt);
 	opt.k = asm_opt->k_mer_length;
 	opt.is_HPC = !asm_opt->no_HPC;
 	opt.w = flag & HAF_COUNT_ALL? 1 : asm_opt->mz_win;
 	opt.bf_shift = flag & HAF_COUNT_EXACT? 0 : asm_opt->bf_shift;
 	opt.n_thread = asm_opt->thread_num;
-	h = yak_count_file(&opt, flag, p0, asm_opt->num_reads, asm_opt->read_file_names, flt_tab);
+	for (i = 0; i < asm_opt->num_reads; ++i)
+		h = yak_count(&opt, asm_opt->read_file_names[i], flag, p0, h, flt_tab, rs);
+	if (h && opt.bf_shift > 0)
+		ha_ct_destroy_bf(h);
 	return h;
 }
 
@@ -704,13 +726,14 @@ void ha_ft_destroy(void *h)
  * High-level interfaces *
  *************************/
 
-void *ha_gen_flt_tab(const hifiasm_opt_t *asm_opt)
+void *ha_gen_flt_tab(const hifiasm_opt_t *asm_opt, All_reads *rs)
 {
 	yak_ft_t *flt_tab;
 	int64_t cnt[YAK_N_COUNTS];
 	int peak_hom, peak_het, cutoff;
 	ha_ct_t *h;
-	h = ha_count(asm_opt, HAF_COUNT_ALL, NULL, NULL);
+	h = ha_count(asm_opt, HAF_COUNT_ALL|HAF_RS_WRITE_LEN, NULL, NULL, rs);
+	if (rs) fprintf(stderr, "%ld,%ld,%ld\n", (long)rs->total_reads, (long)rs->total_reads_bases, (long)rs->total_name_length);
 	ha_ct_hist(h, cnt, asm_opt->thread_num);
 	peak_hom = yak_analyze_count(YAK_N_COUNTS, cnt, &peak_het);
 	if (peak_hom > 0) fprintf(stderr, "[M::%s] peak_hom: %d; peak_het: %d\n", __func__, peak_hom, peak_het);
@@ -724,13 +747,13 @@ void *ha_gen_flt_tab(const hifiasm_opt_t *asm_opt)
 	return (void*)flt_tab;
 }
 
-void *ha_gen_mzidx(const hifiasm_opt_t *asm_opt, const void *flt_tab)
+void *ha_gen_mzidx(const hifiasm_opt_t *asm_opt, const void *flt_tab, All_reads *rs)
 {
 	int64_t cnt[YAK_N_COUNTS], tot_cnt;
 	int peak_hom, peak_het, i;
 	ha_ct_t *ct;
 	ha_pt_t *pt;
-	ct = ha_count(asm_opt, HAF_COUNT_EXACT, NULL, flt_tab);
+	ct = ha_count(asm_opt, HAF_COUNT_EXACT|HAF_RS_WRITE_SEQ, NULL, flt_tab, rs);
 	fprintf(stderr, "[M::%s::%.3f*%.2f] ==> counted %ld distinct minimizer k-mers\n", __func__,
 			yak_realtime(), yak_cputime() / yak_realtime(), (long)ct->tot);
 	ha_ct_hist(ct, cnt, asm_opt->thread_num);
@@ -740,7 +763,7 @@ void *ha_gen_mzidx(const hifiasm_opt_t *asm_opt, const void *flt_tab)
 	ha_ct_shrink(ct, 2, YAK_MAX_COUNT - 1, asm_opt->thread_num);
 	for (i = 2, tot_cnt = 0; i <= YAK_MAX_COUNT - 1; ++i) tot_cnt += cnt[i] * i;
 	pt = ha_pt_gen(ct, asm_opt->thread_num);
-	ha_count(asm_opt, HAF_COUNT_EXACT, pt, flt_tab);
+	ha_count(asm_opt, HAF_COUNT_EXACT, pt, flt_tab, rs);
 	assert((uint64_t)tot_cnt == pt->tot_pos);
 	ha_pt_sort(pt, asm_opt->thread_num);
 	fprintf(stderr, "[M::%s::%.3f*%.2f] ==> indexed %ld positions\n", __func__,

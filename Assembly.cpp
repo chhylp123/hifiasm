@@ -265,7 +265,7 @@ void* Build_hash_table(void* arg)
             }
 
             ///load read
-            compress_base(Get_READ(R_INF, curr_sub_block.read[i].ID),
+            ha_compress_base(Get_READ(R_INF, curr_sub_block.read[i].ID),
             curr_sub_block.read[i].seq.s, curr_sub_block.read[i].seq.l, 
             &R_INF.N_site[curr_sub_block.read[i].ID], HPC_read.N_occ);
             
@@ -1170,7 +1170,7 @@ void* Save_corrected_reads(void* arg)
         R_INF.read_length[i] = new_read_length;
         
 
-        compress_base(Get_READ(R_INF, i),
+        ha_compress_base(Get_READ(R_INF, i),
             new_read, new_read_length, 
             &R_INF.N_site[i], N_occ);
     }

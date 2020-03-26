@@ -2,6 +2,8 @@
 #define __HA_HTAB_H__
 #define __STDC_LIMIT_MACROS
 #include <stdint.h>
+#include "Process_Read.h"
+#include "CommandLines.h"
 
 typedef struct {
 	uint64_t x;
@@ -16,11 +18,13 @@ typedef struct { uint32_t n, m; ha_mz1_t *a; } ha_mz1_v;
 
 extern const unsigned char seq_nt4_table[256];
 
+void *ha_gen_flt_tab(const hifiasm_opt_t *asm_opt, All_reads *rs);
+void *ha_gen_mzidx(const hifiasm_opt_t *asm_opt, const void *flt_tab, All_reads *rs);
+void trio_partition(void);
+
 int ha_ft_isflt(const void *hh, uint64_t y);
 void ha_ft_destroy(void *h);
 void ha_idx_destroy(void *h);
-
-void trio_partition(void);
 
 double yak_cputime(void);
 void yak_reset_realtime(void);

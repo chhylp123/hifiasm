@@ -590,7 +590,7 @@ void recover_UC_Read_RC(UC_Read* r, All_reads* R_INF, uint64_t ID)
 		}\
 		i++;}\
 
-void compress_base(uint8_t* dest, char* src, uint64_t src_l, uint64_t** N_site_lis, uint64_t N_site_occ)
+void ha_compress_base(uint8_t* dest, char* src, uint64_t src_l, uint64_t** N_site_lis, uint64_t N_site_occ)
 {
 	///N_site_lis saves the pos of all Ns in this read
 	///N_site_lis[0] is the number of Ns
