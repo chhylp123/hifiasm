@@ -476,6 +476,7 @@ typedef struct { // global data structure for kt_pipeline()
 	int flag, create_new, is_store;
 	uint64_t n_seq;
 	kseq_t *ks;
+	UC_Read ucr;
 	ha_ct_t *ct;
 	ha_pt_t *pt;
 	const All_reads *rs_in;
@@ -524,6 +525,24 @@ static void *worker_count(void *data, int step, void *in) // callback for kt_pip
 		s->p = p;
 		s->n_seq0 = p->n_seq;
 		if (p->rs_in && (p->flag & HAF_RS_READ)) {
+			while (p->n_seq < p->rs_in->total_reads) {
+				int l;
+				recover_UC_Read(&p->ucr, p->rs_in, p->n_seq);
+				l = p->ucr.length;
+				if (s->n_seq == s->m_seq) {
+					s->m_seq = s->m_seq < 16? 16 : s->m_seq + (s->m_seq>>1);
+					REALLOC(s->len, s->m_seq);
+					REALLOC(s->seq, s->m_seq);
+				}
+				MALLOC(s->seq[s->n_seq], l);
+				memcpy(s->seq[s->n_seq], p->ucr.seq, l);
+				s->len[s->n_seq++] = l;
+				++p->n_seq;
+				s->sum_len += l;
+				s->nk += l >= p->opt->k? l - p->opt->k + 1 : 0;
+				if (s->sum_len >= p->opt->chunk_size)
+					break;
+			}
 		} else {
 			while ((ret = kseq_read(p->ks)) >= 0) {
 				int l = p->ks->seq.l;
@@ -537,10 +556,10 @@ static void *worker_count(void *data, int step, void *in) // callback for kt_pip
 						ha_insert_read_len(p->rs_out, l, p->ks->name.l);
 					} else if (p->flag & HAF_RS_WRITE_SEQ) {
 						int i, n_N;
+						assert(l == (int)p->rs_out->read_length[p->n_seq]);
 						for (i = n_N = 0; i < l; ++i) // count number of ambiguous bases
 							if (seq_nt4_table[(uint8_t)p->ks->seq.s[i]] >= 4)
 								++n_N;
-						assert(l == (int)p->rs_out->read_length[p->n_seq]);
 						ha_compress_base(Get_READ(*p->rs_out, p->n_seq), p->ks->seq.s, l, &p->rs_out->N_site[p->n_seq], n_N);
 					}
 				}
@@ -554,7 +573,7 @@ static void *worker_count(void *data, int step, void *in) // callback for kt_pip
 				s->len[s->n_seq++] = l;
 				++p->n_seq;
 				s->sum_len += l;
-				s->nk += l - p->opt->k + 1;
+				s->nk += l >= p->opt->k? l - p->opt->k + 1 : 0;
 				if (s->sum_len >= p->opt->chunk_size)
 					break;
 			}
@@ -632,18 +651,22 @@ static void *worker_count(void *data, int step, void *in) // callback for kt_pip
 
 static ha_ct_t *yak_count(const yak_copt_t *opt, const char *fn, int flag, ha_pt_t *p0, ha_ct_t *c0, const void *flt_tab, All_reads *rs)
 {
+	int read_rs = (rs && (flag & HAF_RS_READ));
 	pl_data_t pl;
-	gzFile fp;
-	if ((fp = gzopen(fn, "r")) == 0) return 0;
+	gzFile fp = 0;
 	memset(&pl, 0, sizeof(pl_data_t));
-	pl.ks = kseq_init(fp);
+	if (read_rs) {
+		pl.rs_in = rs;
+		init_UC_Read(&pl.ucr);
+	} else {
+		if ((fp = gzopen(fn, "r")) == 0) return 0;
+		pl.ks = kseq_init(fp);
+	}
+	if (rs && (flag & (HAF_RS_WRITE_LEN|HAF_RS_WRITE_SEQ)))
+		pl.rs_out = rs;
 	pl.flt_tab = flt_tab;
 	pl.opt = opt;
 	pl.flag = flag;
-	if (flag & (HAF_RS_WRITE_LEN|HAF_RS_WRITE_SEQ))
-		pl.rs_out = rs;
-	else if (flag & HAF_RS_READ)
-		pl.rs_in = rs;
 	if (p0) {
 		pl.pt = p0, pl.create_new = 0;
 		assert(p0->k == opt->k && p0->pre == opt->pre);
@@ -655,8 +678,12 @@ static ha_ct_t *yak_count(const yak_copt_t *opt, const char *fn, int flag, ha_pt
 		pl.ct = ha_ct_init(opt->k, opt->pre, opt->bf_n_hash, opt->bf_shift);
 	}
 	kt_pipeline(3, worker_count, &pl, 3);
-	kseq_destroy(pl.ks);
-	gzclose(fp);
+	if (read_rs) {
+		destory_UC_Read(&pl.ucr);
+	} else {
+		kseq_destroy(pl.ks);
+		gzclose(fp);
+	}
 	return pl.ct;
 }
 
@@ -666,10 +693,12 @@ ha_ct_t *ha_count(const hifiasm_opt_t *asm_opt, int flag, ha_pt_t *p0, const voi
 	yak_copt_t opt;
 	ha_ct_t *h = 0;
 	assert(!(flag & HAF_RS_WRITE_LEN) || !(flag & HAF_RS_WRITE_SEQ)); // not both
-	if (flag & HAF_RS_WRITE_LEN)
-		init_All_reads(rs);
-	else if (flag & HAF_RS_WRITE_SEQ)
-		malloc_All_reads(rs);
+	if (rs) {
+		if (flag & HAF_RS_WRITE_LEN)
+			init_All_reads(rs);
+		else if (flag & HAF_RS_WRITE_SEQ)
+			malloc_All_reads(rs);
+	}
 	yak_copt_init(&opt);
 	opt.k = asm_opt->k_mer_length;
 	opt.is_HPC = !asm_opt->no_HPC;
@@ -733,7 +762,6 @@ void *ha_gen_flt_tab(const hifiasm_opt_t *asm_opt, All_reads *rs)
 	int peak_hom, peak_het, cutoff;
 	ha_ct_t *h;
 	h = ha_count(asm_opt, HAF_COUNT_ALL|HAF_RS_WRITE_LEN, NULL, NULL, rs);
-	if (rs) fprintf(stderr, "%ld,%ld,%ld\n", (long)rs->total_reads, (long)rs->total_reads_bases, (long)rs->total_name_length);
 	ha_ct_hist(h, cnt, asm_opt->thread_num);
 	peak_hom = yak_analyze_count(YAK_N_COUNTS, cnt, &peak_het);
 	if (peak_hom > 0) fprintf(stderr, "[M::%s] peak_hom: %d; peak_het: %d\n", __func__, peak_hom, peak_het);
@@ -747,13 +775,13 @@ void *ha_gen_flt_tab(const hifiasm_opt_t *asm_opt, All_reads *rs)
 	return (void*)flt_tab;
 }
 
-void *ha_gen_mzidx(const hifiasm_opt_t *asm_opt, const void *flt_tab, All_reads *rs)
+void *ha_gen_mzidx(const hifiasm_opt_t *asm_opt, const void *flt_tab, int read_from_store, All_reads *rs)
 {
 	int64_t cnt[YAK_N_COUNTS], tot_cnt;
-	int peak_hom, peak_het, i;
+	int peak_hom, peak_het, i, extra_flag = read_from_store? HAF_RS_READ : HAF_RS_WRITE_SEQ;
 	ha_ct_t *ct;
 	ha_pt_t *pt;
-	ct = ha_count(asm_opt, HAF_COUNT_EXACT|HAF_RS_WRITE_SEQ, NULL, flt_tab, rs);
+	ct = ha_count(asm_opt, HAF_COUNT_EXACT|extra_flag, NULL, flt_tab, rs);
 	fprintf(stderr, "[M::%s::%.3f*%.2f] ==> counted %ld distinct minimizer k-mers\n", __func__,
 			yak_realtime(), yak_cputime() / yak_realtime(), (long)ct->tot);
 	ha_ct_hist(ct, cnt, asm_opt->thread_num);
@@ -763,7 +791,7 @@ void *ha_gen_mzidx(const hifiasm_opt_t *asm_opt, const void *flt_tab, All_reads 
 	ha_ct_shrink(ct, 2, YAK_MAX_COUNT - 1, asm_opt->thread_num);
 	for (i = 2, tot_cnt = 0; i <= YAK_MAX_COUNT - 1; ++i) tot_cnt += cnt[i] * i;
 	pt = ha_pt_gen(ct, asm_opt->thread_num);
-	ha_count(asm_opt, HAF_COUNT_EXACT, pt, flt_tab, rs);
+	ha_count(asm_opt, HAF_COUNT_EXACT|HAF_RS_READ, pt, flt_tab, rs);
 	assert((uint64_t)tot_cnt == pt->tot_pos);
 	ha_pt_sort(pt, asm_opt->thread_num);
 	fprintf(stderr, "[M::%s::%.3f*%.2f] ==> indexed %ld positions\n", __func__,

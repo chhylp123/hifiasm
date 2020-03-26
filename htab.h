@@ -19,7 +19,7 @@ typedef struct { uint32_t n, m; ha_mz1_t *a; } ha_mz1_v;
 extern const unsigned char seq_nt4_table[256];
 
 void *ha_gen_flt_tab(const hifiasm_opt_t *asm_opt, All_reads *rs);
-void *ha_gen_mzidx(const hifiasm_opt_t *asm_opt, const void *flt_tab, All_reads *rs);
+void *ha_gen_mzidx(const hifiasm_opt_t *asm_opt, const void *flt_tab, int read_from_store, All_reads *rs);
 void trio_partition(void);
 
 int ha_ft_isflt(const void *hh, uint64_t y);

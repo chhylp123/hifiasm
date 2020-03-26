@@ -180,7 +180,7 @@ int get_reads_mul_thread(R_buffer_block* curr_sub_block);
 void ha_insert_read_len(All_reads *r, int read_len, int name_len);
 void ha_compress_base(uint8_t* dest, char* src, uint64_t src_l, uint64_t** N_site_lis, uint64_t N_site_occ);
 void init_UC_Read(UC_Read* r);
-void recover_UC_Read(UC_Read* r, All_reads* R_INF, uint64_t ID);
+void recover_UC_Read(UC_Read* r, const All_reads *R_INF, uint64_t ID);
 void recover_UC_Read_RC(UC_Read* r, All_reads* R_INF, uint64_t ID);
 void recover_UC_Read_sub_region(char* r, long long start_pos, long long length, uint8_t strand, All_reads* R_INF, long long ID);
 void destory_UC_Read(UC_Read* r);

@@ -18,7 +18,7 @@ int main(int argc, char *argv[])
 
 	yak_reset_realtime();
 	flt_tab = ha_gen_flt_tab(&asm_opt, &R_INF);
-	idx = ha_gen_mzidx(&asm_opt, flt_tab, &R_INF);
+	idx = ha_gen_mzidx(&asm_opt, flt_tab, 0, &R_INF);
 	ha_idx_destroy(idx);
 	ha_ft_destroy(flt_tab);
 	if (0) {

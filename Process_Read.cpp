@@ -511,7 +511,7 @@ void recover_UC_Read_sub_region(char* r, long long start_pos, long long length, 
 }
 
 
-void recover_UC_Read(UC_Read* r, All_reads* R_INF, uint64_t ID)
+void recover_UC_Read(UC_Read* r, const All_reads *R_INF, uint64_t ID)
 {
 	r->length = Get_READ_LENGTH((*R_INF), ID);
 	uint8_t* src = Get_READ((*R_INF), ID);
