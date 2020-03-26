@@ -378,8 +378,10 @@ static void ha_pt_destroy(ha_pt_t *h)
 {
 	int i;
 	if (h == 0) return;
-	for (i = 0; i < 1<<h->pre; ++i)
+	for (i = 0; i < 1<<h->pre; ++i) {
 		yak_pt_destroy(h->h[i].h);
+		free(h->h[i].a);
+	}
 	free(h->h); free(h);
 }
 
