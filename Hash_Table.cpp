@@ -347,7 +347,7 @@ void debug_chain(k_mer_hit* a, long long a_n, Chain_Data* dp)
             if(j != -1)
             {
                 distance_self_pos = a[current_j].self_offset - a[j].self_offset;
-                distance_pos = ha_hit_get_offset(&a[current_j]) - ha_hit_get_offset(&a[j]);
+                distance_pos = a[current_j].offset - a[j].offset;
                 distance_gap = distance_pos > distance_self_pos? distance_pos - distance_self_pos : distance_self_pos - distance_pos;
 
                 indels += distance_gap; 
@@ -421,7 +421,7 @@ void chain_DP(k_mer_hit* a, long long a_n, Chain_Data* dp, overlap_region* resul
     // fill the score and backtrack arrays
 	for (i = 0; i < a_n; ++i) 
     {
-        pos = ha_hit_get_offset(&a[i]);
+        pos = a[i].offset;
         self_pos = a[i].self_offset;
         max_j = -1;
         max_score = min_score;
@@ -433,7 +433,7 @@ void chain_DP(k_mer_hit* a, long long a_n, Chain_Data* dp, overlap_region* resul
         ///may have a pre-cut condition for j
         for (j = i - 1; j >= 0; --j) 
         {
-            distance_pos = pos - ha_hit_get_offset(&a[j]);
+            distance_pos = pos - a[j].offset;
             distance_self_pos = self_pos - a[j].self_offset;
             ///a has been sorted by a[].offset
             ///note for a, we do not have any two elements that have both equal offsets and self_offsets
@@ -502,12 +502,12 @@ void chain_DP(k_mer_hit* a, long long a_n, Chain_Data* dp, overlap_region* resul
             max_score = dp->score[i];
             max_i = i;
             mini_xLen = get_chainLen(a[i].self_offset, a[i].self_offset, x_readLen, 
-                                     ha_hit_get_offset(&a[i]), ha_hit_get_offset(&a[i]), y_readLen);
+                                     a[i].offset, a[i].offset, y_readLen);
         }
         else if(dp->score[i] == max_score)
         {
             tmp_xLen = get_chainLen(a[i].self_offset, a[i].self_offset, x_readLen, 
-                                    ha_hit_get_offset(&a[i]), ha_hit_get_offset(&a[i]), y_readLen);
+                                    a[i].offset, a[i].offset, y_readLen);
 
             if(tmp_xLen < mini_xLen)
             {
@@ -524,12 +524,12 @@ void chain_DP(k_mer_hit* a, long long a_n, Chain_Data* dp, overlap_region* resul
     ///not a has been sorted by offset, that means has been sorted by query offset
     i = max_i;
     result->x_pos_e = a[i].self_offset;
-    result->y_pos_e = ha_hit_get_offset(&a[i]);
+    result->y_pos_e = a[i].offset;
     result->shared_seed = max_score;
     result->overlapLen = mini_xLen;
 
     distance_self_pos = result->x_pos_e - a[i].self_offset;
-    distance_pos = result->y_pos_e - ha_hit_get_offset(&a[i]);
+    distance_pos = result->y_pos_e - a[i].offset;
     long long pre_distance_gap = distance_pos - distance_self_pos;
     ///record first site
     ///the length of f_cigar should be at least 1
@@ -541,7 +541,7 @@ void chain_DP(k_mer_hit* a, long long a_n, Chain_Data* dp, overlap_region* resul
         while (i >= 0)
         {
             distance_self_pos = result->x_pos_e - a[i].self_offset;
-            distance_pos = result->y_pos_e - ha_hit_get_offset(&a[i]);
+            distance_pos = result->y_pos_e - a[i].offset;
             distance_gap = distance_pos - distance_self_pos;
             if(distance_gap != pre_distance_gap)
             {
@@ -552,7 +552,7 @@ void chain_DP(k_mer_hit* a, long long a_n, Chain_Data* dp, overlap_region* resul
 
             chainLen++;
             result->x_pos_s = a[i].self_offset;
-            result->y_pos_s = ha_hit_get_offset(&a[i]);
+            result->y_pos_s = a[i].offset;
             i = dp->pre[i];
         }
     }
@@ -562,7 +562,7 @@ void chain_DP(k_mer_hit* a, long long a_n, Chain_Data* dp, overlap_region* resul
         while (i >= 0)
         {
             distance_self_pos = result->x_pos_e - a[i].self_offset;
-            distance_pos = result->y_pos_e - ha_hit_get_offset(&a[i]);
+            distance_pos = result->y_pos_e - a[i].offset;
             distance_gap = distance_pos - distance_self_pos;
             if(distance_gap == pre_distance_gap)
             {
@@ -577,7 +577,7 @@ void chain_DP(k_mer_hit* a, long long a_n, Chain_Data* dp, overlap_region* resul
 
             chainLen++;
             result->x_pos_s = a[i].self_offset;
-            result->y_pos_s = ha_hit_get_offset(&a[i]);
+            result->y_pos_s = a[i].offset;
             i = dp->pre[i];
         }
     }
@@ -604,8 +604,8 @@ void calculate_overlap_region_by_chaining(Candidates_list* candidates, overlap_r
     i = 0;
     while (i < candidates->length)
     {
-        current_ID = ha_hit_get_readID(&candidates->list[i]);
-        current_stand = ha_hit_get_rev(&candidates->list[i]);
+        current_ID = candidates->list[i].readID;
+        current_stand = candidates->list[i].strand;
 
         ///reference read
         tmp_region.x_id = readID;
@@ -623,9 +623,9 @@ void calculate_overlap_region_by_chaining(Candidates_list* candidates, overlap_r
 
         while (i < candidates->length 
         && 
-        current_ID == ha_hit_get_readID(&candidates->list[i])
+        current_ID == candidates->list[i].readID
         &&
-        current_stand == ha_hit_get_rev(&candidates->list[i]))
+        current_stand == candidates->list[i].strand)
         {
             sub_region_end = i;
             i++;
@@ -733,13 +733,13 @@ void test_single_list(Candidates_list* candidates, k_mer_pos* n_list, uint64_t n
         for (; j < candidates->length; j++)
         {
             if (
-                n_list[i].offset == (uint64_t)ha_hit_get_offset(&candidates->list[j])
+                n_list[i].offset == (uint64_t)candidates->list[j].offset
                 &&
-                n_list[i].readID == ha_hit_get_readID(&candidates->list[j])
+                n_list[i].readID == candidates->list[j].readID
                 &&
                 end_pos == (uint64_t)candidates->list[j].self_offset
                 &&
-                strand == ha_hit_get_rev(&candidates->list[j])
+                strand == candidates->list[j].strand
             )
             {
                 break;
@@ -794,7 +794,6 @@ void init_Candidates_list(Candidates_list* l)
     l->length = 0;
     l->size = 0;
     l->list = NULL;
-    l->tmp = NULL;
     init_Chain_Data(&(l->chainDP));
 }
 
@@ -807,7 +806,6 @@ void clear_Candidates_list(Candidates_list* l)
 void destory_Candidates_list(Candidates_list* l)
 {
     free(l->list);
-    free(l->tmp);
     destory_Chain_Data(&(l->chainDP));
 }
 

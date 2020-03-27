@@ -278,7 +278,7 @@ KRADIX_SORT_INIT(ha64, uint64_t, generic_key, 8)
 typedef struct {
 	yak_pt_t *h;
 	uint64_t n;
-	uint64_t *a;
+	ha_idxpos_t *a;
 } ha_pt1_t;
 
 struct ha_pt_s {
@@ -340,18 +340,22 @@ int ha_pt_insert_list(ha_pt_t *h, int n, const ha_mz1_t *a)
 	for (j = 0; j < n; ++j) {
 		uint64_t x = a[j].x >> h->pre;
 		khint_t k;
+		int n;
+		ha_idxpos_t *p;
 		if ((a[j].x&mask) != (a[0].x&mask)) continue;
 		k = yak_pt_get(g->h, x<<YAK_COUNTER_BITS);
 		if (k == kh_end(g->h)) continue;
-		assert((kh_key(g->h, k)&YAK_MAX_COUNT) < YAK_MAX_COUNT);
-		g->a[kh_val(g->h, k) + (kh_key(g->h, k)&YAK_MAX_COUNT)]
-			= (uint64_t)a[j].rid<<36 | (uint64_t)a[j].rev<<35 | (uint64_t)a[j].pos<<8 | (uint64_t)a[j].span;
+		n = kh_key(g->h, k) & YAK_MAX_COUNT;
+		assert(n < YAK_MAX_COUNT);
+		p = &g->a[kh_val(g->h, k) + n];
+		p->rid = a[j].rid, p->rev = a[j].rev, p->pos = a[j].pos, p->span = a[j].span;
+		//(uint64_t)a[j].rid<<36 | (uint64_t)a[j].rev<<35 | (uint64_t)a[j].pos<<8 | (uint64_t)a[j].span;
 		++kh_key(g->h, k);
 		++n_ins;
 	}
 	return n_ins;
 }
-
+/*
 static void worker_pt_sort(void *data, long i, int tid)
 {
 	ha_pt_t *h = (ha_pt_t*)data;
@@ -371,7 +375,7 @@ void ha_pt_sort(ha_pt_t *h, int n_thread)
 {
 	kt_for(n_thread, worker_pt_sort, h, 1<<h->pre);
 }
-
+*/
 void ha_pt_destroy(ha_pt_t *h)
 {
 	int i;
@@ -383,7 +387,7 @@ void ha_pt_destroy(ha_pt_t *h)
 	free(h->h); free(h);
 }
 
-const uint64_t *ha_pt_get(const ha_pt_t *h, uint64_t hash, int *n)
+const ha_idxpos_t *ha_pt_get(const ha_pt_t *h, uint64_t hash, int *n)
 {
 	khint_t k;
 	const ha_pt1_t *g = &h->h[hash & ((1ULL<<h->pre) - 1)];
@@ -799,7 +803,7 @@ ha_pt_t *ha_pt_gen(const hifiasm_opt_t *asm_opt, const void *flt_tab, int read_f
 	pt = ha_pt_gen(ct, asm_opt->thread_num);
 	ha_count(asm_opt, HAF_COUNT_EXACT|HAF_RS_READ, pt, flt_tab, rs);
 	assert((uint64_t)tot_cnt == pt->tot_pos);
-	ha_pt_sort(pt, asm_opt->thread_num);
+	//ha_pt_sort(pt, asm_opt->thread_num);
 	fprintf(stderr, "[M::%s::%.3f*%.2f] ==> indexed %ld positions\n", __func__,
 			yak_realtime(), yak_cputime() / yak_realtime(), (long)pt->tot_pos);
 	return pt;

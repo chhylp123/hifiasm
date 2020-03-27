@@ -10,10 +10,17 @@ typedef struct {
 	uint64_t rid:28, pos:27, rev:1, span:8;
 } ha_mz1_t;
 
+typedef struct {
+	uint64_t rid:28, pos:27, rev:1, span:8;
+} ha_idxpos_t;
+
 typedef struct { uint32_t n, m; ha_mz1_t *a; } ha_mz1_v;
 
 struct ha_pt_s;
 typedef struct ha_pt_s ha_pt_t;
+
+struct ha_abuf_s;
+typedef struct ha_abuf_s ha_abuf_t;
 
 extern const unsigned char seq_nt4_table[256];
 
@@ -23,7 +30,7 @@ void ha_ft_destroy(void *h);
 
 ha_pt_t *ha_pt_gen(const hifiasm_opt_t *asm_opt, const void *flt_tab, int read_from_store, All_reads *rs);
 void ha_pt_destroy(ha_pt_t *h);
-const uint64_t *ha_pt_get(const ha_pt_t *h, uint64_t hash, int *n);
+const ha_idxpos_t *ha_pt_get(const ha_pt_t *h, uint64_t hash, int *n);
 
 double yak_cputime(void);
 void yak_reset_realtime(void);

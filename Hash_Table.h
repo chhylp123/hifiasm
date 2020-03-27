@@ -72,7 +72,6 @@ typedef struct
   CIGAR cigar;
 } window_list;
 
-
 typedef struct
 {
     window_list* buffer;
@@ -128,24 +127,9 @@ typedef struct
 
 typedef struct
 {
-	uint64_t opos;
-	uint32_t self_offset; // offset on the target read
+	uint32_t readID:31, strand:1;
+	uint32_t offset, self_offset;
 } k_mer_hit;
-
-static inline uint32_t ha_hit_get_readID(const k_mer_hit *h)
-{
-	return h->opos >> 33;
-}
-
-static inline uint32_t ha_hit_get_rev(const k_mer_hit *h)
-{
-	return h->opos >> 32 & 1;
-}
-
-static inline uint32_t ha_hit_get_offset(const k_mer_hit *h)
-{
-	return (uint32_t)h->opos;
-}
 
 typedef struct
 {
@@ -160,7 +144,6 @@ typedef struct
 typedef struct
 {
     k_mer_hit* list;
-    k_mer_hit* tmp;
     long long length;
     long long size;
     Chain_Data chainDP;
