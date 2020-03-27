@@ -2,7 +2,7 @@
 #include "ksort.h"
 #include "Hash_Table.h"
 
-typedef struct {
+typedef struct { // this struct is not strictly necessary; we can use k_mer_pos instead, with modifications
 	uint64_t srt;
 	uint32_t self_off;
 	uint32_t other_off;
@@ -43,11 +43,13 @@ void ha_get_new_candidates(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_reg
 	uint32_t i;
 	uint64_t k, l;
 
+	// prepare
     clear_Candidates_list(cl);
     clear_overlap_region_alloc(overlap_list);
 	recover_UC_Read(ucr, &R_INF, rid);
 	ab->mz.n = 0, ab->n_a = 0;
 
+	// get the list of anchors
 	ha_sketch(ucr->seq, ucr->length, asm_opt.mz_win, asm_opt.k_mer_length, 0, !asm_opt.no_HPC, &ab->mz, ha_flt_tab);
 	if (ab->mz.m > ab->old_mz_m) {
 		ab->old_mz_m = ab->mz.m;
@@ -79,10 +81,11 @@ void ha_get_new_candidates(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_reg
 				an->self_off = ucr->length - 1 - (z->pos + 1 - z->span);
 				an->other_off = R_INF.read_length[y->rid] - 1 - (y->pos + 1 - y->span);
 			}
-			an->srt = (uint64_t)rev<<63 | (uint64_t)y->rid << 32 | (0x80000000ULL + (an->other_off - an->self_off));
+			an->srt = (uint64_t)y->rid<<33 | (uint64_t)rev<<32 | an->other_off;
 		}
 	}
 
+	// sort anchors
 	radix_sort_ha_an1(ab->a, ab->a + ab->n_a);
 	for (k = 1, l = 0; k <= ab->n_a; ++k) {
 		if (k == ab->n_a || ab->a[k].srt != ab->a[l].srt) {
@@ -91,6 +94,19 @@ void ha_get_new_candidates(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_reg
 			l = k;
 		}
 	}
+
+	// copy over to _cl_
+	if (ab->m_a >= cl->size) {
+		cl->size = ab->m_a;
+		REALLOC(cl->list, cl->size);
+	}
+	for (k = 0; k < ab->n_a; ++k) {
+		cl->list[k].readID = ab->a[k].srt >> 33;
+		cl->list[k].strand = ab->a[k].srt >> 32 & 1;
+		cl->list[k].offset = ab->a[k].other_off;
+		cl->list[k].self_offset = ab->a[k].self_off;
+	}
+	cl->length = ab->n_a;
 
 	calculate_overlap_region_by_chaining(cl, overlap_list, rid, ucr->length, &R_INF, band_width_threshold, keep_whole_chain);
 }
