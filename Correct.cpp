@@ -7213,8 +7213,6 @@ void correct_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF,
                         haplotype_evdience_alloc* hap, Round2_alignment* second_round, 
                         int force_repeat, int is_consensus, int* fully_cov, int* abnormal)
 {
-    reverse_complement(g_read->seq, g_read->length);
-
     clear_Correct_dumy(dumy, overlap_list);
 
     long long window_start, window_end;
@@ -7261,7 +7259,6 @@ void correct_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF,
 
 
     (*fully_cov) = check_if_fully_covered(overlap_list, R_INF, g_read, dumy, g, abnormal);
-    
 }
 
 
