@@ -655,9 +655,11 @@ static void *worker_count(void *data, int step, void *in) // callback for kt_pip
 		if (p->ct) p->ct->tot += n_ins;
 		if (p->pt) p->pt->tot_pos += n_ins;
 		free(s->buf);
+		#if 0
 		fprintf(stderr, "[M::%s::%.3f*%.2f] processed %ld sequences; %ld %s in the hash table\n", __func__,
 				yak_realtime(), yak_cputime() / yak_realtime(), (long)s->n_seq0 + s->n_seq,
 				(long)(p->pt? p->pt->tot_pos : p->ct->tot), p->pt? "positions" : "distinct k-mers");
+		#endif
 		free(s);
 	}
 	return 0;
