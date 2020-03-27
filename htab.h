@@ -23,6 +23,8 @@ struct ha_abuf_s;
 typedef struct ha_abuf_s ha_abuf_t;
 
 extern const unsigned char seq_nt4_table[256];
+extern void *ha_flt_tab;
+extern ha_pt_t *ha_idx;
 
 void *ha_ft_gen(const hifiasm_opt_t *asm_opt, All_reads *rs);
 int ha_ft_isflt(const void *hh, uint64_t y);

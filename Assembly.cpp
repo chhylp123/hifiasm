@@ -10,8 +10,6 @@
 #include "Output.h"
 #include "htab.h"
 
-void *ha_flt_tab;
-ha_pt_t *ha_idx;
 void ha_get_new_candidates(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_region_alloc *overlap_list, Candidates_list *cl, double band_width_threshold, int keep_whole_chain);
 
 All_reads R_INF;

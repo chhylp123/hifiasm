@@ -65,7 +65,7 @@ void ha_get_new_candidates(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_reg
 		REALLOC(ab->a, ab->m_a);
 	}
 	for (i = 0, k = 0; i < ab->mz.n; ++i) {
-		uint32_t j;
+		int j;
 		ha_mz1_t *z = &ab->mz.a[i];
 		seed1_t *s = &ab->seed[i];
 		for (j = 0; j < s->n; ++j) {
@@ -96,7 +96,7 @@ void ha_get_new_candidates(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_reg
 	}
 
 	// copy over to _cl_
-	if (ab->m_a >= cl->size) {
+	if (ab->m_a >= (uint64_t)cl->size) {
 		cl->size = ab->m_a;
 		REALLOC(cl->list, cl->size);
 	}

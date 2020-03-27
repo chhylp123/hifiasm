@@ -33,6 +33,9 @@ const unsigned char seq_nt4_table[256] = { // translate ACGT to 0123
 	4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4
 };
 
+void *ha_flt_tab;
+ha_pt_t *ha_idx;
+
 /***************************
  * Yak specific parameters *
  ***************************/
@@ -571,6 +574,7 @@ static void *worker_count(void *data, int step, void *in) // callback for kt_pip
 							if (seq_nt4_table[(uint8_t)p->ks->seq.s[i]] >= 4)
 								++n_N;
 						ha_compress_base(Get_READ(*p->rs_out, p->n_seq), p->ks->seq.s, l, &p->rs_out->N_site[p->n_seq], n_N);
+						memcpy(&p->rs_out->name[p->rs_out->name_index[p->n_seq]], p->ks->name.s, p->ks->name.l);
 					}
 				}
 				if (s->n_seq == s->m_seq) {
