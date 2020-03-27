@@ -45,13 +45,6 @@ typedef struct
 
 typedef struct
 {
-    k_mer_pos_list* list;
-    uint64_t size;
-    uint64_t length;
-} k_mer_pos_list_alloc;
-
-typedef struct
-{
     int C_L[CIGAR_MAX_LENGTH];
     char C_C[CIGAR_MAX_LENGTH];
     int length;
@@ -151,12 +144,6 @@ typedef struct
 void init_Candidates_list(Candidates_list* l);
 void clear_Candidates_list(Candidates_list* l);
 void destory_Candidates_list(Candidates_list* l);
-
-void init_k_mer_pos_list_alloc(k_mer_pos_list_alloc* list);
-void destory_k_mer_pos_list_alloc(k_mer_pos_list_alloc* list);
-void clear_k_mer_pos_list_alloc(k_mer_pos_list_alloc* list);
-void append_k_mer_pos_list_alloc(k_mer_pos_list_alloc* list, k_mer_pos* n_list, uint64_t n_length, 
-uint64_t n_end_pos, uint8_t n_direction);
 
 void init_overlap_region_alloc(overlap_region_alloc* list);
 void clear_overlap_region_alloc(overlap_region_alloc* list);

@@ -397,8 +397,6 @@ void* Overlap_calculate_heap_merge(void* arg)
     init_Graph(&DAGCon);
     init_Graph(&POA_Graph);
     init_Candidates_list(&l);
-    k_mer_pos_list_alloc array_list;
-    init_k_mer_pos_list_alloc(&array_list);
 
     overlap_region_alloc overlap_list;
     init_overlap_region_alloc(&overlap_list);
@@ -425,7 +423,7 @@ void* Overlap_calculate_heap_merge(void* arg)
 
     for (i = thr_ID; i < (long long)R_INF.total_reads; i = i + asm_opt.thread_num)
     {
-        ///get_new_candidates(i, &g_read, &overlap_list, &array_list, &heap, &l, THRESHOLD_RATE*1.5);
+        //get_new_candidates(i, &g_read, &overlap_list, &array_list, &heap, &l, THRESHOLD_RATE*1.5);
         //get_new_candidates(i, &g_read, &overlap_list, &array_list, &l, 0.02, 1);
 		ha_get_new_candidates(ab, i, &g_read, &overlap_list, &l, 0.02, 1);
 
@@ -463,7 +461,6 @@ void* Overlap_calculate_heap_merge(void* arg)
     destory_buffer_sub_block(&current_sub_buffer);
     destory_Candidates_list(&l);
     destory_overlap_region_alloc(&overlap_list);
-    destory_k_mer_pos_list_alloc(&array_list);
     destory_Graph(&POA_Graph);
     destory_Graph(&DAGCon);
     destory_UC_Read(&g_read);
@@ -512,9 +509,6 @@ void* Output_related_reads(void* arg)
 
     init_Candidates_list(&l);
     //init_Candidates_list(&debug_l);
-
-    k_mer_pos_list_alloc array_list;
-    init_k_mer_pos_list_alloc(&array_list);
 
     overlap_region_alloc overlap_list;
     init_overlap_region_alloc(&overlap_list);
@@ -577,7 +571,6 @@ void* Output_related_reads(void* arg)
     destory_buffer_sub_block(&current_sub_buffer);
     destory_Candidates_list(&l);
     destory_overlap_region_alloc(&overlap_list);
-    destory_k_mer_pos_list_alloc(&array_list);
     destory_Graph(&POA_Graph);
     destory_Graph(&DAGCon);
     destory_UC_Read(&g_read);
@@ -1100,9 +1093,6 @@ void* Final_overlap_calculate_heap_merge(void* arg)
     Candidates_list l;    
     init_Candidates_list(&l);
 
-    k_mer_pos_list_alloc array_list;
-    init_k_mer_pos_list_alloc(&array_list);
-
     overlap_region_alloc overlap_list;
     init_overlap_region_alloc(&overlap_list);
 
@@ -1156,7 +1146,6 @@ void* Final_overlap_calculate_heap_merge(void* arg)
 
     destory_Candidates_list(&l);
     destory_overlap_region_alloc(&overlap_list);
-    destory_k_mer_pos_list_alloc(&array_list);  
     destory_UC_Read(&g_read);
     destory_UC_Read(&overlap_read);
     destory_Cigar_record_alloc(&cigarline);

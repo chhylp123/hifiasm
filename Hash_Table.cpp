@@ -687,41 +687,6 @@ void append_window_list(overlap_region* region, uint64_t x_start, uint64_t x_end
     region->w_list_length++;
 }
 
-void init_k_mer_pos_list_alloc(k_mer_pos_list_alloc* list)
-{
-    list->size = 1000;
-    list->length = 0;
-    //list->list = (k_mer_pos_list*)malloc(sizeof(k_mer_pos_list)*list->size);
-    list->list = (k_mer_pos_list*)calloc(list->size, sizeof(k_mer_pos_list)); 
-}
-
-void clear_k_mer_pos_list_alloc(k_mer_pos_list_alloc* list)
-{
-    list->length = 0;
-}
-
-void destory_k_mer_pos_list_alloc(k_mer_pos_list_alloc* list)
-{
-    free(list->list);
-}
-
-void append_k_mer_pos_list_alloc(k_mer_pos_list_alloc* list, k_mer_pos* n_list, uint64_t n_length, 
-                                 uint64_t n_end_pos, uint8_t n_direction)
-{
-    if (list->length + 1 > list->size)
-    {
-        list->size = list->size * 2;
-        list->list = (k_mer_pos_list*)realloc(list->list, sizeof(k_mer_pos_list)*list->size);
-    }
-    
-    list->list[list->length].list = n_list;
-    list->list[list->length].length = n_length;
-    list->list[list->length].direction = n_direction;
-    list->list[list->length].end_pos = n_end_pos;
-
-    list->length++;
-}
-
 void test_single_list(Candidates_list* candidates, k_mer_pos* n_list, uint64_t n_lengh, uint64_t end_pos, uint64_t strand)
 {
     uint64_t i;
