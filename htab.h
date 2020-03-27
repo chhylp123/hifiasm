@@ -12,23 +12,28 @@ typedef struct {
 
 typedef struct { uint32_t n, m; ha_mz1_t *a; } ha_mz1_v;
 
+struct ha_pt_s;
+typedef struct ha_pt_s ha_pt_t;
+
 extern const unsigned char seq_nt4_table[256];
 
-void *ha_gen_flt_tab(const hifiasm_opt_t *asm_opt, All_reads *rs);
-void *ha_gen_mzidx(const hifiasm_opt_t *asm_opt, const void *flt_tab, int read_from_store, All_reads *rs);
-void trio_partition(void);
-
+void *ha_ft_gen(const hifiasm_opt_t *asm_opt, All_reads *rs);
 int ha_ft_isflt(const void *hh, uint64_t y);
 void ha_ft_destroy(void *h);
-void ha_idx_destroy(void *h);
+
+ha_pt_t *ha_pt_gen(const hifiasm_opt_t *asm_opt, const void *flt_tab, int read_from_store, All_reads *rs);
+void ha_pt_destroy(ha_pt_t *h);
+const uint64_t *ha_pt_get(const ha_pt_t *h, uint64_t hash, int *n);
 
 double yak_cputime(void);
 void yak_reset_realtime(void);
 double yak_realtime(void);
 long yak_peakrss(void);
 
+void trio_partition(void);
+
 void ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mz1_v *p, const void *hf);
-int yak_analyze_count(int n_cnt, const int64_t *cnt, int *peak_het);
+int ha_analyze_count(int n_cnt, const int64_t *cnt, int *peak_het);
 
 static inline uint64_t yak_hash64(uint64_t key, uint64_t mask) // invertible integer hash function
 {

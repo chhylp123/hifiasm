@@ -10,16 +10,16 @@ int main(int argc, char *argv[])
 {
 	int i;
 	void *flt_tab;
-	void *idx;
+	ha_pt_t *idx;
 
     init_opt(&asm_opt);
 
     if (!CommandLine_process(argc, argv, &asm_opt)) return 1;
 
 	yak_reset_realtime();
-	flt_tab = ha_gen_flt_tab(&asm_opt, &R_INF);
-	idx = ha_gen_mzidx(&asm_opt, flt_tab, 0, &R_INF);
-	ha_idx_destroy(idx);
+	flt_tab = ha_ft_gen(&asm_opt, &R_INF);
+	idx = ha_pt_gen(&asm_opt, flt_tab, 0, &R_INF);
+	ha_pt_destroy(idx);
 	ha_ft_destroy(flt_tab);
 	if (0) {
 	    Correct_Reads(asm_opt.number_of_round);

@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include "htab.h"
 
-static void yak_hist_line(int c, int x, int exceed, int64_t cnt)
+static void ha_hist_line(int c, int x, int exceed, int64_t cnt)
 {
 	int j;
 	if (c >= 0) fprintf(stderr, "[M::%s] %5d: ", __func__, c);
@@ -11,7 +11,7 @@ static void yak_hist_line(int c, int x, int exceed, int64_t cnt)
 	fprintf(stderr, " %lld\n", (long long)cnt);
 }
 
-int yak_analyze_count(int n_cnt, const int64_t *cnt, int *peak_het)
+int ha_analyze_count(int n_cnt, const int64_t *cnt, int *peak_het)
 {
 	const int hist_max = 100;
 	int i, start, low_i, max_i, max2_i, max3_i;
@@ -40,7 +40,7 @@ int yak_analyze_count(int n_cnt, const int64_t *cnt, int *peak_het)
 		x = (int)((double)hist_max * cnt[i] / cnt[max_i] + .499);
 		if (x > hist_max) exceed = 1, x = hist_max; // may happen if cnt[2] is higher
 		if (i > max_i && x == 0) break;
-		yak_hist_line(i, x, exceed, cnt[i]);
+		ha_hist_line(i, x, exceed, cnt[i]);
 	}
 	{
 		int x, exceed = 0;
@@ -48,7 +48,7 @@ int yak_analyze_count(int n_cnt, const int64_t *cnt, int *peak_het)
 		for (; i < n_cnt; ++i) rest += cnt[i];
 		x = (int)((double)hist_max * rest / cnt[max_i] + .499);
 		if (x > hist_max) exceed = 1, x = hist_max;
-		yak_hist_line(-1, x, exceed, rest);
+		ha_hist_line(-1, x, exceed, rest);
 	}
 
 	// look for smaller peak on the low end

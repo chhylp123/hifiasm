@@ -12,7 +12,7 @@
 #include "htab.h"
 
 void *ha_flt_tab;
-void *ha_idx;
+ha_pt_t *ha_idx;
 
 All_reads R_INF;
 pthread_mutex_t statistics;
@@ -817,7 +817,7 @@ void Overlap_calculate_multipe_thr()
     }
 
 
-	ha_idx_destroy(ha_idx);
+	ha_pt_destroy(ha_idx);
 	ha_idx = 0;
 
     fprintf(stderr, "All overlaps have been calculated.\n");
@@ -1391,7 +1391,7 @@ void generate_overlaps(int last_round)
     asm_opt.roundID = asm_opt.number_of_round - last_round;
     fprintf(stderr, "Begin calculting final overlaps ...\n");
 
-	ha_idx = ha_gen_mzidx(&asm_opt, ha_flt_tab, asm_opt.roundID == 0? 0 : 1, &R_INF);
+	ha_idx = ha_pt_gen(&asm_opt, ha_flt_tab, asm_opt.roundID == 0? 0 : 1, &R_INF);
 
     pthread_t *_r_threads;
 
@@ -1412,7 +1412,7 @@ void generate_overlaps(int last_round)
     free(_r_threads);
 
     ///rescue_edges(R_INF.paf, R_INF.reverse_paf, R_INF.total_reads, 4, 0.985);
-	ha_idx_destroy(ha_idx);
+	ha_pt_destroy(ha_idx);
 	ha_idx = 0;
 
     fprintf(stderr, "Final overlaps have been calculated.\n");
@@ -1453,9 +1453,9 @@ void Correct_Reads(int last_round)
 
     fprintf(stderr, "Error correction: Start the %d-th round ...\n", asm_opt.roundID);
 
-	ha_idx = ha_gen_mzidx(&asm_opt, ha_flt_tab, asm_opt.roundID == 0? 0 : 1, &R_INF);
+	ha_idx = ha_pt_gen(&asm_opt, ha_flt_tab, asm_opt.roundID == 0? 0 : 1, &R_INF);
     Overlap_calculate_multipe_thr();
-	ha_idx_destroy(ha_idx);
+	ha_pt_destroy(ha_idx);
 
     fprintf(stderr, "Error correction: The %d-th round has been completed.\n", asm_opt.roundID);
 
