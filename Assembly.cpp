@@ -1,10 +1,9 @@
-#include "Assembly.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <zlib.h>
+#include "Assembly.h"
 #include "Process_Read.h"
 #include "CommandLines.h"
-#include "kmer.h"
 #include "Hash_Table.h"
 #include "POA.h"
 #include "Correct.h"
@@ -13,6 +12,7 @@
 
 void *ha_flt_tab;
 ha_pt_t *ha_idx;
+void ha_get_new_candidates(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_region_alloc *overlap_list, Candidates_list *cl, double band_width_threshold, int keep_whole_chain);
 
 All_reads R_INF;
 pthread_mutex_t statistics;
@@ -375,59 +375,6 @@ long long push_final_overlaps(ma_hit_t_alloc* paf, ma_hit_t_alloc* reverse_paf_l
     return available_overlaps;
 }
 
-void get_new_candidates(long long readID, UC_Read* g_read, overlap_region_alloc* overlap_list, k_mer_pos_list_alloc* array_list,
-						Candidates_list* l, double band_width_threshold, int keep_whole_chain)
-{
-    HPC_seq HPC_read;
-    Hash_code k_code;
-    long long avalible_k;
-    uint64_t code;
-    uint64_t end_pos;
-    k_mer_pos* list;
-    uint64_t list_length;
-    uint64_t sub_ID;
-
-    clear_Candidates_list(l);
-
-    clear_k_mer_pos_list_alloc(array_list);
-    clear_overlap_region_alloc(overlap_list);
-
-    recover_UC_Read(g_read, &R_INF, readID);
-
-    init_HPC_seq(&HPC_read, g_read->seq, g_read->length);
-    init_Hash_code(&k_code);
-    avalible_k = 0;
-
-    while ((code = get_HPC_code(&HPC_read, &end_pos)) != 6)
-    {
-        if(code < 4)
-        {
-            k_mer_append(&k_code, code, asm_opt.k_mer_length);
-            avalible_k++;
-            if (avalible_k >= asm_opt.k_mer_length)
-            {
-                //list_length = locate_Total_Pos_Table(&PCB, &k_code, &list, asm_opt.k_mer_length, &sub_ID);
-
-                if (list_length != 0)
-                {
-                    append_k_mer_pos_list_alloc(array_list, list, list_length, end_pos, 0);
-                }
-            }
-        }
-        else
-        {
-            avalible_k = 0;
-            init_Hash_code(&k_code);
-        }
-    }
-
-	// BIG CHANGES WILL GO HERE!!!
-
-    calculate_overlap_region_by_chaining(l, overlap_list, readID, g_read->length, &R_INF, 
-    band_width_threshold, keep_whole_chain);
-}
-
-
 void* Overlap_calculate_heap_merge(void* arg)
 {
     long long num_read_base = 0;
@@ -473,10 +420,14 @@ void* Overlap_calculate_heap_merge(void* arg)
     Round2_alignment second_round;
     init_Round2_alignment(&second_round);
 
+	ha_abuf_t *ab;
+	ab = ha_abuf_init();
+
     for (i = thr_ID; i < (long long)R_INF.total_reads; i = i + asm_opt.thread_num)
     {
         ///get_new_candidates(i, &g_read, &overlap_list, &array_list, &heap, &l, THRESHOLD_RATE*1.5);
-        get_new_candidates(i, &g_read, &overlap_list, &array_list, &l, 0.02, 1);
+        //get_new_candidates(i, &g_read, &overlap_list, &array_list, &l, 0.02, 1);
+		ha_get_new_candidates(ab, i, &g_read, &overlap_list, &l, 0.02, 1);
 
         clear_Cigar_record(&current_cigar);
         clear_Round2_alignment(&second_round);
@@ -507,7 +458,7 @@ void* Overlap_calculate_heap_merge(void* arg)
         push_overlaps(&(R_INF.reverse_paf[i]), &overlap_list, 2, &R_INF, asm_opt.roundID%2);
     }
 
-
+	ha_abuf_destroy(ab);
     finish_output_buffer();
     destory_buffer_sub_block(&current_sub_buffer);
     destory_Candidates_list(&l);
@@ -521,7 +472,6 @@ void* Overlap_calculate_heap_merge(void* arg)
     destory_Correct_dumy(&correct);
     destoryHaplotypeEvdience(&hap);
     destory_Round2_alignment(&second_round);
-
 
 
     pthread_mutex_lock(&statistics);
@@ -588,6 +538,8 @@ void* Output_related_reads(void* arg)
     Round2_alignment second_round;
     init_Round2_alignment(&second_round);
 
+	ha_abuf_t *ab;
+	ab = ha_abuf_init();
 
     long long required_read_name_length = strlen(asm_opt.required_read_name);
     for (i = thr_ID; i < (long long)R_INF.total_reads; i = i + asm_opt.thread_num)
@@ -597,8 +549,9 @@ void* Output_related_reads(void* arg)
             &&
            memcmp(asm_opt.required_read_name, Get_NAME((R_INF), i), Get_NAME_LENGTH((R_INF),i)) == 0)
         {
-            ////get_new_candidates(i, &g_read, &overlap_list, &array_list, &heap, &l, THRESHOLD_RATE*1.5);
-            get_new_candidates(i, &g_read, &overlap_list, &array_list, &l, 0.02, 1);
+            //get_new_candidates(i, &g_read, &overlap_list, &array_list, &heap, &l, THRESHOLD_RATE*1.5);
+            //get_new_candidates(i, &g_read, &overlap_list, &array_list, &l, 0.02, 1);
+			ha_get_new_candidates(ab, i, &g_read, &overlap_list, &l, 0.02, 1);
 
             fprintf(stderr, ">%.*s\n", (int)Get_NAME_LENGTH((R_INF), i),
             Get_NAME((R_INF), i));
@@ -618,6 +571,7 @@ void* Output_related_reads(void* arg)
         }
     }
 
+	ha_abuf_destroy(ab);
     finish_output_buffer();
 
     destory_buffer_sub_block(&current_sub_buffer);
@@ -1155,6 +1109,9 @@ void* Final_overlap_calculate_heap_merge(void* arg)
     Cigar_record_alloc cigarline;
     init_Cigar_record_alloc(&cigarline);
 
+	ha_abuf_t *ab;
+	ab = ha_abuf_init();
+
     uint8_t c2n[256];
     memset(c2n, 4, 256);
     c2n[(uint8_t)'A'] = c2n[(uint8_t)'a'] = 0; c2n[(uint8_t)'C'] = c2n[(uint8_t)'c'] = 1;
@@ -1163,7 +1120,9 @@ void* Final_overlap_calculate_heap_merge(void* arg)
     for (i = thr_ID; i < R_INF.total_reads; i = i + asm_opt.thread_num)
     {
 
-        get_new_candidates(i, &g_read, &overlap_list, &array_list, &l, 0.001, 0);
+        //get_new_candidates(i, &g_read, &overlap_list, &array_list, &l, 0.001, 0);
+		ha_get_new_candidates(ab, i, &g_read, &overlap_list, &l, 0.001, 0);
+
         /**
         correct_overlap(&overlap_list, &R_INF, &g_read, &correct, &overlap_read, &POA_Graph, &DAGCon,
         &matched_overlap_0, &matched_overlap_1, &potiental_matched_overlap_0, &potiental_matched_overlap_1,
@@ -1192,6 +1151,7 @@ void* Final_overlap_calculate_heap_merge(void* arg)
 
     }
 
+	ha_abuf_destroy(ab);
     finish_output_buffer();
 
     destory_Candidates_list(&l);

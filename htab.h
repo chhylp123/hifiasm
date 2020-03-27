@@ -32,6 +32,9 @@ ha_pt_t *ha_pt_gen(const hifiasm_opt_t *asm_opt, const void *flt_tab, int read_f
 void ha_pt_destroy(ha_pt_t *h);
 const ha_idxpos_t *ha_pt_get(const ha_pt_t *h, uint64_t hash, int *n);
 
+ha_abuf_t *ha_abuf_init(void);
+void ha_abuf_destroy(ha_abuf_t *ab);
+
 double yak_cputime(void);
 void yak_reset_realtime(void);
 double yak_realtime(void);

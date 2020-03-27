@@ -1,6 +1,5 @@
 #ifndef __HASHTABLE__
 #define __HASHTABLE__
-#include "kmer.h"
 #include "htab.h"
 
 #define PREFIX_BITS 16

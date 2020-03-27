@@ -1,12 +1,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <pthread.h>
 #include "Hash_Table.h"
 #include "Process_Read.h"
 #include "Correct.h"
 #include "CommandLines.h"
-#include "kmer.h"
-#include <pthread.h>
 #include "ksort.h"
 pthread_mutex_t output_mutex;
 
