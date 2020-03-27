@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include "htab.h"
 #include "ksort.h"
 #include "Hash_Table.h"
@@ -71,16 +72,9 @@ void ha_get_new_candidates(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_reg
 		for (j = 0; j < s->n; ++j) {
 			const ha_idxpos_t *y = &s->a[j];
 			anchor1_t *an = &ab->a[k++];
-			uint8_t rev;
-			if (z->rev == y->rev) { // forward strand
-				rev = 0;
-				an->self_off = z->pos;
-				an->other_off = y->pos;
-			} else { // reverse strand
-				rev = 1;
-				an->self_off = ucr->length - 1 - (z->pos + 1 - z->span);
-				an->other_off = R_INF.read_length[y->rid] - 1 - (y->pos + 1 - y->span);
-			}
+			uint8_t rev = z->rev == y->rev? 0 : 1;
+			an->other_off = y->pos;
+			an->self_off = rev? ucr->length - 1 - (z->pos + 1 - z->span) : z->pos;
 			an->srt = (uint64_t)y->rid<<33 | (uint64_t)rev<<32 | an->other_off;
 		}
 	}
@@ -101,10 +95,12 @@ void ha_get_new_candidates(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_reg
 		REALLOC(cl->list, cl->size);
 	}
 	for (k = 0; k < ab->n_a; ++k) {
-		cl->list[k].readID = ab->a[k].srt >> 33;
-		cl->list[k].strand = ab->a[k].srt >> 32 & 1;
-		cl->list[k].offset = ab->a[k].other_off;
-		cl->list[k].self_offset = ab->a[k].self_off;
+		k_mer_hit *p = &cl->list[k];
+		p->readID = ab->a[k].srt >> 33;
+		p->strand = ab->a[k].srt >> 32 & 1;
+		p->offset = ab->a[k].other_off;
+		p->self_offset = ab->a[k].self_off;
+		//fprintf(stderr, "A\t%ld\t%d\t%c\t%d\t%d\n", (long)rid, p->self_offset, "+-"[p->strand], p->readID, p->offset);
 	}
 	cl->length = ab->n_a;
 
