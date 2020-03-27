@@ -100,9 +100,16 @@ void ha_get_new_candidates(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_reg
 		p->strand = ab->a[k].srt >> 32 & 1;
 		p->offset = ab->a[k].other_off;
 		p->self_offset = ab->a[k].self_off;
-		//fprintf(stderr, "A\t%ld\t%d\t%c\t%d\t%d\n", (long)rid, p->self_offset, "+-"[p->strand], p->readID, p->offset);
 	}
 	cl->length = ab->n_a;
 
 	calculate_overlap_region_by_chaining(cl, overlap_list, rid, ucr->length, &R_INF, band_width_threshold, keep_whole_chain);
+	#if 0
+	fprintf(stderr, "B\t%ld\t%ld\n", (long)overlap_list->length, (long)overlap_list->mapped_overlaps_length);
+	for (int i = 0; i < (int)overlap_list->length; ++i) {
+		overlap_region *r = &overlap_list->list[i];
+		fprintf(stderr, "C\t%d\t%d\t%d\t%c\t%d\t%d\t%d\t%c\t%d\n", (int)r->x_id, (int)r->x_pos_s, (int)r->x_pos_e, "+-"[r->x_pos_strand],
+				(int)r->y_id, (int)r->y_pos_s, (int)r->y_pos_e, "+-"[r->y_pos_strand], (int)r->shared_seed);
+	}
+	#endif
 }
