@@ -5,7 +5,6 @@
 #include "ketopt.h"
 #include <sys/time.h>
 
-#define VERSION "0.3.0"
 #define DEFAULT_OUTPUT "hifiasm.asm"
 
 hifiasm_opt_t asm_opt;
@@ -309,7 +308,7 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         } 
         else if (c == 'v')
         {
-            fprintf(stderr, "[Version] %s\n", VERSION);
+			puts(HA_VERSION);
             return 0;
         }
 		else if (c == 'f') asm_opt->bf_shift = atoi(opt.arg);

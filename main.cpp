@@ -18,7 +18,7 @@ int main(int argc, char *argv[])
 	ha_ft_destroy(ha_flt_tab);
 	destory_All_reads(&R_INF);
     destory_opt(&asm_opt);
-	fprintf(stderr, "[M::%s] Version: %s\n", __func__, "dummy");
+	fprintf(stderr, "[M::%s] Version: %s\n", __func__, HA_VERSION);
 	fprintf(stderr, "[M::%s] CMD:", __func__);
 	for (i = 0; i < argc; ++i)
 		fprintf(stderr, " %s", argv[i]);
