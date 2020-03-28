@@ -12,7 +12,8 @@ int main(int argc, char *argv[])
     init_opt(&asm_opt);
     if (!CommandLine_process(argc, argv, &asm_opt)) return 1;
 	yak_reset_realtime();
-	ha_flt_tab = ha_ft_gen(&asm_opt, &R_INF);
+	if (!asm_opt.no_kmer_flt)
+		ha_flt_tab = ha_ft_gen(&asm_opt, &R_INF);
     Correct_Reads(asm_opt.number_of_round);
 	ha_ft_destroy(ha_flt_tab);
 	destory_All_reads(&R_INF);

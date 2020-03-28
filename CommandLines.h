@@ -19,6 +19,7 @@ typedef struct {
 	int bf_shift;
 	float high_factor;
 	int no_HPC;
+	int no_kmer_flt;
     int k_mer_min_freq;
     int k_mer_max_freq;
     int load_index_from_disk;

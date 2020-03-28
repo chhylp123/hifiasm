@@ -764,7 +764,7 @@ int ha_ft_isflt(const void *hh, uint64_t y)
 
 void ha_ft_destroy(void *h)
 {
-	yak_ft_destroy((yak_ft_t*)h);
+	if (h) yak_ft_destroy((yak_ft_t*)h);
 }
 
 /*************************
@@ -794,20 +794,36 @@ void *ha_ft_gen(const hifiasm_opt_t *asm_opt, All_reads *rs)
 ha_pt_t *ha_pt_gen(const hifiasm_opt_t *asm_opt, const void *flt_tab, int read_from_store, All_reads *rs)
 {
 	int64_t cnt[YAK_N_COUNTS], tot_cnt;
-	int peak_hom, peak_het, i, extra_flag = read_from_store? HAF_RS_READ : HAF_RS_WRITE_SEQ;
+	int peak_hom, peak_het, i, extra_flag1, extra_flag2;
 	ha_ct_t *ct;
 	ha_pt_t *pt;
-	ct = ha_count(asm_opt, HAF_COUNT_EXACT|extra_flag, NULL, flt_tab, rs);
+	if (read_from_store) {
+		extra_flag1 = extra_flag2 = HAF_RS_READ;
+	} else if (rs->total_reads == 0) {
+		extra_flag1 = HAF_RS_WRITE_LEN;
+		extra_flag2 = HAF_RS_WRITE_SEQ;
+	} else {
+		extra_flag1 = HAF_RS_WRITE_SEQ;
+		extra_flag2 = HAF_RS_READ;
+	}
+	ct = ha_count(asm_opt, HAF_COUNT_EXACT|extra_flag1, NULL, flt_tab, rs);
 	fprintf(stderr, "[M::%s::%.3f*%.2f] ==> counted %ld distinct minimizer k-mers\n", __func__,
 			yak_realtime(), yak_cputime() / yak_realtime(), (long)ct->tot);
 	ha_ct_hist(ct, cnt, asm_opt->thread_num);
 	fprintf(stderr, "[M::%s] count[%d] = %ld (for sanity check)\n", __func__, YAK_MAX_COUNT, (long)cnt[YAK_MAX_COUNT]);
 	peak_hom = ha_analyze_count(YAK_N_COUNTS, cnt, &peak_het);
 	if (peak_hom > 0) fprintf(stderr, "[M::%s] peak_hom: %d; peak_het: %d\n", __func__, peak_hom, peak_het);
-	ha_ct_shrink(ct, 2, YAK_MAX_COUNT - 1, asm_opt->thread_num);
-	for (i = 2, tot_cnt = 0; i <= YAK_MAX_COUNT - 1; ++i) tot_cnt += cnt[i] * i;
+	if (flt_tab == 0) {
+		int cutoff = (int)(peak_hom * asm_opt->high_factor);
+		if (cutoff > YAK_MAX_COUNT - 1) cutoff = YAK_MAX_COUNT - 1;
+		ha_ct_shrink(ct, 2, cutoff, asm_opt->thread_num);
+		for (i = 2, tot_cnt = 0; i <= cutoff; ++i) tot_cnt += cnt[i] * i;
+	} else {
+		ha_ct_shrink(ct, 2, YAK_MAX_COUNT - 1, asm_opt->thread_num);
+		for (i = 2, tot_cnt = 0; i <= YAK_MAX_COUNT - 1; ++i) tot_cnt += cnt[i] * i;
+	}
 	pt = ha_pt_gen(ct, asm_opt->thread_num);
-	ha_count(asm_opt, HAF_COUNT_EXACT|HAF_RS_READ, pt, flt_tab, rs);
+	ha_count(asm_opt, HAF_COUNT_EXACT|extra_flag2, pt, flt_tab, rs);
 	assert((uint64_t)tot_cnt == pt->tot_pos);
 	//ha_pt_sort(pt, asm_opt->thread_num);
 	fprintf(stderr, "[M::%s::%.3f*%.2f] ==> indexed %ld positions\n", __func__,

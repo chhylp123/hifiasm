@@ -29,7 +29,7 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "    -k INT        k-mer length (must be <64) [%d]\n", asm_opt->k_mer_length);
 	fprintf(stderr, "    -w INT        minimizer window size [%d]\n", asm_opt->mz_win);
 	fprintf(stderr, "    -f INT        number of bits for bloom filter [%d]\n", asm_opt->bf_shift);
-	fprintf(stderr, "    -D FLOAT      drop k-mers occuring more than FLOAT*coverage times [%.1f]\n", asm_opt->high_factor);
+	fprintf(stderr, "    -D FLOAT      drop k-mers occuring >FLOAT*coverage times [%.1f]\n", asm_opt->high_factor);
     ///fprintf(stderr, "    -l            load all overlaps from disk, can avoid overlap calculation [%d]\n", asm_opt->load_index_from_disk);
     ///fprintf(stderr, "    -i            ignore saved overlaps in *.ovlp*.bin files\n");
     fprintf(stderr, "    -i            ignore saved overlaps in *.ovlp* files\n");
@@ -69,6 +69,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
 	asm_opt->bf_shift = 37;
 	asm_opt->high_factor = 7.0f;
 	asm_opt->no_HPC = 0;
+	asm_opt->no_kmer_flt = 0;
     asm_opt->k_mer_min_freq = 3;
     asm_opt->k_mer_max_freq = 66;
     asm_opt->load_index_from_disk = 1;
@@ -300,7 +301,7 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
 
     int c;
 
-    while ((c = ketopt(&opt, argc, argv, 1, "hvt:o:k:lw:m:n:r:a:b:z:x:y:p:c:d:M:P:if:D:", 0)) >= 0) {
+    while ((c = ketopt(&opt, argc, argv, 1, "hvt:o:k:lw:m:n:r:a:b:z:x:y:p:c:d:M:P:if:D:F", 0)) >= 0) {
         if (c == 'h')
         {
             Print_H(asm_opt);
@@ -320,6 +321,7 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         else if (c == 'l') asm_opt->load_index_from_disk = 1; 
         else if (c == 'w') asm_opt->mz_win = atoi(opt.arg);
 		else if (c == 'D') asm_opt->high_factor = atof(opt.arg);
+		else if (c == 'F') asm_opt->no_kmer_flt = 1;
         else if (c == 'a') asm_opt->clean_round = atoi(opt.arg); 
         else if (c == 'z') asm_opt->adapterLen = atoi(opt.arg);
         else if (c == 'b') asm_opt->required_read_name = opt.arg;
