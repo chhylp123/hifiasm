@@ -23,13 +23,13 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "Options:\n");
     fprintf(stderr, "  Assembly:\n");
     fprintf(stderr, "    -o FILE       prefix of output files [%s]\n", asm_opt->output_file_name);
-    ///fprintf(stderr, "    -c FILE       file including trio information\n");
     fprintf(stderr, "    -t INT        number of threads [%d]\n", asm_opt->thread_num);
     fprintf(stderr, "    -r INT        round of correction [%d]\n", asm_opt->number_of_round);
     fprintf(stderr, "    -a INT        round of assembly cleaning [%d]\n", asm_opt->clean_round);
-    fprintf(stderr, "    -k INT        k-mer length [%d] (must be < 64)\n", asm_opt->k_mer_length);
+    fprintf(stderr, "    -k INT        k-mer length (must be <64) [%d]\n", asm_opt->k_mer_length);
+	fprintf(stderr, "    -w INT        minimizer window size [%d]\n", asm_opt->mz_win);
 	fprintf(stderr, "    -f INT        number of bits for bloom filter [%d]\n", asm_opt->bf_shift);
-    ///fprintf(stderr, "    -w            write all overlaps to disk, can accelerate assembly next time [%d]\n", asm_opt->write_index_to_disk);
+	fprintf(stderr, "    -D FLOAT      drop k-mers occuring more than FLOAT*coverage times [%.1f]\n", asm_opt->high_factor);
     ///fprintf(stderr, "    -l            load all overlaps from disk, can avoid overlap calculation [%d]\n", asm_opt->load_index_from_disk);
     ///fprintf(stderr, "    -i            ignore saved overlaps in *.ovlp*.bin files\n");
     fprintf(stderr, "    -i            ignore saved overlaps in *.ovlp* files\n");
@@ -300,7 +300,7 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
 
     int c;
 
-    while ((c = ketopt(&opt, argc, argv, 1, "hvt:o:k:lwm:n:r:a:b:z:x:y:p:c:d:M:P:if:", 0)) >= 0) {
+    while ((c = ketopt(&opt, argc, argv, 1, "hvt:o:k:lw:m:n:r:a:b:z:x:y:p:c:d:M:P:if:D:", 0)) >= 0) {
         if (c == 'h')
         {
             Print_H(asm_opt);
@@ -318,7 +318,8 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         else if (c == 'k') asm_opt->k_mer_length = atoi(opt.arg);
         else if (c == 'i') asm_opt->load_index_from_disk = 0; 
         else if (c == 'l') asm_opt->load_index_from_disk = 1; 
-        else if (c == 'w') asm_opt->write_index_to_disk = 1;
+        else if (c == 'w') asm_opt->mz_win = atoi(opt.arg);
+		else if (c == 'D') asm_opt->high_factor = atof(opt.arg);
         else if (c == 'a') asm_opt->clean_round = atoi(opt.arg); 
         else if (c == 'z') asm_opt->adapterLen = atoi(opt.arg);
         else if (c == 'b') asm_opt->required_read_name = opt.arg;
