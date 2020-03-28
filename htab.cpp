@@ -57,7 +57,7 @@ void yak_copt_init(yak_copt_t *o)
 	o->w = 1;
 	o->pre = YAK_COUNTER_BITS;
 	o->n_thread = 4;
-	o->chunk_size = 10000000;
+	o->chunk_size = 20000000;
 }
 
 /************************
