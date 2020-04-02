@@ -298,7 +298,6 @@ int cmp_by_x_pos_s(const void * a, const void * b)
     }
 }
 
-
 int cmp_by_x_pos_e(const void * a, const void * b)
 {
     if ((*(overlap_region*)a).x_pos_e > (*(overlap_region*)b).x_pos_e)
@@ -399,6 +398,63 @@ long long get_chainLen(long long x_beg, long long x_end, long long xLen,
     return x_end - x_beg + 1;
 }
 
+static int32_t ha_kmer_hit_lis(int32_t n, const k_mer_hit *a, int32_t *b, int32_t *M)
+{
+	int32_t i, k, L = 0, *P = b;
+	for (i = 0; i < n; ++i) {
+		int32_t lo = 1, hi = L, newL;
+		while (lo <= hi) {
+			int32_t mid = (lo + hi + 1) >> 1;
+			if (a[M[mid]].offset < a[i].offset) lo = mid + 1;
+			else hi = mid - 1;
+		}
+		newL = lo, P[i] = M[newL - 1], M[newL] = i;
+		if (newL > L) L = newL;
+	}
+	k = M[L];
+	memcpy(M, P, n * sizeof(int32_t));
+	for (i = L - 1; i >= 0; --i) b[i] = k, k = M[k];
+	return L;
+}
+
+int32_t ha_chain_lis_core(k_mer_hit *a, int32_t n_a, Chain_Data *dp, int32_t min_sc, double bw_thres)
+{
+	int32_t *tmp = (int32_t*)dp->tmp;
+	int32_t i, m, *b = tmp, *M = tmp + n_a;
+	int32_t tot_indel = 0, tot_len = 0;
+	if (n_a < 2) return -1;
+	for (i = 1; i < n_a; ++i)
+		if (a[i-1].offset >= a[i].offset)
+			break;
+	if (i == n_a) {
+		for (i = 0; i < n_a; ++i)
+			b[i] = i;
+		m = n_a;
+	} else m = ha_kmer_hit_lis(n_a, a, b, M);
+	dp->score[0] = 0, dp->pre[0] = -1, dp->indels[0] = 0, dp->self_length[0] = 0;
+	for (i = 1; i < m; ++i) {
+		int32_t j0 = b[i-1], j1 = b[i], score, dg;
+		int32_t dx = (int32_t)a[j1].offset - (int32_t)a[j0].offset;
+		int32_t dy = (int32_t)a[j1].self_offset - (int32_t)a[j0].self_offset;
+		int32_t dd = dx > dy? dx - dy : dy - dx;
+		double gap_rate;
+		tot_indel += dd;
+		tot_len += dy;
+		if (tot_indel > tot_len * bw_thres)
+			break;
+		dg = dx < dy? dx : dy;
+		score = dg < min_sc? dg : min_sc;
+		gap_rate = (double)tot_indel / tot_len;
+		score -= (int)(gap_rate * score * bw_thres);
+		dp->score[i] = dp->score[i-1] + score;
+        dp->pre[i] = i - 1;
+        dp->indels[i] = tot_indel;
+        dp->self_length[i] = tot_len;
+	}
+	if (i < m) return -1;
+	for (i = 0; i < m; ++i) a[i] = a[b[i]];
+	return m;
+}
 
 ///double band_width_threshold = 0.05;
 void chain_DP(k_mer_hit* a, long long a_n, Chain_Data* dp, overlap_region* result, 
@@ -413,8 +469,16 @@ void chain_DP(k_mer_hit* a, long long a_n, Chain_Data* dp, overlap_region* resul
     long long max_indels, max_self_length;
     double gap_rate;
     long long total_indels, total_self_length;
+	int32_t ret;
     
     resize_Chain_Data(dp, a_n);
+
+	ret = ha_chain_lis_core(a, a_n, dp, min_score, band_width_threshold);
+	if (ret > 0) {
+		a_n = ret;
+		goto skip_dp;
+	}
+
     // fill the score and backtrack arrays
 	for (i = 0; i < a_n; ++i) dp->tmp[i] = -1;
 	for (i = 0; i < a_n; ++i) 
@@ -488,6 +552,8 @@ void chain_DP(k_mer_hit* a, long long a_n, Chain_Data* dp, overlap_region* resul
 
     ///debug_chain(a, a_n, dp);
 
+skip_dp:
+
     max_score = -1;
     max_i = -1;
     long long mini_xLen = x_readLen * 2 + 2, tmp_xLen;
@@ -554,7 +620,6 @@ void chain_DP(k_mer_hit* a, long long a_n, Chain_Data* dp, overlap_region* resul
     }
     else
     {
-    
         while (i >= 0)
         {
             distance_self_pos = result->x_pos_e - a[i].self_offset;
@@ -611,8 +676,6 @@ void calculate_overlap_region_by_chaining(Candidates_list* candidates, overlap_r
         ///here the strand of query is always 0
         tmp_region.y_pos_strand = 0;  
 
-
-
         sub_region_beg = i;
         sub_region_end = i;
         i++;
@@ -632,7 +695,6 @@ void calculate_overlap_region_by_chaining(Candidates_list* candidates, overlap_r
             continue;
         }
 
-    
 		chain_DP(candidates->list + sub_region_beg,
 				sub_region_end - sub_region_beg + 1, &(candidates->chainDP), &tmp_region, band_width_threshold,
 				25, Get_READ_LENGTH((*R_INF), tmp_region.x_id), Get_READ_LENGTH((*R_INF), tmp_region.y_id));
@@ -732,8 +794,8 @@ void destory_Chain_Data(Chain_Data* x)
 
 void resize_Chain_Data(Chain_Data* x, long long size)
 {
-	if (size > x->size) {
-		x->size = size;
+	if (size + 1 > x->size) {
+		x->size = size + 1;
 		kroundup64(x->size);
 		REALLOC(x->score, x->size);
 		REALLOC(x->pre, x->size);

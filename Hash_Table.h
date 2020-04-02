@@ -127,7 +127,7 @@ typedef struct {
 	int64_t *pre;
 	int32_t *indels;
 	int32_t *self_length;
-	int64_t *tmp;
+	int64_t *tmp; // MUST BE 64-bit integer
 	int64_t length;
 	int64_t size;
 } Chain_Data;
