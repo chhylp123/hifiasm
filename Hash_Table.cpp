@@ -405,7 +405,7 @@ void chain_DP(k_mer_hit* a, long long a_n, Chain_Data* dp, overlap_region* resul
               double band_width_threshold, int max_skip, int x_readLen, int y_readLen)
 {
     long long i, j;
-    long long self_pos, pos, max_j, max_i, max_score, score, n_skip;
+    long long self_pos, pos, max_j, max_i, max_score, score;
     long long distance_pos, distance_self_pos, distance_gap,  distance_min;
     ///double band_width_threshold = 0.05;
     double band_width_penalty = 1 / band_width_threshold;
@@ -419,14 +419,15 @@ void chain_DP(k_mer_hit* a, long long a_n, Chain_Data* dp, overlap_region* resul
 	for (i = 0; i < a_n; ++i) dp->tmp[i] = -1;
 	for (i = 0; i < a_n; ++i) 
     {
+		int n_chn_skip = 0;
+		int n_max_skip = 0;
+
         pos = a[i].offset;
         self_pos = a[i].self_offset;
         max_j = -1;
         max_score = min_score;
-        n_skip = 0;
         max_indels = 0;
         max_self_length = 0;
-        
 
         ///may have a pre-cut condition for j
         for (j = i - 1; j >= 0; --j) 
@@ -466,10 +467,15 @@ void chain_DP(k_mer_hit* a, long long a_n, Chain_Data* dp, overlap_region* resul
 				max_j = j;
 				max_indels = total_indels;
 				max_self_length = total_self_length;
-				if (n_skip > 0) --n_skip;
-			} else if (dp->tmp[j] == i) {
-				if (++n_skip > max_skip)
+				n_max_skip = 0;
+				if (n_chn_skip > 0) --n_chn_skip;
+			} else {
+				if (++n_max_skip > max_skip)
 					break;
+				if (dp->tmp[j] == i) {
+					if (++n_chn_skip > max_skip)
+						break;
+				}
 			}
 			if (dp->pre[j] >= 0) dp->tmp[dp->pre[j]] = i;
         }
