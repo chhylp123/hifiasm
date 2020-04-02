@@ -80,24 +80,23 @@ typedef struct
 
 typedef struct
 {
-    uint64_t x_id;
+    uint32_t x_id;
     ///the begining and end of the whole overlap
-    uint64_t x_pos_s;
-    uint64_t x_pos_e;
-    uint64_t x_pos_strand;
+    uint32_t x_pos_s;
+    uint32_t x_pos_e;
+    uint32_t x_pos_strand;
 
-    uint64_t y_id;
-    uint64_t y_pos_s;
-    uint64_t y_pos_e;
-    uint64_t y_pos_strand;
+    uint32_t y_id;
+    uint32_t y_pos_s;
+    uint32_t y_pos_e;
+    uint32_t y_pos_strand;
 
-    uint64_t overlapLen;
-    uint64_t shared_seed;
-    uint64_t align_length;
-    ///uint64_t total_errors;
+    uint32_t overlapLen;
+    uint32_t shared_seed;
+    uint32_t align_length;
     uint8_t is_match;
     uint8_t without_large_indel;
-    uint64_t non_homopolymer_errors;
+    uint32_t non_homopolymer_errors;
 
     window_list* w_list;
     uint64_t w_list_size;
@@ -163,7 +162,7 @@ void resize_fake_cigar(Fake_Cigar* x, uint64_t size);
 int get_fake_gap_pos(Fake_Cigar* x, int index);
 int get_fake_gap_shift(Fake_Cigar* x, int index);
 
-inline long long y_start_offset(long long x_start, Fake_Cigar* o)
+static inline long long y_start_offset(long long x_start, Fake_Cigar* o)
 {
     if(x_start == get_fake_gap_pos(o, o->length - 1))
     {
@@ -187,18 +186,6 @@ inline long long y_start_offset(long long x_start, Fake_Cigar* o)
 
     ///note here return i - 1
     return get_fake_gap_shift(o, i - 1);
-}
-
-inline void print_fake_gap(Fake_Cigar* o)
-{
-    long long i;
-    for (i = 0; i < (long long)o->length; i++)
-    {
-        fprintf(stderr, "**i: %lld, gap_pos_in_x: %d, gap_shift: %d\n", 
-           i, get_fake_gap_pos(o, i),
-           get_fake_gap_shift(o, i));
-    }
-
 }
 
 void resize_Chain_Data(Chain_Data* x, long long size);

@@ -24,14 +24,11 @@
 #define Get_NAME(R_INF, ID) ((R_INF).name + (R_INF).name_index[(ID)])
 
 
-
-
 extern uint8_t seq_nt6_table[256];
 extern char bit_t_seq_table[256][4];
 extern char bit_t_seq_table_rc[256][4];
 extern char s_H[5];
 extern char rc_Table[5];
-
 
 
 #define RC_CHAR(x) rc_Table[seq_nt6_table[(uint8_t)x]]

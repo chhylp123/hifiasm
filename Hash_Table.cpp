@@ -12,6 +12,9 @@ pthread_mutex_t output_mutex;
 #define overlap_region_key(a) ((a).y_id)
 KRADIX_SORT_INIT(overlap_region_sort, overlap_region, overlap_region_key, member_size(overlap_region, y_id))
 
+#define oreg_xs_lt(a, b) (((uint64_t)(a).x_pos_s<<32|(a).x_pos_e) < ((uint64_t)(b).x_pos_s<<32|(b).x_pos_e))
+KSORT_INIT(or_xs, overlap_region, oreg_xs_lt)
+
 void overlap_region_sort_y_id(overlap_region *a, long long n)
 {
 	radix_sort_overlap_region_sort(a, a + n);
@@ -30,6 +33,7 @@ void init_overlap_region_alloc(overlap_region_alloc* list)
         init_window_list_alloc(&(list->list[i].boundary_cigars));
     }
 }
+
 void clear_overlap_region_alloc(overlap_region_alloc* list)
 {
     list->length = 0;
@@ -57,7 +61,6 @@ void destory_overlap_region_alloc(overlap_region_alloc* list)
     }
     free(list->list);
 }
-
 
 int get_fake_gap_pos(Fake_Cigar* x, int index)
 {
@@ -267,64 +270,6 @@ void append_overlap_region_alloc_debug(overlap_region_alloc* list, overlap_regio
     list->list[list->length].shared_seed = tmp->shared_seed;
 
     list->length++;
-}
-
-int cmp_by_x_pos_s(const void * a, const void * b)
-{
-    if ((*(overlap_region*)a).x_pos_s > (*(overlap_region*)b).x_pos_s)
-    {
-        return 1;
-    }
-    else if ((*(overlap_region*)a).x_pos_s < (*(overlap_region*)b).x_pos_s)
-    {
-        return -1;
-    }
-    else
-    {
-
-        if ((*(overlap_region*)a).x_pos_e > (*(overlap_region*)b).x_pos_e)
-        {
-            return 1;
-        }
-        else if ((*(overlap_region*)a).x_pos_e < (*(overlap_region*)b).x_pos_e)
-        {
-            return -1;
-        }
-        else
-        {
-            return 0;
-        }
-        
-    }
-}
-
-int cmp_by_x_pos_e(const void * a, const void * b)
-{
-    if ((*(overlap_region*)a).x_pos_e > (*(overlap_region*)b).x_pos_e)
-    {
-        return 1;
-    }
-    else if ((*(overlap_region*)a).x_pos_e < (*(overlap_region*)b).x_pos_e)
-    {
-        return -1;
-    }
-    else
-    {
-
-        if ((*(overlap_region*)a).x_pos_s > (*(overlap_region*)b).x_pos_s)
-        {
-            return 1;
-        }
-        else if ((*(overlap_region*)a).x_pos_s < (*(overlap_region*)b).x_pos_s)
-        {
-            return -1;
-        }
-        else
-        {
-            return 0;
-        }
-        
-    }
 }
 
 void debug_chain(k_mer_hit* a, long long a_n, Chain_Data* dp)
@@ -709,7 +654,7 @@ void calculate_overlap_region_by_chaining(Candidates_list* candidates, overlap_r
 
     destory_fake_cigar(&(tmp_region.f_cigar));
 
-    qsort(overlap_list->list, overlap_list->length, sizeof(overlap_region), cmp_by_x_pos_s);
+	ks_introsort_or_xs(overlap_list->length, overlap_list->list);
 }
 
 void append_window_list(overlap_region* region, uint64_t x_start, uint64_t x_end, int y_start, int y_end, int error,
