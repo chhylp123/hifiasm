@@ -356,14 +356,12 @@ void debug_chain(k_mer_hit* a, long long a_n, Chain_Data* dp)
 
         if(indels != dp->indels[i])
         {
-            fprintf(stderr, "indels: %lld, dp->indels[i]: %lld\n", 
-            indels, dp->indels[i]);
+            fprintf(stderr, "indels: %lld, dp->indels[i]: %ld\n", indels, (long)dp->indels[i]);
         }
 
         if(selfLen != dp->self_length[i])
         {
-            fprintf(stderr, "selfLen: %lld, dp->self_length[i]: %lld\n", 
-            selfLen, dp->self_length[i]);
+            fprintf(stderr, "selfLen: %lld, dp->self_length[i]: %ld\n", selfLen, (long)dp->self_length[i]);
         }
 
     }
@@ -418,6 +416,7 @@ void chain_DP(k_mer_hit* a, long long a_n, Chain_Data* dp, overlap_region* resul
     
     resize_Chain_Data(dp, a_n);
     // fill the score and backtrack arrays
+	for (i = 0; i < a_n; ++i) dp->tmp[i] = -1;
 	for (i = 0; i < a_n; ++i) 
     {
         pos = a[i].offset;
@@ -461,26 +460,18 @@ void chain_DP(k_mer_hit* a, long long a_n, Chain_Data* dp, overlap_region* resul
 
             score += dp->score[j];
 
-            ///find a new max score
-            if(score > max_score)
-            {
-                max_score = score;
-                max_j = j;
-                max_indels = total_indels;
-                max_self_length = total_self_length;
-                /****************************may have bugs********************************/
-                n_skip = 0;
-                /****************************may have bugs********************************/
-            }/****************************may have bugs********************************/
-            else
-            {
-                n_skip++;
-                if(n_skip > max_skip)
-                {
-                    break;
-                }
-            }
-            /****************************may have bugs********************************/
+			///find a new max score
+			if (score > max_score) {
+				max_score = score;
+				max_j = j;
+				max_indels = total_indels;
+				max_self_length = total_self_length;
+				if (n_skip > 0) --n_skip;
+			} else if (dp->tmp[j] == i) {
+				if (++n_skip > max_skip)
+					break;
+			}
+			if (dp->pre[j] >= 0) dp->tmp[dp->pre[j]] = i;
         }
 
         dp->score[i] = max_score;
@@ -636,14 +627,10 @@ void calculate_overlap_region_by_chaining(Candidates_list* candidates, overlap_r
         }
 
     
-        chain_DP(candidates->list + sub_region_beg, 
-        sub_region_end - sub_region_beg + 1, &(candidates->chainDP), &tmp_region, band_width_threshold,
-        50, Get_READ_LENGTH((*R_INF), tmp_region.x_id), Get_READ_LENGTH((*R_INF), tmp_region.y_id));
+		chain_DP(candidates->list + sub_region_beg,
+				sub_region_end - sub_region_beg + 1, &(candidates->chainDP), &tmp_region, band_width_threshold,
+				25, Get_READ_LENGTH((*R_INF), tmp_region.x_id), Get_READ_LENGTH((*R_INF), tmp_region.y_id));
 
-        // chain_DP_back(candidates->list + sub_region_beg, 
-        // sub_region_end - sub_region_beg + 1, &(candidates->chainDP), &tmp_region, band_width_threshold);
-        
-        ///自己和自己重叠的要排除
         ///if (tmp_region.x_id != tmp_region.y_id && tmp_region.shared_seed > 1)
         if (tmp_region.x_id != tmp_region.y_id)
         {
@@ -720,12 +707,7 @@ void test_single_list(Candidates_list* candidates, k_mer_pos* n_list, uint64_t n
 
 void init_Chain_Data(Chain_Data* x)
 {
-    x->length = 0;
-    x->size = 0;
-    x->score = NULL;
-    x->pre = NULL;
-    x->indels = NULL;
-    x->self_length = NULL;
+	memset(x, 0, sizeof(Chain_Data));
 }
 
 void clear_Chain_Data(Chain_Data* x)
@@ -739,18 +721,20 @@ void destory_Chain_Data(Chain_Data* x)
     free(x->pre);
     free(x->indels);
     free(x->self_length);
+	free(x->tmp);
 }
 
 void resize_Chain_Data(Chain_Data* x, long long size)
 {
-    if(size > x->size)
-    {
-        x->size = size;
-        x->score = (long long*)realloc(x->score, x->size*sizeof(long long));   
-        x->pre = (long long*)realloc(x->pre, x->size*sizeof(long long));
-        x->indels = (long long*)realloc(x->indels, x->size*sizeof(long long));
-        x->self_length = (long long*)realloc(x->self_length, x->size*sizeof(long long));
-    }
+	if (size > x->size) {
+		x->size = size;
+		kroundup64(x->size);
+		REALLOC(x->score, x->size);
+		REALLOC(x->pre, x->size);
+		REALLOC(x->indels, x->size);
+		REALLOC(x->self_length, x->size);
+		REALLOC(x->tmp, x->size);
+	}
 }
 
 void init_Candidates_list(Candidates_list* l)

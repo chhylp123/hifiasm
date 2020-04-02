@@ -113,8 +113,7 @@ typedef struct
     overlap_region* list;
     uint64_t size;
     uint64_t length;
-    ///uint64_t mapped_overlaps_length;
-    long long mapped_overlaps_length;
+    int64_t mapped_overlaps_length;
 } overlap_region_alloc;
 
 typedef struct
@@ -123,14 +122,14 @@ typedef struct
 	uint32_t offset, self_offset;
 } k_mer_hit;
 
-typedef struct
-{
-    long long* score;
-    long long* pre;
-    long long* indels;
-    long long* self_length;
-    long long length;
-    long long size;
+typedef struct {
+	int32_t *score;
+	int64_t *pre;
+	int32_t *indels;
+	int32_t *self_length;
+	int64_t *tmp;
+	int64_t length;
+	int64_t size;
 } Chain_Data;
 
 typedef struct
