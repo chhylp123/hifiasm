@@ -14,6 +14,9 @@ typedef struct { // this struct is not strictly necessary; we can use k_mer_pos 
 KRADIX_SORT_INIT(ha_an1, anchor1_t, an_key1, 8)
 KRADIX_SORT_INIT(ha_an2, anchor1_t, an_key2, 4)
 
+#define oreg_xs_lt(a, b) (((uint64_t)(a).x_pos_s<<32|(a).x_pos_e) < ((uint64_t)(b).x_pos_s<<32|(b).x_pos_e))
+KSORT_INIT(or_xs, overlap_region, oreg_xs_lt)
+
 typedef struct {
 	int n;
 	const ha_idxpos_t *a;
@@ -104,4 +107,17 @@ void ha_get_new_candidates(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_reg
 	cl->length = ab->n_a;
 
 	calculate_overlap_region_by_chaining(cl, overlap_list, rid, ucr->length, &R_INF, band_width_threshold, keep_whole_chain);
+
+	ks_introsort_or_xs(overlap_list->length, overlap_list->list);
+
+	#if 0
+	if (overlap_list->length > 2000) {
+		fprintf(stderr, "B\t%ld\t%ld\t%ld\n", (long)rid, (long)overlap_list->length, (long)Get_READ_LENGTH(R_INF, rid));
+		for (int i = 0; i < (int)overlap_list->length; ++i) {
+			overlap_region *r = &overlap_list->list[i];
+			fprintf(stderr, "C\t%d\t%d\t%d\t%c\t%d\t%ld\t%d\t%d\t%c\t%d\n", (int)r->x_id, (int)r->x_pos_s, (int)r->x_pos_e, "+-"[r->x_pos_strand],
+					(int)r->y_id, (long)Get_READ_LENGTH(R_INF, r->y_id), (int)r->y_pos_s, (int)r->y_pos_e, "+-"[r->y_pos_strand], (int)r->shared_seed);
+		}
+	}
+	#endif
 }

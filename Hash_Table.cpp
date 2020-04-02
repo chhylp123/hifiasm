@@ -12,9 +12,6 @@ pthread_mutex_t output_mutex;
 #define overlap_region_key(a) ((a).y_id)
 KRADIX_SORT_INIT(overlap_region_sort, overlap_region, overlap_region_key, member_size(overlap_region, y_id))
 
-#define oreg_xs_lt(a, b) (((uint64_t)(a).x_pos_s<<32|(a).x_pos_e) < ((uint64_t)(b).x_pos_s<<32|(b).x_pos_e))
-KSORT_INIT(or_xs, overlap_region, oreg_xs_lt)
-
 void overlap_region_sort_y_id(overlap_region *a, long long n)
 {
 	radix_sort_overlap_region_sort(a, a + n);
@@ -648,13 +645,10 @@ void calculate_overlap_region_by_chaining(Candidates_list* candidates, overlap_r
         if (tmp_region.x_id != tmp_region.y_id)
         {
             append_inexact_overlap_region_alloc(overlap_list, &tmp_region, R_INF, add_beg_end);
-            ///append_inexact_overlap_region_alloc_back(overlap_list, &tmp_region, R_INF);
         }
     }
 
     destory_fake_cigar(&(tmp_region.f_cigar));
-
-	ks_introsort_or_xs(overlap_list->length, overlap_list->list);
 }
 
 void append_window_list(overlap_region* region, uint64_t x_start, uint64_t x_end, int y_start, int y_end, int error,
