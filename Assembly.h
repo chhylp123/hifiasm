@@ -8,6 +8,6 @@
 #define Get_Cigar_Type(RECORD) (RECORD&3)
 #define Get_Cigar_Length(RECORD) (RECORD>>2)
 
-void Overlap_calculate_multipe_thr();
-void Correct_Reads(int last_round);
+int ha_assemble(void);
+
 #endif

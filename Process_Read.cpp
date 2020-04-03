@@ -114,7 +114,7 @@ void write_All_reads(All_reads* r, char* read_file_name)
 
 int load_All_reads(All_reads* r, char* read_file_name)
 {
-    fprintf(stderr, "Loading reads from disk... \n");
+    //fprintf(stderr, "Loading reads from disk... \n");
     char* index_name = (char*)malloc(strlen(read_file_name)+15);
     sprintf(index_name, "%s.bin", read_file_name);
     FILE* fp = fopen(index_name, "r");

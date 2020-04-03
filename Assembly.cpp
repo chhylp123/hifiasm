@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <assert.h>
 #include <zlib.h>
 #include "Assembly.h"
 #include "Process_Read.h"
@@ -482,7 +483,6 @@ void* Overlap_calculate_heap_merge(void* arg)
         fprintf(stderr, "total recorrected bases: %lld\n", asm_opt.num_recorrected_bases);
     }
 	pthread_mutex_unlock(&statistics);
-    free(arg);
 
     return NULL;
 }
@@ -577,9 +577,6 @@ void* Output_related_reads(void* arg)
     destory_Correct_dumy(&correct);
     destoryHaplotypeEvdience(&hap);
     destory_Round2_alignment(&second_round);
-
-
-    free(arg);
 
     return NULL;
 }
@@ -694,7 +691,6 @@ void* Save_corrected_reads(void* arg)
     destory_UC_Read(&g_read);
     free(first_round_read);
     free(second_round_read);
-    free(arg);
 
     return NULL;
 }
@@ -722,83 +718,36 @@ void Output_corrected_reads()
     fclose(output_file);
 }
 
-
-void Overlap_calculate_multipe_thr()
+void ha_overlap_and_correct(int round)
 {
-    double start_time = Get_T();
+	int i, *args;
+	pthread_t *_r_threads;
+	MALLOC(_r_threads, asm_opt.thread_num);
+	args = (int*)alloca(sizeof(int) * asm_opt.thread_num);
 
-    fprintf(stderr, "Begin calculating overlaps... \n");
-
-    pthread_t *_r_threads;
-
-	_r_threads = (pthread_t *)malloc(sizeof(pthread_t)*asm_opt.thread_num);
-
-    int i = 0;
-
-	for (i = 0; i < asm_opt.thread_num; i++)
-	{
-		int *arg = (int*)malloc(sizeof(*arg));
-		*arg = i;
-        if(!asm_opt.required_read_name)
-        {
-            pthread_create(_r_threads + i, NULL, Overlap_calculate_heap_merge, (void*)arg);
-        }
-        else
-        {
-            pthread_create(_r_threads + i, NULL, Output_related_reads, (void*)arg);
-        }
+	ha_idx = ha_pt_gen(&asm_opt, ha_flt_tab, round == 0? 0 : 1, &R_INF); // build the index
+	for (i = 0; i < asm_opt.thread_num; i++) {
+		args[i] = i;
+		if (!asm_opt.required_read_name)
+			pthread_create(_r_threads + i, NULL, Overlap_calculate_heap_merge, (void*)&args[i]);
+		else
+			pthread_create(_r_threads + i, NULL, Output_related_reads, (void*)&args[i]);
 	}
-
-
-    for (i = 0; i < asm_opt.thread_num; i++)
+	for (i = 0; i < asm_opt.thread_num; i++)
 		pthread_join(_r_threads[i], NULL);
-
-
-    free(_r_threads);
-
-    if(asm_opt.required_read_name)
-    {
-        exit(1);
-    }
-
-
 	ha_pt_destroy(ha_idx);
 	ha_idx = 0;
 
-    fprintf(stderr, "All overlaps have been calculated.\n");
+	if (asm_opt.required_read_name) exit(0); // for debugging only
 
-    fprintf(stderr, "%-30s%18.2f\n\n", "Overlap calculation time:", Get_T() - start_time);    
-
-    start_time = Get_T();
-
-    _r_threads = (pthread_t *)malloc(sizeof(pthread_t)*asm_opt.thread_num);
-    for (i = 0; i < asm_opt.thread_num; i++)
-	{
-		int *arg = (int*)malloc(sizeof(*arg));
-		*arg = i;
-		pthread_create(_r_threads + i, NULL, Save_corrected_reads, (void*)arg);
+	for (i = 0; i < asm_opt.thread_num; i++) {
+		args[i] = i;
+		pthread_create(_r_threads + i, NULL, Save_corrected_reads, (void*)&args[i]);
 	}
-
-
-    for (i = 0; i < asm_opt.thread_num; i++)
+	for (i = 0; i < asm_opt.thread_num; i++)
 		pthread_join(_r_threads[i], NULL);
-    free(_r_threads);
-
-    fprintf(stderr, "%-30s%18.2f\n\n", "Corrected read saving time:", Get_T() - start_time);   
-
-
-    ///only the last round can output read to disk
-    if (asm_opt.roundID == asm_opt.number_of_round - 1)
-    {
-        start_time = Get_T();
-
-        Output_corrected_reads();
-
-        fprintf(stderr, "%-30s%18.2f\n\n", "Output time:", Get_T() - start_time);    
-    }
+	free(_r_threads);
 }
-
-
 
 void update_overlaps(overlap_region_alloc* overlap_list, ma_hit_t_alloc* paf, 
 UC_Read* g_read, UC_Read* overlap_read, int is_match, int is_exact)
@@ -1159,7 +1108,6 @@ void* Final_overlap_calculate_heap_merge(void* arg)
         }
     }
     pthread_mutex_unlock(&statistics);
-    free(arg);
 
     return NULL;
 }
@@ -1331,80 +1279,60 @@ long long readNum, long long rescue_threshold, float cluster_threshold)
     fprintf(stderr, "[M::%s] took %0.2fs, revise edges #: %lld\n\n", __func__, Get_T()-startTime, revises);
 }
 
-
-void generate_overlaps(int last_round)
+void ha_overlap_final(void)
 {
-    double start_time = Get_T();
-    asm_opt.roundID = asm_opt.number_of_round - last_round;
-    fprintf(stderr, "Begin calculting final overlaps ...\n");
+	int i, *args;
+	pthread_t *_r_threads;
 
-	ha_idx = ha_pt_gen(&asm_opt, ha_flt_tab, asm_opt.roundID == 0? 0 : 1, &R_INF);
+	MALLOC(_r_threads, asm_opt.thread_num);
+	args = (int*)alloca(sizeof(int) * asm_opt.thread_num);
 
-    pthread_t *_r_threads;
-
-    _r_threads = (pthread_t *)malloc(sizeof(pthread_t) * asm_opt.thread_num);
-
-    int i = 0;
-
-    for (i = 0; i < asm_opt.thread_num; i++)
-    {
-        int *arg = (int*)malloc(sizeof(*arg));
-        *arg = i;
-        pthread_create(_r_threads + i, NULL, Final_overlap_calculate_heap_merge, (void*)arg);
-    }
-
-
-    for (i = 0; i < asm_opt.thread_num; i++)
-        pthread_join(_r_threads[i], NULL);
-    free(_r_threads);
-
-    ///rescue_edges(R_INF.paf, R_INF.reverse_paf, R_INF.total_reads, 4, 0.985);
+	ha_idx = ha_pt_gen(&asm_opt, ha_flt_tab, 1, &R_INF);
+	for (i = 0; i < asm_opt.thread_num; i++) {
+		args[i] = i;
+		pthread_create(_r_threads + i, NULL, Final_overlap_calculate_heap_merge, (void*)&args[i]);
+	}
+	for (i = 0; i < asm_opt.thread_num; i++)
+		pthread_join(_r_threads[i], NULL);
+	free(_r_threads);
 	ha_pt_destroy(ha_idx);
 	ha_idx = 0;
 
-    fprintf(stderr, "Final overlaps have been calculated.\n");
-    fprintf(stderr, "%-30s%18.2f\n\n", "Final overlaps calculation time:", Get_T() - start_time); 
-
-    Output_PAF();
-
-    trio_partition();
-
-    build_string_graph_without_clean(asm_opt.min_overlap_coverage, R_INF.paf, R_INF.reverse_paf, 
-    R_INF.total_reads, R_INF.read_length, asm_opt.min_overlap_Len, asm_opt.max_hang_Len, asm_opt.clean_round, 
-    asm_opt.gap_fuzz, asm_opt.min_drop_rate, asm_opt.max_drop_rate, asm_opt.output_file_name, 
-    asm_opt.large_pop_bubble_size, 0, 1);
+	///rescue_edges(R_INF.paf, R_INF.reverse_paf, R_INF.total_reads, 4, 0.985);
+	fprintf(stderr, "[M::%s::%.3f*%.2f] ==> final overlap\n", __func__, yak_realtime(), yak_cputime() / yak_realtime());
 }
 
-
-void Correct_Reads(int last_round)
+int ha_assemble(void)
 {
-    if (asm_opt.load_index_from_disk && load_all_data_from_disk(&R_INF.paf, &R_INF.reverse_paf, asm_opt.output_file_name))
-    {
-        build_string_graph_without_clean(asm_opt.min_overlap_coverage, R_INF.paf, R_INF.reverse_paf, 
-        R_INF.total_reads, R_INF.read_length, asm_opt.min_overlap_Len, asm_opt.max_hang_Len, asm_opt.clean_round, 
-        asm_opt.gap_fuzz, asm_opt.min_drop_rate, asm_opt.max_drop_rate, asm_opt.output_file_name, asm_opt.large_pop_bubble_size, 0, 0);
-        exit(0);
-    }
-    else
-    {
-        ///fprintf(stderr, "Cannot find overlap file. Please run the whole hifiasm.\n");
-    }
-
-    clear_opt(&asm_opt, last_round);
-
-    if(last_round == 0)
-    {
-        generate_overlaps(last_round);
-        return;
-    }
-
-    fprintf(stderr, "Error correction: Start the %d-th round ...\n", asm_opt.roundID);
-
-	ha_idx = ha_pt_gen(&asm_opt, ha_flt_tab, asm_opt.roundID == 0? 0 : 1, &R_INF);
-    Overlap_calculate_multipe_thr();
-	ha_pt_destroy(ha_idx);
-
-    fprintf(stderr, "Error correction: The %d-th round has been completed.\n", asm_opt.roundID);
-
-    Correct_Reads(last_round - 1);
+	int r, ovlp_loaded = 0;
+	if (asm_opt.load_index_from_disk && load_all_data_from_disk(&R_INF.paf, &R_INF.reverse_paf, asm_opt.output_file_name)) {
+		ovlp_loaded = 1;
+		fprintf(stderr, "[M::%s::%.3f*%.2f] ==> loaded overlaps from disk\n", __func__, yak_realtime(), yak_cputime() / yak_realtime());
+	}
+	if (!ovlp_loaded) {
+		// construct hash table for high occurrence k-mers
+		if (!asm_opt.no_kmer_flt)
+			ha_flt_tab = ha_ft_gen(&asm_opt, &R_INF);
+		// error correction
+		assert(asm_opt.number_of_round > 0);
+		for (r = 0; r < asm_opt.number_of_round; ++r) {
+			clear_opt(&asm_opt, asm_opt.number_of_round - r); // this update asm_opt.roundID and a few other fields
+			ha_overlap_and_correct(r);
+			fprintf(stderr, "[M::%s::%.3f*%.2f] ==> corrected reads for round %d\n", __func__, yak_realtime(), yak_cputime() / yak_realtime(), r + 1);
+		}
+		Output_corrected_reads();
+		fprintf(stderr, "[M::%s::%.3f*%.2f] ==> written corrected reads to disk\n", __func__, yak_realtime(), yak_cputime() / yak_realtime());
+		// overlap between corrected reads
+		clear_opt(&asm_opt, 0);
+		ha_overlap_final();
+		fprintf(stderr, "[M::%s::%.3f*%.2f] ==> found overlaps for the final round\n", __func__, yak_realtime(), yak_cputime() / yak_realtime());
+		ha_ft_destroy(ha_flt_tab);
+		Output_PAF();
+		trio_partition();
+	}
+	build_string_graph_without_clean(asm_opt.min_overlap_coverage, R_INF.paf, R_INF.reverse_paf, 
+			R_INF.total_reads, R_INF.read_length, asm_opt.min_overlap_Len, asm_opt.max_hang_Len, asm_opt.clean_round, 
+			asm_opt.gap_fuzz, asm_opt.min_drop_rate, asm_opt.max_drop_rate, asm_opt.output_file_name, asm_opt.large_pop_bubble_size, 0, !ovlp_loaded);
+	destory_All_reads(&R_INF);
+	return 0;
 }
