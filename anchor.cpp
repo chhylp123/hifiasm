@@ -17,6 +17,9 @@ KRADIX_SORT_INIT(ha_an2, anchor1_t, an_key2, 4)
 #define oreg_xs_lt(a, b) (((uint64_t)(a).x_pos_s<<32|(a).x_pos_e) < ((uint64_t)(b).x_pos_s<<32|(b).x_pos_e))
 KSORT_INIT(or_xs, overlap_region, oreg_xs_lt)
 
+#define oreg_ss_lt(a, b) ((a).shared_seed > (b).shared_seed) // in the decending order
+KSORT_INIT(or_ss, overlap_region, oreg_ss_lt)
+
 typedef struct {
 	int n;
 	const ha_idxpos_t *a;
@@ -40,7 +43,7 @@ void ha_abuf_destroy(ha_abuf_t *ab)
 	free(ab->seed); free(ab->a); free(ab->mz.a); free(ab);
 }
 
-void ha_get_new_candidates(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_region_alloc *overlap_list, Candidates_list *cl, double band_width_threshold, int keep_whole_chain)
+void ha_get_new_candidates(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_region_alloc *overlap_list, Candidates_list *cl, double bw_thres, int max_n_chain, int keep_whole_chain)
 {
 	extern void *ha_flt_tab;
 	extern ha_pt_t *ha_idx;
@@ -106,9 +109,7 @@ void ha_get_new_candidates(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_reg
 	}
 	cl->length = ab->n_a;
 
-	calculate_overlap_region_by_chaining(cl, overlap_list, rid, ucr->length, &R_INF, band_width_threshold, keep_whole_chain);
-
-	ks_introsort_or_xs(overlap_list->length, overlap_list->list);
+	calculate_overlap_region_by_chaining(cl, overlap_list, rid, ucr->length, &R_INF, bw_thres, keep_whole_chain);
 
 	#if 0
 	if (overlap_list->length > 2000) {
@@ -120,4 +121,33 @@ void ha_get_new_candidates(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_reg
 		}
 	}
 	#endif
+
+	if ((int)overlap_list->length > max_n_chain) {
+		uint32_t n[2], s[2];
+		n[0] = n[1] = 0, s[0] = s[1] = 0;
+		for (i = 0; i < (uint32_t)overlap_list->length; ++i) {
+			const overlap_region *r = &overlap_list->list[i];
+			int dir = r->x_pos_s == 0? 0 : 1;
+			++n[dir];
+			if ((int)n[dir] == max_n_chain) s[dir] = r->shared_seed;
+		}
+		if (s[0] > 0 || s[1] > 0) {
+			for (i = 0, k = 0; i < (uint32_t)overlap_list->length; ++i) {
+				overlap_region *r = &overlap_list->list[i];
+				int dir = r->x_pos_s == 0? 0 : 1;
+				if (r->shared_seed > s[dir]) {
+					if ((uint32_t)k != i) {
+						overlap_region t;
+						t = overlap_list->list[k];
+						overlap_list->list[k] = overlap_list->list[i];
+						overlap_list->list[i] = t;
+					}
+					++k;
+				}
+			}
+			overlap_list->length = k;
+		}
+	}
+
+	ks_introsort_or_xs(overlap_list->length, overlap_list->list);
 }

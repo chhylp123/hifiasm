@@ -816,12 +816,10 @@ void add_fake_cigar(Fake_Cigar* x, uint32_t gap_site, int32_t gap_shift)
 
 void resize_fake_cigar(Fake_Cigar* x, uint64_t size)
 {
-    if(size > x->size)
-    {
+    if (size > x->size) {
         x->size = size;
-        x->buffer = (uint64_t*)realloc(x->buffer, sizeof(uint64_t) * x->size);
+		REALLOC(x->buffer, x->size);
     }
-
     x->length = 0;
 }
 

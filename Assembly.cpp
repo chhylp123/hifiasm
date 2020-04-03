@@ -10,7 +10,7 @@
 #include "Output.h"
 #include "htab.h"
 
-void ha_get_new_candidates(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_region_alloc *overlap_list, Candidates_list *cl, double band_width_threshold, int keep_whole_chain);
+void ha_get_new_candidates(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_region_alloc *overlap_list, Candidates_list *cl, double bw_thres, int max_n_chain, int keep_whole_chain);
 
 All_reads R_INF;
 pthread_mutex_t statistics;
@@ -423,7 +423,7 @@ void* Overlap_calculate_heap_merge(void* arg)
     {
         //get_new_candidates(i, &g_read, &overlap_list, &array_list, &heap, &l, THRESHOLD_RATE*1.5);
         //get_new_candidates(i, &g_read, &overlap_list, &array_list, &l, 0.02, 1);
-		ha_get_new_candidates(ab, i, &g_read, &overlap_list, &l, 0.02, 1);
+		ha_get_new_candidates(ab, i, &g_read, &overlap_list, &l, 0.02, asm_opt.max_n_chain, 1);
 
         clear_Cigar_record(&current_cigar);
         clear_Round2_alignment(&second_round);
@@ -543,7 +543,7 @@ void* Output_related_reads(void* arg)
         {
             //get_new_candidates(i, &g_read, &overlap_list, &array_list, &heap, &l, THRESHOLD_RATE*1.5);
             //get_new_candidates(i, &g_read, &overlap_list, &array_list, &l, 0.02, 1);
-			ha_get_new_candidates(ab, i, &g_read, &overlap_list, &l, 0.02, 1);
+			ha_get_new_candidates(ab, i, &g_read, &overlap_list, &l, 0.02, asm_opt.max_n_chain, 1);
 
             fprintf(stderr, ">%.*s\n", (int)Get_NAME_LENGTH((R_INF), i),
             Get_NAME((R_INF), i));
@@ -1109,7 +1109,7 @@ void* Final_overlap_calculate_heap_merge(void* arg)
     {
 
         //get_new_candidates(i, &g_read, &overlap_list, &array_list, &l, 0.001, 0);
-		ha_get_new_candidates(ab, i, &g_read, &overlap_list, &l, 0.001, 0);
+		ha_get_new_candidates(ab, i, &g_read, &overlap_list, &l, 0.001, asm_opt.max_n_chain, 0);
 
         /**
         correct_overlap(&overlap_list, &R_INF, &g_read, &correct, &overlap_read, &POA_Graph, &DAGCon,

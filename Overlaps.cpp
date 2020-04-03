@@ -4333,7 +4333,7 @@ uint32_t startNode, uint32_t endNode)
         }
         else
         {
-            fprintf(stderr, "ERROR\n");
+            fprintf(stderr, "ERROR at %s:%d\n", __FILE__, __LINE__);
         }
         
         if(asg_arc_a(g, N_list[2])[0].v == (N_list[0]^1))
@@ -4346,7 +4346,7 @@ uint32_t startNode, uint32_t endNode)
         }
         else
         {
-            fprintf(stderr, "ERROR\n");
+            fprintf(stderr, "ERROR at %s:%d\n", __FILE__, __LINE__);
         }
 
         if(N_list[3] != N_list[4])
@@ -9028,7 +9028,7 @@ ma_sub_t *coverage_cut, int max_hang, int min_ovlp)
                 break;
             }
         }
-        if(k == nv) fprintf(stderr, "ERROR\n");
+        if(k == nv) fprintf(stderr, "ERROR at %s:%d\n", __FILE__, __LINE__);
 
         av = asg_arc_a(read_g, v);
         nv = asg_arc_n(read_g, v);
@@ -9042,7 +9042,7 @@ ma_sub_t *coverage_cut, int max_hang, int min_ovlp)
             }
         }
 
-        if(k == nv) fprintf(stderr, "ERROR\n");
+        if(k == nv) fprintf(stderr, "ERROR at %s:%d\n", __FILE__, __LINE__);
 
         if(pE->el == 1 && aE->el == 1) continue;
         
@@ -9123,7 +9123,7 @@ ma_sub_t *coverage_cut, int max_hang, int min_ovlp)
             }
             l = asg_arc_len(t_f);
         }
-        if(l == (uint32_t)-1) fprintf(stderr, "ERROR\n");
+        if(l == (uint32_t)-1) fprintf(stderr, "ERROR at %s:%d\n", __FILE__, __LINE__);
         /*******************************for debug************************************/
 
 
@@ -9172,7 +9172,7 @@ ma_sub_t *coverage_cut, int max_hang, int min_ovlp)
                 }
                 l = asg_arc_len(t_f);
             }
-            if(l == (uint32_t)-1) fprintf(stderr, "ERROR\n");
+            if(l == (uint32_t)-1) fprintf(stderr, "ERROR at %s:%d\n", __FILE__, __LINE__);
             /*******************************for debug************************************/
 
 
@@ -19547,7 +19547,7 @@ void merge_ug_nodes(ma_ug_t *ug, asg_t* read_g, kvec_t_u64_warp* array)
             if(aw[i].del) continue;
             if(aw[i].v == (v^1)) break;
         }
-        if(i == nw) fprintf(stderr, "ERROR\n");
+        if(i == nw) fprintf(stderr, "ERROR at %s:%d\n", __FILE__, __LINE__);
         kmp = kmp | (uint64_t)(aw[i].ol);
 
 
@@ -19578,7 +19578,7 @@ void merge_ug_nodes(ma_ug_t *ug, asg_t* read_g, kvec_t_u64_warp* array)
             if(aw[i].del) continue;
             if(aw[i].v == (v^1)) break;
         }
-        if(i == nw) fprintf(stderr, "ERROR\n");
+        if(i == nw) fprintf(stderr, "ERROR at %s:%d\n", __FILE__, __LINE__);
         kmp = kmp | (uint64_t)(aw[i].ol);
 
 

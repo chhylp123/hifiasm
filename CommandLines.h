@@ -3,7 +3,7 @@
 
 #include <pthread.h>
 
-#define HA_VERSION "0.3.0-dirty-r179"
+#define HA_VERSION "0.3.0-dirty-r181"
 
 #define VERBOSE 0
 #define VERBOSE_GFA 0
@@ -22,6 +22,7 @@ typedef struct {
 	float high_factor;
 	int no_HPC;
 	int no_kmer_flt;
+	int max_n_chain;
     int k_mer_min_freq;
     int k_mer_max_freq;
     int load_index_from_disk;

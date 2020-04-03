@@ -69,6 +69,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
 	asm_opt->high_factor = 5.0f;
 	asm_opt->no_HPC = 0;
 	asm_opt->no_kmer_flt = 0;
+	asm_opt->max_n_chain = 1000;
     asm_opt->k_mer_min_freq = 3;
     asm_opt->k_mer_max_freq = 66;
     asm_opt->load_index_from_disk = 1;
@@ -300,7 +301,7 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
 
     int c;
 
-    while ((c = ketopt(&opt, argc, argv, 1, "hvt:o:k:lw:m:n:r:a:b:z:x:y:p:c:d:M:P:if:D:F", 0)) >= 0) {
+    while ((c = ketopt(&opt, argc, argv, 1, "hvt:o:k:lw:m:n:r:a:b:z:x:y:p:c:d:M:P:if:D:FN:", 0)) >= 0) {
         if (c == 'h')
         {
             Print_H(asm_opt);
@@ -321,6 +322,7 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         else if (c == 'w') asm_opt->mz_win = atoi(opt.arg);
 		else if (c == 'D') asm_opt->high_factor = atof(opt.arg);
 		else if (c == 'F') asm_opt->no_kmer_flt = 1;
+		else if (c == 'N') asm_opt->max_n_chain = atoi(opt.arg);
         else if (c == 'a') asm_opt->clean_round = atoi(opt.arg); 
         else if (c == 'z') asm_opt->adapterLen = atoi(opt.arg);
         else if (c == 'b') asm_opt->required_read_name = opt.arg;

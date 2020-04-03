@@ -67,15 +67,15 @@ typedef struct
 typedef struct
 {
     window_list* buffer;
-    long long length;
-    long long size;
+    int32_t length;
+    int32_t size;
 } window_list_alloc;
 
 typedef struct
 {
     uint64_t* buffer;
-    uint64_t length;
-    uint64_t size;
+	uint32_t length;
+	uint32_t size;
 } Fake_Cigar;
 
 typedef struct
@@ -96,12 +96,12 @@ typedef struct
     uint32_t align_length;
     uint8_t is_match;
     uint8_t without_large_indel;
+    int8_t strong;
     uint32_t non_homopolymer_errors;
 
     window_list* w_list;
-    uint64_t w_list_size;
-    uint64_t w_list_length;
-    int8_t strong;
+    uint32_t w_list_size;
+    uint32_t w_list_length;
     Fake_Cigar f_cigar;
 
     window_list_alloc boundary_cigars;
@@ -180,7 +180,7 @@ static inline long long y_start_offset(long long x_start, Fake_Cigar* o)
 
     if(i == 0 || i == (long long)o->length)
     {
-        fprintf(stderr, "ERROR\n");
+        fprintf(stderr, "ERROR at %s:%d\n", __FILE__, __LINE__);
         exit(0);
     }
 
