@@ -29,6 +29,7 @@ void Print_H(hifiasm_opt_t* asm_opt)
 	fprintf(stderr, "    -w INT        minimizer window size [%d]\n", asm_opt->mz_win);
 	fprintf(stderr, "    -f INT        number of bits for bloom filter [%d]\n", asm_opt->bf_shift);
 	fprintf(stderr, "    -D FLOAT      drop k-mers occuring >FLOAT*coverage times [%.1f]\n", asm_opt->high_factor);
+	fprintf(stderr, "    -N INT        consider up to INT overlaps for each oriented read [%d]\n", asm_opt->max_n_chain);
     ///fprintf(stderr, "    -l            load all overlaps from disk, can avoid overlap calculation [%d]\n", asm_opt->load_index_from_disk);
     ///fprintf(stderr, "    -i            ignore saved overlaps in *.ovlp*.bin files\n");
     fprintf(stderr, "    -i            ignore saved overlaps in *.ovlp* files\n");
