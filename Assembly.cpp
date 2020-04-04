@@ -1299,7 +1299,6 @@ void ha_overlap_final(void)
 	ha_idx = 0;
 
 	///rescue_edges(R_INF.paf, R_INF.reverse_paf, R_INF.total_reads, 4, 0.985);
-	fprintf(stderr, "[M::%s::%.3f*%.2f] ==> final overlap\n", __func__, yak_realtime(), yak_cputime() / yak_realtime());
 }
 
 int ha_assemble(void)

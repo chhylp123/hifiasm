@@ -1,9 +1,8 @@
-#include "Process_Read.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <fcntl.h>
-#include <pthread.h>
+#include "Process_Read.h"
 
 uint8_t seq_nt6_table[256] = {
     5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,
@@ -29,34 +28,28 @@ char bit_t_seq_table_rc[256][4] = {{0}};
 char s_H[5] = {'A', 'C', 'G', 'T', 'N'};
 char rc_Table[5] = {'T', 'G', 'C', 'A', 'N'};
 
-
 void init_All_reads(All_reads* r)
 {
+	memset(r, 0, sizeof(All_reads));
 	r->index_size = READ_INIT_NUMBER;
 	r->read_length = (uint64_t*)malloc(sizeof(uint64_t)*r->index_size);
-	r->read_sperate = NULL;
-	r->N_site = NULL;
-	r->total_reads_bases = 0;
 	r->name_index_size = READ_INIT_NUMBER;
 	r->name_index = (uint64_t*)malloc(sizeof(uint64_t)*r->name_index_size);
 	r->name_index[0] = 0;
-	r->name = NULL;
-	r->total_name_length = 0;
-	r->total_reads = 0;
-	r->trio_flag = NULL;
 }
 
 void destory_All_reads(All_reads* r)
 {
 	uint64_t i = 0;
-	for (i = 0; i < r->total_reads; i++)
-	{
+	for (i = 0; i < r->total_reads; i++) {
 		if (r->N_site[i] != NULL)
-		{
 			free(r->N_site[i]);
-		}
 		free(r->read_sperate[i]);
+		if (r->paf) free(r->paf[i].buffer);
+		if (r->reverse_paf) free(r->reverse_paf[i].buffer);
 	}
+	free(r->paf);
+	free(r->reverse_paf);
 	free(r->N_site);
 	free(r->read_sperate);
 	free(r->name);
@@ -114,7 +107,6 @@ void write_All_reads(All_reads* r, char* read_file_name)
 
 int load_All_reads(All_reads* r, char* read_file_name)
 {
-    //fprintf(stderr, "Loading reads from disk... \n");
     char* index_name = (char*)malloc(strlen(read_file_name)+15);
     sprintf(index_name, "%s.bin", read_file_name);
     FILE* fp = fopen(index_name, "r");
@@ -146,7 +138,6 @@ int load_All_reads(All_reads* r, char* read_file_name)
 
 		if (zero)
 		{
-
 			r->N_site[i] = (uint64_t*)malloc(sizeof(uint64_t)*(zero + 1));
 			r->N_site[i][0] = zero;
 			if (r->N_site[i][0])
@@ -158,7 +149,6 @@ int load_All_reads(All_reads* r, char* read_file_name)
 		{
 			r->N_site[i] = NULL;
 		}
-
 	}
 
 	r->read_length = (uint64_t*)malloc(sizeof(uint64_t)*r->total_reads);
@@ -188,8 +178,6 @@ int load_All_reads(All_reads* r, char* read_file_name)
 
 	r->cigars = (Compressed_Cigar_record*)malloc(sizeof(Compressed_Cigar_record)*r->total_reads);
 	r->second_round_cigar = (Compressed_Cigar_record*)malloc(sizeof(Compressed_Cigar_record)*r->total_reads);
-	r->paf = (ma_hit_t_alloc*)malloc(sizeof(ma_hit_t_alloc)*r->total_reads);
-	r->reverse_paf = (ma_hit_t_alloc*)malloc(sizeof(ma_hit_t_alloc)*r->total_reads);
 	for (i = 0; i < r->total_reads; i++)
 	{
 		r->second_round_cigar[i].size = r->cigars[i].size = 0;
@@ -199,8 +187,6 @@ int load_All_reads(All_reads* r, char* read_file_name)
 		r->second_round_cigar[i].lost_base_size = r->cigars[i].lost_base_size = 0;
 		r->second_round_cigar[i].lost_base_length = r->cigars[i].lost_base_length = 0;
 		r->second_round_cigar[i].lost_base = r->cigars[i].lost_base = NULL;
-		init_ma_hit_t_alloc(&(r->paf[i]));
-		init_ma_hit_t_alloc(&(r->reverse_paf[i]));
 	}
 
     free(index_name);    

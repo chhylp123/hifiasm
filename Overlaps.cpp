@@ -13398,8 +13398,6 @@ int load_ma_hit_ts(ma_hit_t_alloc** x, char* read_file_name)
 }
 
 
-
-
 void write_ma(ma_hit_t* x, FILE* fp)
 {
     fwrite(&(x->qns), sizeof(x->qns), 1, fp);
@@ -13466,34 +13464,27 @@ All_reads *RNF, char* output_file_name)
     free(gfa_name);
 }
 
-int load_all_data_from_disk(ma_hit_t_alloc **sources, ma_hit_t_alloc **reverse_sources, 
-char* output_file_name)
+int load_all_data_from_disk(ma_hit_t_alloc **sources, ma_hit_t_alloc **reverse_sources, char* output_file_name)
 {
-    char* gfa_name = (char*)malloc(strlen(output_file_name)+25);
-    sprintf(gfa_name, "%s.ovlp", output_file_name);
-    if(!load_All_reads(&R_INF, gfa_name))
-    {
+	char* gfa_name = (char*)malloc(strlen(output_file_name)+25);
+	sprintf(gfa_name, "%s.ovlp", output_file_name);
+	if (!load_All_reads(&R_INF, gfa_name)) {
 		free(gfa_name);
-        return 0;
-    }
-    sprintf(gfa_name, "%s.ovlp.source", output_file_name);
-    if(!load_ma_hit_ts(sources, gfa_name))
-    {
+		return 0;
+	}
+	sprintf(gfa_name, "%s.ovlp.source", output_file_name);
+	if (!load_ma_hit_ts(sources, gfa_name)) {
 		free(gfa_name);
-        return 0;
-    }
-    sprintf(gfa_name, "%s.ovlp.reverse", output_file_name);
-    if(!load_ma_hit_ts(reverse_sources, gfa_name))
-    {
+		return 0;
+	}
+	sprintf(gfa_name, "%s.ovlp.reverse", output_file_name);
+	if (!load_ma_hit_ts(reverse_sources, gfa_name)) {
 		free(gfa_name);
-        return 0;
-    }
+		return 0;
+	}
 	free(gfa_name);
-    return 1;
+	return 1;
 }
-
-
-
 
 // count the number of outgoing arcs, excluding reduced arcs
 static inline int count_out(const asg_t *g, uint32_t v)
