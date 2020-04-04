@@ -1315,14 +1315,14 @@ int ha_assemble(void)
 		// error correction
 		assert(asm_opt.number_of_round > 0);
 		for (r = 0; r < asm_opt.number_of_round; ++r) {
-			clear_opt(&asm_opt, asm_opt.number_of_round - r); // this update asm_opt.roundID and a few other fields
+			clear_opt(&asm_opt, r); // this update asm_opt.roundID and a few other fields
 			ha_overlap_and_correct(r);
 			fprintf(stderr, "[M::%s::%.3f*%.2f] ==> corrected reads for round %d\n", __func__, yak_realtime(), yak_cputime() / yak_realtime(), r + 1);
 		}
 		Output_corrected_reads();
 		fprintf(stderr, "[M::%s::%.3f*%.2f] ==> written corrected reads to disk\n", __func__, yak_realtime(), yak_cputime() / yak_realtime());
 		// overlap between corrected reads
-		clear_opt(&asm_opt, 0);
+		clear_opt(&asm_opt, asm_opt.number_of_round);
 		ha_overlap_final();
 		fprintf(stderr, "[M::%s::%.3f*%.2f] ==> found overlaps for the final round\n", __func__, yak_realtime(), yak_cputime() / yak_realtime());
 		ha_ft_destroy(ha_flt_tab);

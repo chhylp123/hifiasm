@@ -101,13 +101,13 @@ void destory_opt(hifiasm_opt_t* asm_opt)
     }
 }
 
-void clear_opt(hifiasm_opt_t* asm_opt, int last_round)
+void clear_opt(hifiasm_opt_t* asm_opt, int round)
 {
     asm_opt->complete_threads = 0;
     asm_opt->num_bases = 0;
     asm_opt->num_corrected_bases = 0;
     asm_opt->num_recorrected_bases = 0;
-    asm_opt->roundID = asm_opt->number_of_round - last_round;
+    asm_opt->roundID = round;
 }
 
 int check_file(char* name, const char* opt)

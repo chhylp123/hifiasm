@@ -3,7 +3,7 @@
 
 #include <pthread.h>
 
-#define HA_VERSION "0.3.0-dirty-r186"
+#define HA_VERSION "0.3.0-dirty-r187"
 
 #define VERBOSE 0
 #define VERBOSE_GFA 0
@@ -56,7 +56,7 @@ extern hifiasm_opt_t asm_opt;
 
 void init_opt(hifiasm_opt_t* asm_opt);
 void destory_opt(hifiasm_opt_t* asm_opt);
-void clear_opt(hifiasm_opt_t* asm_opt, int last_round);
+void clear_opt(hifiasm_opt_t* asm_opt, int round);
 int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt);
 double Get_T(void);
 
