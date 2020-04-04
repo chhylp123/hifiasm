@@ -975,7 +975,6 @@ void* Final_overlap_calculate_heap_merge(void* arg)
         overlap_region_sort_y_id(b->olist.list, b->olist.length);
         ma_hit_sort_tn(R_INF.paf[i].buffer, R_INF.paf[i].length);
         ma_hit_sort_tn(R_INF.reverse_paf[i].buffer, R_INF.reverse_paf[i].length);
-        reverse_complement(b->self_read.seq, b->self_read.length);
 
         update_overlaps(&b->olist, &(R_INF.paf[i]), &b->self_read, &b->ovlp_read, 1, 1);
         update_overlaps(&b->olist, &(R_INF.reverse_paf[i]), &b->self_read, &b->ovlp_read, 2, 0);
