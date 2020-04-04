@@ -64,13 +64,13 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->pat_index = NULL;
     asm_opt->mat_index = NULL;
     asm_opt->thread_num = 1;
-    asm_opt->k_mer_length = 41;
-	asm_opt->mz_win = 41;
+    asm_opt->k_mer_length = 51;
+	asm_opt->mz_win = 51;
 	asm_opt->bf_shift = 37;
 	asm_opt->high_factor = 5.0f;
 	asm_opt->no_HPC = 0;
 	asm_opt->no_kmer_flt = 0;
-	asm_opt->max_n_chain = 1000;
+	asm_opt->max_n_chain = 400;
     asm_opt->k_mer_min_freq = 3;
     asm_opt->k_mer_max_freq = 66;
     asm_opt->load_index_from_disk = 1;
