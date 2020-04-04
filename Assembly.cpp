@@ -475,16 +475,7 @@ void* Overlap_calculate_heap_merge(void* arg)
 	asm_opt.num_bases += num_read_base;
 	asm_opt.num_corrected_bases += num_correct_base;
 	asm_opt.num_recorrected_bases += num_recorrect_base;
-
-	asm_opt.complete_threads++;
-	if(asm_opt.complete_threads == asm_opt.thread_num)
-	{
-		fprintf(stderr, "total bases #: %lld\n", asm_opt.num_bases);
-		fprintf(stderr, "total corrected bases: %lld\n", asm_opt.num_corrected_bases);
-		fprintf(stderr, "total recorrected bases: %lld\n", asm_opt.num_recorrected_bases);
-	}
 	pthread_mutex_unlock(&statistics);
-
 	return NULL;
 }
 
@@ -799,39 +790,30 @@ void update_exact_overlaps(overlap_region_alloc* overlap_list, UC_Read* g_read, 
     }
 }
 
-
-void statistic(ma_hit_t_alloc* paf, ma_hit_t_alloc* rev_paf, long long readNum)
+void ha_print_ovlp_stat(ma_hit_t_alloc* paf, ma_hit_t_alloc* rev_paf, long long readNum)
 {
+	long long forward, reverse, strong, weak, exact, no_l_indel;
+	long long i, j;
 
-    long long forward, reverse, strong, weak, exact, no_l_indel;
-    no_l_indel = forward = reverse = exact = strong = weak = 0;
-    long long i, j;
-
-    for (i = 0; i < readNum; i++)
-    {
-        forward += paf[i].length;
-        reverse += rev_paf[i].length;
-        for (j = 0; j < paf[i].length; j++)
-        {
-            if(paf[i].buffer[j].el == 1) exact++;
-            if(paf[i].buffer[j].ml == 1) strong++;
-            if(paf[i].buffer[j].ml == 0) weak++;
-            if(paf[i].buffer[j].no_l_indel == 1) no_l_indel++;
-        }
-    }
-
-
-    fprintf(stderr, "****************statistic for overlaps****************\n");
-    fprintf(stderr, "overlaps #: %lld\n", forward);
-    fprintf(stderr, "strong overlaps #: %lld\n", strong);
-    fprintf(stderr, "weak overlaps #: %lld\n", weak);
-    fprintf(stderr, "exact overlaps #: %lld\n", exact);
-    fprintf(stderr, "inexact overlaps #: %lld\n", forward - exact);
-    fprintf(stderr, "overlaps without large indels#: %lld\n", no_l_indel);
-    fprintf(stderr, "reverse overlaps #: %lld\n", reverse);
-    fprintf(stderr, "****************statistic for overlaps****************\n");
+	no_l_indel = forward = reverse = exact = strong = weak = 0;
+	for (i = 0; i < readNum; i++) {
+		forward += paf[i].length;
+		reverse += rev_paf[i].length;
+		for (j = 0; j < paf[i].length; j++) {
+			if (paf[i].buffer[j].el == 1) exact++;
+			if (paf[i].buffer[j].ml == 1) strong++;
+			if (paf[i].buffer[j].ml == 0) weak++;
+			if (paf[i].buffer[j].no_l_indel == 1) no_l_indel++;
+		}
+	}
+	fprintf(stderr, "[M::%s] # overlaps: %lld\n", __func__, forward);
+	fprintf(stderr, "[M::%s] # strong overlaps: %lld\n", __func__, strong);
+	fprintf(stderr, "[M::%s] # weak overlaps: %lld\n", __func__, weak);
+	fprintf(stderr, "[M::%s] # exact overlaps: %lld\n", __func__, exact); // this seems not right
+	fprintf(stderr, "[M::%s] # inexact overlaps: %lld\n", __func__, forward - exact);
+	fprintf(stderr, "[M::%s] # overlaps without large indels: %lld\n", __func__, no_l_indel);
+	fprintf(stderr, "[M::%s] # reverse overlaps: %lld\n", __func__, reverse);
 }
-
 
 void fill_chain(Fake_Cigar* chain, char* x_string, char* y_string, long long xBeg, long long yBeg,
 long long x_readLen, long long y_readLen, Cigar_record* cigar, uint8_t* c2n)
@@ -1007,18 +989,6 @@ void* Final_overlap_calculate_heap_merge(void* arg)
     }
     finish_output_buffer();
 	ha_ovec_destroy(b);
-
-    pthread_mutex_lock(&statistics);
-    asm_opt.complete_threads++;
-    if(asm_opt.complete_threads == asm_opt.thread_num)
-    {
-        if(VERBOSE >= 1)
-        {
-            statistic(R_INF.paf, R_INF.reverse_paf, R_INF.total_reads);
-        }
-    }
-    pthread_mutex_unlock(&statistics);
-
     return NULL;
 }
 
@@ -1222,6 +1192,8 @@ int ha_assemble(void)
 			clear_opt(&asm_opt, r); // this update asm_opt.roundID and a few other fields
 			ha_overlap_and_correct(r);
 			fprintf(stderr, "[M::%s::%.3f*%.2f] ==> corrected reads for round %d\n", __func__, yak_realtime(), yak_cputime() / yak_realtime(), r + 1);
+			fprintf(stderr, "[M::%s] # bases: %lld; # corrected bases: %lld; # recorrected bases: %lld\n", __func__,
+					asm_opt.num_bases, asm_opt.num_corrected_bases, asm_opt.num_recorrected_bases);
 		}
 		Output_corrected_reads();
 		fprintf(stderr, "[M::%s::%.3f*%.2f] ==> written corrected reads to disk\n", __func__, yak_realtime(), yak_cputime() / yak_realtime());
@@ -1229,6 +1201,7 @@ int ha_assemble(void)
 		clear_opt(&asm_opt, asm_opt.number_of_round);
 		ha_overlap_final();
 		fprintf(stderr, "[M::%s::%.3f*%.2f] ==> found overlaps for the final round\n", __func__, yak_realtime(), yak_cputime() / yak_realtime());
+		ha_print_ovlp_stat(R_INF.paf, R_INF.reverse_paf, R_INF.total_reads);
 		ha_ft_destroy(ha_flt_tab);
 		Output_PAF();
 		trio_partition();

@@ -3,7 +3,7 @@
 
 #include <pthread.h>
 
-#define HA_VERSION "0.3.0-dirty-r188"
+#define HA_VERSION "0.3.0-dirty-r189"
 
 #define VERBOSE 0
 #define VERBOSE_GFA 0
@@ -30,7 +30,6 @@ typedef struct {
     int number_of_round;
     int adapterLen;
     int clean_round;
-    int complete_threads;
     int roundID;
     int max_hang_Len;
     int gap_fuzz;
