@@ -4897,11 +4897,9 @@ int asg_arc_del_short_diploid_unclean(asg_t *g, float drop_ratio, ma_hit_t_alloc
 
 uint32_t detect_single_path_with_dels(asg_t *g, uint32_t begNode, uint32_t* endNode, long long* Len, buf_t* b)
 {
-    
     uint32_t v = begNode, w;
     uint32_t kv, kw;
     (*Len) = 0;
-
 
     while (1)
     {
@@ -5571,6 +5569,7 @@ ma_hit_t_alloc* reverse_sources, long long min_edge_length, R_to_U* ruIndex)
     
     if(flag1 == LOOP || flag2 == LOOP)
     {
+		free(b_0.b.a); free(b_1.b.a);
         return -1;
     }
 
@@ -5589,6 +5588,7 @@ ma_hit_t_alloc* reverse_sources, long long min_edge_length, R_to_U* ruIndex)
 
     if(l1 <= min_edge_length || l2 <= min_edge_length)
     {
+		free(b_0.b.a); free(b_1.b.a);
         return -1;
     }
 
@@ -13473,22 +13473,22 @@ char* output_file_name)
     sprintf(gfa_name, "%s.ovlp", output_file_name);
     if(!load_All_reads(&R_INF, gfa_name))
     {
+		free(gfa_name);
         return 0;
     }
-
     sprintf(gfa_name, "%s.ovlp.source", output_file_name);
     if(!load_ma_hit_ts(sources, gfa_name))
     {
+		free(gfa_name);
         return 0;
     }
-
-
     sprintf(gfa_name, "%s.ovlp.reverse", output_file_name);
     if(!load_ma_hit_ts(reverse_sources, gfa_name))
     {
+		free(gfa_name);
         return 0;
     }
-
+	free(gfa_name);
     return 1;
 }
 
@@ -24881,23 +24881,21 @@ int min_dp, ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources,
 long long n_read, uint64_t* readLen, long long mini_overlap_length, 
 long long max_hang_length, long long clean_round, long long gap_fuzz,
 float min_ovlp_drop_ratio, float max_ovlp_drop_ratio, char* output_file_name, 
-long long bubble_dist, int read_graph, R_to_U* ruIndex, asg_t* sg, 
-ma_sub_t* coverage_cut, int debug_g)
+long long bubble_dist, int read_graph, R_to_U* ruIndex, asg_t **sg_ptr, 
+ma_sub_t **coverage_cut_ptr, int debug_g)
 {
+	ma_sub_t *coverage_cut = *coverage_cut_ptr;
+	asg_t *sg = *sg_ptr;
 
     if(debug_g) goto debug_gfa;
-   
 
     ///just for debug
     renew_graph_init(sources, reverse_sources, sg, coverage_cut, ruIndex, n_read);
-
-    
 
     ///it's hard to say which function is better       
     ///normalize_ma_hit_t_single_side(sources, n_read);
     normalize_ma_hit_t_single_side_advance(sources, n_read);
     normalize_ma_hit_t_single_side_advance(reverse_sources, n_read);
-    
     
     // debug_info_of_specfic_read(">m64011_190830_220126/117834372/ccs", sources, reverse_sources, 
     // -1, "clean");
@@ -25112,12 +25110,12 @@ ma_sub_t* coverage_cut, int debug_g)
         bubble_dist, (asm_opt.max_short_tip*2), 0.15, 3, ruIndex, 0.05, 0.9, max_hang_length,
         mini_overlap_length);
 
-
         output_contig_graph_alternative(sg, coverage_cut, output_file_name, sources, max_hang_length, mini_overlap_length);
     }
+
+	*coverage_cut_ptr = coverage_cut;
+	*sg_ptr = sg;
 }
-
-
 
 void build_string_graph_without_clean(
 int min_dp, ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, 
@@ -25131,8 +25129,7 @@ long long bubble_dist, int read_graph, int write)
     asg_t *sg = NULL;
     ma_sub_t* coverage_cut = NULL;
 
-    // debug_info_of_specfic_read("m64011_190329_072846/80545633/ccs", 
-    // sources, reverse_sources, -1, "clean");
+    // debug_info_of_specfic_read("m64011_190329_072846/80545633/ccs", sources, reverse_sources, -1, "clean");
     
     ///actually min_thres = asm_opt.max_short_tip + 1 there are asm_opt.max_short_tip reads
     min_thres = asm_opt.max_short_tip + 1;
@@ -25145,7 +25142,7 @@ long long bubble_dist, int read_graph, int write)
             
             clean_graph(min_dp, sources, reverse_sources, n_read, readLen, mini_overlap_length, 
             max_hang_length, clean_round, gap_fuzz, min_ovlp_drop_ratio, max_ovlp_drop_ratio, 
-            output_file_name, bubble_dist, read_graph, &ruIndex, sg, coverage_cut, 1);
+            output_file_name, bubble_dist, read_graph, &ruIndex, &sg, &coverage_cut, 1);
             asg_destroy(sg);
             free(coverage_cut);
             destory_R_to_U(&ruIndex);
@@ -25153,20 +25150,17 @@ long long bubble_dist, int read_graph, int write)
         }
     }
     
-    
-
     if (asm_opt.write_index_to_disk && write)
     {
         write_all_data_to_disk(sources, reverse_sources, 
         &R_INF, output_file_name);
     }
 
-
     try_rescue_overlaps(sources, reverse_sources, n_read, 4); 
 
     clean_graph(min_dp, sources, reverse_sources, n_read, readLen, mini_overlap_length, 
     max_hang_length, clean_round, gap_fuzz, min_ovlp_drop_ratio, max_ovlp_drop_ratio, 
-    output_file_name, bubble_dist, read_graph, &ruIndex, sg, coverage_cut, 0);
+    output_file_name, bubble_dist, read_graph, &ruIndex, &sg, &coverage_cut, 0);
     
     asg_destroy(sg);
     free(coverage_cut);

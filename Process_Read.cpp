@@ -118,8 +118,8 @@ int load_All_reads(All_reads* r, char* read_file_name)
     char* index_name = (char*)malloc(strlen(read_file_name)+15);
     sprintf(index_name, "%s.bin", read_file_name);
     FILE* fp = fopen(index_name, "r");
-	if (!fp)
-    {
+	if (!fp) {
+		free(index_name);
         return 0;
     }
 	int local_adapterLen;
