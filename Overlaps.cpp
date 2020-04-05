@@ -13688,26 +13688,25 @@ void write_ma_hit_ts(ma_hit_t_alloc* x, long long n_read, char* read_file_name)
     fprintf(stderr, "ma_hit_ts has been written.\n");
 }
 
-void write_all_data_to_disk(ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, 
-All_reads *RNF, char* output_file_name)
+void write_all_data_to_disk(ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, All_reads *RNF, char* output_file_name)
 {   
-    char* gfa_name = (char*)malloc(strlen(output_file_name)+25);
-    sprintf(gfa_name, "%s.ovlp", output_file_name);
-    write_All_reads(RNF, gfa_name);
-    
-    sprintf(gfa_name, "%s.ovlp.source", output_file_name);
-    write_ma_hit_ts(sources, RNF->total_reads, gfa_name);
+	char* gfa_name = (char*)malloc(strlen(output_file_name)+25);
+	sprintf(gfa_name, "%s.ec", output_file_name);
+	write_All_reads(RNF, gfa_name);
 
-    sprintf(gfa_name, "%s.ovlp.reverse", output_file_name);
-    write_ma_hit_ts(reverse_sources, RNF->total_reads, gfa_name);
+	sprintf(gfa_name, "%s.ovlp.source", output_file_name);
+	write_ma_hit_ts(sources, RNF->total_reads, gfa_name);
 
-    free(gfa_name);
+	sprintf(gfa_name, "%s.ovlp.reverse", output_file_name);
+	write_ma_hit_ts(reverse_sources, RNF->total_reads, gfa_name);
+
+	free(gfa_name);
 }
 
 int load_all_data_from_disk(ma_hit_t_alloc **sources, ma_hit_t_alloc **reverse_sources, char* output_file_name)
 {
 	char* gfa_name = (char*)malloc(strlen(output_file_name)+25);
-	sprintf(gfa_name, "%s.ovlp", output_file_name);
+	sprintf(gfa_name, "%s.ec", output_file_name);
 	if (!load_All_reads(&R_INF, gfa_name)) {
 		free(gfa_name);
 		return 0;
