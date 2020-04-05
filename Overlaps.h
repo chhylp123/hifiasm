@@ -47,9 +47,6 @@
 #define CUT_DIF_HAP 12
 
 
-
-
-
 ///query is the read itself
 typedef struct {
 	uint64_t qns;

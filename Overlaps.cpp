@@ -52,7 +52,6 @@ void ma_hit_sort_qns(ma_hit_t *a, long long n)
 	radix_sort_hit_qns(a, a + n);
 }
 
-
 void sort_kvec_t_u64_warp(kvec_t_u64_warp* u_vecs, uint32_t is_descend)
 {
     radix_sort_arch64(u_vecs->a.a, u_vecs->a.a + u_vecs->a.n);
@@ -67,7 +66,6 @@ void sort_kvec_t_u64_warp(kvec_t_u64_warp* u_vecs, uint32_t is_descend)
         }
     }
 } 
-
 
 asg_t *asg_init(void)
 {
@@ -4356,7 +4354,7 @@ uint32_t startNode, uint32_t endNode)
         }
         else
         {
-            fprintf(stderr, "ERROR\n");
+            fprintf(stderr, "ERROR at %s:%d\n", __FILE__, __LINE__);
         }
         
         if(asg_arc_a(g, N_list[2])[0].v == (N_list[0]^1))
@@ -4369,7 +4367,7 @@ uint32_t startNode, uint32_t endNode)
         }
         else
         {
-            fprintf(stderr, "ERROR\n");
+            fprintf(stderr, "ERROR at %s:%d\n", __FILE__, __LINE__);
         }
 
         if(N_list[3] != N_list[4])
@@ -4920,11 +4918,9 @@ int asg_arc_del_short_diploid_unclean(asg_t *g, float drop_ratio, ma_hit_t_alloc
 
 uint32_t detect_single_path_with_dels(asg_t *g, uint32_t begNode, uint32_t* endNode, long long* Len, buf_t* b)
 {
-    
     uint32_t v = begNode, w;
     uint32_t kv, kw;
     (*Len) = 0;
-
 
     while (1)
     {
@@ -5594,6 +5590,7 @@ ma_hit_t_alloc* reverse_sources, long long min_edge_length, R_to_U* ruIndex)
     
     if(flag1 == LOOP || flag2 == LOOP)
     {
+		free(b_0.b.a); free(b_1.b.a);
         return -1;
     }
 
@@ -5612,6 +5609,7 @@ ma_hit_t_alloc* reverse_sources, long long min_edge_length, R_to_U* ruIndex)
 
     if(l1 <= min_edge_length || l2 <= min_edge_length)
     {
+		free(b_0.b.a); free(b_1.b.a);
         return -1;
     }
 
@@ -9051,7 +9049,7 @@ ma_sub_t *coverage_cut, int max_hang, int min_ovlp)
                 break;
             }
         }
-        if(k == nv) fprintf(stderr, "ERROR\n");
+        if(k == nv) fprintf(stderr, "ERROR at %s:%d\n", __FILE__, __LINE__);
 
         av = asg_arc_a(read_g, v);
         nv = asg_arc_n(read_g, v);
@@ -9065,7 +9063,7 @@ ma_sub_t *coverage_cut, int max_hang, int min_ovlp)
             }
         }
 
-        if(k == nv) fprintf(stderr, "ERROR\n");
+        if(k == nv) fprintf(stderr, "ERROR at %s:%d\n", __FILE__, __LINE__);
 
         if(pE->el == 1 && aE->el == 1) continue;
         
@@ -9146,7 +9144,7 @@ ma_sub_t *coverage_cut, int max_hang, int min_ovlp)
             }
             l = asg_arc_len(t_f);
         }
-        if(l == (uint32_t)-1) fprintf(stderr, "ERROR\n");
+        if(l == (uint32_t)-1) fprintf(stderr, "ERROR at %s:%d\n", __FILE__, __LINE__);
         /*******************************for debug************************************/
 
 
@@ -9195,7 +9193,7 @@ ma_sub_t *coverage_cut, int max_hang, int min_ovlp)
                 }
                 l = asg_arc_len(t_f);
             }
-            if(l == (uint32_t)-1) fprintf(stderr, "ERROR\n");
+            if(l == (uint32_t)-1) fprintf(stderr, "ERROR at %s:%d\n", __FILE__, __LINE__);
             /*******************************for debug************************************/
 
 
@@ -11671,7 +11669,7 @@ void print_untig(ma_ug_t *g, uint32_t uId, const char* info, uint32_t is_print_r
     for (k = 0; k < u->n; k++)
     {
         fprintf(stderr, "%s: rId>>1: %lu, dir: %lu, name: %.*s\n", 
-        info, u->a[k]>>33, (u->a[k]>>32)&1, 
+        info, (unsigned long)(u->a[k]>>33), (unsigned long)((u->a[k]>>32)&1),
         (int)Get_NAME_LENGTH((R_INF), (u->a[k]>>33)), Get_NAME((R_INF), (u->a[k]>>33)));
     }
 }
@@ -13640,8 +13638,6 @@ int load_ma_hit_ts(ma_hit_t_alloc** x, char* read_file_name)
 }
 
 
-
-
 void write_ma(ma_hit_t* x, FILE* fp)
 {
     fwrite(&(x->qns), sizeof(x->qns), 1, fp);
@@ -13708,34 +13704,27 @@ All_reads *RNF, char* output_file_name)
     free(gfa_name);
 }
 
-int load_all_data_from_disk(ma_hit_t_alloc **sources, ma_hit_t_alloc **reverse_sources, 
-char* output_file_name)
+int load_all_data_from_disk(ma_hit_t_alloc **sources, ma_hit_t_alloc **reverse_sources, char* output_file_name)
 {
-    char* gfa_name = (char*)malloc(strlen(output_file_name)+25);
-    sprintf(gfa_name, "%s.ovlp", output_file_name);
-    if(!load_All_reads(&R_INF, gfa_name))
-    {
-        return 0;
-    }
-
-    sprintf(gfa_name, "%s.ovlp.source", output_file_name);
-    if(!load_ma_hit_ts(sources, gfa_name))
-    {
-        return 0;
-    }
-
-
-    sprintf(gfa_name, "%s.ovlp.reverse", output_file_name);
-    if(!load_ma_hit_ts(reverse_sources, gfa_name))
-    {
-        return 0;
-    }
-
-    return 1;
+	char* gfa_name = (char*)malloc(strlen(output_file_name)+25);
+	sprintf(gfa_name, "%s.ovlp", output_file_name);
+	if (!load_All_reads(&R_INF, gfa_name)) {
+		free(gfa_name);
+		return 0;
+	}
+	sprintf(gfa_name, "%s.ovlp.source", output_file_name);
+	if (!load_ma_hit_ts(sources, gfa_name)) {
+		free(gfa_name);
+		return 0;
+	}
+	sprintf(gfa_name, "%s.ovlp.reverse", output_file_name);
+	if (!load_ma_hit_ts(reverse_sources, gfa_name)) {
+		free(gfa_name);
+		return 0;
+	}
+	free(gfa_name);
+	return 1;
 }
-
-
-
 
 // count the number of outgoing arcs, excluding reduced arcs
 static inline int count_out(const asg_t *g, uint32_t v)
@@ -21006,7 +20995,7 @@ void merge_ug_nodes(ma_ug_t *ug, asg_t* read_g, kvec_t_u64_warp* array)
             if(aw[i].del) continue;
             if(aw[i].v == (v^1)) break;
         }
-        if(i == nw) fprintf(stderr, "ERROR\n");
+        if(i == nw) fprintf(stderr, "ERROR at %s:%d\n", __FILE__, __LINE__);
         kmp = kmp | (uint64_t)(aw[i].ol);
 
 
@@ -21037,7 +21026,7 @@ void merge_ug_nodes(ma_ug_t *ug, asg_t* read_g, kvec_t_u64_warp* array)
             if(aw[i].del) continue;
             if(aw[i].v == (v^1)) break;
         }
-        if(i == nw) fprintf(stderr, "ERROR\n");
+        if(i == nw) fprintf(stderr, "ERROR at %s:%d\n", __FILE__, __LINE__);
         kmp = kmp | (uint64_t)(aw[i].ol);
 
 
@@ -26198,7 +26187,7 @@ void fix_binned_reads(ma_hit_t_alloc* paf, uint64_t n_read, ma_sub_t* coverage_c
     }
 
     fprintf(stderr, "n_read: %lu, binned_reads: %lu, binned_error_reads: %lu\n", 
-    n_read, binned_reads, binned_error_reads);
+    (unsigned long)n_read, (unsigned long)binned_reads, (unsigned long)binned_error_reads);
 }
 
 
@@ -26301,23 +26290,21 @@ int min_dp, ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources,
 long long n_read, uint64_t* readLen, long long mini_overlap_length, 
 long long max_hang_length, long long clean_round, long long gap_fuzz,
 float min_ovlp_drop_ratio, float max_ovlp_drop_ratio, char* output_file_name, 
-long long bubble_dist, int read_graph, R_to_U* ruIndex, asg_t* sg, 
-ma_sub_t* coverage_cut, int debug_g)
+long long bubble_dist, int read_graph, R_to_U* ruIndex, asg_t **sg_ptr, 
+ma_sub_t **coverage_cut_ptr, int debug_g)
 {
+	ma_sub_t *coverage_cut = *coverage_cut_ptr;
+	asg_t *sg = *sg_ptr;
 
     if(debug_g) goto debug_gfa;
-   
 
     ///just for debug
     renew_graph_init(sources, reverse_sources, sg, coverage_cut, ruIndex, n_read);
-
-    
 
     ///it's hard to say which function is better       
     ///normalize_ma_hit_t_single_side(sources, n_read);
     normalize_ma_hit_t_single_side_advance(sources, n_read);
     normalize_ma_hit_t_single_side_advance(reverse_sources, n_read);
-    
     
     // debug_info_of_specfic_read(">m64011_190830_220126/117834372/ccs", sources, reverse_sources, 
     // -1, "clean");
@@ -26532,12 +26519,12 @@ ma_sub_t* coverage_cut, int debug_g)
         bubble_dist, (asm_opt.max_short_tip*2), 0.15, 3, ruIndex, 0.05, 0.9, max_hang_length,
         mini_overlap_length);
 
-
         output_contig_graph_alternative(sg, coverage_cut, output_file_name, sources, max_hang_length, mini_overlap_length);
     }
+
+	*coverage_cut_ptr = coverage_cut;
+	*sg_ptr = sg;
 }
-
-
 
 void build_string_graph_without_clean(
 int min_dp, ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, 
@@ -26551,8 +26538,7 @@ long long bubble_dist, int read_graph, int write)
     asg_t *sg = NULL;
     ma_sub_t* coverage_cut = NULL;
 
-    // debug_info_of_specfic_read("m64011_190329_072846/80545633/ccs", 
-    // sources, reverse_sources, -1, "clean");
+    // debug_info_of_specfic_read("m64011_190329_072846/80545633/ccs", sources, reverse_sources, -1, "clean");
     
     ///actually min_thres = asm_opt.max_short_tip + 1 there are asm_opt.max_short_tip reads
     min_thres = asm_opt.max_short_tip + 1;
@@ -26565,7 +26551,7 @@ long long bubble_dist, int read_graph, int write)
             
             clean_graph(min_dp, sources, reverse_sources, n_read, readLen, mini_overlap_length, 
             max_hang_length, clean_round, gap_fuzz, min_ovlp_drop_ratio, max_ovlp_drop_ratio, 
-            output_file_name, bubble_dist, read_graph, &ruIndex, sg, coverage_cut, 1);
+            output_file_name, bubble_dist, read_graph, &ruIndex, &sg, &coverage_cut, 1);
             asg_destroy(sg);
             free(coverage_cut);
             destory_R_to_U(&ruIndex);
@@ -26573,20 +26559,17 @@ long long bubble_dist, int read_graph, int write)
         }
     }
     
-    
-
     if (asm_opt.write_index_to_disk && write)
     {
         write_all_data_to_disk(sources, reverse_sources, 
         &R_INF, output_file_name);
     }
 
-
     try_rescue_overlaps(sources, reverse_sources, n_read, 4); 
 
     clean_graph(min_dp, sources, reverse_sources, n_read, readLen, mini_overlap_length, 
     max_hang_length, clean_round, gap_fuzz, min_ovlp_drop_ratio, max_ovlp_drop_ratio, 
-    output_file_name, bubble_dist, read_graph, &ruIndex, sg, coverage_cut, 0);
+    output_file_name, bubble_dist, read_graph, &ruIndex, &sg, &coverage_cut, 0);
     
     asg_destroy(sg);
     free(coverage_cut);

@@ -675,7 +675,7 @@ long long* r_y_interval_beg, long long* r_y_interval_end)
         xUid, 0, xReads->n - 1, Hap_rate, position_index, reverse_sources, read_g, ruIndex, rev,
         &y_interval_beg, &y_interval_end);
         /********************y*********************/
-    }
+    } else abort();
 
     (*r_x_interval_beg) = x_interval_beg;
     (*r_x_interval_end) = x_interval_end;

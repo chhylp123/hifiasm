@@ -5,7 +5,6 @@
 #include <string.h>
 #include <stdlib.h>
 #include <zlib.h>
-#include "kseq.h"
 #include "Overlaps.h"
 #include "CommandLines.h"
 ///#include "Hash_Table.h"
@@ -18,16 +17,11 @@
 #define IS_FULL(buffer) ((buffer.num >= buffer.size)?1:0)
 #define IS_EMPTY(buffer) ((buffer.num == 0)?1:0)
 ///#define Get_READ_LENGTH(R_INF, ID) (R_INF.index[ID+1] - R_INF.index[ID])
-#define Get_READ_LENGTH(R_INF, ID) R_INF.read_length[(ID)]
-#define Get_NAME_LENGTH(R_INF, ID) (R_INF.name_index[(ID)+1] - R_INF.name_index[(ID)])
+#define Get_READ_LENGTH(R_INF, ID) (R_INF).read_length[(ID)]
+#define Get_NAME_LENGTH(R_INF, ID) ((R_INF).name_index[(ID)+1] - (R_INF).name_index[(ID)])
 ///#define Get_READ(R_INF, ID) R_INF.read + (R_INF.index[ID]>>2) + ID
-#define Get_READ(R_INF, ID) R_INF.read_sperate[(ID)]
-#define Get_NAME(R_INF, ID) R_INF.name + R_INF.name_index[(ID)]
-
-
-
-KSEQ_INIT(gzFile, gzread)
-
+#define Get_READ(R_INF, ID) (R_INF).read_sperate[(ID)]
+#define Get_NAME(R_INF, ID) ((R_INF).name + (R_INF).name_index[(ID)])
 
 
 extern uint8_t seq_nt6_table[256];
@@ -37,12 +31,9 @@ extern char s_H[5];
 extern char rc_Table[5];
 
 
-
 #define RC_CHAR(x) rc_Table[seq_nt6_table[(uint8_t)x]]
 
 void init_aux_table();
-int get_read(kseq_t *s, int adapterLen);
-
 
 typedef struct
 {
@@ -76,7 +67,6 @@ inline void init_PAF_alloc(PAF_alloc* list)
     list->list = (PAF*)malloc(sizeof(PAF)*list->size);
 }
 
-
 inline void append_PAF_alloc(PAF_alloc* list, PAF* e)
 {
     if(list->length+1 > list->size)
@@ -88,9 +78,6 @@ inline void append_PAF_alloc(PAF_alloc* list, PAF* e)
     list->list[list->length] = (*e);
     list->length++;
 }
-
-
-
 
 typedef struct
 {
@@ -104,7 +91,7 @@ typedef struct
     uint32_t lost_base_length;
 	uint32_t lost_base_size;
 	uint32_t new_length;
-}Compressed_Cigar_record;
+} Compressed_Cigar_record;
 
 #define AMBIGU 0
 #define FATHER 1
@@ -112,12 +99,12 @@ typedef struct
 #define MIX_TRIO 3
 #define NON_TRIO 4
 #define DROP 5
+
 typedef struct
 {
 	uint64_t** N_site;
 	///uint8_t* read;
 	char* name;
-
 
 	uint8_t** read_sperate;
 	uint64_t* read_length;
@@ -128,7 +115,6 @@ typedef struct
 	///do not need it
 	///uint64_t* index;
 	uint64_t index_size;
-
 
     ///name start pos in char* name
 	uint64_t* name_index;
@@ -142,31 +128,9 @@ typedef struct
 
     ma_hit_t_alloc* paf;
     ma_hit_t_alloc* reverse_paf;
-    ma_sub_t* coverage_cut;
-
 } All_reads;
 
 extern All_reads R_INF;
-
-void malloc_All_reads(All_reads* r);
-
-typedef struct
-{
-	kseq_t* read;
-	long long num;
-
-} R_buffer_block;
-
-
-typedef struct
-{
-	R_buffer_block* sub_block;
-	long long block_inner_size;
-	long long size;
-	long long num;
-	int all_read_end;
-} R_buffer;
-
 
 typedef struct
 {
@@ -176,23 +140,12 @@ typedef struct
 	long long RID;
 } UC_Read;
 
-typedef struct
-{
-	gzFile fp;
-	kseq_t *seq;
-	char** reads;
-	int num_reads;
-	int idx;
-} gz_files;
-
-void init_R_buffer(int thread_num);
 void init_All_reads(All_reads* r);
-void* input_reads_muti_threads(void*);
-void init_R_buffer_block(R_buffer_block* curr_sub_block);
-int get_reads_mul_thread(R_buffer_block* curr_sub_block);
-void compress_base(uint8_t* dest, char* src, uint64_t src_l, uint64_t** N_site_lis, uint64_t N_site_occ);
+void malloc_All_reads(All_reads* r);
+void ha_insert_read_len(All_reads *r, int read_len, int name_len);
+void ha_compress_base(uint8_t* dest, char* src, uint64_t src_l, uint64_t** N_site_lis, uint64_t N_site_occ);
 void init_UC_Read(UC_Read* r);
-void recover_UC_Read(UC_Read* r, All_reads* R_INF, uint64_t ID);
+void recover_UC_Read(UC_Read* r, const All_reads *R_INF, uint64_t ID);
 void recover_UC_Read_RC(UC_Read* r, All_reads* R_INF, uint64_t ID);
 void recover_UC_Read_sub_region(char* r, long long start_pos, long long length, uint8_t strand, All_reads* R_INF, long long ID);
 void destory_UC_Read(UC_Read* r);
@@ -200,13 +153,5 @@ void reverse_complement(char* pattern, uint64_t length);
 void write_All_reads(All_reads* r, char* read_file_name);
 int load_All_reads(All_reads* r, char* read_file_name);
 void destory_All_reads(All_reads* r);
-
-void destory_R_buffer_block(R_buffer_block* curr_sub_block);
-void destory_R_buffer();
-void clear_R_buffer();
-
-void init_gz_files(hifiasm_opt_t* asm_opt);
-void destory_gz_files();
-
 
 #endif

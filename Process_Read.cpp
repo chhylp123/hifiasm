@@ -1,25 +1,8 @@
-#include "Process_Read.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <fcntl.h>
-#include <pthread.h>
-
-
-gz_files fps;
-
-R_buffer RDB;
-static uint64_t total_reads;
-
-pthread_mutex_t i_readinputMutex;
-pthread_mutex_t i_queueMutex;
-pthread_mutex_t i_terminateMutex;
-pthread_cond_t i_flushCond;
-pthread_cond_t i_readinputflushCond;
-pthread_cond_t i_stallCond;
-pthread_cond_t i_readinputstallCond;
-pthread_mutex_t i_doneMutex;
-
+#include "Process_Read.h"
 
 uint8_t seq_nt6_table[256] = {
     5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,
@@ -45,34 +28,28 @@ char bit_t_seq_table_rc[256][4] = {{0}};
 char s_H[5] = {'A', 'C', 'G', 'T', 'N'};
 char rc_Table[5] = {'T', 'G', 'C', 'A', 'N'};
 
-
 void init_All_reads(All_reads* r)
 {
+	memset(r, 0, sizeof(All_reads));
 	r->index_size = READ_INIT_NUMBER;
 	r->read_length = (uint64_t*)malloc(sizeof(uint64_t)*r->index_size);
-	r->read_sperate = NULL;
-	r->N_site = NULL;
-	r->total_reads_bases = 0;
 	r->name_index_size = READ_INIT_NUMBER;
 	r->name_index = (uint64_t*)malloc(sizeof(uint64_t)*r->name_index_size);
 	r->name_index[0] = 0;
-	r->name = NULL;
-	r->total_name_length = 0;
-	r->total_reads = 0;
-	r->trio_flag = NULL;
 }
 
 void destory_All_reads(All_reads* r)
 {
 	uint64_t i = 0;
-	for (i = 0; i < r->total_reads; i++)
-	{
+	for (i = 0; i < r->total_reads; i++) {
 		if (r->N_site[i] != NULL)
-		{
 			free(r->N_site[i]);
-		}
 		free(r->read_sperate[i]);
+		if (r->paf) free(r->paf[i].buffer);
+		if (r->reverse_paf) free(r->reverse_paf[i].buffer);
 	}
+	free(r->paf);
+	free(r->reverse_paf);
 	free(r->N_site);
 	free(r->read_sperate);
 	free(r->name);
@@ -80,7 +57,6 @@ void destory_All_reads(All_reads* r)
 	free(r->read_length);
 	free(r->trio_flag);
 }
-
 
 void write_All_reads(All_reads* r, char* read_file_name)
 {
@@ -112,9 +88,6 @@ void write_All_reads(All_reads* r, char* read_file_name)
 		{
 			fwrite(&zero, sizeof(zero), 1, fp);
 		}
-		
-		
-		
 	}
 
 	fwrite(r->read_length, sizeof(uint64_t), r->total_reads, fp);
@@ -132,16 +105,13 @@ void write_All_reads(All_reads* r, char* read_file_name)
     fprintf(stderr, "Reads has been written.\n");
 }
 
-
-
 int load_All_reads(All_reads* r, char* read_file_name)
 {
-    fprintf(stderr, "Loading reads from disk... \n");
     char* index_name = (char*)malloc(strlen(read_file_name)+15);
     sprintf(index_name, "%s.bin", read_file_name);
     FILE* fp = fopen(index_name, "r");
-	if (!fp)
-    {
+	if (!fp) {
+		free(index_name);
         return 0;
     }
 	int local_adapterLen;
@@ -164,12 +134,10 @@ int load_All_reads(All_reads* r, char* read_file_name)
 	r->N_site = (uint64_t**)malloc(sizeof(uint64_t*)*r->total_reads);
 	for (i = 0; i < r->total_reads; i++)
 	{
-
 		f_flag += fread(&zero, sizeof(zero), 1, fp);
 
 		if (zero)
 		{
-
 			r->N_site[i] = (uint64_t*)malloc(sizeof(uint64_t)*(zero + 1));
 			r->N_site[i][0] = zero;
 			if (r->N_site[i][0])
@@ -181,7 +149,6 @@ int load_All_reads(All_reads* r, char* read_file_name)
 		{
 			r->N_site[i] = NULL;
 		}
-
 	}
 
 	r->read_length = (uint64_t*)malloc(sizeof(uint64_t)*r->total_reads);
@@ -211,8 +178,6 @@ int load_All_reads(All_reads* r, char* read_file_name)
 
 	r->cigars = (Compressed_Cigar_record*)malloc(sizeof(Compressed_Cigar_record)*r->total_reads);
 	r->second_round_cigar = (Compressed_Cigar_record*)malloc(sizeof(Compressed_Cigar_record)*r->total_reads);
-	r->paf = (ma_hit_t_alloc*)malloc(sizeof(ma_hit_t_alloc)*r->total_reads);
-	r->reverse_paf = (ma_hit_t_alloc*)malloc(sizeof(ma_hit_t_alloc)*r->total_reads);
 	for (i = 0; i < r->total_reads; i++)
 	{
 		r->second_round_cigar[i].size = r->cigars[i].size = 0;
@@ -222,8 +187,6 @@ int load_All_reads(All_reads* r, char* read_file_name)
 		r->second_round_cigar[i].lost_base_size = r->cigars[i].lost_base_size = 0;
 		r->second_round_cigar[i].lost_base_length = r->cigars[i].lost_base_length = 0;
 		r->second_round_cigar[i].lost_base = r->cigars[i].lost_base = NULL;
-		init_ma_hit_t_alloc(&(r->paf[i]));
-		init_ma_hit_t_alloc(&(r->reverse_paf[i]));
 	}
 
     free(index_name);    
@@ -233,32 +196,28 @@ int load_All_reads(All_reads* r, char* read_file_name)
 	return 1;
 }
 
-
-
-inline void insert_read(All_reads* r, kstring_t* read, kstring_t* name)
+void ha_insert_read_len(All_reads *r, int read_len, int name_len)
 {
 	r->total_reads++;
-	r->total_reads_bases = r->total_reads_bases + read->l;
-	r->total_name_length = r->total_name_length + name->l;
+	r->total_reads_bases += (uint64_t)read_len;
+	r->total_name_length += (uint64_t)name_len;
 
-	///must +1
-	if (r->index_size < r->total_reads + 2)
-	{
+	// must +1
+	if (r->index_size < r->total_reads + 2) {
 		r->index_size = r->index_size * 2 + 2;
-		r->read_length = (uint64_t*)realloc(r->read_length,sizeof(uint64_t)*(r->index_size));
+		r->read_length = (uint64_t*)realloc(r->read_length, sizeof(uint64_t) * r->index_size);
 		r->name_index_size = r->name_index_size * 2 + 2;
-		r->name_index = (uint64_t*)realloc(r->name_index,sizeof(uint64_t)*(r->name_index_size));
+		r->name_index = (uint64_t*)realloc(r->name_index, sizeof(uint64_t) * r->name_index_size);
 	}
 
-	r->read_length[r->total_reads - 1] = read->l;
-	r->name_index[r->total_reads] = r->name_index[r->total_reads-1] + name->l;
+	r->read_length[r->total_reads - 1] = read_len;
+	r->name_index[r->total_reads] = r->name_index[r->total_reads - 1] + name_len;
 }
 
 void malloc_All_reads(All_reads* r)
 {
-
 	r->read_size = (uint64_t*)malloc(sizeof(uint64_t)*r->total_reads);
-	memcpy (r->read_size, r->read_length, sizeof(uint64_t)*r->total_reads);
+	memcpy(r->read_size, r->read_length, sizeof(uint64_t)*r->total_reads);
 
 	r->read_sperate = (uint8_t**)malloc(sizeof(uint8_t*)*r->total_reads);
 	long long i = 0;
@@ -313,7 +272,6 @@ void init_aux_table()
 			bit_t_seq_table_rc[i][2] = RC_CHAR(bit_t_seq_table[i][1]);
 			bit_t_seq_table_rc[i][3] = RC_CHAR(bit_t_seq_table[i][0]);
 		}
-		
 	}
 }
 
@@ -338,18 +296,12 @@ void init_UC_Read(UC_Read* r)
 			bit_t_seq_table_rc[i][2] = RC_CHAR(bit_t_seq_table[i][1]);
 			bit_t_seq_table_rc[i][3] = RC_CHAR(bit_t_seq_table[i][0]);
 		}
-		
 	}
-	
 }
 
-
-void recover_UC_Read_sub_region_begin_end
-(char* r, long long start_pos, long long length, uint8_t strand, All_reads* R_INF, long long ID, int extra_begin, int extra_end)
+void recover_UC_Read_sub_region_begin_end(char* r, long long start_pos, long long length, uint8_t strand,
+										  All_reads* R_INF, long long ID, int extra_begin, int extra_end)
 {
-
-
-
 	long long readLen = Get_READ_LENGTH((*R_INF), ID);
 	uint8_t* src = Get_READ((*R_INF), ID);
 
@@ -357,16 +309,10 @@ void recover_UC_Read_sub_region_begin_end
 	long long copyLen;
 	long long end_pos = start_pos + length - 1;
 
-
-	
-
 	if (strand == 0)
 	{
-		
 		i = start_pos;
 		copyLen = 0;
-
-
 
 		long long initLen = start_pos % 4;
 
@@ -376,8 +322,6 @@ void recover_UC_Read_sub_region_begin_end
 			copyLen = copyLen + 4 - initLen;
 			i = i + copyLen;
 		}
-		
-		
 		while (copyLen < length)
 		{
 			memcpy(r+copyLen, bit_t_seq_table[src[i>>2]], 4);
@@ -385,7 +329,6 @@ void recover_UC_Read_sub_region_begin_end
 			i = i + 4;
 		}
 
-		
 		if (R_INF->N_site[ID])
 		{
 			for (i = 1; i <= (long long)R_INF->N_site[ID][0]; i++)
@@ -400,16 +343,11 @@ void recover_UC_Read_sub_region_begin_end
 				}
 			}
 		}
-		
-		
 	}
 	else
 	{
-		
 		start_pos = readLen - start_pos - 1;
 		end_pos = readLen - end_pos - 1;
-
-
 
 		///start_pos > end_pos
 		i = start_pos;
@@ -436,7 +374,6 @@ void recover_UC_Read_sub_region_begin_end
 
 			for (i = 1; i <= (long long)R_INF->N_site[ID][0]; i++)
 			{
-
 				if ((long long)R_INF->N_site[ID][i] >= end_pos && (long long)R_INF->N_site[ID][i] <= start_pos)
 				{
 					r[readLen - R_INF->N_site[ID][i] - 1 - offset] = 'N';
@@ -447,21 +384,11 @@ void recover_UC_Read_sub_region_begin_end
 				}
 			}
 		}
-		
-
-		
 	}
-		
 }
-
-
-
 
 void recover_UC_Read_sub_region(char* r, long long start_pos, long long length, uint8_t strand, All_reads* R_INF, long long ID)
 {
-
-
-
 	long long readLen = Get_READ_LENGTH((*R_INF), ID);
 	uint8_t* src = Get_READ((*R_INF), ID);
 
@@ -471,7 +398,6 @@ void recover_UC_Read_sub_region(char* r, long long start_pos, long long length, 
 
 	if (strand == 0)
 	{
-		
 		i = start_pos;
 		copyLen = 0;
 
@@ -483,8 +409,7 @@ void recover_UC_Read_sub_region(char* r, long long start_pos, long long length, 
 			copyLen = copyLen + 4 - initLen;
 			i = i + copyLen;
 		}
-		
-		
+
 		while (copyLen < length)
 		{
 			memcpy(r+copyLen, bit_t_seq_table[src[i>>2]], 4);
@@ -492,7 +417,6 @@ void recover_UC_Read_sub_region(char* r, long long start_pos, long long length, 
 			i = i + 4;
 		}
 
-		
 		if (R_INF->N_site[ID])
 		{
 			for (i = 1; i <= (long long)R_INF->N_site[ID][0]; i++)
@@ -507,16 +431,11 @@ void recover_UC_Read_sub_region(char* r, long long start_pos, long long length, 
 				}
 			}
 		}
-		
-		
 	}
 	else
 	{
-		
 		start_pos = readLen - start_pos - 1;
 		end_pos = readLen - end_pos - 1;
-
-
 
 		///start_pos > end_pos
 		i = start_pos;
@@ -543,7 +462,6 @@ void recover_UC_Read_sub_region(char* r, long long start_pos, long long length, 
 
 			for (i = 1; i <= (long long)R_INF->N_site[ID][0]; i++)
 			{
-
 				if ((long long)R_INF->N_site[ID][i] >= end_pos && (long long)R_INF->N_site[ID][i] <= start_pos)
 				{
 					r[readLen - R_INF->N_site[ID][i] - 1 - offset] = 'N';
@@ -554,15 +472,11 @@ void recover_UC_Read_sub_region(char* r, long long start_pos, long long length, 
 				}
 			}
 		}
-		
-
-		
 	}
-		
 }
 
 
-void recover_UC_Read(UC_Read* r, All_reads* R_INF, uint64_t ID)
+void recover_UC_Read(UC_Read* r, const All_reads *R_INF, uint64_t ID)
 {
 	r->length = Get_READ_LENGTH((*R_INF), ID);
 	uint8_t* src = Get_READ((*R_INF), ID);
@@ -623,7 +537,6 @@ void recover_UC_Read_RC(UC_Read* r, All_reads* R_INF, uint64_t ID)
 		index = index + 4;
 	}
 
-
 	if (R_INF->N_site[ID])
 	{
 		for (i = 1; i <= (long long)R_INF->N_site[ID][0]; i++)
@@ -631,10 +544,7 @@ void recover_UC_Read_RC(UC_Read* r, All_reads* R_INF, uint64_t ID)
 			r->seq[r->length - R_INF->N_site[ID][i] - 1] = 'N';
 		}
 	}
-		
 }
-
-
 
 #define COMPRESS_BASE {c = seq_nt6_table[(uint8_t)src[i]];\
 		if (c >= 4)\
@@ -645,9 +555,8 @@ void recover_UC_Read_RC(UC_Read* r, All_reads* R_INF, uint64_t ID)
 		}\
 		i++;}\
 
-void compress_base(uint8_t* dest, char* src, uint64_t src_l, uint64_t** N_site_lis, uint64_t N_site_occ)
+void ha_compress_base(uint8_t* dest, char* src, uint64_t src_l, uint64_t** N_site_lis, uint64_t N_site_occ)
 {
-
 	///N_site_lis saves the pos of all Ns in this read
 	///N_site_lis[0] is the number of Ns
 	if (N_site_occ)
@@ -666,10 +575,8 @@ void compress_base(uint8_t* dest, char* src, uint64_t src_l, uint64_t** N_site_l
 	uint8_t tmp = 0;
 	uint8_t c = 0;
 
-
 	while (i + 4 <= src_l)
 	{
-
 		tmp = 0;
 
 		COMPRESS_BASE;
@@ -705,350 +612,7 @@ void compress_base(uint8_t* dest, char* src, uint64_t src_l, uint64_t** N_site_l
 		dest[dest_i] = tmp;
 		dest_i++;
 	}
-
 }
-
-
-
-
-void open_file(gz_files* nfps, char* name)
-{
-	nfps->fp = gzopen(name, "r");
-	if(nfps->fp == 0)
-	{
-		fprintf(stderr, "[ERROR] Cannot find the input file: %s\n", name);
-		exit(0);
-	}
-	nfps->seq = kseq_init(nfps->fp);
-}
-
-
-void close_file(gz_files* nfps)
-{
-	kseq_destroy(nfps->seq);
-  	gzclose(nfps->fp);
-}
-
-void init_gz_files(hifiasm_opt_t* asm_opt)
-{
-	fps.idx = 0;
-	fps.num_reads = asm_opt->num_reads;
-	fps.reads = asm_opt->read_file_names;
-	fps.seq = NULL;
-	fps.fp = NULL;
-	if(fps.num_reads > 0)
-	{
-		open_file(&fps, fps.reads[fps.idx]);
-		fps.idx++;
-	}
-}
-
-void destory_gz_files()
-{
-	close_file(&fps);
-}
-
-int read_item()
-{
-	int l = kseq_read(fps.seq);
-	if(l >= 0 || (l < 0 && fps.idx >= fps.num_reads))
-	{
-		return l;
-	}
-	///l < 0 && fps.idx < fps.num_reads
-	close_file(&fps);
-	open_file(&fps, fps.reads[fps.idx]);
-	fps.idx++;
-	return read_item();
-}
-
-
-inline void exchage_kstring_t(kstring_t* a, kstring_t* b)
-{
-	kstring_t tmp;
-	tmp = *a;
-	*a = *b;
-	*b = tmp;
-}
-
-int get_read(kseq_t *s, int adapterLen)
-{
-	int l;
-	
-	///if ((l = kseq_read(seq)) >= 0)
-	if ((l = read_item()) >= 0)
-	{
-		
-		exchage_kstring_t(&(fps.seq->comment), &s->comment);
-		exchage_kstring_t(&(fps.seq->name), &s->name);
-		exchage_kstring_t(&(fps.seq->qual), &s->qual);
-		exchage_kstring_t(&(fps.seq->seq), &s->seq);
-
-		if(adapterLen > 0)
-		{
-			if((int)s->seq.l <= adapterLen*2)
-			{
-				s->seq.l = 0;
-			}
-			else
-			{
-				long long i;
-				for (i = 0; i < ((int)s->seq.l - adapterLen*2); i++)
-				{
-					s->seq.s[i] = s->seq.s[i + adapterLen];
-				}
-				s->seq.l -= adapterLen*2;
-			} 
-			
-		}
-		
-		return 1;
-	}
-	else
-	{
-		return 0;
-	}
-	
-	
-}
-
-void init_R_buffer_block(R_buffer_block* curr_sub_block)
-{
-	curr_sub_block->read = (kseq_t*)calloc(RDB.block_inner_size, sizeof(kseq_t));	
-	curr_sub_block->num = 0;
-}
-
-void clear_R_buffer()
-{
-	RDB.all_read_end = 0;
-	RDB.num = 0;
-}
-void init_R_buffer(int thread_num)
-{
-	RDB.all_read_end = 0;
-	RDB.num = 0;
-	RDB.block_inner_size = READ_BLOCK_SIZE;
-	RDB.size = thread_num*READ_BLOCK_NUM_PRE_THR;
-
-	RDB.sub_block = (R_buffer_block*)malloc(sizeof(R_buffer_block)*RDB.size);
-
-	int i = 0;
-
-	for (i = 0; i < RDB.size; i++)
-	{
-		init_R_buffer_block(&RDB.sub_block[i]);
-	}
-	
-}
-
-
-void destory_R_buffer_block(R_buffer_block* curr_sub_block)
-{
-	kseq_destroy(curr_sub_block->read);
-}
-
-
-void destory_R_buffer()
-{
-	int i = 0;
-
-	for (i = 0; i < RDB.size; i++)
-	{
-		destory_R_buffer_block(&RDB.sub_block[i]);
-	}
-
-	free(RDB.sub_block);
-	
-}
-
-
-inline void load_read_block(R_buffer_block* read_batch, int batch_read_size,
-	int* return_file_flag, int is_insert, int adapterLen)
-{
-	int inner_i = 0;
-	int file_flag = 1;
-
-
-
-
-	while (inner_i<batch_read_size)
-	{
-
-		file_flag = get_read(&read_batch->read[inner_i], adapterLen);
-
-		if (file_flag == 1)
-		{
-			read_batch->read[inner_i].ID = total_reads;
-			total_reads++;
-
-
-			if (is_insert)
-			{
-				insert_read(&R_INF, &read_batch->read[inner_i].seq, 
-				&read_batch->read[inner_i].name);
-			}
-
-			inner_i++;
-		}
-		else if (file_flag == 0)
-		{
-			break;
-		}
-	}
-
-	if (inner_i || file_flag)
-	{
-		file_flag = 1;
-	}
-
-	*return_file_flag = file_flag;
-	read_batch->num = inner_i;
-
-}
-
-
-inline void push_R_block(R_buffer_block* tmp_sub_block)
-{
-	
-
-	///only exchange pointers
-	kseq_t *k1;
-	k1 = RDB.sub_block[RDB.num].read;
-
-	RDB.sub_block[RDB.num].read = tmp_sub_block->read;
-
-	tmp_sub_block->read = k1;
-
-	RDB.sub_block[RDB.num].num = tmp_sub_block->num;
-	tmp_sub_block->num = 0;
-
-	RDB.num++;
-}
-
-
-inline void pop_R_block(R_buffer_block* curr_sub_block)
-{
-	RDB.num--;
-	
-	///only exchange pointers
-	kseq_t *k1;
-	k1 = RDB.sub_block[RDB.num].read;
-
-	RDB.sub_block[RDB.num].read = curr_sub_block->read;
-
-	curr_sub_block->read = k1;
-
-	curr_sub_block->num = RDB.sub_block[RDB.num].num;
-	RDB.sub_block[RDB.num].num = 0;
-
-
-
-}
-
-
-
-void* input_reads_muti_threads(void* arg)
-{
-	int is_insert = *((int*)arg);
-
-
-	total_reads = 0;
-
-
-	int file_flag = 1;
-
-	R_buffer_block tmp_buf;
-
-	init_R_buffer_block(&tmp_buf);
-
-
-
-	while (1)
-	{
-		load_read_block(&tmp_buf, RDB.block_inner_size, &file_flag, is_insert, asm_opt.adapterLen);
-
-		if (file_flag == 0)
-		{
-			break;
-		}
-
-
-		pthread_mutex_lock(&i_readinputMutex);
-		while (IS_FULL(RDB))
-		{
-
-			pthread_cond_signal(&i_readinputstallCond);
-			pthread_cond_wait(&i_readinputflushCond, &i_readinputMutex);
-		}
-
-
-		push_R_block(&tmp_buf);
-
-		pthread_cond_signal(&i_readinputstallCond);
-		pthread_mutex_unlock(&i_readinputMutex);
-	}
-
-
-	pthread_mutex_lock(&i_readinputMutex);
-	RDB.all_read_end = 1;
-	pthread_cond_signal(&i_readinputstallCond);  //important
-	pthread_mutex_unlock(&i_readinputMutex);
-
-	destory_R_buffer_block(&tmp_buf);
-
-	fprintf(stderr, "Reads #: %lu\n", (unsigned long)total_reads);
-	fprintf(stderr, "Bases #: %lu\n", (unsigned long)R_INF.total_reads_bases);
-	
-
-	return NULL;
-}
-
-
-
-int get_reads_mul_thread(R_buffer_block* curr_sub_block)
-{
-
-
-	pthread_mutex_lock(&i_readinputMutex);
-
-
-	while (IS_EMPTY(RDB) && RDB.all_read_end == 0)
-	{
-
-		pthread_cond_signal(&i_readinputflushCond);
-		pthread_cond_wait(&i_readinputstallCond, &i_readinputMutex);
-	}
-
-
-	if (!IS_EMPTY(RDB))
-	{
-		pop_R_block(curr_sub_block);
-		pthread_cond_signal(&i_readinputflushCond);
-		pthread_mutex_unlock(&i_readinputMutex);
-
-
-		return 1;
-	}
-	else
-	{
-		curr_sub_block->num = 0;
-
-		pthread_cond_signal(&i_readinputstallCond);   //important
-
-		pthread_mutex_unlock(&i_readinputMutex);
-
-		return 0;
-	}
-	
-
-}
-
-
-
-
-
-
-
 
 void reverse_complement(char* pattern, uint64_t length)
 {
@@ -1069,63 +633,4 @@ void reverse_complement(char* pattern, uint64_t length)
 	{
 		pattern[end] = RC_CHAR(pattern[end]);
 	}
-
-}
-
-
-
-typedef struct {
-  char* tmp;
-  long long tmpSize;
-  char* dest;
-  long long destSize;
-  FILE* fp;
-} LineReader;
-
-int get_single_line(LineReader* line)
-{
-    long long currentLen = 0, getLen = 0;
-    line->tmp[0] = '\0';
-    while (fgets(line->tmp, line->tmpSize, line->fp) != NULL)
-    {
-        getLen = strlen(line->tmp);
-        if(getLen + currentLen >= line->destSize)
-        {
-            line->destSize = getLen + currentLen + 1;
-            line->dest = (char*)realloc(line->dest, line->destSize);
-        }
-        memcpy(line->dest + currentLen, line->tmp, getLen+1);
-        currentLen = currentLen + getLen;
-        if(currentLen > 0 && line->dest[currentLen - 1] == '\n')
-        {
-            return 1;
-        }
-    }
-        
-    if(currentLen > 0)
-    {
-        return 1;
-    }
-    else
-    {
-        return 0;
-    }
-}
-
-void get_trio_info(char* input, uint8_t* pm)
-{
-    uint32_t i;
-    (*pm) = AMBIGU;
-    for (i = 0; input[i] != '\0'; i++)
-    {
-        if(input[i] == '\t')
-        {
-            break;
-        }
-    }
-
-    input[i] = '\0';
-    i++;
-    if(input[i] == 'p') (*pm) = FATHER;
-    if(input[i] == 'm') (*pm) = MOTHER;
 }
