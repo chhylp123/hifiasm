@@ -4,7 +4,7 @@
 #include <pthread.h>
 
 #define VERBOSE 0
-#define VERBOSE_GFA 0
+#define VERBOSE_GFA 1
 
 typedef struct {
     int num_reads;

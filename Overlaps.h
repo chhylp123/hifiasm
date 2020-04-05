@@ -137,6 +137,16 @@ typedef struct {
 	ma_utg_t* F_seq;
 } asg_t;
 
+asg_t *asg_init(void);
+void asg_destroy(asg_t *g);
+void asg_arc_sort(asg_t *g);
+void asg_seq_set(asg_t *g, int sid, int len, int del);
+void asg_arc_index(asg_t *g);
+void asg_cleanup(asg_t *g);
+void asg_symm(asg_t *g);
+void print_gfa(asg_t *g);
+
+
 typedef struct { size_t n, m; uint64_t *a; } asg64_v;
 
 
@@ -373,6 +383,7 @@ typedef struct {
 	uint64_t i;
 }kvec_asg_arc_t_warp;
 
+void sort_kvec_t_u64_warp(kvec_t_u64_warp* u_vecs, uint32_t is_descend);
 
 
 typedef struct {
@@ -777,7 +788,10 @@ R_to_U* ruIndex, uint32_t min_edge_length, uint32_t stops_threshold)
         	{
 				qn = node_min->a[b_min.readI]>>33;
 
-				if(reverse_sources[qn].length>=0) min_count++;
+				/************************BUG: don't forget****************************/
+				if(reverse_sources[qn].length > 0) min_count++;
+				///if(reverse_sources[qn].length >= 0) min_count++;
+				/************************BUG: don't forget****************************/
 				for (j = 0; j < (long long)reverse_sources[qn].length; j++)
 				{
 					tn = Get_tn(reverse_sources[qn].buffer[j]);
@@ -826,7 +840,10 @@ R_to_U* ruIndex, uint32_t min_edge_length, uint32_t stops_threshold)
 		{
 			qn = (b_min.b_0->b.a[b_min.untigI]>>1);
 
-			if(reverse_sources[qn].length>=0) min_count++;
+			/************************BUG: don't forget****************************/
+			if(reverse_sources[qn].length > 0) min_count++;
+			///if(reverse_sources[qn].length >= 0) min_count++;
+			/************************BUG: don't forget****************************/
 
 			for (j = 0; j < (long long)reverse_sources[qn].length; j++)
         	{
@@ -868,6 +885,7 @@ R_to_U* ruIndex, uint32_t min_edge_length, uint32_t stops_threshold)
 	if(max_count > min_count*DIFF_HAP_RATE) return PLOID;
 	return NON_PLOID;
 }
+
 
 
 inline uint32_t check_different_haps_naive(asg_t *nsg, ma_ug_t *ug, asg_t *read_sg, 
@@ -923,7 +941,7 @@ R_to_U* ruIndex, uint32_t min_edge_length, uint32_t stops_threshold)
         	{
 				qn = node_min->a[b_min.readI]>>33;
 
-				if(reverse_sources[qn].length>=0) min_count++;
+				if(reverse_sources[qn].length > 0) min_count++;
 				for (j = 0; j < (long long)reverse_sources[qn].length; j++)
 				{
 					tn = Get_tn(reverse_sources[qn].buffer[j]);
@@ -960,7 +978,7 @@ R_to_U* ruIndex, uint32_t min_edge_length, uint32_t stops_threshold)
 		{
 			qn = (b_min.b_0->b.a[b_min.untigI]>>1);
 
-			if(reverse_sources[qn].length>=0) min_count++;
+			if(reverse_sources[qn].length > 0) min_count++;
 
 			for (j = 0; j < (long long)reverse_sources[qn].length; j++)
         	{
@@ -1020,7 +1038,7 @@ void rescue_missing_overlaps_aggressive(ma_ug_t *i_ug, asg_t *r_g, ma_hit_t_allo
 R_to_U* ruIndex, int max_hang, int min_ovlp, long long bubble_dist, uint32_t is_bubble_check, 
 uint32_t is_primary_check, kvec_asg_arc_t_warp* new_rtg_edges);
 void deduplicate(ma_ug_t *src, asg_t *read_g, ma_hit_t_alloc* reverse_sources, long long minLongUntig, 
-long long maxShortUntig, float l_untig_rate, float max_node_threshold, R_to_U* ruIndex);
+long long maxShortUntig, float l_untig_rate, float max_node_threshold, R_to_U* ruIndex, uint32_t resolve_tangle);
 void all_to_all_deduplicate(ma_ug_t* ug, uint8_t postive_flag, float drop_rate, 
 ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex);
 void drop_semi_circle(ma_ug_t *ug, asg_t* nsg, asg_t* read_g, ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex);
@@ -1032,5 +1050,11 @@ R_to_U* ruIndex, int max_hang, int min_ovlp, long long bubble_dist, uint32_t bac
 uint32_t is_bubble_check, uint32_t is_primary_check);
 uint32_t get_edge_from_source(ma_hit_t_alloc* sources, ma_sub_t *coverage_cut, 
 R_to_U* ruIndex, int max_hang, int min_ovlp, uint32_t query, uint32_t target, asg_arc_t* t);
+uint64_t asg_bub_pop1_primary_trio(asg_t *g, ma_ug_t *utg, uint32_t v0, int max_dist, buf_t *b, 
+uint32_t positive_flag, uint32_t negative_flag, uint32_t is_pop);
+int unitig_arc_del_short_diploid_by_length(asg_t *g, float drop_ratio);
+
+#define JUNK_COV 5
+#define DISCARD_RATE 0.8
 
 #endif
