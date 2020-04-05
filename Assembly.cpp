@@ -429,11 +429,49 @@ void ha_ovec_destroy(ha_ovec_buf_t *b)
 	free(b);
 }
 
+static int64_t ha_Graph_mem(const Graph *g)
+{
+	int64_t i, mem = 0;
+	mem = sizeof(Graph) + g->node_q.size * 8 + g->g_nodes.size * sizeof(Node);
+	for (i = 0; i < (int64_t)g->g_nodes.size; ++i) {
+		Node *n = &g->g_nodes.list[i];
+		mem += n->mismatch_edges.size * sizeof(Edge);
+		mem += n->deletion_edges.size * sizeof(Edge);
+		mem += n->insertion_edges.size * sizeof(Edge);
+	}
+	mem += g->g_nodes.sort.size * 9;
+	return mem;
+}
+
+int64_t ha_ovec_mem(const ha_ovec_buf_t *b)
+{
+	int64_t i, mem = 0, mem_clist, mem_olist;
+	mem_clist = b->clist.size * sizeof(k_mer_hit) + b->clist.chainDP.size * 7 * 4;
+	mem_olist = b->olist.size * sizeof(overlap_region);
+	for (i = 0; i < (int64_t)b->olist.size; ++i) {
+		const overlap_region *r = &b->olist.list[i];
+		mem_olist += r->w_list_size * sizeof(window_list);
+		mem_olist += r->f_cigar.size * 8;
+		mem_olist += r->boundary_cigars.size * sizeof(window_list);
+	}
+	mem = ha_abuf_mem(b->ab) + mem_clist + mem_olist;
+	if (!b->is_final) {
+		mem += sizeof(Cigar_record) + b->cigar1.lost_base_size + b->cigar1.size * 4;
+		mem += sizeof(Correct_dumy) + b->correct.size * 8;
+		mem += sizeof(Round2_alignment) + b->round2.cigar.size * 4 + b->round2.tmp_cigar.size * 4;
+		mem += sizeof(haplotype_evdience_alloc) + b->hap.size * sizeof(haplotype_evdience) + b->hap.snp_matrix_size + b->hap.snp_stat_size * sizeof(SnpStats);
+		mem += ha_Graph_mem(&b->POA_Graph);
+		mem += ha_Graph_mem(&b->DAGCon);
+	}
+	return mem;
+}
+
 void* Overlap_calculate_heap_merge(void* arg)
 {
 	long long num_read_base = 0;
 	long long num_correct_base = 0;
 	long long num_recorrect_base = 0;
+	long long mem_buf;
 	int fully_cov, abnormal;
 
 	int thr_ID = *((int*)arg);
@@ -469,12 +507,14 @@ void* Overlap_calculate_heap_merge(void* arg)
 		push_overlaps(&(R_INF.reverse_paf[i]), &b->olist, 2, &R_INF, asm_opt.roundID%2);
 	}
 	finish_output_buffer();
+	mem_buf = ha_ovec_mem(b);
 	ha_ovec_destroy(b);
 
 	pthread_mutex_lock(&statistics);
 	asm_opt.num_bases += num_read_base;
 	asm_opt.num_corrected_bases += num_correct_base;
 	asm_opt.num_recorrected_bases += num_recorrect_base;
+	asm_opt.mem_buf += mem_buf;
 	pthread_mutex_unlock(&statistics);
 	return NULL;
 }
@@ -1179,7 +1219,7 @@ int ha_assemble(void)
 	int r, ovlp_loaded = 0;
 	if (asm_opt.load_index_from_disk && load_all_data_from_disk(&R_INF.paf, &R_INF.reverse_paf, asm_opt.output_file_name)) {
 		ovlp_loaded = 1;
-		fprintf(stderr, "[M::%s::%.3f*%.2f] ==> loaded overlaps from disk\n", __func__, yak_realtime(), yak_cputime() / yak_realtime());
+		fprintf(stderr, "[M::%s::%.3f*%.2f] ==> loaded overlaps from disk\n", __func__, yak_realtime(), yak_cpu_usage());
 	}
 	if (!ovlp_loaded) {
 		// construct hash table for high occurrence k-mers
@@ -1190,16 +1230,19 @@ int ha_assemble(void)
 		for (r = 0; r < asm_opt.number_of_round; ++r) {
 			clear_opt(&asm_opt, r); // this update asm_opt.roundID and a few other fields
 			ha_overlap_and_correct(r);
-			fprintf(stderr, "[M::%s::%.3f*%.2f] ==> corrected reads for round %d\n", __func__, yak_realtime(), yak_cputime() / yak_realtime(), r + 1);
+			fprintf(stderr, "[M::%s::%.3f*%.2f@%.3fGB] ==> corrected reads for round %d\n", __func__, yak_realtime(),
+					yak_cpu_usage(), yak_peakrss_in_gb(), r + 1);
 			fprintf(stderr, "[M::%s] # bases: %lld; # corrected bases: %lld; # recorrected bases: %lld\n", __func__,
 					asm_opt.num_bases, asm_opt.num_corrected_bases, asm_opt.num_recorrected_bases);
+			fprintf(stderr, "[M::%s] size of buffer: %.3fGB\n", __func__, asm_opt.mem_buf / 1073741824.0);
 		}
 		Output_corrected_reads();
-		fprintf(stderr, "[M::%s::%.3f*%.2f] ==> written corrected reads to disk\n", __func__, yak_realtime(), yak_cputime() / yak_realtime());
+		fprintf(stderr, "[M::%s::%.3f*%.2f] ==> written corrected reads to disk\n", __func__, yak_realtime(), yak_cpu_usage());
 		// overlap between corrected reads
 		clear_opt(&asm_opt, asm_opt.number_of_round);
 		ha_overlap_final();
-		fprintf(stderr, "[M::%s::%.3f*%.2f] ==> found overlaps for the final round\n", __func__, yak_realtime(), yak_cputime() / yak_realtime());
+		fprintf(stderr, "[M::%s::%.3f*%.2f@%.3fGB] ==> found overlaps for the final round\n", __func__, yak_realtime(),
+				yak_cpu_usage(), yak_peakrss_in_gb());
 		ha_print_ovlp_stat(R_INF.paf, R_INF.reverse_paf, R_INF.total_reads);
 		ha_ft_destroy(ha_flt_tab);
 		Output_PAF();

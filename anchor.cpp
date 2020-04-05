@@ -43,6 +43,11 @@ void ha_abuf_destroy(ha_abuf_t *ab)
 	free(ab->seed); free(ab->a); free(ab->mz.a); free(ab);
 }
 
+uint64_t ha_abuf_mem(const ha_abuf_t *ab)
+{
+	return ab->m_a * sizeof(anchor1_t) + ab->mz.m * (sizeof(ha_mz1_t) + sizeof(seed1_t)) + sizeof(ha_abuf_t);
+}
+
 void ha_get_new_candidates(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_region_alloc *overlap_list, Candidates_list *cl, double bw_thres, int max_n_chain, int keep_whole_chain)
 {
 	extern void *ha_flt_tab;

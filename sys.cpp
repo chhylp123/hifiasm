@@ -41,3 +41,13 @@ long yak_peakrss(void)
 	return r.ru_maxrss;
 #endif
 }
+
+double yak_peakrss_in_gb(void)
+{
+	return yak_peakrss() / 1073741824.0;
+}
+
+double yak_cpu_usage(void)
+{
+	return (yak_cputime() + 1e-9) / (yak_realtime() + 1e-9);
+}

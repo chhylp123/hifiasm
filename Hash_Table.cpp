@@ -389,9 +389,9 @@ int32_t ha_chain_lis_core(k_mer_hit *a, int32_t n_a, Chain_Data *dp, int32_t min
 		gap_rate = (double)tot_indel / tot_len;
 		score -= (int)(gap_rate * score * bw_thres);
 		dp->score[i] = dp->score[i-1] + score;
-        dp->pre[i] = i - 1;
-        dp->indels[i] = tot_indel;
-        dp->self_length[i] = tot_len;
+		dp->pre[i] = i - 1;
+		dp->indels[i] = tot_indel;
+		dp->self_length[i] = tot_len;
 	}
 	if (i < m) return -1;
 	for (i = 0; i < m; ++i) a[i] = a[b[i]];

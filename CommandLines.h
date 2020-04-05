@@ -3,7 +3,7 @@
 
 #include <pthread.h>
 
-#define HA_VERSION "0.3.0-dirty-r191"
+#define HA_VERSION "0.3.0-dirty-r192"
 
 #define VERBOSE 0
 #define VERBOSE_GFA 0
@@ -48,6 +48,7 @@ typedef struct {
     long long num_bases;
     long long num_corrected_bases;
     long long num_recorrected_bases;
+	long long mem_buf;
     long long coverage;
 } hifiasm_opt_t;
 

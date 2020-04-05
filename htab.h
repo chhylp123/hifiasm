@@ -36,11 +36,14 @@ const ha_idxpos_t *ha_pt_get(const ha_pt_t *h, uint64_t hash, int *n);
 
 ha_abuf_t *ha_abuf_init(void);
 void ha_abuf_destroy(ha_abuf_t *ab);
+uint64_t ha_abuf_mem(const ha_abuf_t *ab);
 
 double yak_cputime(void);
 void yak_reset_realtime(void);
 double yak_realtime(void);
 long yak_peakrss(void);
+double yak_peakrss_in_gb(void);
+double yak_cpu_usage(void);
 
 void trio_partition(void);
 

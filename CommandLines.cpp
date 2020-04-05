@@ -105,6 +105,7 @@ void clear_opt(hifiasm_opt_t* asm_opt, int round)
     asm_opt->num_bases = 0;
     asm_opt->num_corrected_bases = 0;
     asm_opt->num_recorrected_bases = 0;
+	asm_opt->mem_buf = 0;
     asm_opt->roundID = round;
 }
 

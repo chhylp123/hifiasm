@@ -657,7 +657,7 @@ static void *worker_count(void *data, int step, void *in) // callback for kt_pip
 		free(s->buf);
 		#if 0
 		fprintf(stderr, "[M::%s::%.3f*%.2f] processed %ld sequences; %ld %s in the hash table\n", __func__,
-				yak_realtime(), yak_cputime() / yak_realtime(), (long)s->n_seq0 + s->n_seq,
+				yak_realtime(), yak_cpu_usage(), (long)s->n_seq0 + s->n_seq,
 				(long)(p->pt? p->pt->tot_pos : p->ct->tot), p->pt? "positions" : "distinct k-mers");
 		#endif
 		free(s);
@@ -786,8 +786,8 @@ void *ha_ft_gen(const hifiasm_opt_t *asm_opt, All_reads *rs)
 	ha_ct_shrink(h, cutoff, YAK_MAX_COUNT, asm_opt->thread_num);
 	flt_tab = gen_hh(h);
 	ha_ct_destroy(h);
-	fprintf(stderr, "[M::%s::%.3f*%.2f] ==> filtered out %ld k-mers occurring %d or more times\n", __func__,
-			yak_realtime(), yak_cputime() / yak_realtime(), (long)kh_size(flt_tab), cutoff);
+	fprintf(stderr, "[M::%s::%.3f*%.2f@%.3fGB] ==> filtered out %ld k-mers occurring %d or more times\n", __func__,
+			yak_realtime(), yak_cpu_usage(), yak_peakrss_in_gb(), (long)kh_size(flt_tab), cutoff);
 	return (void*)flt_tab;
 }
 
@@ -808,7 +808,7 @@ ha_pt_t *ha_pt_gen(const hifiasm_opt_t *asm_opt, const void *flt_tab, int read_f
 	}
 	ct = ha_count(asm_opt, HAF_COUNT_EXACT|extra_flag1, NULL, flt_tab, rs);
 	fprintf(stderr, "[M::%s::%.3f*%.2f] ==> counted %ld distinct minimizer k-mers\n", __func__,
-			yak_realtime(), yak_cputime() / yak_realtime(), (long)ct->tot);
+			yak_realtime(), yak_cpu_usage(), (long)ct->tot);
 	ha_ct_hist(ct, cnt, asm_opt->thread_num);
 	fprintf(stderr, "[M::%s] count[%d] = %ld (for sanity check)\n", __func__, YAK_MAX_COUNT, (long)cnt[YAK_MAX_COUNT]);
 	peak_hom = ha_analyze_count(YAK_N_COUNTS, cnt, &peak_het);
@@ -827,6 +827,6 @@ ha_pt_t *ha_pt_gen(const hifiasm_opt_t *asm_opt, const void *flt_tab, int read_f
 	assert((uint64_t)tot_cnt == pt->tot_pos);
 	//ha_pt_sort(pt, asm_opt->thread_num);
 	fprintf(stderr, "[M::%s::%.3f*%.2f] ==> indexed %ld positions\n", __func__,
-			yak_realtime(), yak_cputime() / yak_realtime(), (long)pt->tot_pos);
+			yak_realtime(), yak_cpu_usage(), (long)pt->tot_pos);
 	return pt;
 }
