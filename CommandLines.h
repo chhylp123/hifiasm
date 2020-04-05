@@ -3,10 +3,9 @@
 
 #include <pthread.h>
 
-#define HA_VERSION "0.3.0-dirty-r197"
+#define HA_VERSION "0.3.0-dirty-r198"
 
 #define VERBOSE 0
-#define VERBOSE_GFA 1
 
 typedef struct {
     int num_reads;
@@ -38,6 +37,7 @@ typedef struct {
     int max_short_tip;
     int min_cnt;
     int mid_cnt;
+	int verbose_gfa;
 
     float max_hang_rate;
     float min_drop_rate;

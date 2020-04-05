@@ -26464,7 +26464,7 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
 
     asg_arc_del_simple_circle_untig(sources, coverage_cut, sg, 100, 0);
 
-    if(VERBOSE_GFA >= 1)
+    if (asm_opt.verbose_gfa)
     {
         /*******************************for debug***************************************/
         write_debug_graph(sg, sources, coverage_cut, output_file_name, n_read, reverse_sources, ruIndex);
@@ -26543,7 +26543,7 @@ long long bubble_dist, int read_graph, int write)
     ///actually min_thres = asm_opt.max_short_tip + 1 there are asm_opt.max_short_tip reads
     min_thres = asm_opt.max_short_tip + 1;
 
-    if(VERBOSE_GFA >= 1)
+    if (asm_opt.verbose_gfa)
     {
         if(load_debug_graph(&sg, &sources, &coverage_cut, output_file_name, &reverse_sources, &ruIndex))
         {

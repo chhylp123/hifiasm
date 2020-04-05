@@ -9,6 +9,12 @@
 
 hifiasm_opt_t asm_opt;
 
+static ko_longopt_t long_options[] = {
+	{ "version",      ko_no_argument,       300 },
+	{ "dbg-gfa",      ko_no_argument,       301 },
+	{ 0, 0, 0 }
+};
+
 double Get_T(void)
 {
   struct timeval t;
@@ -90,6 +96,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->max_short_tip = 3;
     asm_opt->min_cnt = 2;
     asm_opt->mid_cnt = 5;
+	asm_opt->verbose_gfa = 0;
 }
 
 void destory_opt(hifiasm_opt_t* asm_opt)
@@ -301,13 +308,13 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
 
     int c;
 
-    while ((c = ketopt(&opt, argc, argv, 1, "hvt:o:k:lw:m:n:r:a:b:z:x:y:p:c:d:M:P:if:D:FN:", 0)) >= 0) {
+    while ((c = ketopt(&opt, argc, argv, 1, "hvt:o:k:lw:m:n:r:a:b:z:x:y:p:c:d:M:P:if:D:FN:", long_options)) >= 0) {
         if (c == 'h')
         {
             Print_H(asm_opt);
             return 0;
         } 
-        else if (c == 'v')
+        else if (c == 'v' || c == 300)
         {
 			puts(HA_VERSION);
             return 0;
@@ -335,6 +342,7 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         else if (c == 'p') asm_opt->small_pop_bubble_size = atoll(opt.arg);
         else if (c == 'm') asm_opt->large_pop_bubble_size = atoll(opt.arg);
         else if (c == 'n') asm_opt->max_short_tip = atoll(opt.arg);
+		else if (c == 301) asm_opt->verbose_gfa = 1;
         else if (c == ':') 
         {
 			fprintf(stderr, "[ERROR] missing option argument in \"%s\"\n", argv[opt.i - 1]);
