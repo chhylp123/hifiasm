@@ -672,7 +672,7 @@ double band_width_threshold, int max_skip, int x_readLen, int y_readLen)
 
 
     clear_fake_cigar(&(result->f_cigar));
-    ///not a has been sorted by offset, that means has been sorted by query offset
+    ///note a has been sorted by offset, that means has been sorted by query offset
     i = max_i;
     result->x_pos_e = a[i].self_offset;
     result->y_pos_e = a[i].offset;
