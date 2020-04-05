@@ -10,11 +10,11 @@
 #include "Correct.h"
 #include "Output.h"
 #include "htab.h"
+#include "kthread.h"
 
 void ha_get_new_candidates(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_region_alloc *overlap_list, Candidates_list *cl, double bw_thres, int max_n_chain, int keep_whole_chain);
 
 All_reads R_INF;
-pthread_mutex_t statistics;
 
 void get_corrected_read_from_cigar(Cigar_record* cigar, char* pre_read, int pre_length, char* new_read, int* new_length)
 {
@@ -382,6 +382,7 @@ typedef struct {
 	overlap_region_alloc olist;
 	ha_abuf_t *ab;
 	// error correction related buffers
+	int64_t num_read_base, num_correct_base, num_recorrect_base, mem_buf;
 	Cigar_record cigar1;
 	Graph POA_Graph;
 	Graph DAGCon;
@@ -466,204 +467,138 @@ int64_t ha_ovec_mem(const ha_ovec_buf_t *b)
 	return mem;
 }
 
-void* Overlap_calculate_heap_merge(void* arg)
+static void worker_ovec(void *data, long i, int tid)
 {
-	long long num_read_base = 0;
-	long long num_correct_base = 0;
-	long long num_recorrect_base = 0;
-	long long mem_buf;
+	ha_ovec_buf_t *b = ((ha_ovec_buf_t**)data)[tid];
 	int fully_cov, abnormal;
 
-	int thr_ID = *((int*)arg);
-	long long i = 0;
-	ha_ovec_buf_t *b;
+	ha_get_new_candidates(b->ab, i, &b->self_read, &b->olist, &b->clist, 0.02, asm_opt.max_n_chain, 1);
 
-	b = ha_ovec_init(0);
-	for (i = thr_ID; i < (long long)R_INF.total_reads; i = i + asm_opt.thread_num) {
-		//get_new_candidates(i, &g_read, &overlap_list, &array_list, &l, 0.02, 1);
+	clear_Cigar_record(&b->cigar1);
+	clear_Round2_alignment(&b->round2);
+
+	correct_overlap(&b->olist, &R_INF, &b->self_read, &b->correct, &b->ovlp_read, &b->POA_Graph, &b->DAGCon,
+			&b->cigar1, &b->hap, &b->round2, 0, 1, &fully_cov, &abnormal);
+
+	b->num_read_base += b->self_read.length;
+	b->num_correct_base += b->correct.corrected_base;
+	b->num_recorrect_base += b->round2.dumy.corrected_base;
+
+	push_cigar(R_INF.cigars, i, &b->cigar1);
+	push_cigar(R_INF.second_round_cigar, i, &b->round2.cigar);
+
+	R_INF.paf[i].is_fully_corrected = 0;
+	if (fully_cov) {
+		if (get_cigar_errors(&b->cigar1) == 0 && get_cigar_errors(&b->round2.cigar) == 0)
+			R_INF.paf[i].is_fully_corrected = 1;
+	}
+	R_INF.paf[i].is_abnormal = abnormal;
+
+	push_overlaps(&(R_INF.paf[i]), &b->olist, 1, &R_INF, asm_opt.roundID%2);
+	push_overlaps(&(R_INF.reverse_paf[i]), &b->olist, 2, &R_INF, asm_opt.roundID%2);
+}
+
+static void worker_ovec_related_reads(void *data, long i, int tid)
+{
+	ha_ovec_buf_t *b = ((ha_ovec_buf_t**)data)[tid];
+	int required_read_name_length = strlen(asm_opt.required_read_name);
+	uint64_t k;
+	if (required_read_name_length == (int)Get_NAME_LENGTH((R_INF),i)
+			&&
+			memcmp(asm_opt.required_read_name, Get_NAME((R_INF), i), Get_NAME_LENGTH((R_INF),i)) == 0)
+	{
 		ha_get_new_candidates(b->ab, i, &b->self_read, &b->olist, &b->clist, 0.02, asm_opt.max_n_chain, 1);
 
-		clear_Cigar_record(&b->cigar1);
-		clear_Round2_alignment(&b->round2);
+		fprintf(stderr, ">%.*s\n", (int)Get_NAME_LENGTH((R_INF), i), Get_NAME((R_INF), i));
+		recover_UC_Read(&b->self_read, &R_INF, i);
+		fprintf(stderr, "%.*s\n", (int)b->self_read.length, b->self_read.seq);
 
-		correct_overlap(&b->olist, &R_INF, &b->self_read, &b->correct, &b->ovlp_read, &b->POA_Graph, &b->DAGCon,
-						&b->cigar1, &b->hap, &b->round2, 0, 1, &fully_cov, &abnormal);
-
-		num_read_base += b->self_read.length;
-		num_correct_base += b->correct.corrected_base;
-		num_recorrect_base += b->round2.dumy.corrected_base;
-
-		push_cigar(R_INF.cigars, i, &b->cigar1);
-		push_cigar(R_INF.second_round_cigar, i, &b->round2.cigar);
-
-		R_INF.paf[i].is_fully_corrected = 0;
-		if (fully_cov) {
-			if (get_cigar_errors(&b->cigar1) == 0 && get_cigar_errors(&b->round2.cigar) == 0)
-				R_INF.paf[i].is_fully_corrected = 1;
-		}
-		R_INF.paf[i].is_abnormal = abnormal;
-
-		push_overlaps(&(R_INF.paf[i]), &b->olist, 1, &R_INF, asm_opt.roundID%2);
-		push_overlaps(&(R_INF.reverse_paf[i]), &b->olist, 2, &R_INF, asm_opt.roundID%2);
-	}
-	finish_output_buffer();
-	mem_buf = ha_ovec_mem(b);
-	ha_ovec_destroy(b);
-
-	pthread_mutex_lock(&statistics);
-	asm_opt.num_bases += num_read_base;
-	asm_opt.num_corrected_bases += num_correct_base;
-	asm_opt.num_recorrected_bases += num_recorrect_base;
-	asm_opt.mem_buf += mem_buf;
-	pthread_mutex_unlock(&statistics);
-	return NULL;
-}
-
-void* Output_related_reads(void* arg)
-{
-	int thr_ID = *((int*)arg);
-	long long i = 0;
-	ha_ovec_buf_t *b;
-
-	long long required_read_name_length = strlen(asm_opt.required_read_name);
-	b = ha_ovec_init(0);
-	for (i = thr_ID; i < (long long)R_INF.total_reads; i = i + asm_opt.thread_num) {
-		if (required_read_name_length == (long long)Get_NAME_LENGTH((R_INF),i)
-				&&
-				memcmp(asm_opt.required_read_name, Get_NAME((R_INF), i), Get_NAME_LENGTH((R_INF),i)) == 0)
-		{
-			//get_new_candidates(i, &g_read, &overlap_list, &array_list, &l, 0.02, 1);
-			ha_get_new_candidates(b->ab, i, &b->self_read, &b->olist, &b->clist, 0.02, asm_opt.max_n_chain, 1);
-
-			fprintf(stderr, ">%.*s\n", (int)Get_NAME_LENGTH((R_INF), i), Get_NAME((R_INF), i));
-			recover_UC_Read(&b->self_read, &R_INF, i);
+		for (k = 0; k < b->olist.length; k++) {
+			fprintf(stderr, ">%.*s\n", (int)Get_NAME_LENGTH((R_INF), b->olist.list[k].y_id), Get_NAME((R_INF), b->olist.list[k].y_id));
+			recover_UC_Read(&b->self_read, &R_INF, b->olist.list[k].y_id);
 			fprintf(stderr, "%.*s\n", (int)b->self_read.length, b->self_read.seq);
-
-			uint64_t k;
-			for (k = 0; k < b->olist.length; k++) {
-				fprintf(stderr, ">%.*s\n", (int)Get_NAME_LENGTH((R_INF), b->olist.list[k].y_id), Get_NAME((R_INF), b->olist.list[k].y_id));
-				recover_UC_Read(&b->self_read, &R_INF, b->olist.list[k].y_id);
-				fprintf(stderr, "%.*s\n", (int)b->self_read.length, b->self_read.seq);
-			}
 		}
 	}
-	finish_output_buffer();
-	ha_ovec_destroy(b);
-	return NULL;
 }
 
-inline long long get_N_occ(char* seq, long long length)
+static inline long long get_N_occ(char* seq, long long length)
 {
-    long long N_occ = 0;
-    long long j;
-    for (j = 0; j < length; j++)
-    {
-        if(seq_nt6_table[(uint8_t)seq[j]] >= 4)
-        {
-            N_occ++;
-        }
-    }
-    return N_occ;
+	long long j, N_occ = 0;
+	for (j = 0; j < length; j++)
+		if(seq_nt6_table[(uint8_t)seq[j]] >= 4)
+			N_occ++;
+	return N_occ;
 }
 
+typedef struct {
+	UC_Read g_read;
+	int first_round_read_size;
+	int second_round_read_size;
+	char *first_round_read;
+	char *second_round_read;
+} ha_ecsave_buf_t;
 
-void* Save_corrected_reads(void* arg)
+static void worker_ec_save(void *data, long i, int tid)
 {
-    int thr_ID = *((int*)arg);
-    long long i;
-    UC_Read g_read;
-    init_UC_Read(&g_read);
+	ha_ecsave_buf_t *e = (ha_ecsave_buf_t*)data + tid;
 
-    int first_round_read_size = 10000;
-    char* first_round_read = (char*)malloc(first_round_read_size);
+	Cigar_record cigar;
+	int first_round_read_length;
+	int second_round_read_length;
+	uint64_t N_occ;
 
-    int second_round_read_size = 10000;
-    char* second_round_read = (char*)malloc(second_round_read_size);
+	char *new_read;
+	int new_read_length;
 
-    Cigar_record cigar;
-    int first_round_read_length;
-    int second_round_read_length;
-    uint64_t N_occ;
+	recover_UC_Read(&e->g_read, &R_INF, i);
 
-    char* new_read;
-    int new_read_length;
+	// round 1
+	if ((long long)R_INF.cigars[i].new_length > e->first_round_read_size) {
+		e->first_round_read_size = R_INF.cigars[i].new_length;
+		REALLOC(e->first_round_read, e->first_round_read_size);
+	}
 
-    for (i = thr_ID; i < (long long)R_INF.total_reads; i = i + asm_opt.thread_num)
-    {
-        recover_UC_Read(&g_read, &R_INF, i);
+	cigar.length = R_INF.cigars[i].length;
+	cigar.lost_base_length = R_INF.cigars[i].lost_base_length;
+	cigar.record = R_INF.cigars[i].record;
+	cigar.lost_base = R_INF.cigars[i].lost_base;
 
-        /********************************1 round******************************/
-        if((long long)R_INF.cigars[i].new_length > first_round_read_size)
-        {
-            first_round_read_size = R_INF.cigars[i].new_length;
-            first_round_read = (char*)realloc(first_round_read, first_round_read_size);
-        }
+	get_corrected_read_from_cigar(&cigar, e->g_read.seq, e->g_read.length, e->first_round_read, &first_round_read_length);
 
-        cigar.length = R_INF.cigars[i].length;
-        cigar.lost_base_length = R_INF.cigars[i].lost_base_length;
-        cigar.record = R_INF.cigars[i].record;
-        cigar.lost_base = R_INF.cigars[i].lost_base;
+	// round 2
+	if ((long long)R_INF.second_round_cigar[i].new_length > e->second_round_read_size) {
+		e->second_round_read_size = R_INF.second_round_cigar[i].new_length;
+		REALLOC(e->second_round_read, e->second_round_read_size);
+	}
+	cigar.length = R_INF.second_round_cigar[i].length;
+	cigar.lost_base_length = R_INF.second_round_cigar[i].lost_base_length;
+	cigar.record = R_INF.second_round_cigar[i].record;
+	cigar.lost_base = R_INF.second_round_cigar[i].lost_base;
 
-        get_corrected_read_from_cigar(&cigar, g_read.seq, g_read.length, first_round_read, &first_round_read_length);
+	get_corrected_read_from_cigar(&cigar, e->first_round_read, first_round_read_length, e->second_round_read, &second_round_read_length);
 
-        /********************************1 round******************************/
+	new_read = e->second_round_read;
+	new_read_length = second_round_read_length;
 
-        /********************************2 round******************************/
-        if((long long)R_INF.second_round_cigar[i].new_length > second_round_read_size)
-        {
-            second_round_read_size = R_INF.second_round_cigar[i].new_length;
-            second_round_read = (char*)realloc(second_round_read, second_round_read_size);
-        }
-        cigar.length = R_INF.second_round_cigar[i].length;
-        cigar.lost_base_length = R_INF.second_round_cigar[i].lost_base_length;
-        cigar.record = R_INF.second_round_cigar[i].record;
-        cigar.lost_base = R_INF.second_round_cigar[i].lost_base;
-        get_corrected_read_from_cigar(&cigar, first_round_read, first_round_read_length, 
-        second_round_read, &second_round_read_length);
+	if (asm_opt.roundID != asm_opt.number_of_round - 1)
+	{
+		///need modification
+		reverse_complement(new_read, new_read_length);
+	}
+	else if(asm_opt.number_of_round % 2 == 0)
+	{
+		///need modification
+		reverse_complement(new_read, new_read_length);
+	}
 
-        /********************************2 round******************************/
+	N_occ = get_N_occ(new_read, new_read_length);
 
-
-
-
-        new_read = second_round_read;
-        new_read_length = second_round_read_length;
-
-
-        if (asm_opt.roundID != asm_opt.number_of_round - 1)
-        {
-            ///need modification
-            reverse_complement(new_read, new_read_length);
-        }
-        else if(asm_opt.number_of_round % 2 == 0)
-        {
-            ///need modification
-            reverse_complement(new_read, new_read_length);
-        }
-
-
-        N_occ = get_N_occ(new_read, new_read_length);
-
-
-        if((long long)R_INF.read_size[i] < new_read_length)
-        {
-            R_INF.read_size[i] = new_read_length;
-            R_INF.read_sperate[i] = (uint8_t*)realloc(R_INF.read_sperate[i], R_INF.read_size[i]/4+1);
-        }
-
-        R_INF.read_length[i] = new_read_length;
-
-
-        ha_compress_base(Get_READ(R_INF, i),
-            new_read, new_read_length, 
-            &R_INF.N_site[i], N_occ);
-    }
-
-    destory_UC_Read(&g_read);
-    free(first_round_read);
-    free(second_round_read);
-
-    return NULL;
+	if ((long long)R_INF.read_size[i] < new_read_length) {
+		R_INF.read_size[i] = new_read_length;
+		REALLOC(R_INF.read_sperate[i], R_INF.read_size[i]/4+1);
+	}
+	R_INF.read_length[i] = new_read_length;
+	ha_compress_base(Get_READ(R_INF, i), new_read, new_read_length, &R_INF.N_site[i], N_occ);
 }
 
 void Output_corrected_reads()
@@ -691,33 +626,49 @@ void Output_corrected_reads()
 
 void ha_overlap_and_correct(int round)
 {
-	int i, *args;
-	pthread_t *_r_threads;
-	MALLOC(_r_threads, asm_opt.thread_num);
-	args = (int*)alloca(sizeof(int) * asm_opt.thread_num);
+	int i;
+	ha_ovec_buf_t **b;
+	ha_ecsave_buf_t *e;
 
+	// overlap and correct reads
+	CALLOC(b, asm_opt.thread_num);
+	for (i = 0; i < asm_opt.thread_num; ++i)
+		b[i] = ha_ovec_init(0);
 	ha_idx = ha_pt_gen(&asm_opt, ha_flt_tab, round == 0? 0 : 1, &R_INF); // build the index
-	for (i = 0; i < asm_opt.thread_num; i++) {
-		args[i] = i;
-		if (!asm_opt.required_read_name)
-			pthread_create(_r_threads + i, NULL, Overlap_calculate_heap_merge, (void*)&args[i]);
-		else
-			pthread_create(_r_threads + i, NULL, Output_related_reads, (void*)&args[i]);
-	}
-	for (i = 0; i < asm_opt.thread_num; i++)
-		pthread_join(_r_threads[i], NULL);
+	if (asm_opt.required_read_name)
+		kt_for(asm_opt.thread_num, worker_ovec_related_reads, b, R_INF.total_reads);
+	else
+		kt_for(asm_opt.thread_num, worker_ovec, b, R_INF.total_reads);
 	ha_pt_destroy(ha_idx);
 	ha_idx = 0;
 
+	// collect statistics
+	for (i = 0; i < asm_opt.thread_num; ++i) {
+		asm_opt.num_bases += b[i]->num_read_base;
+		asm_opt.num_corrected_bases += b[i]->num_correct_base;
+		asm_opt.num_recorrected_bases += b[i]->num_recorrect_base;
+		asm_opt.mem_buf += b[i]->mem_buf;
+		ha_ovec_destroy(b[i]);
+	}
+	free(b);
+
 	if (asm_opt.required_read_name) exit(0); // for debugging only
 
-	for (i = 0; i < asm_opt.thread_num; i++) {
-		args[i] = i;
-		pthread_create(_r_threads + i, NULL, Save_corrected_reads, (void*)&args[i]);
+	// save corrected reads to R_INF
+	CALLOC(e, asm_opt.thread_num);
+	for (i = 0; i < asm_opt.thread_num; ++i) {
+		init_UC_Read(&e[i].g_read);
+		e[i].first_round_read_size = e[i].second_round_read_size = 50000;
+		CALLOC(e[i].first_round_read, e[i].first_round_read_size);
+		CALLOC(e[i].second_round_read, e[i].second_round_read_size);
 	}
-	for (i = 0; i < asm_opt.thread_num; i++)
-		pthread_join(_r_threads[i], NULL);
-	free(_r_threads);
+	kt_for(asm_opt.thread_num, worker_ec_save, e, R_INF.total_reads);
+	for (i = 0; i < asm_opt.thread_num; ++i) {
+		destory_UC_Read(&e[i].g_read);
+		free(e[i].first_round_read);
+		free(e[i].second_round_read);
+	}
+	free(e);
 }
 
 void update_overlaps(overlap_region_alloc* overlap_list, ma_hit_t_alloc* paf, 
@@ -988,47 +939,36 @@ UC_Read* g_read, UC_Read* overlap_read, uint8_t* c2n)
 
 }
 
-void* Final_overlap_calculate_heap_merge(void* arg)
+static void worker_ov_final(void *data, long i, int tid)
 {
-    int thr_ID = *((int*)arg);
-    uint64_t i = 0;
-	ha_ovec_buf_t *b;
-
-    uint8_t c2n[256];
+	ha_ovec_buf_t *b = ((ha_ovec_buf_t**)data)[tid];
+    uint8_t c2n[256]; // this may be moved to ha_ovec_buf_t, but it should be fast to populate anyway
     memset(c2n, 4, 256);
     c2n[(uint8_t)'A'] = c2n[(uint8_t)'a'] = 0; c2n[(uint8_t)'C'] = c2n[(uint8_t)'c'] = 1;
 	c2n[(uint8_t)'G'] = c2n[(uint8_t)'g'] = 2; c2n[(uint8_t)'T'] = c2n[(uint8_t)'t'] = 3; // build the encoding table
 
-	b = ha_ovec_init(1);
-    for (i = thr_ID; i < R_INF.total_reads; i = i + asm_opt.thread_num)
-    {
-        //get_new_candidates(i, &g_read, &overlap_list, &array_list, &l, 0.001, 0);
-		ha_get_new_candidates(b->ab, i, &b->self_read, &b->olist, &b->clist, 0.001, asm_opt.max_n_chain, 0);
+	//get_new_candidates(i, &g_read, &overlap_list, &array_list, &l, 0.001, 0);
+	ha_get_new_candidates(b->ab, i, &b->self_read, &b->olist, &b->clist, 0.001, asm_opt.max_n_chain, 0);
 
-        /**
-        correct_overlap(&overlap_list, &R_INF, &g_read, &correct, &overlap_read, &POA_Graph, &DAGCon,
-        &matched_overlap_0, &matched_overlap_1, &potiental_matched_overlap_0, &potiental_matched_overlap_1,
-        &current_cigar, &hap, &second_round, 0, 0);
-        push_final_overlaps(&(R_INF.paf[i]), &overlap_list);
-        **/
+	/**
+	  correct_overlap(&overlap_list, &R_INF, &g_read, &correct, &overlap_read, &POA_Graph, &DAGCon,
+	  &matched_overlap_0, &matched_overlap_1, &potiental_matched_overlap_0, &potiental_matched_overlap_1,
+	  &current_cigar, &hap, &second_round, 0, 0);
+	  push_final_overlaps(&(R_INF.paf[i]), &overlap_list);
+	 **/
 
-        overlap_region_sort_y_id(b->olist.list, b->olist.length);
-        ma_hit_sort_tn(R_INF.paf[i].buffer, R_INF.paf[i].length);
-        ma_hit_sort_tn(R_INF.reverse_paf[i].buffer, R_INF.reverse_paf[i].length);
+	overlap_region_sort_y_id(b->olist.list, b->olist.length);
+	ma_hit_sort_tn(R_INF.paf[i].buffer, R_INF.paf[i].length);
+	ma_hit_sort_tn(R_INF.reverse_paf[i].buffer, R_INF.reverse_paf[i].length);
 
-        update_overlaps(&b->olist, &(R_INF.paf[i]), &b->self_read, &b->ovlp_read, 1, 1);
-        update_overlaps(&b->olist, &(R_INF.reverse_paf[i]), &b->self_read, &b->ovlp_read, 2, 0);
-        ///recover missing exact overlaps 
-        update_exact_overlaps(&b->olist, &b->self_read, &b->ovlp_read);
+	update_overlaps(&b->olist, &(R_INF.paf[i]), &b->self_read, &b->ovlp_read, 1, 1);
+	update_overlaps(&b->olist, &(R_INF.reverse_paf[i]), &b->self_read, &b->ovlp_read, 2, 0);
+	///recover missing exact overlaps
+	update_exact_overlaps(&b->olist, &b->self_read, &b->ovlp_read);
 
-        ///Final_phasing(&overlap_list, &cigarline, &g_read, &overlap_read, c2n);
-
-        push_final_overlaps(&(R_INF.paf[i]), R_INF.reverse_paf, &b->olist, 1);
-        push_final_overlaps(&(R_INF.reverse_paf[i]), R_INF.reverse_paf, &b->olist, 2);
-    }
-    finish_output_buffer();
-	ha_ovec_destroy(b);
-    return NULL;
+	///Final_phasing(&overlap_list, &cigarline, &g_read, &overlap_read, c2n);
+	push_final_overlaps(&(R_INF.paf[i]), R_INF.reverse_paf, &b->olist, 1);
+	push_final_overlaps(&(R_INF.reverse_paf[i]), R_INF.reverse_paf, &b->olist, 2);
 }
 
 void Output_PAF()
@@ -1195,23 +1135,18 @@ long long readNum, long long rescue_threshold, float cluster_threshold)
 
 void ha_overlap_final(void)
 {
-	int i, *args;
-	pthread_t *_r_threads;
-
-	MALLOC(_r_threads, asm_opt.thread_num);
-	args = (int*)alloca(sizeof(int) * asm_opt.thread_num);
-
-	ha_idx = ha_pt_gen(&asm_opt, ha_flt_tab, 1, &R_INF);
-	for (i = 0; i < asm_opt.thread_num; i++) {
-		args[i] = i;
-		pthread_create(_r_threads + i, NULL, Final_overlap_calculate_heap_merge, (void*)&args[i]);
-	}
-	for (i = 0; i < asm_opt.thread_num; i++)
-		pthread_join(_r_threads[i], NULL);
-	free(_r_threads);
+	int i;
+	ha_ovec_buf_t **b;
+	CALLOC(b, asm_opt.thread_num);
+	for (i = 0; i < asm_opt.thread_num; ++i)
+		b[i] = ha_ovec_init(1);
+	ha_idx = ha_pt_gen(&asm_opt, ha_flt_tab, 1, &R_INF); // build the index
+	kt_for(asm_opt.thread_num, worker_ov_final, b, R_INF.total_reads);
 	ha_pt_destroy(ha_idx);
 	ha_idx = 0;
-	///rescue_edges(R_INF.paf, R_INF.reverse_paf, R_INF.total_reads, 4, 0.985);
+	for (i = 0; i < asm_opt.thread_num; ++i)
+		ha_ovec_destroy(b[i]);
+	free(b);
 }
 
 int ha_assemble(void)
@@ -1219,7 +1154,7 @@ int ha_assemble(void)
 	int r, ovlp_loaded = 0;
 	if (asm_opt.load_index_from_disk && load_all_data_from_disk(&R_INF.paf, &R_INF.reverse_paf, asm_opt.output_file_name)) {
 		ovlp_loaded = 1;
-		fprintf(stderr, "[M::%s::%.3f*%.2f] ==> loaded overlaps from disk\n", __func__, yak_realtime(), yak_cpu_usage());
+		fprintf(stderr, "[M::%s::%.3f*%.2f] ==> loaded corrected reads and overlaps from disk\n", __func__, yak_realtime(), yak_cpu_usage());
 	}
 	if (!ovlp_loaded) {
 		// construct hash table for high occurrence k-mers
@@ -1236,7 +1171,7 @@ int ha_assemble(void)
 					asm_opt.num_bases, asm_opt.num_corrected_bases, asm_opt.num_recorrected_bases);
 			fprintf(stderr, "[M::%s] size of buffer: %.3fGB\n", __func__, asm_opt.mem_buf / 1073741824.0);
 		}
-		Output_corrected_reads();
+		//Output_corrected_reads();
 		fprintf(stderr, "[M::%s::%.3f*%.2f] ==> written corrected reads to disk\n", __func__, yak_realtime(), yak_cpu_usage());
 		// overlap between corrected reads
 		clear_opt(&asm_opt, asm_opt.number_of_round);
@@ -1245,7 +1180,7 @@ int ha_assemble(void)
 				yak_cpu_usage(), yak_peakrss_in_gb());
 		ha_print_ovlp_stat(R_INF.paf, R_INF.reverse_paf, R_INF.total_reads);
 		ha_ft_destroy(ha_flt_tab);
-		Output_PAF();
+		//Output_PAF();
 		trio_partition();
 	}
 	build_string_graph_without_clean(asm_opt.min_overlap_coverage, R_INF.paf, R_INF.reverse_paf, 
