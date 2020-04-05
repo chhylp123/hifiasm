@@ -900,8 +900,8 @@ long long* r_y_pos_beg, long long* r_y_pos_end)
     uint32_t xLeftBeg, xLeftLen, yLeftBeg, yLeftLen;
     uint32_t xRightBeg, xRightLen, yRightBeg, yRightLen;
     uint64_t totalWeigth;
-    double xLeftMatch, xLeftTotal, yLeftMatch, yLeftTotal;
-    double xRightMatch, xRightTotal, yRightMatch, yRightTotal;
+    double xLeftMatch = 0, xLeftTotal = 0, yLeftMatch = 0, yLeftTotal = 0;
+    double xRightMatch = 0, xRightTotal = 0, yRightMatch = 0, yRightTotal = 0;
     asg_arc_t_offset* arch = NULL;
 
     for (i = hap_can->index_beg, totalWeigth = 0; i <= hap_can->index_end; i++)
@@ -964,7 +964,7 @@ long long* r_y_pos_beg, long long* r_y_pos_end)
         &yRightMatch, &yRightTotal);
         max_count = xLeftMatch + yRightMatch;
         min_count = xLeftTotal + yRightTotal;
-    }
+    } else abort();
     
 
     hap_can->weight = hap_can->index_beg = 0;
