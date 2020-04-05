@@ -1,10 +1,10 @@
-#include "Purge_Dups.h"
-#include "Overlaps.h"
-#include "Correct.h"
 #define __STDC_LIMIT_MACROS
 #include <stdint.h>
 #include <stdlib.h>
 #include "ksort.h"
+#include "Purge_Dups.h"
+#include "Overlaps.h"
+#include "Correct.h"
 
 #define Cal_Off(OFF) ((long long)((uint32_t)((OFF)>>32)) - (long long)((uint32_t)((OFF))))
 #define Get_match(x) ((x).weight)
