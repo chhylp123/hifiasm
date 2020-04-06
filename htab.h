@@ -26,11 +26,11 @@ extern const unsigned char seq_nt4_table[256];
 extern void *ha_flt_tab;
 extern ha_pt_t *ha_idx;
 
-void *ha_ft_gen(const hifiasm_opt_t *asm_opt, All_reads *rs);
+void *ha_ft_gen(const hifiasm_opt_t *asm_opt, All_reads *rs, int *hom_cov);
 int ha_ft_isflt(const void *hh, uint64_t y);
 void ha_ft_destroy(void *h);
 
-ha_pt_t *ha_pt_gen(const hifiasm_opt_t *asm_opt, const void *flt_tab, int read_from_store, All_reads *rs);
+ha_pt_t *ha_pt_gen(const hifiasm_opt_t *asm_opt, const void *flt_tab, int read_from_store, All_reads *rs, int *hom_cov);
 void ha_pt_destroy(ha_pt_t *h);
 const ha_idxpos_t *ha_pt_get(const ha_pt_t *h, uint64_t hash, int *n);
 

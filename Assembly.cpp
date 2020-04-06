@@ -382,7 +382,7 @@ typedef struct {
 	overlap_region_alloc olist;
 	ha_abuf_t *ab;
 	// error correction related buffers
-	int64_t num_read_base, num_correct_base, num_recorrect_base, mem_buf;
+	int64_t num_read_base, num_correct_base, num_recorrect_base;
 	Cigar_record cigar1;
 	Graph POA_Graph;
 	Graph DAGCon;
@@ -626,7 +626,7 @@ void Output_corrected_reads()
 
 void ha_overlap_and_correct(int round)
 {
-	int i;
+	int i, hom_cov;
 	ha_ovec_buf_t **b;
 	ha_ecsave_buf_t *e;
 
@@ -634,7 +634,9 @@ void ha_overlap_and_correct(int round)
 	CALLOC(b, asm_opt.thread_num);
 	for (i = 0; i < asm_opt.thread_num; ++i)
 		b[i] = ha_ovec_init(0);
-	ha_idx = ha_pt_gen(&asm_opt, ha_flt_tab, round == 0? 0 : 1, &R_INF); // build the index
+	ha_idx = ha_pt_gen(&asm_opt, ha_flt_tab, round == 0? 0 : 1, &R_INF, &hom_cov); // build the index
+	if (round == 0 && ha_flt_tab == 0) // then asm_opt.hom_cov hasn't been updated
+		ha_opt_update_cov(&asm_opt, hom_cov);
 	if (asm_opt.required_read_name)
 		kt_for(asm_opt.thread_num, worker_ovec_related_reads, b, R_INF.total_reads);
 	else
@@ -647,7 +649,7 @@ void ha_overlap_and_correct(int round)
 		asm_opt.num_bases += b[i]->num_read_base;
 		asm_opt.num_corrected_bases += b[i]->num_correct_base;
 		asm_opt.num_recorrected_bases += b[i]->num_recorrect_base;
-		asm_opt.mem_buf += b[i]->mem_buf;
+		asm_opt.mem_buf += ha_ovec_mem(b[i]);
 		ha_ovec_destroy(b[i]);
 	}
 	free(b);
@@ -1135,12 +1137,12 @@ long long readNum, long long rescue_threshold, float cluster_threshold)
 
 void ha_overlap_final(void)
 {
-	int i;
+	int i, hom_cov;
 	ha_ovec_buf_t **b;
 	CALLOC(b, asm_opt.thread_num);
 	for (i = 0; i < asm_opt.thread_num; ++i)
 		b[i] = ha_ovec_init(1);
-	ha_idx = ha_pt_gen(&asm_opt, ha_flt_tab, 1, &R_INF); // build the index
+	ha_idx = ha_pt_gen(&asm_opt, ha_flt_tab, 1, &R_INF, &hom_cov); // build the index
 	kt_for(asm_opt.thread_num, worker_ov_final, b, R_INF.total_reads);
 	ha_pt_destroy(ha_idx);
 	ha_idx = 0;
@@ -1151,19 +1153,21 @@ void ha_overlap_final(void)
 
 int ha_assemble(void)
 {
-	int r, ovlp_loaded = 0;
+	int r, hom_cov = -1, ovlp_loaded = 0;
 	if (asm_opt.load_index_from_disk && load_all_data_from_disk(&R_INF.paf, &R_INF.reverse_paf, asm_opt.output_file_name)) {
 		ovlp_loaded = 1;
 		fprintf(stderr, "[M::%s::%.3f*%.2f] ==> loaded corrected reads and overlaps from disk\n", __func__, yak_realtime(), yak_cpu_usage());
 	}
 	if (!ovlp_loaded) {
 		// construct hash table for high occurrence k-mers
-		if (!asm_opt.no_kmer_flt)
-			ha_flt_tab = ha_ft_gen(&asm_opt, &R_INF);
+		if (!asm_opt.no_kmer_flt) {
+			ha_flt_tab = ha_ft_gen(&asm_opt, &R_INF, &hom_cov);
+			ha_opt_update_cov(&asm_opt, hom_cov);
+		}
 		// error correction
 		assert(asm_opt.number_of_round > 0);
 		for (r = 0; r < asm_opt.number_of_round; ++r) {
-			clear_opt(&asm_opt, r); // this update asm_opt.roundID and a few other fields
+			ha_opt_reset_to_round(&asm_opt, r); // this update asm_opt.roundID and a few other fields
 			ha_overlap_and_correct(r);
 			fprintf(stderr, "[M::%s::%.3f*%.2f@%.3fGB] ==> corrected reads for round %d\n", __func__, yak_realtime(),
 					yak_cpu_usage(), yak_peakrss_in_gb(), r + 1);
@@ -1174,7 +1178,7 @@ int ha_assemble(void)
 		//Output_corrected_reads();
 		fprintf(stderr, "[M::%s::%.3f*%.2f] ==> written corrected reads to disk\n", __func__, yak_realtime(), yak_cpu_usage());
 		// overlap between corrected reads
-		clear_opt(&asm_opt, asm_opt.number_of_round);
+		ha_opt_reset_to_round(&asm_opt, asm_opt.number_of_round);
 		ha_overlap_final();
 		fprintf(stderr, "[M::%s::%.3f*%.2f@%.3fGB] ==> found overlaps for the final round\n", __func__, yak_realtime(),
 				yak_cpu_usage(), yak_peakrss_in_gb());

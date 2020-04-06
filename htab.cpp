@@ -771,7 +771,7 @@ void ha_ft_destroy(void *h)
  * High-level interfaces *
  *************************/
 
-void *ha_ft_gen(const hifiasm_opt_t *asm_opt, All_reads *rs)
+void *ha_ft_gen(const hifiasm_opt_t *asm_opt, All_reads *rs, int *hom_cov)
 {
 	yak_ft_t *flt_tab;
 	int64_t cnt[YAK_N_COUNTS];
@@ -780,6 +780,7 @@ void *ha_ft_gen(const hifiasm_opt_t *asm_opt, All_reads *rs)
 	h = ha_count(asm_opt, HAF_COUNT_ALL|HAF_RS_WRITE_LEN, NULL, NULL, rs);
 	ha_ct_hist(h, cnt, asm_opt->thread_num);
 	peak_hom = ha_analyze_count(YAK_N_COUNTS, cnt, &peak_het);
+	if (hom_cov) *hom_cov = peak_hom;
 	if (peak_hom > 0) fprintf(stderr, "[M::%s] peak_hom: %d; peak_het: %d\n", __func__, peak_hom, peak_het);
 	cutoff = (int)(peak_hom * asm_opt->high_factor);
 	if (cutoff > YAK_MAX_COUNT - 1) cutoff = YAK_MAX_COUNT - 1;
@@ -791,7 +792,7 @@ void *ha_ft_gen(const hifiasm_opt_t *asm_opt, All_reads *rs)
 	return (void*)flt_tab;
 }
 
-ha_pt_t *ha_pt_gen(const hifiasm_opt_t *asm_opt, const void *flt_tab, int read_from_store, All_reads *rs)
+ha_pt_t *ha_pt_gen(const hifiasm_opt_t *asm_opt, const void *flt_tab, int read_from_store, All_reads *rs, int *hom_cov)
 {
 	int64_t cnt[YAK_N_COUNTS], tot_cnt;
 	int peak_hom, peak_het, i, extra_flag1, extra_flag2;
@@ -812,6 +813,7 @@ ha_pt_t *ha_pt_gen(const hifiasm_opt_t *asm_opt, const void *flt_tab, int read_f
 	ha_ct_hist(ct, cnt, asm_opt->thread_num);
 	fprintf(stderr, "[M::%s] count[%d] = %ld (for sanity check)\n", __func__, YAK_MAX_COUNT, (long)cnt[YAK_MAX_COUNT]);
 	peak_hom = ha_analyze_count(YAK_N_COUNTS, cnt, &peak_het);
+	if (hom_cov) *hom_cov = peak_hom;
 	if (peak_hom > 0) fprintf(stderr, "[M::%s] peak_hom: %d; peak_het: %d\n", __func__, peak_hom, peak_het);
 	if (flt_tab == 0) {
 		int cutoff = (int)(peak_hom * asm_opt->high_factor);

@@ -3,7 +3,7 @@
 
 #include <pthread.h>
 
-#define HA_VERSION "0.3.0-dirty-r200"
+#define HA_VERSION "0.3.0-dirty-r201"
 
 #define VERBOSE 0
 
@@ -18,10 +18,10 @@ typedef struct {
     int k_mer_length;
 	int mz_win;
 	int bf_shift;
-	float high_factor;
 	int no_HPC;
 	int no_kmer_flt;
-	int max_n_chain;
+	float high_factor; // coverage cutoff set to high_factor*hom_cov
+	int max_n_chain; // fall-back max number of chains to consider
     int k_mer_min_freq;
     int k_mer_max_freq;
     int load_index_from_disk;
@@ -56,7 +56,8 @@ extern hifiasm_opt_t asm_opt;
 
 void init_opt(hifiasm_opt_t* asm_opt);
 void destory_opt(hifiasm_opt_t* asm_opt);
-void clear_opt(hifiasm_opt_t* asm_opt, int round);
+void ha_opt_reset_to_round(hifiasm_opt_t* asm_opt, int round);
+void ha_opt_update_cov(hifiasm_opt_t *opt, int hom_cov);
 int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt);
 double Get_T(void);
 
