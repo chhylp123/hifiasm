@@ -1156,6 +1156,7 @@ int ha_assemble(void)
 	if (asm_opt.load_index_from_disk && load_all_data_from_disk(&R_INF.paf, &R_INF.reverse_paf, asm_opt.output_file_name)) {
 		ovlp_loaded = 1;
 		fprintf(stderr, "[M::%s::%.3f*%.2f] ==> loaded corrected reads and overlaps from disk\n", __func__, yak_realtime(), yak_cpu_usage());
+		trio_partition();
 	}
 	if (!ovlp_loaded) {
 		// construct hash table for high occurrence k-mers
@@ -1189,6 +1190,7 @@ int ha_assemble(void)
 	build_string_graph_without_clean(asm_opt.min_overlap_coverage, R_INF.paf, R_INF.reverse_paf, 
 			R_INF.total_reads, R_INF.read_length, asm_opt.min_overlap_Len, asm_opt.max_hang_Len, asm_opt.clean_round, 
 			asm_opt.gap_fuzz, asm_opt.min_drop_rate, asm_opt.max_drop_rate, asm_opt.output_file_name, asm_opt.large_pop_bubble_size, 0, !ovlp_loaded);
-	///destory_All_reads(&R_INF);
+	if (asm_opt.verbose_gfa) R_INF.paf = R_INF.reverse_paf = 0; // with --dbg-gfa, R_INF.paf and R_INF.reverse_paf are freed in load_debug_graph()
+	destory_All_reads(&R_INF);
 	return 0;
 }

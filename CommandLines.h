@@ -3,7 +3,7 @@
 
 #include <pthread.h>
 
-#define HA_VERSION "0.3.0-dirty-r205"
+#define HA_VERSION "0.3.0-dirty-r206"
 
 #define VERBOSE 0
 
