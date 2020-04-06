@@ -2,7 +2,7 @@ CXX=		g++
 CXXFLAGS=	-g -O3 -msse4.2 -mpopcnt -fomit-frame-pointer -Wall
 CPPFLAGS=
 INCLUDES=
-OBJS=		Output.o CommandLines.o Process_Read.o Assembly.o Hash_Table.o \
+OBJS=		CommandLines.o Process_Read.o Assembly.o Hash_Table.o \
 			POA.o Correct.o Levenshtein_distance.o Overlaps.o Trio.o kthread.o Purge_Dups.o \
 			htab.o hist.o sketch.o anchor.o sys.o
 EXE=		hifiasm
@@ -34,7 +34,7 @@ depend:
 
 Assembly.o: Assembly.h CommandLines.h Process_Read.h Overlaps.h kvec.h kdq.h
 Assembly.o: Hash_Table.h htab.h POA.h Correct.h Levenshtein_distance.h
-Assembly.o: Output.h
+Assembly.o: kthread.h
 CommandLines.o: CommandLines.h ketopt.h
 Correct.o: Correct.h Hash_Table.h htab.h Process_Read.h Overlaps.h kvec.h
 Correct.o: kdq.h CommandLines.h Levenshtein_distance.h POA.h Assembly.h
