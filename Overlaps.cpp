@@ -13622,6 +13622,9 @@ int load_ma_hit_ts(ma_hit_t_alloc** x, char* read_file_name)
         f_flag += fread(&((*x)[i].length), sizeof((*x)[i].length), 1, fp);
         (*x)[i].size = (*x)[i].length;
 
+        (*x)[i].buffer = NULL;
+        if((*x)[i].length == 0) continue;
+        
         (*x)[i].buffer = (ma_hit_t*)malloc(sizeof(ma_hit_t)*(*x)[i].length);
 
         for (k = 0; k < (*x)[i].length; k++)
