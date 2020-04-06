@@ -1,10 +1,10 @@
-#include "Purge_Dups.h"
-#include "Overlaps.h"
-#include "Correct.h"
 #define __STDC_LIMIT_MACROS
 #include <stdint.h>
 #include <stdlib.h>
 #include "ksort.h"
+#include "Purge_Dups.h"
+#include "Overlaps.h"
+#include "Correct.h"
 
 #define Cal_Off(OFF) ((long long)((uint32_t)((OFF)>>32)) - (long long)((uint32_t)((OFF))))
 #define Get_match(x) ((x).weight)
@@ -75,6 +75,37 @@ typedef struct {
     kvec_hap_overlaps* x;
     uint32_t num;
 }hap_overlaps_list;
+
+
+typedef struct {
+    uint64_t* vote_counting;
+    uint8_t* visit;
+    kvec_t_u64_warp u_vecs;
+    kvec_asg_arc_t_offset u_buffer;
+    kvec_hap_candidates u_can;
+}hap_alignment_struct;
+
+void init_hap_alignment_struct(hap_alignment_struct* x, uint32_t size)
+{
+    x->vote_counting = (uint64_t*)malloc(sizeof(uint64_t)*size);
+    memset(x->vote_counting, 0, sizeof(uint64_t)*size);
+
+    x->visit = (uint8_t*)malloc(sizeof(uint8_t)*size);
+    memset(x->visit, 0, size);
+
+    kv_init(x->u_vecs.a);
+    kv_init(x->u_buffer.a);
+    kv_init(x->u_can.a);
+}
+
+void destory_hap_alignment_struct(hap_alignment_struct* x, uint32_t size)
+{
+    free(x->vote_counting);
+    free(x->visit);
+    kv_destroy(x->u_vecs.a);
+    kv_destroy(x->u_buffer.a);
+    kv_destroy(x->u_can.a);
+}
 
 void init_hap_overlaps_list(hap_overlaps_list* x, uint32_t num)
 {
@@ -205,7 +236,20 @@ uint32_t xUnitigLen, uint32_t yUnitigLen, uint64_t* position_index, uint8_t* rev
     }
 
     (*rev) = x_dir^y_dir;
-    if((*rev)) y_pos = yUnitigLen - y_pos - 1;
+    if((*rev))
+    {
+        if(yUnitigLen <= y_pos)
+        {
+            y_pos = (uint32_t)-1;
+        }
+        else
+        {
+            y_pos = yUnitigLen - y_pos - 1;
+        }
+    } 
+
+    if(x_pos>=xUnitigLen) x_pos = (uint32_t)-1;
+    if(y_pos>=yUnitigLen) y_pos = (uint32_t)-1;
     
     tmp = x_pos; tmp = tmp << 32; tmp = tmp | y_pos;
     return tmp;
@@ -439,6 +483,11 @@ long long targetEnd, long long targetID, long long eMatch, long long eTotal, lon
 float Hap_rate, uint64_t* position_index, ma_hit_t_alloc* reverse_sources, asg_t *read_g, 
 R_to_U* ruIndex, uint32_t* n_matchLen, uint32_t* n_max_count, uint32_t* n_min_count)
 {
+    if(queryLen == 0)
+    {
+        (*n_matchLen) = (*n_min_count) = (*n_max_count) = 0;
+        return;
+    }
     long long i, maxId, min_count = eTotal, max_count = eMatch, matchLen = 0;
     uint32_t is_found, is_match;
     if(dir == 0)
@@ -577,7 +626,6 @@ long long* r_y_interval_beg, long long* r_y_interval_end)
     long long x_interval_beg, x_interval_end, y_interval_beg, y_interval_end;
     long long target_beg, target_end;
     x_max_count = x_min_count = y_max_count = y_min_count = 0;
-
     if(type == X2Y)
     {
         /********************x*********************/
@@ -675,7 +723,7 @@ long long* r_y_interval_beg, long long* r_y_interval_end)
         xUid, 0, xReads->n - 1, Hap_rate, position_index, reverse_sources, read_g, ruIndex, rev,
         &y_interval_beg, &y_interval_end);
         /********************y*********************/
-    }
+    } else abort();
 
     (*r_x_interval_beg) = x_interval_beg;
     (*r_x_interval_end) = x_interval_end;
@@ -768,17 +816,17 @@ uint32_t* x_off, uint32_t* y_off)
                 w_dir = (t.v == w)?1:0;
                 if(rev == 0 && v_dir != w_dir) continue;
                 if(rev == 1 && v_dir == w_dir) continue;
-                
-                
 
                 tmp = get_xy_pos(read_g, &t, v, w, xReads->len, yReads->len, position_index, &(t.el));
+                if(((tmp>>32) == (uint32_t)-1) || (((uint32_t)tmp) == (uint32_t)-1)) continue;
+
                 ///if(is_found == 0 || ((uint32_t)(tmp>>32) > (*x_off) && ((uint32_t)tmp) > (*y_off)))
                 if(is_found == 0 || t.ol > oLen)
                 {
                     (*x_off) = tmp>>32;
                     (*y_off) = (uint32_t)tmp;
                     oLen = t.ol;
-                } 
+                }
 
                 is_found = 1; 
             }
@@ -828,13 +876,15 @@ uint32_t* x_off, uint32_t* y_off)
                 
 
                 tmp = get_xy_pos(read_g, &t, v, w, xReads->len, yReads->len, position_index, &(t.el));
+                if(((tmp>>32) == (uint32_t)-1) || (((uint32_t)tmp) == (uint32_t)-1)) continue;
+
                 ///if(is_found == 0 || ((uint32_t)(tmp>>32) < (*x_off) && ((uint32_t)tmp) < (*y_off)))
                 if(is_found == 0 || t.ol > oLen)
                 {
                     (*x_off) = tmp>>32;
                     (*y_off) = (uint32_t)tmp;
                     oLen = t.ol;
-                }     
+                }  
 
                 is_found = 1;         
             }
@@ -868,15 +918,7 @@ long long* r_x_pos_beg, long long* r_x_pos_end, long long* r_y_pos_beg, long lon
         return (uint32_t)-1;
     }
     if(x_pos_beg > x_pos_end || y_pos_beg > y_pos_end) return (uint32_t)-1;
-    /**
-    fprintf(stderr, "\nrev: %u, weight: %lu\n", Get_rev(*hap_can), Get_match(*hap_can));
-        
-    fprintf(stderr, "xUid: %u, xLen: %u, xBase: %u, x_interval_beg: %u, x_interval_end: %u, x_pos_beg: %u, x_pos_end: %u\n", 
-    xUid, xReads->n, xReads->len, Get_x_beg(*hap_can), Get_x_end(*hap_can), x_pos_beg, x_pos_end);
-
-    fprintf(stderr, "yUid: %u, yLen: %u, yBase: %u, y_interval_beg: %u, y_interval_end: %u, y_pos_beg: %u, y_pos_end: %u\n", 
-    yUid, yReads->n, yReads->len, Get_y_beg(*hap_can), Get_y_end(*hap_can), y_pos_beg, y_pos_end);
-    **/
+    
     /**
     #define X2Y 0
     #define Y2X 1
@@ -900,8 +942,8 @@ long long* r_y_pos_beg, long long* r_y_pos_end)
     uint32_t xLeftBeg, xLeftLen, yLeftBeg, yLeftLen;
     uint32_t xRightBeg, xRightLen, yRightBeg, yRightLen;
     uint64_t totalWeigth;
-    double xLeftMatch, xLeftTotal, yLeftMatch, yLeftTotal;
-    double xRightMatch, xRightTotal, yRightMatch, yRightTotal;
+    double xLeftMatch = 0, xLeftTotal = 0, yLeftMatch = 0, yLeftTotal = 0;
+    double xRightMatch = 0, xRightTotal = 0, yRightMatch = 0, yRightTotal = 0;
     asg_arc_t_offset* arch = NULL;
 
     for (i = hap_can->index_beg, totalWeigth = 0; i <= hap_can->index_end; i++)
@@ -964,7 +1006,7 @@ long long* r_y_pos_beg, long long* r_y_pos_end)
         &yRightMatch, &yRightTotal);
         max_count = xLeftMatch + yRightMatch;
         min_count = xLeftTotal + yRightTotal;
-    }
+    } else abort();
     
 
     hap_can->weight = hap_can->index_beg = 0;
@@ -972,6 +1014,7 @@ long long* r_y_pos_beg, long long* r_y_pos_end)
     if(max_count > min_count*Hap_rate)
     {
         long long r_x_interval_beg, r_x_interval_end, r_y_interval_beg, r_y_interval_end;
+
         ///for containment, don't need to do anything
         get_hap_alignment_boundary(xReads, yReads, flag, xLeftMatch, xLeftTotal, 
         yLeftMatch, yLeftTotal, xRightMatch, xRightTotal, yRightMatch, yRightTotal,
@@ -1006,6 +1049,14 @@ long long* r_y_pos_beg, long long* r_y_pos_end)
 	return NON_PLOID;
 }
 
+
+
+void print_hap_paf(ma_ug_t *ug, hap_overlaps* ovlp)
+{
+    fprintf(stderr, "utg%.6d%c\t%u\t%u\t%u\t%c\tutg%.6d%c\t%u\t%u\t%u\t%u\t%u\n", 
+    ovlp->xUid+1, "lc"[ug->u.a[ovlp->xUid].circ], ug->u.a[ovlp->xUid].len, ovlp->x_beg_pos, ovlp->x_end_pos, "+-"[ovlp->rev], 
+    ovlp->yUid+1, "lc"[ug->u.a[ovlp->yUid].circ], ug->u.a[ovlp->yUid].len, ovlp->y_beg_pos, ovlp->y_end_pos, ovlp->type, (uint32_t)ovlp->weight);
+}
 
 void hap_alignment(ma_ug_t *ug, asg_t *read_g,  ma_hit_t_alloc* reverse_sources, 
 R_to_U* ruIndex, ma_sub_t *coverage_cut, uint64_t* position_index, uint64_t* vote_counting, 
@@ -1142,19 +1193,12 @@ hap_overlaps_list* all_ovlp)
             
                 t_offset.Off = get_xy_pos(read_g, &t, v, (yReads->a[(uint32_t)(position_index[rId])])>>32, 
                 xReads->len, yReads->len, position_index, &(t.el));
+                if(((t_offset.Off>>32) == (uint32_t)-1) || (((uint32_t)t_offset.Off) == (uint32_t)-1)) continue;
+
                 t_offset.x = t;
                 t_offset.weight = 1;
 
                 kv_push(asg_arc_t_offset, u_buffer->a, t_offset);
-                // if(debug_enable)
-                // {
-                //     fprintf(stderr, "xUid: %u, yUid: %u, (%u), x_index: %u, y_index: %u, dis: %lld\n\n", 
-                //     xUid, yUid, (uint32_t)(u_buffer->a.n-1), 
-                //     (uint32_t)(position_index[u_buffer->a.a[u_buffer->a.n-1].x.ul>>33]),
-                //     (uint32_t)(position_index[u_buffer->a.a[u_buffer->a.n-1].x.v>>1]),
-                //     (long long)((uint32_t)(u_buffer->a.a[u_buffer->a.n-1].Off>>32)) - 
-                //     (long long)((uint32_t)(u_buffer->a.a[u_buffer->a.n-1].Off)));
-                // }    
             }
 
             deduplicate_edge(u_buffer);
@@ -1296,34 +1340,8 @@ hap_overlaps_list* all_ovlp)
         if(Get_match(hap_can) == 0 || Get_total(hap_can) == 0) continue;
         
         kv_push(hap_overlaps, all_ovlp->x[hap_align.xUid].a, hap_align);
-
-        /**
-        fprintf(stderr, "\nsplit\nxUid: %u, yUid: %u, u_buffer->a.n: %u\n", xUid, yUid, (uint32_t)u_buffer->a.n);
-
-        for (k = 0; k < u_buffer->a.n; k++)
-        {
-            v = u_buffer->a.a[k].x.ul>>33;
-            w = u_buffer->a.a[k].x.v>>1;
-
-            fprintf(stderr, "\n(%u), x_index: %u, x_pos: %u, x_real_pos: %u, dis: %lld, dir: %u, weight: %lu\n", 
-            k, (uint32_t)(position_index[v]), (uint32_t)(position_index[v]>>32), 
-            (uint32_t)(u_buffer->a.a[k].Off>>32), Cal_Off(u_buffer->a.a[k].Off),
-            u_buffer->a.a[k].x.el, u_buffer->a.a[k].weight);
-
-            fprintf(stderr, "(%u), y_index: %u, y_pos: %u, y_real_pos: %u\n", k,
-            (uint32_t)(position_index[w]), (uint32_t)(position_index[w]>>32), 
-            (uint32_t)(u_buffer->a.a[k].Off));
-        }
-        **/
     }
 
-}
-
-void print_hap_paf(ma_ug_t *ug, hap_overlaps* ovlp)
-{
-    fprintf(stderr, "utg%.6d%c\t%u\t%u\t%u\t%c\tutg%.6d%c\t%u\t%u\t%u\t%u\t%u\n", 
-    ovlp->xUid+1, "lc"[ug->u.a[ovlp->xUid].circ], ug->u.a[ovlp->xUid].len, ovlp->x_beg_pos, ovlp->x_end_pos, "+-"[ovlp->rev], 
-    ovlp->yUid+1, "lc"[ug->u.a[ovlp->yUid].circ], ug->u.a[ovlp->yUid].len, ovlp->y_beg_pos, ovlp->y_end_pos, ovlp->type, (uint32_t)ovlp->weight);
 }
 
 
@@ -2014,6 +2032,7 @@ R_to_U* ruIndex, kvec_asg_arc_t_warp* edge, float density, uint32_t bi_graph_Len
 float lable_match_rate, int max_hang, int min_ovlp, long long bubble_dist, float drop_ratio,
 uint32_t just_contain)
 {
+    fprintf(stderr, "*****************\n");
     asg_t *purge_g = NULL;
     purge_g = asg_init();
     kvec_t_u64_warp u_vecs;
@@ -2140,9 +2159,10 @@ uint32_t just_contain)
                    purge_g->seq[all_ovlp.x[uId].a.a[i].xUid].del||
                    purge_g->seq[all_ovlp.x[uId].a.a[i].yUid].c == ALTER_LABLE||
                    purge_g->seq[all_ovlp.x[uId].a.a[i].yUid].del)
-                   {
-                       continue;
-                   }
+                {
+                    continue;
+                }
+
                 ///print_hap_paf(ug, &(all_ovlp.x[uId].a.a[i]));
                 r = get_hap_arch(&(all_ovlp.x[uId].a.a[i]), ug->u.a[all_ovlp.x[uId].a.a[i].xUid].len, 
                 ug->u.a[all_ovlp.x[uId].a.a[i].yUid].len, max_hang, asm_opt.max_hang_rate, min_ovlp, &t);
@@ -2156,7 +2176,8 @@ uint32_t just_contain)
                 else
                 {
                     print_hap_paf(ug, &(all_ovlp.x[uId].a.a[i]));
-                    fprintf(stderr, "error\n");
+                    fprintf(stderr, "error: uId: %u, i: %u, xUid: %u, yUid: %u\n", 
+                    uId, i, all_ovlp.x[uId].a.a[i].xUid, all_ovlp.x[uId].a.a[i].yUid);
                 }
             }
         }
@@ -2197,5 +2218,6 @@ uint32_t just_contain)
     free(position_index);
     free(vote_counting);
     free(visit);
+    fprintf(stderr, "#################\n");
 }
 

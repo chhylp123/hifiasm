@@ -1,29 +1,27 @@
-#include "POA.h"
 #include <stdlib.h>
+#include <string.h>
+#include "POA.h"
 #include "Correct.h"
 #include "Process_Read.h"
 #define INIT_EDGE_SIZE 50
 #define INCREASE_EDGE_SIZE 5
 #define INIT_NODE_SIZE 16000
 
-
-
+/********
+ * Edge *
+ ********/
 
 void init_Edge_alloc(Edge_alloc* list)
 {
-    if (list->list == NULL)
-    {
-        list->size = INIT_EDGE_SIZE;
-        list->length = 0;
-        list->delete_length = 0;
-        list->list = (Edge*)malloc(sizeof(Edge)*list->size);
-    }
-    else
-    {
-        list->length = 0;
-        list->delete_length = 0;
-    }
-    
+	if (list->list == NULL) {
+		list->size = INIT_EDGE_SIZE;
+		list->length = 0;
+		list->delete_length = 0;
+		list->list = (Edge*)malloc(sizeof(Edge)*list->size);
+	} else {
+		list->length = 0;
+		list->delete_length = 0;
+	}
 }
 
 void clear_Edge_alloc(Edge_alloc* list)
@@ -34,27 +32,28 @@ void clear_Edge_alloc(Edge_alloc* list)
 
 void destory_Edge_alloc(Edge_alloc* list)
 {
-    free(list->list);
+	if (list && list->list)
+	    free(list->list);
 }
 
 void append_Edge_alloc(Edge_alloc* list,  uint64_t in_node, uint64_t out_node, uint64_t weight, uint64_t length)
 {
-    if (list->length + 1 > list->size)
-    {
-        list->size = list->size + INCREASE_EDGE_SIZE;
-        list->list = (Edge*)realloc(list->list, sizeof(Edge)*list->size);
-    }
+	if (list->length + 1 > list->size) {
+		uint64_t old_size = list->size;
+		list->size = list->size + INCREASE_EDGE_SIZE;
+		list->list = (Edge*)realloc(list->list, sizeof(Edge)*list->size);
+		memset(&list->list[old_size], 0, (list->size - old_size) * sizeof(Edge));
+	}
 
-    list->list[list->length].in_node = in_node;
-    list->list[list->length].out_node = out_node;
-    list->list[list->length].weight = weight;
-    list->list[list->length].length = length;
-    list->list[list->length].num_insertions = 0;
-    list->list[list->length].self_edge_ID = list->length;
+	list->list[list->length].in_node = in_node;
+	list->list[list->length].out_node = out_node;
+	list->list[list->length].weight = weight;
+	list->list[list->length].length = length;
+	list->list[list->length].num_insertions = 0;
+	list->list[list->length].self_edge_ID = list->length;
 
-    list->length++;
+	list->length++;
 }
-
 
 int add_and_check_bi_direction_edge(Graph* graph, Node* in_node, Node* out_node, uint64_t weight, uint64_t flag)
 {
@@ -81,7 +80,6 @@ int add_and_check_bi_direction_edge(Graph* graph, Node* in_node, Node* out_node,
     }
 }
 
-
 void add_bi_direction_edge(Graph* graph, Node* in_node, Node* out_node, uint64_t weight, uint64_t flag)
 {
 
@@ -94,8 +92,6 @@ void add_bi_direction_edge(Graph* graph, Node* in_node, Node* out_node, uint64_t
     Input_Edges((*out_node)).list[Input_Edges((*out_node)).length - 1].reverse_edge_ID
     = Output_Edges((*in_node)).length - 1;
 }
-
-
 
 int remove_and_check_bi_direction_edge_from_nodes(Graph* graph, Node* in_node, Node* out_node)
 {
@@ -135,8 +131,6 @@ int remove_and_check_bi_direction_edge_from_nodes(Graph* graph, Node* in_node, N
     }
 }
 
-
-
 int remove_and_check_bi_direction_edge_from_edge(Graph* graph, Edge* e)
 {
     Edge* e_forward;
@@ -171,109 +165,71 @@ int remove_and_check_bi_direction_edge_from_edge(Graph* graph, Edge* e)
     {
         return 0;
     }
-    
-    
 }
 
-
+/********
+ * Node *
+ ********/
 
 void init_Node_alloc(Node_alloc* list)
 {
-    list->size = INIT_NODE_SIZE;
-    list->length = 0;
-    list->delete_length = 0;
-    list->list = (Node*)malloc(sizeof(Node)*list->size);
-    list->sort.size = 0;
-    list->sort.list = NULL;
-    list->sort.visit = NULL;
-
-    list->sort.iterative_buffer = NULL;
-    list->sort.iterative_buffer_visit = NULL;
-
-
-    uint64_t i;
-    for (i = 0; i < list->size; i++)
-    {
-        list->list[i].insertion_edges.list=NULL;
-        list->list[i].mismatch_edges.list=NULL;
-        list->list[i].deletion_edges.list=NULL;
-    }    
+	memset(list, 0, sizeof(Node_alloc));
+	list->size = INIT_NODE_SIZE;
+	list->list = (Node*)calloc(list->size, sizeof(Node));
 }
 
 void destory_Node_alloc(Node_alloc* list)
 {
-    uint64_t i =0;
-    for (i = 0; i < list->length; i++)
-    {
-        destory_Edge_alloc(&list->list[i].deletion_edges);
-        destory_Edge_alloc(&list->list[i].insertion_edges);
-        destory_Edge_alloc(&list->list[i].mismatch_edges);
-    }
-
-    free(list->list);
-    free(list->sort.list);
-    free(list->sort.visit);
-    free(list->sort.iterative_buffer);
-    free(list->sort.iterative_buffer_visit);
-    ///free(list->topo_order);
+	uint64_t i;
+	for (i = 0; i < list->size; i++) {
+		destory_Edge_alloc(&list->list[i].deletion_edges);
+		destory_Edge_alloc(&list->list[i].insertion_edges);
+		destory_Edge_alloc(&list->list[i].mismatch_edges);
+	}
+	free(list->list);
+	free(list->sort.list);
+	free(list->sort.visit);
+	free(list->sort.iterative_buffer);
+	free(list->sort.iterative_buffer_visit);
 }
 
 void clear_Node_alloc(Node_alloc* list)
 {
-    uint64_t i =0;
-    for (i = 0; i < list->length; i++)
-    {
-        clear_Edge_alloc(&list->list[i].insertion_edges);
-        clear_Edge_alloc(&list->list[i].mismatch_edges);
-        clear_Edge_alloc(&list->list[i].deletion_edges);
-    }
-
-    list->length = 0;
-    list->delete_length = 0;
+	uint64_t i =0;
+	for (i = 0; i < list->length; i++) { // TODO: is this list->size or list->length? The original version is list->length.
+		clear_Edge_alloc(&list->list[i].insertion_edges);
+		clear_Edge_alloc(&list->list[i].mismatch_edges);
+		clear_Edge_alloc(&list->list[i].deletion_edges);
+	}
+	list->length = 0;
+	list->delete_length = 0;
 }
-
 
 uint64_t append_Node_alloc(Node_alloc* list, char base)
 {
-   
-    if (list->length + 1 > list->size)
-    {
-        uint64_t i = list->size;
+	if (list->length + 1 > list->size) {
+		uint64_t old_size = list->size;
+		list->size = list->size * 2;
+		list->list = (Node*)realloc(list->list, sizeof(Node) * list->size);
+		memset(&list->list[old_size], 0, (list->size - old_size) * sizeof(Node));
+	}
 
-        list->size = list->size * 2;
-        list->list = (Node*)realloc(list->list, sizeof(Node)*list->size);
-        ///list->topo_order = (uint64_t*)realloc(list->topo_order, sizeof(uint64_t)*list->size);
-        
-        for (; i < list->size; i++)
-        {
-            list->list[i].deletion_edges.list=NULL;
-            list->list[i].insertion_edges.list=NULL;
-            list->list[i].mismatch_edges.list=NULL;
-        }
-    }
-    
-    list->list[list->length].ID = list->length;
-    list->list[list->length].base = base;
-    list->list[list->length].weight = 1;
-    list->list[list->length].num_insertions = 0;
-    init_Edge_alloc(&list->list[list->length].deletion_edges);
-    init_Edge_alloc(&list->list[list->length].insertion_edges);
-    init_Edge_alloc(&list->list[list->length].mismatch_edges);
-    
-    list->length++;
+	list->list[list->length].ID = list->length;
+	list->list[list->length].base = base;
+	list->list[list->length].weight = 1;
+	list->list[list->length].num_insertions = 0;
+	init_Edge_alloc(&list->list[list->length].deletion_edges);
+	init_Edge_alloc(&list->list[list->length].insertion_edges);
+	init_Edge_alloc(&list->list[list->length].mismatch_edges);
 
-    return list->length - 1;
+	list->length++;
+
+	return list->length - 1;
 }
 
-
-
-
-
-
-
-
-
-
+/*********
+ * Graph *
+ *********/
 
 void init_Graph(Graph* g)
 {
@@ -309,12 +265,6 @@ void clear_Graph(Graph* g)
 
     clear_Queue(&(g->node_q));
 }
-
-
-
-
-
-
 
 void addUnmatchedSeqToGraph(Graph* g, char* g_read_seq, long long g_read_length, long long* startID, long long* endID)
 {
@@ -355,8 +305,6 @@ void addUnmatchedSeqToGraph(Graph* g, char* g_read_seq, long long g_read_length,
     g->s_end_nodeID = lastID;
     
 }
-
-
 
 void addmatchedSeqToGraph(Graph* backbone, long long currentNodeID, char* x_string, long long x_length, 
         char* y_string, long long y_length, CIGAR* cigar, long long backbone_start, long long backbone_end)
@@ -422,9 +370,3 @@ void addmatchedSeqToGraph(Graph* backbone, long long currentNodeID, char* x_stri
         cigar_i++;
     }
 }
-
-
-
-
-
-

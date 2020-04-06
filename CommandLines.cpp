@@ -5,10 +5,15 @@
 #include "ketopt.h"
 #include <sys/time.h>
 
-#define VERSION "0.3.0"
 #define DEFAULT_OUTPUT "hifiasm.asm"
 
 hifiasm_opt_t asm_opt;
+
+static ko_longopt_t long_options[] = {
+	{ "version",      ko_no_argument,       300 },
+	{ "dbg-gfa",      ko_no_argument,       301 },
+	{ 0, 0, 0 }
+};
 
 double Get_T(void)
 {
@@ -23,12 +28,14 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "Options:\n");
     fprintf(stderr, "  Assembly:\n");
     fprintf(stderr, "    -o FILE       prefix of output files [%s]\n", asm_opt->output_file_name);
-    ///fprintf(stderr, "    -c FILE       file including trio information\n");
     fprintf(stderr, "    -t INT        number of threads [%d]\n", asm_opt->thread_num);
     fprintf(stderr, "    -r INT        round of correction [%d]\n", asm_opt->number_of_round);
     fprintf(stderr, "    -a INT        round of assembly cleaning [%d]\n", asm_opt->clean_round);
-    fprintf(stderr, "    -k INT        k-mer length [%d] (must be < 64)\n", asm_opt->k_mer_length);
-    ///fprintf(stderr, "    -w            write all overlaps to disk, can accelerate assembly next time [%d]\n", asm_opt->write_index_to_disk);
+    fprintf(stderr, "    -k INT        k-mer length (must be <64) [%d]\n", asm_opt->k_mer_length);
+	fprintf(stderr, "    -w INT        minimizer window size [%d]\n", asm_opt->mz_win);
+	fprintf(stderr, "    -f INT        number of bits for bloom filter [%d]\n", asm_opt->bf_shift);
+	fprintf(stderr, "    -D FLOAT      drop k-mers occuring >FLOAT*coverage times [%.1f]\n", asm_opt->high_factor);
+	fprintf(stderr, "    -N INT        consider up to INT overlaps for each oriented read [%d]\n", asm_opt->max_n_chain);
     ///fprintf(stderr, "    -l            load all overlaps from disk, can avoid overlap calculation [%d]\n", asm_opt->load_index_from_disk);
     ///fprintf(stderr, "    -i            ignore saved overlaps in *.ovlp*.bin files\n");
     fprintf(stderr, "    -i            ignore saved overlaps in *.ovlp* files\n");
@@ -63,7 +70,13 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->pat_index = NULL;
     asm_opt->mat_index = NULL;
     asm_opt->thread_num = 1;
-    asm_opt->k_mer_length = 40;
+    asm_opt->k_mer_length = 51;
+	asm_opt->mz_win = 51;
+	asm_opt->bf_shift = 37;
+	asm_opt->high_factor = 5.0f;
+	asm_opt->no_HPC = 0;
+	asm_opt->no_kmer_flt = 0;
+	asm_opt->max_n_chain = 400;
     asm_opt->k_mer_min_freq = 3;
     asm_opt->k_mer_max_freq = 66;
     asm_opt->load_index_from_disk = 1;
@@ -71,7 +84,6 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->number_of_round = 2;
     asm_opt->adapterLen = 0;
     asm_opt->clean_round = 4;
-    asm_opt->complete_threads = 0;
     asm_opt->small_pop_bubble_size = 100000;
     asm_opt->large_pop_bubble_size = 10000000;
     asm_opt->min_drop_rate = 0.2;
@@ -84,6 +96,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->max_short_tip = 3;
     asm_opt->min_cnt = 2;
     asm_opt->mid_cnt = 5;
+	asm_opt->verbose_gfa = 0;
 }
 
 void destory_opt(hifiasm_opt_t* asm_opt)
@@ -94,13 +107,13 @@ void destory_opt(hifiasm_opt_t* asm_opt)
     }
 }
 
-void clear_opt(hifiasm_opt_t* asm_opt, int last_round)
+void clear_opt(hifiasm_opt_t* asm_opt, int round)
 {
-    asm_opt->complete_threads = 0;
     asm_opt->num_bases = 0;
     asm_opt->num_corrected_bases = 0;
     asm_opt->num_recorrected_bases = 0;
-    asm_opt->roundID = asm_opt->number_of_round - last_round;
+	asm_opt->mem_buf = 0;
+    asm_opt->roundID = round;
 }
 
 int check_file(char* name, const char* opt)
@@ -295,24 +308,28 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
 
     int c;
 
-    while ((c = ketopt(&opt, argc, argv, 1, "hvt:o:k:lwm:n:r:a:b:z:x:y:p:c:d:M:P:i", 0)) >= 0) {
+    while ((c = ketopt(&opt, argc, argv, 1, "hvt:o:k:lw:m:n:r:a:b:z:x:y:p:c:d:M:P:if:D:FN:", long_options)) >= 0) {
         if (c == 'h')
         {
             Print_H(asm_opt);
             return 0;
         } 
-        else if (c == 'v')
+        else if (c == 'v' || c == 300)
         {
-            fprintf(stderr, "[Version] %s\n", VERSION);
+			puts(HA_VERSION);
             return 0;
-        } 
+        }
+		else if (c == 'f') asm_opt->bf_shift = atoi(opt.arg);
         else if (c == 't') asm_opt->thread_num = atoi(opt.arg); 
         else if (c == 'o') asm_opt->output_file_name = opt.arg;
         else if (c == 'r') asm_opt->number_of_round = atoi(opt.arg);
         else if (c == 'k') asm_opt->k_mer_length = atoi(opt.arg);
         else if (c == 'i') asm_opt->load_index_from_disk = 0; 
         else if (c == 'l') asm_opt->load_index_from_disk = 1; 
-        else if (c == 'w') asm_opt->write_index_to_disk = 1;
+        else if (c == 'w') asm_opt->mz_win = atoi(opt.arg);
+		else if (c == 'D') asm_opt->high_factor = atof(opt.arg);
+		else if (c == 'F') asm_opt->no_kmer_flt = 1;
+		else if (c == 'N') asm_opt->max_n_chain = atoi(opt.arg);
         else if (c == 'a') asm_opt->clean_round = atoi(opt.arg); 
         else if (c == 'z') asm_opt->adapterLen = atoi(opt.arg);
         else if (c == 'b') asm_opt->required_read_name = opt.arg;
@@ -325,6 +342,7 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         else if (c == 'p') asm_opt->small_pop_bubble_size = atoll(opt.arg);
         else if (c == 'm') asm_opt->large_pop_bubble_size = atoll(opt.arg);
         else if (c == 'n') asm_opt->max_short_tip = atoll(opt.arg);
+		else if (c == 301) asm_opt->verbose_gfa = 1;
         else if (c == ':') 
         {
 			fprintf(stderr, "[ERROR] missing option argument in \"%s\"\n", argv[opt.i - 1]);
