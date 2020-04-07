@@ -482,6 +482,7 @@ KSEQ_INIT(gzFile, gzread)
 #define HAF_RS_WRITE_LEN 0x4
 #define HAF_RS_WRITE_SEQ 0x8
 #define HAF_RS_READ      0x10
+#define HAF_CREATE_NEW   0x20
 
 typedef struct { // global data structure for kt_pipeline()
 	const yak_copt_t *opt;
@@ -665,12 +666,13 @@ static void *worker_count(void *data, int step, void *in) // callback for kt_pip
 	return 0;
 }
 
-static ha_ct_t *yak_count(const yak_copt_t *opt, const char *fn, int flag, ha_pt_t *p0, ha_ct_t *c0, const void *flt_tab, All_reads *rs)
+static ha_ct_t *yak_count(const yak_copt_t *opt, const char *fn, int flag, ha_pt_t *p0, ha_ct_t *c0, const void *flt_tab, All_reads *rs, int64_t *n_seq)
 {
 	int read_rs = (rs && (flag & HAF_RS_READ));
 	pl_data_t pl;
 	gzFile fp = 0;
 	memset(&pl, 0, sizeof(pl_data_t));
+	pl.n_seq = *n_seq;
 	if (read_rs) {
 		pl.rs_in = rs;
 		init_UC_Read(&pl.ucr);
@@ -684,13 +686,13 @@ static ha_ct_t *yak_count(const yak_copt_t *opt, const char *fn, int flag, ha_pt
 	pl.opt = opt;
 	pl.flag = flag;
 	if (p0) {
-		pl.pt = p0, pl.create_new = 0;
+		pl.pt = p0, pl.create_new = 0; // never create new elements in a position table
 		assert(p0->k == opt->k && p0->pre == opt->pre);
 	} else if (c0) {
-		pl.ct = c0, pl.create_new = 0;
+		pl.ct = c0, pl.create_new = !!(flag&HAF_CREATE_NEW);
 		assert(c0->k == opt->k && c0->pre == opt->pre);
 	} else {
-		pl.create_new = 1;
+		pl.create_new = 1; // alware create new elements if the count table is empty
 		pl.ct = ha_ct_init(opt->k, opt->pre, opt->bf_n_hash, opt->bf_shift);
 	}
 	kt_pipeline(3, worker_count, &pl, 3);
@@ -700,12 +702,14 @@ static ha_ct_t *yak_count(const yak_copt_t *opt, const char *fn, int flag, ha_pt
 		kseq_destroy(pl.ks);
 		gzclose(fp);
 	}
+	*n_seq = pl.n_seq;
 	return pl.ct;
 }
 
 ha_ct_t *ha_count(const hifiasm_opt_t *asm_opt, int flag, ha_pt_t *p0, const void *flt_tab, All_reads *rs)
 {
 	int i;
+	int64_t n_seq = 0;
 	yak_copt_t opt;
 	ha_ct_t *h = 0;
 	assert(!(flag & HAF_RS_WRITE_LEN) || !(flag & HAF_RS_WRITE_SEQ)); // not both
@@ -722,7 +726,7 @@ ha_ct_t *ha_count(const hifiasm_opt_t *asm_opt, int flag, ha_pt_t *p0, const voi
 	opt.bf_shift = flag & HAF_COUNT_EXACT? 0 : asm_opt->bf_shift;
 	opt.n_thread = asm_opt->thread_num;
 	for (i = 0; i < asm_opt->num_reads; ++i)
-		h = yak_count(&opt, asm_opt->read_file_names[i], flag, p0, h, flt_tab, rs);
+		h = yak_count(&opt, asm_opt->read_file_names[i], flag|HAF_CREATE_NEW, p0, h, flt_tab, rs, &n_seq);
 	if (h && opt.bf_shift > 0)
 		ha_ct_destroy_bf(h);
 	return h;
