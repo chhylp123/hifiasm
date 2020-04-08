@@ -14,6 +14,6 @@ uint32_t just_contain);
 void fill_unitig(uint64_t* buffer, uint32_t bufferLen, asg_t* read_g, kvec_asg_arc_t_warp* edge,
 uint32_t is_circle, uint64_t* rLen);
 
-void enable_debug_mode();
+void enable_debug_mode(uint32_t mode);
 
 #endif

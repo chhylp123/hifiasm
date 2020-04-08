@@ -97,8 +97,6 @@ void init_hap_alignment_struct(hap_alignment_struct* x, uint32_t size)
     kv_init(x->u_vecs.a);
     kv_init(x->u_buffer.a);
     kv_init(x->u_can.a);
-
-    
 }
 
 void destory_hap_alignment_struct(hap_alignment_struct* x)
@@ -176,9 +174,9 @@ void init_hap_overlaps_list(hap_overlaps_list* x, uint32_t num)
     }
 }
 
-void enable_debug_mode()
+void enable_debug_mode(uint32_t mode)
 {
-    debug_enable = 1;
+    debug_enable = mode;
 }
 
 void destory_hap_overlaps_list(hap_overlaps_list* x)
@@ -469,6 +467,7 @@ ma_hit_t_alloc* reverse_sources, asg_t *read_g, R_to_U* ruIndex, double* Match, 
         {
             max_count = 0;
             min_count = Len;
+            break;
         }
         qn = readIDs[i]>>33;
         if(reverse_sources[qn].length > 0) min_count++;
@@ -504,6 +503,60 @@ ma_hit_t_alloc* reverse_sources, asg_t *read_g, R_to_U* ruIndex, double* Match, 
     (*Match) = max_count;
     (*Total) = min_count;
 }
+/**
+void get_pair_hap_similarity_deduplicate(uint64_t* readIDs, uint32_t Len, uint32_t target_uId, 
+ma_hit_t_alloc* reverse_sources, asg_t *read_g, R_to_U* ruIndex, double* Match, double* Total)
+{
+    get_pair_hap_similarity(readIDs, Len, target_uId, reverse_sources, read_g, ruIndex, Match, Total);
+    return;
+
+    #define CUTOFF_THRES 100
+    uint32_t i, j, qn, tn, is_Unitig, uId, min_count = 0, max_count = 0, cutoff = 0, is_found;
+    for (i = 0; i < Len; i++)
+    {
+        if(cutoff > CUTOFF_THRES)
+        {
+            max_count = 0;
+            min_count = Len;
+            break;
+        }
+        qn = readIDs[i]>>33;
+        is_found = 0;
+
+        for (j = 0; j < reverse_sources[qn].length; j++)
+        {
+            tn = Get_tn(reverse_sources[qn].buffer[j]);
+            if(read_g->seq[tn].del == 1)
+            {
+                get_R_to_U(ruIndex, tn, &tn, &is_Unitig);
+                if(tn == (uint32_t)-1 || is_Unitig == 1 || read_g->seq[tn].del == 1) continue;
+            }
+
+
+            get_R_to_U(ruIndex, tn, &uId, &is_Unitig);
+            if(uId!=(uint32_t)-1 && is_Unitig == 1 && uId == target_uId)
+            {
+                max_count++;
+            }
+            min_count++;
+            is_found = 1;
+        }
+
+        //means there is a match
+        if(is_found)
+        {
+            cutoff = 0;
+        }
+        else
+        {
+            cutoff++;
+        }
+    }
+
+    (*Match) = max_count;
+    (*Total) = min_count;
+}
+**/
 
 inline void check_hap_match(uint32_t qn, uint32_t targetBeg, uint32_t targetEnd, uint32_t targetID, 
 uint64_t* position_index, ma_hit_t_alloc* reverse_sources, asg_t *read_g, R_to_U* ruIndex, uint32_t* is_found, uint32_t* is_match)
@@ -535,6 +588,42 @@ uint64_t* position_index, ma_hit_t_alloc* reverse_sources, asg_t *read_g, R_to_U
 
 }
 
+/**
+inline void check_hap_match_deduplicate(uint32_t qn, uint32_t targetBeg, uint32_t targetEnd, uint32_t targetID, 
+uint64_t* position_index, ma_hit_t_alloc* reverse_sources, asg_t *read_g, R_to_U* ruIndex, uint32_t* is_found, uint32_t* is_match)
+{
+    check_hap_match(qn, targetBeg, targetEnd, targetID, position_index, reverse_sources, read_g, 
+    ruIndex, is_found, is_match);
+    return;
+
+
+    uint32_t j, tn, uId, is_Unitig, offset;
+    (*is_found) = (*is_match) = 0;
+
+    for (j = 0; j < reverse_sources[qn].length; j++)
+    {
+        tn = Get_tn(reverse_sources[qn].buffer[j]);
+        if(read_g->seq[tn].del == 1)
+        {
+            get_R_to_U(ruIndex, tn, &tn, &is_Unitig);
+            if(tn == (uint32_t)-1 || is_Unitig == 1 || read_g->seq[tn].del == 1) continue;
+        }
+
+
+        get_R_to_U(ruIndex, tn, &uId, &is_Unitig);
+        if(uId!=(uint32_t)-1 && is_Unitig == 1 && uId == targetID)
+        {
+            offset = (uint32_t)(position_index[tn]);
+            if(offset >= targetBeg && offset <= targetEnd)
+            {
+                (*is_match)++;
+            }                    
+        }
+        (*is_found)++;
+    }
+
+}
+**/
 
 void determin_hap_alignment_boundary_single_side(uint64_t* readIDs, long long queryLen, long long targetBeg, 
 long long targetEnd, long long targetID, long long eMatch, long long eTotal, long long dir, 
@@ -554,6 +643,7 @@ R_to_U* ruIndex, uint32_t* n_matchLen, uint32_t* n_max_count, uint32_t* n_min_co
         {
             check_hap_match(readIDs[i]>>33, targetBeg, targetEnd, targetID, position_index, reverse_sources, 
             read_g, ruIndex, &is_found, &is_match);
+
             min_count += is_found;
             max_count += is_match;
             if(max_count > min_count*Hap_rate) maxId = i;
@@ -564,6 +654,8 @@ R_to_U* ruIndex, uint32_t* n_matchLen, uint32_t* n_max_count, uint32_t* n_min_co
         {
             check_hap_match(readIDs[i]>>33, targetBeg, targetEnd, targetID, position_index, reverse_sources, 
             read_g, ruIndex, &is_found, &is_match);
+
+            ///if(is_found > 0 && is_match > 0 && is_match > is_found*Hap_rate)
             if(is_found == 1 && is_match == 1)
             {
                 break;
@@ -580,6 +672,7 @@ R_to_U* ruIndex, uint32_t* n_matchLen, uint32_t* n_max_count, uint32_t* n_min_co
         {
             check_hap_match(readIDs[i]>>33, targetBeg, targetEnd, targetID, position_index, reverse_sources, 
             read_g, ruIndex, &is_found, &is_match);
+
             min_count += is_found;
             max_count += is_match;
             if(max_count > min_count*Hap_rate) maxId = i;
@@ -589,6 +682,8 @@ R_to_U* ruIndex, uint32_t* n_matchLen, uint32_t* n_max_count, uint32_t* n_min_co
         {
             check_hap_match(readIDs[i]>>33, targetBeg, targetEnd, targetID, position_index, reverse_sources, 
             read_g, ruIndex, &is_found, &is_match);
+
+            ///if(is_found > 0 && is_match > 0 && is_match > is_found*Hap_rate)
             if(is_found == 1 && is_match == 1)
             {
                 break;
@@ -823,10 +918,10 @@ uint64_t* position_index, ma_utg_t* xReads, ma_utg_t* yReads)
 
 void get_base_boundary(R_to_U* ruIndex, ma_hit_t_alloc* reverse_sources, ma_sub_t *coverage_cut, 
 asg_t *read_g, uint64_t* position_index, int max_hang, int min_ovlp, ma_utg_t *xReads, ma_utg_t *yReads,
-uint32_t xUid, uint32_t yUid, long long begIndex, long long endIndex, uint32_t dir, uint32_t rev,
-uint32_t* x_off, uint32_t* y_off)
+uint32_t xUid, uint32_t yUid, long long xBegIndex, long long xEndIndex, long long yBegIndex, long long yEndIndex, 
+uint32_t dir, uint32_t rev, uint32_t* x_off, uint32_t* y_off)
 {
-    long long k, j;
+    long long k, j, offset;
     ma_hit_t_alloc *xR = NULL;
     ma_hit_t *h = NULL;
     ma_sub_t *sq = NULL, *st = NULL;
@@ -837,7 +932,7 @@ uint32_t* x_off, uint32_t* y_off)
     (*x_off) = (*y_off) = (uint32_t)-1;
     if(dir == 1)
     {
-        for (k = endIndex; k >= begIndex; k--)
+        for (k = xEndIndex; k >= xBegIndex; k--)
         {
             xR = &(reverse_sources[xReads->a[k]>>33]);
             is_found = 0; oLen = 0;
@@ -874,6 +969,11 @@ uint32_t* x_off, uint32_t* y_off)
                 w_dir = (t.v == w)?1:0;
                 if(rev == 0 && v_dir != w_dir) continue;
                 if(rev == 1 && v_dir == w_dir) continue;
+
+                /****************************may have bugs********************************/
+                offset = (uint32_t)(position_index[rId]);
+                if(offset < yBegIndex || offset > yEndIndex) continue;
+                /****************************may have bugs********************************/
 
                 tmp = get_xy_pos(read_g, &t, v, w, xReads->len, yReads->len, position_index, &(t.el));
                 if(((tmp>>32) == (uint32_t)-1) || (((uint32_t)tmp) == (uint32_t)-1)) continue;
@@ -893,7 +993,7 @@ uint32_t* x_off, uint32_t* y_off)
     }
     else
     {
-        for (k = begIndex; k <= endIndex; k++)
+        for (k = xBegIndex; k <= xEndIndex; k++)
         {
             xR = &(reverse_sources[xReads->a[k]>>33]);
             is_found = 0; oLen = 0;
@@ -930,8 +1030,11 @@ uint32_t* x_off, uint32_t* y_off)
                 w_dir = (t.v == w)?1:0;
                 if(rev == 0 && v_dir != w_dir) continue;
                 if(rev == 1 && v_dir == w_dir) continue;
-                
-                
+            
+                /****************************may have bugs********************************/
+                offset = (uint32_t)(position_index[rId]);
+                if(offset < yBegIndex || offset > yEndIndex) continue;
+                /****************************may have bugs********************************/
 
                 tmp = get_xy_pos(read_g, &t, v, w, xReads->len, yReads->len, position_index, &(t.el));
                 if(((tmp>>32) == (uint32_t)-1) || (((uint32_t)tmp) == (uint32_t)-1)) continue;
@@ -963,11 +1066,12 @@ long long* r_x_pos_beg, long long* r_x_pos_end, long long* r_y_pos_beg, long lon
     uint32_t x_pos_beg, y_pos_beg, x_pos_end, y_pos_end;
     /*************************x***************************/
     get_base_boundary(ruIndex, reverse_sources, coverage_cut, read_g, position_index, max_hang, 
-    min_ovlp, xReads, yReads, xUid, yUid, Get_x_beg(*hap_can), Get_x_end(*hap_can), 0, 
-    Get_rev(*hap_can), &x_pos_beg, &y_pos_beg);
+    min_ovlp, xReads, yReads, xUid, yUid, Get_x_beg(*hap_can), Get_x_end(*hap_can), 
+    Get_y_beg(*hap_can), Get_y_end(*hap_can), 0, Get_rev(*hap_can), &x_pos_beg, &y_pos_beg);
+
     get_base_boundary(ruIndex, reverse_sources, coverage_cut, read_g, position_index, max_hang, 
-    min_ovlp, xReads, yReads, xUid, yUid, Get_x_beg(*hap_can), Get_x_end(*hap_can), 1, 
-    Get_rev(*hap_can), &x_pos_end, &y_pos_end);
+    min_ovlp, xReads, yReads, xUid, yUid, Get_x_beg(*hap_can), Get_x_end(*hap_can), 
+    Get_y_beg(*hap_can), Get_y_end(*hap_can), 1, Get_rev(*hap_can), &x_pos_end, &y_pos_end);
     /*************************x***************************/
 
     if(x_pos_beg == (uint32_t)-1 || y_pos_beg == (uint32_t)-1 
@@ -1033,6 +1137,7 @@ long long* r_y_pos_beg, long long* r_y_pos_end)
     ///flag = classify_hap_overlap(xBasePos, xBasePos, xReads->len, yBasePos, yBasePos, yReads->len);
     flag = vote_overlap_type(u_buffer, hap_can, position_index, xReads, yReads);
 
+
     if(flag == XCY)
     {
         get_pair_hap_similarity(yReads->a, yLen, xUid, reverse_sources, read_g, ruIndex, 
@@ -1065,7 +1170,6 @@ long long* r_y_pos_beg, long long* r_y_pos_end)
         max_count = xLeftMatch + yRightMatch;
         min_count = xLeftTotal + yRightTotal;
     } else abort();
-    
 
     hap_can->weight = hap_can->index_beg = 0;
     if(min_count == 0) return NON_PLOID;
@@ -1100,6 +1204,8 @@ long long* r_y_pos_beg, long long* r_y_pos_end)
         hap_can->index_end = determine_hap_overlap_type(hap_can, xReads, yReads, ruIndex, 
         reverse_sources, coverage_cut, read_g, position_index, max_hang, min_ovlp, xUid, 
         yUid, r_x_pos_beg, r_x_pos_end, r_y_pos_beg, r_y_pos_end);
+        if(hap_can->index_end == XCY && yReads->len > (xReads->len*2)) return NON_PLOID;
+        if(hap_can->index_end == YCX && xReads->len > (yReads->len*2)) return NON_PLOID;
         if(hap_can->index_end == (uint32_t)-1) return NON_PLOID;
 
         return PLOID;
@@ -1111,9 +1217,11 @@ long long* r_y_pos_beg, long long* r_y_pos_end)
 
 void print_hap_paf(ma_ug_t *ug, hap_overlaps* ovlp)
 {
-    fprintf(stderr, "utg%.6d%c\t%u\t%u\t%u\t%c\tutg%.6d%c\t%u\t%u\t%u\t%u\t%u\n", 
-    ovlp->xUid+1, "lc"[ug->u.a[ovlp->xUid].circ], ug->u.a[ovlp->xUid].len, ovlp->x_beg_pos, ovlp->x_end_pos, "+-"[ovlp->rev], 
-    ovlp->yUid+1, "lc"[ug->u.a[ovlp->yUid].circ], ug->u.a[ovlp->yUid].len, ovlp->y_beg_pos, ovlp->y_end_pos, ovlp->type, (uint32_t)ovlp->weight);
+    fprintf(stderr, "utg%.6d%c\t%u(%u)\t%u(%u)\t%u(%u)\t%c\tutg%.6d%c\t%u(%u)\t%u(%u)\t%u(%u)\t%u\t%u\n", 
+    ovlp->xUid+1, "lc"[ug->u.a[ovlp->xUid].circ], ug->u.a[ovlp->xUid].len, ug->u.a[ovlp->xUid].n,
+    ovlp->x_beg_pos, ovlp->x_beg_id, ovlp->x_end_pos, ovlp->x_end_id, "+-"[ovlp->rev], 
+    ovlp->yUid+1, "lc"[ug->u.a[ovlp->yUid].circ], ug->u.a[ovlp->yUid].len, ug->u.a[ovlp->yUid].n,
+    ovlp->y_beg_pos, ovlp->y_beg_id, ovlp->y_end_pos, ovlp->y_end_id, ovlp->type, (uint32_t)ovlp->weight);
 }
 
 void hap_alignment(ma_ug_t *ug, asg_t *read_g,  ma_hit_t_alloc* reverse_sources, 
@@ -1197,18 +1305,6 @@ hap_overlaps_list* all_ovlp)
         xReads = &(ug->u.a[xUid]);
         yReads = &(ug->u.a[yUid]);
         u_buffer->a.n = 0;
-        
-
-        //if(xUid == 404 && yUid == 307)
-        // if(xReads->n <= 100 && yReads->n <= 100)
-        // {
-        //     debug_enable = 1;
-        // }
-        // else
-        // {
-        //     debug_enable = 0;
-        // }
-        // debug_enable = 1;
 
         for (k = 0; k < xReads->n; k++)
         {
@@ -1263,12 +1359,6 @@ hap_overlaps_list* all_ovlp)
         }
 
         if(u_buffer->a.n == 0) continue;
-
-        // if(debug_enable)
-        // {
-        //     print_debug_unitig(xReads, position_index, "xReads");
-        //     print_debug_unitig(yReads, position_index, "yReads");
-        // }
         
         qsort(u_buffer->a.a, u_buffer->a.n, sizeof(asg_arc_t_offset), cmp_hap_alignment);
         k = 0;
@@ -1500,18 +1590,6 @@ static void hap_alignment_worker(void *_data, long eid, int tid)
         xReads = &(ug->u.a[xUid]);
         yReads = &(ug->u.a[yUid]);
         u_buffer->a.n = 0;
-        
-
-        //if(xUid == 404 && yUid == 307)
-        // if(xReads->n <= 100 && yReads->n <= 100)
-        // {
-        //     debug_enable = 1;
-        // }
-        // else
-        // {
-        //     debug_enable = 0;
-        // }
-        // debug_enable = 1;
 
         for (k = 0; k < xReads->n; k++)
         {
@@ -1947,10 +2025,10 @@ void clean_purge_graph(asg_t *purge_g, int max_dist, float drop_ratio)
 
 void get_node_boundary(R_to_U* ruIndex, ma_hit_t_alloc* reverse_sources, ma_sub_t *coverage_cut, 
 asg_t *read_g, uint64_t* position_index, int max_hang, int min_ovlp, ma_utg_t *xReads, ma_utg_t *yReads,
-uint32_t xUid, uint32_t yUid, long long begIndex, long long endIndex, uint32_t dir, uint32_t rev,
-asg_arc_t* reture_t_f, asg_arc_t* reture_t_r)
+uint32_t xUid, uint32_t yUid, long long xBegIndex, long long xEndIndex, long long yBegIndex, 
+long long yEndIndex, uint32_t dir, uint32_t rev, asg_arc_t* reture_t_f, asg_arc_t* reture_t_r)
 {
-    long long k, j;
+    long long k, j, offset;
     ma_hit_t_alloc *xR = NULL;
     ma_hit_t *h = NULL;
     ma_sub_t *sq = NULL, *st = NULL;
@@ -1960,7 +2038,7 @@ asg_arc_t* reture_t_f, asg_arc_t* reture_t_r)
     reture_t_f->del = reture_t_r->del = 1;
     if(dir == 1)
     {
-        for (k = endIndex; k >= begIndex; k--)
+        for (k = xEndIndex; k >= xBegIndex; k--)
         {
             xR = &(reverse_sources[xReads->a[k]>>33]);
             is_found = 0;
@@ -1997,6 +2075,12 @@ asg_arc_t* reture_t_f, asg_arc_t* reture_t_r)
                 if(rev == 0 && v_dir != w_dir) continue;
                 if(rev == 1 && v_dir == w_dir) continue;
                 if(v_dir == 1) continue;
+
+                /****************************may have bugs********************************/
+                offset = (uint32_t)(position_index[rId]);
+                if(offset < yBegIndex || offset > yEndIndex) continue;
+                /****************************may have bugs********************************/
+
                 /************************get reverse edge*************************/
                 index = get_specific_overlap(&(reverse_sources[Get_tn(*h)]), Get_tn(*h), Get_qn(*h));
                 if(index == -1) continue;
@@ -2023,7 +2107,7 @@ asg_arc_t* reture_t_f, asg_arc_t* reture_t_r)
     }
     else
     {
-        for (k = begIndex; k <= endIndex; k++)
+        for (k = xBegIndex; k <= xEndIndex; k++)
         {
             xR = &(reverse_sources[xReads->a[k]>>33]);
             is_found = 0; oLen = 0;
@@ -2061,6 +2145,11 @@ asg_arc_t* reture_t_f, asg_arc_t* reture_t_r)
                 if(rev == 0 && v_dir != w_dir) continue;
                 if(rev == 1 && v_dir == w_dir) continue;
                 if(v_dir == 0) continue;
+
+                /****************************may have bugs********************************/
+                offset = (uint32_t)(position_index[rId]);
+                if(offset < yBegIndex || offset > yEndIndex) continue;
+                /****************************may have bugs********************************/
             
                 /************************get reverse edge*************************/
                 index = get_specific_overlap(&(reverse_sources[Get_tn(*h)]), Get_tn(*h), Get_qn(*h));
@@ -2260,7 +2349,8 @@ uint64_t* position_index, int max_hang, int min_ovlp, kvec_asg_arc_t_warp* edge,
             if(cut_end < endIndex) endIndex = cut_end;
 
             get_node_boundary(ruIndex, reverse_sources, coverage_cut, read_g, position_index, max_hang, 
-            min_ovlp, xReads, yReads, v>>1, w>>1, begIndex, endIndex, v&1, x->rev, &t_forward, &t_backward);
+            min_ovlp, xReads, yReads, v>>1, w>>1, begIndex, endIndex, x->y_beg_id, x->y_end_id-1, v&1, 
+            x->rev, &t_forward, &t_backward);
             if(t_forward.del || t_backward.del) break;
             
             kv_push(asg_arc_t, edge->a, t_forward);
@@ -2387,12 +2477,26 @@ uint64_t* position_index, int max_hang, int min_ovlp, kvec_asg_arc_t_warp* edge,
     }
     free(b_0.b.a);
 }
+
+void print_all_purge_ovlp(ma_ug_t *ug, hap_overlaps_list* all_ovlp)
+{
+    uint32_t v, uId, i;
+    for (v = 0; v < all_ovlp->num; v++)
+    {
+        uId = v;
+        if(uId != 96 && uId != 272) continue;
+        for (i = 0; i < all_ovlp->x[uId].a.n; i++)
+        {
+            print_hap_paf(ug, &(all_ovlp->x[uId].a.a[i]));
+        }
+    }
+
+}
 void purge_dups(ma_ug_t *ug, asg_t *read_g, ma_sub_t* coverage_cut, ma_hit_t_alloc* reverse_sources, 
 R_to_U* ruIndex, kvec_asg_arc_t_warp* edge, float density, uint32_t bi_graph_Len, uint32_t long_hap_overlap, 
 float lable_match_rate, int max_hang, int min_ovlp, long long bubble_dist, float drop_ratio,
 uint32_t just_contain)
 {
-    fprintf(stderr, "*****************\n");
     asg_t *purge_g = NULL;
     purge_g = asg_init();
     asg_t* nsg = ug->g;
@@ -2472,6 +2576,9 @@ uint32_t just_contain)
 
     kt_for(asm_opt.thread_num, hap_alignment_worker, &hap_buf, nsg->n_seq);
 
+    ///if(debug_enable) print_all_purge_ovlp(ug, &all_ovlp);
+    
+
     // for (v = 0; v < nsg->n_seq; v++)
     // {
     //     uId = v;
@@ -2550,7 +2657,10 @@ uint32_t just_contain)
 		asg_symm(purge_g);
 
         clean_purge_graph(purge_g, bubble_dist, drop_ratio);
-        ///if(debug_enable) print_purge_gfa(ug, purge_g);
+
+        // if(debug_enable) print_purge_gfa(ug, purge_g);
+        // if(debug_enable) print_all_purge_ovlp(ug, &all_ovlp);
+
         link_unitigs(purge_g, ug, &all_ovlp, ruIndex, reverse_sources, coverage_cut, read_g, position_index, 
         max_hang, min_ovlp, edge, hap_buf.buf[0].visit);
     }
@@ -2582,6 +2692,5 @@ uint32_t just_contain)
     // free(vote_counting);
     // free(visit);
     destory_hap_alignment_struct_pip(&hap_buf);
-    fprintf(stderr, "#################\n");
 }
 
