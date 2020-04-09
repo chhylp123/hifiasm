@@ -39,7 +39,7 @@ CommandLines.o: CommandLines.h ketopt.h
 Correct.o: Correct.h Hash_Table.h htab.h Process_Read.h Overlaps.h kvec.h
 Correct.o: kdq.h CommandLines.h Levenshtein_distance.h POA.h Assembly.h
 Hash_Table.o: Hash_Table.h htab.h Process_Read.h Overlaps.h kvec.h kdq.h
-Hash_Table.o: CommandLines.h Correct.h Levenshtein_distance.h POA.h ksort.h
+Hash_Table.o: CommandLines.h ksort.h
 Levenshtein_distance.o: Levenshtein_distance.h
 Output.o: Output.h CommandLines.h
 Overlaps.o: Overlaps.h kvec.h kdq.h ksort.h Process_Read.h CommandLines.h
@@ -50,7 +50,7 @@ POA.o: CommandLines.h Correct.h Levenshtein_distance.h
 Process_Read.o: Process_Read.h Overlaps.h kvec.h kdq.h CommandLines.h
 Purge_Dups.o: ksort.h Purge_Dups.h kvec.h kdq.h Overlaps.h Hash_Table.h
 Purge_Dups.o: htab.h Process_Read.h CommandLines.h Correct.h
-Purge_Dups.o: Levenshtein_distance.h POA.h
+Purge_Dups.o: Levenshtein_distance.h POA.h kthread.h
 Trio.o: khashl.h kthread.h Process_Read.h Overlaps.h kvec.h kdq.h
 Trio.o: CommandLines.h htab.h
 anchor.o: htab.h Process_Read.h Overlaps.h kvec.h kdq.h CommandLines.h

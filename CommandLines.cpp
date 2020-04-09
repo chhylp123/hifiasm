@@ -1,9 +1,9 @@
-#include "CommandLines.h"
 #include <zlib.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include "ketopt.h"
 #include <sys/time.h>
+#include "CommandLines.h"
+#include "ketopt.h"
 
 #define DEFAULT_OUTPUT "hifiasm.asm"
 
@@ -12,6 +12,9 @@ hifiasm_opt_t asm_opt;
 static ko_longopt_t long_options[] = {
 	{ "version",      ko_no_argument,       300 },
 	{ "dbg-gfa",      ko_no_argument,       301 },
+	{ "write-paf",    ko_no_argument,       302 },
+	{ "write-ec",     ko_no_argument,       303 },
+	{ "skip-triobin", ko_no_argument,       304 },
 	{ 0, 0, 0 }
 };
 
@@ -58,6 +61,7 @@ void Print_H(hifiasm_opt_t* asm_opt)
 
 void init_opt(hifiasm_opt_t* asm_opt)
 {
+	asm_opt->flag = 0;
     asm_opt->coverage = -1;
     asm_opt->num_reads = 0;
     asm_opt->read_file_names = NULL;
@@ -69,8 +73,6 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->k_mer_length = 51;
 	asm_opt->mz_win = 51;
 	asm_opt->bf_shift = 37;
-	asm_opt->no_HPC = 0;
-	asm_opt->no_kmer_flt = 0;
 	asm_opt->high_factor = 5.0f;
 	asm_opt->max_n_chain = 100;
     asm_opt->k_mer_min_freq = 3;
@@ -92,7 +94,6 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->max_short_tip = 3;
     asm_opt->min_cnt = 2;
     asm_opt->mid_cnt = 5;
-	asm_opt->verbose_gfa = 0;
 }
 
 void destory_opt(hifiasm_opt_t* asm_opt)
@@ -331,7 +332,7 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         else if (c == 'i') asm_opt->load_index_from_disk = 0; 
         else if (c == 'w') asm_opt->mz_win = atoi(opt.arg);
 		else if (c == 'D') asm_opt->high_factor = atof(opt.arg);
-		else if (c == 'F') asm_opt->no_kmer_flt = 1;
+		else if (c == 'F') asm_opt->flag |= HA_F_NO_KMER_FLT;
 		else if (c == 'N') asm_opt->max_n_chain = atoi(opt.arg);
         else if (c == 'a') asm_opt->clean_round = atoi(opt.arg); 
         else if (c == 'z') asm_opt->adapterLen = atoi(opt.arg);
@@ -345,7 +346,10 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         else if (c == 'p') asm_opt->small_pop_bubble_size = atoll(opt.arg);
         else if (c == 'm') asm_opt->large_pop_bubble_size = atoll(opt.arg);
         else if (c == 'n') asm_opt->max_short_tip = atoll(opt.arg);
-		else if (c == 301) asm_opt->verbose_gfa = 1;
+		else if (c == 301) asm_opt->flag |= HA_F_VERBOSE_GFA;
+		else if (c == 302) asm_opt->flag |= HA_F_WRITE_PAF;
+		else if (c == 303) asm_opt->flag |= HA_F_WRITE_EC;
+		else if (c == 304) asm_opt->flag |= HA_F_SKIP_TRIOBIN;
         else if (c == ':') 
         {
 			fprintf(stderr, "[ERROR] missing option argument in \"%s\"\n", argv[opt.i - 1]);

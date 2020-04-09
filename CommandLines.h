@@ -3,11 +3,19 @@
 
 #include <pthread.h>
 
-#define HA_VERSION "0.3.0-dirty-r207"
+#define HA_VERSION "0.3.0-dirty-r211"
 
 #define VERBOSE 0
 
+#define HA_F_NO_HPC       0x1
+#define HA_F_NO_KMER_FLT  0x2
+#define HA_F_VERBOSE_GFA  0x4
+#define HA_F_WRITE_EC     0x8
+#define HA_F_WRITE_PAF    0x10
+#define HA_F_SKIP_TRIOBIN 0x20
+
 typedef struct {
+	int flag;
     int num_reads;
     char** read_file_names;
     char* output_file_name;
@@ -18,8 +26,6 @@ typedef struct {
     int k_mer_length;
 	int mz_win;
 	int bf_shift;
-	int no_HPC;
-	int no_kmer_flt;
 	float high_factor; // coverage cutoff set to high_factor*hom_cov
 	int max_n_chain; // fall-back max number of chains to consider
     int k_mer_min_freq;
@@ -37,7 +43,6 @@ typedef struct {
     int max_short_tip;
     int min_cnt;
     int mid_cnt;
-	int verbose_gfa;
 
     float max_hang_rate;
     float min_drop_rate;

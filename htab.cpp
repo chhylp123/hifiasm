@@ -721,7 +721,7 @@ ha_ct_t *ha_count(const hifiasm_opt_t *asm_opt, int flag, ha_pt_t *p0, const voi
 	}
 	yak_copt_init(&opt);
 	opt.k = asm_opt->k_mer_length;
-	opt.is_HPC = !asm_opt->no_HPC;
+	opt.is_HPC = !(asm_opt->flag&HA_F_NO_HPC);
 	opt.w = flag & HAF_COUNT_ALL? 1 : asm_opt->mz_win;
 	opt.bf_shift = flag & HAF_COUNT_EXACT? 0 : asm_opt->bf_shift;
 	opt.n_thread = asm_opt->thread_num;

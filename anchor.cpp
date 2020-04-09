@@ -62,7 +62,7 @@ void ha_get_new_candidates(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_reg
 	ab->mz.n = 0, ab->n_a = 0;
 
 	// get the list of anchors
-	ha_sketch(ucr->seq, ucr->length, asm_opt.mz_win, asm_opt.k_mer_length, 0, !asm_opt.no_HPC, &ab->mz, ha_flt_tab);
+	ha_sketch(ucr->seq, ucr->length, asm_opt.mz_win, asm_opt.k_mer_length, 0, !(asm_opt.flag & HA_F_NO_HPC), &ab->mz, ha_flt_tab);
 	if (ab->mz.m > ab->old_mz_m) {
 		ab->old_mz_m = ab->mz.m;
 		REALLOC(ab->seed, ab->old_mz_m);
