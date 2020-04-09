@@ -344,7 +344,7 @@ static int32_t ha_kmer_hit_lis(int32_t n, const k_mer_hit *a, int32_t *b, int32_
 		int32_t lo = 1, hi = L, newL;
 		while (lo <= hi) {
 			int32_t mid = (lo + hi + 1) >> 1;
-			if (a[M[mid]].offset < a[i].offset) lo = mid + 1;
+			if (a[M[mid]].self_offset < a[i].self_offset) lo = mid + 1;
 			else hi = mid - 1;
 		}
 		newL = lo, P[i] = M[newL - 1], M[newL] = i;
@@ -363,7 +363,7 @@ int32_t ha_chain_lis_core(k_mer_hit *a, int32_t n_a, Chain_Data *dp, int32_t min
 	int32_t tot_indel = 0, tot_len = 0;
 	if (n_a < 2) return -1;
 	for (i = 1; i < n_a; ++i)
-		if (a[i-1].offset >= a[i].offset)
+		if (a[i-1].self_offset >= a[i].self_offset)
 			break;
 	if (i == n_a) {
 		for (i = 0; i < n_a; ++i)
