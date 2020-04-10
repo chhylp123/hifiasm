@@ -61,14 +61,13 @@ void Print_H(hifiasm_opt_t* asm_opt)
 
 void init_opt(hifiasm_opt_t* asm_opt)
 {
+	memset(asm_opt, 0, sizeof(hifiasm_opt_t));
 	asm_opt->flag = 0;
     asm_opt->coverage = -1;
     asm_opt->num_reads = 0;
     asm_opt->read_file_names = NULL;
     asm_opt->output_file_name = (char*)(DEFAULT_OUTPUT);
     asm_opt->required_read_name = NULL;
-    asm_opt->pat_index = NULL;
-    asm_opt->mat_index = NULL;
     asm_opt->thread_num = 1;
     asm_opt->k_mer_length = 51;
 	asm_opt->mz_win = 51;
@@ -121,7 +120,7 @@ void ha_opt_update_cov(hifiasm_opt_t *opt, int hom_cov)
 	fprintf(stderr, "[M::%s] updated max_n_chain to %d\n", __func__, opt->max_n_chain);
 }
 
-int check_file(char* name, const char* opt)
+static int check_file(char* name, const char* opt)
 {
     if(!name)
     {
@@ -256,8 +255,10 @@ int check_option(hifiasm_opt_t* asm_opt)
     }
 
 
-    if(asm_opt->pat_index != NULL && check_file(asm_opt->pat_index, "P") == 0) return 0;
-    if(asm_opt->mat_index != NULL && check_file(asm_opt->mat_index, "M") == 0) return 0;
+    if(asm_opt->fn_bin_yak[0] != NULL && check_file(asm_opt->fn_bin_yak[0], "YAK1") == 0) return 0;
+    if(asm_opt->fn_bin_yak[1] != NULL && check_file(asm_opt->fn_bin_yak[1], "YAK2") == 0) return 0;
+    if(asm_opt->fn_bin_list[0] != NULL && check_file(asm_opt->fn_bin_list[0], "LIST1") == 0) return 0;
+    if(asm_opt->fn_bin_list[1] != NULL && check_file(asm_opt->fn_bin_list[1], "LIST2") == 0) return 0;
 
     // fprintf(stderr, "input file num: %d\n", asm_opt->num_reads);
     // fprintf(stderr, "output file: %s\n", asm_opt->output_file_name);
@@ -272,8 +273,6 @@ int check_option(hifiasm_opt_t* asm_opt)
     // fprintf(stderr, "size of popped large bubbles: %lld\n", asm_opt->large_pop_bubble_size);
     // fprintf(stderr, "small removed unitig threshold: %d\n", asm_opt->max_short_tip);
     // fprintf(stderr, "small removed unitig threshold: %d\n", asm_opt->max_short_tip);
-    // fprintf(stderr, "pat_index: %s\n", asm_opt->pat_index);
-    // fprintf(stderr, "mat_index: %s\n", asm_opt->mat_index);
     // fprintf(stderr, "min_cnt: %d\n", asm_opt->min_cnt);
     // fprintf(stderr, "mid_cnt: %d\n", asm_opt->mid_cnt);
 
@@ -313,7 +312,7 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
 
     int c;
 
-    while ((c = ketopt(&opt, argc, argv, 1, "hvt:o:k:w:m:n:r:a:b:z:x:y:p:c:d:M:P:if:D:FN:1:2:", long_options)) >= 0) {
+    while ((c = ketopt(&opt, argc, argv, 1, "hvt:o:k:w:m:n:r:a:b:z:x:y:p:c:d:M:P:if:D:FN:1:2:3:4:", long_options)) >= 0) {
         if (c == 'h')
         {
             Print_H(asm_opt);
@@ -339,8 +338,10 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         else if (c == 'b') asm_opt->required_read_name = opt.arg;
         else if (c == 'c') asm_opt->min_cnt = atoi(opt.arg);
         else if (c == 'd') asm_opt->mid_cnt = atoi(opt.arg);
-        else if (c == '1' || c == 'P') asm_opt->pat_index = opt.arg; // -P/-M reserved for backward compatibility
-        else if (c == '2' || c == 'M') asm_opt->mat_index = opt.arg;
+        else if (c == '1' || c == 'P') asm_opt->fn_bin_yak[0] = opt.arg; // -P/-M reserved for backward compatibility
+        else if (c == '2' || c == 'M') asm_opt->fn_bin_yak[1] = opt.arg;
+        else if (c == '3') asm_opt->fn_bin_list[0] = opt.arg;
+        else if (c == '4') asm_opt->fn_bin_list[1] = opt.arg;
         else if (c == 'x') asm_opt->max_drop_rate = atof(opt.arg);
         else if (c == 'y') asm_opt->min_drop_rate = atof(opt.arg);
         else if (c == 'p') asm_opt->small_pop_bubble_size = atoll(opt.arg);

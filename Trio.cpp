@@ -24,6 +24,9 @@
 #define yak_ch_hash(a) ((a)>>YAK_COUNTER_BITS)
 KHASHL_SET_INIT(static klib_unused, yak_ht_t, yak_ht, uint64_t, yak_ch_hash, yak_ch_eq)
 
+typedef const char *ha_cstr_t;
+KHASHL_MAP_INIT(static klib_unused, cstr_ht_t, cstr_ht, ha_cstr_t, int64_t, kh_hash_str, kh_eq_str)
+
 typedef struct {
 	struct yak_ht_t *h;
 } yak_ch1_t;
@@ -248,23 +251,18 @@ static void tb_worker(void *_data, long k, int tid)
 	if(type == 'm') aux->seq->trio_flag[k] = MOTHER;
 }
 
-void trio_partition(void)
+static void ha_triobin_yak(const hifiasm_opt_t *opt)
 {
-    if (asm_opt.pat_index == NULL || asm_opt.mat_index == NULL) {
-		memset(R_INF.trio_flag, AMBIGU, R_INF.total_reads*sizeof(uint8_t));
-		return;
-	}
-
     yak_ch_t *ch;
     int i /**, min_cnt = 2, mid_cnt = 5**/;
     tb_shared_t aux;
     memset(&aux, 0, sizeof(tb_shared_t));
-	aux.n_threads = asm_opt.thread_num, aux.print_diff = 0;
+	aux.n_threads = opt->thread_num, aux.print_diff = 0;
 	aux.ratio_thres = 0.33;
 	aux.seq = &R_INF;
 
-    ch = yak_ch_restore_core(0,  asm_opt.pat_index, YAK_LOAD_TRIOBIN1, asm_opt.min_cnt, asm_opt.mid_cnt);
-	ch = yak_ch_restore_core(ch, asm_opt.mat_index, YAK_LOAD_TRIOBIN2, asm_opt.min_cnt, asm_opt.mid_cnt);
+    ch = yak_ch_restore_core(0,  opt->fn_bin_yak[0], YAK_LOAD_TRIOBIN1, opt->min_cnt, opt->mid_cnt);
+	ch = yak_ch_restore_core(ch, opt->fn_bin_yak[1], YAK_LOAD_TRIOBIN2, opt->min_cnt, opt->mid_cnt);
 
     aux.k = ch->k;
     aux.ch = ch;
@@ -284,4 +282,17 @@ void trio_partition(void)
     yak_ch_destroy(ch);
 
 	fprintf(stderr, "[M::%s::%.3f*%.2f] ==> partitioned reads using yak dumps\n", __func__, yak_realtime(), yak_cpu_usage());
+}
+
+static void ha_triobin_list(const hifiasm_opt_t *opt)
+{
+}
+
+void ha_triobin(const hifiasm_opt_t *opt)
+{
+	memset(R_INF.trio_flag, AMBIGU, R_INF.total_reads * sizeof(uint8_t));
+	if (opt->fn_bin_list[0] && opt->fn_bin_list[1])
+		ha_triobin_list(opt);
+	else if (opt->fn_bin_yak[0] && opt->fn_bin_yak[1])
+		ha_triobin_yak(opt);
 }

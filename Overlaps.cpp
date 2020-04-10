@@ -22786,7 +22786,7 @@ void pre_clean(ma_hit_t_alloc* sources, ma_sub_t* coverage_cut, asg_t *sg, long 
         ///remove isoloated single read
         tri_flag += asg_arc_del_single_node_directly(sg, asm_opt.max_short_tip, sources);
 
-        if (!((asm_opt.pat_index && asm_opt.mat_index)))
+        if (!ha_opt_triobin(&asm_opt))
         {
             tri_flag += asg_arc_del_triangular_advance(sg, bubble_dist);
             ///remove the cross at the bubble carefully, just remove inexact cross
@@ -24105,7 +24105,7 @@ kvec_t_u32_warp* new_rtg_nodes)
             int tri_flag = 0;
             ///remove very simple circle
             tri_flag += asg_arc_del_simple_circle_untig(sources, coverage_cut, r_g, 100, 0);
-            if (!((asm_opt.pat_index && asm_opt.mat_index)))
+            if (!ha_opt_triobin(&asm_opt))
             {
                 ///remove isoloated single read
                 tri_flag += asg_arc_del_triangular_advance(r_g, bubble_dist);
@@ -24376,7 +24376,7 @@ kvec_asg_arc_t_warp* new_rtg_edges)
             int tri_flag = 0;
             ///remove very simple circle
             tri_flag += asg_arc_del_simple_circle_untig(sources, coverage_cut, r_g, 100, 0);
-            if (!((asm_opt.pat_index && asm_opt.mat_index)))
+            if (!ha_opt_triobin(&asm_opt))
             {
                 ///remove isoloated single read
                 tri_flag += asg_arc_del_triangular_advance(r_g, bubble_dist);
@@ -24754,7 +24754,7 @@ uint32_t is_bubble_check, uint32_t is_primary_check)
             int tri_flag = 0;
             ///remove very simple circle
             tri_flag += asg_arc_del_simple_circle_untig(sources, coverage_cut, r_g, 100, 0);
-            if (!((asm_opt.pat_index && asm_opt.mat_index)))
+            if (!ha_opt_triobin(&asm_opt))
             {
                 ///remove isoloated single read
                 tri_flag += asg_arc_del_triangular_advance(r_g, bubble_dist);
@@ -26312,7 +26312,7 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
     // -1, "clean");
 
 
-    if ((asm_opt.pat_index && asm_opt.mat_index))
+    if (ha_opt_triobin(&asm_opt))
     {
         drop_edges_by_trio(sources, n_read);
     }
@@ -26401,7 +26401,7 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
             ///asg_arc_identify_simple_bubbles_multi(sg, 1);
             asg_arc_identify_simple_bubbles_multi(sg, 0);
             ///asg_arc_del_short_diploid_unclean_exact(sg, drop_ratio, sources);
-            if((asm_opt.pat_index && asm_opt.mat_index))
+            if (ha_opt_triobin(&asm_opt))
             {
                 asg_arc_del_short_diploid_by_exact_trio(sg, asm_opt.max_short_tip, sources);
             }
@@ -26414,7 +26414,7 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
 
 
             asg_arc_identify_simple_bubbles_multi(sg, 1);
-            if((asm_opt.pat_index && asm_opt.mat_index))
+            if (ha_opt_triobin(&asm_opt))
             {
                 asg_arc_del_short_diploid_by_length_trio(sg, drop_ratio, asm_opt.max_short_tip, reverse_sources, 
                 asm_opt.max_short_tip, 1, 1, 0, 0, ruIndex);
@@ -26493,7 +26493,7 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
     // rescue_no_coverage_aggressive(sg, sources, reverse_sources, &coverage_cut, ruIndex, max_hang_length, 
     // mini_overlap_length, bubble_dist, 10);
 
-    if ((asm_opt.pat_index && asm_opt.mat_index))
+    if (ha_opt_triobin(&asm_opt))
     {
 		char *buf = (char*)calloc(strlen(output_file_name) + 25, 1);
 		sprintf(buf, "%s.dip", output_file_name);

@@ -3,7 +3,7 @@
 
 #include <pthread.h>
 
-#define HA_VERSION "0.3.0-dirty-r213"
+#define HA_VERSION "0.3.0-dirty-r214"
 
 #define VERBOSE 0
 
@@ -20,8 +20,8 @@ typedef struct {
     char** read_file_names;
     char* output_file_name;
     char* required_read_name;
-    char* pat_index;
-    char* mat_index;
+	char *fn_bin_yak[2];
+	char *fn_bin_list[2];
     int thread_num;
     int k_mer_length;
 	int mz_win;
@@ -65,5 +65,10 @@ void ha_opt_reset_to_round(hifiasm_opt_t* asm_opt, int round);
 void ha_opt_update_cov(hifiasm_opt_t *opt, int hom_cov);
 int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt);
 double Get_T(void);
+
+static inline int ha_opt_triobin(const hifiasm_opt_t *opt)
+{
+	return ((opt->fn_bin_yak[0] && opt->fn_bin_yak[1]) || (opt->fn_bin_list[0] && opt->fn_bin_list[1]));
+}
 
 #endif

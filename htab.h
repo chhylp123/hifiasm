@@ -45,7 +45,7 @@ long yak_peakrss(void);
 double yak_peakrss_in_gb(void);
 double yak_cpu_usage(void);
 
-void trio_partition(void);
+void ha_triobin(const hifiasm_opt_t *opt);
 
 void ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mz1_v *p, const void *hf);
 int ha_analyze_count(int n_cnt, const int64_t *cnt, int *peak_het);
