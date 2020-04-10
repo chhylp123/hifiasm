@@ -361,6 +361,7 @@ int32_t ha_chain_lis_core(k_mer_hit *a, int32_t n_a, Chain_Data *dp, int32_t min
 	int32_t *tmp = (int32_t*)dp->tmp;
 	int32_t i, m, *b = tmp, *M = tmp + n_a;
 	int32_t tot_indel = 0, tot_len = 0;
+	double bw_pen;
 	if (n_a < 2) return -1;
 	for (i = 1; i < n_a; ++i)
 		if (a[i-1].self_offset >= a[i].self_offset)
@@ -370,6 +371,7 @@ int32_t ha_chain_lis_core(k_mer_hit *a, int32_t n_a, Chain_Data *dp, int32_t min
 			b[i] = i;
 		m = n_a;
 	} else m = ha_kmer_hit_lis(n_a, a, b, M);
+	bw_pen = 1.0 / bw_thres;
 	dp->score[0] = 0, dp->pre[0] = -1, dp->indels[0] = 0, dp->self_length[0] = 0;
 	for (i = 1; i < m; ++i) {
 		int32_t j0 = b[i-1], j1 = b[i], score, dg;
@@ -379,12 +381,12 @@ int32_t ha_chain_lis_core(k_mer_hit *a, int32_t n_a, Chain_Data *dp, int32_t min
 		double gap_rate;
 		tot_indel += dd;
 		tot_len += dy;
-		if (tot_indel > tot_len * bw_thres)
-			break;
+		if (tot_indel > tot_len * bw_thres) break;
 		dg = dx < dy? dx : dy;
+		if (dd > 10 && dd > dg * bw_thres) break;
 		score = dg < min_sc? dg : min_sc;
 		gap_rate = (double)tot_indel / tot_len;
-		score -= (int)(gap_rate * score * bw_thres);
+		score -= (int)(gap_rate * score * bw_pen);
 		dp->score[i] = dp->score[i-1] + score;
 		dp->pre[i] = i - 1;
 		dp->indels[i] = tot_indel;
