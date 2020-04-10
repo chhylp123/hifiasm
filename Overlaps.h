@@ -366,9 +366,19 @@ typedef struct {
 } C_graph;
 
 typedef struct {
+	kvec_t(uint8_t) a;
+	uint32_t i;
+} kvec_t_u8_warp;
+
+typedef struct {
 	kvec_t(uint32_t) a;
 	uint32_t i;
 } kvec_t_u32_warp;
+
+typedef struct {
+	kvec_t(int32_t) a;
+	uint32_t i;
+} kvec_t_i32_warp;
 
 typedef struct {
 	kvec_t(uint64_t) a;

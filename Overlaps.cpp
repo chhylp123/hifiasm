@@ -22279,7 +22279,7 @@ kvec_asg_arc_t_warp* new_rtg_edges)
 
 
     
-    enable_debug_mode(1);
+    ///enable_debug_mode(1);
 
     purge_dups(*ug, read_g, coverage_cut, reverse_sources, ruIndex, new_rtg_edges, 0.75, 50, 50, 0.5, max_hang,
     min_ovlp, bubble_dist, drop_ratio, 0);
@@ -22301,7 +22301,7 @@ kvec_asg_arc_t_warp* new_rtg_edges)
     ///debug_purge_dup = 1;
     ///deduplicate_advance(*ug, read_g, coverage_cut, sources, reverse_sources, 20, 100, 0.05, 0.2, ruIndex, 0);
     ///delete_useless_nodes(ug);
-    enable_debug_mode(0);
+    ///enable_debug_mode(0);
     purge_dups(*ug, read_g, coverage_cut, reverse_sources, ruIndex, new_rtg_edges, 0.75, 50, 50, 0.5, max_hang,
     min_ovlp, bubble_dist, drop_ratio, 0);
     delete_useless_nodes(ug);
