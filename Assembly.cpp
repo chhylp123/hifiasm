@@ -1178,7 +1178,6 @@ int ha_assemble(void)
 			fprintf(stderr, "[M::%s] size of buffer: %.3fGB\n", __func__, asm_opt.mem_buf / 1073741824.0);
 		}
 		if (asm_opt.flag & HA_F_WRITE_EC) Output_corrected_reads();
-		fprintf(stderr, "[M::%s::%.3f*%.2f] ==> written corrected reads to disk\n", __func__, yak_realtime(), yak_cpu_usage());
 		// overlap between corrected reads
 		ha_opt_reset_to_round(&asm_opt, asm_opt.number_of_round);
 		ha_overlap_final();
