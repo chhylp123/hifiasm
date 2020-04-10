@@ -9664,13 +9664,13 @@ void ma_ug_print2(const ma_ug_t *ug, All_reads *RNF, const ma_sub_t *coverage_cu
 			uint32_t x = p->a[j]>>33;
 			if(x<RNF->total_reads)
             {
-                fprintf(fp, "A\t%s\t%d\t%c\t%.*s\t%d\t%d\tid:i:%d\t%c\n", name, l, "+-"[p->a[j]>>32&1], 
+                fprintf(fp, "A\t%s\t%d\t%c\t%.*s\t%d\t%d\tid:i:%d\tHG:A:%c\n", name, l, "+-"[p->a[j]>>32&1],
                 (int)Get_NAME_LENGTH((*RNF), x), Get_NAME((*RNF), x), 
                 coverage_cut[x].s, coverage_cut[x].e, x, "apmaaa"[RNF->trio_flag[x]]);
             }
             else
             {
-                fprintf(fp, "A\t%s\t%d\t%c\t%s\t%d\t%d\tid:i:%d\t%c\n", name, l, "+-"[p->a[j]>>32&1], 
+                fprintf(fp, "A\t%s\t%d\t%c\t%s\t%d\t%d\tid:i:%d\tHG:A:%c\n", name, l, "+-"[p->a[j]>>32&1],
 					"FAKE", coverage_cut[x].s, coverage_cut[x].e, x, '*');
             }
             
@@ -13527,7 +13527,7 @@ long long tipsLen, float tip_drop_ratio, long long stops_threshold, R_to_U* ruIn
 float chimeric_rate, float drop_ratio, int max_hang, int min_ovlp)
 {
     char* gfa_name = (char*)malloc(strlen(output_file_name)+100);
-    sprintf(gfa_name, "%s.%s.r_utg.gfa", output_file_name, (flag==FATHER?"p":"m"));
+    sprintf(gfa_name, "%s.%s.p_ctg.gfa", output_file_name, (flag==FATHER?"hap1":"hap2"));
     fprintf(stderr, "Writing %s to disk... \n", gfa_name);
     FILE* output_file = fopen(gfa_name, "w");
 
@@ -13548,7 +13548,7 @@ float chimeric_rate, float drop_ratio, int max_hang, int min_ovlp)
     ma_ug_print(ug, &R_INF, coverage_cut, output_file);
     fclose(output_file);
 
-    sprintf(gfa_name, "%s.%s.r_utg.noseq.gfa", output_file_name, (flag==FATHER?"p":"m"));
+    sprintf(gfa_name, "%s.%s.p_ctg.noseq.gfa", output_file_name, (flag==FATHER?"hap1":"hap2"));
     output_file = fopen(gfa_name, "w");
     ma_ug_print_simple(ug, &R_INF, coverage_cut, output_file);
     fclose(output_file);
@@ -26495,7 +26495,10 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
 
     if ((asm_opt.pat_index && asm_opt.mat_index))
     {
-        output_unitig_graph(sg, coverage_cut, output_file_name, sources, max_hang_length, mini_overlap_length);
+		char *buf = (char*)calloc(strlen(output_file_name) + 25, 1);
+		sprintf(buf, "%s.dip", output_file_name);
+        output_unitig_graph(sg, coverage_cut, buf, sources, max_hang_length, mini_overlap_length);
+		free(buf);
         
         output_trio_unitig_graph(sg, coverage_cut, output_file_name, FATHER, sources, 
         reverse_sources, bubble_dist, (asm_opt.max_short_tip*2), 0.15, 3, ruIndex, 

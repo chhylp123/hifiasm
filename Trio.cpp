@@ -255,9 +255,6 @@ void trio_partition(void)
 		return;
 	}
 
-	double start_time = Get_T();
-	fprintf(stderr, "Start trio binning ...... \n");
-
     yak_ch_t *ch;
     int i /**, min_cnt = 2, mid_cnt = 5**/;
     tb_shared_t aux;
@@ -286,6 +283,5 @@ void trio_partition(void)
 	free(aux.bseq);
     yak_ch_destroy(ch);
 
-	fprintf(stderr, "Trio binning has been done.\n");
-	fprintf(stderr, "%-30s%18.2f\n\n", "Trio binning time:", Get_T() - start_time); 
+	fprintf(stderr, "[M::%s::%.3f*%.2f] ==> partitioned reads using yak dumps\n", __func__, yak_realtime(), yak_cpu_usage());
 }
