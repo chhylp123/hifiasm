@@ -3,8 +3,10 @@
 #include <stdarg.h>
 #include <string.h>
 #include <assert.h>
+#include <zlib.h>
 #include "khashl.h" // hash table
 #include "kthread.h"
+#include "kseq.h"
 #include "Process_Read.h"
 #include "htab.h"
 #include "CommandLines.h"
@@ -26,6 +28,8 @@ KHASHL_SET_INIT(static klib_unused, yak_ht_t, yak_ht, uint64_t, yak_ch_hash, yak
 
 typedef const char *ha_cstr_t;
 KHASHL_MAP_INIT(static klib_unused, cstr_ht_t, cstr_ht, ha_cstr_t, int64_t, kh_hash_str, kh_eq_str)
+
+KSTREAM_INIT(gzFile, gzread, 65536)
 
 typedef struct {
 	struct yak_ht_t *h;
@@ -284,8 +288,62 @@ static void ha_triobin_yak(const hifiasm_opt_t *opt)
 	fprintf(stderr, "[M::%s::%.3f*%.2f] ==> partitioned reads using yak dumps\n", __func__, yak_realtime(), yak_cpu_usage());
 }
 
+static int ha_triobin_set_list(const cstr_ht_t *h, const char *fn, int flag)
+{
+	gzFile fp;
+	kstream_t *ks;
+	kstring_t str = {0,0,0};
+	int dret;
+	int64_t n_tot = 0, n_bin = 0;
+	fp = gzopen(fn, "r");
+	if (fp == 0) {
+		fprintf(stderr, "ERROR: failed to open file '%s'\n", fn);
+		return -1;
+	}
+	ks = ks_init(fp);
+	while (ks_getuntil(ks, KS_SEP_LINE, &str, &dret) >= 0) {
+		char *p;
+		khint_t k;
+		++n_tot;
+		for (p = str.s; *p; ++p)
+			if (*p == '\t' || *p == ' ')
+				*p = 0;
+		k = cstr_ht_get(h, str.s);
+		if (k != kh_end(h)) {
+			R_INF.trio_flag[kh_val(h, k)] = flag;
+			++n_bin;
+		}
+	}
+	free(str.s);
+	ks_destroy(ks);
+	gzclose(fp);
+	fprintf(stderr, "[M::%s::%.3f*%.2f] flagged %ld reads, out of %ld lines in file '%s'\n",
+			__func__, yak_realtime(), yak_cpu_usage(), (long)n_bin, (long)n_tot, fn);
+	return 0;
+}
+
 static void ha_triobin_list(const hifiasm_opt_t *opt)
 {
+	int64_t i;
+	khint_t k;
+	cstr_ht_t *h;
+	assert(R_INF.total_reads < (uint32_t)-1);
+	h = cstr_ht_init();
+	for (i = 0; i < (int64_t)R_INF.total_reads; ++i) {
+		int absent;
+		char *str = (char*)calloc(Get_NAME_LENGTH(R_INF, i) + 1, 1);
+		strncpy(str, Get_NAME(R_INF, i), Get_NAME_LENGTH(R_INF, i));
+		k = cstr_ht_put(h, str, &absent);
+		if (absent) kh_val(h, k) = i;
+	}
+	fprintf(stderr, "[M::%s::%.3f*%.2f] created the hash table for read names\n", __func__, yak_realtime(), yak_cpu_usage());
+	ha_triobin_set_list(h, opt->fn_bin_list[0], FATHER);
+	ha_triobin_set_list(h, opt->fn_bin_list[1], MOTHER);
+	for (k = 0; k < kh_end(h); ++k)
+		if (kh_exist(h, k))
+			free((char*)kh_key(h, k));
+	cstr_ht_destroy(h);
+	fprintf(stderr, "[M::%s::%.3f*%.2f] ==> partitioned reads with external lists\n", __func__, yak_realtime(), yak_cpu_usage());
 }
 
 void ha_triobin(const hifiasm_opt_t *opt)
@@ -293,6 +351,6 @@ void ha_triobin(const hifiasm_opt_t *opt)
 	memset(R_INF.trio_flag, AMBIGU, R_INF.total_reads * sizeof(uint8_t));
 	if (opt->fn_bin_list[0] && opt->fn_bin_list[1])
 		ha_triobin_list(opt);
-	else if (opt->fn_bin_yak[0] && opt->fn_bin_yak[1])
+	if (opt->fn_bin_yak[0] && opt->fn_bin_yak[1])
 		ha_triobin_yak(opt);
 }
