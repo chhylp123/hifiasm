@@ -3574,7 +3574,7 @@ uint32_t just_contain)
     asg_t *purge_g = NULL;
     purge_g = asg_init();
     asg_t* nsg = ug->g;
-    uint32_t v, rId, uId, i, k, offset;
+    uint32_t v, rId, uId, i, offset;
     ma_utg_t* reads = NULL;
 
     // kvec_t_u64_warp u_vecs;
@@ -3600,22 +3600,6 @@ uint32_t just_contain)
     asg_arc_t* p = NULL;
     int r;
     hap_alignment_struct_pip hap_buf;
-    
-
-
-    /****************************may have bugs********************************/
-    for (v = 0; v < nsg->n_seq; ++v) 
-    {
-        uId = v;
-        if(nsg->seq[uId].c != HAP_LABLE) continue;
-        reads = &(ug->u.a[uId]);
-        for (k = 0; k < reads->n; k++)
-        {
-            rId = reads->a[k]>>33;
-            read_g->seq[reads->a[k]>>33].c = HAP_LABLE;
-        }
-    }
-    /****************************may have bugs********************************/
 
     for (v = 0; v < nsg->n_seq; v++)
     {
