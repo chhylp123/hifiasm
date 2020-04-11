@@ -383,7 +383,7 @@ int32_t ha_chain_lis_core(k_mer_hit *a, int32_t n_a, Chain_Data *dp, int32_t min
 		tot_len += dy;
 		if (tot_indel > tot_len * bw_thres) break;
 		dg = dx < dy? dx : dy;
-		if (dd > 10 && dd > dg * bw_thres) break;
+		if (dd > THRESHOLD_MAX_SIZE && dd > dg * bw_thres) break;
 		score = dg < min_sc? dg : min_sc;
 		gap_rate = (double)tot_indel / tot_len;
 		score -= (int)(gap_rate * score * bw_pen);
