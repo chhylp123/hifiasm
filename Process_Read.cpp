@@ -44,8 +44,8 @@ void destory_All_reads(All_reads* r)
 	for (i = 0; i < r->total_reads; i++) {
 		if (r->N_site[i]) free(r->N_site[i]);
 		if (r->read_sperate[i]) free(r->read_sperate[i]);
-		if (r->paf&&r->paf[i].buffer) free(r->paf[i].buffer);
-		if (r->reverse_paf&&r->reverse_paf[i].buffer) free(r->reverse_paf[i].buffer);
+		if (r->paf && r->paf[i].buffer) free(r->paf[i].buffer);
+		if (r->reverse_paf && r->reverse_paf[i].buffer) free(r->reverse_paf[i].buffer);
 	}
 	free(r->paf);
 	free(r->reverse_paf);

@@ -358,42 +358,29 @@ void clear_ma_hit_t_alloc(ma_hit_t_alloc* x)
     x->length = 0;
 }
 
-void resize_ma_hit_t_alloc(ma_hit_t_alloc* x, uint64_t size)
+void resize_ma_hit_t_alloc(ma_hit_t_alloc* x, uint32_t size)
 {
-    if(size > x->size)
-    {
-        x->size = size;
-        x->buffer = (ma_hit_t*)realloc(x->buffer, x->size*sizeof(ma_hit_t));
-    }
+	if (size > x->size) {
+		x->size = size;
+		kroundup32(x->size);
+		REALLOC(x->buffer, x->size);
+	}
 }
 
 void destory_ma_hit_t_alloc(ma_hit_t_alloc* x)
 {
-    free(x->buffer);
-}
-
-void destory_all_ma_hit_t_alloc(ma_hit_t_alloc* x, uint64_t n_read)
-{
-    uint64_t i = 0;
-    for (i = 0; i < n_read; i++)
-    {
-        free(x[i].buffer);
-    }
-    free(x);    
+	free(x->buffer);
 }
 
 void add_ma_hit_t_alloc(ma_hit_t_alloc* x, ma_hit_t* element)
 {
-    if(x->length + 1 > x->size)
-    {
-        x->size = (x->length + 1) * 2;
-        x->buffer = (ma_hit_t*)realloc(x->buffer, x->size*sizeof(ma_hit_t));
-    }
-
-    x->buffer[x->length] = (*element);
-    x->length++;
+	if (x->length + 1 > x->size) {
+		x->size = x->length + 1;
+		kroundup32(x->size);
+		REALLOC(x->buffer, x->size);
+	}
+	x->buffer[x->length++] = *element;
 }
-
 
 
 long long get_specific_overlap(ma_hit_t_alloc* x, uint32_t qn, uint32_t tn)

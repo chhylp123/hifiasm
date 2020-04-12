@@ -68,8 +68,7 @@ typedef struct {
 
 void init_ma_hit_t_alloc(ma_hit_t_alloc* x);
 void clear_ma_hit_t_alloc(ma_hit_t_alloc* x);
-void resize_ma_hit_t_alloc(ma_hit_t_alloc* x, uint64_t size);
-void destory_all_ma_hit_t_alloc(ma_hit_t_alloc* x, uint64_t n_read);
+void resize_ma_hit_t_alloc(ma_hit_t_alloc* x, uint32_t size);
 void destory_ma_hit_t_alloc(ma_hit_t_alloc* x);
 void add_ma_hit_t_alloc(ma_hit_t_alloc* x, ma_hit_t* element);
 void ma_hit_sort_tn(ma_hit_t *a, long long n);

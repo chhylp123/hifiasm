@@ -250,7 +250,12 @@ inline void push_cigar(Compressed_Cigar_record* records, long long ID, Cigar_rec
 void push_overlaps(ma_hit_t_alloc* paf, overlap_region_alloc* overlap_list, int flag, All_reads* R_INF, int if_reverse)
 {
     long long i = 0, xLen, yLen;
+	int32_t size = 0;
     ma_hit_t tmp;
+	for (i = 0; i < (long long)overlap_list->length; ++i)
+		if (overlap_list->list[i].is_match == flag)
+			++size;
+	resize_ma_hit_t_alloc(paf, size);
     clear_ma_hit_t_alloc(paf);
     for (i = 0; i < (long long)overlap_list->length; i++)
     {
@@ -277,7 +282,6 @@ void push_overlaps(ma_hit_t_alloc* paf, overlap_region_alloc* overlap_list, int 
                 tmp.ts = overlap_list->list[i].y_pos_s;
                 tmp.te = overlap_list->list[i].y_pos_e;
             }
-
 
             ///for overlap_list, the x_strand of all overlaps are 0, so the tmp.rev is the same as the y_strand
             tmp.rev = overlap_list->list[i].y_pos_strand;
@@ -322,7 +326,7 @@ long long push_final_overlaps(ma_hit_t_alloc* paf, ma_hit_t_alloc* reverse_paf_l
     long long i = 0;
     long long available_overlaps = 0;
     ma_hit_t tmp;
-    clear_ma_hit_t_alloc(paf);
+    clear_ma_hit_t_alloc(paf); // paf has been preallocated, so we don't need preallocation
     for (i = 0; i < (long long)overlap_list->length; i++)
     {
         if (overlap_list->list[i].is_match == flag)
@@ -374,7 +378,7 @@ long long push_final_overlaps(ma_hit_t_alloc* paf, ma_hit_t_alloc* reverse_paf_l
 }
 
 typedef struct {
-	int is_final;
+	int is_final, save_ov;
 	// chaining and overlapping related buffers
 	UC_Read self_read, ovlp_read;
 	Candidates_list clist;
@@ -390,11 +394,11 @@ typedef struct {
 	Round2_alignment round2;
 } ha_ovec_buf_t;
 
-ha_ovec_buf_t *ha_ovec_init(int is_final)
+ha_ovec_buf_t *ha_ovec_init(int is_final, int save_ov)
 {
 	ha_ovec_buf_t *b;
 	CALLOC(b, 1);
-	b->is_final = !!is_final;
+	b->is_final = !!is_final, b->save_ov = !!save_ov;
 	init_UC_Read(&b->self_read);
 	init_UC_Read(&b->ovlp_read);
 	init_Candidates_list(&b->clist);
@@ -493,8 +497,10 @@ static void worker_ovec(void *data, long i, int tid)
 	}
 	R_INF.paf[i].is_abnormal = abnormal;
 
-	push_overlaps(&(R_INF.paf[i]), &b->olist, 1, &R_INF, asm_opt.roundID%2);
-	push_overlaps(&(R_INF.reverse_paf[i]), &b->olist, 2, &R_INF, asm_opt.roundID%2);
+	if (b->save_ov) {
+		push_overlaps(&(R_INF.paf[i]), &b->olist, 1, &R_INF, 1);
+		push_overlaps(&(R_INF.reverse_paf[i]), &b->olist, 2, &R_INF, 1);
+	}
 }
 
 static void worker_ovec_related_reads(void *data, long i, int tid)
@@ -632,7 +638,7 @@ void ha_overlap_and_correct(int round)
 	// overlap and correct reads
 	CALLOC(b, asm_opt.thread_num);
 	for (i = 0; i < asm_opt.thread_num; ++i)
-		b[i] = ha_ovec_init(0);
+		b[i] = ha_ovec_init(0, (round == asm_opt.number_of_round - 1));
 	ha_idx = ha_pt_gen(&asm_opt, ha_flt_tab, round == 0? 0 : 1, &R_INF, &hom_cov); // build the index
 	if (round == 0 && ha_flt_tab == 0) // then asm_opt.hom_cov hasn't been updated
 		ha_opt_update_cov(&asm_opt, hom_cov);
@@ -1140,7 +1146,7 @@ void ha_overlap_final(void)
 	ha_ovec_buf_t **b;
 	CALLOC(b, asm_opt.thread_num);
 	for (i = 0; i < asm_opt.thread_num; ++i)
-		b[i] = ha_ovec_init(1);
+		b[i] = ha_ovec_init(1, 1);
 	ha_idx = ha_pt_gen(&asm_opt, ha_flt_tab, 1, &R_INF, &hom_cov); // build the index
 	kt_for(asm_opt.thread_num, worker_ov_final, b, R_INF.total_reads);
 	ha_pt_destroy(ha_idx);

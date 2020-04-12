@@ -1098,7 +1098,7 @@ void print_asg_arc_t_offset(asg_arc_t_offset* x, long long n, const char* info)
         x_off = (long long)(x[i].Off>>32);
         y_off = (long long)((uint32_t)x[i].Off);
         fprintf(stderr, "i: %lld, x_off: %lld, y_off: %lld, weight: %lu, rev: %u, ol: %u\n", 
-        i, x_off, y_off, x[i].weight, x[i].x.el, x[i].x.ol);
+        i, x_off, y_off, (unsigned long)x[i].weight, x[i].x.el, x[i].x.ol);
     }
 }
 
