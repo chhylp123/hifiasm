@@ -13467,11 +13467,6 @@ kvec_asg_arc_t_warp* new_rtg_edges)
 
     delete_useless_nodes(ug);
 
-    // purge_dups(*ug, read_g, coverage_cut, reverse_sources, ruIndex, new_rtg_edges, 0.75, 50, 50, 0.5, max_hang,
-    // min_ovlp, bubble_dist, drop_ratio, 1);
-    // deduplicate(*ug, read_g, reverse_sources, 20, 100, 0.05, 0.2, ruIndex, 1);
-    // delete_useless_nodes(ug);
-
     update_unitig_graph((*ug), read_g, reverse_sources, ruIndex, flag, drop_rate);
 
     renew_utg(ug, read_g, new_rtg_edges);
@@ -22277,17 +22272,11 @@ kvec_asg_arc_t_warp* new_rtg_edges)
     renew_utg(ug, read_g, new_rtg_edges);
 
 
-
-
-    
     ///enable_debug_mode(1);
-
     purge_dups(*ug, read_g, coverage_cut, reverse_sources, ruIndex, new_rtg_edges, 0.75, 50, 50, 0.5, max_hang,
     min_ovlp, bubble_dist, drop_ratio, 0);
     delete_useless_nodes(ug);
     renew_utg(ug, read_g, new_rtg_edges);
-
-
 
 
     rescue_missing_overlaps_aggressive(*ug, read_g, sources, coverage_cut, ruIndex, max_hang,
