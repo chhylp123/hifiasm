@@ -1599,6 +1599,7 @@ hap_overlaps_list* all_ovlp)
     asg_arc_t t;
     asg_arc_t_offset t_offset;
     hap_candidates hap_can;
+    memset(&hap_can, 0, sizeof(hap_candidates));
     hap_overlaps hap_align;
     xUid = Input_uId;
     if(nsg->seq[xUid].del || nsg->seq[xUid].c == ALTER_LABLE) return;
@@ -2161,7 +2162,8 @@ void hap_alignment_worker(void *_data, long eid, int tid)
     int32_t r;
     asg_arc_t t;
     asg_arc_t_offset t_offset;
-    hap_candidates hap_can;
+    hap_candidates hap_can; 
+    memset(&hap_can, 0, sizeof(hap_candidates));
     hap_overlaps hap_align;
     xUid = Input_uId;
     if(nsg->seq[xUid].del || nsg->seq[xUid].c == ALTER_LABLE) return;
