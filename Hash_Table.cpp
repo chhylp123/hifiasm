@@ -372,7 +372,7 @@ int32_t ha_chain_lis_core(k_mer_hit *a, int32_t n_a, Chain_Data *dp, int32_t min
 		m = n_a;
 	} else m = ha_kmer_hit_lis(n_a, a, b, M);
 	bw_pen = 1.0 / bw_thres;
-	dp->score[0] = 0, dp->pre[0] = -1, dp->indels[0] = 0, dp->self_length[0] = 0;
+	dp->score[0] = min_sc, dp->pre[0] = -1, dp->indels[0] = 0, dp->self_length[0] = 0;
 	for (i = 1; i < m; ++i) {
 		int32_t j0 = b[i-1], j1 = b[i], score, dg;
 		int32_t dx = (int32_t)a[j1].offset - (int32_t)a[j0].offset;
