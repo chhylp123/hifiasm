@@ -92,7 +92,7 @@ typedef struct
     uint32_t y_pos_strand;
 
     uint32_t overlapLen;
-    uint32_t shared_seed;
+    int32_t shared_seed;
     uint32_t align_length;
     uint8_t is_match;
     uint8_t without_large_indel;
@@ -117,7 +117,7 @@ typedef struct
 
 typedef struct
 {
-	uint32_t readID:31, strand:1;
+	uint32_t readID:30, strand:1, good:1;
 	uint32_t offset, self_offset;
 } k_mer_hit;
 

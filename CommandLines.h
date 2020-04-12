@@ -3,7 +3,7 @@
 
 #include <pthread.h>
 
-#define HA_VERSION "0.3.0-dirty-r226"
+#define HA_VERSION "0.3.0-dirty-r226b"
 
 #define VERBOSE 0
 
@@ -27,6 +27,7 @@ typedef struct {
 	int mz_win;
 	int bf_shift;
 	float high_factor; // coverage cutoff set to high_factor*hom_cov
+	int hom_cov;
 	int max_n_chain; // fall-back max number of chains to consider
     int k_mer_min_freq;
     int k_mer_max_freq;

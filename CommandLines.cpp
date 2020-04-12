@@ -75,6 +75,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
 	asm_opt->mz_win = 51;
 	asm_opt->bf_shift = 37;
 	asm_opt->high_factor = 5.0f;
+	asm_opt->hom_cov = 20;
 	asm_opt->max_n_chain = 100;
     asm_opt->k_mer_min_freq = 3;
     asm_opt->k_mer_max_freq = 66;
@@ -117,6 +118,7 @@ void ha_opt_reset_to_round(hifiasm_opt_t* asm_opt, int round)
 void ha_opt_update_cov(hifiasm_opt_t *opt, int hom_cov)
 {
 	int max_n_chain = (int)(hom_cov * opt->high_factor + .499);
+	opt->hom_cov = hom_cov;
 	if (opt->max_n_chain < max_n_chain)
 		opt->max_n_chain = max_n_chain;
 	fprintf(stderr, "[M::%s] updated max_n_chain to %d\n", __func__, opt->max_n_chain);

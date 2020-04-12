@@ -385,6 +385,7 @@ int32_t ha_chain_lis_core(k_mer_hit *a, int32_t n_a, Chain_Data *dp, int32_t min
 		dg = dx < dy? dx : dy;
 		if (dd > THRESHOLD_MAX_SIZE && dd > dg * bw_thres) break;
 		score = dg < min_sc? dg : min_sc;
+		if (!a[j1].good) score >>= 1;
 		gap_rate = (double)tot_indel / tot_len;
 		score -= (int)(gap_rate * score * bw_pen);
 		dp->score[i] = dp->score[i-1] + score;
@@ -459,6 +460,7 @@ void chain_DP(k_mer_hit* a, long long a_n, Chain_Data* dp, overlap_region* resul
             ///min distance
             distance_min = distance_pos < distance_self_pos? distance_pos:distance_self_pos;
             score = distance_min < min_score? distance_min : min_score;
+			if (!a[j].good) score >>= 1;
 
             gap_rate = (double)((double)(total_indels)/(double)(total_self_length));
             ///if the gap rate > 0.06, score will be negative

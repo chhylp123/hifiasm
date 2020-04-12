@@ -3,9 +3,11 @@
 #include "ksort.h"
 #include "Hash_Table.h"
 
+#define HA_KMER_GOOD_RATIO 0.333
+
 typedef struct { // this struct is not strictly necessary; we can use k_mer_pos instead, with modifications
 	uint64_t srt;
-	uint32_t self_off;
+	uint32_t self_off:31, good:1;
 	uint32_t other_off;
 } anchor1_t;
 
@@ -21,7 +23,7 @@ KSORT_INIT(or_xs, overlap_region, oreg_xs_lt)
 KSORT_INIT(or_ss, overlap_region, oreg_ss_lt)
 
 typedef struct {
-	int n;
+	int n, good;
 	const ha_idxpos_t *a;
 } seed1_t;
 
@@ -54,6 +56,8 @@ void ha_get_new_candidates(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_reg
 	extern ha_pt_t *ha_idx;
 	uint32_t i;
 	uint64_t k, l;
+	double low_occ = asm_opt.hom_cov * HA_KMER_GOOD_RATIO;
+	double high_occ = asm_opt.hom_cov * (2.0 - HA_KMER_GOOD_RATIO);
 
 	// prepare
     clear_Candidates_list(cl);
@@ -68,8 +72,11 @@ void ha_get_new_candidates(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_reg
 		REALLOC(ab->seed, ab->old_mz_m);
 	}
 	for (i = 0, ab->n_a = 0; i < ab->mz.n; ++i) {
-		ab->seed[i].a = ha_pt_get(ha_idx, ab->mz.a[i].x, &ab->seed[i].n);
-		ab->n_a += ab->seed[i].n;
+		int n;
+		ab->seed[i].a = ha_pt_get(ha_idx, ab->mz.a[i].x, &n);
+		ab->seed[i].n = n;
+		ab->seed[i].good = (n > low_occ && n < high_occ);
+		ab->n_a += n;
 	}
 	if (ab->n_a > ab->m_a) {
 		ab->m_a = ab->n_a;
@@ -86,6 +93,7 @@ void ha_get_new_candidates(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_reg
 			uint8_t rev = z->rev == y->rev? 0 : 1;
 			an->other_off = y->pos;
 			an->self_off = rev? ucr->length - 1 - (z->pos + 1 - z->span) : z->pos;
+			an->good = s->good;
 			an->srt = (uint64_t)y->rid<<33 | (uint64_t)rev<<32 | an->other_off;
 		}
 	}
@@ -111,6 +119,7 @@ void ha_get_new_candidates(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_reg
 		p->strand = ab->a[k].srt >> 32 & 1;
 		p->offset = ab->a[k].other_off;
 		p->self_offset = ab->a[k].self_off;
+		p->good = ab->a[k].good;
 	}
 	cl->length = ab->n_a;
 
