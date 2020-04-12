@@ -36,7 +36,7 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "    -a INT        round of assembly cleaning [%d]\n", asm_opt->clean_round);
     fprintf(stderr, "    -k INT        k-mer length (must be <64) [%d]\n", asm_opt->k_mer_length);
 	fprintf(stderr, "    -w INT        minimizer window size [%d]\n", asm_opt->mz_win);
-	fprintf(stderr, "    -f INT        number of bits for bloom filter [%d]\n", asm_opt->bf_shift);
+	fprintf(stderr, "    -f INT        number of bits for bloom filter; 0 to disable [%d]\n", asm_opt->bf_shift);
 	fprintf(stderr, "    -D FLOAT      drop k-mers occuring >FLOAT*coverage times [%.1f]\n", asm_opt->high_factor);
 	fprintf(stderr, "    -N INT        consider up to max(-D*coverage,-N) overlaps for each oriented read [%d]\n", asm_opt->max_n_chain);
     fprintf(stderr, "    -i            ignore saved overlaps in *.ovlp* files\n");

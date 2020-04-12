@@ -91,11 +91,23 @@ Show version number.
 
 .SS Error correction options
 
-.TP
-.BI -k \ INT
-K-mer length [40]. This option must be less than 64.
-
 .TP 10
+.BI -k \ INT
+K-mer length [51]. This option must be less than 64.
+
+.TP
+.BI -w \ INT
+Minimizer window size [51].
+
+.TP
+.BI -f \ INT
+Number of bits for bloom filter; 0 to disable [37]. This bloom filter is used
+to filter out singleton k-mers when counting all k-mers. It takes
+.RI 2^( INT -3)
+bytes of memory. A proper setting saves memory. 37 is recommended for human
+assembly.
+
+.TP
 .BI -r \ INT
 Rounds of haplotype-aware error corrections [2]. This option affects all outputs of hifiasm.
 
