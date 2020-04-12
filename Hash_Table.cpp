@@ -372,7 +372,8 @@ int32_t ha_chain_lis_core(k_mer_hit *a, int32_t n_a, Chain_Data *dp, int32_t min
 		m = n_a;
 	} else m = ha_kmer_hit_lis(n_a, a, b, M);
 	bw_pen = 1.0 / bw_thres;
-	dp->score[0] = min_sc, dp->pre[0] = -1, dp->indels[0] = 0, dp->self_length[0] = 0;
+	dp->score[0] = a[b[0]].good? min_sc : min_sc>>1;
+	dp->pre[0] = -1, dp->indels[0] = 0, dp->self_length[0] = 0;
 	for (i = 1; i < m; ++i) {
 		int32_t j0 = b[i-1], j1 = b[i], score, dg;
 		int32_t dx = (int32_t)a[j1].offset - (int32_t)a[j0].offset;
@@ -431,7 +432,7 @@ void chain_DP(k_mer_hit* a, long long a_n, Chain_Data* dp, overlap_region* resul
         pos = a[i].offset;
         self_pos = a[i].self_offset;
         max_j = -1;
-        max_score = min_score;
+        max_score = a[i].good? min_score : min_score>>1;
         max_indels = 0;
         max_self_length = 0;
 
