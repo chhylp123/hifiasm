@@ -137,7 +137,7 @@ void ha_get_new_candidates(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_reg
 	#endif
 
 	if ((int)overlap_list->length > max_n_chain) {
-		uint32_t n[2], s[2];
+		int32_t n[2], s[2];
 		n[0] = n[1] = 0, s[0] = s[1] = 0;
 		for (i = 0; i < (uint32_t)overlap_list->length; ++i) {
 			const overlap_region *r = &overlap_list->list[i];
