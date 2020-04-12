@@ -498,8 +498,9 @@ static void worker_ovec(void *data, long i, int tid)
 	R_INF.paf[i].is_abnormal = abnormal;
 
 	if (b->save_ov) {
-		push_overlaps(&(R_INF.paf[i]), &b->olist, 1, &R_INF, 1);
-		push_overlaps(&(R_INF.reverse_paf[i]), &b->olist, 2, &R_INF, 1);
+		int is_rev = (asm_opt.number_of_round % 2 == 0);
+		push_overlaps(&(R_INF.paf[i]), &b->olist, 1, &R_INF, is_rev);
+		push_overlaps(&(R_INF.reverse_paf[i]), &b->olist, 2, &R_INF, is_rev);
 	}
 }
 
