@@ -81,7 +81,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->k_mer_max_freq = 66;
     asm_opt->load_index_from_disk = 1;
     asm_opt->write_index_to_disk = 1;
-    asm_opt->number_of_round = 2;
+    asm_opt->number_of_round = 3;
     asm_opt->adapterLen = 0;
     asm_opt->clean_round = 4;
     asm_opt->small_pop_bubble_size = 100000;
