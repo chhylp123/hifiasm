@@ -1,4 +1,4 @@
-.TH hifiasm 1 "22 Mar 2020" "hifiasm-0.3.0" "Bioinformatics tools"
+.TH hifiasm 1 "12 Apr 2020" "hifiasm-0.4.0" "Bioinformatics tools"
 
 .SH NAME
 .PP
@@ -307,16 +307,4 @@ the ease of visualization. Hifiasm keeps corrected reads and overlaps in three
 binary files such as it can regenerate assembly graphs from the binary files
 without redoing error correction.
 
-.PP
-Note that different species need different assembly graphs. For homozygous genomes,
-the primary assembly contig graph is the best choice. 
-For species with high heterozygous rate, different haplotypes can be fully separated.
-It is important to remove small bubbles from the haplotype-resolved unitig graph. The
-reason is that some small bubbles are caused by somatic mutations or noise in data,
-which are not the real haplotype information. In this case, haplotype-resolved processed
-unitig graph without small bubbles should be better.
-For ordinary human genome, different haplotypes cannot be fully separated due to the low
-heterozygous rate. There are many small bubbles including haplotype information,
-which cannot be simply removed. Thus, it is necessary to use the haplotype-resolved raw
-unitig graph.
 
