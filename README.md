@@ -22,7 +22,7 @@ outputs consist of:
    somatic mutations and recurrent sequencing errors.
 2. Haplotype-resolved processed unitig graph without small bubbles
    (*prefix*.p\_utg.gfa). Small bubbles might be caused by somatic mutations or noise in data, 
-   which are not the real haplotype information
+   which are not the real haplotype information.
 3. Primary assembly [contig][unitig] graph (*prefix*.p\_ctg.gfa). This graph collapses different
    haplotypes.
 4. Alternate assembly contig graph (*prefix*.a\_ctg.gfa). This graph consists of all assemblies that
@@ -40,8 +40,7 @@ For trio assembly, the input of hifiasm is the PacBio Hifi reads in fasta/fastq 
 
 
 
-In addition, hifiasm also outputs three binary files that save all overlap inforamtion
-(*prefix*.ec.bin, *prefix*.ovlp.reverse.bin, *prefix*.ovlp.source.bin). With these files, hifiasm can avoid the time-consuming all-to-all overlap calculation step, and do the assembly
+In addition, hifiasm also outputs three binary files that save all overlap information (*prefix*.ec.bin, *prefix*.ovlp.reverse.bin, *prefix*.ovlp.source.bin). With these files, hifiasm can avoid the time-consuming all-to-all overlap calculation step, and do the assembly
 directly and quickly. This might be helpful when you want to get an optimized
 assembly by multiple rounds of experiments with different parameters.
 
