@@ -337,48 +337,22 @@ long long get_chainLen(long long x_beg, long long x_end, long long xLen,
     return x_end - x_beg + 1;
 }
 
-static int32_t ha_kmer_hit_lis(int32_t n, const k_mer_hit *a, int32_t *b, int32_t *M)
+int32_t ha_chain_check(k_mer_hit *a, int32_t n_a, Chain_Data *dp, int32_t min_sc, double bw_thres)
 {
-	int32_t i, k, L = 0, *P = b;
-	for (i = 0; i < n; ++i) {
-		int32_t lo = 1, hi = L, newL;
-		while (lo <= hi) {
-			int32_t mid = (lo + hi + 1) >> 1;
-			if (a[M[mid]].self_offset < a[i].self_offset) lo = mid + 1;
-			else hi = mid - 1;
-		}
-		newL = lo, P[i] = M[newL - 1], M[newL] = i;
-		if (newL > L) L = newL;
-	}
-	k = M[L];
-	memcpy(M, P, n * sizeof(int32_t));
-	for (i = L - 1; i >= 0; --i) b[i] = k, k = M[k];
-	return L;
-}
-
-int32_t ha_chain_lis_core(k_mer_hit *a, int32_t n_a, Chain_Data *dp, int32_t min_sc, double bw_thres)
-{
-	int32_t *tmp = (int32_t*)dp->tmp;
-	int32_t i, m, *b = tmp, *M = tmp + n_a;
-	int32_t tot_indel = 0, tot_len = 0;
+	int32_t i, tot_indel = 0, tot_len = 0;
 	double bw_pen;
-	if (n_a < 2) return -1;
+	if (n_a == 0) return -1;
 	for (i = 1; i < n_a; ++i)
 		if (a[i-1].self_offset >= a[i].self_offset)
 			break;
-	if (i == n_a) {
-		for (i = 0; i < n_a; ++i)
-			b[i] = i;
-		m = n_a;
-	} else m = ha_kmer_hit_lis(n_a, a, b, M);
-	if (m < n_a>>1) return -1;
+	if (i < n_a) return -1;
 	bw_pen = 1.0 / bw_thres;
-	dp->score[0] = a[b[0]].good? min_sc : min_sc>>1;
+	dp->score[0] = a[0].good? min_sc : min_sc>>1;
 	dp->pre[0] = -1, dp->indels[0] = 0, dp->self_length[0] = 0;
-	for (i = 1; i < m; ++i) {
-		int32_t j0 = b[i-1], j1 = b[i], score, dg;
-		int32_t dx = (int32_t)a[j1].offset - (int32_t)a[j0].offset;
-		int32_t dy = (int32_t)a[j1].self_offset - (int32_t)a[j0].self_offset;
+	for (i = 1; i < n_a; ++i) {
+		int32_t score, dg;
+		int32_t dx = (int32_t)a[i].offset - (int32_t)a[i-1].offset;
+		int32_t dy = (int32_t)a[i].self_offset - (int32_t)a[i-1].self_offset;
 		int32_t dd = dx > dy? dx - dy : dy - dx;
 		double gap_rate;
 		tot_indel += dd;
@@ -387,7 +361,7 @@ int32_t ha_chain_lis_core(k_mer_hit *a, int32_t n_a, Chain_Data *dp, int32_t min
 		dg = dx < dy? dx : dy;
 		if (dd > THRESHOLD_MAX_SIZE && dd > dg * bw_thres) break;
 		score = dg < min_sc? dg : min_sc;
-		if (!a[j1].good) score >>= 1;
+		if (!a[i].good) score >>= 1;
 		gap_rate = (double)tot_indel / tot_len;
 		score -= (int)(gap_rate * score * bw_pen);
 		dp->score[i] = dp->score[i-1] + score;
@@ -395,9 +369,8 @@ int32_t ha_chain_lis_core(k_mer_hit *a, int32_t n_a, Chain_Data *dp, int32_t min
 		dp->indels[i] = tot_indel;
 		dp->self_length[i] = tot_len;
 	}
-	if (i < m) return -1;
-	for (i = 0; i < m; ++i) a[i] = a[b[i]];
-	return m;
+	if (i < n_a) return -1;
+	return n_a;
 }
 
 ///double band_width_threshold = 0.05;
@@ -417,7 +390,7 @@ void chain_DP(k_mer_hit* a, long long a_n, Chain_Data* dp, overlap_region* resul
     
     resize_Chain_Data(dp, a_n);
 
-	ret = ha_chain_lis_core(a, a_n, dp, min_score, band_width_threshold);
+	ret = ha_chain_check(a, a_n, dp, min_score, band_width_threshold);
 	if (ret > 0) {
 		a_n = ret;
 		goto skip_dp;
