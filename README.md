@@ -66,14 +66,12 @@ For Hifi reads assembly, a typical command line looks like:
 ```
 
 where `NA12878.fq.gz` is the input reads and `-o` specifies the output files.
-In this example, all output files can be found at `NA12878.asm.*`. `-k`, `-t`
-and `-r` specify the length of k-mer, the number of CPU threads, and the number
-of correction rounds, respectively. Note that at first run, hifiasm will save
-all overlaps to disk, which can avoid the time-consuming all-to-all overlap
-calculation next time. For hifiasm, once the overlap information has been
-obtained during the previous run in advance, it is able to load all overlaps
-from disk and then directly do assembly. If you want to ignore the pre-computed
-overlap information, please specify `-i`.
+In this example, all output files can be found at `NA12878.asm.*`. `-t` specifies 
+the number of CPU threads. Note that at first run, hifiasm will save all overlaps 
+to disk, which can avoid the time-consuming all-to-all overlap calculation next time. 
+For hifiasm, once the overlap information has been obtained during the previous run 
+in advance, it is able to load all overlaps from disk and then directly do assembly. 
+If you want to ignore the pre-computed overlap information, please specify `-i`.
 
 Please note that some old Hifi reads may consist of short adapters. To improve
 the assembly quality, adapters should be removed by `-z` as follow:
