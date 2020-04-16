@@ -13222,10 +13222,12 @@ kvec_asg_arc_t_warp* new_rtg_edges)
     renew_utg(ug, read_g, new_rtg_edges);
 
     delete_useless_nodes(ug);
-    purge_dups(*ug, read_g, coverage_cut, reverse_sources, ruIndex, new_rtg_edges, 0.75, 50, 50, 0.5, max_hang,
-    min_ovlp, bubble_dist, drop_ratio, 1);
-    delete_useless_nodes(ug);
 
+	if (asm_opt.flag & HA_F_PURGE_TRIO) {
+		purge_dups(*ug, read_g, coverage_cut, reverse_sources, ruIndex, new_rtg_edges, 0.75, 50, 50, 0.5, max_hang,
+				min_ovlp, bubble_dist, drop_ratio, 1);
+		delete_useless_nodes(ug);
+	}
 
     set_drop_trio_flag(*ug);
     

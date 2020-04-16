@@ -3,7 +3,7 @@
 
 #include <pthread.h>
 
-#define HA_VERSION "0.5.0"
+#define HA_VERSION "0.5-dirty-r246"
 
 #define VERBOSE 0
 
@@ -13,6 +13,7 @@
 #define HA_F_WRITE_EC     0x8
 #define HA_F_WRITE_PAF    0x10
 #define HA_F_SKIP_TRIOBIN 0x20
+#define HA_F_PURGE_TRIO   0x40
 
 typedef struct {
 	int flag;

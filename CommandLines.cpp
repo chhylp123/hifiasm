@@ -15,6 +15,7 @@ static ko_longopt_t long_options[] = {
 	{ "write-paf",    ko_no_argument,       302 },
 	{ "write-ec",     ko_no_argument,       303 },
 	{ "skip-triobin", ko_no_argument,       304 },
+	{ "purge-trio",   ko_no_argument,       305 },
 	{ 0, 0, 0 }
 };
 
@@ -355,19 +356,20 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
 		else if (c == 302) asm_opt->flag |= HA_F_WRITE_PAF;
 		else if (c == 303) asm_opt->flag |= HA_F_WRITE_EC;
 		else if (c == 304) asm_opt->flag |= HA_F_SKIP_TRIOBIN;
+		else if (c == 305) asm_opt->flag |= HA_F_PURGE_TRIO;
         else if (c == ':') 
         {
 			fprintf(stderr, "[ERROR] missing option argument in \"%s\"\n", argv[opt.i - 1]);
-			return 0;
+			return 1;
 		} 
         else if (c == '?') 
         {
 			fprintf(stderr, "[ERROR] unknown option in \"%s\"\n", argv[opt.i - 1]);
-			return 0;
+			return 1;
 		}
     }
 
-    if (argc == 1)
+    if (argc == opt.ind)
     {
         Print_H(asm_opt);
         return 0;
