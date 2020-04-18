@@ -3,7 +3,7 @@
 
 #include <pthread.h>
 
-#define HA_VERSION "0.5-dirty-r246"
+#define HA_VERSION "0.5-dirty-r247"
 
 #define VERBOSE 0
 
@@ -13,7 +13,8 @@
 #define HA_F_WRITE_EC     0x8
 #define HA_F_WRITE_PAF    0x10
 #define HA_F_SKIP_TRIOBIN 0x20
-#define HA_F_PURGE_TRIO   0x40
+#define HA_F_PURGE_CONTAIN   0x40
+#define HA_F_PURGE_JOIN   0x80
 
 typedef struct {
 	int flag;
@@ -45,10 +46,14 @@ typedef struct {
     int max_short_tip;
     int min_cnt;
     int mid_cnt;
+    int purge_level_primary;
+    int purge_level_trio;
+    int purge_overlap_len;
 
     float max_hang_rate;
     float min_drop_rate;
     float max_drop_rate;
+    float purge_simi_rate;
 
     long long small_pop_bubble_size;
     long long large_pop_bubble_size;

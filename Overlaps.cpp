@@ -13223,9 +13223,11 @@ kvec_asg_arc_t_warp* new_rtg_edges)
 
     delete_useless_nodes(ug);
 
-	if (asm_opt.flag & HA_F_PURGE_TRIO) {
-		purge_dups(*ug, read_g, coverage_cut, reverse_sources, ruIndex, new_rtg_edges, 0.75, 50, 50, 0.5, max_hang,
-				min_ovlp, bubble_dist, drop_ratio, 1);
+    if(asm_opt.purge_level_trio == 1)
+    {
+		purge_dups(*ug, read_g, coverage_cut, reverse_sources, ruIndex, new_rtg_edges, 
+        asm_opt.purge_simi_rate, asm_opt.purge_overlap_len, max_hang, min_ovlp, bubble_dist,
+        drop_ratio, 1);
 		delete_useless_nodes(ug);
 	}
 
@@ -21975,7 +21977,7 @@ R_to_U* ruIndex, float chimeric_rate, float drop_ratio, int max_hang, int min_ov
 kvec_asg_arc_t_warp* new_rtg_edges)
 {
     asg_t* nsg = (*ug)->g;
-    uint32_t v, n_vtx = nsg->n_seq, k, rId;
+    uint32_t v, n_vtx = nsg->n_seq, k, rId, just_contain;
     ma_utg_t* u = NULL;
     
     
@@ -22001,20 +22003,22 @@ kvec_asg_arc_t_warp* new_rtg_edges)
     tip_drop_ratio, stops_threshold, ruIndex, NULL, NULL, 0, 0, 0, 
     chimeric_rate, 0, 0, drop_ratio);
 
+    ///delete_useless_nodes(ug);    
     delete_useless_nodes(ug);
+    renew_utg(ug, read_g, new_rtg_edges);
 
-    ///deduplicate_advance(*ug, read_g, coverage_cut, sources, reverse_sources, 20, 100, 0.05, 0.2, ruIndex, 1);
+    if(asm_opt.purge_level_primary > 0)
+    {
+        just_contain = 0;
+        if(asm_opt.purge_level_primary == 1) just_contain = 1;
+
+        purge_dups(*ug, read_g, coverage_cut, reverse_sources, ruIndex, new_rtg_edges, 
+        asm_opt.purge_simi_rate, asm_opt.purge_overlap_len, max_hang, min_ovlp, bubble_dist, 
+        drop_ratio, just_contain);
+        delete_useless_nodes(ug);
+        renew_utg(ug, read_g, new_rtg_edges);
+    }
     
-    delete_useless_nodes(ug);
-
-    renew_utg(ug, read_g, new_rtg_edges);
-
-
-    ///enable_debug_mode(1);
-    purge_dups(*ug, read_g, coverage_cut, reverse_sources, ruIndex, new_rtg_edges, 0.75, 50, 50, 0.5, max_hang,
-    min_ovlp, bubble_dist, drop_ratio, 0);
-    delete_useless_nodes(ug);
-    renew_utg(ug, read_g, new_rtg_edges);
 
 
     rescue_missing_overlaps_aggressive(*ug, read_g, sources, coverage_cut, ruIndex, max_hang,
@@ -22026,16 +22030,18 @@ kvec_asg_arc_t_warp* new_rtg_edges)
     renew_utg(ug, read_g, new_rtg_edges);
 
 
-    ///debug_purge_dup = 1;
-    ///deduplicate_advance(*ug, read_g, coverage_cut, sources, reverse_sources, 20, 100, 0.05, 0.2, ruIndex, 0);
-    ///delete_useless_nodes(ug);
-    ///enable_debug_mode(0);
-    purge_dups(*ug, read_g, coverage_cut, reverse_sources, ruIndex, new_rtg_edges, 0.75, 50, 50, 0.5, max_hang,
-    min_ovlp, bubble_dist, drop_ratio, 0);
-    delete_useless_nodes(ug);
-    renew_utg(ug, read_g, new_rtg_edges);
-    
+    if(asm_opt.purge_level_primary > 0)
+    {
+        just_contain = 0;
+        if(asm_opt.purge_level_primary == 1) just_contain = 1;
 
+        purge_dups(*ug, read_g, coverage_cut, reverse_sources, ruIndex, new_rtg_edges, 
+        asm_opt.purge_simi_rate, asm_opt.purge_overlap_len, max_hang, min_ovlp, bubble_dist, 
+        drop_ratio, just_contain);
+        delete_useless_nodes(ug);
+        renew_utg(ug, read_g, new_rtg_edges);
+    }
+    
 
     n_vtx = read_g->n_seq;
     for (v = 0; v < n_vtx; v++)

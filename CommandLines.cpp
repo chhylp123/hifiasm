@@ -15,7 +15,6 @@ static ko_longopt_t long_options[] = {
 	{ "write-paf",    ko_no_argument,       302 },
 	{ "write-ec",     ko_no_argument,       303 },
 	{ "skip-triobin", ko_no_argument,       304 },
-	{ "purge-trio",   ko_no_argument,       305 },
 	{ 0, 0, 0 }
 };
 
@@ -58,6 +57,15 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "    -c INT        lower bound of the binned k-mer's frequency [%d]\n", asm_opt->min_cnt);
     fprintf(stderr, "    -d INT        upper bound of the binned k-mer's frequency [%d]\n", asm_opt->mid_cnt);
 
+    fprintf(stderr, "  Purge-dups:\n");
+    fprintf(stderr, "    -l INT        level of purge-dup. In default, [%d] for non-trio; [%d] for trio (see hifiasm.1 for details)\n", 
+                                       asm_opt->purge_level_primary, asm_opt->purge_level_trio);
+    fprintf(stderr, "    -s FLOAT      similarity threshold for duplicate haplotigs [%g]\n", 
+                                       asm_opt->purge_simi_rate);
+    fprintf(stderr, "    -O INT        min number of overlapped reads for duplicate haplotigs [%d]\n", 
+                                       asm_opt->purge_overlap_len);
+
+
     fprintf(stderr, "Example: ./hifiasm -o NA12878.asm -t 32 NA12878.fq.gz\n");
     fprintf(stderr, "See `man ./hifiasm.1' for detailed description of these command-line options.\n");
 }
@@ -97,6 +105,10 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->max_short_tip = 3;
     asm_opt->min_cnt = 2;
     asm_opt->mid_cnt = 5;
+    asm_opt->purge_level_primary = 2;
+    asm_opt->purge_level_trio = 0;
+    asm_opt->purge_simi_rate = 0.75;
+    asm_opt->purge_overlap_len = 1;
 }
 
 void destory_opt(hifiasm_opt_t* asm_opt)
@@ -259,6 +271,19 @@ int check_option(hifiasm_opt_t* asm_opt)
         return 0;
     }
 
+    if(asm_opt->purge_level_primary < 0 || asm_opt->purge_level_primary > 2)
+    {
+        fprintf(stderr, "[ERROR] the level of purge-dup should be [0, 2] (-l)\n");
+        return 0;
+    }
+
+    if(ha_opt_triobin(asm_opt) && ((asm_opt->purge_level_trio < 0 || asm_opt->purge_level_trio > 1)))
+    {
+        fprintf(stderr, "[ERROR] the level of purge-dup for trio should be [0, 1] (-l)\n");
+        return 0;
+    }
+
+
 
     if(asm_opt->fn_bin_yak[0] != NULL && check_file(asm_opt->fn_bin_yak[0], "YAK1") == 0) return 0;
     if(asm_opt->fn_bin_yak[1] != NULL && check_file(asm_opt->fn_bin_yak[1], "YAK2") == 0) return 0;
@@ -280,6 +305,10 @@ int check_option(hifiasm_opt_t* asm_opt)
     // fprintf(stderr, "small removed unitig threshold: %d\n", asm_opt->max_short_tip);
     // fprintf(stderr, "min_cnt: %d\n", asm_opt->min_cnt);
     // fprintf(stderr, "mid_cnt: %d\n", asm_opt->mid_cnt);
+    // fprintf(stderr, "purge_level_primary: %d\n", asm_opt->purge_level_primary);
+    // fprintf(stderr, "purge_level_trio: %d\n", asm_opt->purge_level_trio);
+    // fprintf(stderr, "purge_simi_rate: %f\n", asm_opt->purge_simi_rate);
+    // fprintf(stderr, "purge_overlap_len: %d\n", asm_opt->purge_overlap_len);
 
     return 1;
 }
@@ -317,7 +346,7 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
 
     int c;
 
-    while ((c = ketopt(&opt, argc, argv, 1, "hvt:o:k:w:m:n:r:a:b:z:x:y:p:c:d:M:P:if:D:FN:1:2:3:4:", long_options)) >= 0) {
+    while ((c = ketopt(&opt, argc, argv, 1, "hvt:o:k:w:m:n:r:a:b:z:x:y:p:c:d:M:P:if:D:FN:1:2:3:4:l:s:O:", long_options)) >= 0) {
         if (c == 'h')
         {
             Print_H(asm_opt);
@@ -356,7 +385,12 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
 		else if (c == 302) asm_opt->flag |= HA_F_WRITE_PAF;
 		else if (c == 303) asm_opt->flag |= HA_F_WRITE_EC;
 		else if (c == 304) asm_opt->flag |= HA_F_SKIP_TRIOBIN;
-		else if (c == 305) asm_opt->flag |= HA_F_PURGE_TRIO;
+        else if (c == 'l')
+        {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
+            asm_opt->purge_level_primary = asm_opt->purge_level_trio = atoi(opt.arg);
+        }
+        else if (c == 's') asm_opt->purge_simi_rate = atof(opt.arg);
+        else if (c == 'O') asm_opt->purge_overlap_len = atoll(opt.arg);
         else if (c == ':') 
         {
 			fprintf(stderr, "[ERROR] missing option argument in \"%s\"\n", argv[opt.i - 1]);

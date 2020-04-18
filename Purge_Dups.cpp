@@ -2777,6 +2777,25 @@ ma_ug_t *ug, asg_t *read_g, ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex)
     }
 }
 
+void filter_hap_overlaps_by_length(hap_overlaps_list* all_ovlp, uint32_t minLen)
+{
+    hap_overlaps *x = NULL;
+    uint32_t v, i, m, uId;    
+
+    for (v = 0; v < all_ovlp->num; v++)
+    {
+        uId = v;
+        m = 0;
+        for (i = 0; i < all_ovlp->x[uId].a.n; i++)
+        {
+            x = &(all_ovlp->x[uId].a.a[i]);
+            if(x->x_end_id - x->x_beg_id < minLen) continue;
+            all_ovlp->x[uId].a.a[m] = (*x);
+            m++;
+        }
+        all_ovlp->x[uId].a.n = m;
+    }
+}
 
 void debug_hap_overlaps(hap_overlaps_list* all_ovlp, hap_overlaps_list* back_all_ovlp)
 {
@@ -3569,9 +3588,8 @@ void print_all_purge_ovlp(ma_ug_t *ug, hap_overlaps_list* all_ovlp)
 
 }
 void purge_dups(ma_ug_t *ug, asg_t *read_g, ma_sub_t* coverage_cut, ma_hit_t_alloc* reverse_sources, 
-R_to_U* ruIndex, kvec_asg_arc_t_warp* edge, float density, uint32_t bi_graph_Len, uint32_t long_hap_overlap, 
-float lable_match_rate, int max_hang, int min_ovlp, long long bubble_dist, float drop_ratio,
-uint32_t just_contain)
+R_to_U* ruIndex, kvec_asg_arc_t_warp* edge, float density, uint32_t purege_minLen, int max_hang, 
+int min_ovlp, long long bubble_dist, float drop_ratio, uint32_t just_contain)
 {
     asg_t *purge_g = NULL;
     purge_g = asg_init();
@@ -3650,6 +3668,9 @@ uint32_t just_contain)
     //     vote_counting, visit, &u_vecs, &u_buffer, &u_can, uId, density, max_hang, min_ovlp, 
     //     0.05, &all_ovlp);
     // }
+
+
+    filter_hap_overlaps_by_length(&all_ovlp, purege_minLen);
 
     ///normalize_hap_overlaps(&all_ovlp, &back_all_ovlp);
     normalize_hap_overlaps_advance(&all_ovlp, &back_all_ovlp, ug, read_g, reverse_sources, ruIndex);
