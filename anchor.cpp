@@ -50,6 +50,13 @@ uint64_t ha_abuf_mem(const ha_abuf_t *ab)
 	return ab->m_a * sizeof(anchor1_t) + ab->mz.m * (sizeof(ha_mz1_t) + sizeof(seed1_t)) + sizeof(ha_abuf_t);
 }
 
+static int ha_ov_type(const overlap_region *r, uint32_t len)
+{
+	if (r->x_pos_s == 0 && r->x_pos_e == len - 1) return 2; // contained in a longer read
+	else if (r->x_pos_s > 0 && r->x_pos_e < len - 1) return 2; // containing a shorter read
+	else return r->x_pos_s == 0? 0 : 1;
+}
+
 void ha_get_new_candidates(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_region_alloc *overlap_list, Candidates_list *cl, double bw_thres, int max_n_chain, int keep_whole_chain)
 {
 	extern void *ha_flt_tab;
@@ -137,19 +144,20 @@ void ha_get_new_candidates(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_reg
 	#endif
 
 	if ((int)overlap_list->length > max_n_chain) {
-		int32_t n[2], s[2];
-		n[0] = n[1] = 0, s[0] = s[1] = 0;
+		uint32_t len = Get_READ_LENGTH(R_INF, rid);
+		int32_t w, n[3], s[3];
+		n[0] = n[1] = n[2] = 0, s[0] = s[1] = s[2] = 0;
 		for (i = 0; i < (uint32_t)overlap_list->length; ++i) {
 			const overlap_region *r = &overlap_list->list[i];
-			int dir = r->x_pos_s == 0? 0 : 1;
-			++n[dir];
-			if ((int)n[dir] == max_n_chain) s[dir] = r->shared_seed;
+			w = ha_ov_type(r, len);
+			++n[w];
+			if ((int)n[w] == max_n_chain) s[w] = r->shared_seed;
 		}
 		if (s[0] > 0 || s[1] > 0) {
 			for (i = 0, k = 0; i < (uint32_t)overlap_list->length; ++i) {
 				overlap_region *r = &overlap_list->list[i];
-				int dir = r->x_pos_s == 0? 0 : 1;
-				if (r->shared_seed > s[dir]) {
+				w = ha_ov_type(r, len);
+				if (r->shared_seed > s[w]) {
 					if ((uint32_t)k != i) {
 						overlap_region t;
 						t = overlap_list->list[k];
