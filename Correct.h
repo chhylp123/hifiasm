@@ -16,6 +16,7 @@
 #define INSERTION 2
 #define DELETION 3
 
+#define WINDOW_MAX_SIZE (WINDOW + (int)(1.0 / HA_MIN_OV_DIFF) + 3) // TODO: why 1/max_ov_diff?
 
 ///#define FLAG_THRE 0
 

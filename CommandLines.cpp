@@ -10,11 +10,13 @@
 hifiasm_opt_t asm_opt;
 
 static ko_longopt_t long_options[] = {
-	{ "version",      ko_no_argument,       300 },
-	{ "dbg-gfa",      ko_no_argument,       301 },
-	{ "write-paf",    ko_no_argument,       302 },
-	{ "write-ec",     ko_no_argument,       303 },
-	{ "skip-triobin", ko_no_argument,       304 },
+	{ "version",       ko_no_argument, 300 },
+	{ "dbg-gfa",       ko_no_argument, 301 },
+	{ "write-paf",     ko_no_argument, 302 },
+	{ "write-ec",      ko_no_argument, 303 },
+	{ "skip-triobin",  ko_no_argument, 304 },
+	{ "max-od-ec",     ko_no_argument, 305 },
+	{ "max-od-final",  ko_no_argument, 306 },
 	{ 0, 0, 0 }
 };
 
@@ -83,7 +85,9 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->k_mer_length = 51;
 	asm_opt->mz_win = 51;
 	asm_opt->bf_shift = 37;
-	asm_opt->high_factor = 5.0f;
+	asm_opt->high_factor = 5.0;
+	asm_opt->max_ov_diff_ec = 0.04;
+	asm_opt->max_ov_diff_final = 0.03;
 	asm_opt->hom_cov = 20;
 	asm_opt->max_n_chain = 100;
     asm_opt->k_mer_min_freq = 3;
@@ -264,6 +268,15 @@ int check_option(hifiasm_opt_t* asm_opt)
         return 0;
     }
 
+	if (asm_opt->max_ov_diff_ec < asm_opt->max_ov_diff_final) {
+		fprintf(stderr, "[ERROR] max_ov_diff_ec shouldn't be smaller than max_ov_diff_final\n");
+		return 0;
+	}
+
+	if (asm_opt->max_ov_diff_ec < HA_MIN_OV_DIFF) {
+		fprintf(stderr, "[ERROR] max_ov_diff_ec shouldn't be smaller than %g\n", HA_MIN_OV_DIFF);
+		return 0;
+	}
 
     if(asm_opt->max_short_tip < 0)
     {
@@ -385,6 +398,8 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
 		else if (c == 302) asm_opt->flag |= HA_F_WRITE_PAF;
 		else if (c == 303) asm_opt->flag |= HA_F_WRITE_EC;
 		else if (c == 304) asm_opt->flag |= HA_F_SKIP_TRIOBIN;
+		else if (c == 305) asm_opt->max_ov_diff_ec = atof(opt.arg);
+		else if (c == 306) asm_opt->max_ov_diff_final = atof(opt.arg);
         else if (c == 'l')
         {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
             asm_opt->purge_level_primary = asm_opt->purge_level_trio = atoi(opt.arg);

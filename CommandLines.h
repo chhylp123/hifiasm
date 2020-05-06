@@ -3,18 +3,20 @@
 
 #include <pthread.h>
 
-#define HA_VERSION "0.5-dirty-r248"
+#define HA_VERSION "0.5-dirty-r249"
 
 #define VERBOSE 0
 
-#define HA_F_NO_HPC       0x1
-#define HA_F_NO_KMER_FLT  0x2
-#define HA_F_VERBOSE_GFA  0x4
-#define HA_F_WRITE_EC     0x8
-#define HA_F_WRITE_PAF    0x10
-#define HA_F_SKIP_TRIOBIN 0x20
+#define HA_F_NO_HPC          0x1
+#define HA_F_NO_KMER_FLT     0x2
+#define HA_F_VERBOSE_GFA     0x4
+#define HA_F_WRITE_EC        0x8
+#define HA_F_WRITE_PAF       0x10
+#define HA_F_SKIP_TRIOBIN    0x20
 #define HA_F_PURGE_CONTAIN   0x40
-#define HA_F_PURGE_JOIN   0x80
+#define HA_F_PURGE_JOIN      0x80
+
+#define HA_MIN_OV_DIFF       0.02 // min sequence divergence in an overlap
 
 typedef struct {
 	int flag;
@@ -28,7 +30,9 @@ typedef struct {
     int k_mer_length;
 	int mz_win;
 	int bf_shift;
-	float high_factor; // coverage cutoff set to high_factor*hom_cov
+	double high_factor; // coverage cutoff set to high_factor*hom_cov
+	double max_ov_diff_ec;
+	double max_ov_diff_final;
 	int hom_cov;
 	int max_n_chain; // fall-back max number of chains to consider
     int k_mer_min_freq;

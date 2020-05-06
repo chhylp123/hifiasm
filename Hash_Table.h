@@ -6,22 +6,13 @@
 #define MAX_SUFFIX_BITS 64
 #define MODE_VALUE 101
 
-///#define WINDOW 350
-///#define THRESHOLD  14
-
 #define WINDOW 375
-//#define WINDOW_BOUNDARY 150
 #define WINDOW_BOUNDARY 375
 ///for one side, the first or last WINDOW_UNCORRECT_SINGLE_SIDE_BOUNDARY bases should not be corrected
 #define WINDOW_UNCORRECT_SINGLE_SIDE_BOUNDARY 25
 #define THRESHOLD  15
-#define THRESHOLD_RATE 0.04
-#define TAIL_LENGTH int(1/THRESHOLD_RATE)
-///#define OVERLAP_THRESHOLD 0.9
 #define OVERLAP_THRESHOLD_FILTER 0.9
-#define WINDOW_MAX_SIZE WINDOW + TAIL_LENGTH + 3
 #define THRESHOLD_MAX_SIZE  31
-#define FINAL_OVERLAP_ERROR_RATE 0.03
 
 #define GROUP_SIZE 4
 ///the max cigar likes 10M10D10M10D10M

@@ -1725,10 +1725,9 @@ ma_sub_t* coverage_cut, float shift_rate)
         collect_contain(&(paf[i]), NULL, rLen, &max_left, &max_right, 0.1);
         ///collect_contain(&(paf[i]), &(rev_paf[i]), rLen, &max_left, &max_right, 0.1);
 
-        ////shift_rate should be (FINAL_OVERLAP_ERROR_RATE*2)
+        ////shift_rate should be (asm_opt.max_ov_diff_final*2)
         ///this read is a normal read
-        if(max_left.e > max_right.s && 
-           (max_left.e - max_right.s >= rLen * shift_rate))
+        if (max_left.e > max_right.s && (max_left.e - max_right.s >= rLen * shift_rate))
         {
             continue;
         }
@@ -26062,7 +26061,7 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
     ///ma_hit_sub is just use to init coverage_cut,
     ///it seems we do not need ma_hit_cut & ma_hit_flt
     ma_hit_sub(min_dp, sources, n_read, readLen, mini_overlap_length, &coverage_cut);
-    detect_chimeric_reads(sources, n_read, readLen, coverage_cut, FINAL_OVERLAP_ERROR_RATE*2);
+    detect_chimeric_reads(sources, n_read, readLen, coverage_cut, asm_opt.max_ov_diff_final * 2.0);
     ma_hit_cut(sources, n_read, readLen, mini_overlap_length, &coverage_cut);
     ///print_binned_reads(sources, n_read, coverage_cut);
     ma_hit_flt(sources, n_read, coverage_cut, max_hang_length, mini_overlap_length);

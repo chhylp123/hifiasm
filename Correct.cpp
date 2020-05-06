@@ -260,7 +260,7 @@ All_reads* R_INF)
     
 
     x_len = x_end - x_start + 1;
-    threshold = x_len * THRESHOLD_RATE;
+    threshold = x_len * asm_opt.max_ov_diff_ec;
     /****************************may have bugs********************************/
     threshold = Adjust_Threshold(threshold, x_len);
     /****************************may have bugs********************************/
@@ -483,7 +483,7 @@ char* r_string)
 
         ///overlap length between [window_start, window_end]
         x_len = x_end - x_start + 1;
-        threshold = x_len * THRESHOLD_RATE;
+        threshold = x_len * asm_opt.max_ov_diff_ec;
         /****************************may have bugs********************************/
         threshold = Adjust_Threshold(threshold, x_len);
         /****************************may have bugs********************************/
@@ -548,8 +548,8 @@ inline double trim_error_rate(overlap_region_alloc* overlap_list, long long ID)
             }
             else
             {
-                ///tError += (Adjust_Threshold(subWinLen*THRESHOLD_RATE, subWinLen) * 2);
-                tError += (Adjust_Threshold(subWinLen*THRESHOLD_RATE, subWinLen) * 3);
+                ///tError += (Adjust_Threshold(subWinLen*asm_opt.max_ov_diff_ec, subWinLen) * 2);
+                tError += Adjust_Threshold(subWinLen * asm_opt.max_ov_diff_ec, subWinLen) * 3;
             }
         }
     }
@@ -566,8 +566,8 @@ inline double trim_error_rate(overlap_region_alloc* overlap_list, long long ID)
             }
             else
             {
-                ///tError += (Adjust_Threshold(subWinLen*THRESHOLD_RATE, subWinLen) * 2);
-                tError += (Adjust_Threshold(subWinLen*THRESHOLD_RATE, subWinLen) * 3);
+                ///tError += (Adjust_Threshold(subWinLen*asm_opt.max_ov_diff_ec, subWinLen) * 2);
+                tError += Adjust_Threshold(subWinLen * asm_opt.max_ov_diff_ec, subWinLen) * 3;
             }
         }
     }
@@ -2118,7 +2118,7 @@ inline void recalcate_window(overlap_region_alloc* overlap_list, All_reads* R_IN
                         x_end = overlap_list->list[j].w_list[i].x_end;
                         x_len = x_end - x_start + 1;
                         /****************************may have bugs********************************/
-                        ///threshold = x_len * THRESHOLD_RATE;
+                        ///threshold = x_len * asm_opt.max_ov_diff_ec;
                         threshold = overlap_list->list[j].w_list[i].error_threshold;
                         /****************************may have bugs********************************/
                         /****************************may have bugs********************************/
@@ -2415,7 +2415,7 @@ UC_Read* g_read)
         // }
 
 
-        threshold = xLen * THRESHOLD_RATE;
+        threshold = xLen * asm_opt.max_ov_diff_ec;
         threshold = Adjust_Threshold(threshold, xLen);
         threshold = double_error_threshold(threshold, xLen);
 
@@ -2931,7 +2931,7 @@ inline void recalcate_window_advance(overlap_region_alloc* overlap_list, All_rea
                         x_end = overlap_list->list[j].w_list[i].x_end;
                         x_len = x_end - x_start + 1;
                         /****************************may have bugs********************************/
-                        ///threshold = x_len * THRESHOLD_RATE;
+                        ///threshold = x_len * asm_opt.max_ov_diff_ec;
                         threshold = overlap_list->list[j].w_list[i].error_threshold;
                         /****************************may have bugs********************************/
                         /****************************may have bugs********************************/
@@ -2998,19 +2998,16 @@ inline void recalcate_window_advance(overlap_region_alloc* overlap_list, All_rea
                 }
             }
 
-            ///error_rate = trim_error_rate(overlap_list, j);
             error_rate = non_trim_error_rate(overlap_list, j, R_INF, dumy, g_read);
             
             
-            ///if(error_rate <= 0.015)
-            ///if(error_rate <= 0.03)
-            if(error_rate <= FINAL_OVERLAP_ERROR_RATE)
+            if (error_rate <= asm_opt.max_ov_diff_final)
             {
                 overlap_list->mapped_overlaps_length += overlap_length;
                 overlap_list->list[j].is_match = 1;
                 calculate_boundary_cigars(&(overlap_list->list[j]), R_INF, dumy, g_read);
             }
-            else if(error_rate <= 0.045)
+            else if (error_rate <= asm_opt.max_ov_diff_final * 1.5)
             {
                 overlap_list->list[j].is_match = 3;
             }
@@ -4552,7 +4549,7 @@ Cigar_record* current_cigar, long long uncorrected_window_start, Round2_alignmen
             x_start = corrected_window_start;
             x_end = corrected_window_end;
             x_len = x_end - x_start + 1;
-            threshold = x_len * THRESHOLD_RATE;
+            threshold = x_len * asm_opt.max_ov_diff_ec;
             /****************************may have bugs********************************/
             threshold = Adjust_Threshold(threshold, x_len);
             /****************************may have bugs********************************/
@@ -4741,7 +4738,7 @@ void generate_consensus(overlap_region_alloc* overlap_list, All_reads* R_INF,
 
 
     Window_Pool w_inf;
-    init_Window_Pool(&w_inf, g_read->length, WINDOW, TAIL_LENGTH);
+    init_Window_Pool(&w_inf, g_read->length, WINDOW, (int)(1.0/asm_opt.max_ov_diff_ec));
 
     int flag = 0;
     ///for last window
@@ -4885,7 +4882,7 @@ All_reads* R_INF, UC_Read* g_read, Correct_dumy* dumy, Graph* g, int* abnormal)
     (*abnormal) = 0;
     
     Window_Pool w_inf;
-    init_Window_Pool(&w_inf, g_read->length, WINDOW, TAIL_LENGTH);
+    init_Window_Pool(&w_inf, g_read->length, WINDOW, (int)(1.0/asm_opt.max_ov_diff_ec));
 
     int flag = 0;
     long long realLen = 0, tmpLen = 0;
@@ -6594,7 +6591,7 @@ Correct_dumy* dumy)
     {
         long long window_start, window_end;
         Window_Pool w_inf;
-        init_Window_Pool(&w_inf, read_length, WINDOW, TAIL_LENGTH);
+        init_Window_Pool(&w_inf, read_length, WINDOW, (int)(1.0/asm_opt.max_ov_diff_ec));
         int flag = 0;
         long long realLen = 0, realLen_100 = 0;
         int to_recover = 0;
@@ -7046,7 +7043,7 @@ void partition_overlaps(overlap_region_alloc* overlap_list, All_reads* R_INF,
     long long num_availiable_win = 0;
     
     Window_Pool w_inf;
-    init_Window_Pool(&w_inf, g_read->length, WINDOW, TAIL_LENGTH);
+    init_Window_Pool(&w_inf, g_read->length, WINDOW, (int)(1.0/asm_opt.max_ov_diff_ec));
 
     int flag = 0;
     while(get_Window(&w_inf, &window_start, &window_end) && flag != -2)
@@ -7135,7 +7132,7 @@ void partition_overlaps_advance(overlap_region_alloc* overlap_list, All_reads* R
     long long num_availiable_win = 0;
     
     Window_Pool w_inf;
-    init_Window_Pool(&w_inf, g_read->length, WINDOW, TAIL_LENGTH);
+    init_Window_Pool(&w_inf, g_read->length, WINDOW, (int)(1.0/asm_opt.max_ov_diff_ec));
 
     int flag = 0;
     while(get_Window(&w_inf, &window_start, &window_end) && flag != -2)
@@ -7219,7 +7216,7 @@ void correct_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF,
 
     Window_Pool w_inf;
 
-    init_Window_Pool(&w_inf, g_read->length, WINDOW, TAIL_LENGTH);
+    init_Window_Pool(&w_inf, g_read->length, WINDOW, (int)(1.0/asm_opt.max_ov_diff_ec));
 
     int flag = 0;
 
