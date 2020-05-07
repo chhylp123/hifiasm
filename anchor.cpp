@@ -53,7 +53,7 @@ uint64_t ha_abuf_mem(const ha_abuf_t *ab)
 static int ha_ov_type(const overlap_region *r, uint32_t len)
 {
 	if (r->x_pos_s == 0 && r->x_pos_e == len - 1) return 2; // contained in a longer read
-	else if (r->x_pos_s > 0 && r->x_pos_e < len - 1) return 2; // containing a shorter read
+	else if (r->x_pos_s > 0 && r->x_pos_e < len - 1) return 3; // containing a shorter read
 	else return r->x_pos_s == 0? 0 : 1;
 }
 
@@ -61,7 +61,7 @@ void ha_get_new_candidates(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_reg
 {
 	extern void *ha_flt_tab;
 	extern ha_pt_t *ha_idx;
-	uint32_t i;
+	uint32_t i, rlen;
 	uint64_t k, l;
 	double low_occ = asm_opt.hom_cov * HA_KMER_GOOD_RATIO;
 	double high_occ = asm_opt.hom_cov * (2.0 - HA_KMER_GOOD_RATIO);
@@ -71,6 +71,7 @@ void ha_get_new_candidates(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_reg
     clear_overlap_region_alloc(overlap_list);
 	recover_UC_Read(ucr, &R_INF, rid);
 	ab->mz.n = 0, ab->n_a = 0;
+	rlen = Get_READ_LENGTH(R_INF, rid); // read length
 
 	// get the list of anchors
 	ha_sketch(ucr->seq, ucr->length, asm_opt.mz_win, asm_opt.k_mer_length, 0, !(asm_opt.flag & HA_F_NO_HPC), &ab->mz, ha_flt_tab);
@@ -133,30 +134,30 @@ void ha_get_new_candidates(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_reg
 	calculate_overlap_region_by_chaining(cl, overlap_list, rid, ucr->length, &R_INF, bw_thres, keep_whole_chain);
 
 	#if 0
-	if (overlap_list->length > 2000) {
-		fprintf(stderr, "B\t%ld\t%ld\t%ld\n", (long)rid, (long)overlap_list->length, (long)Get_READ_LENGTH(R_INF, rid));
+	if (overlap_list->length > 0) {
+		fprintf(stderr, "B\t%ld\t%ld\t%d\n", (long)rid, (long)overlap_list->length, rlen);
 		for (int i = 0; i < (int)overlap_list->length; ++i) {
 			overlap_region *r = &overlap_list->list[i];
-			fprintf(stderr, "C\t%d\t%d\t%d\t%c\t%d\t%ld\t%d\t%d\t%c\t%d\n", (int)r->x_id, (int)r->x_pos_s, (int)r->x_pos_e, "+-"[r->x_pos_strand],
-					(int)r->y_id, (long)Get_READ_LENGTH(R_INF, r->y_id), (int)r->y_pos_s, (int)r->y_pos_e, "+-"[r->y_pos_strand], (int)r->shared_seed);
+			fprintf(stderr, "C\t%d\t%d\t%d\t%c\t%d\t%ld\t%d\t%d\t%c\t%d\t%d\n", (int)r->x_id, (int)r->x_pos_s, (int)r->x_pos_e, "+-"[r->x_pos_strand],
+					(int)r->y_id, (long)Get_READ_LENGTH(R_INF, r->y_id), (int)r->y_pos_s, (int)r->y_pos_e, "+-"[r->y_pos_strand], (int)r->shared_seed, ha_ov_type(r, rlen));
 		}
 	}
 	#endif
 
 	if ((int)overlap_list->length > max_n_chain) {
-		uint32_t len = Get_READ_LENGTH(R_INF, rid);
-		int32_t w, n[3], s[3];
-		n[0] = n[1] = n[2] = 0, s[0] = s[1] = s[2] = 0;
+		int32_t w, n[4], s[4];
+		n[0] = n[1] = n[2] = n[3] = 0, s[0] = s[1] = s[2] = s[3] = 0;
+		ks_introsort_or_ss(overlap_list->length, overlap_list->list);
 		for (i = 0; i < (uint32_t)overlap_list->length; ++i) {
 			const overlap_region *r = &overlap_list->list[i];
-			w = ha_ov_type(r, len);
+			w = ha_ov_type(r, rlen);
 			++n[w];
 			if ((int)n[w] == max_n_chain) s[w] = r->shared_seed;
 		}
-		if (s[0] > 0 || s[1] > 0) {
+		if (s[0] > 0 || s[1] > 0 || s[2] > 0 || s[3] > 0) {
 			for (i = 0, k = 0; i < (uint32_t)overlap_list->length; ++i) {
 				overlap_region *r = &overlap_list->list[i];
-				w = ha_ov_type(r, len);
+				w = ha_ov_type(r, rlen);
 				if (r->shared_seed > s[w]) {
 					if ((uint32_t)k != i) {
 						overlap_region t;
