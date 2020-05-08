@@ -158,7 +158,7 @@ void ha_get_new_candidates(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_reg
 			for (i = 0, k = 0; i < (uint32_t)overlap_list->length; ++i) {
 				overlap_region *r = &overlap_list->list[i];
 				w = ha_ov_type(r, rlen);
-				if (r->shared_seed > s[w]) {
+				if (r->shared_seed >= s[w]) {
 					if ((uint32_t)k != i) {
 						overlap_region t;
 						t = overlap_list->list[k];
