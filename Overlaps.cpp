@@ -10435,7 +10435,7 @@ long long miniedgeLen, R_to_U* ruIndex, uint32_t positive_flag, uint32_t negativ
     ///the reason is that each read has two direction (query->target, target->query)
     uint32_t v, n_vtx = g->n_seq * 2, n_reduced = 0, convex, flag, is_hap, k, to_replace;
     long long ll, base_maxLen, base_maxPositive, base_minNegative, base_minNonPositive, base_best_i, all_covex, curPositive, curNonPositive, curNegative;
-    long long tmp, max_stop_nodeLen, max_stop_baseLen;
+    long long tmp, max_stop_nodeLen, max_stop_baseLen, cur_weight = 0, max_weight = 0;
     uint32_t non_positive_flag = (uint32_t)-1;
     if(positive_flag == FATHER) non_positive_flag = MOTHER;
     if(positive_flag == MOTHER) non_positive_flag = FATHER;
@@ -10501,37 +10501,22 @@ long long miniedgeLen, R_to_U* ruIndex, uint32_t positive_flag, uint32_t negativ
                 }
 
                 to_replace = 0;
-                if(curNegative < base_minNegative)
+                cur_weight = (long long)curPositive - ((long long)curNegative + (long long)curNonPositive);
+                max_weight = (long long)base_maxPositive - ((long long)base_minNegative + (long long)base_minNonPositive);
+                if(cur_weight > max_weight)
                 {
                     to_replace = 1;
                 }
-                else if(curNegative == base_minNegative)
+                else if((cur_weight == max_weight))
                 {
-                    if(curNonPositive < base_minNonPositive)
+                    if(ll > base_maxLen)
                     {
                         to_replace = 1;
-                    }
-                    else if(curNonPositive == base_minNonPositive)
-                    {
-                        if(curPositive > base_maxPositive)
-                        {
-                            to_replace = 1;
-                        }
-                        else if(curPositive == base_maxPositive)
-                        {
-                            if(ll > base_maxLen)
-                            {
-                                to_replace = 1;
-                            }
-                        }   
                     }
                 }
 
 
-
-
-
-                if(to_replace == 1)
+                if(base_best_i == -1 || to_replace == 1)
                 {
                     base_minNegative = curNegative;
                     base_minNonPositive = curNonPositive;
@@ -10608,6 +10593,7 @@ long long miniedgeLen, R_to_U* ruIndex, uint32_t positive_flag, uint32_t negativ
 
     return n_reduced;
 }
+
 
 
 int asg_arc_cut_long_equal_tips_assembly_complex(asg_t *g, ma_hit_t_alloc* reverse_sources, 
@@ -11378,7 +11364,7 @@ void print_untig(ma_ug_t *g, uint32_t uId, const char* info, uint32_t is_print_r
     asg_arc_t *aw = asg_arc_a(nsg, uId);
     uint32_t nw = asg_arc_n(nsg, uId);
 
-    fprintf(stderr, "\n%s: c = %u\n", info, nsg->seq[uId>>1].c);
+    fprintf(stderr, "\n%s: c = %u, del: %u\n", info, nsg->seq[uId>>1].c, nsg->seq[uId>>1].del);
     fprintf(stderr, "%s(%u): direction = 0...\n", info, uId>>1);
     for (i = 0; i < nw; i++)
     {
@@ -11939,22 +11925,26 @@ R_to_U* ruIndex, uint32_t min_edge_length, float drop_ratio, uint32_t stops_thre
 }
 
 void renew_longest_tip_by_drop(asg_t *g, ma_ug_t *ug, asg_arc_t *av, uint32_t nv,
-long long* base_maxLen, long long* base_maxLen_i, uint32_t stops_threshold, buf_t* b)
+long long* base_maxLen, long long* base_maxLen_i, uint32_t stops_threshold, buf_t* b, uint32_t trio_flag)
 {
+    if(trio_flag != FATHER && trio_flag != MOTHER) return;
     Trio_counter max, cur;
     memset(&max, 0, sizeof(Trio_counter));
     memset(&cur, 0, sizeof(Trio_counter));
-    long long ll, tmp, max_stop_nodeLen, max_stop_baseLen;
+    long long ll, tmp, max_stop_nodeLen, max_stop_baseLen, max_weight = 0, cur_weight = 0;
     uint32_t convex, i, return_flag, best_tip_i, best_tip_len;
-
+    
     b->b.n = 0;
     return_flag = get_unitig(g, ug, av[(*base_maxLen_i)].v, &convex, &tmp, &ll, 
     &max_stop_nodeLen, &max_stop_baseLen, stops_threshold, b);
-
     if(return_flag!=END_TIPS) return;
+
+
     get_trio_labs(b, ug, &max);
     ///means this unitig might be at current haplotype
-    if(max.drop_occ<(max.total*TRIO_DROP_THRES)) return;
+    ///if(max.drop_occ<(max.total*TRIO_DROP_THRES)) return;
+
+
     best_tip_i = (*base_maxLen_i);
     best_tip_len = (*base_maxLen);
 
@@ -11970,16 +11960,33 @@ long long* base_maxLen, long long* base_maxLen_i, uint32_t stops_threshold, buf_
         if(return_flag!=END_TIPS) return;
         ///this tip should be long enough
         if(ll<(TRIO_DROP_LENGTH_THRES*(*base_maxLen))) continue;
+
         get_trio_labs(b, ug, &cur);
-        ///this unitig is very likly at another haplotype, ignore it
-        if(cur.drop_occ>=(cur.total*TRIO_DROP_THRES)) continue;
-        if(cur.drop_occ<max.drop_occ)
+
+        if(trio_flag == FATHER)
+        {
+            max_weight = (long long)max.father_occ - (long long)max.drop_occ - (long long)max.mother_occ;
+            cur_weight = (long long)cur.father_occ - (long long)cur.drop_occ - (long long)cur.mother_occ;
+            ///this unitig is very likly at another haplotype, ignore it
+            if((cur.drop_occ+cur.mother_occ)>=(cur.total*TRIO_DROP_THRES)) continue;
+        }
+
+        if(trio_flag == MOTHER)
+        {
+            max_weight = (long long)max.mother_occ - (long long)max.drop_occ - (long long)max.father_occ;
+            cur_weight = (long long)cur.mother_occ - (long long)cur.drop_occ - (long long)cur.father_occ;
+            ///this unitig is very likly at another haplotype, ignore it
+            if((cur.drop_occ+cur.father_occ)>=(cur.total*TRIO_DROP_THRES)) continue;
+        }
+
+
+        if(cur_weight > max_weight)
         {
             max = cur;
             best_tip_i = i;
             best_tip_len = ll;
         }
-        else if(cur.drop_occ==max.drop_occ && ll>best_tip_len)
+        else if(cur_weight == max_weight && ll>best_tip_len)
         {
             max = cur;
             best_tip_i = i;
@@ -11992,7 +11999,7 @@ long long* base_maxLen, long long* base_maxLen_i, uint32_t stops_threshold, buf_
 }
 
 int asg_arc_cut_trio_long_equal_tips_assembly(asg_t *g, ma_ug_t *ug, asg_t *read_sg, 
-ma_hit_t_alloc* reverse_sources, long long miniedgeLen, R_to_U* ruIndex)
+ma_hit_t_alloc* reverse_sources, long long miniedgeLen, R_to_U* ruIndex, uint32_t trio_flag)
 {
     double startTime = Get_T();
     uint32_t v, n_vtx = g->n_seq * 2, n_reduced = 0, convex, flag, is_hap, n_tips, return_flag, k;
@@ -12046,7 +12053,7 @@ ma_hit_t_alloc* reverse_sources, long long miniedgeLen, R_to_U* ruIndex)
         if(n_arc == n_tips)
         {
             renew_longest_tip_by_drop(g, ug, av, nv, &base_maxLen, 
-            &base_maxLen_i, 1, &b);
+            &base_maxLen_i, 1, &b, trio_flag);
         }
 
         for (i = 0; i < nv; i++)
@@ -12625,12 +12632,11 @@ float drop_ratio, uint32_t trio_flag, float trio_drop_rate)
     asg_t *g = ug->g;
     uint32_t is_first = 1;
 
-    
     redo:
+    ///if(trio_flag == MOTHER) fprintf(stderr, "(0) c: %u, del: %u, n: %u\n", ug->g->seq[28141].c, ug->g->seq[28141].del, ug->u.a[28141].n);
     asg_pop_bubble_primary_trio(ug, bubble_dist, trio_flag, DROP);
     untig_asg_arc_simple_large_bubbles_trio(ug, read_g, reverse_sources, 2, ruIndex, trio_flag, DROP); 
     magic_trio_phasing(g, ug, read_g, reverse_sources, 2, ruIndex, trio_flag, trio_drop_rate);
-    
     ///drop_semi_circle(ug, g, read_g, reverse_sources, ruIndex);
     
     /**********debug**********/
@@ -12654,21 +12660,21 @@ float drop_ratio, uint32_t trio_flag, float trio_drop_rate)
         ///need consider tangles
         ///asg_pop_bubble_primary(g, bubble_dist);
         asg_pop_bubble_primary_trio(ug, bubble_dist, trio_flag, DROP);
-
-
-        
-
         /**********debug**********/
         if(just_bubble_pop == 0)
         {
             ///need consider tangles
             asg_arc_cut_trio_long_tip_primary(g, ug, read_g, reverse_sources, ruIndex, 
             2, tip_drop_ratio);
-            asg_arc_cut_trio_long_equal_tips_assembly(g, ug, read_g, reverse_sources, 2, ruIndex);
+
+            asg_arc_cut_trio_long_equal_tips_assembly(g, ug, read_g, reverse_sources, 2, ruIndex, trio_flag);
+            
             asg_arc_cut_trio_long_tip_primary_complex(g, ug, read_g, reverse_sources, ruIndex,
             2, tip_drop_ratio, stops_threshold);
+
             asg_arc_cut_trio_long_equal_tips_assembly_complex(g, ug, read_g, reverse_sources, 
             2, ruIndex, stops_threshold);
+
             detect_chimeric_by_topo(g, ug, read_g, reverse_sources, 2, stops_threshold, chimeric_rate,
             ruIndex);
             ///need consider tangles
@@ -12686,12 +12692,9 @@ float drop_ratio, uint32_t trio_flag, float trio_drop_rate)
         2);
     }
 
-
-    
     resolve_tangles(ug, read_g, reverse_sources, 20, 100, 0.05, 0.2, ruIndex, trio_flag, drop_ratio);
     drop_semi_circle(ug, g, read_g, reverse_sources, ruIndex);
     all_to_all_deduplicate(ug, trio_flag, trio_drop_rate, reverse_sources, ruIndex);
-
 
     if(is_first)
     {
@@ -12735,7 +12738,7 @@ float drop_ratio)
             ///need consider tangles
             asg_arc_cut_trio_long_tip_primary(g, ug, read_g, reverse_sources, ruIndex, 
             2, tip_drop_ratio);
-            asg_arc_cut_trio_long_equal_tips_assembly(g, ug, read_g, reverse_sources, 2, ruIndex);
+            asg_arc_cut_trio_long_equal_tips_assembly(g, ug, read_g, reverse_sources, 2, ruIndex, (uint32_t)-1);
             asg_arc_cut_trio_long_tip_primary_complex(g, ug, read_g, reverse_sources, ruIndex,
             2, tip_drop_ratio, stops_threshold);
             asg_arc_cut_trio_long_equal_tips_assembly_complex(g, ug, read_g, reverse_sources, 
@@ -12801,10 +12804,10 @@ void set_drop_trio_flag(ma_ug_t *ug)
 
 
 void update_unitig_graph(ma_ug_t* ug, asg_t* read_g, ma_hit_t_alloc* reverse_sources, 
-R_to_U* ruIndex, uint8_t flag, float drop_rate)
+R_to_U* ruIndex, uint8_t is_double_check, uint8_t flag, float drop_rate)
 {
     asg_t* nsg = ug->g;
-    uint32_t v, n_vtx = nsg->n_seq, k, rId, flag_occ, non_flag_occ, n_reduce = 1;
+    uint32_t v, n_vtx = nsg->n_seq, k, rId, flag_occ, non_flag_occ, hap_label_occ, n_reduce = 1;
     ma_utg_t *u;
 
     drop_semi_circle(ug, nsg, read_g, reverse_sources, ruIndex);
@@ -12821,15 +12824,19 @@ R_to_U* ruIndex, uint8_t flag, float drop_rate)
             if((get_real_length(nsg, v<<1, NULL)!=0) 
                 && (get_real_length(nsg, ((v<<1)^1), NULL)!=0)) continue;
 
-            flag_occ = non_flag_occ = 0;
+            flag_occ = non_flag_occ = hap_label_occ = 0;
             for (k = 0; k < u->n; k++)
             {
                 rId = u->a[k]>>33;
+                if(read_g->seq[rId].c == HAP_LABLE) hap_label_occ++;
                 if(R_INF.trio_flag[rId] == AMBIGU) continue;
                 if(R_INF.trio_flag[rId] == DROP) continue;
                 if(R_INF.trio_flag[rId] == flag) flag_occ++;
                 if(R_INF.trio_flag[rId] != flag) non_flag_occ++;
             }
+
+            if(hap_label_occ == u->n) continue;
+            if(is_double_check && non_flag_occ < u->n*DOUBLE_CHECK_THRES) continue;
 
             if(non_flag_occ > ((non_flag_occ+flag_occ)*drop_rate))
             {
@@ -13168,7 +13175,40 @@ void drop_semi_circle(ma_ug_t *ug, asg_t* nsg, asg_t* read_g, ma_hit_t_alloc* re
 
 }
 
+void update_hap_label(ma_ug_t *ug, asg_t* read_g)
+{
+    uint32_t v, n_vtx, k;
+    uint64_t rId;
 
+    if(ug == NULL)
+    {
+        n_vtx = read_g->n_seq;
+        for (v = 0; v < n_vtx; ++v) 
+        {
+            if(read_g->seq[v].del) continue;
+            if(read_g->seq[v].c != HAP_LABLE) continue;
+            read_g->seq[v].c = PRIMARY_LABLE;
+        }
+        return;
+    }
+
+
+    asg_t* nsg = ug->g;
+    n_vtx = nsg->n_seq;
+    ma_utg_t* u = NULL;
+    for (v = 0; v < n_vtx; ++v) 
+    {
+        if(nsg->seq[v].del) continue;
+        if(nsg->seq[v].c != HAP_LABLE) continue;
+        u = &((ug)->u.a[v]);
+        if(u->m == 0) continue;
+        for (k = 0; k < u->n; k++)
+        {
+            rId = u->a[k]>>33;
+            read_g->seq[rId].c = HAP_LABLE;
+        }
+    }
+}
 
 
 void adjust_utg_by_trio(ma_ug_t **ug, asg_t* read_g, uint8_t flag, float drop_rate,
@@ -13180,14 +13220,15 @@ kvec_asg_arc_t_warp* new_rtg_edges)
     asg_t* nsg = (*ug)->g;
     uint32_t v, n_vtx = nsg->n_seq;
     
+    //if(flag == MOTHER) print_untig_by_read(*ug, "m54329U_190617_231905/65340614/ccs", (uint32_t)-1, sources, reverse_sources, "beg1");
+    //if(flag == MOTHER) print_untig_by_read(*ug, "m54329U_190827_173812/67108993/ccs", (uint32_t)-1, sources, reverse_sources, "beg2");
+    
     /**
     kvec_t_u32_warp new_rtg_nodes;
     kv_init(new_rtg_nodes.a);
     **/
-   
-    update_unitig_graph((*ug), read_g, reverse_sources, ruIndex, flag, drop_rate);
+    update_unitig_graph((*ug), read_g, reverse_sources, ruIndex, 0, flag, drop_rate);
     adjust_utg_advance(read_g, (*ug), reverse_sources, ruIndex);
-     
     nsg = (*ug)->g;
     n_vtx = nsg->n_seq;
     for (v = 0; v < n_vtx; ++v) 
@@ -13201,9 +13242,13 @@ kvec_asg_arc_t_warp* new_rtg_edges)
     tip_drop_ratio, stops_threshold, ruIndex, NULL, NULL, 0, 0, 0, 
     chimeric_rate, 0, 0, drop_ratio, flag, drop_rate);
 
+    ///if(flag == MOTHER) fprintf(stderr, "(o.1) c: %u, del: %u, n: %u\n", (*ug)->g->seq[28141].c, (*ug)->g->seq[28141].del, (*ug)->u.a[28141].n);
+    
     delete_useless_nodes(ug);
 
-    update_unitig_graph((*ug), read_g, reverse_sources, ruIndex, flag, drop_rate);
+    update_hap_label(*ug, read_g);
+
+    update_unitig_graph((*ug), read_g, reverse_sources, ruIndex, 0, flag, drop_rate);
 
     renew_utg(ug, read_g, new_rtg_edges);
 
@@ -13217,7 +13262,9 @@ kvec_asg_arc_t_warp* new_rtg_edges)
 
     renew_utg(ug, read_g, new_rtg_edges);
 
-    update_unitig_graph((*ug), read_g, reverse_sources, ruIndex, flag, drop_rate);
+    update_unitig_graph((*ug), read_g, reverse_sources, ruIndex, 1, flag, drop_rate);
+
+    update_hap_label(NULL, read_g);
 
     renew_utg(ug, read_g, new_rtg_edges);
 
@@ -13276,7 +13323,7 @@ float chimeric_rate, float drop_ratio, int max_hang, int min_ovlp)
     ///print_untig_by_read(ug, "m64011_190830_220126/117834372/ccs", 865264, sources, reverse_sources, "beg");
     adjust_utg_by_trio(&ug, sg, flag, TRIO_THRES, sources, reverse_sources, coverage_cut, 
     bubble_dist, tipsLen, tip_drop_ratio, stops_threshold, ruIndex, chimeric_rate, drop_ratio, 
-    max_hang, min_ovlp, &new_rtg_edges);
+    max_hang, min_ovlp, &new_rtg_edges);    
     ///debug_utg_graph(ug, sg, 0, 0);
     ///debug_untig_length(ug, tipsLen, gfa_name);
     ///print_untig_by_read(ug, "m64011_190901_095311/125831121/ccs", 2310925, "end");
@@ -13543,6 +13590,7 @@ uint32_t positive_flag, uint32_t negative_flag, uint32_t is_pop)
 {   
 	uint32_t i, n_pending = 0, is_first = 1, cur_m, cur_c, cur_np, cur_nc, to_replace, n_tips, tip_end;
 	uint64_t n_pop = 0;
+    long long cur_weight = -1, max_weight = -1;
 	///if this node has been deleted
 	if (g->seq[v0>>1].del || g->seq[v0>>1].c == ALTER_LABLE) return 0; // already deleted
 	///if ((uint32_t)g->idx[v0] < 2) return 0; // no bubbles
@@ -13644,43 +13692,61 @@ uint32_t positive_flag, uint32_t negative_flag, uint32_t is_pop)
                     }
                     cur_nc = utg->u.a[(w>>1)].n;
                 }
-                ///select the way with less negative_flag, less non_positive_flag, more positive_flag, more distance
+                ///BUG: select the path with less negative_flag, less non_positive_flag, more positive_flag, more distance
+                ///FIXED: select the path with less (negative_flag+non_positive_flag), more positive_flag, more distance
                 to_replace = 0;
-                if(m + cur_m < t->m)
+
+                /****************************may have bugs********************************/
+                cur_weight = (long long)(c + cur_c) - ((long long)(m + cur_m) + (long long)(np + cur_np));
+                max_weight = (long long)t->c - ((long long)t->m + (long long)t->np);
+                if(cur_weight > max_weight)
                 {
                     to_replace = 1;
                 }
-                else if(m + cur_m == t->m)
+                else if(cur_weight == max_weight)
                 {
-                    if(np + cur_np < t->np)
+                    if(nc + cur_nc > t->nc)
                     {
                         to_replace = 1;
                     }
-                    else if(np + cur_np == t->np)
+                    else if(nc + cur_nc == t->nc)
                     {
-                        if(c + cur_c > t->c)
+                        if(d + l > t->d)
                         {
                             to_replace = 1;
                         }
-                        else if(c + cur_c == t->c)
+                    }
+                }
+                /****************************may have bugs********************************/
+
+                /**
+                if(((m + cur_m) + (np + cur_np)) < (t->m + t->np))
+                {
+                    to_replace = 1;
+                }
+                else if(((m + cur_m) + (np + cur_np)) == (t->m + t->np))
+                {
+                    if(c + cur_c > t->c)
+                    {
+                        to_replace = 1;
+                    }
+                    else if(c + cur_c == t->c)
+                    {
+                        if(nc + cur_nc > t->nc)
                         {
-                            if(nc + cur_nc > t->nc)
+                            to_replace = 1;
+                        }
+                        else if(nc + cur_nc == t->nc)
+                        {
+                            if(d + l > t->d)
                             {
                                 to_replace = 1;
                             }
-                            else if(nc + cur_nc == t->nc)
-                            {
-                                if(d + l > t->d)
-                                {
-                                    to_replace = 1;
-                                }
-                            }
-                            
                         }
                         
                     }
-                    
                 }
+                **/
                 
 
                 if(to_replace)

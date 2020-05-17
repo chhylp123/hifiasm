@@ -1164,6 +1164,7 @@ int ha_assemble(void)
 		ovlp_loaded = 1;
 		fprintf(stderr, "[M::%s::%.3f*%.2f] ==> loaded corrected reads and overlaps from disk\n", __func__, yak_realtime(), yak_cpu_usage());
 		if (!(asm_opt.flag & HA_F_SKIP_TRIOBIN) && !(asm_opt.flag & HA_F_VERBOSE_GFA)) ha_triobin(&asm_opt);
+        ///if (!(asm_opt.flag & HA_F_SKIP_TRIOBIN)) ha_triobin(&asm_opt);
 		if (asm_opt.flag & HA_F_WRITE_EC) Output_corrected_reads();
 		if (asm_opt.flag & HA_F_WRITE_PAF) Output_PAF();
 	}
