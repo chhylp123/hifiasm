@@ -22,6 +22,7 @@
 #define ALTER_LABLE 1
 #define HAP_LABLE 2
 #define TRIO_THRES 0.9
+#define DOUBLE_CHECK_THRES 0.2
 // #define PRIMARY_LABLE 1
 // #define ALTER_LABLE 2
 // #define HAP_LABLE 4
