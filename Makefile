@@ -4,7 +4,7 @@ CPPFLAGS=
 INCLUDES=
 OBJS=		CommandLines.o Process_Read.o Assembly.o Hash_Table.o \
 			POA.o Correct.o Levenshtein_distance.o Overlaps.o Trio.o kthread.o Purge_Dups.o \
-			htab.o hist.o sketch.o anchor.o sys.o
+			htab.o hist.o sketch.o anchor.o extract.o sys.o
 EXE=		hifiasm
 LIBS=		-lz -lpthread -lm
 
@@ -51,10 +51,12 @@ Process_Read.o: Process_Read.h Overlaps.h kvec.h kdq.h CommandLines.h
 Purge_Dups.o: ksort.h Purge_Dups.h kvec.h kdq.h Overlaps.h Hash_Table.h
 Purge_Dups.o: htab.h Process_Read.h CommandLines.h Correct.h
 Purge_Dups.o: Levenshtein_distance.h POA.h kthread.h
-Trio.o: khashl.h kthread.h Process_Read.h Overlaps.h kvec.h kdq.h
+Trio.o: khashl.h kthread.h kseq.h Process_Read.h Overlaps.h kvec.h kdq.h
 Trio.o: CommandLines.h htab.h
 anchor.o: htab.h Process_Read.h Overlaps.h kvec.h kdq.h CommandLines.h
 anchor.o: ksort.h Hash_Table.h
+extract.o: Process_Read.h Overlaps.h kvec.h kdq.h CommandLines.h khashl.h
+extract.o: kseq.h
 hist.o: htab.h Process_Read.h Overlaps.h kvec.h kdq.h CommandLines.h
 htab.o: kthread.h khashl.h kseq.h ksort.h htab.h Process_Read.h Overlaps.h
 htab.o: kvec.h kdq.h CommandLines.h

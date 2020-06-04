@@ -17,6 +17,8 @@ static ko_longopt_t long_options[] = {
 	{ "skip-triobin",  ko_no_argument, 304 },
 	{ "max-od-ec",     ko_no_argument, 305 },
 	{ "max-od-final",  ko_no_argument, 306 },
+	{ "ex-list",       ko_required_argument, 307 },
+	{ "ex-iter",       ko_required_argument, 308 },
 	{ 0, 0, 0 }
 };
 
@@ -400,6 +402,8 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
 		else if (c == 304) asm_opt->flag |= HA_F_SKIP_TRIOBIN;
 		else if (c == 305) asm_opt->max_ov_diff_ec = atof(opt.arg);
 		else if (c == 306) asm_opt->max_ov_diff_final = atof(opt.arg);
+		else if (c == 307) asm_opt->extract_list = opt.arg;
+		else if (c == 308) asm_opt->extract_iter = atoi(opt.arg);
         else if (c == 'l')
         {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
             asm_opt->purge_level_primary = asm_opt->purge_level_trio = atoi(opt.arg);

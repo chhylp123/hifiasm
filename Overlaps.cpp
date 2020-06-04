@@ -10506,7 +10506,7 @@ long long miniedgeLen, R_to_U* ruIndex, uint32_t positive_flag, uint32_t negativ
                 {
                     to_replace = 1;
                 }
-                else if((cur_weight == max_weight))
+                else if (cur_weight == max_weight)
                 {
                     if(ll > base_maxLen)
                     {

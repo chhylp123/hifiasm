@@ -1159,10 +1159,15 @@ void ha_overlap_final(void)
 
 int ha_assemble(void)
 {
+	extern void ha_extract_print_list(const All_reads *rs, int n_rounds, const char *o);
 	int r, hom_cov = -1, ovlp_loaded = 0;
 	if (asm_opt.load_index_from_disk && load_all_data_from_disk(&R_INF.paf, &R_INF.reverse_paf, asm_opt.output_file_name)) {
 		ovlp_loaded = 1;
 		fprintf(stderr, "[M::%s::%.3f*%.2f] ==> loaded corrected reads and overlaps from disk\n", __func__, yak_realtime(), yak_cpu_usage());
+		if (asm_opt.extract_list) {
+			ha_extract_print_list(&R_INF, asm_opt.extract_iter, asm_opt.extract_list);
+			exit(0);
+		}
 		if (!(asm_opt.flag & HA_F_SKIP_TRIOBIN) && !(asm_opt.flag & HA_F_VERBOSE_GFA)) ha_triobin(&asm_opt);
         ///if (!(asm_opt.flag & HA_F_SKIP_TRIOBIN)) ha_triobin(&asm_opt);
 		if (asm_opt.flag & HA_F_WRITE_EC) Output_corrected_reads();

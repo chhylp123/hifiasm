@@ -3,7 +3,7 @@
 
 #include <pthread.h>
 
-#define HA_VERSION "0.7-dirty-r253"
+#define HA_VERSION "0.7-dirty-r254"
 
 #define VERBOSE 0
 
@@ -26,6 +26,8 @@ typedef struct {
     char* required_read_name;
 	char *fn_bin_yak[2];
 	char *fn_bin_list[2];
+	char *extract_list;
+	int extract_iter;
     int thread_num;
     int k_mer_length;
 	int mz_win;
