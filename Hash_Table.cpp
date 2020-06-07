@@ -4,6 +4,7 @@
 #include <pthread.h>
 #include "Hash_Table.h"
 #include "ksort.h"
+#include "utils.h"
 pthread_mutex_t output_mutex;
 
 #define overlap_region_key(a) ((a).y_id)

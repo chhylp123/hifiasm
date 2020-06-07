@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include "htab.h"
 #include "ksort.h"
+#include "utils.h"
 #include "Hash_Table.h"
 
 #define HA_KMER_GOOD_RATIO 0.333

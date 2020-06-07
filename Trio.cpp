@@ -9,6 +9,7 @@
 #include "kseq.h"
 #include "Process_Read.h"
 #include "htab.h"
+#include "utils.h"
 #include "CommandLines.h"
 
 #define YAK_MAX_KMER     31

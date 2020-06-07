@@ -3,21 +3,19 @@
 #include "Process_Read.h"
 #include "khashl.h"
 #include "kseq.h"
+#include "utils.h"
 
 typedef const char *cstr_t;
 KHASHL_CSET_INIT(KH_LOCAL, strset_t, ss, cstr_t, kh_hash_str, kh_eq_str)
 KHASHL_MAP_INIT(KH_LOCAL, hm64_t, h64, uint64_t, int, kh_hash_uint64, kh_eq_generic)
 KSTREAM_INIT(gzFile, gzread, 65536)
 
-#define GFA_MALLOC(ptr, len) ((ptr) = (__typeof__(ptr))malloc((len) * sizeof(*(ptr))))
-#define GFA_REALLOC(ptr, len) ((ptr) = (__typeof__(ptr))realloc((ptr), (len) * sizeof(*(ptr))))
-
 char *gfa_strdup(const char *src)
 {
 	int32_t len;
 	char *dst;
 	len = strlen(src);
-	GFA_MALLOC(dst, len + 1);
+	MALLOC(dst, len + 1);
 	memcpy(dst, src, len + 1);
 	return dst;
 }
@@ -25,7 +23,7 @@ char *gfa_strdup(const char *src)
 char *gfa_strndup(const char *src, size_t n)
 {
 	char *dst;
-	GFA_MALLOC(dst, n + 1);
+	MALLOC(dst, n + 1);
 	strncpy(dst, src, n);
 	dst[n] = 0;
 	return dst;
@@ -42,7 +40,7 @@ char **gv_read_list(const char *o, int *n_)
 			if (*p == ',' || *p == 0) {
 				if (n == m) {
 					m = m? m<<1 : 16;
-					GFA_REALLOC(s, m);
+					REALLOC(s, m);
 				}
 				s[n++] = gfa_strndup(q, p - q);
 				if (*p == 0) break;
@@ -63,7 +61,7 @@ char **gv_read_list(const char *o, int *n_)
 			for (p = str.s; *p && !isspace(*p); ++p);
 			if (n == m) {
 				m = m? m<<1 : 16;
-				GFA_REALLOC(s, m);
+				REALLOC(s, m);
 			}
 			s[n++] = gfa_strndup(str.s, p - str.s);
 		}
@@ -94,7 +92,7 @@ void ha_extract_print(const All_reads *rs, int n_rounds, int n, char **list)
 		for (j = 0; j < rs->total_reads; ++j)
 			if (max_len < (int)Get_NAME_LENGTH(*rs, j))
 				max_len = Get_NAME_LENGTH(*rs, j);
-		GFA_MALLOC(s, max_len + 1);
+		MALLOC(s, max_len + 1);
 		h = h64_init();
 		for (j = 0; j < rs->total_reads; ++j) {
 			strncpy(s, Get_NAME(*rs, j), Get_NAME_LENGTH(*rs, j));

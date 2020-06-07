@@ -10,6 +10,7 @@
 #include "Correct.h"
 #include "htab.h"
 #include "kthread.h"
+#include "utils.h"
 
 void ha_get_new_candidates(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_region_alloc *overlap_list, Candidates_list *cl, double bw_thres, int max_n_chain, int keep_whole_chain);
 

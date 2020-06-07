@@ -9,6 +9,7 @@
 #include "kseq.h"
 #include "ksort.h"
 #include "htab.h"
+#include "utils.h"
 
 #define YAK_COUNTER_BITS 12
 #define YAK_N_COUNTS     (1<<YAK_COUNTER_BITS)

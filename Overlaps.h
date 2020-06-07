@@ -83,6 +83,7 @@ char* output_file_name);
 typedef struct {
 	uint32_t s:31, del:1, e;
 	uint8_t c;
+	uint8_t weak_contain;
 } ma_sub_t;
 
 void ma_hit_sub(int min_dp, ma_hit_t_alloc* sources, long long n_read, uint64_t* readLen, 
@@ -103,7 +104,6 @@ typedef struct {
 	uint8_t no_l_indel;
 } asg_arc_t;
 
-
 typedef struct {
 	uint32_t len:31, circ:1; // len: length of the unitig; circ: circular if non-zero
 	uint32_t start, end; // start: starting vertex in the string graph; end: ending vertex
@@ -112,11 +112,10 @@ typedef struct {
 	char *s; // unitig sequence is not null
 } ma_utg_t;
 
-
-
 typedef struct {
 	uint32_t len:31, del:1;
 	uint8_t c;
+	uint8_t weak_contain;
 } asg_seq_t;
 
 typedef struct {
@@ -127,6 +126,10 @@ typedef struct {
 
 	asg_seq_t *seq;
 	uint64_t *idx;
+
+	uint32_t m_con, n_con;
+	uint64_t *contain;
+	uint64_t *con_idx;
 
 	uint8_t* seq_vis;
 
@@ -505,6 +508,21 @@ void init_Edge_iter(asg_t* g, uint32_t v, asg_arc_t* new_edges, uint32_t new_edg
 int get_arc_t(Edge_iter* x, asg_arc_t* get);
 int asg_pop_bubble_primary_trio(ma_ug_t *ug, int max_dist, uint32_t positive_flag, uint32_t negative_flag);
 
+/*************************************
+ * Routines modified for containment *
+ *************************************/
+
+void delete_single_edge(ma_hit_t_alloc *sources, const ma_sub_t *coverage_cut, uint32_t qn, uint32_t tn);
+void delete_all_edges(ma_hit_t_alloc *sources, ma_sub_t *coverage_cut, uint32_t qn);
+void ma_hit_contained_advance(ma_hit_t_alloc *sources, long long n_read, ma_sub_t *coverage_cut, R_to_U *ruIndex, int max_hang, int min_ovlp);
+void asg_con_sort(asg_t *g);
+void asg_con_index(asg_t *g);
+asg_t *ma_sg_gen(const ma_hit_t_alloc* sources, long long n_read, const ma_sub_t *coverage_cut, int max_hang, int min_ovlp);
+int asg_arc_del_trans(asg_t *g, int fuzz);
+
+/*******************
+ * Other rountines *
+ *******************/
 
 inline int get_real_length(asg_t *g, uint32_t v, uint32_t* v_s)
 {

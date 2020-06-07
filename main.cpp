@@ -4,7 +4,7 @@
 #include "Process_Read.h"
 #include "Assembly.h"
 #include "Levenshtein_distance.h"
-#include "htab.h"
+#include "utils.h"
 
 int main(int argc, char *argv[])
 {

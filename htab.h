@@ -38,13 +38,6 @@ ha_abuf_t *ha_abuf_init(void);
 void ha_abuf_destroy(ha_abuf_t *ab);
 uint64_t ha_abuf_mem(const ha_abuf_t *ab);
 
-double yak_cputime(void);
-void yak_reset_realtime(void);
-double yak_realtime(void);
-long yak_peakrss(void);
-double yak_peakrss_in_gb(void);
-double yak_cpu_usage(void);
-
 void ha_triobin(const hifiasm_opt_t *opt);
 
 void ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mz1_v *p, const void *hf);
@@ -79,18 +72,6 @@ static inline uint64_t yak_hash_long(uint64_t x[4])
 	int j = x[1] < x[3]? 0 : 1;
 	return yak_hash64_64(x[j<<1|0]) + yak_hash64_64(x[j<<1|1]);
 }
-
-#define CALLOC(ptr, len) ((ptr) = (__typeof__(ptr))calloc((len), sizeof(*(ptr))))
-#define MALLOC(ptr, len) ((ptr) = (__typeof__(ptr))malloc((len) * sizeof(*(ptr))))
-#define REALLOC(ptr, len) ((ptr) = (__typeof__(ptr))realloc((ptr), (len) * sizeof(*(ptr))))
-
-#ifndef kroundup32
-#define kroundup32(x) (--(x), (x)|=(x)>>1, (x)|=(x)>>2, (x)|=(x)>>4, (x)|=(x)>>8, (x)|=(x)>>16, ++(x))
-#endif
-
-#ifndef kroundup64
-#define kroundup64(x) (--(x), (x)|=(x)>>1, (x)|=(x)>>2, (x)|=(x)>>4, (x)|=(x)>>8, (x)|=(x)>>16, x|=(x)>>32, ++(x))
-#endif
 
 #ifndef klib_unused
 #if (defined __clang__ && __clang_major__ >= 3) || (defined __GNUC__ && __GNUC__ >= 3)

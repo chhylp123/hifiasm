@@ -1,6 +1,6 @@
 #include <sys/resource.h>
 #include <sys/time.h>
-#include "htab.h"
+#include "utils.h"
 
 int yak_verbose = 3;
 
