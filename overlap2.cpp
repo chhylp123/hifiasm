@@ -2,6 +2,7 @@
 #include "utils.h"
 #include "CommandLines.h"
 #include "Overlaps.h"
+#include "Process_Read.h"
 
 /*******************************
  * Dropping strong containment *
@@ -62,9 +63,8 @@ void ma_hit_contained_advance(ma_hit_t_alloc *sources, long long n_read, ma_sub_
 			r = ma_hit2arc(h, sq->e - sq->s, st->e - st->s, max_hang, asm_opt.max_hang_rate, min_ovlp, &t);
 			//assert(r != MA_HT_INT && r != MA_HT_SHORT_OVLP);
 			if (r == MA_HT_QCONT) {
-				if (h->ml || 1) {
+				if (h->ml || (asm_opt.flag & HA_F_KEEP_CONTAINED) == 0) {
 					h->del = 1;
-					++n_strong_contain;
 					delete_single_edge(sources, coverage_cut, Get_tn(*h), Get_qn(*h));
 					delete_all_edges(sources, coverage_cut, Get_qn(*h));
 					set_R_to_U(ruIndex, Get_qn(*h), Get_tn(*h), 0);
@@ -73,14 +73,12 @@ void ma_hit_contained_advance(ma_hit_t_alloc *sources, long long n_read, ma_sub_
 					//     set_R_to_U(ruIndex, Get_qn(*h), Get_tn(*h), 0);
 					// sq->del = 1;
 					// set_R_to_U(ruIndex, Get_qn(*h), Get_tn(*h), 0);
-				} else {
-					sq->weak_contain = 1;
-					++n_weak_contain;
 				}
+				if (h->ml) ++n_strong_contain;
+				else ++n_weak_contain;
 			} else if (r == MA_HT_TCONT) {
-				if (h->ml || 1) {
+				if (h->ml || (asm_opt.flag & HA_F_KEEP_CONTAINED) == 0) {
 					h->del = 1;
-					++n_strong_contain;
 					delete_single_edge(sources, coverage_cut, Get_tn(*h), Get_qn(*h));
 					delete_all_edges(sources, coverage_cut, Get_tn(*h));
 					set_R_to_U(ruIndex, Get_tn(*h), Get_qn(*h), 0);
@@ -89,10 +87,9 @@ void ma_hit_contained_advance(ma_hit_t_alloc *sources, long long n_read, ma_sub_
 					//     set_R_to_U(ruIndex, Get_tn(*h), Get_qn(*h), 0);
 					// st->del = 1;
 					// set_R_to_U(ruIndex, Get_tn(*h), Get_qn(*h), 0);
-				} else {
-					st->weak_contain = 1;
-					++n_weak_contain;
 				}
+				if (h->ml) ++n_strong_contain;
+				else ++n_weak_contain;
 			}
 		}
 	}
@@ -177,7 +174,6 @@ asg_t *ma_sg_gen(const ma_hit_t_alloc* sources, long long n_read, const ma_sub_t
 			ql = coverage_cut[qn].e - coverage_cut[qn].s;
 			tl = coverage_cut[tn].e - coverage_cut[tn].s;
 			r = ma_hit2arc(h, ql, tl, max_hang, asm_opt.max_hang_rate, min_ovlp, &t);
-			assert(r >= 0);
 			if (r >= 0) {
 				p = asg_arc_pushp(g);
 				*p = t;
@@ -265,7 +261,26 @@ int asg_arc_del_trans(asg_t *g, int fuzz)
 		for (i = 0; i < nv; ++i) {
 			uint32_t w = av[i].v;
 			info[w].mark = g->seq[w>>1].del? 2 : 1;
+			//if (asg_con_n(g, w>>1) > 0) info[w].mark = 2;
 			info[w].len = asg_arc_len(av[i]);
+		}
+
+		// remove contained reads
+		for (i = 0; i < nv; ++i) {
+			uint32_t j, nw, w = av[i].v;
+			uint64_t *aw;
+			if (info[w].mark != 1) continue;
+			nw = asg_con_n(g, w>>1);
+			if (nw == 0) continue;
+			aw = asg_con_a(g, w>>1);
+			for (j = 0; j < nw; ++j) {
+				uint32_t x = (uint32_t)aw[j];
+				if (w&1) x ^= 1;
+				if (info[x].mark == 1 && info[x].len <= info[w].len)
+					break;
+			}
+			if (j < nw) info[w].mark = 2;
+			//if (nw > 0) fprintf(stderr, "X\t%.*s\t%.*s\n", (int)Get_NAME_LENGTH(R_INF, w>>1), Get_NAME(R_INF, w>>1), (int)Get_NAME_LENGTH(R_INF, (uint32_t)aw[j]>>1), Get_NAME(R_INF, (uint32_t)aw[j]>>1));
 		}
 
 		// length of node (not overlap length)
@@ -284,14 +299,17 @@ int asg_arc_del_trans(asg_t *g, int fuzz)
 		for (i = 0; i < nv; ++i) {
 			uint32_t w = av[i].v;
 			uint32_t j, nw = asg_arc_n(g, w);
+			uint32_t is_con = (asg_con_n(g, w>>1) > 0);
 			asg_arc_t *aw = asg_arc_a(g, w);
 			if (info[w].mark != 1) continue;
 			for (j = 0; j < nw; ++j) {
 				uint32_t x, sum = asg_arc_len(aw[j]) + asg_arc_len(av[i]);
 				if (sum > L) break;
 				x = aw[j].v;
-				if (info[x].mark == 1 && sum < info[x].len + fuzz && sum + fuzz > info[x].len)
-					info[x].mark = 2;
+				if (info[x].mark == 1 && sum < info[x].len + fuzz && sum + fuzz > info[x].len) {
+					if (!is_con || asg_con_n(g, x>>1) > 0)
+						info[x].mark = 2;
+				}
 			}
 		}
 		#if 0
@@ -303,6 +321,7 @@ int asg_arc_del_trans(asg_t *g, int fuzz)
 				if (info[aw[j].v].mark) info[aw[j].v].mark = 2;
 		}
 		#endif
+
 		// remove edges
 		for (i = 0; i < nv; ++i) {
 			if (info[av[i].v].mark == 2) av[i].del = 1, ++n_reduced;
@@ -314,6 +333,75 @@ int asg_arc_del_trans(asg_t *g, int fuzz)
 	if (n_reduced) {
 		asg_cleanup(g);
 		asg_symm(g);
+		asg_drop_contained_utg(g);
 	}
+	fprintf(stderr, "[M::%s] transitively reduced %d arcs\n", __func__, n_reduced);
 	return n_reduced;
+}
+
+#define GFA_VT_MERGEABLE 0
+#define GFA_VT_TIP       1
+#define GFA_VT_MULTI_OUT 2
+#define GFA_VT_MULTI_IN  3
+
+static inline int32_t gfa_deg(const asg_t *g, uint32_t v, uint32_t *w)
+{
+	uint32_t i, nv, nv0, k;
+	const asg_arc_t *av;
+	if (w) *w = (uint32_t)-1;
+	if (g->seq[v>>1].del) return 0;
+	nv0 = k = asg_arc_n(g, v);
+	av = asg_arc_a(g, v);
+	for (i = nv = 0; i < nv0; ++i)
+		if (!av[i].del)
+			++nv, k = i;
+	if (w) *w = nv == 1? av[k].v : (uint32_t)-1;
+	return nv;
+}
+
+static inline int32_t gfa_vtype(const asg_t *g, uint32_t v, uint32_t *w_)
+{
+	int32_t nv, nw;
+	uint32_t w;
+	nv = gfa_deg(g, v, &w);
+	if (w_) *w_ = w;
+	if (nv == 0) return GFA_VT_TIP;
+	if (nv > 1) return GFA_VT_MULTI_OUT;
+	nw = gfa_deg(g, w^1, 0);
+	return nw == 1? GFA_VT_MERGEABLE : GFA_VT_MULTI_IN;
+}
+
+int asg_drop_contained_utg(asg_t *g)
+{
+	uint32_t n_vtx = g->n_seq * 2, v, cnt = 0;
+	if (g->contain == 0) return 0;
+	for (v = 0; v < n_vtx; ++v) {
+		int32_t vt, is_contained;
+		uint32_t w;
+		if (g->seq[v>>1].del) continue;
+		if (asg_con_n(g, v>>1) == 0) continue;
+		vt = gfa_vtype(g, v^1, &w);
+		if (vt == GFA_VT_MERGEABLE) continue;
+		w = v, is_contained = 1;
+		while (1) {
+			if (asg_con_n(g, w>>1) == 0) {
+				is_contained = 0;
+				break;
+			}
+			vt = gfa_vtype(g, w, &w);
+			if (vt != GFA_VT_MERGEABLE) break;
+		}
+		if (is_contained) {
+			w = v;
+			while (1) {
+				++cnt;
+				asg_seq_del(g, w>>1);
+				vt = gfa_vtype(g, w, &w);
+				if (vt != GFA_VT_MERGEABLE) break;
+			}
+		}
+	}
+	if (cnt > 0) asg_cleanup(g);
+	fprintf(stderr, "[M::%s] drop %d reads in contained unitigs\n", __func__, cnt);
+	return cnt;
 }

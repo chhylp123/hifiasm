@@ -83,7 +83,6 @@ char* output_file_name);
 typedef struct {
 	uint32_t s:31, del:1, e;
 	uint8_t c;
-	uint8_t weak_contain;
 } ma_sub_t;
 
 void ma_hit_sub(int min_dp, ma_hit_t_alloc* sources, long long n_read, uint64_t* readLen, 
@@ -519,6 +518,10 @@ void asg_con_sort(asg_t *g);
 void asg_con_index(asg_t *g);
 asg_t *ma_sg_gen(const ma_hit_t_alloc* sources, long long n_read, const ma_sub_t *coverage_cut, int max_hang, int min_ovlp);
 int asg_arc_del_trans(asg_t *g, int fuzz);
+int asg_drop_contained_utg(asg_t *g);
+
+#define asg_con_n(g, v) ((g)->contain? (uint32_t)(g)->con_idx[(v)] : 0)
+#define asg_con_a(g, v) ((g)->contain? &(g)->contain[(g)->con_idx[(v)]>>32] : 0)
 
 /*******************
  * Other rountines *
