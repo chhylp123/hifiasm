@@ -13251,16 +13251,19 @@ kvec_asg_arc_t_warp* new_rtg_edges)
 
     renew_utg(ug, read_g, new_rtg_edges);
 
-    rescue_missing_overlaps_aggressive(*ug, read_g, sources, coverage_cut, ruIndex, max_hang,
-    min_ovlp, 0, 0, 1, NULL);
+    if (!(asm_opt.flag & HA_F_BAN_POST_JOIN))
+    {
+        rescue_missing_overlaps_aggressive(*ug, read_g, sources, coverage_cut, ruIndex, max_hang,
+        min_ovlp, 0, 0, 1, NULL);
 
-    renew_utg(ug, read_g, new_rtg_edges);
+        renew_utg(ug, read_g, new_rtg_edges);
 
-    rescue_contained_reads_aggressive(*ug, read_g, sources, coverage_cut, ruIndex, max_hang, 
-    min_ovlp, 0, 10, 0, 1, NULL, NULL);
+        rescue_contained_reads_aggressive(*ug, read_g, sources, coverage_cut, ruIndex, max_hang, 
+        min_ovlp, 0, 10, 0, 1, NULL, NULL);
 
-    renew_utg(ug, read_g, new_rtg_edges);
-
+        renew_utg(ug, read_g, new_rtg_edges);
+    }
+    
     update_unitig_graph((*ug), read_g, reverse_sources, ruIndex, 1, flag, drop_rate);
 
     update_hap_label(NULL, read_g);
@@ -22084,27 +22087,27 @@ kvec_asg_arc_t_warp* new_rtg_edges)
         renew_utg(ug, read_g, new_rtg_edges);
     }
     
-
-
-    rescue_missing_overlaps_aggressive(*ug, read_g, sources, coverage_cut, ruIndex, max_hang,
-    min_ovlp, 0, 0, 1, NULL);
-    renew_utg(ug, read_g, new_rtg_edges);
-
-    rescue_contained_reads_aggressive(*ug, read_g, sources, coverage_cut, ruIndex, max_hang, 
-    min_ovlp, 0, 10, 0, 1, NULL, NULL);
-    renew_utg(ug, read_g, new_rtg_edges);
-
-
-    if(asm_opt.purge_level_primary > 0)
+    if (!(asm_opt.flag & HA_F_BAN_POST_JOIN))
     {
-        just_contain = 0;
-        if(asm_opt.purge_level_primary == 1) just_contain = 1;
-
-        purge_dups(*ug, read_g, coverage_cut, reverse_sources, ruIndex, new_rtg_edges, 
-        asm_opt.purge_simi_rate, asm_opt.purge_overlap_len, max_hang, min_ovlp, bubble_dist, 
-        drop_ratio, just_contain);
-        delete_useless_nodes(ug);
+        rescue_missing_overlaps_aggressive(*ug, read_g, sources, coverage_cut, ruIndex, max_hang,
+        min_ovlp, 0, 0, 1, NULL);
         renew_utg(ug, read_g, new_rtg_edges);
+
+        rescue_contained_reads_aggressive(*ug, read_g, sources, coverage_cut, ruIndex, max_hang, 
+        min_ovlp, 0, 10, 0, 1, NULL, NULL);
+        renew_utg(ug, read_g, new_rtg_edges);
+
+        if(asm_opt.purge_level_primary > 0)
+        {
+            just_contain = 0;
+            if(asm_opt.purge_level_primary == 1) just_contain = 1;
+
+            purge_dups(*ug, read_g, coverage_cut, reverse_sources, ruIndex, new_rtg_edges, 
+            asm_opt.purge_simi_rate, asm_opt.purge_overlap_len, max_hang, min_ovlp, bubble_dist, 
+            drop_ratio, just_contain);
+            delete_useless_nodes(ug);
+            renew_utg(ug, read_g, new_rtg_edges);
+        }
     }
     
 
@@ -26107,7 +26110,7 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
     normalize_ma_hit_t_single_side_advance(sources, n_read);
     normalize_ma_hit_t_single_side_advance(reverse_sources, n_read);
     
-    // debug_info_of_specfic_read(">m64011_190830_220126/117834372/ccs", sources, reverse_sources, 
+    // debug_info_of_specfic_read("m64062_190803_042216/122882911/ccs", sources, reverse_sources, 
     // -1, "clean");
 
 
@@ -26369,13 +26372,17 @@ long long bubble_dist, int read_graph, int write)
         &R_INF, output_file_name);
     }
 
-    try_rescue_overlaps(sources, reverse_sources, n_read, 4); 
+    if (!(asm_opt.flag & HA_F_BAN_ASSEMBLY))
+    {
+        try_rescue_overlaps(sources, reverse_sources, n_read, 4); 
 
-    clean_graph(min_dp, sources, reverse_sources, n_read, readLen, mini_overlap_length, 
-    max_hang_length, clean_round, gap_fuzz, min_ovlp_drop_ratio, max_ovlp_drop_ratio, 
-    output_file_name, bubble_dist, read_graph, &ruIndex, &sg, &coverage_cut, 0);
-    
-    asg_destroy(sg);
-    free(coverage_cut);
+        clean_graph(min_dp, sources, reverse_sources, n_read, readLen, mini_overlap_length, 
+        max_hang_length, clean_round, gap_fuzz, min_ovlp_drop_ratio, max_ovlp_drop_ratio, 
+        output_file_name, bubble_dist, read_graph, &ruIndex, &sg, &coverage_cut, 0);
+        
+        asg_destroy(sg);
+        free(coverage_cut);
+    }
+
     destory_R_to_U(&ruIndex);
 }

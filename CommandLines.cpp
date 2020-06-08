@@ -50,6 +50,7 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "    -n INT        small removed unitig threshold [%d]\n", asm_opt->max_short_tip);
     fprintf(stderr, "    -x FLOAT      max overlap drop ratio [%.2g]\n", asm_opt->max_drop_rate);
     fprintf(stderr, "    -y FLOAT      min overlap drop ratio [%.2g]\n", asm_opt->min_drop_rate);
+    fprintf(stderr, "    -u            disable post join contigs step which may improve N50. Don't disable in default.\n");
     fprintf(stderr, "    --version     show version number\n");
     fprintf(stderr, "    -h            show help information\n");
 
@@ -361,7 +362,7 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
 
     int c;
 
-    while ((c = ketopt(&opt, argc, argv, 1, "hvt:o:k:w:m:n:r:a:b:z:x:y:p:c:d:M:P:if:D:FN:1:2:3:4:l:s:O:", long_options)) >= 0) {
+    while ((c = ketopt(&opt, argc, argv, 1, "hvt:o:k:w:m:n:r:a:b:z:x:y:p:c:d:M:P:if:D:FN:1:2:3:4:l:s:O:eu", long_options)) >= 0) {
         if (c == 'h')
         {
             Print_H(asm_opt);
@@ -396,6 +397,8 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         else if (c == 'p') asm_opt->small_pop_bubble_size = atoll(opt.arg);
         else if (c == 'm') asm_opt->large_pop_bubble_size = atoll(opt.arg);
         else if (c == 'n') asm_opt->max_short_tip = atoll(opt.arg);
+        else if (c == 'e') asm_opt->flag |= HA_F_BAN_ASSEMBLY;
+        else if (c == 'u') asm_opt->flag |= HA_F_BAN_POST_JOIN;
 		else if (c == 301) asm_opt->flag |= HA_F_VERBOSE_GFA;
 		else if (c == 302) asm_opt->flag |= HA_F_WRITE_PAF;
 		else if (c == 303) asm_opt->flag |= HA_F_WRITE_EC;
