@@ -85,7 +85,8 @@ the number of CPU threads. Note that at first run, hifiasm will save all overlap
 to disk, which can avoid the time-consuming all-to-all overlap calculation next time. 
 For hifiasm, once the overlap information has been obtained during the previous run 
 in advance, it is able to load all overlaps from disk and then directly do assembly. 
-If you want to ignore the pre-computed overlap information, please specify `-i`.
+If you want to ignore the pre-computed overlap information, please specify `-i`. 
+The example dataset can be found at: https://github.com/chhylp123/hifiasm/releases/download/v0.7/HG002-34X-chr11-19310012.-.21493943.fastq.gz.
 
 Please note that some old Hifi reads may consist of short adapters. To improve
 the assembly quality, adapters should be removed by `-z` as follow:
