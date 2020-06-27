@@ -64,7 +64,7 @@ The results are as follows:
 Hifiasm also can produce high-quality fully resolved assembly. We tested it on the following trio-binning datasets:
 |<sub>Dataset<sub>|<sub>GSize<sub>|<sub>Cov<sub>|<sub>CPU time<sub>|<sub>Wall time<sub>|<sub>RAM<sub>|<sub> N50<sub>|
 |:---------------|-----:|-----:|-------:|--------:|----:|----------------:|
-|<sub>HG00733: [\[child\]](https://www.ebi.ac.uk/ena/data/view/ERX3831682), [\[father\]](https://www.ebi.ac.uk/ena/data/view/ERR3241754), [\[mother\]](https://www.ebi.ac.uk/ena/data/view/ERR3241755)<sub>|<sub>3.1Gb<sub>|<sub>x33 (child), x30 (parent)<sub>|<sub>269.1hh<sub>|<sub>6.9h<sub>|<sub>135G<sub>|<sub>35.1Mb (hap1), 34.9Mb (hap2)<sub>|
+|<sub>HG00733: [\[child\]](https://www.ebi.ac.uk/ena/data/view/ERX3831682), [\[father\]](https://www.ebi.ac.uk/ena/data/view/ERR3241754), [\[mother\]](https://www.ebi.ac.uk/ena/data/view/ERR3241755)<sub>|<sub>3.1Gb<sub>|<sub>x33 (child), x30 (parent)<sub>|<sub>269.1h<sub>|<sub>6.9h<sub>|<sub>135G<sub>|<sub>35.1Mb (hap1), 34.9Mb (hap2)<sub>|
 |<sub>HG002: [\[child\]](https://www.ncbi.nlm.nih.gov/sra?term=(((SRR10382244)%20OR%20SRR10382245)%20OR%20SRR10382248)%20OR%20SRR10382249), parent from GIAB<sup>[1]</sup><sub>|<sub>3.1Gb<sub>|<sub>x36 (child), x30 (parent)<sub>|<sub>305.4h<sub>|<sub>7.7h<sub>|<sub>137G<sub>|<sub>41.0Mb (hap1), 40.8Mb (hap2)<sub>|
 
 <sub>[1] GIAB’s “Homogeneity Run01” short-read runs were used for the HG002 trio. These HG002 reads were downsampled to 30-fold coverage.<sub>
