@@ -7,10 +7,11 @@ cd hifiasm && make
 
 # Run on test data (use -f0 for small datasets)
 wget https://github.com/chhylp123/hifiasm/releases/download/v0.7/chr11-2M.fa.gz
-./hifiasm -o test -t4 -f0 chr11-2M.fa.gz 2> test.log   # this takes ~90 sec
+./hifiasm -o test -t4 -f0 chr11-2M.fa.gz 2> test.log
+awk '/^S/{print ">"$1;print $2}' test.p_ctg.gfa > test.p_ctg.fa  # get primary contigs in FASTA
 
 # Assemble inbred/homozygous genomes (-l0 disables duplication purging)
-hifiasm -o CHM13.asm -t32 -l0 CHM13-HiFi.fa.gz
+hifiasm -o CHM13.asm -t32 -l0 CHM13-HiFi.fa.gz 2> CHM13.asm.log
 # Assemble heterozygous with built-in duplication purging
 hifiasm -o HG002.asm -t32 HG002-file1.fq.gz HG002-file2.fq.gz
 
@@ -22,62 +23,60 @@ hifiasm -o HG002.asm -t32 -1 pat.yak -2 mat.yak HG002-HiFi.fa.gz
 
 ## Introduction
 
-Hifiasm is a fast haplotype-resolved de novo assembler for PacBio
-Hifi reads. Unlike most existing assemblers, hifiasm starts from uncollapsed
-genome. Thus, it is able to keep the haplotype information as much as possible.
-Hifiasm supports both primary assembly and fully phased assembly (trio-binning assembly).
-
-
+Hifiasm is a fast haplotype-resolved de novo assembler for PacBio Hifi reads. 
+It can assemble a human genome in several hours and works with the California
+redwood genome, one of the most complex genomes sequenced so far. Hifiasm can
+produce primary/alternate assemblies of quality competitive with the best
+assemblers. It also introduces a new graph binning algorithm and achieves
+the best haplotype-resolved assembly given trio data.
 
 ## Usage
 
-For Hifi reads assembly, a typical command line looks like:
-
+A typical hifiasm command line looks like:
 ```sh
-./hifiasm -o NA12878.asm -t 32 NA12878.fq.gz
+hifiasm -o NA12878.asm -t 32 NA12878.fq.gz
+```
+where `NA12878.fq.gz` provides the input reads, `-t` sets the number of CPUs in
+use and `-o` specifies the prefix of output files. For this example, the
+primary contigs are written to `NA12878.asm.p_ctg.gfa` and alternate contigs to
+`NA12878.asm.a_ctg.gfa`. At the first run, hifiasm saves corrected reads and
+overlaps to disk as `NA12878.asm.*.bin`. It reuses the saved results to avoid
+the time-consuming all-vs-all overlap calculation next time. You may specify
+`-i` to ignore precomputed overlaps and redo overlapping from raw reads.
+
+Hifiasm purges haplotig duplications by default. For inbred or homozygous
+genomes, you may disable purging with option `-l0`. Old HiFi reads may contain
+short adapter sequences at the ends of reads. You can specify `-z20` to trim
+both ends of reads by 20bp. For small genomes, use `-f0` to disable the initial
+bloom filter which takes 16GB memory at the beginning. For genomes much larger
+than human, applying `-f38` or even `-f39` is preferred to save memory on k-mer
+counting.
+
+When parental short reads are available, hifiasm can generate a pair of
+haplotype-resolved assemblies with trio binning. To perform such assembly, you
+need to count k-mers first with [yak][yak] first and then do assembly:
+```sh
+yak count -k31 -b37 -t16 -o pat.yak paternal.fq.gz
+yak count -k31 -b37 -t16 -o mat.yak maternal.fq.gz
+hifiasm -o NA12878.asm -t 32 -1 pat.yak -2 mat.yak NA12878.fq.gz
+```
+Here `NA12878.asm.hap1.p_ctg.gfa` and `NA12878.asm.hap2.p_ctg.gfa` give the two
+haplotype assemblies. In the binning mode, hifiasm does not purge haplotig
+duplications by default. Because hifiasm reuses saved overlaps, you can
+generate both primary/alternate assemblies and trio binning assemblies with
+```sh
+hifiasm -o NA12878.asm -t 32 NA12878.fq.gz 2> NA12878.asm.pri.log
+hifiasm -o NA12878.asm -t 32 -1 pat.yak -2 mat.yak /dev/null 2> NA12878.asm.trio.log
+```
+The second command line will run much faster than the first. You can also dump
+error corrected in FASTA and/or overlaps in PAF with
+```sh
+hifiasm -o NA12878.asm -t 32 --write-paf --write-ec /dev/null
 ```
 
-where `NA12878.fq.gz` is the input reads and `-o` specifies the output files.
-In this example, all output files can be found at `NA12878.asm.*`. `-t` specifies 
-the number of CPU threads. Note that at first run, hifiasm will save all overlaps 
-to disk, which can avoid the time-consuming all-to-all overlap calculation next time. 
-For hifiasm, once the overlap information has been obtained during the previous run 
-in advance, it is able to load all overlaps from disk and then directly do assembly. 
-If you want to ignore the pre-computed overlap information, please specify `-i`. 
-The example dataset can be found at: https://github.com/chhylp123/hifiasm/releases/download/v0.7/chr11-2M.fa.gz.
+## Output files
 
-Please note that some old Hifi reads may consist of short adapters. To improve
-the assembly quality, adapters should be removed by `-z` as follow:
-
-```sh
-./hifiasm -o butterfly.asm -t 42 -z 20 butterfly.fq.gz
-```
-
-In this example, hifiasm will remove 20 bases from both ends of each read.
-
-For trio assembly, first the trio indexes of paternal/maternal should be generated by 
-[yak count](https://github.com/lh3/yak):
-
-```sh
-./yak count -k31 -b37 -t16 -o mat.yak mat.fq.gz
-./yak count -k31 -b37 -t16 -o pat.yak pat.fq.gz
-```
-
-and then run hifiasm as follow:
-
-```sh
-./hifiasm -o NA12878.asm -t 32 -1 pat.yak -2 mat.yak NA12878_1.fq.gz NA12878_2.fq.gz
-```
-
-## Advance features
-
-For primary assembly, hifiasm performs purge duplication step in default. This step is designed for diploid genomes or polyploid genomes to keep one set of haplotypes without duplications. For inbred genomes or homozygous samples including only one haplotype, purge duplication step may introduce misassemblies so that it should be disabled by option `-l0`.
-
-
-## Output
-
-For non-trio assembly, the input of hifiasm is the PacBio Hifi reads in fasta/fastq format, and its
-outputs consist of: 
+For non-trio assembly, hifiasm generates the following files:
 
 1. Haplotype-resolved raw [unitig][unitig] graph in [GFA][gfa] format
    (*prefix*.r\_utg.gfa). This graph keeps all haplotype information, including
@@ -90,7 +89,8 @@ outputs consist of:
 4. Alternate assembly contig graph (*prefix*.a\_ctg.gfa). This graph consists of all assemblies that
    are discarded in primary contig graph.
 
-For trio assembly, the input of hifiasm is the PacBio Hifi reads in fasta/fastq format, and the paternal/maternal trio indexes generated by [yak count](https://github.com/lh3/yak). The outputs consist of:
+For trio assembly, hifiasm generates the following files:
+
 1. Haplotype-resolved raw [unitig][unitig] graph in [GFA][gfa] format
    (*prefix*.r\_utg.gfa). This graph keeps all haplotype information. 
 
@@ -100,17 +100,12 @@ For trio assembly, the input of hifiasm is the PacBio Hifi reads in fasta/fastq 
 3. Phased maternal/haplotype2 contig graph (*prefix*.hap2.p\_ctg.gfa). This graph keeps the phased
    maternal/haplotype2 assembly.
 
-
-In addition, hifiasm also outputs three binary files that save all overlap information (*prefix*.ec.bin, *prefix*.ovlp.reverse.bin, *prefix*.ovlp.source.bin). With these files, hifiasm can avoid the time-consuming all-to-all overlap calculation step, and do the assembly
-directly and quickly. This might be helpful when you want to get an optimized
-assembly by multiple rounds of experiments with different parameters.
+Hifiasm writes error corrected reads to the *prefix*.ec.bin binary file and
+writes overlaps to *prefix*.ovlp.source.bin and *prefix*.ovlp.reverse.bin.
 
 ## Results
 
-Hifiasm is a standalone and lightweight assembler, which does not need external
-libraries (except zlib). For large genomes, it can generate high-quality primary
-assembly in several hours. Hifiasm has been tested on various large and complex datasets. 
-The results are as follows: 
+The following table shows the statistics of several hifiasm primary assemblies:
 
 |<sub>Dataset<sub>|<sub>Size<sub>|<sub>Cov.<sub>|<sub>Asm options<sub>|<sub>CPU time<sub>|<sub>Wall time<sub>|<sub>RAM<sub>|<sub> N50<sub>|
 |:---------------|-----:|-----:|:---------------------|-------:|--------:|----:|----------------:|
@@ -130,7 +125,9 @@ The results are as follows:
 [redwood-data]:    https://www.ncbi.nlm.nih.gov/sra/?term=SRP251156
 [CHM13-data]:      https://www.ncbi.nlm.nih.gov/sra?term=(((SRR11292120)%20OR%20SRR11292121)%20OR%20SRR11292122)%20OR%20SRR11292123
 
-Hifiasm also can produce high-quality fully phased assembly. We tested it on the following trio-binning datasets:
+Hifiasm can assemble a 3.1Gb human genome in several hours or a ~30Gb hexaploid
+redwood genome in a few days on a single machine. For trio binning assembly:
+
 |<sub>Dataset<sub>|<sub>Cov.<sub>|<sub>CPU time<sub>|<sub>Elapsed time<sub>|<sub>RAM<sub>|<sub> N50<sub>|
 |:---------------|-----:|-------:|--------:|----:|----------------:|
 |<sub>[HG00733][HG00733-data], [\[father\]][HG00731-data], [\[mother\]][HG00732-data]</sub>|<sub>&times;33</sub>|<sub>269.1h</sub>|<sub>6.9h</sub>|<sub>135G</sub>|<sub>35.1Mb (paternal), 34.9Mb (maternal)</sub>|
@@ -161,15 +158,15 @@ ftp://ftp.dfci.harvard.edu/pub/hli/hifiasm/NA12878-r253/
 [unitig]: http://wgs-assembler.sourceforge.net/wiki/index.php/Celera_Assembler_Terminology
 [gfa]: https://github.com/pmelsted/GFA-spec/blob/master/GFA-spec.md
 [paf]: https://github.com/lh3/miniasm/blob/master/PAF.md
+[yak]: https://github.com/lh3/yak
 
 ## Getting Help
 
-For detailed description of options, please see `man ./hifiasm.1`.
-The `-h` option of hifiasm also provides simple description of options. If you
-have further questions, please raise an issue at the issue page.
+For detailed description of options, please see `man ./hifiasm.1`. The `-h`
+option of hifiasm also provides brief description of options. If you have
+further questions, please raise an issue at the [issue
+page](https://github.com/chhylp123/hifiasm/issues).
 
-## Limitations and future works
+## Limitations
 
-1. The running time and memory usage should be further reduced.
-
-2. The N50 should be further improved. 
+1. Purging haplotig duplications may introduce misassemblies.
