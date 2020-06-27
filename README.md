@@ -56,6 +56,8 @@ The results are as follows:
 |<sub>[\[Strawberry\]](https://www.ncbi.nlm.nih.gov/sra/?term=SRR11606867)<sub>|<sub>0.8Gb<sub>|<sub>x36<sub>|<sub>-t48 -D10<sub>|<sub>152.7h<sub>|<sub>3.7h<sub>|<sub>91G<sub>|<sub>17.8Mb<sub>|
 |<sub>[\[Mountain yellow-legged frog\]](https://www.ncbi.nlm.nih.gov/sra?term=(SRR11606868)%20OR%20SRR12048570)<sub>|<sub>9.0Gb<sub>|<sub>x29<sub>|<sub>-t48<sub>|<sub>2834.3h<sub>|<sub>69.0h<sub>|<sub>463G<sub>|<sub>9.3Mb<sub>|
 |<sub>[\[Redwood\]](https://www.ncbi.nlm.nih.gov/sra/?term=SRP251156)<sub>|<sub>26.5Gb<sub>|<sub>x28<sub>|<sub>-t64<sub>|<sub>3890.3h<sub>|<sub>65.5h<sub>|<sub>699G<sub>|<sub>5.4Mb<sub>|
+|<sub>[\[CHM13\]](https://www.ncbi.nlm.nih.gov/sra?term=(((SRR11292120)%20OR%20SRR11292121)%20OR%20SRR11292122)%20OR%20SRR11292123)<sub>|<sub>3.1Gb<sub>|<sub>x32<sub>|<sub>-t48 -l0<sub>|<sub>310.7h<sub>|<sub>8.2h<sub>|<sub>114.0G<sub>|<sub>88.1Mb<sub>|
+
 
 
 
