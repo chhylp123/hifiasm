@@ -64,7 +64,7 @@ The results are as follows:
 Hifiasm also can produce high-quality fully resolved assembly. We tested it on the following trio-binning datasets:
 |<sub>Dataset<sub>|<sub>GSize<sub>|<sub>Cov<sub>|<sub>Asm options<sub>|<sub>CPU time<sub>|<sub>Wall time<sub>|<sub>RAM<sub>|<sub> N50<sub>|
 |:---------------|-----:|-----:|:---------------------|-------:|--------:|----:|----------------:|
-|HG00733: <sub>[\[child\]](https://www.ebi.ac.uk/ena/data/view/ERX3831682)<sub>, <sub>[\[father\]](https://www.ebi.ac.uk/ena/data/view/ERR3241754)<sub>, <sub>[\[mother\]](https://www.ebi.ac.uk/ena/data/view/ERR3241755)<sub>|<sub>3.1Gb<sub>|<sub>x36<sub>|<sub>-t48<sub>|<sub>305.4h<sub>|<sub>7.7h<sub>|<sub>137G<sub>|<sub>98.7Mb<sub>|
+|<sub>HG00733: [\[child\]](https://www.ebi.ac.uk/ena/data/view/ERX3831682), [\[father\]](https://www.ebi.ac.uk/ena/data/view/ERR3241754), [\[mother\]](https://www.ebi.ac.uk/ena/data/view/ERR3241755)<sub>|<sub>3.1Gb<sub>|<sub>x36<sub>|<sub>-t48<sub>|<sub>305.4h<sub>|<sub>7.7h<sub>|<sub>137G<sub>|<sub>98.7Mb<sub>|
 
 
 
