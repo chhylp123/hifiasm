@@ -46,15 +46,14 @@ assembly by multiple rounds of experiments with different parameters.
 
 Hifiasm is a standalone and lightweight assembler, which does not need external
 libraries (except zlib). For large genomes, it can generate high-quality
-assembly in a few hours. Hifiasm has been tested on human, butterfly, rice and drosophila. 
-In particular, hifiasm is able to assemble the 26.5Gb California redwood tree in a few days. 
+assembly in a few hours. Hifiasm has been tested on various large and complex datasets. 
 The results are as follows: 
 
-|<sub>Dataset<sub>|<sub>GSize<sub>|<sub>Cov<sub>|<sub>Asm options<sub>|<sub>CPU time<sub>|<sub>Wall time<sub>|<sub>RAM<sub>|<sub>[unitig][unitig]/[contig][unitig] N50<sup>[1]</sup><sub>|
+|<sub>Dataset<sub>|<sub>GSize<sub>|<sub>Cov<sub>|<sub>Asm options<sub>|<sub>CPU time<sub>|<sub>Wall time<sub>|<sub>RAM<sub>|<sub> N50<sub>|
 |:---------------|-----:|-----:|:---------------------|-------:|--------:|----:|----------------:|
+|<sub>[\[Mouse (C57/BL6J)\]](https://www.ncbi.nlm.nih.gov/sra/?term=SRR11606870)<sub>|<sub>2.7Gb<sub>|<sub>x25<sub>|<sub>-t48 -l0<sub>|<sub>172.9h<sub>|<sub>4.8h<sub>|<sub>76G<sub>|<sub>20.6Mb<sub>|
 |<sub>[\[Redwood\]](https://downloads.pacbcloud.com/public/dataset/redwood2020/)<sub>|<sub>26.5Gb<sub>|<sub>x23<sub>|<sub>-k 40 -t 64 -r 2<sub>|<sub>7274h30m<sub>|<sub>141h30m<sub>|<sub>512G<sub>|<sub>1.7Mb/1.9Mb<sub>|
 
-<sub>[1] unitig N50 is the N50 of assembly graph with haplotype information (i.e., bubbles), while the contig N50 is the N50 of haplotype collapsed assembly (i.e., without bubbles).<sub>
 
 ## Usage
 

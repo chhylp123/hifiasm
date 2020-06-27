@@ -26123,7 +26123,6 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
         memset(R_INF.trio_flag, AMBIGU, R_INF.total_reads*sizeof(uint8_t));
     }
     
-
     ///print_binned_reads(sources, n_read, coverage_cut);
 
     clean_weak_ma_hit_t(sources, reverse_sources, n_read);
@@ -26136,15 +26135,12 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
     ma_hit_flt(sources, n_read, coverage_cut, max_hang_length, mini_overlap_length);
 
     ///fix_binned_reads(sources, n_read, coverage_cut);
-
-
     ///just need to deal with trio here
     ma_hit_contained_advance(sources, n_read, coverage_cut, ruIndex, max_hang_length, mini_overlap_length);
 
     sg = ma_sg_gen(sources, n_read, coverage_cut, max_hang_length, mini_overlap_length);
     asg_arc_del_trans(sg, gap_fuzz);
     asm_opt.coverage = get_coverage(sources, coverage_cut, n_read);
-
 
     if(VERBOSE >= 1)
     {
@@ -26155,10 +26151,9 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
     }
 
     asg_cut_tip(sg, asm_opt.max_short_tip);
-
     
     ///drop_inexact_edegs_at_bubbles(sg, bubble_dist);
-    
+
     if(clean_round > 0)
     {
         double cut_step;
@@ -26174,6 +26169,7 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
         int i = 0;
         for (i = 0; i < clean_round; i++, drop_ratio += cut_step)
         {
+
             if(drop_ratio > max_ovlp_drop_ratio)
             {
                 drop_ratio = max_ovlp_drop_ratio;
@@ -26282,7 +26278,7 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
     debug_ma_hit_t(reverse_sources, coverage_cut, n_read, max_hang_length, 
     mini_overlap_length);
     **/
-
+ 
     ///note: don't apply asg_arc_del_too_short_overlaps() after this function!!!!
     rescue_contained_reads_aggressive(NULL, sg, sources, coverage_cut, ruIndex, max_hang_length, 
     mini_overlap_length, bubble_dist, 10, 1, 0, NULL, NULL);
