@@ -51,7 +51,10 @@ The results are as follows:
 
 |<sub>Dataset<sub>|<sub>GSize<sub>|<sub>Cov<sub>|<sub>Asm options<sub>|<sub>CPU time<sub>|<sub>Wall time<sub>|<sub>RAM<sub>|<sub> N50<sub>|
 |:---------------|-----:|-----:|:---------------------|-------:|--------:|----:|----------------:|
-|<sub>[\[Mouse (C57/BL6J)\]](https://www.ncbi.nlm.nih.gov/sra/?term=SRR11606870)<sub>|<sub>2.7Gb<sub>|<sub>x25<sub>|<sub>-t48 -l0<sub>|<sub>172.9h<sub>|<sub>4.8h<sub>|<sub>76G<sub>|<sub>20.6Mb<sub>|
+|<sub>[\[Mouse (C57/BL6J)\]](https://www.ncbi.nlm.nih.gov/sra/?term=SRR11606870)<sub>|<sub>2.7Gb<sub>|<sub>x25<sub>|<sub>-t48 -l0<sub>|<sub>172.9h<sub>|<sub>4.8h<sub>|<sub>76G<sub>|<sub>21.1Mb<sub>|
+|<sub>[\[Maize (B73)\]](https://www.ncbi.nlm.nih.gov/sra/?term=SRR11606869)<sub>|<sub>2.2Gb<sub>|<sub>x22<sub>|<sub>-t48 -l0<sub>|<sub>203.2h<sub>|<sub>5.1h<sub>|<sub>68G<sub>|<sub>36.7Mb<sub>|
+|<sub>[\[Strawberry\]](https://www.ncbi.nlm.nih.gov/sra/?term=SRR11606867)<sub>|<sub>0.8Gb<sub>|<sub>x36<sub>|<sub>-t48 -D10<sub>|<sub>152.7h<sub>|<sub>3.7h<sub>|<sub>91G<sub>|<sub>17.8Mb<sub>|
+|<sub>[\[Mountain yellow-legged frog\]](https://www.ncbi.nlm.nih.gov/sra?term=(SRR11606868)%20OR%20SRR12048570)<sub>|<sub>9Gb<sub>|<sub>x29<sub>|<sub>-t48<sub>|<sub>2834.3h<sub>|<sub>69.0h<sub>|<sub>463G<sub>|<sub>9.3Mb<sub>|
 |<sub>[\[Redwood\]](https://downloads.pacbcloud.com/public/dataset/redwood2020/)<sub>|<sub>26.5Gb<sub>|<sub>x23<sub>|<sub>-k 40 -t 64 -r 2<sub>|<sub>7274h30m<sub>|<sub>141h30m<sub>|<sub>512G<sub>|<sub>1.7Mb/1.9Mb<sub>|
 
 
