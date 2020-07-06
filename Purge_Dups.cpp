@@ -100,6 +100,7 @@ typedef struct {
 
     ma_ug_t *ug;
     asg_t *read_g;
+    ma_hit_t_alloc* sources;
     ma_hit_t_alloc* reverse_sources;
     R_to_U* ruIndex;
     ma_sub_t *coverage_cut; 
@@ -109,7 +110,312 @@ typedef struct {
     int min_ovlp;
     float chain_rate;
     hap_overlaps_list* all_ovlp;
+    long long cov_threshold;
 }hap_alignment_struct_pip;
+
+
+
+void print_peak_line(int c, int x, int exceed, int64_t cnt)
+{
+	int j;
+	if (c >= 0) fprintf(stderr, "[M::%s] %5d: ", __func__, c);
+	else fprintf(stderr, "[M::%s] %5s: ", __func__, "rest");
+	for (j = 0; j < x; ++j) fputc('*', stderr);
+	if (exceed) fputc('>', stderr);
+	fprintf(stderr, " %lld\n", (long long)cnt);
+}
+
+void print_peak(long long* cov_buf, long long cov_buf_length, long long max_i)
+{
+    long long i;
+    const long long hist_max = 100;
+    // print histogram
+	for (i = 0; i < cov_buf_length; ++i) 
+    {
+		long long x, exceed = 0;
+		x = (int)((double)hist_max * cov_buf[i] / cov_buf[max_i] + .499);
+		if (x > hist_max) exceed = 1, x = hist_max; // may happen if cnt[2] is higher
+		if (i > max_i && x == 0) break;
+		print_peak_line(i, x, exceed, cov_buf[i]);
+	}
+	{
+		long long x, exceed = 0;
+		long long rest = 0;
+		for (; i < cov_buf_length; ++i) rest += cov_buf[i];
+		x = (int)((double)hist_max * rest / cov_buf[max_i] + .499);
+		if (x > hist_max) exceed = 1, x = hist_max;
+		print_peak_line(-1, x, exceed, rest);
+	}
+}
+
+
+void get_read_peak(long long* cov_buf, long long cov_buf_length, long long* topo_peak_cov, long long* hom_peak, long long* het_peak)
+{
+    long long i, start, err_i, max_i, max2_i, max3_i, topo_peak_i, max, max2, max3, topo_peak, min;
+
+    i = start = err_i = max_i = max2_i = max3_i = topo_peak_i = -1;
+    max = max2 = max3 = topo_peak = min = -1;
+
+    ///cov_buf[0] is usually very large
+    for (i = 1; i < cov_buf_length; ++i)
+    {
+        if(cov_buf[i] > cov_buf[i-1]) break;
+    }
+    err_i = i - 1;
+    // find the global highest peak
+	max_i = err_i + 1, max = cov_buf[max_i];
+    for (i = max_i; i < cov_buf_length; ++i)
+    {
+        if (cov_buf[i] > max)
+        {
+            max = cov_buf[i];
+            max_i = i;
+        }
+    }
+
+    print_peak(cov_buf, cov_buf_length, max_i);
+
+    // look for smaller peak on the low end
+	max2 = -1; max2_i = -1;
+	for (i = max_i - 1; i > err_i; --i) 
+    {
+		///at first, it should be a peak
+		if (cov_buf[i] >= cov_buf[i-1] && cov_buf[i] >= cov_buf[i+1]) 
+        {
+			if (cov_buf[i] > max2)
+            {
+                max2 = cov_buf[i];
+                max2_i = i;
+            } 
+		}
+	}
+
+    fprintf(stderr, "***max2: %lld, max2_i: %lld\n", max2, max2_i);
+
+    if (max2_i != -1 && max2_i > err_i && max2_i < max_i) 
+    {
+		for (i = max2_i + 1, min = max; i < max_i; ++i)
+        {
+            if (cov_buf[i] < min) min = cov_buf[i];
+        }
+			
+		///if the second peak is not significant
+		if(max2 < max * 0.05 || min > max2 * 0.95) max2 = max2_i = -1;
+	}
+		
+
+    // look for smaller peak on the high end
+	max3 = -1; max3_i = -1;
+    // we'd better use i < cov_buf_length - 1, since cov_buf[cov_buf_length-1] may have problem
+	for (i = max_i + 1; i < cov_buf_length - 1; ++i) 
+    {
+		//at first, it should be a peak
+		if (cov_buf[i] >= cov_buf[i-1] && cov_buf[i] >= cov_buf[i+1]) 
+        {
+			if (cov_buf[i] > max3)
+            {
+                max3 = cov_buf[i], max3_i = i;
+            } 
+		}
+	}
+
+    fprintf(stderr, "***max3: %lld, max3_i: %lld\n", max3, max3_i);
+    
+    //if found a peak
+	if (max3 != -1 && max3_i > max_i) 
+    {
+		for (i = max_i + 1, min = max; i < max3_i; ++i)
+        {
+            if (cov_buf[i] < min) min = cov_buf[i];
+        }
+			
+		if (max3 < max * 0.05 || min > max3 * 0.95 || max3_i > max_i * 3) max3 = max3_i = -1;
+	}
+
+
+    
+
+    (*hom_peak) = (*het_peak) = -1;
+    if (topo_peak_cov && (*topo_peak_cov) < cov_buf_length)
+    {
+        topo_peak_i = (*topo_peak_cov);
+        topo_peak = cov_buf[topo_peak_i];
+        if(topo_peak_i <= max_i * 1.2 && topo_peak_i >= max_i * 0.8 && topo_peak > max * 0.05)
+        {
+            (*het_peak) = max_i;
+        }
+
+        fprintf(stderr, "topo_peak: %lld, topo_peak_i: %lld\n", topo_peak, topo_peak_i);
+    }
+    
+
+    ///if we really want to use rev_sources for double checking, we should use peak instead of mean
+    ///if we found a small peak at the right hand of the largest peak
+    if(max3_i > 0)
+    {
+        (*het_peak) = max_i;
+        (*hom_peak) = max3_i;
+    }
+    else if((*het_peak) == -1)
+    {
+        (*het_peak) = max2_i;
+        (*hom_peak) = max_i;
+    }
+
+    fprintf(stderr, "max: %lld, max_i: %lld\n", max, max_i);
+    fprintf(stderr, "max2: %lld, max2_i: %lld\n", max2, max2_i);
+    fprintf(stderr, "max3: %lld, max3_i: %lld\n", max3, max3_i);
+    fprintf(stderr, "(*het_peak): %lld, (*hom_peak): %lld\n", (*het_peak), (*hom_peak));
+}
+
+
+
+
+long long get_alter_peak(ma_ug_t *ug, asg_t *read_g, R_to_U* ruIndex, uint64_t* position_index, 
+ma_hit_t_alloc* sources, ma_sub_t* coverage_cut, long long cov_buf_length)
+{
+    ma_utg_t* u = NULL;
+    asg_t* nsg = ug->g;
+    uint64_t v, j, k, qn, n_vtx = nsg->n_seq;
+    uint32_t tn, is_Unitig;
+    long long* cov_buf = NULL;
+    ma_hit_t *h;
+    cov_buf = (long long*)calloc(cov_buf_length, sizeof(long long));
+    long long R_bases = 0, C_bases_primary = 0, C_bases_alter = 0, C_bases = 0;
+    memset(position_index, -1, sizeof(uint64_t)*read_g->n_seq);
+
+
+    for (v = 0; v < n_vtx; ++v) 
+    {
+        if(nsg->seq[v].del) continue;
+        if(nsg->seq[v].c == ALTER_LABLE) continue;
+        u = &(ug->u.a[v]);
+        if(u->m == 0) continue;
+        for (k = 0; k < u->n; k++)
+        {
+            qn = u->a[k]>>33;
+            position_index[qn] = 0;
+        }
+    }
+
+    for (qn = 0; qn < read_g->n_seq; qn++)
+    {
+        if(position_index[qn] == 0) continue;
+        if(read_g->seq[qn].del) continue;
+
+        C_bases = C_bases_primary = C_bases_alter = 0;
+        R_bases = coverage_cut[qn].e - coverage_cut[qn].s;
+        for (j = 0; j < (uint64_t)(sources[qn].length); j++)
+        {
+            h = &(sources[qn].buffer[j]);
+            if(h->el != 1) continue;
+            tn = Get_tn((*h));
+
+            if(read_g->seq[tn].del == 1)
+            {
+                ///get the id of read that contains it 
+                get_R_to_U(ruIndex, tn, &tn, &is_Unitig);
+                if(tn == (uint32_t)-1 || is_Unitig == 1 || read_g->seq[tn].del == 1) continue;
+            }
+
+            if(position_index[tn] == 0)
+            {
+                C_bases_primary += Get_qe((*h)) - Get_qs((*h));
+            }
+            else
+            {
+                C_bases_alter += Get_qe((*h)) - Get_qs((*h));
+            }
+        }
+
+        // if(qn == 1893151 || qn == 1929038)
+        // {
+        //     fprintf(stderr, "qn: %lu, C_bases_primary: %lld, C_bases_alter: %lld, C_bases: %lld\n",
+        //     qn, C_bases_primary, C_bases_alter, C_bases);
+        // }
+
+        C_bases = C_bases_primary + C_bases_alter;
+        if(C_bases_alter < C_bases * 0.8) continue;
+
+        ///fprintf(stderr, "******************qn: %lu\n",qn);
+        /**
+        if(qn == 1893151 || qn == 1929038)
+        {
+            fprintf(stderr, "******************qn: %lu\n",
+            qn);
+        }
+        **/
+
+        C_bases = C_bases/R_bases;
+        if(C_bases < 0 || C_bases >= cov_buf_length) continue;
+        cov_buf[C_bases]++;
+    }
+    
+    long long max_i = -1, max = -1;
+    for (j = 0; (long long)j < cov_buf_length; ++j)
+    {
+        if (cov_buf[j] > max)
+        {
+            max = cov_buf[j];
+            max_i = j;
+        }
+    }
+
+    fprintf(stderr, "alter max_i: %lld, max: %lld\n", max_i, max);
+
+    if(max_i < 5) max_i = max = -1;
+
+    free(cov_buf);
+    memset(position_index, -1, sizeof(uint64_t)*read_g->n_seq);
+
+    return max_i;
+}
+
+long long get_read_coverage_thres(ma_ug_t *ug, asg_t *read_g, R_to_U* ruIndex, uint64_t* position_index, ma_hit_t_alloc* sources, ma_sub_t* coverage_cut, uint64_t n_read, long long cov_buf_length)
+{
+    uint64_t i, j;
+    long long* cov_buf = NULL;
+    ma_hit_t *h;
+    cov_buf = (long long*)calloc(cov_buf_length, sizeof(long long));
+    long long R_bases = 0, C_bases = 0;
+    for (i = 0; i < n_read; ++i) 
+    {
+        C_bases = 0;
+        R_bases = coverage_cut[i].e - coverage_cut[i].s;
+        for (j = 0; j < (uint64_t)(sources[i].length); j++)
+        {
+            h = &(sources[i].buffer[j]);
+            if(h->el != 1) continue;
+            C_bases += Get_qe((*h)) - Get_qs((*h));
+        }
+        C_bases = C_bases/R_bases;
+        if(C_bases < 0 || C_bases >= cov_buf_length) continue;
+        cov_buf[C_bases]++;
+    }
+
+    long long alter_peak = -1, hom_peak = -1, het_peak = -1;
+    if(position_index)
+    {
+        alter_peak = get_alter_peak(ug, read_g, ruIndex, position_index, sources, coverage_cut, 
+        cov_buf_length);
+    }
+    
+    get_read_peak(cov_buf, cov_buf_length, alter_peak == -1? NULL: &alter_peak, &hom_peak, &het_peak);
+
+    free(cov_buf);
+
+    if(hom_peak != -1) return hom_peak*1.25;
+    if(het_peak != -1) return het_peak*2.50;
+    return cov_buf_length;
+}
+
+
+
+
+
+
+
+
 
 
 void init_hap_alignment_struct(hap_alignment_struct* x, uint32_t size)
@@ -143,7 +449,7 @@ void destory_hap_alignment_struct(hap_alignment_struct* x)
 }
 
 void init_hap_alignment_struct_pip(hap_alignment_struct_pip* x, uint32_t num_threads, uint32_t n_seq,
-ma_ug_t *ug, asg_t *read_g,  ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, ma_sub_t *coverage_cut, 
+ma_ug_t *ug, asg_t *read_g,  ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, ma_sub_t *coverage_cut, 
 uint64_t* position_index, float Hap_rate, int max_hang, int min_ovlp, float chain_rate, hap_overlaps_list* all_ovlp)
 {
     uint32_t i;
@@ -156,6 +462,7 @@ uint64_t* position_index, float Hap_rate, int max_hang, int min_ovlp, float chai
 
     x->ug = ug;
     x->read_g = read_g;
+    x->sources = sources;
     x->reverse_sources = reverse_sources;
     x->ruIndex = ruIndex;
     x->coverage_cut = coverage_cut;
@@ -485,6 +792,27 @@ long long* r_yBeg, long long* r_yEnd)
     if(n_y_beg == 0 && n_x_end == xLen - 1) return X2Y;
     if(n_x_beg == 0 && n_y_end == yLen - 1) return Y2X;
     return XCY;
+}
+
+
+uint64_t get_pair_hap_coverage(uint64_t* readIDs, uint32_t Len, ma_hit_t_alloc* sources, ma_sub_t* coverage_cut)
+{
+    uint32_t m, n, qn;
+    ma_hit_t *h;
+    uint64_t R_bases = 0, C_bases = 0;
+
+    for (m = 0; m < Len; m++)
+    {
+        qn = readIDs[m]>>33;
+        R_bases += coverage_cut[qn].e - coverage_cut[qn].s;
+        for (n = 0; n < (uint64_t)(sources[qn].length); n++)
+        {
+            h = &(sources[qn].buffer[n]);
+            C_bases += Get_qe((*h)) - Get_qs((*h));
+        }
+    }
+
+    return C_bases/R_bases;
 }
 
 void get_pair_hap_similarity(uint64_t* readIDs, uint32_t Len, uint32_t target_uId, 
@@ -1458,11 +1786,10 @@ long long* r_y_pos_beg, long long* r_y_pos_end)
 
 
 uint32_t calculate_pair_hap_similarity_advance(hap_candidates* hap_can, 
-uint64_t* position_index, uint32_t xUid, uint32_t yUid, ma_utg_t* xReads, ma_utg_t* yReads, 
-ma_hit_t_alloc* reverse_sources, asg_t *read_g, R_to_U* ruIndex, ma_sub_t *coverage_cut, 
-float Hap_rate, int max_hang, int min_ovlp, kvec_asg_arc_t_offset* u_buffer, 
-kvec_t_i32_warp* tailIndex, kvec_t_i32_warp* prevIndex, long long* r_x_pos_beg, 
-long long* r_x_pos_end, long long* r_y_pos_beg, long long* r_y_pos_end)
+uint64_t* position_index, uint32_t xUid, uint32_t yUid, ma_utg_t* xReads, ma_utg_t* yReads,
+ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, asg_t *read_g, R_to_U* ruIndex, ma_sub_t *coverage_cut, 
+float Hap_rate, int max_hang, int min_ovlp, uint64_t cov_threshold, kvec_asg_arc_t_offset* u_buffer, kvec_t_i32_warp* tailIndex, kvec_t_i32_warp* prevIndex, 
+long long* r_x_pos_beg, long long* r_x_pos_end, long long* r_y_pos_beg, long long* r_y_pos_end)
 {
     uint32_t max_count = 0, min_count = 0, flag;
     uint32_t xLen = xReads->n, xIndex;
@@ -1532,6 +1859,7 @@ long long* r_x_pos_end, long long* r_y_pos_beg, long long* r_y_pos_end)
     if(max_count > min_count*Hap_rate)
     {
         long long r_x_interval_beg, r_x_interval_end, r_y_interval_beg, r_y_interval_end;
+        uint64_t ploid_coverage = 0;
 
         ///for containment, don't need to do anything
         get_hap_alignment_boundary(xReads, yReads, flag, xLeftMatch, xLeftTotal, 
@@ -1564,6 +1892,15 @@ long long* r_x_pos_end, long long* r_y_pos_beg, long long* r_y_pos_end)
         if(hap_can->index_end == XCY && yReads->len > (xReads->len*2)) return NON_PLOID;
         if(hap_can->index_end == YCX && xReads->len > (yReads->len*2)) return NON_PLOID;
         if(hap_can->index_end == (uint32_t)-1) return NON_PLOID;
+
+        ploid_coverage = 0;
+        ploid_coverage += get_pair_hap_coverage(xReads->a+r_x_interval_beg, r_x_interval_end+1-r_x_interval_beg,
+        sources, coverage_cut);
+        ploid_coverage += get_pair_hap_coverage(yReads->a+r_y_interval_beg, r_y_interval_end+1-r_y_interval_beg, 
+        sources, coverage_cut);
+        ///fprintf(stderr, "ploid_coverage: %lu, cov_threshold: %lu\n", ploid_coverage, cov_threshold);
+
+        if(ploid_coverage >= cov_threshold) return NON_PLOID;
 
         return PLOID;
     } 
@@ -2425,6 +2762,7 @@ static void hap_alignment_advance_worker(void *_data, long eid, int tid)
     hap_alignment_struct_pip* hap_buf = (hap_alignment_struct_pip*)_data;
     ma_ug_t *ug = hap_buf->ug;
     asg_t *read_g = hap_buf->read_g;
+    ma_hit_t_alloc* sources = hap_buf->sources;
     ma_hit_t_alloc* reverse_sources = hap_buf->reverse_sources;
     R_to_U* ruIndex = hap_buf->ruIndex;
     ma_sub_t *coverage_cut = hap_buf->coverage_cut;
@@ -2444,6 +2782,7 @@ static void hap_alignment_advance_worker(void *_data, long eid, int tid)
     kvec_t_i32_warp* prevIndex_vec = &(hap_buf->buf[tid].u_buffer_prevIndex);
     kvec_t_i32_warp* begIndex_vec = &(hap_buf->buf[tid].u_buffer_beg);
     kvec_t_u8_warp* flag_vec = &(hap_buf->buf[tid].u_buffer_flag);
+    long long cov_threshold = hap_buf->cov_threshold;
 
     ma_utg_t *xReads = NULL, *yReads = NULL;
     ma_hit_t_alloc *xR = NULL;
@@ -2591,9 +2930,9 @@ static void hap_alignment_advance_worker(void *_data, long eid, int tid)
             if(u_can->a.a[k].weight < Get_match(hap_can)*Hap_rate) continue;
 
             if(calculate_pair_hap_similarity_advance(&(u_can->a.a[k]), position_index, xUid, yUid, 
-            xReads, yReads, reverse_sources, read_g, ruIndex, coverage_cut, Hap_rate, max_hang, 
-            min_ovlp, u_buffer, score_vc, prevIndex_vec, &r_x_pos_beg, &r_x_pos_end, &r_y_pos_beg, 
-            &r_y_pos_end)!=PLOID)
+            xReads, yReads, sources, reverse_sources, read_g, ruIndex, coverage_cut, Hap_rate, max_hang, 
+            min_ovlp, cov_threshold, u_buffer, score_vc, prevIndex_vec, &r_x_pos_beg, &r_x_pos_end, 
+            &r_y_pos_beg, &r_y_pos_end)!=PLOID)
             {
                 continue;
             }
@@ -3587,9 +3926,10 @@ void print_all_purge_ovlp(ma_ug_t *ug, hap_overlaps_list* all_ovlp)
     }
 
 }
-void purge_dups(ma_ug_t *ug, asg_t *read_g, ma_sub_t* coverage_cut, ma_hit_t_alloc* reverse_sources, 
-R_to_U* ruIndex, kvec_asg_arc_t_warp* edge, float density, uint32_t purege_minLen, int max_hang, 
-int min_ovlp, long long bubble_dist, float drop_ratio, uint32_t just_contain)
+void purge_dups(ma_ug_t *ug, asg_t *read_g, ma_sub_t* coverage_cut, ma_hit_t_alloc* sources, 
+ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, kvec_asg_arc_t_warp* edge, float density, 
+uint32_t purege_minLen, int max_hang, int min_ovlp, long long bubble_dist, float drop_ratio, 
+uint32_t just_contain)
 {
     asg_t *purge_g = NULL;
     purge_g = asg_init();
@@ -3621,6 +3961,11 @@ int min_ovlp, long long bubble_dist, float drop_ratio, uint32_t just_contain)
     int r;
     hap_alignment_struct_pip hap_buf;
 
+    hap_buf.cov_threshold = get_read_coverage_thres(ug, read_g, ruIndex, position_index, sources, coverage_cut, read_g->n_seq, COV_COUNT);
+    fprintf(stderr, "cov_threshold: %lld\n", hap_buf.cov_threshold);
+
+
+
     for (v = 0; v < nsg->n_seq; v++)
     {
         uId = v;
@@ -3649,7 +3994,7 @@ int min_ovlp, long long bubble_dist, float drop_ratio, uint32_t just_contain)
 
 
     init_hap_alignment_struct_pip(&hap_buf, asm_opt.thread_num, nsg->n_seq, ug, read_g,  
-    reverse_sources, ruIndex, coverage_cut, position_index, density, max_hang, min_ovlp, 
+    sources, reverse_sources, ruIndex, coverage_cut, position_index, density, max_hang, min_ovlp, 
     0.05, &all_ovlp);
 
     ///kt_for(asm_opt.thread_num, hap_alignment_worker, &hap_buf, nsg->n_seq);

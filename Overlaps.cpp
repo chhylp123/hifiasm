@@ -13274,7 +13274,7 @@ kvec_asg_arc_t_warp* new_rtg_edges)
 
     if(asm_opt.purge_level_trio == 1)
     {
-		purge_dups(*ug, read_g, coverage_cut, reverse_sources, ruIndex, new_rtg_edges, 
+		purge_dups(*ug, read_g, coverage_cut, sources, reverse_sources, ruIndex, new_rtg_edges, 
         asm_opt.purge_simi_rate, asm_opt.purge_overlap_len, max_hang, min_ovlp, bubble_dist,
         drop_ratio, 1);
 		delete_useless_nodes(ug);
@@ -22080,7 +22080,7 @@ kvec_asg_arc_t_warp* new_rtg_edges)
         just_contain = 0;
         if(asm_opt.purge_level_primary == 1) just_contain = 1;
 
-        purge_dups(*ug, read_g, coverage_cut, reverse_sources, ruIndex, new_rtg_edges, 
+        purge_dups(*ug, read_g, coverage_cut, sources, reverse_sources, ruIndex, new_rtg_edges, 
         asm_opt.purge_simi_rate, asm_opt.purge_overlap_len, max_hang, min_ovlp, bubble_dist, 
         drop_ratio, just_contain);
         delete_useless_nodes(ug);
@@ -22102,7 +22102,7 @@ kvec_asg_arc_t_warp* new_rtg_edges)
             just_contain = 0;
             if(asm_opt.purge_level_primary == 1) just_contain = 1;
 
-            purge_dups(*ug, read_g, coverage_cut, reverse_sources, ruIndex, new_rtg_edges, 
+            purge_dups(*ug, read_g, coverage_cut, sources, reverse_sources, ruIndex, new_rtg_edges, 
             asm_opt.purge_simi_rate, asm_opt.purge_overlap_len, max_hang, min_ovlp, bubble_dist, 
             drop_ratio, just_contain);
             delete_useless_nodes(ug);
@@ -22557,6 +22557,7 @@ long long rescue_threshold)
     }
     
 }
+
 
 
 long long get_coverage(ma_hit_t_alloc* sources, ma_sub_t* coverage_cut, uint64_t n_read)

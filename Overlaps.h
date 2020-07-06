@@ -27,6 +27,7 @@
 // #define ALTER_LABLE 2
 // #define HAP_LABLE 4
 
+
 #define Get_qn(RECORD) ((uint32_t)((RECORD).qns>>32))
 #define Get_qs(RECORD) ((uint32_t)((RECORD).qns))
 #define Get_qe(RECORD) ((RECORD).qe)
