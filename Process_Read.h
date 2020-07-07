@@ -153,5 +153,6 @@ void reverse_complement(char* pattern, uint64_t length);
 void write_All_reads(All_reads* r, char* read_file_name);
 int load_All_reads(All_reads* r, char* read_file_name);
 void destory_All_reads(All_reads* r);
+int destory_read_bin(All_reads* r);
 
 #endif

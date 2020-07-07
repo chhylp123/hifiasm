@@ -13489,6 +13489,7 @@ void write_all_data_to_disk(ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sou
 	write_ma_hit_ts(reverse_sources, RNF->total_reads, gfa_name);
 
 	free(gfa_name);
+    fprintf(stderr, "bin files have been written.\n");
 }
 
 int load_all_data_from_disk(ma_hit_t_alloc **sources, ma_hit_t_alloc **reverse_sources, char* output_file_name)
@@ -26342,6 +26343,7 @@ long long bubble_dist, int read_graph, int write)
     asg_t *sg = NULL;
     ma_sub_t* coverage_cut = NULL;
 
+    
     // debug_info_of_specfic_read("m64011_190329_072846/80545633/ccs", sources, reverse_sources, -1, "clean");
     
     ///actually min_thres = asm_opt.max_short_tip + 1 there are asm_opt.max_short_tip reads

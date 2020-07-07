@@ -98,6 +98,9 @@ void write_All_reads(All_reads* r, char* read_file_name)
 	fwrite(r->name, sizeof(char), r->total_name_length, fp);
 	fwrite(r->name_index, sizeof(uint64_t), r->name_index_size, fp);
 	fwrite(r->trio_flag, sizeof(uint8_t), r->total_reads, fp);
+	fwrite(&(asm_opt.hom_cov), sizeof(asm_opt.hom_cov), 1, fp);
+	fwrite(&(asm_opt.het_cov), sizeof(asm_opt.het_cov), 1, fp);
+
     free(index_name);    
 	fflush(fp);
     fclose(fp);
@@ -173,6 +176,8 @@ int load_All_reads(All_reads* r, char* read_file_name)
 	/****************************may have bugs********************************/
 	r->trio_flag = (uint8_t*)malloc(sizeof(uint8_t)*r->total_reads);
 	f_flag += fread(r->trio_flag, sizeof(uint8_t), r->total_reads, fp);
+	f_flag += fread(&(asm_opt.hom_cov), sizeof(asm_opt.hom_cov), 1, fp);
+    f_flag += fread(&(asm_opt.het_cov), sizeof(asm_opt.het_cov), 1, fp);
 	/****************************may have bugs********************************/
 
 	r->cigars = (Compressed_Cigar_record*)malloc(sizeof(Compressed_Cigar_record)*r->total_reads);
@@ -194,6 +199,35 @@ int load_All_reads(All_reads* r, char* read_file_name)
 
 	return 1;
 }
+
+
+int destory_read_bin(All_reads* r)
+{
+
+	uint64_t i = 0;
+	for (i = 0; i < r->total_reads; i++)
+	{
+		if (r->N_site[i]) free(r->N_site[i]);
+		if (r->read_sperate[i]) free(r->read_sperate[i]);
+		if (r->cigars[i].record) free(r->cigars[i].record);
+		if (r->cigars[i].lost_base) free(r->cigars[i].lost_base);
+		if (r->second_round_cigar[i].record) free(r->second_round_cigar[i].record);
+		if (r->second_round_cigar[i].lost_base) free(r->second_round_cigar[i].lost_base);
+	}
+
+	free(r->N_site);
+	free(r->read_length);
+	free(r->read_size);
+	free(r->read_sperate);
+	free(r->name);
+	free(r->name_index);
+	free(r->trio_flag);
+	free(r->cigars);
+	free(r->second_round_cigar);
+	return 1;
+}
+
+
 
 void ha_insert_read_len(All_reads *r, int read_len, int name_len)
 {

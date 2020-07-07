@@ -38,6 +38,7 @@ typedef struct {
 	double max_ov_diff_ec;
 	double max_ov_diff_final;
 	int hom_cov;
+    int het_cov;
 	int max_n_chain; // fall-back max number of chains to consider
     int k_mer_min_freq;
     int k_mer_max_freq;

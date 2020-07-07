@@ -632,7 +632,7 @@ void Output_corrected_reads()
 
 void ha_overlap_and_correct(int round)
 {
-	int i, hom_cov;
+	int i, hom_cov, het_cov;
 	ha_ovec_buf_t **b;
 	ha_ecsave_buf_t *e;
 
@@ -640,7 +640,7 @@ void ha_overlap_and_correct(int round)
 	CALLOC(b, asm_opt.thread_num);
 	for (i = 0; i < asm_opt.thread_num; ++i)
 		b[i] = ha_ovec_init(0, (round == asm_opt.number_of_round - 1));
-	ha_idx = ha_pt_gen(&asm_opt, ha_flt_tab, round == 0? 0 : 1, &R_INF, &hom_cov); // build the index
+	ha_idx = ha_pt_gen(&asm_opt, ha_flt_tab, round == 0? 0 : 1, &R_INF, &hom_cov, &het_cov); // build the index
 	if (round == 0 && ha_flt_tab == 0) // then asm_opt.hom_cov hasn't been updated
 		ha_opt_update_cov(&asm_opt, hom_cov);
 	if (asm_opt.required_read_name)
@@ -1141,20 +1141,55 @@ long long readNum, long long rescue_threshold, float cluster_threshold)
     fprintf(stderr, "[M::%s] took %0.2fs, revise edges #: %lld\n\n", __func__, Get_T()-startTime, revises);
 }
 
+void hap_recalculate_peaks(char* output_file_name)
+{
+    destory_read_bin(&R_INF);
+    destory_ma_hit_t_alloc(R_INF.paf);
+    destory_ma_hit_t_alloc(R_INF.reverse_paf);
+
+    char* gfa_name = (char*)malloc(strlen(output_file_name)+25);
+	sprintf(gfa_name, "%s.ec", output_file_name);
+
+    int hom_cov, het_cov;
+    // construct hash table for high occurrence k-mers
+    if (!(asm_opt.flag & HA_F_NO_KMER_FLT)) {
+        ha_flt_tab = ha_ft_gen(&asm_opt, &R_INF, &hom_cov);
+        ha_opt_update_cov(&asm_opt, hom_cov);
+    }
+    free(R_INF.read_length);
+    free(R_INF.name_index);
+
+    load_All_reads(&R_INF, gfa_name);
+
+    ha_idx = ha_pt_gen(&asm_opt, ha_flt_tab, 1, &R_INF, &hom_cov, &het_cov); // build the index
+    asm_opt.hom_cov = hom_cov;
+    asm_opt.het_cov = het_cov;
+    ha_pt_destroy(ha_idx);
+    ha_idx = 0;
+
+    destory_read_bin(&R_INF);
+    free(gfa_name);
+
+    load_all_data_from_disk(&R_INF.paf, &R_INF.reverse_paf, asm_opt.output_file_name); 
+    fprintf(stderr, "M::%s has done.\n", __func__);   
+}
+
 void ha_overlap_final(void)
 {
-	int i, hom_cov;
+	int i, hom_cov, het_cov;
 	ha_ovec_buf_t **b;
 	CALLOC(b, asm_opt.thread_num);
 	for (i = 0; i < asm_opt.thread_num; ++i)
 		b[i] = ha_ovec_init(1, 1);
-	ha_idx = ha_pt_gen(&asm_opt, ha_flt_tab, 1, &R_INF, &hom_cov); // build the index
+	ha_idx = ha_pt_gen(&asm_opt, ha_flt_tab, 1, &R_INF, &hom_cov, &het_cov); // build the index
 	kt_for(asm_opt.thread_num, worker_ov_final, b, R_INF.total_reads);
 	ha_pt_destroy(ha_idx);
 	ha_idx = 0;
 	for (i = 0; i < asm_opt.thread_num; ++i)
 		ha_ovec_destroy(b[i]);
 	free(b);
+    asm_opt.hom_cov = hom_cov;
+    asm_opt.het_cov = het_cov;
 }
 
 int ha_assemble(void)
@@ -1172,6 +1207,7 @@ int ha_assemble(void)
         ///if (!(asm_opt.flag & HA_F_SKIP_TRIOBIN)) ha_triobin(&asm_opt);
 		if (asm_opt.flag & HA_F_WRITE_EC) Output_corrected_reads();
 		if (asm_opt.flag & HA_F_WRITE_PAF) Output_PAF();
+        if (asm_opt.het_cov == -1024) hap_recalculate_peaks(asm_opt.output_file_name), ovlp_loaded = 2;
 	}
 	if (!ovlp_loaded) {
 		// construct hash table for high occurrence k-mers
@@ -1201,6 +1237,7 @@ int ha_assemble(void)
 		if (asm_opt.flag & HA_F_WRITE_PAF) Output_PAF();
 		ha_triobin(&asm_opt);
 	}
+    if(ovlp_loaded == 2) ovlp_loaded = 0;
 
     build_string_graph_without_clean(asm_opt.min_overlap_coverage, R_INF.paf, R_INF.reverse_paf, 
         R_INF.total_reads, R_INF.read_length, asm_opt.min_overlap_Len, asm_opt.max_hang_Len, asm_opt.clean_round, 

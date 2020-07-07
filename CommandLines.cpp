@@ -92,6 +92,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
 	asm_opt->max_ov_diff_ec = 0.04;
 	asm_opt->max_ov_diff_final = 0.03;
 	asm_opt->hom_cov = 20;
+    asm_opt->het_cov = -1024;
 	asm_opt->max_n_chain = 100;
     asm_opt->k_mer_min_freq = 3;
     asm_opt->k_mer_max_freq = 66;

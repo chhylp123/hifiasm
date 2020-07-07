@@ -173,7 +173,7 @@ void get_read_peak(long long* cov_buf, long long cov_buf_length, long long* topo
         }
     }
 
-    print_peak(cov_buf, cov_buf_length, max_i);
+    ///print_peak(cov_buf, cov_buf_length, max_i);
 
     // look for smaller peak on the low end
 	max2 = -1; max2_i = -1;
@@ -190,7 +190,7 @@ void get_read_peak(long long* cov_buf, long long cov_buf_length, long long* topo
 		}
 	}
 
-    fprintf(stderr, "***max2: %lld, max2_i: %lld\n", max2, max2_i);
+    ///fprintf(stderr, "***max2: %lld, max2_i: %lld\n", max2, max2_i);
 
     if (max2_i != -1 && max2_i > err_i && max2_i < max_i) 
     {
@@ -219,7 +219,7 @@ void get_read_peak(long long* cov_buf, long long cov_buf_length, long long* topo
 		}
 	}
 
-    fprintf(stderr, "***max3: %lld, max3_i: %lld\n", max3, max3_i);
+    ///fprintf(stderr, "***max3: %lld, max3_i: %lld\n", max3, max3_i);
     
     //if found a peak
 	if (max3 != -1 && max3_i > max_i) 
@@ -245,7 +245,7 @@ void get_read_peak(long long* cov_buf, long long cov_buf_length, long long* topo
             (*het_peak) = max_i;
         }
 
-        fprintf(stderr, "topo_peak: %lld, topo_peak_i: %lld\n", topo_peak, topo_peak_i);
+        ///fprintf(stderr, "topo_peak: %lld, topo_peak_i: %lld\n", topo_peak, topo_peak_i);
     }
     
 
@@ -262,10 +262,14 @@ void get_read_peak(long long* cov_buf, long long cov_buf_length, long long* topo
         (*hom_peak) = max_i;
     }
 
-    fprintf(stderr, "max: %lld, max_i: %lld\n", max, max_i);
-    fprintf(stderr, "max2: %lld, max2_i: %lld\n", max2, max2_i);
-    fprintf(stderr, "max3: %lld, max3_i: %lld\n", max3, max3_i);
-    fprintf(stderr, "(*het_peak): %lld, (*hom_peak): %lld\n", (*het_peak), (*hom_peak));
+    // fprintf(stderr, "max: %lld, max_i: %lld\n", max, max_i);
+    // fprintf(stderr, "max2: %lld, max2_i: %lld\n", max2, max2_i);
+    // fprintf(stderr, "max3: %lld, max3_i: %lld\n", max3, max3_i);
+    fprintf(stderr, "[M::%s] Heterozygous k-mer peak: %d\n", __func__, asm_opt.het_cov);
+    fprintf(stderr, "[M::%s] Homozygous k-mer peak: %d\n", __func__, asm_opt.hom_cov);
+    fprintf(stderr, "[M::%s] Heterozygous coverage peak: %lld\n", __func__, (*het_peak));
+    fprintf(stderr, "[M::%s] Homozygous coverage peak: %lld\n", __func__, (*hom_peak));
+    fprintf(stderr, "[M::%s] Alter coverage peak: %lld\n", __func__, topo_peak_i);
 }
 
 
@@ -274,9 +278,12 @@ void get_read_peak(long long* cov_buf, long long cov_buf_length, long long* topo
 long long get_alter_peak(ma_ug_t *ug, asg_t *read_g, R_to_U* ruIndex, uint64_t* position_index, 
 ma_hit_t_alloc* sources, ma_sub_t* coverage_cut, long long cov_buf_length)
 {
+    #define ALTER_COV_THRES 0.9
+    #define REAL_ALTER_THRES 0.1
+
     ma_utg_t* u = NULL;
     asg_t* nsg = ug->g;
-    uint64_t v, j, k, qn, n_vtx = nsg->n_seq;
+    uint64_t v, j, k, qn, n_vtx = nsg->n_seq, primary_bases = 0, alter_bases = 0;
     uint32_t tn, is_Unitig;
     long long* cov_buf = NULL;
     ma_hit_t *h;
@@ -295,6 +302,8 @@ ma_hit_t_alloc* sources, ma_sub_t* coverage_cut, long long cov_buf_length)
         {
             qn = u->a[k]>>33;
             position_index[qn] = 0;
+            R_bases = coverage_cut[qn].e - coverage_cut[qn].s;
+            primary_bases += R_bases;
         }
     }
 
@@ -305,6 +314,7 @@ ma_hit_t_alloc* sources, ma_sub_t* coverage_cut, long long cov_buf_length)
 
         C_bases = C_bases_primary = C_bases_alter = 0;
         R_bases = coverage_cut[qn].e - coverage_cut[qn].s;
+        alter_bases += R_bases;
         for (j = 0; j < (uint64_t)(sources[qn].length); j++)
         {
             h = &(sources[qn].buffer[j]);
@@ -335,16 +345,7 @@ ma_hit_t_alloc* sources, ma_sub_t* coverage_cut, long long cov_buf_length)
         // }
 
         C_bases = C_bases_primary + C_bases_alter;
-        if(C_bases_alter < C_bases * 0.8) continue;
-
-        ///fprintf(stderr, "******************qn: %lu\n",qn);
-        /**
-        if(qn == 1893151 || qn == 1929038)
-        {
-            fprintf(stderr, "******************qn: %lu\n",
-            qn);
-        }
-        **/
+        if(C_bases_alter < C_bases * ALTER_COV_THRES) continue;
 
         C_bases = C_bases/R_bases;
         if(C_bases < 0 || C_bases >= cov_buf_length) continue;
@@ -361,9 +362,9 @@ ma_hit_t_alloc* sources, ma_sub_t* coverage_cut, long long cov_buf_length)
         }
     }
 
-    fprintf(stderr, "alter max_i: %lld, max: %lld\n", max_i, max);
-
-    if(max_i < 5) max_i = max = -1;
+    ///fprintf(stderr, "alter max_i: %lld, max: %lld\n", max_i, max);
+    ///if(max_i < 5) max_i = max = -1;
+    if(alter_bases < primary_bases * REAL_ALTER_THRES) max_i = max = -1;
 
     free(cov_buf);
     memset(position_index, -1, sizeof(uint64_t)*read_g->n_seq);
