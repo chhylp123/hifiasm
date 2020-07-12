@@ -58,6 +58,9 @@ typedef struct {
     int purge_level_primary;
     int purge_level_trio;
     int purge_overlap_len;
+    int recover_atg_cov_min;
+    int recover_atg_cov_max;
+    int hom_global_coverage;
 
     float max_hang_rate;
     float min_drop_rate;
@@ -71,6 +74,7 @@ typedef struct {
     long long num_recorrected_bases;
 	long long mem_buf;
     long long coverage;
+    
 } hifiasm_opt_t;
 
 extern hifiasm_opt_t asm_opt;

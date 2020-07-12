@@ -21231,7 +21231,7 @@ void unroll_simple_case_advance(ma_ug_t *ug, asg_t* read_g, ma_hit_t_alloc* reve
     while (n_reduce > 0)
     {
         n_reduce = 0;
-
+        ///break nearly circle, forget why...
         n_reduce += asg_arc_del_simple_circle_untig(NULL, NULL, nsg, 100, 0);
         /**
         for (v = 0; v < n_vtx; ++v) 
@@ -22039,6 +22039,205 @@ R_to_U* ruIndex)
 
 }
 
+
+void append_utg(ma_ug_t* ptg, ma_ug_t* atg)
+{
+    uint64_t num_nodes = 0;
+    asg_t* nsg = atg->g;
+    uint32_t v, n_vtx = nsg->n_seq;
+    ma_utg_t *p;
+    for (v = 0; v < n_vtx; ++v) 
+    {
+        if(nsg->seq[v].del || atg->u.a[v].m == 0) continue;
+        num_nodes++;
+    }
+
+    if(num_nodes == 0) return;
+
+    ptg->u.n = ptg->u.n + num_nodes;
+    if(ptg->u.n > ptg->u.m)
+    {
+        ptg->u.m = ptg->u.n;
+        ptg->u.a = (ma_utg_t*)realloc(ptg->u.a, ptg->u.m*sizeof(ma_utg_t));     
+    }
+    ptg->u.n = ptg->u.n - num_nodes;
+
+    for (v = 0; v < atg->g->n_seq; ++v) 
+    {
+        if(atg->g->seq[v].del || atg->u.a[v].m == 0) continue;
+
+        p = &(ptg->u.a[ptg->u.n]);
+        p->len = atg->u.a[v].len;
+        p->circ = atg->u.a[v].circ;
+        p->start = atg->u.a[v].start;
+        p->end = atg->u.a[v].end;
+        p->m = atg->u.a[v].m; atg->u.a[v].m = 0;
+        p->n = atg->u.a[v].n; atg->u.a[v].n = 0;
+        p->a = atg->u.a[v].a; atg->u.a[v].a = 0;
+        p->s = atg->u.a[v].s; atg->u.a[v].s = 0;
+        asg_seq_set(ptg->g, ptg->u.n, p->len, 0);
+        ptg->u.n++;
+    }
+
+    asg_cleanup(ptg->g);
+}
+
+
+void print_utg_coverage(ma_ug_t *ug, ma_sub_t* coverage_cut, uint32_t v, ma_hit_t_alloc* sources)
+{
+    asg_t* nsg = ug->g;
+    uint32_t rId, k, j;
+    ma_utg_t* u = NULL;
+    ma_hit_t *h;
+
+    if(nsg->seq[v].del) return;
+    u = &(ug->u.a[v]);
+    if(u->m == 0) return;
+    long long R_bases = 0, C_bases = 0;
+    long long U_R_bases = 0, U_C_bases = 0;
+    for (k = 0; k < u->n; k++)
+    {
+        rId = u->a[k]>>33;
+        C_bases = 0;
+        R_bases = coverage_cut[rId].e - coverage_cut[rId].s;
+        for (j = 0; j < (uint64_t)(sources[rId].length); j++)
+        {
+            h = &(sources[rId].buffer[j]);
+            if(h->el != 1) continue;
+            C_bases += Get_qe((*h)) - Get_qs((*h));
+        }
+        U_R_bases += R_bases;
+        U_C_bases += C_bases;
+        C_bases = C_bases/R_bases;
+
+        fprintf(stderr, "%.*s\t%lld\n", (int)Get_NAME_LENGTH(R_INF, rId), Get_NAME(R_INF, rId), C_bases);
+    }
+
+    fprintf(stderr, "v: %u, coverage: %lld\n\n", v, U_C_bases/U_R_bases);
+}
+
+void recover_utg_by_coverage(ma_ug_t **ptg, asg_t* read_g, ma_sub_t* coverage_cut, 
+ma_hit_t_alloc* sources, R_to_U* ruIndex)
+{
+    if(asm_opt.recover_atg_cov_min == -1) return;
+    if(asm_opt.recover_atg_cov_max == -1) return;
+    if(asm_opt.recover_atg_cov_min > asm_opt.recover_atg_cov_max) return;
+    ma_ug_t *atg = NULL;
+    atg = ma_ug_gen_primary(read_g, ALTER_LABLE);
+    asg_t* nsg = atg->g;
+    uint32_t v, n_vtx = nsg->n_seq, k, j, rId, available_reads = 0, keep_atg = 0, tn, is_Unitig;
+    ma_utg_t* u = NULL;
+    ma_hit_t *h;
+    long long R_bases = 0, C_bases = 0, C_bases_primary = 0, C_bases_alter = 0;
+    for (v = 0; v < n_vtx; ++v) 
+    {
+        if(nsg->seq[v].del) continue;
+        u = &(atg->u.a[v]);
+        if(u->m == 0) continue;
+        available_reads = 0;
+
+        for (k = 0; k < u->n; k++)
+        {
+            rId = u->a[k]>>33;
+            C_bases = C_bases_primary = C_bases_alter = 0;
+            R_bases = coverage_cut[rId].e - coverage_cut[rId].s;
+            for (j = 0; j < (uint64_t)(sources[rId].length); j++)
+            {
+                h = &(sources[rId].buffer[j]);
+                if(h->el != 1) continue;
+                tn = Get_tn((*h));
+                if(read_g->seq[tn].del == 1)
+                {
+                    ///get the id of read that contains it 
+                    get_R_to_U(ruIndex, tn, &tn, &is_Unitig);
+                    if(tn == (uint32_t)-1 || is_Unitig == 1 || read_g->seq[tn].del == 1) continue;
+                }
+                if(read_g->seq[tn].del == 1) continue;
+                if(read_g->seq[tn].c == ALTER_LABLE)
+                {
+                    C_bases_alter += Get_qe((*h)) - Get_qs((*h));
+                }
+                else
+                {
+                    C_bases_primary += Get_qe((*h)) - Get_qs((*h));
+                }
+            }
+
+            C_bases = C_bases_primary + C_bases_alter;
+            if(C_bases_alter < C_bases * ALTER_COV_THRES) continue;
+
+            C_bases = C_bases/R_bases;
+            if(C_bases >= asm_opt.recover_atg_cov_min && C_bases <= asm_opt.recover_atg_cov_max)
+            {
+                available_reads++;
+            }
+        }
+
+        if(available_reads < (u->n * 0.8) || available_reads == 0)
+        {
+            asg_seq_del(nsg, v);
+
+            if(u->m!=0)
+            {
+                u->m = u->n = 0;
+                free(u->a);
+                u->a = NULL;
+            }
+        }
+        else
+        {
+            ///print_utg_coverage(atg, coverage_cut, v, sources);
+            ///fprintf(stderr, "rId: %u\n", rId);
+            ///fprintf(stderr, "%.*s\t%lld\n", (int)Get_NAME_LENGTH(R_INF, rId), Get_NAME(R_INF, rId), C_bases);
+            keep_atg++;
+        }
+    }
+
+    if(keep_atg > 0)
+    {
+        asg_cleanup(nsg);
+        asg_symm(nsg);
+        append_utg(*ptg, atg);
+
+
+        n_vtx = read_g->n_seq;
+        for (v = 0; v < n_vtx; v++)
+        {
+            read_g->seq[v].c = ALTER_LABLE;
+        }
+        
+        nsg = (*ptg)->g;
+        n_vtx = nsg->n_seq;
+        for (v = 0; v < n_vtx; ++v) 
+        {
+            if(nsg->seq[v].del) continue;
+            u = &((*ptg)->u.a[v]);
+            if(u->m == 0) continue;
+            for (k = 0; k < u->n; k++)
+            {
+                rId = u->a[k]>>33;
+                read_g->seq[rId].c = nsg->seq[v].c;
+            }
+        }
+
+
+        n_vtx = read_g->n_seq;
+        for (v = 0; v < n_vtx; v++)
+        {
+            if(read_g->seq[v].c == ALTER_LABLE)
+            {
+                asg_seq_drop(read_g, v);
+            }
+        }
+    }
+
+    fprintf(stderr, "keep_atg: %u\n", keep_atg);
+    ma_ug_destroy(atg);
+}
+
+
+
+
 void adjust_utg_by_primary(ma_ug_t **ug, asg_t* read_g, float drop_rate,
 ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, ma_sub_t* coverage_cut, 
 long long bubble_dist, long long tipsLen, float tip_drop_ratio, long long stops_threshold, 
@@ -22049,7 +22248,8 @@ kvec_asg_arc_t_warp* new_rtg_edges)
     uint32_t v, n_vtx = nsg->n_seq, k, rId, just_contain;
     ma_utg_t* u = NULL;
     
-    
+    ///print_utg_coverage(*ug, coverage_cut, 440, sources);
+    ///exit(0);
     /**
     kvec_t_u32_warp new_rtg_nodes;
     kv_init(new_rtg_nodes.a);
@@ -22110,6 +22310,7 @@ kvec_asg_arc_t_warp* new_rtg_edges)
             renew_utg(ug, read_g, new_rtg_edges);
         }
     }
+
     
 
     n_vtx = read_g->n_seq;
@@ -22134,7 +22335,6 @@ kvec_asg_arc_t_warp* new_rtg_edges)
         }
     }
 
-
     n_vtx = read_g->n_seq;
     for (v = 0; v < n_vtx; v++)
     {
@@ -22143,7 +22343,17 @@ kvec_asg_arc_t_warp* new_rtg_edges)
             asg_seq_drop(read_g, v);
         }
     }
-    
+
+    if(asm_opt.recover_atg_cov_min == -1 || asm_opt.recover_atg_cov_max == -1)
+    {
+        asm_opt.recover_atg_cov_max = asm_opt.hom_global_coverage/HOM_PEAK_RATE;
+        asm_opt.recover_atg_cov_min = asm_opt.recover_atg_cov_max * 0.8;
+        asm_opt.recover_atg_cov_max = asm_opt.recover_atg_cov_max * 1.2;
+    }
+    fprintf(stderr, "asm_opt.recover_atg_cov_min: %d\n", asm_opt.recover_atg_cov_min);
+    fprintf(stderr, "asm_opt.recover_atg_cov_max: %d\n", asm_opt.recover_atg_cov_max);
+
+    recover_utg_by_coverage(ug, read_g, coverage_cut, sources, ruIndex);
     
     /**
     kv_destroy(new_rtg_nodes.a);

@@ -6,6 +6,9 @@
 #include "Overlaps.h"
 #include "Correct.h"
 #include "kthread.h"
+#include "kdq.h"
+
+KDQ_INIT(uint64_t)
 
 #define Cal_Off(OFF) ((long long)((uint32_t)((OFF)>>32)) - (long long)((uint32_t)((OFF))))
 #define Get_xOff(OFF) ((long long)((uint32_t)((OFF)>>32)))
@@ -149,7 +152,8 @@ void print_peak(long long* cov_buf, long long cov_buf_length, long long max_i)
 }
 
 
-void get_read_peak(long long* cov_buf, long long cov_buf_length, long long* topo_peak_cov, long long* hom_peak, long long* het_peak)
+void get_read_peak(long long* cov_buf, long long cov_buf_length, long long* topo_peak_cov, 
+long long* hom_peak, long long* het_peak, long long* k_mer_only, long long* coverage_only)
 {
     long long i, start, err_i, max_i, max2_i, max3_i, topo_peak_i, max, max2, max3, topo_peak, min;
 
@@ -240,36 +244,71 @@ void get_read_peak(long long* cov_buf, long long cov_buf_length, long long* topo
     {
         topo_peak_i = (*topo_peak_cov);
         topo_peak = cov_buf[topo_peak_i];
-        if(topo_peak_i <= max_i * 1.2 && topo_peak_i >= max_i * 0.8 && topo_peak > max * 0.05)
-        {
-            (*het_peak) = max_i;
-        }
-
-        ///fprintf(stderr, "topo_peak: %lld, topo_peak_i: %lld\n", topo_peak, topo_peak_i);
+        if (topo_peak <= max * 0.05) topo_peak_i = topo_peak = -1;
     }
     
+    long long k_mer_het, k_mer_hom, coverage_het, coverage_hom, alter_peak;
+    k_mer_het = k_mer_hom = coverage_het = coverage_hom = alter_peak = -1;
 
-    ///if we really want to use rev_sources for double checking, we should use peak instead of mean
-    ///if we found a small peak at the right hand of the largest peak
+    alter_peak = topo_peak_i;
+    k_mer_het = asm_opt.het_cov;
+    k_mer_hom = asm_opt.hom_cov;
     if(max3_i > 0)
     {
-        (*het_peak) = max_i;
-        (*hom_peak) = max3_i;
+        coverage_het = max_i;
+        coverage_hom = max3_i;
     }
-    else if((*het_peak) == -1)
+    else
     {
-        (*het_peak) = max2_i;
-        (*hom_peak) = max_i;
+        coverage_het = max2_i;
+        coverage_hom = max_i;
     }
+
+    if(k_mer_het != -1)
+    {
+        (*het_peak) = k_mer_het;
+        (*hom_peak) = k_mer_hom;
+        return;
+    }
+    else if(coverage_het != -1)
+    {
+        (*het_peak) = coverage_het;
+        (*hom_peak) = coverage_hom;
+        return;
+    }
+    else if(k_mer_hom > coverage_hom*1.5)
+    {
+        (*het_peak) = coverage_hom;
+        (*hom_peak) = k_mer_hom;
+        return;
+    }
+    else if(alter_peak != -1)
+    {
+        ///if peak is het, coverage peak is more reliable 
+        if(coverage_hom >= alter_peak*0.8 && coverage_hom <= alter_peak*1.2) 
+        {
+            (*het_peak) = coverage_hom;
+            return;
+        }///if peak is homo, k-mer peak is more reliable 
+        else if(k_mer_hom >= alter_peak*0.8*2 && k_mer_hom <= alter_peak*1.2*2)
+        {
+            (*hom_peak) = k_mer_hom;
+            return;
+        }
+    }
+
+    (*k_mer_only) = k_mer_hom;
+    (*coverage_only) = coverage_hom;
+    
 
     // fprintf(stderr, "max: %lld, max_i: %lld\n", max, max_i);
     // fprintf(stderr, "max2: %lld, max2_i: %lld\n", max2, max2_i);
     // fprintf(stderr, "max3: %lld, max3_i: %lld\n", max3, max3_i);
-    fprintf(stderr, "[M::%s] Heterozygous k-mer peak: %d\n", __func__, asm_opt.het_cov);
-    fprintf(stderr, "[M::%s] Homozygous k-mer peak: %d\n", __func__, asm_opt.hom_cov);
-    fprintf(stderr, "[M::%s] Heterozygous coverage peak: %lld\n", __func__, (*het_peak));
-    fprintf(stderr, "[M::%s] Homozygous coverage peak: %lld\n", __func__, (*hom_peak));
-    fprintf(stderr, "[M::%s] Alter coverage peak: %lld\n", __func__, topo_peak_i);
+    // fprintf(stderr, "[M::%s] Heterozygous k-mer peak: %d\n", __func__, asm_opt.het_cov);
+    // fprintf(stderr, "[M::%s] Homozygous k-mer peak: %d\n", __func__, asm_opt.hom_cov);
+    // fprintf(stderr, "[M::%s] Heterozygous coverage peak: %lld\n", __func__, (*het_peak));
+    // fprintf(stderr, "[M::%s] Homozygous coverage peak: %lld\n", __func__, (*hom_peak));
+    // fprintf(stderr, "[M::%s] Alter coverage peak: %lld\n", __func__, topo_peak_i);
 }
 
 
@@ -278,9 +317,7 @@ void get_read_peak(long long* cov_buf, long long cov_buf_length, long long* topo
 long long get_alter_peak(ma_ug_t *ug, asg_t *read_g, R_to_U* ruIndex, uint64_t* position_index, 
 ma_hit_t_alloc* sources, ma_sub_t* coverage_cut, long long cov_buf_length)
 {
-    #define ALTER_COV_THRES 0.9
-    #define REAL_ALTER_THRES 0.1
-
+    
     ma_utg_t* u = NULL;
     asg_t* nsg = ug->g;
     uint64_t v, j, k, qn, n_vtx = nsg->n_seq, primary_bases = 0, alter_bases = 0;
@@ -372,7 +409,9 @@ ma_hit_t_alloc* sources, ma_sub_t* coverage_cut, long long cov_buf_length)
     return max_i;
 }
 
-long long get_read_coverage_thres(ma_ug_t *ug, asg_t *read_g, R_to_U* ruIndex, uint64_t* position_index, ma_hit_t_alloc* sources, ma_sub_t* coverage_cut, uint64_t n_read, long long cov_buf_length)
+long long get_read_coverage_thres(ma_ug_t *ug, asg_t *read_g, R_to_U* ruIndex, uint64_t* position_index, 
+ma_hit_t_alloc* sources, ma_sub_t* coverage_cut, uint64_t n_read, long long cov_buf_length,
+long long* k_mer_only, long long* coverage_only)
 {
     uint64_t i, j;
     long long* cov_buf = NULL;
@@ -401,13 +440,14 @@ long long get_read_coverage_thres(ma_ug_t *ug, asg_t *read_g, R_to_U* ruIndex, u
         cov_buf_length);
     }
     
-    get_read_peak(cov_buf, cov_buf_length, alter_peak == -1? NULL: &alter_peak, &hom_peak, &het_peak);
+    get_read_peak(cov_buf, cov_buf_length, alter_peak == -1? NULL: &alter_peak, &hom_peak, &het_peak,
+    k_mer_only, coverage_only);
 
     free(cov_buf);
 
-    if(hom_peak != -1) return hom_peak*1.25;
-    if(het_peak != -1) return het_peak*2.50;
-    return cov_buf_length;
+    if(hom_peak != -1) return hom_peak*HOM_PEAK_RATE;
+    if(het_peak != -1) return het_peak*HET_PEAK_RATE;
+    return -1;
 }
 
 
@@ -1901,7 +1941,7 @@ long long* r_x_pos_beg, long long* r_x_pos_end, long long* r_y_pos_beg, long lon
         sources, coverage_cut);
         ///fprintf(stderr, "ploid_coverage: %lu, cov_threshold: %lu\n", ploid_coverage, cov_threshold);
 
-        if(ploid_coverage >= cov_threshold) return NON_PLOID;
+        if(cov_threshold > 0 && ploid_coverage >= cov_threshold) return NON_PLOID;
 
         return PLOID;
     } 
@@ -2783,7 +2823,8 @@ static void hap_alignment_advance_worker(void *_data, long eid, int tid)
     kvec_t_i32_warp* prevIndex_vec = &(hap_buf->buf[tid].u_buffer_prevIndex);
     kvec_t_i32_warp* begIndex_vec = &(hap_buf->buf[tid].u_buffer_beg);
     kvec_t_u8_warp* flag_vec = &(hap_buf->buf[tid].u_buffer_flag);
-    long long cov_threshold = hap_buf->cov_threshold;
+    uint64_t cov_threshold = hap_buf->cov_threshold;
+    if(hap_buf->cov_threshold < 0) cov_threshold = (uint64_t)-1;
 
     ma_utg_t *xReads = NULL, *yReads = NULL;
     ma_hit_t_alloc *xR = NULL;
@@ -3927,6 +3968,207 @@ void print_all_purge_ovlp(ma_ug_t *ug, hap_overlaps_list* all_ovlp)
     }
 
 }
+
+inline int get_available_cnt(asg_t *g, uint32_t v, uint8_t* del, asg_arc_t* v_s)
+{
+    //v has direction
+    if(del && del[v>>1]) return 0;
+    uint32_t i, kv = 0;
+    asg_arc_t *av = asg_arc_a(g, v);
+    uint32_t nv = asg_arc_n(g, v);
+
+    for (i = 0, kv = 0; i < nv; i++)
+    {
+        if(!av[i].del)
+        {
+            if(del && del[av[i].v>>1]) continue;
+            if(v_s) v_s[kv] = av[i];
+            kv++;
+        }
+    }
+
+    return kv;
+}
+
+long long get_specific_contig_length(asg_t *g, uint8_t *del)
+{
+    asg_cleanup(g);
+    uint32_t v, n_vtx = g->n_seq * 2, q_occ;
+    uint8_t *mark = NULL;
+    ///is a queue
+	//kdq_t(uint64_t) *q;
+    ///each node has two directions
+    //q = kdq_init(uint64_t);
+
+
+    mark = (uint8_t*)calloc(n_vtx, 1);
+    
+    long long totalLen = 0;
+    for (v = 0; v < n_vtx; ++v) 
+    {
+        uint32_t w, x, l, start, end, len;
+        asg_arc_t arc;
+        if (g->seq[v>>1].del || mark[v]) continue;
+        if (get_available_cnt(g, v, del, NULL) == 0 && get_available_cnt(g, (v^1), del, NULL) != 0) continue;
+        if (del[v>>1]) continue;
+
+        mark[v] = 1;
+		//q->count = 0, start = v, end = v^1, len = 0;
+        q_occ =0, start = v, end = v^1, len = 0;
+		// forward
+		w = v;
+
+
+        while (1) 
+        {
+			/**
+			 * w----->x
+			 * w<-----x
+			 * that means the only suffix of w is x, and the only prefix of x is w
+			 **/
+			if (get_available_cnt(g, w, del, NULL) != 1) break;
+            get_available_cnt(g, w, del, &arc);
+			x = arc.v; // w->x
+			if (get_available_cnt(g, x^1, del, NULL) != 1) break;
+
+			/**
+			 * another direction of w would be marked as used (since w has been used)
+			**/
+			mark[x] = mark[w^1] = 1;
+			///l is the edge length, instead of overlap length
+            ///note: edge length is different with overlap length
+			///l = asg_arc_len(arc_first(g, w));
+            get_available_cnt(g, w, del, &arc);
+            l = ((uint32_t)((arc).ul));
+			//kdq_push(uint64_t, q, (uint64_t)w<<32 | l);
+            q_occ++;
+			end = x^1, len += l;
+			w = x;
+			if (x == v) break;
+		}
+
+
+        //if (start != (end^1) || kdq_size(q) == 0) { // linear unitig
+        if (start != (end^1) || q_occ == 0) { // linear unitig
+			///length of seq, instead of edge
+			l = g->seq[end>>1].len;
+			//kdq_push(uint64_t, q, (uint64_t)(end^1)<<32 | l);
+            q_occ++;
+			len += l;
+		} else { // circular unitig
+			start = end = UINT32_MAX;
+			goto add_unitig; // then it is not necessary to do the backward
+		}
+
+        // backward
+		x = v;
+		while (1) { // similar to forward but not the same
+			if (get_available_cnt(g, x^1, del, NULL) != 1) break;
+            get_available_cnt(g, x^1, del, &arc);
+            w = arc.v ^ 1;
+			if (get_available_cnt(g, w, del, NULL) != 1) break;
+			mark[x] = mark[w^1] = 1;
+			///l = asg_arc_len(arc_first(g, w));
+            get_available_cnt(g, w, del, &arc);
+            l = ((uint32_t)((arc).ul));
+			///w is the seq id + direction, l is the length of edge
+			///push element to the front of a queue
+			//kdq_unshift(uint64_t, q, (uint64_t)w<<32 | l);
+            q_occ++;
+
+			start = w, len += l;
+			x = w;
+		}
+
+
+        add_unitig:
+        if (start != UINT32_MAX) mark[start] = mark[end] = 1;
+        totalLen += len;
+    }
+    //kdq_destroy(uint64_t, q);
+    return totalLen;
+}
+
+
+void get_contig_length(ma_ug_t *ug, asg_t *g, uint64_t* primaryLen, uint64_t* alterLen)
+{
+    uint8_t *del = (uint8_t *)malloc(sizeof(uint8_t)*g->n_seq);
+    uint32_t v, k;
+    ma_utg_t* u = NULL;
+    memset(del, 1, g->n_seq);
+    (*primaryLen) = (*alterLen) = 0;
+
+    for (v = 0; v < ug->g->n_seq; ++v) 
+    {
+        if(ug->g->seq[v].del) continue;
+        if(ug->g->seq[v].c == ALTER_LABLE) continue;
+        u = &(ug->u.a[v]);
+        if(u->m == 0) continue;
+        for (k = 0; k < u->n; k++)
+        {
+            del[u->a[k]>>33] = 0;
+        }
+    }
+    (*primaryLen) = get_specific_contig_length(g, del);
+
+
+    for (v = 0; v < g->n_seq; ++v) 
+    {
+        del[v] = 1 - del[v];
+    }
+
+    (*alterLen) = get_specific_contig_length(g, del);
+
+    free(del);
+}
+
+
+int if_ploid_sample(ma_ug_t *ug, asg_t *read_g, R_to_U* ruIndex, 
+ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, ma_sub_t* coverage_cut, 
+hap_alignment_struct_pip* hap_buf, hap_overlaps_list* all_ovlp, hap_overlaps_list* back_all_ovlp, 
+uint32_t minLen, double purge_threshold)
+{
+    asg_t* nsg = ug->g;
+    uint64_t v, k, total_bases = 0, alter_bases = 0, primary_bases = 0, purge_bases = 0;
+    kt_for(asm_opt.thread_num, hap_alignment_advance_worker, hap_buf, nsg->n_seq);
+    filter_hap_overlaps_by_length(all_ovlp, minLen);
+    normalize_hap_overlaps_advance(all_ovlp, back_all_ovlp, ug, read_g, reverse_sources, ruIndex);
+
+    get_contig_length(ug, read_g, &primary_bases, &alter_bases);
+    total_bases = primary_bases + alter_bases;
+    fprintf(stderr, "primary_bases: %lu\n", primary_bases);
+    fprintf(stderr, "alter_bases: %lu\n", alter_bases);
+    fprintf(stderr, "total_bases: %lu\n", total_bases);
+
+
+    for (v = 0; v < all_ovlp->num; v++)
+    {
+        for (k = 0; k < all_ovlp->x[v].a.n; k++)
+        {
+            purge_bases += all_ovlp->x[v].a.a[k].x_end_pos - all_ovlp->x[v].a.a[k].x_beg_pos;
+        }
+    }
+    purge_bases = purge_bases/2;
+    fprintf(stderr, "purge_bases: %lu\n", purge_bases);
+    alter_bases = alter_bases + purge_bases;
+    fprintf(stderr, "new alter_bases: %lu\n", alter_bases);
+
+
+    for (v = 0; v < all_ovlp->num; v++)
+    {
+        all_ovlp->x[v].a.n = 0;
+    }
+
+    for (v = 0; v < back_all_ovlp->num; v++)
+    {
+        back_all_ovlp->x[v].a.n = 0;
+    }
+
+    if(alter_bases > total_bases * purge_threshold) return 1;
+    return 0;
+}
+
+
 void purge_dups(ma_ug_t *ug, asg_t *read_g, ma_sub_t* coverage_cut, ma_hit_t_alloc* sources, 
 ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, kvec_asg_arc_t_warp* edge, float density, 
 uint32_t purege_minLen, int max_hang, int min_ovlp, long long bubble_dist, float drop_ratio, 
@@ -3961,9 +4203,11 @@ uint32_t just_contain)
     asg_arc_t* p = NULL;
     int r;
     hap_alignment_struct_pip hap_buf;
+    long long k_mer_only, coverage_only;
 
-    hap_buf.cov_threshold = get_read_coverage_thres(ug, read_g, ruIndex, position_index, sources, coverage_cut, read_g->n_seq, COV_COUNT);
-    fprintf(stderr, "cov_threshold: %lld\n", hap_buf.cov_threshold);
+    hap_buf.cov_threshold = get_read_coverage_thres(ug, read_g, ruIndex, position_index, 
+    sources, coverage_cut, read_g->n_seq, COV_COUNT, &k_mer_only, &coverage_only);
+    ///fprintf(stderr, "cov_threshold: %lld\n", hap_buf.cov_threshold);
 
 
 
@@ -3997,6 +4241,24 @@ uint32_t just_contain)
     init_hap_alignment_struct_pip(&hap_buf, asm_opt.thread_num, nsg->n_seq, ug, read_g,  
     sources, reverse_sources, ruIndex, coverage_cut, position_index, density, max_hang, min_ovlp, 
     0.05, &all_ovlp);
+
+    if(hap_buf.cov_threshold < 0)
+    {
+        if(if_ploid_sample(ug, read_g, ruIndex, sources, reverse_sources, coverage_cut, 
+        &hap_buf, &all_ovlp, &back_all_ovlp, purege_minLen, 0.333))
+        {
+            ///if peak is het, coverage peak is more reliable 
+            hap_buf.cov_threshold = coverage_only * HET_PEAK_RATE;
+        }
+        else
+        {
+            ///if peak is homo, k-mer peak is more reliable 
+            hap_buf.cov_threshold = k_mer_only * HOM_PEAK_RATE;
+        }
+    }
+    asm_opt.hom_global_coverage = hap_buf.cov_threshold;
+    fprintf(stderr, "cov_threshold: %lld\n", hap_buf.cov_threshold);
+    
 
     ///kt_for(asm_opt.thread_num, hap_alignment_worker, &hap_buf, nsg->n_seq);
     kt_for(asm_opt.thread_num, hap_alignment_advance_worker, &hap_buf, nsg->n_seq);

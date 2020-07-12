@@ -5,6 +5,7 @@
 #include "Levenshtein_distance.h"
 #include "POA.h"
 #include "Process_Read.h"
+#include "Correct.h"
 
 //#define CORRECT_THRESHOLD 0.70
 #define CORRECT_THRESHOLD 0.60

@@ -117,6 +117,9 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->purge_level_trio = 0;
     asm_opt->purge_simi_rate = 0.75;
     asm_opt->purge_overlap_len = 1;
+    asm_opt->recover_atg_cov_min = -1;
+    asm_opt->recover_atg_cov_max = -1;
+    asm_opt->hom_global_coverage = -1;
 }
 
 void destory_opt(hifiasm_opt_t* asm_opt)
