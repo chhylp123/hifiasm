@@ -1,4 +1,4 @@
-.TH hifiasm 1 "12 Apr 2020" "hifiasm-0.5.0" "Bioinformatics tools"
+.TH hifiasm 1 "27 June 2020" "hifiasm-0.8 (r279)" "Bioinformatics tools"
 
 .SH NAME
 .PP
@@ -192,6 +192,12 @@ and do the assembly directly and quickly.
 This might be helpful when users want to get an optimized assembly by multiple rounds of experiments
 with different parameters.
 
+.TP
+.BI --pri-range \ INT,INT
+Min and max coverage cutoff of primary contigs.
+Keep contigs with coverage in this range at p_ctg.gfa. 
+Inferred automatically in default. 
+Set -1,-1 to disable 
 
 .SS Trio-partition options
 
@@ -251,6 +257,11 @@ Similarity threshold for duplicate haplotigs that should be purged [0.75].
 .TP
 .BI -O \ FLOAT
 Min number of overlapped reads for duplicate haplotigs that should be purged [1].
+
+.TP
+.BI --purge-cov \ INT
+Coverage upper bound of Purge-dups, which is inferred automatically in default.
+If the coverage of a contig is higher than this bound, don't apply Purge-dups.
 
 .SS Debugging options
 

@@ -1047,8 +1047,8 @@ R_to_U* ruIndex, int max_hang, int min_ovlp, long long bubble_dist, uint32_t is_
 uint32_t is_primary_check, kvec_asg_arc_t_warp* new_rtg_edges);
 void deduplicate(ma_ug_t *src, asg_t *read_g, ma_hit_t_alloc* reverse_sources, long long minLongUntig, 
 long long maxShortUntig, float l_untig_rate, float max_node_threshold, R_to_U* ruIndex, uint32_t resolve_tangle);
-void all_to_all_deduplicate(ma_ug_t* ug, uint8_t postive_flag, float drop_rate, 
-ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex);
+void all_to_all_deduplicate(ma_ug_t* ug, asg_t* read_g, ma_sub_t* coverage_cut, 
+ma_hit_t_alloc* sources, uint8_t postive_flag, float drop_rate, ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex);
 void drop_semi_circle(ma_ug_t *ug, asg_t* nsg, asg_t* read_g, ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex);
 void rescue_wrong_overlaps_to_unitigs(ma_ug_t *i_ug, asg_t *r_g,  ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, 
 ma_sub_t *coverage_cut, R_to_U* ruIndex, int max_hang, int min_ovlp, long long bubble_dist, kvec_asg_arc_t_warp* keep_edges);

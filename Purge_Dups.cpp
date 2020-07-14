@@ -4136,9 +4136,9 @@ uint32_t minLen, double purge_threshold)
 
     get_contig_length(ug, read_g, &primary_bases, &alter_bases);
     total_bases = primary_bases + alter_bases;
-    fprintf(stderr, "primary_bases: %lu\n", primary_bases);
-    fprintf(stderr, "alter_bases: %lu\n", alter_bases);
-    fprintf(stderr, "total_bases: %lu\n", total_bases);
+    // fprintf(stderr, "primary_bases: %lu\n", primary_bases);
+    // fprintf(stderr, "alter_bases: %lu\n", alter_bases);
+    // fprintf(stderr, "total_bases: %lu\n", total_bases);
 
 
     for (v = 0; v < all_ovlp->num; v++)
@@ -4149,9 +4149,9 @@ uint32_t minLen, double purge_threshold)
         }
     }
     purge_bases = purge_bases/2;
-    fprintf(stderr, "purge_bases: %lu\n", purge_bases);
+    ///fprintf(stderr, "purge_bases: %lu\n", purge_bases);
     alter_bases = alter_bases + purge_bases;
-    fprintf(stderr, "new alter_bases: %lu\n", alter_bases);
+    ///fprintf(stderr, "new alter_bases: %lu\n", alter_bases);
 
 
     for (v = 0; v < all_ovlp->num; v++)
@@ -4172,7 +4172,7 @@ uint32_t minLen, double purge_threshold)
 void purge_dups(ma_ug_t *ug, asg_t *read_g, ma_sub_t* coverage_cut, ma_hit_t_alloc* sources, 
 ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, kvec_asg_arc_t_warp* edge, float density, 
 uint32_t purege_minLen, int max_hang, int min_ovlp, long long bubble_dist, float drop_ratio, 
-uint32_t just_contain)
+uint32_t just_contain, uint32_t just_coverage)
 {
     asg_t *purge_g = NULL;
     purge_g = asg_init();
@@ -4205,12 +4205,17 @@ uint32_t just_contain)
     hap_alignment_struct_pip hap_buf;
     long long k_mer_only, coverage_only;
 
-    hap_buf.cov_threshold = get_read_coverage_thres(ug, read_g, ruIndex, position_index, 
-    sources, coverage_cut, read_g->n_seq, COV_COUNT, &k_mer_only, &coverage_only);
-    ///fprintf(stderr, "cov_threshold: %lld\n", hap_buf.cov_threshold);
-
-
-
+    if(asm_opt.hom_global_coverage != -1)
+    {
+        hap_buf.cov_threshold = asm_opt.hom_global_coverage;
+    }
+    else
+    {
+        hap_buf.cov_threshold = get_read_coverage_thres(ug, read_g, ruIndex, position_index, 
+        sources, coverage_cut, read_g->n_seq, COV_COUNT, &k_mer_only, &coverage_only);
+    }
+    
+    
     for (v = 0; v < nsg->n_seq; v++)
     {
         uId = v;
@@ -4256,9 +4261,9 @@ uint32_t just_contain)
             hap_buf.cov_threshold = k_mer_only * HOM_PEAK_RATE;
         }
     }
-    asm_opt.hom_global_coverage = hap_buf.cov_threshold;
-    fprintf(stderr, "cov_threshold: %lld\n", hap_buf.cov_threshold);
-    
+    if(asm_opt.hom_global_coverage == -1) asm_opt.hom_global_coverage = hap_buf.cov_threshold;
+    fprintf(stderr, "[M::%s] purge duplication coverage threshold: %lld\n", __func__, hap_buf.cov_threshold);
+    if(just_coverage) goto end_coverage;
 
     ///kt_for(asm_opt.thread_num, hap_alignment_worker, &hap_buf, nsg->n_seq);
     kt_for(asm_opt.thread_num, hap_alignment_advance_worker, &hap_buf, nsg->n_seq);
@@ -4366,6 +4371,8 @@ uint32_t just_contain)
             ug->g->seq[uId].c = ALTER_LABLE;
         }
     }
+
+    end_coverage:
 
     uint32_t is_Unitig;
     for (v = 0; v < ruIndex->len; v++)
