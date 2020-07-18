@@ -1,6 +1,7 @@
 #include <zlib.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <sys/time.h>
 #include "CommandLines.h"
 #include "ketopt.h"
@@ -36,45 +37,48 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "Usage: hifiasm [options] <in_1.fq> <in_2.fq> <...>\n");
     fprintf(stderr, "Options:\n");
     fprintf(stderr, "  Assembly:\n");
-    fprintf(stderr, "    -o FILE                prefix of output files [%s]\n", asm_opt->output_file_name);
-    fprintf(stderr, "    -t INT                 number of threads [%d]\n", asm_opt->thread_num);
-    fprintf(stderr, "    -r INT                 round of correction [%d]\n", asm_opt->number_of_round);
-    fprintf(stderr, "    -a INT                 round of assembly cleaning [%d]\n", asm_opt->clean_round);
-    fprintf(stderr, "    -k INT                 k-mer length (must be <64) [%d]\n", asm_opt->k_mer_length);
-	fprintf(stderr, "    -w INT                 minimizer window size [%d]\n", asm_opt->mz_win);
-	fprintf(stderr, "    -f INT                 number of bits for bloom filter; 0 to disable [%d]\n", asm_opt->bf_shift);
-	fprintf(stderr, "    -D FLOAT               drop k-mers occuring >FLOAT*coverage times [%.1f]\n", asm_opt->high_factor);
-	fprintf(stderr, "    -N INT                 consider up to max(-D*coverage,-N) overlaps for each oriented read [%d]\n", asm_opt->max_n_chain);
-    fprintf(stderr, "    -i                     ignore saved overlaps in *.ovlp* files\n");
-    fprintf(stderr, "    -z INT                 length of adapters that should be removed [%d]\n", asm_opt->adapterLen);
-    fprintf(stderr, "    -m INT                 size of popped large bubbles for contig graph [%lld]\n", asm_opt->large_pop_bubble_size);
-    fprintf(stderr, "    -p INT                 size of popped small bubbles for haplotype-resolved unitig graph [%lld]\n", asm_opt->small_pop_bubble_size);
-    fprintf(stderr, "    -n INT                 small removed unitig threshold [%d]\n", asm_opt->max_short_tip);
-    fprintf(stderr, "    -x FLOAT               max overlap drop ratio [%.2g]\n", asm_opt->max_drop_rate);
-    fprintf(stderr, "    -y FLOAT               min overlap drop ratio [%.2g]\n", asm_opt->min_drop_rate);
-    fprintf(stderr, "    --pri-range INT,INT    keep contigs with coverage in this range at p_ctg.gfa. Inferred automatically in default. Set -1,-1 to disable\n");
+    fprintf(stderr, "    -o FILE       prefix of output files [%s]\n", asm_opt->output_file_name);
+    fprintf(stderr, "    -t INT        number of threads [%d]\n", asm_opt->thread_num);
+    fprintf(stderr, "    -r INT        round of correction [%d]\n", asm_opt->number_of_round);
+    fprintf(stderr, "    -a INT        round of assembly cleaning [%d]\n", asm_opt->clean_round);
+    fprintf(stderr, "    -k INT        k-mer length (must be <64) [%d]\n", asm_opt->k_mer_length);
+	fprintf(stderr, "    -w INT        minimizer window size [%d]\n", asm_opt->mz_win);
+	fprintf(stderr, "    -f INT        number of bits for bloom filter; 0 to disable [%d]\n", asm_opt->bf_shift);
+	fprintf(stderr, "    -D FLOAT      drop k-mers occuring >FLOAT*coverage times [%.1f]\n", asm_opt->high_factor);
+	fprintf(stderr, "    -N INT        consider up to max(-D*coverage,-N) overlaps for each oriented read [%d]\n", asm_opt->max_n_chain);
+    fprintf(stderr, "    -i            ignore saved overlaps in *.ovlp* files\n");
+    fprintf(stderr, "    -z INT        length of adapters that should be removed [%d]\n", asm_opt->adapterLen);
+    fprintf(stderr, "    -m INT        size of popped large bubbles for contig graph [%lld]\n", asm_opt->large_pop_bubble_size);
+    fprintf(stderr, "    -p INT        size of popped small bubbles for haplotype-resolved unitig graph [%lld]\n", asm_opt->small_pop_bubble_size);
+    fprintf(stderr, "    -n INT        small removed unitig threshold [%d]\n", asm_opt->max_short_tip);
+    fprintf(stderr, "    -x FLOAT      max overlap drop ratio [%.2g]\n", asm_opt->max_drop_rate);
+    fprintf(stderr, "    -y FLOAT      min overlap drop ratio [%.2g]\n", asm_opt->min_drop_rate);
+    fprintf(stderr, "    --pri-range   INT1[,INT2]\n\
+                  keep contigs with coverage in this range at p_ctg.gfa. Inferred automatically in default\n\
+                  If INT2 is not specified, it is set to infinity. Set -1 to disable\n");
     
     
-    fprintf(stderr, "    -u                     disable post join contigs step which may improve N50. Don't disable in default.\n");
-    fprintf(stderr, "    --version              show version number\n");
-    fprintf(stderr, "    -h                     show help information\n");
+    fprintf(stderr, "    -u            disable post join contigs step which may improve N50. Don't disable in default.\n");
+    fprintf(stderr, "    --version     show version number\n");
+    fprintf(stderr, "    -h            show help information\n");
 
     fprintf(stderr, "  Trio-partition:\n");
-    fprintf(stderr, "    -1 FILE                hap1/paternal k-mer dump generated by \"yak count\" []\n");
-    fprintf(stderr, "    -2 FILE                hap2/maternal k-mer dump generated by \"yak count\" []\n");
-	fprintf(stderr, "    -3 FILE                list of hap1/paternal read names []\n");
-	fprintf(stderr, "    -4 FILE                list of hap2/maternal read names []\n");
-    fprintf(stderr, "    -c INT                 lower bound of the binned k-mer's frequency [%d]\n", asm_opt->min_cnt);
-    fprintf(stderr, "    -d INT                 upper bound of the binned k-mer's frequency [%d]\n", asm_opt->mid_cnt);
+    fprintf(stderr, "    -1 FILE       hap1/paternal k-mer dump generated by \"yak count\" []\n");
+    fprintf(stderr, "    -2 FILE       hap2/maternal k-mer dump generated by \"yak count\" []\n");
+	fprintf(stderr, "    -3 FILE       list of hap1/paternal read names []\n");
+	fprintf(stderr, "    -4 FILE       list of hap2/maternal read names []\n");
+    fprintf(stderr, "    -c INT        lower bound of the binned k-mer's frequency [%d]\n", asm_opt->min_cnt);
+    fprintf(stderr, "    -d INT        upper bound of the binned k-mer's frequency [%d]\n", asm_opt->mid_cnt);
 
     fprintf(stderr, "  Purge-dups:\n");
-    fprintf(stderr, "    -l INT                 level of purge-dup. In default, [%d] for non-trio; [%d] for trio (see hifiasm.1 for details)\n", 
+    fprintf(stderr, "    -l INT        level of purge-dup. In default, [%d] for non-trio; [%d] for trio (see hifiasm.1 for details)\n", 
                                        asm_opt->purge_level_primary, asm_opt->purge_level_trio);
-    fprintf(stderr, "    -s FLOAT               similarity threshold for duplicate haplotigs [%g]\n", 
+    fprintf(stderr, "    -s FLOAT      similarity threshold for duplicate haplotigs [%g]\n", 
                                        asm_opt->purge_simi_rate);
-    fprintf(stderr, "    -O INT                 min number of overlapped reads for duplicate haplotigs [%d]\n", 
+    fprintf(stderr, "    -O INT        min number of overlapped reads for duplicate haplotigs [%d]\n", 
                                        asm_opt->purge_overlap_len);
-    fprintf(stderr, "    --purge-cov INT        coverage upper bound of Purge-dups, which is inferred automatically in default.\n");
+    fprintf(stderr, "    --purge-cov INT\n\
+                  coverage upper bound of Purge-dups, which is inferred automatically in default.\n");
 
 
     fprintf(stderr, "Example: ./hifiasm -o NA12878.asm -t 32 NA12878.fq.gz\n");
@@ -124,7 +128,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->purge_simi_rate = 0.75;
     asm_opt->purge_overlap_len = 1;
     asm_opt->recover_atg_cov_min = -1024;
-    asm_opt->recover_atg_cov_max = -1024;
+    asm_opt->recover_atg_cov_max = INT32_MAX;
     asm_opt->hom_global_coverage = -1;
 }
 
@@ -315,14 +319,6 @@ int check_option(hifiasm_opt_t* asm_opt)
         return 0;
     }
 
-    if(asm_opt->recover_atg_cov_min != asm_opt->recover_atg_cov_max && 
-      (asm_opt->recover_atg_cov_min == -1024 || asm_opt->recover_atg_cov_max == -1024))
-    {
-        fprintf(stderr, "[ERROR] primary contig coverage range should be set correctly (--primary-range)\n");
-        return 0;
-    }
-
-
 
     if(asm_opt->fn_bin_yak[0] != NULL && check_file(asm_opt->fn_bin_yak[0], "YAK1") == 0) return 0;
     if(asm_opt->fn_bin_yak[1] != NULL && check_file(asm_opt->fn_bin_yak[1], "YAK2") == 0) return 0;
@@ -436,6 +432,10 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
             char* s = NULL;
             asm_opt->recover_atg_cov_min = strtol(opt.arg, &s, 10);
 			if (*s == ',') asm_opt->recover_atg_cov_max = strtol(s + 1, &s, 10);
+            if(asm_opt->recover_atg_cov_min == -1 || asm_opt->recover_atg_cov_max == -1)
+            {
+                asm_opt->recover_atg_cov_min = asm_opt->recover_atg_cov_max = -1;
+            }
         } 
         else if (c == 'l')
         {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
@@ -461,6 +461,7 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         Print_H(asm_opt);
         return 0;
     }
+    ///fprintf(stderr, "max_ov_diff_ec: %f, max_ov_diff_final: %f\n", asm_opt->max_ov_diff_ec, asm_opt->max_ov_diff_final);
 
     get_queries(argc, argv, &opt, asm_opt);
 

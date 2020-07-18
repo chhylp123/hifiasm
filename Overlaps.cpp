@@ -13503,14 +13503,25 @@ kvec_asg_arc_t_warp* new_rtg_edges)
     purge_dups(*ug, read_g, coverage_cut, sources, reverse_sources, ruIndex, new_rtg_edges, 
         asm_opt.purge_simi_rate, asm_opt.purge_overlap_len, max_hang, min_ovlp, bubble_dist,
         drop_ratio, 1, 1);
-    if(asm_opt.recover_atg_cov_min == -1024 || asm_opt.recover_atg_cov_max == -1024)
+    if(asm_opt.recover_atg_cov_min == -1024)
     {
         asm_opt.recover_atg_cov_max = asm_opt.hom_global_coverage/HOM_PEAK_RATE;
         asm_opt.recover_atg_cov_min = asm_opt.recover_atg_cov_max * 0.8;
-        asm_opt.recover_atg_cov_max = asm_opt.recover_atg_cov_max * 1.2;
+        ///asm_opt.recover_atg_cov_max = asm_opt.recover_atg_cov_max * 1.2;
+        asm_opt.recover_atg_cov_max = INT32_MAX;
     }
-    fprintf(stderr, "[M::%s] primary contig coverage range: [%d, %d]\n", 
-    __func__, asm_opt.recover_atg_cov_min, asm_opt.recover_atg_cov_max);
+    if(asm_opt.recover_atg_cov_max != INT32_MAX)
+    {
+        fprintf(stderr, "[M::%s] primary contig coverage range: [%d, %d]\n", 
+        __func__, asm_opt.recover_atg_cov_min, asm_opt.recover_atg_cov_max);
+    }
+    else
+    {
+        fprintf(stderr, "[M::%s] primary contig coverage range: [%d, infinity]\n", 
+        __func__, asm_opt.recover_atg_cov_min);
+    }
+    
+    
 
     ///primary_flag = get_utg_attributes(*ug, read_g, coverage_cut, sources, ruIndex);
 
@@ -22643,15 +22654,24 @@ kvec_asg_arc_t_warp* new_rtg_edges)
         }
     }
 
-    if(asm_opt.recover_atg_cov_min == -1024 || asm_opt.recover_atg_cov_max == -1024)
+    if(asm_opt.recover_atg_cov_min == -1024)
     {
         asm_opt.recover_atg_cov_max = asm_opt.hom_global_coverage/HOM_PEAK_RATE;
         asm_opt.recover_atg_cov_min = asm_opt.recover_atg_cov_max * 0.8;
-        asm_opt.recover_atg_cov_max = asm_opt.recover_atg_cov_max * 1.2;
+        ///asm_opt.recover_atg_cov_max = asm_opt.recover_atg_cov_max * 1.2;
+        asm_opt.recover_atg_cov_max = INT32_MAX;
     }
 
-    fprintf(stderr, "[M::%s] primary contig coverage range: [%d, %d]\n", 
-    __func__, asm_opt.recover_atg_cov_min, asm_opt.recover_atg_cov_max);
+    if(asm_opt.recover_atg_cov_max != INT32_MAX)
+    {
+        fprintf(stderr, "[M::%s] primary contig coverage range: [%d, %d]\n", 
+        __func__, asm_opt.recover_atg_cov_min, asm_opt.recover_atg_cov_max);
+    }
+    else
+    {
+        fprintf(stderr, "[M::%s] primary contig coverage range: [%d, infinity]\n", 
+        __func__, asm_opt.recover_atg_cov_min);
+    }
 
     recover_utg_by_coverage(ug, read_g, coverage_cut, sources, ruIndex);
     

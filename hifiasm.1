@@ -193,11 +193,12 @@ This might be helpful when users want to get an optimized assembly by multiple r
 with different parameters.
 
 .TP
-.BI --pri-range \ INT,INT
+.BI --pri-range \ INT1[,INT2]
 Min and max coverage cutoff of primary contigs.
 Keep contigs with coverage in this range at p_ctg.gfa. 
-Inferred automatically in default. 
-Set -1,-1 to disable 
+Inferred automatically in default.
+If INT2 is not specified, it is set to infinity. 
+Set -1 to disable 
 
 .SS Trio-partition options
 

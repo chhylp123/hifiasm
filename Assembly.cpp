@@ -476,6 +476,7 @@ static void worker_ovec(void *data, long i, int tid)
 	int fully_cov, abnormal;
 
 	ha_get_new_candidates(b->ab, i, &b->self_read, &b->olist, &b->clist, 0.02, asm_opt.max_n_chain, 1);
+    ///ha_get_new_candidates(b->ab, i, &b->self_read, &b->olist, &b->clist, 0.08, asm_opt.max_n_chain, 1);
 
 	clear_Cigar_record(&b->cigar1);
 	clear_Round2_alignment(&b->round2);
@@ -514,6 +515,7 @@ static void worker_ovec_related_reads(void *data, long i, int tid)
 			memcmp(asm_opt.required_read_name, Get_NAME((R_INF), i), Get_NAME_LENGTH((R_INF),i)) == 0)
 	{
 		ha_get_new_candidates(b->ab, i, &b->self_read, &b->olist, &b->clist, 0.02, asm_opt.max_n_chain, 1);
+        ///ha_get_new_candidates(b->ab, i, &b->self_read, &b->olist, &b->clist, 0.08, asm_opt.max_n_chain, 1);
 
 		fprintf(stderr, ">%.*s\n", (int)Get_NAME_LENGTH((R_INF), i), Get_NAME((R_INF), i));
 		recover_UC_Read(&b->self_read, &R_INF, i);
@@ -957,6 +959,7 @@ static void worker_ov_final(void *data, long i, int tid)
 
 	//get_new_candidates(i, &g_read, &overlap_list, &array_list, &l, 0.001, 0);
 	ha_get_new_candidates(b->ab, i, &b->self_read, &b->olist, &b->clist, 0.001, asm_opt.max_n_chain, 0);
+    ///ha_get_new_candidates(b->ab, i, &b->self_read, &b->olist, &b->clist, 0.08, asm_opt.max_n_chain, 0);
 
 	/**
 	  correct_overlap(&overlap_list, &R_INF, &g_read, &correct, &overlap_read, &POA_Graph, &DAGCon,
