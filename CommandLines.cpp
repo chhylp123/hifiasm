@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <limits.h>
 #include <sys/time.h>
 #include "CommandLines.h"
 #include "ketopt.h"
@@ -128,7 +129,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->purge_simi_rate = 0.75;
     asm_opt->purge_overlap_len = 1;
     asm_opt->recover_atg_cov_min = -1024;
-    asm_opt->recover_atg_cov_max = INT32_MAX;
+    asm_opt->recover_atg_cov_max = INT_MAX;
     asm_opt->hom_global_coverage = -1;
 }
 
