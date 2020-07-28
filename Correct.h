@@ -1162,10 +1162,17 @@ void init_Cigar_record_alloc(Cigar_record_alloc* x);
 void resize_Cigar_record_alloc(Cigar_record_alloc* x, long long new_size);
 void destory_Cigar_record_alloc(Cigar_record_alloc* x);
 
-void afine_gap_alignment(const char *tseq, uint8_t* tnum, const int tl, 
-const char *qseq, uint8_t* qnum, const int ql, const uint8_t *c2n, const int strand,
+void afine_gap_alignment(const char *qseq, uint8_t* qnum, const int ql, 
+const char *tseq, uint8_t* tnum, const int tl, const uint8_t *c2n, const int strand,
 int sc_mch, int sc_mis, int gapo, int gape, int bandLen, int zdrop, int end_bonus,
-long long* max_t_pos, long long* max_q_pos, long long* score, long long* droped);
+long long* max_q_pos, long long* max_t_pos, long long* global_score, 
+long long* extention_score, long long* q_boundary_score, long long* q_boundary_t_coordinate,
+long long* t_boundary_score, long long* t_boundary_q_coordinate,
+long long* droped, int mode);
+void correct_overlap_high_het(overlap_region_alloc* overlap_list, All_reads* R_INF, 
+                        UC_Read* g_read, Correct_dumy* dumy, UC_Read* overlap_read);
+long long get_affine_gap_score(overlap_region* ovc, UC_Read* g_read, UC_Read* overlap_read, uint8_t* x_num,
+uint8_t* y_num, uint64_t EstimateXOlen, uint64_t EstimateYOlen);
 
 #define FORWARD_KSW 0
 #define BACKWARD_KSW 1
@@ -1174,5 +1181,5 @@ long long* max_t_pos, long long* max_q_pos, long long* score, long long* droped)
 #define GAP_OPEN_KSW 4
 #define GAP_EXT_KSW 2
 #define Z_DROP_KSW 400
-#define BAND_KSW 50
+#define BAND_KSW 500
 #endif
