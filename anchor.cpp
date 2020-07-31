@@ -174,3 +174,10 @@ void ha_get_new_candidates(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_reg
 
 	ks_introsort_or_xs(overlap_list->length, overlap_list->list);
 }
+
+
+
+void ha_sort_list_by_anchor(overlap_region_alloc *overlap_list)
+{
+	ks_introsort_or_xs(overlap_list->length, overlap_list->list);
+}

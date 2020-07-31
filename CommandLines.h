@@ -3,7 +3,7 @@
 
 #include <pthread.h>
 
-#define HA_VERSION "0.9-r289"
+#define HA_VERSION "0.9-r297"
 
 #define VERBOSE 0
 
@@ -17,6 +17,7 @@
 #define HA_F_PURGE_JOIN      0x80
 #define HA_F_BAN_POST_JOIN   0x100
 #define HA_F_BAN_ASSEMBLY    0x200
+#define HA_F_HIGH_HET        0x400
 
 #define HA_MIN_OV_DIFF       0.02 // min sequence divergence in an overlap
 

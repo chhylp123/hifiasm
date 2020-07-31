@@ -4,7 +4,7 @@ CPPFLAGS=
 INCLUDES=
 OBJS=		CommandLines.o Process_Read.o Assembly.o Hash_Table.o \
 			POA.o Correct.o Levenshtein_distance.o Overlaps.o Trio.o kthread.o Purge_Dups.o \
-			htab.o hist.o sketch.o anchor.o extract.o sys.o
+			htab.o hist.o sketch.o anchor.o extract.o sys.o ksw2_extz2_sse.o
 EXE=		hifiasm
 LIBS=		-lz -lpthread -lm
 
@@ -36,7 +36,7 @@ Assembly.o: Assembly.h CommandLines.h Process_Read.h Overlaps.h kvec.h kdq.h
 Assembly.o: Hash_Table.h htab.h POA.h Correct.h Levenshtein_distance.h
 Assembly.o: kthread.h
 CommandLines.o: CommandLines.h ketopt.h
-Correct.o: Correct.h Hash_Table.h htab.h Process_Read.h Overlaps.h kvec.h
+Correct.o: Correct.h Hash_Table.h htab.h Process_Read.h Overlaps.h kvec.h ksw2.h
 Correct.o: kdq.h CommandLines.h Levenshtein_distance.h POA.h Assembly.h
 Hash_Table.o: Hash_Table.h htab.h Process_Read.h Overlaps.h kvec.h kdq.h
 Hash_Table.o: CommandLines.h ksort.h
@@ -65,3 +65,4 @@ main.o: CommandLines.h Process_Read.h Overlaps.h kvec.h kdq.h Assembly.h
 main.o: Levenshtein_distance.h htab.h
 sketch.o: kvec.h htab.h Process_Read.h Overlaps.h kdq.h CommandLines.h
 sys.o: htab.h Process_Read.h Overlaps.h kvec.h kdq.h CommandLines.h
+ksw2_extz2_sse.o: ksw2.h

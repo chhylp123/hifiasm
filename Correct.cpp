@@ -6,7 +6,7 @@
 #include "Levenshtein_distance.h"
 #include "Assembly.h"
 #include "CommandLines.h"
-///#include "ksw2.h"
+#include "ksw2.h"
 
 
 
@@ -7483,39 +7483,46 @@ void add_existing_cell_to_cigar_record_with_different_base(Cigar_record* dummy, 
     }
 }
 
-
-
-void afine_gap_alignment(const char *tseq, uint8_t* tnum, const int tl, 
-const char *qseq, uint8_t* qnum, const int ql, const uint8_t *c2n, const int strand,
+void afine_gap_alignment(const char *qseq, uint8_t* qnum, const int ql, 
+const char *tseq, uint8_t* tnum, const int tl, const uint8_t *c2n, const int strand,
 int sc_mch, int sc_mis, int gapo, int gape, int bandLen, int zdrop, int end_bonus,
-long long* max_t_pos, long long* max_q_pos, long long* score, long long* droped)
+long long* max_q_pos, long long* max_t_pos, long long* global_score, 
+long long* extention_score, long long* q_boundary_score, long long* q_boundary_t_coordinate,
+long long* t_boundary_score, long long* t_boundary_q_coordinate,
+long long* droped, int mode)
 {
     /**************for ksw2**************/
-    // (*max_t_pos) = (*max_q_pos) = -1;
-	// int i, a = sc_mch, b = sc_mis < 0? sc_mis : -sc_mis; // a>0 and b<0
+    (*max_t_pos) = (*max_q_pos) = -1;
+	int i, a = sc_mch, b = sc_mis < 0? sc_mis : -sc_mis; // a>0 and b<0
     
-	// int8_t mat[25] = {(int8_t)a,(int8_t)b,(int8_t)b,(int8_t)b,0, 
-    // (int8_t)b,(int8_t)a,(int8_t)b,(int8_t)b,0, (int8_t)b,(int8_t)b,(int8_t)a,(int8_t)b,0, 
-    // (int8_t)b,(int8_t)b,(int8_t)b,(int8_t)a,0, 0,0,0,0,0};
-	// ksw_extz_t ez;
-	// memset(&ez, 0, sizeof(ksw_extz_t));
+	int8_t mat[25] = {(int8_t)a,(int8_t)b,(int8_t)b,(int8_t)b,0, 
+    (int8_t)b,(int8_t)a,(int8_t)b,(int8_t)b,0, (int8_t)b,(int8_t)b,(int8_t)a,(int8_t)b,0, 
+    (int8_t)b,(int8_t)b,(int8_t)b,(int8_t)a,0, 0,0,0,0,0};
+	ksw_extz_t ez;
+	memset(&ez, 0, sizeof(ksw_extz_t));
 
-    // if(strand == FORWARD_KSW)
-    // {
-    //     for (i = 0; i < tl; ++i) tnum[i] = c2n[(uint8_t)tseq[i]]; // encode to 0/1/2/3
-	//     for (i = 0; i < ql; ++i) qnum[i] = c2n[(uint8_t)qseq[i]];
-    // }
-    // else if(strand == BACKWARD_KSW)
-    // {
-    //     for (i = 0; i < tl; ++i) tnum[i] = c2n[(uint8_t)tseq[tl - i - 1]]; // encode to 0/1/2/3
-	//     for (i = 0; i < ql; ++i) qnum[i] = c2n[(uint8_t)qseq[ql - i - 1]];
-    // }
-    // ksw_extz2_sse(0, ql, qnum, tl, tnum, 5, mat, gapo, gape, bandLen, zdrop, end_bonus, 0, &ez);
-    // (*score) = ez.max;
-    // (*max_t_pos) = ez.max_t;
-    // (*max_q_pos) = ez.max_q;
-    // (*droped) = ez.zdropped;
-    // free(ez.cigar);
+    if(strand == FORWARD_KSW)
+    {
+         for (i = 0; i < tl; ++i) tnum[i] = c2n[(uint8_t)tseq[i]]; // encode to 0/1/2/3
+	     for (i = 0; i < ql; ++i) qnum[i] = c2n[(uint8_t)qseq[i]];
+    }
+    else if(strand == BACKWARD_KSW)
+    {
+         for (i = 0; i < tl; ++i) tnum[i] = c2n[(uint8_t)tseq[tl - i - 1]]; // encode to 0/1/2/3
+	     for (i = 0; i < ql; ++i) qnum[i] = c2n[(uint8_t)qseq[ql - i - 1]];
+    }
+    ksw_extz2_sse(0, ql, qnum, tl, tnum, 5, mat, gapo, gape, bandLen, zdrop, end_bonus, 
+    mode, &ez);
+    (*global_score) = ez.score;
+    (*extention_score) = ez.max;
+    (*q_boundary_score) = ez.mqe;
+    (*q_boundary_t_coordinate) = ez.mqe_t;
+    (*t_boundary_score) = ez.mte;
+    (*t_boundary_q_coordinate) = ez.mte_q;
+    (*max_t_pos) = ez.max_t;
+    (*max_q_pos) = ez.max_q;
+    (*droped) = ez.zdropped;
+    free(ez.cigar);
     
     /**
 	for (i = 0; i < ez.n_cigar; ++i) // print CIGAR
@@ -7523,4 +7530,792 @@ long long* max_t_pos, long long* max_q_pos, long long* score, long long* droped)
 	putchar('\n');
     **/
    /**************for ksw2**************/
+}
+
+int fill_chain_by_affine_gap_debug(Fake_Cigar* chain, char* x_string, char* y_string, overlap_region* ovc,
+long long x_readLen, long long y_readLen, Cigar_record* cigar, uint8_t* c2n, uint8_t* x_num, uint8_t* y_num,
+long long* minus_score_thres, long long* final_scores)
+{
+    long long i, xOffset, yOffset, xRegionLen, yRegionLen, /**bandLen,**/ maxXpos, maxYpos, zdroped;
+    long long mapGlobalScore, mapExtentScore;
+    long long xBuoundaryScore, xBuoundaryYcoordinate, yBuoundaryScore, yBuoundaryXcoordinate;
+    ///float band_rate = 0.08;
+    int endbouns, mode;
+    long long xBeg, yBeg;
+    xBeg = ovc->x_pos_s;
+    yBeg = ovc->y_pos_s;
+    if(chain->length <= 0) return 0;
+    // long long minus_score_thres = (EstimateOlen*HIGH_HET_ERROR_RATE*(MATCH_SCORE_KSW+(MAX(MISMATCH_SCORE_KSW,GAP_EXT_KSW))));
+    // long long total_score_thres = EstimateOlen*MATCH_SCORE_KSW - minus_score_thres;
+    long long sum_score = 0, current_ovlp = 0, zdrop_occ = 0;
+    long long new_xBeg, new_yBeg, new_xEnd, new_yEnd;
+    new_xBeg = ovc->x_pos_s;
+    new_yBeg = ovc->y_pos_s;
+    new_xEnd = ovc->x_pos_e;
+    new_yEnd = ovc->y_pos_e;
+    ///long long sub_score_sum;
+    ///deal with region 0 backward
+    i = 0;
+    endbouns = 0;
+
+    xOffset = get_fake_gap_pos(chain, 0);
+    xOffset = xOffset - 1;
+    yOffset = (xOffset - xBeg) + yBeg + get_fake_gap_shift(chain, 0);
+    if(xOffset >= 0 && yOffset >= 0)
+    {
+        xRegionLen = xOffset + 1;
+        yRegionLen = yOffset + 1;
+        //note here cannot use DIFF(xRegionLen, yRegionLen)
+        // bandLen = (MIN(xRegionLen, yRegionLen))*band_rate;
+        // if(bandLen == 0) bandLen = MIN(xRegionLen, yRegionLen);
+
+
+        ///do alignment backward
+        ///for beginning part and end part, must use exact mode
+        mode = KSW_EZ_SCORE_ONLY;
+        afine_gap_alignment(x_string, x_num, xRegionLen, y_string, y_num, yRegionLen, 
+        c2n, BACKWARD_KSW, MATCH_SCORE_KSW, MISMATCH_SCORE_KSW, GAP_OPEN_KSW, GAP_EXT_KSW,
+        /**bandLen,**/BAND_KSW, Z_DROP_KSW, endbouns, &maxXpos, &maxYpos, &mapGlobalScore, 
+        &mapExtentScore, &xBuoundaryScore, &xBuoundaryYcoordinate, 
+        &yBuoundaryScore, &yBuoundaryXcoordinate, &zdroped, mode);
+
+        
+        
+
+        if(!zdroped)
+        {
+            if(xRegionLen <= yRegionLen)
+            {
+                sum_score += xBuoundaryScore;
+                new_yBeg = yRegionLen - xBuoundaryYcoordinate - 1;
+            }
+            else
+            {
+                sum_score += yBuoundaryScore;
+                new_xBeg = xRegionLen - yBuoundaryXcoordinate - 1;
+            }
+        }
+        else
+        {   ///return 0;
+            sum_score += mapExtentScore;
+            if(xRegionLen <= yRegionLen)
+            {
+                
+                sum_score -= (GAP_OPEN_KSW + (xRegionLen - maxXpos)*GAP_EXT_KSW);
+            }
+            else
+            {
+                sum_score -= (GAP_OPEN_KSW + (yRegionLen - maxYpos)*GAP_EXT_KSW);
+            }
+        }   
+    }
+
+    ///align forward
+    for (i = 0; i < (long long)chain->length; i++)
+    {
+        // xOffset = get_fake_gap_pos(chain, i);
+        // yOffset = xOffset + get_fake_gap_shift(chain, i);
+        xOffset = get_fake_gap_pos(chain, i);
+        yOffset = (xOffset - xBeg) + yBeg + get_fake_gap_shift(chain, i);
+        ///last region
+        if(i == (long long)(chain->length - 1))
+        {
+            endbouns = 0;
+            xRegionLen = x_readLen - xOffset;
+            yRegionLen = y_readLen - yOffset;
+            ///for beginning part and end part, must use exact mode
+            mode = KSW_EZ_SCORE_ONLY;
+            //note here cannot use DIFF(xRegionLen, yRegionLen)
+            // bandLen = (MIN(xRegionLen, yRegionLen))*band_rate;
+            // if(bandLen == 0) bandLen = MIN(xRegionLen, yRegionLen);
+        }
+        else
+        {
+            ///higher endbouns for middle regions
+            endbouns = MATCH_SCORE_KSW;
+            xRegionLen = get_fake_gap_pos(chain, i+1) - xOffset;
+            yRegionLen = (get_fake_gap_pos(chain, i+1) + get_fake_gap_shift(chain, i+1)) - 
+                         (get_fake_gap_pos(chain, i) + get_fake_gap_shift(chain, i));
+            mode = KSW_EZ_SCORE_ONLY | KSW_EZ_APPROX_MAX | KSW_EZ_APPROX_DROP;
+            // bandLen = MAX((MIN(xRegionLen, yRegionLen))*band_rate, DIFF(xRegionLen, yRegionLen));
+            // if(bandLen == 0) bandLen = MIN(xRegionLen, yRegionLen);
+        }
+
+
+        if(minus_score_thres)
+        {
+            current_ovlp = MIN((xOffset + 1 - xBeg), (yOffset + 1 - yBeg));
+            current_ovlp = current_ovlp*MATCH_SCORE_KSW;
+            if(current_ovlp - sum_score > (*minus_score_thres))
+            {
+                return 0;
+            }
+        }
+
+        if(xOffset < 0) xOffset = 0;
+        if(yOffset < 0) yOffset = 0;
+        if(xRegionLen < 0) xRegionLen = 0;
+        if(yRegionLen < 0) yRegionLen = 0;
+
+        ///do alignment forward
+        ///text is x, query is y
+        afine_gap_alignment(x_string+xOffset, x_num, xRegionLen, y_string+yOffset, y_num, yRegionLen, 
+        c2n, FORWARD_KSW, MATCH_SCORE_KSW, MISMATCH_SCORE_KSW, GAP_OPEN_KSW, GAP_EXT_KSW,
+        /**bandLen,**/BAND_KSW, Z_DROP_KSW, endbouns, &maxXpos, &maxYpos, &mapGlobalScore, 
+        &mapExtentScore, &xBuoundaryScore, &xBuoundaryYcoordinate, 
+        &yBuoundaryScore, &yBuoundaryXcoordinate, &zdroped, mode);
+        // fprintf(stderr, "# xOffset: %lld, yOffset: %lld, xRegionLen: %lld, yRegionLen: %lld, bandLen: %lld, maxXpos: %lld, maxYpos: %lld, zdroped: %lld\n",
+        // xOffset, yOffset, xRegionLen, yRegionLen, BAND_KSW, maxXpos, maxYpos, zdroped);
+
+        if(!zdroped)
+        {
+            if(i != (long long)(chain->length - 1))
+            {
+                sum_score += mapGlobalScore;
+            }
+            else
+            {
+                if(xRegionLen <= yRegionLen)
+                {
+                    sum_score += xBuoundaryScore;
+                    new_yEnd = yOffset + xBuoundaryYcoordinate;
+                }
+                else
+                {
+                    sum_score += yBuoundaryScore;
+                    new_xEnd = xOffset + yBuoundaryXcoordinate;
+                    // if(new_xEnd != (long long)ovc->x_pos_e)
+                    // {
+                    //     fprintf(stderr, "\n******direction: %u, new_xBeg: %lld, new_xEnd: %lld, new_yBeg: %lld, new_yEnd: %lld, old_xBeg: %u, old_xEnd: %u, old_yBeg: %u, old_yEnd: %u\n", 
+                    //     ovc->y_pos_strand, new_xBeg, new_xEnd, new_yBeg, new_yEnd, ovc->x_pos_s, ovc->x_pos_e, ovc->y_pos_s, ovc->y_pos_e);
+                    //     fprintf(stderr, "x_readLen: %lld, y_readLen: %lld\n", x_readLen, y_readLen);
+                    //     fprintf(stderr, "xID: %lld, yID: %lld\n", ovc->x_id, ovc->y_id);
+                    //     fprintf(stderr, "xRegionLen: %lld, yRegionLen: %lld\n", xRegionLen, yRegionLen);
+                    //     fprintf(stderr, "xOffset: %lld, yOffset: %lld\n", xOffset, yOffset);
+                    //     fprintf(stderr, "yBuoundaryXcoordinate: %lld\n", yBuoundaryXcoordinate);
+                    // }
+                }
+            }
+        }
+        else
+        {
+            ///return 0;
+            if(i != (long long)(chain->length - 1)) zdrop_occ++;
+            if(zdrop_occ > 1) return 0;
+            sum_score += mapExtentScore;
+            if(xRegionLen <= yRegionLen)
+            {
+                sum_score -= (GAP_OPEN_KSW + (xRegionLen - maxXpos)*GAP_EXT_KSW);
+            }
+            else
+            {
+                sum_score -= (GAP_OPEN_KSW + (yRegionLen - maxYpos)*GAP_EXT_KSW);
+            }
+        }
+    }
+
+    (*final_scores) = sum_score;
+    if(new_xBeg != (long long)ovc->x_pos_s || new_xEnd != (long long)ovc->x_pos_e || 
+       new_yBeg != (long long)ovc->y_pos_s || new_yEnd != (long long)ovc->y_pos_e)
+    {   
+        // fprintf(stderr, "\ntttdirection: %u, new_xBeg: %lld, new_xEnd: %lld, new_yBeg: %lld, new_yEnd: %lld, old_xBeg: %u, old_xEnd: %u, old_yBeg: %u, old_yEnd: %u\n", 
+        // ovc->y_pos_strand, new_xBeg, new_xEnd, new_yBeg, new_yEnd, ovc->x_pos_s, ovc->x_pos_e, ovc->y_pos_s, ovc->y_pos_e);
+        // fprintf(stderr, "x_readLen: %lld, y_readLen: %lld\n", x_readLen, y_readLen);
+        // fprintf(stderr, "xID: %lld, yID: %lld\n", ovc->x_id, ovc->y_id);
+        // for (i = 0; i < (long long)chain->length; i++)
+        // {
+        //     fprintf(stderr,"i: %lld, x_pos: %d, offset: %d\n", 
+        //     i, get_fake_gap_pos(chain, i), get_fake_gap_shift(chain, i));
+        // }
+    }
+    else
+    {
+        // fprintf(stderr, "\nkkkdirection: %u, new_xBeg: %lld, new_xEnd: %lld, new_yBeg: %lld, new_yEnd: %lld, old_xBeg: %u, old_xEnd: %u, old_yBeg: %u, old_yEnd: %u\n", 
+        // ovc->y_pos_strand, new_xBeg, new_xEnd, new_yBeg, new_yEnd, ovc->x_pos_s, ovc->x_pos_e, ovc->y_pos_s, ovc->y_pos_e);
+        // fprintf(stderr, "x_readLen: %lld, y_readLen: %lld\n", x_readLen, y_readLen);
+        // fprintf(stderr, "xID: %lld, yID: %lld\n", ovc->x_id, ovc->y_id);
+        // for (i = 0; i < (long long)chain->length; i++)
+        // {
+        //     fprintf(stderr,"i: %lld, x_pos: %d, offset: %d\n", 
+        //     i, get_fake_gap_pos(chain, i), get_fake_gap_shift(chain, i));
+        // }
+    }
+    
+    return 1;
+}
+
+
+
+int fill_chain_by_affine_gap(Fake_Cigar* chain, char* x_string, char* y_string, overlap_region* ovc,
+long long x_readLen, long long y_readLen, Cigar_record* cigar, uint8_t* c2n, uint8_t* x_num, uint8_t* y_num,
+long long* minus_score_thres, long long* final_scores)
+{
+    long long i, xOffset, yOffset, xRegionLen, yRegionLen, /**bandLen,**/ maxXpos, maxYpos, zdroped;
+    long long mapGlobalScore, mapExtentScore;
+    long long xBuoundaryScore, xBuoundaryYcoordinate, yBuoundaryScore, yBuoundaryXcoordinate;
+    ///float band_rate = 0.08;
+    int endbouns, mode;
+    long long xBeg, yBeg;
+    xBeg = ovc->x_pos_s;
+    yBeg = ovc->y_pos_s;
+    if(chain->length <= 0) return 0;
+    long long sum_score = 0, current_ovlp = 0, zdrop_occ = 0;
+    long long chain_num = (long long)chain->length - 1;
+    
+    ///align forward
+    for (i = 0; i < chain_num; i++)
+    {
+        xOffset = get_fake_gap_pos(chain, i);
+        yOffset = (xOffset - xBeg) + yBeg + get_fake_gap_shift(chain, i);
+        ///last region
+        
+        ///higher endbouns for middle regions
+        endbouns = MATCH_SCORE_KSW;
+        xRegionLen = get_fake_gap_pos(chain, i+1) - xOffset;
+        yRegionLen = (get_fake_gap_pos(chain, i+1) + get_fake_gap_shift(chain, i+1)) - 
+                        (get_fake_gap_pos(chain, i) + get_fake_gap_shift(chain, i));
+        ///last region
+        if(i == chain_num - 1)
+        {
+            xRegionLen++;
+            yRegionLen++;
+        }
+
+        mode = KSW_EZ_SCORE_ONLY | KSW_EZ_APPROX_MAX | KSW_EZ_APPROX_DROP;
+            
+
+        if(minus_score_thres)
+        {
+            current_ovlp = MIN((xOffset - xBeg), (yOffset - yBeg));
+            current_ovlp = current_ovlp*MATCH_SCORE_KSW;
+            if(current_ovlp - sum_score > (*minus_score_thres))
+            {
+                return 0;
+            }
+        }
+
+        if(xOffset < 0) xOffset = 0;
+        if(yOffset < 0) yOffset = 0;
+        if(xRegionLen < 0) xRegionLen = 0;
+        if(yRegionLen < 0) yRegionLen = 0;
+
+        ///do alignment forward
+        ///text is x, query is y
+        afine_gap_alignment(x_string+xOffset, x_num, xRegionLen, y_string+yOffset, y_num, yRegionLen, 
+        c2n, FORWARD_KSW, MATCH_SCORE_KSW, MISMATCH_SCORE_KSW, GAP_OPEN_KSW, GAP_EXT_KSW,
+        /**bandLen,**/BAND_KSW, Z_DROP_KSW, endbouns, &maxXpos, &maxYpos, &mapGlobalScore, 
+        &mapExtentScore, &xBuoundaryScore, &xBuoundaryYcoordinate, 
+        &yBuoundaryScore, &yBuoundaryXcoordinate, &zdroped, mode);
+        
+
+        if(!zdroped)
+        {
+            sum_score += mapGlobalScore;
+        }
+        else
+        {
+            ///return 0;
+            zdrop_occ++;
+            ///if(zdrop_occ > 1) return 0;
+            sum_score += mapExtentScore;
+            if(xRegionLen <= yRegionLen)
+            {
+                sum_score -= (GAP_OPEN_KSW + (xRegionLen - maxXpos)*GAP_EXT_KSW);
+            }
+            else
+            {
+                sum_score -= (GAP_OPEN_KSW + (yRegionLen - maxYpos)*GAP_EXT_KSW);
+            }
+        }
+    }
+
+    (*final_scores) = sum_score;
+    return 1;
+}
+
+
+
+long long get_affine_gap_score(overlap_region* ovc, UC_Read* g_read, UC_Read* overlap_read, uint8_t* x_num,
+uint8_t* y_num, uint64_t EstimateXOlen, uint64_t EstimateYOlen)
+{
+    char* x_string;
+    char* y_string;
+    uint64_t yStrand;
+    long long minus_score_thres = (MAX(EstimateXOlen, EstimateYOlen)*HIGH_HET_ERROR_RATE*(MATCH_SCORE_KSW+(MAX(MISMATCH_SCORE_KSW,GAP_EXT_KSW))));
+    long long total_score_thres = MAX(EstimateXOlen, EstimateYOlen)*MATCH_SCORE_KSW - minus_score_thres;
+
+    yStrand = ovc->y_pos_strand;
+
+    if(yStrand == 0)
+    {
+        recover_UC_Read(overlap_read, &R_INF, ovc->y_id);
+    }
+    else
+    {
+        recover_UC_Read_RC(overlap_read, &R_INF, ovc->y_id);
+    }
+    x_string = g_read->seq;
+    y_string = overlap_read->seq;
+
+    long long sum;
+    
+    if(fill_chain_by_affine_gap(&(ovc->f_cigar), x_string, y_string, ovc, Get_READ_LENGTH(R_INF, ovc->x_id), 
+    Get_READ_LENGTH(R_INF, ovc->y_id), NULL, seq_nt6_table, x_num, y_num, &minus_score_thres, &sum) == 0)
+    {
+        return 0;
+    }
+
+    if(sum >= total_score_thres) return 1;
+    return 0;
+}
+
+void recalcate_high_het_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF, 
+                        UC_Read* g_read, Correct_dumy* dumy, UC_Read* overlap_read)
+{
+    long long j, k, i;
+    int threshold;
+    long long y_id;
+    int y_strand;
+    long long y_readLen;
+    long long x_start;
+    long long x_end;
+    long long x_len;
+    long long total_y_start;
+    long long total_y_end;
+    long long y_start;
+    long long Window_Len;
+    char* x_string;
+    char* y_string;
+    int end_site;
+    unsigned int error;
+    int real_y_start;
+    long long overlap_length;
+    int extra_begin, extra_end;
+    long long o_len;
+    kvec_t(uint8_t) x_num;
+    kvec_t(uint8_t) y_num;
+    kv_init(x_num);
+    kv_init(y_num);
+
+    for (j = 0; j < (long long)overlap_list->length; j++)
+    {
+        
+        if(overlap_list->list[j].w_list_length == 0) continue;
+        y_id = overlap_list->list[j].y_id;
+        y_strand = overlap_list->list[j].y_pos_strand;
+        y_readLen = Get_READ_LENGTH((*R_INF), y_id);
+
+        //i corresponding to each window of a overlap
+        //utilize the the end pos of pre-window in backwards
+        for (i = overlap_list->list[j].w_list_length - 1; i >= 0; i--)
+        {
+            ///the first matched window
+            if(overlap_list->list[j].w_list[i].y_end != -1)
+            {
+                ///note!!! need notification
+                ///this is the actual end postion in ystring
+                total_y_start = overlap_list->list[j].w_list[i].y_end 
+                            - overlap_list->list[j].w_list[i].extra_begin + 1;
+
+                ///k corresponding to all unmatched windows at the right side of overlap_list->list[j].w_list[i]
+                ///so k starts from i + 1, and end to the first matched window
+                for (k = i + 1; k < (long long)overlap_list->list[j].w_list_length && overlap_list->list[j].w_list[k].y_end == -1; k++)
+                {
+                    extra_begin = extra_end = 0;
+
+                    ///if y_start > y_readLen, direct terminate
+                    if (total_y_start >= y_readLen)
+                    {
+                        break;
+                    }
+                    
+                    ///there is no problem for x
+                    x_start = overlap_list->list[j].w_list[k].x_start;
+                    x_end = overlap_list->list[j].w_list[k].x_end;
+                    x_len = x_end - x_start + 1;
+                    ///there are two potiential reasons for unmatched window:
+                    ///1. this window has a large number of differences
+                    ///2. DP does not start from the right offset
+                    threshold = double_error_threshold(overlap_list->list[j].w_list[k].error_threshold, x_len);
+                    
+                    y_start = total_y_start;
+                    Window_Len = x_len + (threshold << 1);
+
+                    if(!determine_overlap_region(threshold, y_start, y_id, Window_Len, R_INF, 
+                    &extra_begin, &extra_end, &y_start, &o_len))
+                    {
+                        break;
+                    }
+
+                    if(o_len + threshold < x_len)
+                    {
+                        break;
+                    }
+                    
+                    fill_subregion(dumy->overlap_region, y_start, o_len, y_strand, 
+                    R_INF, y_id, extra_begin, extra_end);
+
+                    x_string = g_read->seq + x_start;
+                    y_string = dumy->overlap_region;
+
+                    ///note!!! need notification
+                    end_site = Reserve_Banded_BPM(y_string, Window_Len, x_string, x_len, threshold, &error);
+                    
+                    ///if error==-1, unmatched
+                    if (error!=(unsigned int)-1)
+                    {
+                        overlap_list->list[j].w_list[k].cigar.length = -1;
+                        overlap_list->list[j].w_list[k].y_start = y_start;
+                        overlap_list->list[j].w_list[k].y_end = y_start + end_site;
+                        overlap_list->list[j].w_list[k].error = (int)error;
+                        ///note!!! need notification
+                        overlap_list->list[j].w_list[k].extra_begin = extra_begin;
+                        overlap_list->list[j].w_list[k].extra_end = extra_end;
+                        overlap_list->list[j].w_list[k].error_threshold = threshold;
+                        
+                        overlap_list->list[j].align_length += x_len;
+                    }
+                    else
+                    {
+                        break;
+                    }
+
+                    ///note!!! need notification
+                    total_y_start = y_start + end_site - extra_begin + 1;
+                }
+                
+            }
+            
+        }
+        
+
+
+        //i corresponding to each window of a overlap
+        //utilize the the start pos of next window in forward
+        for (i = 0; i < (long long)overlap_list->list[j].w_list_length; i++)
+        {
+            ///find the first matched window, which should not be the first window
+            ///the pre-window of this matched window must be unmatched
+            if(overlap_list->list[j].w_list[i].y_end != -1 && i != 0 && overlap_list->list[j].w_list[i - 1].y_end == -1)
+            {
+                ///check if the start pos of this matched window has been calculated
+                if(overlap_list->list[j].w_list[i].cigar.length == -1)
+                {
+                    ///there is no problem for x
+                    x_start = overlap_list->list[j].w_list[i].x_start;
+                    x_end = overlap_list->list[j].w_list[i].x_end;
+                    x_len = x_end - x_start + 1;
+                    /****************************may have bugs********************************/
+                    threshold = overlap_list->list[j].w_list[i].error_threshold;
+                    /****************************may have bugs********************************/
+                    /****************************may have bugs********************************/
+                    ///should not adjust threshold, since this window can be matched by the old threshold
+                    ///threshold = Adjust_Threshold(threshold, x_len);
+                    /****************************may have bugs********************************/
+                    Window_Len = x_len + (threshold << 1);
+
+
+                    ///y_start is the real y_start
+                    y_start = overlap_list->list[j].w_list[i].y_start;
+                    extra_begin = overlap_list->list[j].w_list[i].extra_begin;
+                    extra_end = overlap_list->list[j].w_list[i].extra_end;
+                    o_len = Window_Len - extra_end - extra_begin;
+                    fill_subregion(dumy->overlap_region, y_start, o_len, y_strand, 
+                    R_INF, y_id, extra_begin, extra_end);
+                    x_string = g_read->seq + x_start;
+                    y_string = dumy->overlap_region;
+
+                    ///note!!! need notification
+                    end_site = Reserve_Banded_BPM_PATH(y_string, Window_Len, x_string, x_len, threshold, &error, &real_y_start,
+                    &(dumy->path_length), dumy->matrix_bit, dumy->path, 
+                    overlap_list->list[j].w_list[i].error, overlap_list->list[j].w_list[i].y_end - y_start);
+
+
+                    ///y_start has already been calculated
+                    if (error != (unsigned int)-1)
+                    {
+                        ///this condition is always wrong
+                        ///in best case, real_y_start = threshold, end_site = Window_Len - threshold - 1
+                        if (end_site == Window_Len - 1 || real_y_start == 0)
+                        {
+                            if(fix_boundary(x_string, x_len, threshold, y_start, real_y_start, 
+                            end_site, extra_begin, extra_end, y_id, Window_Len, R_INF, dumy, 
+                            y_strand, error, &y_start, &real_y_start, &end_site, &extra_begin, 
+                            &extra_end, &error))
+                            {
+                                overlap_list->list[j].w_list[i].error = error;
+                                overlap_list->list[j].w_list[i].extra_begin = extra_begin;
+                                overlap_list->list[j].w_list[i].extra_end = extra_end;
+                            }
+                        }
+                                                 
+                        generate_cigar(dumy->path, dumy->path_length, &(overlap_list->list[j].w_list[i]),
+                        &real_y_start, &end_site, &error, x_string, x_len, y_string);   
+
+                        ///note!!! need notification
+                        real_y_start = y_start + real_y_start - extra_begin;
+                        overlap_list->list[j].w_list[i].y_start = real_y_start; 
+                        ///I forget why don't reduce the extra_begin for y_end
+                        ///it seems extra_begin will be reduced at the end of this function 
+                        overlap_list->list[j].w_list[i].y_end = y_start + end_site;
+                        overlap_list->list[j].w_list[i].error = error;                         
+                    }
+                    else
+                    {
+                        fprintf(stderr, "error\n");
+                    }
+                }
+                else
+                {
+                    real_y_start = overlap_list->list[j].w_list[i].y_start;
+                }
+
+                
+                ///the end pos for pre window is real_y_start - 1
+                total_y_end = real_y_start - 1;
+                ///find the unmatched window on the left of current matched window
+                ///k starts from i - 1
+                for (k = i - 1; k >= 0 && overlap_list->list[j].w_list[k].y_end == -1; k--)
+                {  
+                    ///there is no problem in x
+                    x_start = overlap_list->list[j].w_list[k].x_start;
+                    x_end = overlap_list->list[j].w_list[k].x_end;
+                    x_len = x_end - x_start + 1;
+                    ///there are two potiential reasons for unmatched window:
+                    ///1. this window has a large number of differences
+                    ///2. DP does not start from the right offset
+                    threshold = double_error_threshold(overlap_list->list[j].w_list[k].error_threshold, x_len);
+
+                    Window_Len = x_len + (threshold << 1);
+
+                    if(total_y_end <= 0)
+                    {
+                        break;
+                    }
+
+                    ///y_start might be less than 0
+                    y_start = total_y_end - x_len + 1;
+                    if(!determine_overlap_region(threshold, y_start, y_id, Window_Len, R_INF,
+                    &extra_begin, &extra_end, &y_start, &o_len))
+                    {
+                        break;
+                    }
+
+                    if(o_len + threshold < x_len)
+                    {
+                        break;
+                    }
+
+                    fill_subregion(dumy->overlap_region, y_start, o_len, y_strand, 
+                    R_INF, y_id, extra_begin, extra_end);
+                    x_string = g_read->seq + x_start;
+                    y_string = dumy->overlap_region;
+
+                    ///note!!! need notification
+                    end_site = Reserve_Banded_BPM_PATH(y_string, Window_Len, x_string, x_len, threshold, &error, &real_y_start,
+                    &(dumy->path_length), dumy->matrix_bit, dumy->path, -1, -1);
+
+                    if (error!=(unsigned int)-1)
+                    { 
+                        ///this condition is always wrong
+                        ///in best case, real_y_start = threshold, end_site = Window_Len - threshold - 1
+                        if (end_site == Window_Len - 1 || real_y_start == 0)
+                        {
+                            fix_boundary(x_string, x_len, threshold, y_start, real_y_start, end_site,
+                            extra_begin, extra_end, y_id, Window_Len, R_INF, dumy, y_strand, error,
+                            &y_start, &real_y_start, &end_site,
+                            &extra_begin, &extra_end, &error);
+                        }
+
+                        generate_cigar(dumy->path, dumy->path_length, &(overlap_list->list[j].w_list[k]),
+                        &real_y_start, &end_site, &error, x_string, x_len, y_string);  
+
+                        ///y_start has no shift, but y_end has shift           
+                        overlap_list->list[j].w_list[k].y_start = y_start + real_y_start - extra_begin;
+                        overlap_list->list[j].w_list[k].y_end = y_start + end_site;
+                        overlap_list->list[j].w_list[k].error = error;
+                        overlap_list->list[j].align_length += x_len;
+                        overlap_list->list[j].w_list[k].extra_begin = extra_begin;
+                        overlap_list->list[j].w_list[k].extra_end = extra_end;
+                        overlap_list->list[j].w_list[k].error_threshold = threshold;
+                    }
+                    else
+                    {
+                        break;
+                    }
+
+                    total_y_end = y_start + real_y_start - 1 - extra_begin;
+                }
+            }
+        }
+    }
+
+
+
+    overlap_list->mapped_overlaps_length = 0;
+    
+    double error_rate;
+    int is_update = 0;
+    for (j = 0; j < (long long)overlap_list->length; j++)
+    {
+        y_id = overlap_list->list[j].y_id;
+        y_strand = overlap_list->list[j].y_pos_strand;
+        y_readLen = Get_READ_LENGTH((*R_INF), y_id);
+        overlap_length = overlap_list->list[j].x_pos_e - overlap_list->list[j].x_pos_s + 1;
+        overlap_list->list[j].is_match = 0;
+        is_update = 0;
+        ///debug_scan_cigar(&(overlap_list->list[j]));
+        if(overlap_list->list[j].w_list_length == 0 || overlap_length == 0 || overlap_list->list[j].align_length == 0) continue;
+        ///only calculate cigar for high quality overlaps
+        if (overlap_length * OVERLAP_THRESHOLD_FILTER <=  overlap_list->list[j].align_length)
+        {
+            
+            for (i = 0; i < (long long)overlap_list->list[j].w_list_length; i++)
+            {
+                ///first we need to check if this window is matched
+                if(overlap_list->list[j].w_list[i].y_end != -1)
+                {
+                    ///second check if the cigar of this window has been got 
+                    if(overlap_list->list[j].w_list[i].cigar.length == -1)
+                    {
+                        ///there is no problem for x
+                        x_start = overlap_list->list[j].w_list[i].x_start;
+                        x_end = overlap_list->list[j].w_list[i].x_end;
+                        x_len = x_end - x_start + 1;
+                        /****************************may have bugs********************************/
+                        ///threshold = x_len * asm_opt.max_ov_diff_ec;
+                        threshold = overlap_list->list[j].w_list[i].error_threshold;
+                        /****************************may have bugs********************************/
+                        /****************************may have bugs********************************/
+                        ///should not adjust threshold, since this window can be matched by the old threshold
+                        ///threshold = Adjust_Threshold(threshold, x_len);
+                        /****************************may have bugs********************************/
+                        Window_Len = x_len + (threshold << 1);
+
+
+                        ///y_start is the real y_start
+                        ///for the window with cigar, y_start has already reduced extra_begin
+                        y_start = overlap_list->list[j].w_list[i].y_start;
+                        extra_begin = overlap_list->list[j].w_list[i].extra_begin;
+                        extra_end = overlap_list->list[j].w_list[i].extra_end;
+                        o_len = Window_Len - extra_end - extra_begin;
+                        fill_subregion(dumy->overlap_region, y_start, o_len, y_strand, 
+                        R_INF, y_id, extra_begin, extra_end);
+                        x_string = g_read->seq + x_start;
+                        y_string = dumy->overlap_region;
+
+
+                        ///note!!! need notification
+                        end_site = Reserve_Banded_BPM_PATH(y_string, Window_Len, x_string, x_len, threshold, &error, &real_y_start,
+                        &(dumy->path_length), dumy->matrix_bit, dumy->path, 
+                        overlap_list->list[j].w_list[i].error, overlap_list->list[j].w_list[i].y_end - y_start);
+
+                        if (error != (unsigned int)-1)
+                        {
+                            if (end_site == Window_Len - 1 || real_y_start == 0)
+                            {
+                                
+                                if(fix_boundary(x_string, x_len, threshold, y_start, real_y_start, end_site,
+                                extra_begin, extra_end, y_id, Window_Len, R_INF, dumy, y_strand, error,
+                                &y_start, &real_y_start, &end_site,
+                                &extra_begin, &extra_end, &error))
+                                {
+                                    overlap_list->list[j].w_list[i].error = error;
+                                    overlap_list->list[j].w_list[i].extra_begin = extra_begin;
+                                    overlap_list->list[j].w_list[i].extra_end = extra_end;
+                                }
+                                
+                            }
+
+                            generate_cigar(dumy->path, dumy->path_length, &(overlap_list->list[j].w_list[i]),
+                            &real_y_start, &end_site, &error, x_string, x_len, y_string);    
+
+                            ///note!!! need notification
+                            real_y_start = y_start + real_y_start - extra_begin;
+                            overlap_list->list[j].w_list[i].y_start = real_y_start;  
+                            overlap_list->list[j].w_list[i].y_end = y_start + end_site - extra_begin;
+                            overlap_list->list[j].w_list[i].error = error;                              
+                        }
+                        else
+                        {
+                            fprintf(stderr, "error\n");
+                        }
+                    }
+                    else
+                    {
+                        overlap_list->list[j].w_list[i].y_end -= overlap_list->list[j].w_list[i].extra_begin;
+                    }
+
+
+                }
+            }
+
+            error_rate = non_trim_error_rate(overlap_list, j, R_INF, dumy, g_read);
+            
+            
+            if (error_rate <= HIGH_HET_ERROR_RATE)
+            {
+                is_update = 1;
+            }
+        }
+
+        if((is_update == 0) && (overlap_list->list[j].align_length >= WINDOW) && 
+           (overlap_length * HIGH_HET_OVERLAP_THRESHOLD_FILTER <=  overlap_list->list[j].align_length))
+        {
+            kv_resize(uint8_t, x_num, (uint64_t)(Get_READ_LENGTH((*R_INF), overlap_list->list[j].x_id)));
+            kv_resize(uint8_t, y_num, (uint64_t)(Get_READ_LENGTH((*R_INF), overlap_list->list[j].y_id)));
+            is_update = get_affine_gap_score(&(overlap_list->list[j]), g_read, overlap_read, x_num.a, y_num.a,
+            overlap_list->list[j].x_pos_e + 1 - overlap_list->list[j].x_pos_s, 
+            overlap_list->list[j].y_pos_e + 1 - overlap_list->list[j].y_pos_s);
+        }
+
+        if(is_update)
+        {
+            overlap_list->list[j].is_match = 2;
+        }
+    }
+
+    kv_destroy(x_num);
+    kv_destroy(y_num);
+}
+
+
+
+void correct_overlap_high_het(overlap_region_alloc* overlap_list, All_reads* R_INF, 
+                        UC_Read* g_read, Correct_dumy* dumy, UC_Read* overlap_read)
+{
+    clear_Correct_dumy(dumy, overlap_list);
+
+    long long window_start, window_end;
+
+    Window_Pool w_inf;
+
+    init_Window_Pool(&w_inf, g_read->length, WINDOW, (int)(1.0/asm_opt.max_ov_diff_ec));
+
+    int flag = 0;
+
+    while(get_Window(&w_inf, &window_start, &window_end) && flag != -2)
+    {
+        dumy->length = 0;
+        dumy->lengthNT = 0;
+        flag = get_interval(window_start, window_end, overlap_list, dumy);
+
+        switch (flag)
+        {
+            case 1:    ///no match here
+                break;
+            case 0:    ///no match here
+                break;
+            case -2: ///if flag == -2, loop would be terminated
+                break;
+        }
+
+        ///dumy->lengthNT represent how many overlaps that the length of them is not equal to WINDOW; may larger or less than WINDOW
+        ///dumy->length represent how many overlaps that the length of them is WINDOW
+        /****************************may improve**************************/
+        ///now the windows which are larger than WINDOW are verified one-by-one, to improve it, we can do it group-bygroup
+        verify_window(window_start, window_end, overlap_list, dumy, R_INF, g_read->seq);
+    }
+
+    recalcate_high_het_overlap(overlap_list, R_INF, g_read, dumy, overlap_read);
 }

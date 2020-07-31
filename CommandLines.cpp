@@ -23,6 +23,7 @@ static ko_longopt_t long_options[] = {
 	{ "ex-iter",       ko_required_argument, 308 },
     { "purge-cov",     ko_required_argument, 309 },
     { "pri-range",     ko_required_argument, 310 },
+    { "high-het",      ko_no_argument, 311 },
 	{ 0, 0, 0 }
 };
 
@@ -77,6 +78,8 @@ void Print_H(hifiasm_opt_t* asm_opt)
                                      asm_opt->purge_overlap_len);
     fprintf(stderr, "    --purge-cov INT\n");
     fprintf(stderr, "                coverage upper bound of Purge-dups [auto]\n");
+    fprintf(stderr, "    --high-het  enable this mode for high heterozygosity sample\n");
+    
 
     fprintf(stderr, "Example: ./hifiasm -o NA12878.asm -t 32 NA12878.fq.gz\n");
     fprintf(stderr, "See `man ./hifiasm.1' for detailed description of these command-line options.\n");
@@ -433,7 +436,8 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
             {
                 asm_opt->recover_atg_cov_min = asm_opt->recover_atg_cov_max = -1;
             }
-        } 
+        }
+        else if (c == 311) asm_opt->flag |= HA_F_HIGH_HET;
         else if (c == 'l')
         {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
             asm_opt->purge_level_primary = asm_opt->purge_level_trio = atoi(opt.arg);
