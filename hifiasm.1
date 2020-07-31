@@ -264,6 +264,12 @@ Min number of overlapped reads for duplicate haplotigs that should be purged [1]
 Coverage upper bound of Purge-dups, which is inferred automatically in default.
 If the coverage of a contig is higher than this bound, don't apply Purge-dups.
 
+.TP
+.BI --high-het \ INT
+Enable this mode for high heterozygosity sample, which will increase running time. 
+For ordinary samples, no need to enable this mode.
+
+
 .SS Debugging options
 
 .TP 10
