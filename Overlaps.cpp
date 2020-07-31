@@ -12869,29 +12869,12 @@ float drop_ratio, uint32_t trio_flag, float trio_drop_rate)
     uint32_t is_first = 1;
 
     redo:
-
-
-    print_untig_by_read(ug, "m54329U_190619_052546/130155526/ccs", 3323601, NULL, NULL, "beg");
-    print_untig_by_read(ug, "m54329U_190827_173812/131008083/ccs", 7014763, NULL, NULL, "beg");
-
+    ///print_untig((ug), 61955, "i-0:", 0);
 
     asg_pop_bubble_primary_trio(ug, bubble_dist, trio_flag, DROP);
-
-    print_untig_by_read(ug, "m54329U_190619_052546/130155526/ccs", 3323601, NULL, NULL, "beg-1");
-    print_untig_by_read(ug, "m54329U_190827_173812/131008083/ccs", 7014763, NULL, NULL, "beg-1");
-
     untig_asg_arc_simple_large_bubbles_trio(ug, read_g, reverse_sources, 2, ruIndex, trio_flag, DROP); 
-    
-    print_untig_by_read(ug, "m54329U_190619_052546/130155526/ccs", 3323601, NULL, NULL, "beg-2");
-    print_untig_by_read(ug, "m54329U_190827_173812/131008083/ccs", 7014763, NULL, NULL, "beg-2");
-
-    magic_trio_phasing(g, ug, read_g, coverage_cut, sources, reverse_sources, 2, ruIndex, trio_flag, trio_drop_rate);
+    magic_trio_phasing(g, ug, read_g, coverage_cut, sources, reverse_sources, 2, ruIndex, trio_flag, trio_drop_rate);    
     ///drop_semi_circle(ug, g, read_g, reverse_sources, ruIndex);
-
-    print_untig_by_read(ug, "m54329U_190619_052546/130155526/ccs", 3323601, NULL, NULL, "111");
-    print_untig_by_read(ug, "m54329U_190827_173812/131008083/ccs", 7014763, NULL, NULL, "111");
-
-
     /**********debug**********/
     if(just_bubble_pop == 0)
     {
@@ -12899,19 +12882,11 @@ float drop_ratio, uint32_t trio_flag, float trio_drop_rate)
         cut_trio_tip_primary(g, ug, tipsLen, trio_flag, 0, read_g, reverse_sources, ruIndex, 
         2);
     }
-
-    // print_read_all(ug, "m64011_190901_095311/1442493/ccs", "**convex**");
-    // print_read_all(ug, "m64011_190830_220126/173672768/ccs", "**kept**");
-    // print_read_all(ug, "m64011_190901_095311/6621017/ccs", "**missed**");
-
     /**********debug**********/
     long long pre_cons = get_graph_statistic(g);
     long long cur_cons = 0;
     while(pre_cons != cur_cons)
     {
-        print_untig_by_read(ug, "m54329U_190619_052546/130155526/ccs", 3323601, NULL, NULL, "222");
-        print_untig_by_read(ug, "m54329U_190827_173812/131008083/ccs", 7014763, NULL, NULL, "222");
-
         pre_cons = get_graph_statistic(g);
         ///need consider tangles
         ///asg_pop_bubble_primary(g, bubble_dist);
@@ -12920,41 +12895,15 @@ float drop_ratio, uint32_t trio_flag, float trio_drop_rate)
         if(just_bubble_pop == 0)
         {
             ///need consider tangles
-            asg_arc_cut_trio_long_tip_primary(g, ug, read_g, reverse_sources, ruIndex, 
-            2, tip_drop_ratio);
-
-            print_untig_by_read(ug, "m54329U_190619_052546/130155526/ccs", 3323601, NULL, NULL, "333");
-            print_untig_by_read(ug, "m54329U_190827_173812/131008083/ccs", 7014763, NULL, NULL, "333");
-
-            asg_arc_cut_trio_long_equal_tips_assembly(g, ug, read_g, reverse_sources, 2, ruIndex, trio_flag);
-            
-            print_untig_by_read(ug, "m54329U_190619_052546/130155526/ccs", 3323601, NULL, NULL, "444");
-            print_untig_by_read(ug, "m54329U_190827_173812/131008083/ccs", 7014763, NULL, NULL, "444");
-
-
+            asg_arc_cut_trio_long_tip_primary(g, ug, read_g, reverse_sources, ruIndex, 2, tip_drop_ratio);            
+            asg_arc_cut_trio_long_equal_tips_assembly(g, ug, read_g, reverse_sources, 2, ruIndex, trio_flag);            
             asg_arc_cut_trio_long_tip_primary_complex(g, ug, read_g, reverse_sources, ruIndex,
             2, tip_drop_ratio, stops_threshold);
-
-
-            print_untig_by_read(ug, "m54329U_190619_052546/130155526/ccs", 3323601, NULL, NULL, "555");
-            print_untig_by_read(ug, "m54329U_190827_173812/131008083/ccs", 7014763, NULL, NULL, "555");
-
-
             asg_arc_cut_trio_long_equal_tips_assembly_complex(g, ug, read_g, reverse_sources, 
             2, ruIndex, stops_threshold);
-
-
-            print_untig_by_read(ug, "m54329U_190619_052546/130155526/ccs", 3323601, NULL, NULL, "666");
-            print_untig_by_read(ug, "m54329U_190827_173812/131008083/ccs", 7014763, NULL, NULL, "666");
-
             ///print_debug_gfa(read_g, ug, coverage_cut, "debug_chimeric", sources, ruIndex, asm_opt.max_hang_Len, asm_opt.min_overlap_Len);
-
-
             detect_chimeric_by_topo(g, ug, read_g, reverse_sources, 2, stops_threshold, chimeric_rate,
             ruIndex);
-
-            print_untig_by_read(ug, "m54329U_190619_052546/130155526/ccs", 3323601, NULL, NULL, "666-2");
-            print_untig_by_read(ug, "m54329U_190827_173812/131008083/ccs", 7014763, NULL, NULL, "666-2");
             ///need consider tangles
             ///note we need both the read graph and the untig graph
         }
@@ -12963,9 +12912,6 @@ float drop_ratio, uint32_t trio_flag, float trio_drop_rate)
     }
     untig_asg_arc_simple_large_bubbles_trio(ug, read_g, reverse_sources, 2, ruIndex, trio_flag, DROP);
 
-    print_untig_by_read(ug, "m54329U_190619_052546/130155526/ccs", 3323601, NULL, NULL, "777");
-    print_untig_by_read(ug, "m54329U_190827_173812/131008083/ccs", 7014763, NULL, NULL, "777");
-
     if(just_bubble_pop == 0)
     {   
         ///asg_cut_tip_primary(g, ug, tipsLen);
@@ -12973,25 +12919,9 @@ float drop_ratio, uint32_t trio_flag, float trio_drop_rate)
         2);
     }
 
-    print_untig_by_read(ug, "m54329U_190619_052546/130155526/ccs", 3323601, NULL, NULL, "888");
-    print_untig_by_read(ug, "m54329U_190827_173812/131008083/ccs", 7014763, NULL, NULL, "888");
-
-    resolve_tangles(ug, read_g, reverse_sources, 20, 100, 0.05, 0.2, ruIndex, trio_flag, drop_ratio);
-    
-    print_untig_by_read(ug, "m54329U_190619_052546/130155526/ccs", 3323601, NULL, NULL, "999");
-    print_untig_by_read(ug, "m54329U_190827_173812/131008083/ccs", 7014763, NULL, NULL, "999");
-    
+    resolve_tangles(ug, read_g, reverse_sources, 20, 100, 0.05, 0.2, ruIndex, trio_flag, drop_ratio);    
     drop_semi_circle(ug, g, read_g, reverse_sources, ruIndex);
-
-    print_untig_by_read(ug, "m54329U_190619_052546/130155526/ccs", 3323601, NULL, NULL, "101010");
-    print_untig_by_read(ug, "m54329U_190827_173812/131008083/ccs", 7014763, NULL, NULL, "101010");
-    
-
     all_to_all_deduplicate(ug, read_g, coverage_cut, sources, trio_flag, trio_drop_rate, reverse_sources, ruIndex, DOUBLE_CHECK_THRES);
-
-    print_untig_by_read(ug, "m54329U_190619_052546/130155526/ccs", 3323601, NULL, NULL, "111111");
-    print_untig_by_read(ug, "m54329U_190827_173812/131008083/ccs", 7014763, NULL, NULL, "111111");
-
 
     if(is_first)
     {
@@ -13716,19 +13646,8 @@ long long bubble_dist, long long tipsLen, float tip_drop_ratio, long long stops_
 R_to_U* ruIndex, float chimeric_rate, float drop_ratio, int max_hang, int min_ovlp,
 kvec_asg_arc_t_warp* new_rtg_edges)
 {
-    // if(flag == MOTHER)
-    // {
-    //     print_debug_gfa(read_g, *ug, coverage_cut, "debug_hap2", sources, ruIndex, asm_opt.max_hang_Len, asm_opt.min_overlap_Len);
-    // }
-    
-    print_untig_by_read(*ug, "m54329U_190619_052546/130155526/ccs", 3323601, NULL, NULL, "0-beg");
-    print_untig_by_read(*ug, "m54329U_190827_173812/131008083/ccs", 7014763, NULL, NULL, "0-beg");
-
     asg_t* nsg = (*ug)->g;
     uint32_t v, n_vtx = nsg->n_seq;    
-    //if(flag == MOTHER) print_untig_by_read(*ug, "m54329U_190617_231905/65340614/ccs", (uint32_t)-1, sources, reverse_sources, "beg1");
-    //if(flag == MOTHER) print_untig_by_read(*ug, "m54329U_190827_173812/67108993/ccs", (uint32_t)-1, sources, reverse_sources, "beg2");
-    
     /**
     kvec_t_u32_warp new_rtg_nodes;
     kv_init(new_rtg_nodes.a);
@@ -13757,15 +13676,11 @@ kvec_asg_arc_t_warp* new_rtg_edges)
     
 
     ///primary_flag = get_utg_attributes(*ug, read_g, coverage_cut, sources, ruIndex);
-
-
     update_unitig_graph((*ug), read_g, coverage_cut, sources, reverse_sources, ruIndex, 0, 
     DOUBLE_CHECK_THRES, flag, drop_rate);
-    
-    print_untig_by_read(*ug, "m54329U_190619_052546/130155526/ccs", 3323601, NULL, NULL, "1-beg");
-    print_untig_by_read(*ug, "m54329U_190827_173812/131008083/ccs", 7014763, NULL, NULL, "1-beg");
 
     adjust_utg_advance(read_g, (*ug), reverse_sources, ruIndex);
+
     nsg = (*ug)->g;
     n_vtx = nsg->n_seq;
     for (v = 0; v < n_vtx; ++v) 
@@ -13774,10 +13689,6 @@ kvec_asg_arc_t_warp* new_rtg_edges)
         nsg->seq[v].c = PRIMARY_LABLE;
         EvaluateLen((*ug)->u, v) = (*ug)->u.a[v].n;
     }
-
-    print_untig_by_read(*ug, "m54329U_190619_052546/130155526/ccs", 3323601, NULL, NULL, "2-beg");
-    print_untig_by_read(*ug, "m54329U_190827_173812/131008083/ccs", 7014763, NULL, NULL, "2-beg");
-
     clean_trio_untig_graph(*ug, read_g, coverage_cut, sources, reverse_sources, bubble_dist, 
     tipsLen, tip_drop_ratio, stops_threshold, ruIndex, NULL, NULL, 0, 0, 0, 
     chimeric_rate, 0, 0, drop_ratio, flag, drop_rate);
@@ -26892,9 +26803,6 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
     normalize_ma_hit_t_single_side_advance(sources, n_read);
     normalize_ma_hit_t_single_side_advance(reverse_sources, n_read);
     
-    // debug_info_of_specfic_read("m64062_190803_042216/122882911/ccs", sources, reverse_sources, 
-    // -1, "clean");
-
 
     if (ha_opt_triobin(&asm_opt))
     {
@@ -26919,6 +26827,9 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
     ///fix_binned_reads(sources, n_read, coverage_cut);
     ///just need to deal with trio here
     ma_hit_contained_advance(sources, n_read, coverage_cut, ruIndex, max_hang_length, mini_overlap_length);
+
+    // debug_info_of_specfic_read("m54329U_190617_231905/176226420/ccs", sources, reverse_sources, 
+    // -1, "clean");
 
     sg = ma_sg_gen(sources, n_read, coverage_cut, max_hang_length, mini_overlap_length);
     asg_arc_del_trans(sg, gap_fuzz);
