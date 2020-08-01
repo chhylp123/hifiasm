@@ -78,7 +78,7 @@ void Print_H(hifiasm_opt_t* asm_opt)
                                      asm_opt->purge_overlap_len);
     fprintf(stderr, "    --purge-cov INT\n");
     fprintf(stderr, "                coverage upper bound of Purge-dups [auto]\n");
-    fprintf(stderr, "    --high-het  enable this mode for high heterozygosity sample\n");
+    fprintf(stderr, "    --high-het  enable this mode for high heterozygosity sample [experimental, not stable]\n");
     
 
     fprintf(stderr, "Example: ./hifiasm -o NA12878.asm -t 32 NA12878.fq.gz\n");
