@@ -6618,7 +6618,7 @@ uint8_t get_tip_trio_infor(asg_t *sg, uint32_t begNode)
 {
     uint32_t v = begNode, w;
     uint32_t kv;
-    uint32_t eLen = 0;
+    uint32_t eLen = 0, uLen = 0;
     uint32_t father_occ = 0, mother_occ = 0, ambigious_occ = 0;
 
     while (1)
@@ -6647,10 +6647,17 @@ uint8_t get_tip_trio_infor(asg_t *sg, uint32_t begNode)
         if(v == begNode) break;
     }
 
+    uLen = eLen;
     eLen = father_occ + mother_occ;
-    if(father_occ >= TRIO_THRES*eLen) return FATHER;
-    if(mother_occ >= TRIO_THRES*eLen) return MOTHER;
-    
+    if(eLen == 0) return AMBIGU;
+    if(father_occ >= mother_occ)
+    {
+        if((father_occ > TRIO_THRES*eLen) && (father_occ >= DOUBLE_CHECK_THRES*uLen)) return FATHER;
+    }
+    else
+    {
+        if((mother_occ > TRIO_THRES*eLen) && (mother_occ >= DOUBLE_CHECK_THRES*uLen)) return MOTHER;
+    }
     return AMBIGU;
 }
 
@@ -6697,28 +6704,30 @@ int if_skip_bubble, int if_drop, int if_check_hap, R_to_U* ruIndex)
         kv = get_real_length(g, v, NULL);
         kw = get_real_length(g, w, NULL);
         if (kv <= 1 && kw <= 1) continue;
-        trio_flag = get_tip_trio_infor(g, v);
+        trio_flag = get_tip_trio_infor(g, v^1);
         non_trio_flag = (uint32_t)-1;
         if(trio_flag == FATHER) non_trio_flag = MOTHER;
         if(trio_flag == MOTHER) non_trio_flag = FATHER;
-
+        
         ///calculate the longest edge for v and w
 		for (i = 0, kv = 0; i < nv; ++i) {
 			if (av[i].del) continue;
+            kv++; 
             if(get_tip_trio_infor(g, av[i].v) == non_trio_flag) continue;
 			if (ov_max < av[i].ol) ov_max = av[i].ol, ov_max_i = i;
-            kv++; 
+            ///kv++; 
 		}
 		if (kv >= 2 && a->ol > ov_max * drop_ratio) continue;
 
-
 		for (i = 0, kw = 0; i < nw; ++i) {
 			if (aw[i].del) continue;
+            kw++;
             if (get_tip_trio_infor(g, aw[i].v) == non_trio_flag) continue;
 			if (ow_max < aw[i].ol) ow_max = aw[i].ol, ow_max_i = i;
-            kw++;
+            ///kw++;
 		}
 		if (kw >= 2 && a->ol > ow_max * drop_ratio) continue;
+
         if (kv <= 1 && kw <= 1) continue;
 
         ///to see which one is the current edge (from v and w)
@@ -7999,7 +8008,7 @@ int asg_arc_del_short_diploid_by_exact_trio(asg_t *g, int max_ext, ma_hit_t_allo
         kv = get_real_length(g, v, NULL);
         kw = get_real_length(g, w, NULL);
         if (kv <= 1 && kw <= 1) continue;
-        trio_flag = get_tip_trio_infor(g, v);
+        trio_flag = get_tip_trio_infor(g, v^1);
         non_trio_flag = (uint32_t)-1;
         if(trio_flag == FATHER) non_trio_flag = MOTHER;
         if(trio_flag == MOTHER) non_trio_flag = FATHER;
@@ -8008,25 +8017,27 @@ int asg_arc_del_short_diploid_by_exact_trio(asg_t *g, int max_ext, ma_hit_t_allo
         ///calculate the longest edge for v and w
 		for (i = 0, kv = 0; i < nv; ++i) {
 			if (av[i].del) continue;
+            ++kv;
             if(get_tip_trio_infor(g, av[i].v) == non_trio_flag) continue;
 			if (ov_max < av[i].ol) 
             {
                 ov_max = av[i].ol;
                 ov_max_i = i;
             }
-			++kv;
+			///++kv;
 		}
 		if (kv >= 2 && a->ol == ov_max) continue;
 
 
 		for (i = 0, kw = 0; i < nw; ++i) {
 			if (aw[i].del) continue;
+            ++kw;
             if (get_tip_trio_infor(g, aw[i].v) == non_trio_flag) continue;
 			if (ow_max < aw[i].ol) 
             {
                 ow_max = aw[i].ol;
             }
-			++kw;
+			///++kw;
 		}
 		if (kw >= 2 && a->ol == ow_max) continue;
         if (kv <= 1 && kw <= 1) continue;
@@ -9571,20 +9582,20 @@ void clean_weak_ma_hit_t(ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_source
 
 
 
-void debug_info_of_specfic_node(char* name, asg_t *g, char* command)
+void debug_info_of_specfic_node(const char* name, asg_t *g, char* command)
 {
     fprintf(stderr, "\n\n\n");
-    uint32_t v, n_vtx = g->n_seq * 2;
+    uint32_t v, n_vtx = g->n_seq * 2, queryLen = strlen(name);
     for (v = 0; v < n_vtx; ++v) 
     {
-        if(memcmp(name, Get_NAME(R_INF, (v>>1)), Get_NAME_LENGTH(R_INF, (v>>1))) == 0)
+        if(queryLen == Get_NAME_LENGTH(R_INF, (v>>1)) && memcmp(name, Get_NAME(R_INF, (v>>1)), Get_NAME_LENGTH(R_INF, (v>>1))) == 0)
         {
             fprintf(stderr, "\nafter %s\n****************graph ref_read: %.*s, dir: %u****************\n", 
             command, (int)Get_NAME_LENGTH(R_INF, (v>>1)), Get_NAME(R_INF, (v>>1)), v&1);
             if(g->seq[v>>1].del)
             {
                 fprintf(stderr, "read has already been deleted.\n");
-                continue;
+                return;
             }
 
             asg_arc_t *av = asg_arc_a(g, v);
@@ -9596,6 +9607,7 @@ void debug_info_of_specfic_node(char* name, asg_t *g, char* command)
                 Get_NAME(R_INF, (av[i].v>>1)),
                 av[i].el, av[i].strong, av[i].ol, av[i].del);
             }
+            return;
         }
     }
 }
@@ -11356,6 +11368,7 @@ ma_hit_t_alloc* sources, R_to_U* ruIndex, int max_hang, int min_ovlp)
     kvec_asg_arc_t_warp new_rtg_edges;
     kv_init(new_rtg_edges.a);
 
+    if(ug == NULL) ug = ma_ug_gen(read_g);
 
     uint32_t i;
     for (i = 0; i < ug->u.n; ++i) 
@@ -26846,6 +26859,7 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
     asg_cut_tip(sg, asm_opt.max_short_tip);
     
     ///drop_inexact_edegs_at_bubbles(sg, bubble_dist);
+    ///debug_info_of_specfic_node("m54329U_190617_231905/176226420/ccs", sg, "complex_false_link");
 
     if(clean_round > 0)
     {
@@ -26862,7 +26876,6 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
         int i = 0;
         for (i = 0; i < clean_round; i++, drop_ratio += cut_step)
         {
-
             if(drop_ratio > max_ovlp_drop_ratio)
             {
                 drop_ratio = max_ovlp_drop_ratio;
@@ -26876,7 +26889,6 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
             
             ///just topological clean
             pre_clean(sources, coverage_cut, sg, bubble_dist);
-
             ///asg_arc_del_orthology(sg, reverse_sources, drop_ratio, asm_opt.max_short_tip);
             // asg_arc_del_orthology_multiple_way(sg, reverse_sources, drop_ratio, asm_opt.max_short_tip);
             // asg_cut_tip(sg, asm_opt.max_short_tip);
@@ -26887,7 +26899,6 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
             asg_arc_del_false_node(sg, asm_opt.max_short_tip);
             asg_cut_tip(sg, asm_opt.max_short_tip);
             /****************************may have bugs********************************/
-
             /****************************may have bugs********************************/
             ///asg_arc_identify_simple_bubbles_multi(sg, 1);
             asg_arc_identify_simple_bubbles_multi(sg, 0);
@@ -26902,8 +26913,6 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
             }
             asg_cut_tip(sg, asm_opt.max_short_tip);
             /****************************may have bugs********************************/
-
-
             asg_arc_identify_simple_bubbles_multi(sg, 1);
             if (ha_opt_triobin(&asm_opt))
             {
@@ -26919,7 +26928,7 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
 
             asg_arc_identify_simple_bubbles_multi(sg, 1);
             asg_arc_del_short_false_link(sg, 0.6, 0.85, bubble_dist, reverse_sources, 
-            asm_opt.max_short_tip, ruIndex);
+            asm_opt.max_short_tip, ruIndex);            
 
             asg_arc_identify_simple_bubbles_multi(sg, 1);
             asg_arc_del_complex_false_link(sg, 0.6, 0.85, bubble_dist, reverse_sources, asm_opt.max_short_tip);
