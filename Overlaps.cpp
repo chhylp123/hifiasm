@@ -26841,8 +26841,7 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
     ///just need to deal with trio here
     ma_hit_contained_advance(sources, n_read, coverage_cut, ruIndex, max_hang_length, mini_overlap_length);
 
-    // debug_info_of_specfic_read("m54329U_190617_231905/176226420/ccs", sources, reverse_sources, 
-    // -1, "clean");
+    ///debug_info_of_specfic_read("m54329U_190827_173812/166332272/ccs", sources, reverse_sources, -1, "clean");
 
     sg = ma_sg_gen(sources, n_read, coverage_cut, max_hang_length, mini_overlap_length);
     asg_arc_del_trans(sg, gap_fuzz);
@@ -26859,8 +26858,8 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
     asg_cut_tip(sg, asm_opt.max_short_tip);
     
     ///drop_inexact_edegs_at_bubbles(sg, bubble_dist);
-    ///debug_info_of_specfic_node("m54329U_190617_231905/176226420/ccs", sg, "complex_false_link");
-
+    ///debug_info_of_specfic_node("m54329U_190827_173812/166332272/ccs", sg, "beg");
+    
     if(clean_round > 0)
     {
         double cut_step;
@@ -26886,13 +26885,14 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
                 fprintf(stderr, "\n\n**********%d-th round drop: drop_ratio = %f**********\n", 
                 i, drop_ratio);
             }
-            
+
             ///just topological clean
             pre_clean(sources, coverage_cut, sg, bubble_dist);
             ///asg_arc_del_orthology(sg, reverse_sources, drop_ratio, asm_opt.max_short_tip);
             // asg_arc_del_orthology_multiple_way(sg, reverse_sources, drop_ratio, asm_opt.max_short_tip);
             // asg_cut_tip(sg, asm_opt.max_short_tip);
             /****************************may have bugs********************************/
+
             asg_arc_identify_simple_bubbles_multi(sg, 1);
             //reomve edge between two chromesomes
             //this node must be a single read
@@ -26900,6 +26900,7 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
             asg_cut_tip(sg, asm_opt.max_short_tip);
             /****************************may have bugs********************************/
             /****************************may have bugs********************************/
+
             ///asg_arc_identify_simple_bubbles_multi(sg, 1);
             asg_arc_identify_simple_bubbles_multi(sg, 0);
             ///asg_arc_del_short_diploid_unclean_exact(sg, drop_ratio, sources);
@@ -26913,6 +26914,7 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
             }
             asg_cut_tip(sg, asm_opt.max_short_tip);
             /****************************may have bugs********************************/
+
             asg_arc_identify_simple_bubbles_multi(sg, 1);
             if (ha_opt_triobin(&asm_opt))
             {
@@ -26928,7 +26930,7 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
 
             asg_arc_identify_simple_bubbles_multi(sg, 1);
             asg_arc_del_short_false_link(sg, 0.6, 0.85, bubble_dist, reverse_sources, 
-            asm_opt.max_short_tip, ruIndex);            
+            asm_opt.max_short_tip, ruIndex);     
 
             asg_arc_identify_simple_bubbles_multi(sg, 1);
             asg_arc_del_complex_false_link(sg, 0.6, 0.85, bubble_dist, reverse_sources, asm_opt.max_short_tip);
