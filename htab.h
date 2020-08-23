@@ -6,7 +6,9 @@
 #include "CommandLines.h"
 
 typedef struct {
-	uint64_t x;
+	uint64_t x; ///x is the hash key
+	///rid is the read id, pos is the end pos of this minimizer, rev is the direction
+	///span is the length of this k-mer. For non-HPC k-mer, span may not be equal to k
 	uint64_t rid:28, pos:27, rev:1, span:8;
 } ha_mz1_t;
 
@@ -25,14 +27,19 @@ typedef struct ha_abuf_s ha_abuf_t;
 extern const unsigned char seq_nt4_table[256];
 extern void *ha_flt_tab;
 extern ha_pt_t *ha_idx;
+extern void *ha_flt_tab_hp;
+extern ha_pt_t *ha_idx_hp;
 
-void *ha_ft_gen(const hifiasm_opt_t *asm_opt, All_reads *rs, int *hom_cov);
+void *ha_ft_gen(const hifiasm_opt_t *asm_opt, All_reads *rs, int *hom_cov, int is_hp_mode);
 int ha_ft_isflt(const void *hh, uint64_t y);
 void ha_ft_destroy(void *h);
 
-ha_pt_t *ha_pt_gen(const hifiasm_opt_t *asm_opt, const void *flt_tab, int read_from_store, All_reads *rs, int *hom_cov, int *het_cov);
+ha_pt_t *ha_pt_gen(const hifiasm_opt_t *asm_opt, const void *flt_tab, int read_from_store, int is_hp_mode, All_reads *rs, int *hom_cov, int *het_cov);
 void ha_pt_destroy(ha_pt_t *h);
 const ha_idxpos_t *ha_pt_get(const ha_pt_t *h, uint64_t hash, int *n);
+
+int write_index(void *flt_tab, ha_pt_t *ha_idx, All_reads* r, hifiasm_opt_t* opt, char* file_name);
+int load_index(void **r_flt_tab, ha_pt_t **r_ha_idx, All_reads* r, hifiasm_opt_t* opt, char* file_name);
 
 ha_abuf_t *ha_abuf_init(void);
 void ha_abuf_destroy(ha_abuf_t *ab);
@@ -48,6 +55,7 @@ double yak_cpu_usage(void);
 void ha_triobin(const hifiasm_opt_t *opt);
 
 void ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mz1_v *p, const void *hf);
+void ha_sketch_query(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mz1_v *p, const void *hf, kvec_t_u8_warp* k_flag);
 int ha_analyze_count(int n_cnt, const int64_t *cnt, int *peak_het);
 
 static inline uint64_t yak_hash64(uint64_t key, uint64_t mask) // invertible integer hash function
@@ -76,6 +84,7 @@ static inline uint64_t yak_hash64_64(uint64_t key)
 
 static inline uint64_t yak_hash_long(uint64_t x[4])
 {
+	///compare forward k-mer and reverse complementary strand
 	int j = x[1] < x[3]? 0 : 1;
 	return yak_hash64_64(x[j<<1|0]) + yak_hash64_64(x[j<<1|1]);
 }

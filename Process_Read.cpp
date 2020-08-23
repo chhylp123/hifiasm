@@ -46,6 +46,7 @@ void destory_All_reads(All_reads* r)
 		if (r->read_sperate[i]) free(r->read_sperate[i]);
 		if (r->paf && r->paf[i].buffer) free(r->paf[i].buffer);
 		if (r->reverse_paf && r->reverse_paf[i].buffer) free(r->reverse_paf[i].buffer);
+		///if (r->pb_regions) kv_destroy(r->pb_regions[i].a);
 	}
 	free(r->paf);
 	free(r->reverse_paf);
@@ -55,6 +56,7 @@ void destory_All_reads(All_reads* r)
 	free(r->name_index);
 	free(r->read_length);
 	free(r->trio_flag);
+	///if (r->pb_regions) free(r->pb_regions);
 }
 
 void write_All_reads(All_reads* r, char* read_file_name)
@@ -192,6 +194,7 @@ int load_All_reads(All_reads* r, char* read_file_name)
 		r->second_round_cigar[i].lost_base_length = r->cigars[i].lost_base_length = 0;
 		r->second_round_cigar[i].lost_base = r->cigars[i].lost_base = NULL;
 	}
+	///r->pb_regions = NULL;
 
     free(index_name);    
     fclose(fp);
@@ -263,6 +266,8 @@ void malloc_All_reads(All_reads* r)
 	r->second_round_cigar = (Compressed_Cigar_record*)malloc(sizeof(Compressed_Cigar_record)*r->total_reads);
 	r->paf = (ma_hit_t_alloc*)malloc(sizeof(ma_hit_t_alloc)*r->total_reads);
 	r->reverse_paf = (ma_hit_t_alloc*)malloc(sizeof(ma_hit_t_alloc)*r->total_reads);
+	///r->pb_regions = (kvec_t_u64_warp*)malloc(r->total_reads*sizeof(kvec_t_u64_warp));
+
 	for (i = 0; i < (long long)r->total_reads; i++)
 	{
 		r->second_round_cigar[i].size = r->cigars[i].size = 0;
@@ -274,6 +279,7 @@ void malloc_All_reads(All_reads* r)
 		r->second_round_cigar[i].lost_base = r->cigars[i].lost_base = NULL;
 		init_ma_hit_t_alloc(&(r->paf[i]));
 		init_ma_hit_t_alloc(&(r->reverse_paf[i]));
+		///kv_init(r->pb_regions[i].a);
 	}
 
 	r->name = (char*)malloc(sizeof(char)*r->total_name_length);
@@ -666,4 +672,52 @@ void reverse_complement(char* pattern, uint64_t length)
 	{
 		pattern[end] = RC_CHAR(pattern[end]);
 	}
+}
+
+
+void init_Debug_reads(Debug_reads* x, const char* file)
+{
+	int nameLen, i, bufLen = 1000;
+	if((uint64_t)(bufLen) < strlen(file) + 50) bufLen = strlen(file) + 50;
+	char* Name_Buffer = (char*)malloc(sizeof(char)*bufLen);
+	fprintf(stderr, "Queried debugging reads at: %s\n", file);
+
+	x->fp = fopen(file,"r");
+	x->query_num = 0;
+	
+	while(fgets(Name_Buffer, bufLen, x->fp))
+	{
+		x->query_num++;
+	}
+	x->read_name = (char**)malloc(sizeof(char*)*x->query_num);
+	fseek(x->fp, 0, SEEK_SET);
+
+	i = 0;
+	while(fgets(Name_Buffer, bufLen, x->fp))
+	{
+		nameLen = strlen(Name_Buffer) - 1;
+		x->read_name[i] = (char*)malloc(sizeof(char)*(nameLen+1));
+		memcpy(x->read_name[i], Name_Buffer, sizeof(char)*nameLen);
+		x->read_name[i][nameLen] = '\0';
+		i++;
+	}
+	
+    fclose(x->fp);
+
+	sprintf(Name_Buffer, "%s.debug.stdout", file);
+	x->fp = fopen(Name_Buffer,"w");
+	fprintf(stderr, "Print debugging information to: %s\n", Name_Buffer);
+	free(Name_Buffer);
+}
+
+void destory_Debug_reads(Debug_reads* x)
+{
+	uint64_t i;
+	for (i = 0; i < x->query_num; i++)
+	{
+		free(x->read_name[i]);
+	}
+	
+	free(x->read_name);
+	fclose(x->fp);
 }

@@ -35,6 +35,8 @@ const unsigned char seq_nt4_table[256] = { // translate ACGT to 0123
 
 void *ha_flt_tab;
 ha_pt_t *ha_idx;
+void *ha_flt_tab_hp;
+ha_pt_t *ha_idx_hp;
 
 /***************************
  * Yak specific parameters *
@@ -71,7 +73,7 @@ typedef struct {
 	int n_shift, n_hashes;
 	uint8_t *b;
 } yak_bf_t;
-
+///in most cases, n_shift = 25, n_hashes = 4
 yak_bf_t *yak_bf_init(int n_shift, int n_hashes)
 {
 	yak_bf_t *b;
@@ -126,10 +128,12 @@ typedef struct {
 
 typedef struct {
 	int k, pre, n_hash, n_shift;
-	uint64_t tot;
+	uint64_t tot;  ///number of distinct k-mers
 	ha_ct1_t *h;
 } ha_ct_t;
 
+///for 0-th counting, k = 51, pre = 12, n_hash = 4, n_shift = 0
+///for 1-th counting, opt.k = 51, opt->pre = 12, opt->bf_n_hash = 4, opt.bf_shift = 37
 static ha_ct_t *ha_ct_init(int k, int pre, int n_hash, int n_shift)
 {
 	ha_ct_t *h;
@@ -138,12 +142,16 @@ static ha_ct_t *ha_ct_init(int k, int pre, int n_hash, int n_shift)
 	CALLOC(h, 1);
 	h->k = k, h->pre = pre;
 	CALLOC(h->h, 1<<h->pre);
+	///i<h->pre = 4096
+	///it seems there is a large hash table h, consisting 4096 small hash tables
 	for (i = 0; i < 1<<h->pre; ++i)
 		h->h[i].h = yak_ct_init();
+	///for 0-th counting, don't enter here
+	///seems used for minimzer
 	if (n_hash > 0 && n_shift > h->pre) {
 		h->n_hash = n_hash, h->n_shift = n_shift;
 		for (i = 0; i < 1<<h->pre; ++i)
-			h->h[i].b = yak_bf_init(h->n_shift - h->pre, h->n_hash);
+			h->h[i].b = yak_bf_init(h->n_shift - h->pre, h->n_hash); ///h->n_shift = 37, h->pre = 12, h->n_hash = 4 
 	}
 	return h;
 }
@@ -173,15 +181,23 @@ static int ha_ct_insert_list(ha_ct_t *h, int create_new, int n, const uint64_t *
 	int j, mask = (1<<h->pre) - 1, n_ins = 0;
 	ha_ct1_t *g;
 	if (n == 0) return 0;
+	///corresponding small hash index
 	g = &h->h[a[0]&mask];
 	for (j = 0; j < n; ++j) {
 		int ins = 1, absent;
+		///x is a 64-bit word, h->pre=12
+		///all elements at a have the same low 12 bits
+		///so low 12 bits are not useful
 		uint64_t x = a[j] >> h->pre;
 		khint_t k;
 		if ((a[j]&mask) != (a[0]&mask)) continue;
 		if (create_new) {
+			///for 0-th counting, g->b = NULL
 			if (g->b)
 				ins = (yak_bf_insert(g->b, x) == h->n_hash);
+			///for 0-th counting, g->b = NULL
+			///x = the high 52 bits of a[j] + low 12 bits 0
+			///the low 12 bits are used for counting
 			if (ins) {
 				k = yak_ct_put(g->h, x << YAK_COUNTER_BITS | (g->b? 1 : 0), &absent);
 				if (absent) ++n_ins;
@@ -219,6 +235,8 @@ static void worker_ct_hist(void *data, long i, int tid) // callback for kt_for()
 			++cnt[kh_key(g, k)&YAK_MAX_COUNT];
 }
 
+///YAK_N_COUNTS is also 4096
+///used for calculating k-mer histogram
 static void ha_ct_hist(const ha_ct_t *h, int64_t cnt[YAK_N_COUNTS], int n_thread)
 {
 	hist_aux_t a;
@@ -226,6 +244,7 @@ static void ha_ct_hist(const ha_ct_t *h, int64_t cnt[YAK_N_COUNTS], int n_thread
 	a.h = h;
 	memset(cnt, 0, YAK_N_COUNTS * sizeof(uint64_t));
 	CALLOC(a.cnt, n_thread);
+	///start 4096 threads
 	kt_for(n_thread, worker_ct_hist, &a, 1<<h->pre);
 	for (i = 0; i < YAK_N_COUNTS; ++i) cnt[i] = 0;
 	for (j = 0; j < n_thread; ++j)
@@ -265,6 +284,7 @@ static void ha_ct_shrink(ha_ct_t *h, int min, int max, int n_thread)
 	int i;
 	shrink_aux_t a;
 	a.h = h, a.min = min, a.max = max;
+	///still start 4096 threads
 	kt_for(n_thread, worker_ct_shrink, &a, 1<<h->pre);
 	for (i = 0, h->tot = 0; i < 1<<h->pre; ++i)
 		h->tot += kh_size(h->h[i].h);
@@ -306,6 +326,7 @@ static void worker_pt_gen(void *data, long i, int tid) // callback for kt_for()
 			int absent;
 			khint_t l;
 			l = yak_pt_put(b->h, kh_key(g, k) >> a->ct->pre << YAK_COUNTER_BITS, &absent);
+			///this should be the start index of kh_key's corresponding pos at ha_idxpos_t* a
 			kh_val(b->h, l) = b->n;
 			b->n += kh_key(g, k) & YAK_MAX_COUNT;
 		}
@@ -412,8 +433,12 @@ typedef struct {
 	ha_mz1_t *b;
 } ch_buf_t;
 
+///p = 12
 static inline void ct_insert_buf(ch_buf_t *buf, int p, uint64_t y) // insert a k-mer $y to a linear buffer
 {
+	///assign k-mer to one of the 4096 bins
+	///using low 12 bits for assigning
+	///so all elements at b have the same low 12 bits
 	int pre = y & ((1<<p) - 1);
 	ch_buf_t *b = &buf[pre];
 	if (b->n == b->m) {
@@ -425,6 +450,7 @@ static inline void ct_insert_buf(ch_buf_t *buf, int p, uint64_t y) // insert a k
 
 static inline void pt_insert_buf(ch_buf_t *buf, int p, const ha_mz1_t *y)
 {
+	///assign minimizer to one of 4096 bins by low 12 bits
 	int pre = y->x & ((1<<p) - 1);
 	ch_buf_t *b = &buf[pre];
 	if (b->n == b->m) {
@@ -434,13 +460,17 @@ static inline void pt_insert_buf(ch_buf_t *buf, int p, const ha_mz1_t *y)
 	b->b[b->n++] = *y;
 }
 
+///buf is the read block, k is the k-mer length, p = 12, len is the read length, seq is the read
 static void count_seq_buf(ch_buf_t *buf, int k, int p, int len, const char *seq) // insert k-mers in $seq to linear buffer $buf
 {
 	int i, l;
 	uint64_t x[4], mask = (1ULL<<k) - 1, shift = k - 1;
 	for (i = l = 0, x[0] = x[1] = x[2] = x[3] = 0; i < len; ++i) {
 		int c = seq_nt4_table[(uint8_t)seq[i]];
+		///c = 00, 01, 10, 11
 		if (c < 4) { // not an "N" base
+			///x[0] & x[1] are the forward k-mer
+			///x[2] & x[3] are the reverse complementary k-mer
 			x[0] = (x[0] << 1 | (c&1))  & mask;
 			x[1] = (x[1] << 1 | (c>>1)) & mask;
 			x[2] = x[2] >> 1 | (uint64_t)(1 - (c&1))  << shift;
@@ -483,12 +513,13 @@ KSEQ_INIT(gzFile, gzread)
 #define HAF_RS_WRITE_SEQ 0x8
 #define HAF_RS_READ      0x10
 #define HAF_CREATE_NEW   0x20
+#define HAF_SKIP_READ    0x40
 
 typedef struct { // global data structure for kt_pipeline()
 	const yak_copt_t *opt;
 	const void *flt_tab;
 	int flag, create_new, is_store;
-	uint64_t n_seq;
+	uint64_t n_seq; ///number of total reads
 	kseq_t *ks;
 	UC_Read ucr;
 	ha_ct_t *ct;
@@ -499,7 +530,8 @@ typedef struct { // global data structure for kt_pipeline()
 
 typedef struct { // data structure for each step in kt_pipeline()
 	pl_data_t *p;
-	uint64_t n_seq0;
+	uint64_t n_seq0;  ///the start index of current buffer block at R_INF
+	///sum_len = total bases, nk = number of k-mers
 	int n_seq, m_seq, sum_len, nk;
 	int *len;
 	char **seq;
@@ -514,15 +546,17 @@ static void worker_for_insert(void *data, long i, int tid) // callback for kt_fo
 	ch_buf_t *b = &s->buf[i];
 	if (s->p->pt)
 		b->n_ins += ha_pt_insert_list(s->p->pt, b->n, b->b);
-	else
+	else///for 0-th count, go into here
 		b->n_ins += ha_ct_insert_list(s->p->ct, s->p->create_new, b->n, b->a);
 }
 
 static void worker_for_mz(void *data, long i, int tid)
 {
 	st_data_t *s = (st_data_t*)data;
+	///get the corresponding minimzer vector of this read
 	ha_mz1_v *b = &s->mz_buf[tid];
 	s->mz_buf[tid].n = 0;
+	///s->p->opt->w = 51, s->p->opt->k
 	ha_sketch(s->seq[i], s->len[i], s->p->opt->w, s->p->opt->k, s->n_seq0 + i, s->p->opt->is_HPC, b, s->p->flt_tab);
 	s->mz[i].n = s->mz[i].m = b->n;
 	MALLOC(s->mz[i].a, b->n);
@@ -540,6 +574,11 @@ static void *worker_count(void *data, int step, void *in) // callback for kt_pip
 		s->n_seq0 = p->n_seq;
 		if (p->rs_in && (p->flag & HAF_RS_READ)) {
 			while (p->n_seq < p->rs_in->total_reads) {
+				if((p->flag & HAF_SKIP_READ) && p->rs_in->trio_flag[p->n_seq] != AMBIGU)
+				{
+					++p->n_seq;
+					continue;
+				}
 				int l;
 				recover_UC_Read(&p->ucr, p->rs_in, p->n_seq);
 				l = p->ucr.length;
@@ -565,6 +604,7 @@ static void *worker_count(void *data, int step, void *in) // callback for kt_pip
 					exit(1);
 				}
 				if (p->rs_out) {
+					///for 0-th count, just insert read length to R_INF, instead of read
 					if (p->flag & HAF_RS_WRITE_LEN) {
 						assert(p->n_seq == p->rs_out->total_reads);
 						ha_insert_read_len(p->rs_out, l, p->ks->name.l);
@@ -578,6 +618,7 @@ static void *worker_count(void *data, int step, void *in) // callback for kt_pip
 						memcpy(&p->rs_out->name[p->rs_out->name_index[p->n_seq]], p->ks->name.s, p->ks->name.l);
 					}
 				}
+				///for 0-th count, insert both seq and length to local block
 				if (s->n_seq == s->m_seq) {
 					s->m_seq = s->m_seq < 16? 16 : s->m_seq + (s->m_seq>>1);
 					REALLOC(s->len, s->m_seq);
@@ -589,6 +630,7 @@ static void *worker_count(void *data, int step, void *in) // callback for kt_pip
 				++p->n_seq;
 				s->sum_len += l;
 				s->nk += l >= p->opt->k? l - p->opt->k + 1 : 0;
+				///p->opt->chunk_size is the block max size
 				if (s->sum_len >= p->opt->chunk_size)
 					break;
 			}
@@ -596,18 +638,24 @@ static void *worker_count(void *data, int step, void *in) // callback for kt_pip
 		if (s->sum_len == 0) free(s);
 		else return s;
 	} else if (step == 1) { // step 2: extract k-mers
+		///s is the block of reads
 		st_data_t *s = (st_data_t*)in;
+		///for 0-th counting, n_pre = 4096
 		int i, n_pre = 1<<p->opt->pre, m;
 		// allocate the k-mer buffer
 		CALLOC(s->buf, n_pre);
 		m = (int)(s->nk * 1.2 / n_pre) + 1;
+		//pre-allocate memory for each of 4096 buffer
 		for (i = 0; i < n_pre; ++i) {
 			s->buf[i].m = m;
+			///for 0-th counting, p->pt = NULL
 			if (p->pt) MALLOC(s->buf[i].b, m);
 			else MALLOC(s->buf[i].a, m);
 		}
 		// fill the buffer
+		///for 0-th counting, p->opt->w == 1
 		if (p->opt->w == 1) { // enumerate all k-mers
+			///scan all reads
 			for (i = 0; i < s->n_seq; ++i) {
 				if (p->opt->is_HPC)
 					count_seq_buf_HPC(s->buf, p->opt->k, p->opt->pre, s->len[i], s->seq[i]);
@@ -618,18 +666,21 @@ static void *worker_count(void *data, int step, void *in) // callback for kt_pip
 		} else { // minimizers only
 			uint32_t j;
 			// compute minimizers
+			// s->n_seq is how many reads at this buffer
+			// s->mz && s->mz_buf are lists of minimzer vectors
 			CALLOC(s->mz, s->n_seq);
 			CALLOC(s->mz_buf, p->opt->n_thread);
+			///calculate minimzers for each read, each read corresponds to one thread
 			kt_for(p->opt->n_thread, worker_for_mz, s, s->n_seq);
 			for (i = 0; i < p->opt->n_thread; ++i)
 				free(s->mz_buf[i].a);
 			free(s->mz_buf);
 			// insert minimizers
-			if (p->pt) {
+			if (p->pt) {///insert whole minimizer
 				for (i = 0; i < s->n_seq; ++i)
 					for (j = 0; j < s->mz[i].n; ++j)
 						pt_insert_buf(s->buf, p->opt->pre, &s->mz[i].a[j]);
-			} else {
+			} else {///just insert the hash key of minimizer
 				for (i = 0; i < s->n_seq; ++i)
 					for (j = 0; j < s->mz[i].n; ++j)
 						ct_insert_buf(s->buf, p->opt->pre, s->mz[i].a[j].x);
@@ -640,6 +691,7 @@ static void *worker_count(void *data, int step, void *in) // callback for kt_pip
 			}
 			free(s->mz);
 		}
+		///just clean seq
 		free(s->seq); free(s->len);
 		s->seq = 0, s->len = 0;
 		return s;
@@ -647,7 +699,9 @@ static void *worker_count(void *data, int step, void *in) // callback for kt_pip
 		st_data_t *s = (st_data_t*)in;
 		int i, n = 1<<p->opt->pre;
 		uint64_t n_ins = 0;
+		///for 0-th counting, p->pt = NULL
 		kt_for(p->opt->n_thread, worker_for_insert, s, n);
+		///n_ins is number of distinct k-mers
 		for (i = 0; i < n; ++i) {
 			n_ins += s->buf[i].n_ins;
 			if (p->pt) free(s->buf[i].b);
@@ -668,6 +722,7 @@ static void *worker_count(void *data, int step, void *in) // callback for kt_pip
 
 static ha_ct_t *yak_count(const yak_copt_t *opt, const char *fn, int flag, ha_pt_t *p0, ha_ct_t *c0, const void *flt_tab, All_reads *rs, int64_t *n_seq)
 {
+	///for 0-th counting, flag = HAF_COUNT_ALL|HAF_RS_WRITE_LEN|HAF_CREATE_NEW
 	int read_rs = (rs && (flag & HAF_RS_READ));
 	pl_data_t pl;
 	gzFile fp = 0;
@@ -676,23 +731,29 @@ static ha_ct_t *yak_count(const yak_copt_t *opt, const char *fn, int flag, ha_pt
 	if (read_rs) {
 		pl.rs_in = rs;
 		init_UC_Read(&pl.ucr);
-	} else {
+	} else {///for 0-th counting, go into here
 		if ((fp = gzopen(fn, "r")) == 0) return 0;
 		pl.ks = kseq_init(fp);
 	}
+	///for 0-th counting, read all reads into pl.rs_out
 	if (rs && (flag & (HAF_RS_WRITE_LEN|HAF_RS_WRITE_SEQ)))
 		pl.rs_out = rs;
+	///for 0-th counting, flt_tab = NULL
+	///for 1-th counting, flt_tab = NULL
 	pl.flt_tab = flt_tab;
 	pl.opt = opt;
 	pl.flag = flag;
-	if (p0) {
+	if (p0) {///for 1-th counting, p0 = NULL
 		pl.pt = p0, pl.create_new = 0; // never create new elements in a position table
 		assert(p0->k == opt->k && p0->pre == opt->pre);
 	} else if (c0) {
 		pl.ct = c0, pl.create_new = !!(flag&HAF_CREATE_NEW);
 		assert(c0->k == opt->k && c0->pre == opt->pre);
-	} else {
+	} else {///for 0-th counting and 1-th counting, go into here
 		pl.create_new = 1; // alware create new elements if the count table is empty
+		///for 0-th counting, opt.k = 51, opt->pre = 12, opt->bf_n_hash = 4, opt.bf_shift = 0
+		///for 1-th counting, opt.k = 51, opt->pre = 12, opt->bf_n_hash = 4, opt.bf_shift = 37
+		///building a large hash table consisting of 4096 small hash tables
 		pl.ct = ha_ct_init(opt->k, opt->pre, opt->bf_n_hash, opt->bf_shift);
 	}
 	kt_pipeline(3, worker_count, &pl, 3);
@@ -713,6 +774,7 @@ ha_ct_t *ha_count(const hifiasm_opt_t *asm_opt, int flag, ha_pt_t *p0, const voi
 	yak_copt_t opt;
 	ha_ct_t *h = 0;
 	assert(!(flag & HAF_RS_WRITE_LEN) || !(flag & HAF_RS_WRITE_SEQ)); // not both
+	///for 0-th counting, flag = HAF_COUNT_ALL|HAF_RS_WRITE_LEN
 	if (rs) {
 		if (flag & HAF_RS_WRITE_LEN)
 			init_All_reads(rs);
@@ -721,10 +783,16 @@ ha_ct_t *ha_count(const hifiasm_opt_t *asm_opt, int flag, ha_pt_t *p0, const voi
 	}
 	yak_copt_init(&opt);
 	opt.k = asm_opt->k_mer_length;
+	///always 0
 	opt.is_HPC = !(asm_opt->flag&HA_F_NO_HPC);
+	///for 0-th counting, shoud be 1
+	///for 1-th counting, shoud be 51
 	opt.w = flag & HAF_COUNT_ALL? 1 : asm_opt->mz_win;
+	///for 0-th counting, shoud be 0
+	///for 1-th counting, shoud be 37
 	opt.bf_shift = flag & HAF_COUNT_EXACT? 0 : asm_opt->bf_shift;
 	opt.n_thread = asm_opt->thread_num;
+	///asm_opt->num_reads is the number of fastq files
 	for (i = 0; i < asm_opt->num_reads; ++i)
 		h = yak_count(&opt, asm_opt->read_file_names[i], flag|HAF_CREATE_NEW, p0, h, flt_tab, rs, &n_seq);
 	if (h && opt.bf_shift > 0)
@@ -775,19 +843,24 @@ void ha_ft_destroy(void *h)
  * High-level interfaces *
  *************************/
 
-void *ha_ft_gen(const hifiasm_opt_t *asm_opt, All_reads *rs, int *hom_cov)
+void *ha_ft_gen(const hifiasm_opt_t *asm_opt, All_reads *rs, int *hom_cov, int is_hp_mode)
 {
 	yak_ft_t *flt_tab;
 	int64_t cnt[YAK_N_COUNTS];
-	int peak_hom, peak_het, cutoff;
+	int peak_hom, peak_het, cutoff = YAK_MAX_COUNT - 1, ex_flag = 0;
+	if(is_hp_mode) ex_flag = HAF_RS_READ|HAF_SKIP_READ;
 	ha_ct_t *h;
-	h = ha_count(asm_opt, HAF_COUNT_ALL|HAF_RS_WRITE_LEN, NULL, NULL, rs);
-	ha_ct_hist(h, cnt, asm_opt->thread_num);
-	peak_hom = ha_analyze_count(YAK_N_COUNTS, cnt, &peak_het);
-	if (hom_cov) *hom_cov = peak_hom;
-	if (peak_hom > 0) fprintf(stderr, "[M::%s] peak_hom: %d; peak_het: %d\n", __func__, peak_hom, peak_het);
-	cutoff = (int)(peak_hom * asm_opt->high_factor);
-	if (cutoff > YAK_MAX_COUNT - 1) cutoff = YAK_MAX_COUNT - 1;
+	h = ha_count(asm_opt, HAF_COUNT_ALL|HAF_RS_WRITE_LEN|ex_flag, NULL, NULL, rs);
+	if(!(ex_flag & HAF_SKIP_READ))
+	{
+		ha_ct_hist(h, cnt, asm_opt->thread_num);
+		peak_hom = ha_analyze_count(YAK_N_COUNTS, cnt, &peak_het);
+		if (hom_cov) *hom_cov = peak_hom;
+		if (peak_hom > 0) fprintf(stderr, "[M::%s] peak_hom: %d; peak_het: %d\n", __func__, peak_hom, peak_het);
+		///in default, asm_opt->high_factor = 5.0
+		cutoff = (int)(peak_hom * asm_opt->high_factor);
+		if (cutoff > YAK_MAX_COUNT - 1) cutoff = YAK_MAX_COUNT - 1;
+	}
 	ha_ct_shrink(h, cutoff, YAK_MAX_COUNT, asm_opt->thread_num);
 	flt_tab = gen_hh(h);
 	ha_ct_destroy(h);
@@ -796,21 +869,23 @@ void *ha_ft_gen(const hifiasm_opt_t *asm_opt, All_reads *rs, int *hom_cov)
 	return (void*)flt_tab;
 }
 
-ha_pt_t *ha_pt_gen(const hifiasm_opt_t *asm_opt, const void *flt_tab, int read_from_store, All_reads *rs, int *hom_cov, int *het_cov)
+ha_pt_t *ha_pt_gen(const hifiasm_opt_t *asm_opt, const void *flt_tab, int read_from_store, int is_hp_mode, All_reads *rs, int *hom_cov, int *het_cov)
 {
 	int64_t cnt[YAK_N_COUNTS], tot_cnt;
 	int peak_hom, peak_het, i, extra_flag1, extra_flag2;
 	ha_ct_t *ct;
 	ha_pt_t *pt;
-	if (read_from_store) {
+	if (read_from_store) {///if reads have already been read
 		extra_flag1 = extra_flag2 = HAF_RS_READ;
-	} else if (rs->total_reads == 0) {
+	} else if (rs->total_reads == 0) {///if reads & length have not been scanned
 		extra_flag1 = HAF_RS_WRITE_LEN;
 		extra_flag2 = HAF_RS_WRITE_SEQ;
-	} else {
+	} else {///if length has been loaded but reads have not
 		extra_flag1 = HAF_RS_WRITE_SEQ;
 		extra_flag2 = HAF_RS_READ;
 	}
+	if(is_hp_mode) extra_flag1 |= HAF_SKIP_READ, extra_flag2 |= HAF_SKIP_READ;
+
 	ct = ha_count(asm_opt, HAF_COUNT_EXACT|extra_flag1, NULL, flt_tab, rs);
 	fprintf(stderr, "[M::%s::%.3f*%.2f] ==> counted %ld distinct minimizer k-mers\n", __func__,
 			yak_realtime(), yak_cpu_usage(), (long)ct->tot);
@@ -820,12 +895,16 @@ ha_pt_t *ha_pt_gen(const hifiasm_opt_t *asm_opt, const void *flt_tab, int read_f
 	if (hom_cov) *hom_cov = peak_hom;
 	if (het_cov) *het_cov = peak_het;
 	if (peak_hom > 0) fprintf(stderr, "[M::%s] peak_hom: %d; peak_het: %d\n", __func__, peak_hom, peak_het);
+	///here ha_ct_shrink is mostly used to remove k-mer appearing only 1 time
 	if (flt_tab == 0) {
 		int cutoff = (int)(peak_hom * asm_opt->high_factor);
 		if (cutoff > YAK_MAX_COUNT - 1) cutoff = YAK_MAX_COUNT - 1;
+		if((extra_flag1 & HAF_SKIP_READ) && (extra_flag2 & HAF_SKIP_READ)) cutoff = YAK_MAX_COUNT - 1;
 		ha_ct_shrink(ct, 2, cutoff, asm_opt->thread_num);
 		for (i = 2, tot_cnt = 0; i <= cutoff; ++i) tot_cnt += cnt[i] * i;
 	} else {
+		///Note: here is just to remove minimizer appearing YAK_MAX_COUNT times
+		///minimizer with YAK_MAX_COUNT occ may apper > YAK_MAX_COUNT times, so it may lead to overflow at ha_pt_gen
 		ha_ct_shrink(ct, 2, YAK_MAX_COUNT - 1, asm_opt->thread_num);
 		for (i = 2, tot_cnt = 0; i <= YAK_MAX_COUNT - 1; ++i) tot_cnt += cnt[i] * i;
 	}
@@ -836,4 +915,163 @@ ha_pt_t *ha_pt_gen(const hifiasm_opt_t *asm_opt, const void *flt_tab, int read_f
 	fprintf(stderr, "[M::%s::%.3f*%.2f] ==> indexed %ld positions\n", __func__,
 			yak_realtime(), yak_cpu_usage(), (long)pt->tot_pos);
 	return pt;
+}
+
+
+
+int write_index(void *flt_tab, ha_pt_t *ha_idx, All_reads* r, hifiasm_opt_t* opt, char* file_name)
+{
+    char* gfa_name = (char*)malloc(strlen(file_name)+25);
+    sprintf(gfa_name, "%s.pt_flt", file_name);
+    FILE* fp = fopen(gfa_name, "w");
+	if (!fp) {
+		free(gfa_name);
+        return 0;
+    }
+	yak_ft_t *ha_flt_tab = (yak_ft_t*)flt_tab;
+
+	if(ha_flt_tab)
+	{
+		fwrite("f", 1, 1, fp);
+		yak_ft_save(ha_flt_tab, fp);
+	}
+
+
+	if(ha_idx)
+	{
+		int i;
+		ha_pt1_t *g;
+		fwrite("h", 1, 1, fp);
+		fwrite(&ha_idx->k, sizeof(ha_idx->k), 1, fp);
+		fwrite(&ha_idx->pre, sizeof(ha_idx->pre), 1, fp);
+		fwrite(&ha_idx->tot, sizeof(ha_idx->tot), 1, fp);
+		fwrite(&ha_idx->tot_pos, sizeof(ha_idx->tot_pos), 1, fp);
+
+		for (i = 0; i < 1<<ha_idx->pre; ++i) 
+		{
+			g = &(ha_idx->h[i]);
+			yak_pt_save(g->h, fp);
+			fwrite(&g->n, sizeof(g->n), 1, fp);
+			fwrite(g->a, sizeof(ha_idxpos_t), g->n, fp);
+		}
+	}
+
+	fwrite(&opt->number_of_round, sizeof(opt->number_of_round), 1, fp);
+	fwrite(&opt->hom_cov, sizeof(opt->hom_cov), 1, fp);
+	fwrite(&opt->het_cov, sizeof(opt->het_cov), 1, fp);
+	fwrite(&opt->max_n_chain, sizeof(opt->max_n_chain), 1, fp);
+
+
+	write_All_reads(r, gfa_name);
+
+	fprintf(stderr, "[M::%s] Index has been written.\n", __func__);
+    free(gfa_name);
+	fclose(fp);
+	return 1;
+}
+
+int load_index(void **r_flt_tab, ha_pt_t **r_ha_idx, All_reads* r, hifiasm_opt_t* opt, char* file_name)
+{
+	char* gfa_name = (char*)malloc(strlen(file_name)+25);
+    sprintf(gfa_name, "%s.pt_flt", file_name);
+    FILE* fp = fopen(gfa_name, "r");
+	if (!fp) {
+		free(gfa_name);
+        return 0;
+    }
+
+	ha_pt_t *ha_idx = NULL;
+	char mode = 0;
+	int f_flag, absent, i;
+	double index_time, index_s_time, pos_time, pos_s_time;
+
+	
+	
+	f_flag += fread(&mode, 1, 1, fp);
+	if(mode == 'f')
+	{
+		index_time = yak_realtime();
+
+		yak_ft_load((yak_ft_t **)r_flt_tab, fp);
+		
+	    f_flag += fread(&mode, 1, 1, fp);
+
+		fprintf(stderr, "[M::%s::%.3f] ==> Loaded flt table\n", __func__, yak_realtime()-index_time);
+	}
+	///insert using multiple threads???
+	if(mode == 'h')
+	{
+		pos_time = index_time = 0;
+
+		CALLOC(ha_idx, 1);
+		ha_pt1_t *g;
+		f_flag += fread(&ha_idx->k, sizeof(ha_idx->k), 1, fp);
+		f_flag += fread(&ha_idx->pre, sizeof(ha_idx->pre), 1, fp);
+		f_flag += fread(&ha_idx->tot, sizeof(ha_idx->tot), 1, fp);
+		f_flag += fread(&ha_idx->tot_pos, sizeof(ha_idx->tot_pos), 1, fp);
+		CALLOC(ha_idx->h, 1<<ha_idx->pre);
+		for (i = 0; i < 1<<ha_idx->pre; ++i) 
+		{
+			index_s_time = yak_realtime();
+
+			g = &(ha_idx->h[i]);
+			yak_pt_load(&(g->h), fp);
+
+			index_time += yak_realtime() - index_s_time;
+			
+			pos_s_time = yak_realtime();
+
+			f_flag += fread(&g->n, sizeof(g->n), 1, fp);
+			MALLOC(g->a, g->n);
+			f_flag += fread(g->a, sizeof(ha_idxpos_t), g->n, fp);
+
+			pos_time += yak_realtime() - pos_s_time;
+		}
+		(*r_ha_idx) = ha_idx;
+
+		fprintf(stderr, "[M::%s::%.3f(index)/%.3f(pos)] ==> Loaded pos table\n", __func__, index_time, pos_time);
+	}
+
+	if(mode != 'h' && mode != 'f')
+	{
+		free(gfa_name);
+		fclose(fp);
+		return 0;
+	}
+
+
+	f_flag += fread(&absent, sizeof(absent), 1, fp);
+	if(absent != opt->number_of_round)
+	{
+		fprintf(stderr, "ERROR: different number of rounds!\n");
+		exit(1);
+	}
+
+	f_flag += fread(&opt->hom_cov, sizeof(opt->hom_cov), 1, fp);
+	f_flag += fread(&opt->het_cov, sizeof(opt->het_cov), 1, fp);
+	f_flag += fread(&opt->max_n_chain, sizeof(opt->max_n_chain), 1, fp);
+
+
+	fclose(fp);
+	
+	if(!load_All_reads(r, gfa_name))
+	{
+		free(gfa_name);
+		return 0;
+	}
+
+
+	memset(r->trio_flag, AMBIGU, r->total_reads*sizeof(uint8_t));
+	r->paf = (ma_hit_t_alloc*)malloc(sizeof(ma_hit_t_alloc)*r->total_reads);
+    r->reverse_paf = (ma_hit_t_alloc*)malloc(sizeof(ma_hit_t_alloc)*r->total_reads);
+	for (i = 0; i < (long long)r->total_reads; i++)
+    {
+        init_ma_hit_t_alloc(&(r->paf[i]));
+        init_ma_hit_t_alloc(&(r->reverse_paf[i]));
+    }
+
+	fprintf(stderr, "[M::%s] Index has been loaded.\n", __func__);
+
+	free(gfa_name);
+	return 1;
 }

@@ -3,7 +3,7 @@
 
 #include <pthread.h>
 
-#define HA_VERSION "0.11-r302"
+#define HA_VERSION "0.11-r303"
 
 #define VERBOSE 0
 

@@ -133,6 +133,29 @@ static kh_inline khint_t __kh_h2b(khint_t hash, khint_t bits) { return hash * 26
 			h->count = 0; \
 		} \
 	}
+#define __KHASHL_IMPL_S_L(SCOPE, HType, prefix, khkey_t) \
+	SCOPE khint_t prefix##_save(HType *h, FILE* fp) { \
+		if (!h) return 0; \
+		khint_t n_buckets = (h->keys? 1U<<h->bits : 0U); \
+		fwrite(&n_buckets, sizeof(n_buckets), 1, fp); \
+		fwrite(&h->bits, sizeof(h->bits), 1, fp); \
+		fwrite(&h->count, sizeof(h->count), 1, fp); \
+		fwrite(h->used, sizeof(khint32_t), __kh_fsize(n_buckets), fp); \
+		fwrite(h->keys, sizeof(khkey_t), n_buckets, fp); \
+		return 1; \
+	} \
+	SCOPE khint_t prefix##_load(HType **h, FILE* fp) { \
+		(*h) = prefix##_init(); \
+		khint_t n_buckets; \
+		fread(&n_buckets, sizeof(n_buckets), 1, fp); \
+		fread(&(*h)->bits, sizeof((*h)->bits), 1, fp); \
+		fread(&(*h)->count, sizeof((*h)->count), 1, fp); \
+		(*h)->used = (khint32_t*)kmalloc(__kh_fsize(n_buckets) * sizeof(khint32_t)); \
+		(*h)->keys = (khkey_t*)kmalloc(n_buckets * sizeof(khkey_t)); \
+		fread((*h)->used, sizeof(khint32_t), __kh_fsize(n_buckets), fp); \
+		fread((*h)->keys, sizeof(khkey_t), n_buckets, fp); \
+		return 1; \
+	} \
 
 #define __KHASHL_IMPL_GET(SCOPE, HType, prefix, khkey_t, __hash_fn, __hash_eq) \
 	SCOPE khint_t prefix##_getp(const HType *h, const khkey_t *key) { \
@@ -245,6 +268,7 @@ static kh_inline khint_t __kh_h2b(khint_t hash, khint_t bits) { return hash * 26
 #define KHASHL_INIT(SCOPE, HType, prefix, khkey_t, __hash_fn, __hash_eq) \
 	__KHASHL_TYPE(HType, khkey_t) \
 	__KHASHL_IMPL_BASIC(SCOPE, HType, prefix) \
+	__KHASHL_IMPL_S_L(SCOPE, HType, prefix, khkey_t) \
 	__KHASHL_IMPL_GET(SCOPE, HType, prefix, khkey_t, __hash_fn, __hash_eq) \
 	__KHASHL_IMPL_RESIZE(SCOPE, HType, prefix, khkey_t, __hash_fn, __hash_eq) \
 	__KHASHL_IMPL_PUT(SCOPE, HType, prefix, khkey_t, __hash_fn, __hash_eq) \
@@ -264,6 +288,8 @@ static kh_inline khint_t __kh_h2b(khint_t hash, khint_t bits) { return hash * 26
 	KHASHL_INIT(KH_LOCAL, HType, prefix##_s, HType##_s_bucket_t, prefix##_s_hash, prefix##_s_eq) \
 	SCOPE HType *prefix##_init(void) { return prefix##_s_init(); } \
 	SCOPE void prefix##_destroy(HType *h) { prefix##_s_destroy(h); } \
+	SCOPE khint_t prefix##_save(HType *h, FILE* fp) { return prefix##_s_save(h, fp); } \
+	SCOPE khint_t prefix##_load(HType **h, FILE* fp) { return prefix##_s_load(h, fp); } \
 	SCOPE void prefix##_resize(HType *h, khint_t new_n_buckets) { prefix##_s_resize(h, new_n_buckets); } \
 	SCOPE khint_t prefix##_get(const HType *h, khkey_t key) { HType##_s_bucket_t t; t.key = key; return prefix##_s_getp(h, &t); } \
 	SCOPE int prefix##_del(HType *h, khint_t k) { return prefix##_s_del(h, k); } \
@@ -276,6 +302,8 @@ static kh_inline khint_t __kh_h2b(khint_t hash, khint_t bits) { return hash * 26
 	KHASHL_INIT(KH_LOCAL, HType, prefix##_m, HType##_m_bucket_t, prefix##_m_hash, prefix##_m_eq) \
 	SCOPE HType *prefix##_init(void) { return prefix##_m_init(); } \
 	SCOPE void prefix##_destroy(HType *h) { prefix##_m_destroy(h); } \
+	SCOPE khint_t prefix##_save(HType *h, FILE* fp) { return prefix##_m_save(h, fp); } \
+	SCOPE khint_t prefix##_load(HType **h, FILE* fp) { return prefix##_m_load(h, fp); } \
 	SCOPE void prefix##_resize(HType *h, khint_t new_n_buckets) { prefix##_m_resize(h, new_n_buckets); } \
 	SCOPE khint_t prefix##_get(const HType *h, khkey_t key) { HType##_m_bucket_t t; t.key = key; return prefix##_m_getp(h, &t); } \
 	SCOPE int prefix##_del(HType *h, khint_t k) { return prefix##_m_del(h, k); } \
@@ -287,6 +315,8 @@ static kh_inline khint_t __kh_h2b(khint_t hash, khint_t bits) { return hash * 26
 	KHASHL_INIT(KH_LOCAL, HType, prefix##_cs, HType##_cs_bucket_t, __kh_cached_hash, prefix##_cs_eq) \
 	SCOPE HType *prefix##_init(void) { return prefix##_cs_init(); } \
 	SCOPE void prefix##_destroy(HType *h) { prefix##_cs_destroy(h); } \
+	SCOPE khint_t prefix##_save(HType *h, FILE* fp) { return prefix##_cs_save(h, fp); } \
+	SCOPE khint_t prefix##_load(HType **h, FILE* fp) { return prefix##_cs_load(h, fp); } \
 	SCOPE khint_t prefix##_get(const HType *h, khkey_t key) { HType##_cs_bucket_t t; t.key = key; t.hash = __hash_fn(key); return prefix##_cs_getp(h, &t); } \
 	SCOPE int prefix##_del(HType *h, khint_t k) { return prefix##_cs_del(h, k); } \
 	SCOPE khint_t prefix##_put(HType *h, khkey_t key, int *absent) { HType##_cs_bucket_t t; t.key = key, t.hash = __hash_fn(key); return prefix##_cs_putp(h, &t, absent); }
@@ -297,6 +327,8 @@ static kh_inline khint_t __kh_h2b(khint_t hash, khint_t bits) { return hash * 26
 	KHASHL_INIT(KH_LOCAL, HType, prefix##_cm, HType##_cm_bucket_t, __kh_cached_hash, prefix##_cm_eq) \
 	SCOPE HType *prefix##_init(void) { return prefix##_cm_init(); } \
 	SCOPE void prefix##_destroy(HType *h) { prefix##_cm_destroy(h); } \
+	SCOPE khint_t prefix##_save(HType *h, FILE* fp) { return prefix##_cm_save(h, fp); } \
+	SCOPE khint_t prefix##_load(HType **h, FILE* fp) { return prefix##_cm_load(h, fp); } \
 	SCOPE khint_t prefix##_get(const HType *h, khkey_t key) { HType##_cm_bucket_t t; t.key = key; t.hash = __hash_fn(key); return prefix##_cm_getp(h, &t); } \
 	SCOPE int prefix##_del(HType *h, khint_t k) { return prefix##_cm_del(h, k); } \
 	SCOPE khint_t prefix##_put(HType *h, khkey_t key, int *absent) { HType##_cm_bucket_t t; t.key = key, t.hash = __hash_fn(key); return prefix##_cm_putp(h, &t, absent); }

@@ -391,6 +391,16 @@ void chain_DP(k_mer_hit* a, long long a_n, Chain_Data* dp, overlap_region* resul
     resize_Chain_Data(dp, a_n);
 
 	ret = ha_chain_check(a, a_n, dp, min_score, band_width_threshold);
+    /***************************************debug**************************************/
+    if(a_n > 0 && Get_NAME_LENGTH((R_INF),a[0].readID)==strlen("m64062_190803_042216/128778853/ccs"))
+    {
+        if (memcmp("m64062_190803_042216/128778853/ccs", Get_NAME((R_INF), a[0].readID), 
+                                                        Get_NAME_LENGTH((R_INF), a[0].readID)) == 0)
+        {
+            fprintf(stderr, "ret: %d\n", ret);
+        }
+    }
+    /***************************************debug**************************************/
 	if (ret > 0) {
 		a_n = ret;
 		goto skip_dp;
@@ -499,6 +509,17 @@ skip_dp:
         }
         
     }
+
+    /***************************************debug**************************************/
+    if(a_n > 0 && Get_NAME_LENGTH((R_INF),a[0].readID)==strlen("m64062_190803_042216/128778853/ccs"))
+    {
+        if (memcmp("m64062_190803_042216/128778853/ccs", Get_NAME((R_INF), a[0].readID), 
+                                                        Get_NAME_LENGTH((R_INF), a[0].readID)) == 0)
+        {
+            fprintf(stderr, "max_i: %lld\n", max_i);
+        }
+    }
+    /***************************************debug**************************************/
 
     clear_fake_cigar(&(result->f_cigar));
     ///note a has been sorted by offset, that means has been sorted by query offset
