@@ -484,6 +484,7 @@ void chain_DP(k_mer_hit* a, long long a_n, Chain_Data* dp, overlap_region* resul
             ///min distance
             distance_min = distance_pos < distance_self_pos? distance_pos:distance_self_pos;
             score = distance_min < min_score? distance_min : min_score;
+            ///need to be fixed in r305
 			///if (!a[j].good) score = (score >> 1) + (score & 1);
             if (!a[j].good) score >>= 1;
 
