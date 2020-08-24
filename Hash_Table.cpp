@@ -305,6 +305,9 @@ void debug_chain(k_mer_hit* a, long long a_n, Chain_Data* dp)
     }
 }
 
+
+
+
 long long get_chainLen(long long x_beg, long long x_end, long long xLen, 
                        long long y_beg, long long y_end, long long yLen)
 {
@@ -337,6 +340,50 @@ long long get_chainLen(long long x_beg, long long x_end, long long xLen,
     return x_end - x_beg + 1;
 }
 
+
+void debug_chain_single_site(k_mer_hit* a, long long a_n, Chain_Data* dp, int x_readLen, int y_readLen, int s_index)
+{
+    long long j, current_j = s_index;
+    long long selfLen = 0, indels = 0;
+    long long distance_self_pos, distance_pos, distance_gap;
+
+    j = s_index;
+    while (j >= 0)
+    {
+        current_j = j;
+
+        j = dp->pre[j];
+
+        if(j != -1)
+        {
+            distance_self_pos = a[current_j].self_offset - a[j].self_offset;
+            distance_pos = a[current_j].offset - a[j].offset;
+            distance_gap = distance_pos > distance_self_pos? distance_pos - distance_self_pos : distance_self_pos - distance_pos;
+
+            indels += distance_gap; 
+            selfLen += distance_self_pos;
+        }
+        fprintf(stderr, "j: %lld, score: %lld, occ: %d, pre_j: %lld\n", 
+                    current_j, (long long)dp->score[current_j], dp->occ[current_j], j);
+    }
+
+    fprintf(stderr, "s_self_offset: %u, s_offset: %u, e_self_offset: %u, e_offset: %u, ovlp length: %lld, x_readLen: %d, y_readLen: %d\n", 
+    a[s_index].self_offset, a[s_index].offset, a[current_j].self_offset, a[current_j].offset,
+    get_chainLen(a[s_index].self_offset, a[current_j].self_offset, x_readLen, 
+                                     a[s_index].offset, a[current_j].offset, y_readLen), x_readLen, y_readLen);
+
+    if(indels != dp->indels[s_index])
+    {
+        fprintf(stderr, "indels: %lld, dp->indels[i]: %ld\n", indels, (long)dp->indels[s_index]);
+    }
+
+    if(selfLen != dp->self_length[s_index])
+    {
+        fprintf(stderr, "selfLen: %lld, dp->self_length[i]: %ld\n", selfLen, (long)dp->self_length[s_index]);
+    }
+    fprintf(stderr,"\n");
+}
+
 int32_t ha_chain_check(k_mer_hit *a, int32_t n_a, Chain_Data *dp, int32_t min_sc, double bw_thres)
 {
 	int32_t i, tot_indel = 0, tot_len = 0;
@@ -348,7 +395,7 @@ int32_t ha_chain_check(k_mer_hit *a, int32_t n_a, Chain_Data *dp, int32_t min_sc
 	if (i < n_a) return -1;
 	bw_pen = 1.0 / bw_thres;
 	dp->score[0] = a[0].good? min_sc : min_sc>>1;
-	dp->pre[0] = -1, dp->indels[0] = 0, dp->self_length[0] = 0;
+	dp->pre[0] = -1, dp->indels[0] = 0, dp->self_length[0] = 0, dp->occ[0] = 1;
 	for (i = 1; i < n_a; ++i) {
 		int32_t score, dg;
 		int32_t dx = (int32_t)a[i].offset - (int32_t)a[i-1].offset;
@@ -368,6 +415,7 @@ int32_t ha_chain_check(k_mer_hit *a, int32_t n_a, Chain_Data *dp, int32_t min_sc
 		dp->pre[i] = i - 1;
 		dp->indels[i] = tot_indel;
 		dp->self_length[i] = tot_len;
+        dp->occ[i] = i + 1;
 	}
 	if (i < n_a) return -1;
 	return n_a;
@@ -391,16 +439,7 @@ void chain_DP(k_mer_hit* a, long long a_n, Chain_Data* dp, overlap_region* resul
     resize_Chain_Data(dp, a_n);
 
 	ret = ha_chain_check(a, a_n, dp, min_score, band_width_threshold);
-    /***************************************debug**************************************/
-    if(a_n > 0 && Get_NAME_LENGTH((R_INF),a[0].readID)==strlen("m64062_190803_042216/128778853/ccs"))
-    {
-        if (memcmp("m64062_190803_042216/128778853/ccs", Get_NAME((R_INF), a[0].readID), 
-                                                        Get_NAME_LENGTH((R_INF), a[0].readID)) == 0)
-        {
-            fprintf(stderr, "ret: %d\n", ret);
-        }
-    }
-    /***************************************debug**************************************/
+
 	if (ret > 0) {
 		a_n = ret;
 		goto skip_dp;
@@ -445,7 +484,8 @@ void chain_DP(k_mer_hit* a, long long a_n, Chain_Data* dp, overlap_region* resul
             ///min distance
             distance_min = distance_pos < distance_self_pos? distance_pos:distance_self_pos;
             score = distance_min < min_score? distance_min : min_score;
-			if (!a[j].good) score >>= 1;
+			///if (!a[j].good) score = (score >> 1) + (score & 1);
+            if (!a[j].good) score >>= 1;
 
             gap_rate = (double)((double)(total_indels)/(double)(total_self_length));
             ///if the gap rate > 0.06, score will be negative
@@ -454,7 +494,7 @@ void chain_DP(k_mer_hit* a, long long a_n, Chain_Data* dp, overlap_region* resul
             score += dp->score[j];
 
 			///find a new max score
-			if (score > max_score) {
+			if (score > max_score) {///must use > instead of >=
 				max_score = score;
 				max_j = j;
 				max_indels = total_indels;
@@ -476,10 +516,12 @@ void chain_DP(k_mer_hit* a, long long a_n, Chain_Data* dp, overlap_region* resul
         dp->pre[i] = max_j;
         dp->indels[i] = max_indels;
         dp->self_length[i] = max_self_length;
+        dp->occ[i] = 1;
+        if(max_j != -1) dp->occ[i] = dp->occ[max_j] + 1;
     }
 
     ///debug_chain(a, a_n, dp);
-
+    
 skip_dp:
 
     max_score = -1;
@@ -509,17 +551,6 @@ skip_dp:
         }
         
     }
-
-    /***************************************debug**************************************/
-    if(a_n > 0 && Get_NAME_LENGTH((R_INF),a[0].readID)==strlen("m64062_190803_042216/128778853/ccs"))
-    {
-        if (memcmp("m64062_190803_042216/128778853/ccs", Get_NAME((R_INF), a[0].readID), 
-                                                        Get_NAME_LENGTH((R_INF), a[0].readID)) == 0)
-        {
-            fprintf(stderr, "max_i: %lld\n", max_i);
-        }
-    }
-    /***************************************debug**************************************/
 
     clear_fake_cigar(&(result->f_cigar));
     ///note a has been sorted by offset, that means has been sorted by query offset
@@ -583,7 +614,7 @@ skip_dp:
     }
 }
 
-void calculate_overlap_region_by_chaining(Candidates_list* candidates, overlap_region_alloc* overlap_list, 
+void calculate_overlap_region_by_chaining_back(Candidates_list* candidates, overlap_region_alloc* overlap_list, 
                                           uint64_t readID, uint64_t readLength, All_reads* R_INF, double band_width_threshold, int add_beg_end)
 {
     overlap_region tmp_region;
@@ -647,6 +678,71 @@ void calculate_overlap_region_by_chaining(Candidates_list* candidates, overlap_r
 
     destory_fake_cigar(&(tmp_region.f_cigar));
 }
+
+
+void calculate_overlap_region_by_chaining(Candidates_list* candidates, overlap_region_alloc* overlap_list, kvec_t_u64_warp* chain_idx,
+                                          uint64_t readID, uint64_t readLength, All_reads* R_INF, double band_width_threshold, int add_beg_end, overlap_region* f_cigar)
+{
+    long long i = 0;
+    uint64_t current_ID;
+    uint64_t current_stand;
+
+    if (candidates->length == 0)
+    {
+        return;
+    }
+
+    long long sub_region_beg;
+    long long sub_region_end;
+
+    clear_fake_cigar(&((*f_cigar).f_cigar));
+
+    i = 0;
+    while (i < candidates->length)
+    {
+        chain_idx->a.n = 0;
+        current_ID = candidates->list[i].readID;
+        current_stand = candidates->list[i].strand;
+
+        ///reference read
+        (*f_cigar).x_id = readID;
+        (*f_cigar).x_pos_strand = current_stand;
+        ///query read
+        (*f_cigar).y_id = current_ID;
+        ///here the strand of query is always 0
+        (*f_cigar).y_pos_strand = 0;  
+
+        sub_region_beg = i;
+        sub_region_end = i;
+        i++;
+
+        while (i < candidates->length 
+        && 
+        current_ID == candidates->list[i].readID
+        &&
+        current_stand == candidates->list[i].strand)
+        {
+            sub_region_end = i;
+            i++;
+        }
+
+        if ((*f_cigar).x_id == (*f_cigar).y_id)
+        {
+            continue;
+        }
+
+		chain_DP(candidates->list + sub_region_beg,
+				sub_region_end - sub_region_beg + 1, &(candidates->chainDP), f_cigar, band_width_threshold,
+				25, Get_READ_LENGTH((*R_INF), (*f_cigar).x_id), Get_READ_LENGTH((*R_INF), (*f_cigar).y_id));
+
+        ///if (tmp_region.x_id != tmp_region.y_id && tmp_region.shared_seed > 1)
+        if ((*f_cigar).x_id != (*f_cigar).y_id)
+        {
+            append_inexact_overlap_region_alloc(overlap_list, f_cigar, R_INF, add_beg_end);
+        }
+    }
+}
+
 
 void append_window_list(overlap_region* region, uint64_t x_start, uint64_t x_end, int y_start, int y_end, int error,
                         int extra_begin, int extra_end, int error_threshold)
@@ -725,6 +821,7 @@ void destory_Chain_Data(Chain_Data* x)
     free(x->pre);
     free(x->indels);
     free(x->self_length);
+    free(x->occ);
 	free(x->tmp);
 }
 
@@ -737,6 +834,7 @@ void resize_Chain_Data(Chain_Data* x, long long size)
 		REALLOC(x->pre, x->size);
 		REALLOC(x->indels, x->size);
 		REALLOC(x->self_length, x->size);
+        REALLOC(x->occ, x->size);
 		REALLOC(x->tmp, x->size);
 	}
 }

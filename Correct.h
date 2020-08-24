@@ -1173,7 +1173,7 @@ void correct_overlap_high_het(overlap_region_alloc* overlap_list, All_reads* R_I
                         UC_Read* g_read, Correct_dumy* dumy, UC_Read* overlap_read);
 long long get_affine_gap_score(overlap_region* ovc, UC_Read* g_read, UC_Read* overlap_read, uint8_t* x_num,
 uint8_t* y_num, uint64_t EstimateXOlen, uint64_t EstimateYOlen);
-int collect_hp_regions(overlap_region_alloc* olist, All_reads* R_INF, kvec_t_u32_warp* b, kvec_t_u64_warp* r, kvec_t_u8_warp* k_flag, float hp_rate, FILE* fp);
+int collect_hp_regions(overlap_region_alloc* olist, All_reads* R_INF, kvec_t_u8_warp* k_flag, float hp_rate, int rlen, FILE* fp);
 
 #define FORWARD_KSW 0
 #define BACKWARD_KSW 1

@@ -119,6 +119,7 @@ typedef struct {
 	int64_t *pre;
 	int32_t *indels;
 	int32_t *self_length;
+    int32_t *occ;
 	int64_t *tmp; // MUST BE 64-bit integer
 	int64_t length;
 	int64_t size;
@@ -144,8 +145,8 @@ int extra_begin, int extra_end, int error_threshold);
 
 void overlap_region_sort_y_id(overlap_region *a, long long n);
 
-void calculate_overlap_region_by_chaining(Candidates_list* candidates, overlap_region_alloc* overlap_list, 
-uint64_t readID, uint64_t readLength, All_reads* R_INF, double band_width_threshold, int add_beg_end);
+void calculate_overlap_region_by_chaining(Candidates_list* candidates, overlap_region_alloc* overlap_list, kvec_t_u64_warp* chain_idx,
+uint64_t readID, uint64_t readLength, All_reads* R_INF, double band_width_threshold, int add_beg_end, overlap_region* f_cigar);
 
 void init_fake_cigar(Fake_Cigar* x);
 void destory_fake_cigar(Fake_Cigar* x);

@@ -12,6 +12,8 @@
 #define generic_key(x) (x)
 KRADIX_SORT_INIT(b32, uint32_t, generic_key, 4)
 
+int ha_ov_type(const overlap_region *r, uint32_t len);
+
 
 void clear_Round2_alignment(Round2_alignment* h)
 {
@@ -7268,12 +7270,15 @@ kvec_t_u32_warp* b, kvec_t_u64_warp* r, int min_dp, int min_len)
     }
 }
 
-int collect_hp_regions(overlap_region_alloc* olist, All_reads* R_INF, kvec_t_u32_warp* b, kvec_t_u64_warp* r, kvec_t_u8_warp* k_flag, float hp_rate, FILE* fp)
+int collect_hp_regions_back(overlap_region_alloc* olist, All_reads* R_INF, kvec_t_u32_warp* b, kvec_t_u64_warp* r, kvec_t_u8_warp* k_flag, float hp_rate, FILE* fp)
 {
-    int i, k, qs, qe, ava_k_mer = 0, hp_k_mer = 0;
-    int min_dp = RESEED_DP;
+    int i, k, qs, qe, ava_k_mer = 0, hp_k_mer = 0, min_dp;
+    // min_dp = RESEED_DP;
+    // if(asm_opt.hom_cov > 0) min_dp = asm_opt.hom_cov * RESEED_PEAK_RATE;
+    // if(min_dp > RESEED_DP) min_dp = RESEED_DP;
+    min_dp = RESEED_DP;
     if(asm_opt.hom_cov > 0) min_dp = asm_opt.hom_cov * RESEED_PEAK_RATE;
-    if(min_dp > RESEED_DP) min_dp = RESEED_DP;
+    if(asm_opt.het_cov > 0) min_dp = asm_opt.het_cov * RESEED_PEAK_RATE;
     collect_no_cov_regions(olist, R_INF, b, r, min_dp, RESEED_LEN);
 
     for (i = 0; i < (int)r->a.n; i++)
@@ -7291,18 +7296,83 @@ int collect_hp_regions(overlap_region_alloc* olist, All_reads* R_INF, kvec_t_u32
         if(fp) fprintf(fp, "qs: %d, qe: %d, ava_k_mer: %d, hp_k_mer: %d\n", qs, qe, ava_k_mer, hp_k_mer);        
     }
 
-    if(fp) fprintf(fp, "ava_k_mer: %d, hp_k_mer: %d, hp_rate: %f\n", ava_k_mer, hp_k_mer, hp_rate);
+    if(fp) fprintf(fp, "ava_k_mer: %d, hp_k_mer: %d, hp_rate: %f, min_dp: %d, a.n: %d\n", ava_k_mer, hp_k_mer, hp_rate, min_dp, (int)r->a.n);
 
-    if(fp)
-    {
-        for (k = 0; k < (int)k_flag->a.n; k++)
-        {
-            if(k_flag->a.a[k] > 0) fprintf(fp, "(%d) %u\n", k, k_flag->a.a[k]);
-        }
-    }
+    // if(fp)
+    // {
+    //     for (k = 0; k < (int)k_flag->a.n; k++)
+    //     {
+    //         if(k_flag->a.a[k] > 0) fprintf(fp, "(%d) %u\n", k, k_flag->a.a[k]);
+    //     }
+    // }
     
     if(hp_k_mer > ava_k_mer*hp_rate) return 1; ///must use '>' instead of '>='
     r->a.n = 0;
+    return 0;
+}
+
+
+int collect_hp_regions(overlap_region_alloc* olist, All_reads* R_INF, kvec_t_u8_warp* k_flag, 
+float hp_rate, int rlen, FILE* fp)
+{
+    int i, ava_k_mer = 0, hp_k_mer = 0, vLen, min_dp;
+    int32_t w, n[4];
+    n[0] = n[1] = n[2] = n[3] = 0;
+    min_dp = RESEED_DP;
+    if(asm_opt.hom_cov > 0) min_dp = asm_opt.hom_cov * RESEED_PEAK_RATE;
+    if(min_dp > RESEED_DP) min_dp = RESEED_DP;
+    overlap_region* ov = NULL;
+
+    for (i = 0; i < (long long)olist->length; i++)
+    {
+        ov = &(olist->list[i]);
+        if (ov->is_match != 1 && ov->is_match != 2) continue;
+
+        w = ha_ov_type(ov, rlen);
+		++n[w];
+    }
+
+    if(fp) fprintf(fp, "n[0]: %d, n[1]: %d, n[2]: %d, n[3]: %d\n", n[0], n[1], n[2], n[3]);
+
+    // n[0] += n[2];
+    // n[1] += n[2];
+
+    if(n[0] < min_dp)
+    {
+        ava_k_mer = hp_k_mer = 0;
+        vLen = MIN(k_flag->a.n, RESEED_LEN);
+        for (i = 0; i < vLen; i++)
+        {
+            if(k_flag->a.a[i] > 1) ava_k_mer++;
+            if(k_flag->a.a[i] > 2) hp_k_mer++;
+        }
+        if(hp_k_mer > ava_k_mer*hp_rate) return 1;
+    }
+
+
+    if(n[1] < min_dp)
+    {
+        ava_k_mer = hp_k_mer = 0;
+        vLen = MIN(k_flag->a.n, RESEED_LEN);
+        for (i = k_flag->a.n - vLen; i < (int)k_flag->a.n; i++)
+        {
+            if(k_flag->a.a[i] > 1) ava_k_mer++;
+            if(k_flag->a.a[i] > 2) hp_k_mer++;
+        }
+        if(hp_k_mer > ava_k_mer*hp_rate) return 1;
+    }
+
+
+    if(fp) fprintf(fp, "ava_k_mer: %d, hp_k_mer: %d, hp_rate: %f, min_dp: %d\n", ava_k_mer, hp_k_mer, hp_rate, min_dp);
+
+    // if(fp)
+    // {
+    //     for (k = 0; k < (int)k_flag->a.n; k++)
+    //     {
+    //         if(k_flag->a.a[k] > 0) fprintf(fp, "(%d) %u\n", k, k_flag->a.a[k]);
+    //     }
+    // }
+    
     return 0;
 }
 

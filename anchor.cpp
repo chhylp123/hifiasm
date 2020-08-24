@@ -50,7 +50,7 @@ uint64_t ha_abuf_mem(const ha_abuf_t *ab)
 	return ab->m_a * sizeof(anchor1_t) + ab->mz.m * (sizeof(ha_mz1_t) + sizeof(seed1_t)) + sizeof(ha_abuf_t);
 }
 
-static int ha_ov_type(const overlap_region *r, uint32_t len)
+int ha_ov_type(const overlap_region *r, uint32_t len)
 {
 	if (r->x_pos_s == 0 && r->x_pos_e == len - 1) return 2; // contained in a longer read
 	else if (r->x_pos_s > 0 && r->x_pos_e < len - 1) return 3; // containing a shorter read
@@ -58,7 +58,7 @@ static int ha_ov_type(const overlap_region *r, uint32_t len)
 }
 
 void ha_get_new_candidates(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_region_alloc *overlap_list, Candidates_list *cl, double bw_thres, int max_n_chain, int keep_whole_chain, kvec_t_u8_warp* k_flag,
-void *ha_flt_tab, ha_pt_t *ha_idx)
+kvec_t_u64_warp* chain_idx, void *ha_flt_tab, ha_pt_t *ha_idx, overlap_region* f_cigar)
 {
 	uint32_t i, rlen;
 	uint64_t k, l;
@@ -130,22 +130,10 @@ void *ha_flt_tab, ha_pt_t *ha_idx)
 		p->offset = ab->a[k].other_off;
 		p->self_offset = ab->a[k].self_off;
 		p->good = ab->a[k].good;
-
-		/***************************************debug**************************************/
-		if(Get_NAME_LENGTH((R_INF),p->readID)==strlen("m64062_190803_042216/128778853/ccs"))
-		{
-			if (memcmp("m64062_190803_042216/128778853/ccs", Get_NAME((R_INF), p->readID), 
-														Get_NAME_LENGTH((R_INF), p->readID)) == 0)
-			{
-				fprintf(stderr, "(%lu) readID: %u, strand: %u, offset: %u, self_offset: %u\n", 
-				k, p->readID, p->strand, p->offset, p->self_offset);
-			}
-		}
-		/***************************************debug**************************************/
 	}
 	cl->length = ab->n_a;
 
-	calculate_overlap_region_by_chaining(cl, overlap_list, rid, ucr->length, &R_INF, bw_thres, keep_whole_chain);
+	calculate_overlap_region_by_chaining(cl, overlap_list, chain_idx, rid, ucr->length, &R_INF, bw_thres, keep_whole_chain, f_cigar);
 
 	#if 0
 	if (overlap_list->length > 0) {
@@ -217,14 +205,14 @@ void lable_matched_ovlp(overlap_region_alloc* overlap_list, ma_hit_t_alloc* paf)
 
 
 void ha_get_candidates_interface(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_region_alloc *overlap_list, overlap_region_alloc *overlap_list_hp, Candidates_list *cl, double bw_thres, 
-int max_n_chain, int keep_whole_chain, kvec_t_u8_warp* k_flag, ma_hit_t_alloc* paf, ma_hit_t_alloc* rev_paf)
+int max_n_chain, int keep_whole_chain, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* chain_idx, ma_hit_t_alloc* paf, ma_hit_t_alloc* rev_paf, overlap_region* f_cigar)
 {
 	extern void *ha_flt_tab;
 	extern ha_pt_t *ha_idx;
 	extern void *ha_flt_tab_hp;
 	extern ha_pt_t *ha_idx_hp;
 
-	ha_get_new_candidates(ab, rid, ucr, overlap_list, cl, bw_thres, max_n_chain, keep_whole_chain, k_flag, ha_flt_tab, ha_idx);
+	ha_get_new_candidates(ab, rid, ucr, overlap_list, cl, bw_thres, max_n_chain, keep_whole_chain, k_flag, chain_idx, ha_flt_tab, ha_idx, f_cigar);
 
 	if(ha_idx_hp)
 	{
@@ -254,7 +242,7 @@ int max_n_chain, int keep_whole_chain, kvec_t_u8_warp* k_flag, ma_hit_t_alloc* p
 		overlap_list->length = k;
 
 
-		ha_get_new_candidates(ab, rid, ucr, overlap_list_hp, cl, bw_thres, max_n_chain, keep_whole_chain, k_flag, ha_flt_tab_hp, ha_idx_hp);	
+		ha_get_new_candidates(ab, rid, ucr, overlap_list_hp, cl, bw_thres, max_n_chain, keep_whole_chain, k_flag, chain_idx, ha_flt_tab_hp, ha_idx_hp, f_cigar);	
 		
 		if(overlap_list->length + overlap_list_hp->length > overlap_list->size)
 		{

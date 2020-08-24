@@ -22,7 +22,8 @@
 ///#define Get_READ(R_INF, ID) R_INF.read + (R_INF.index[ID]>>2) + ID
 #define Get_READ(R_INF, ID) (R_INF).read_sperate[(ID)]
 #define Get_NAME(R_INF, ID) ((R_INF).name + (R_INF).name_index[(ID)])
-
+#define CHECK_BY_NAME(R_INF, NAME, ID) (Get_NAME_LENGTH((R_INF),(ID))==strlen((NAME)) && \
+                                        memcmp((NAME), Get_NAME((R_INF), (ID)), Get_NAME_LENGTH((R_INF),(ID))) == 0)
 
 extern uint8_t seq_nt6_table[256];
 extern char bit_t_seq_table[256][4];
