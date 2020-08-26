@@ -584,6 +584,8 @@ static void worker_ovec(void *data, long i, int tid)
 	R_INF.paf[i].is_abnormal = abnormal;
 
     R_INF.trio_flag[i] = AMBIGU;
+    
+    ///need to be fixed in r305
     // if(ha_idx_hp == NULL)
     // {
     //     R_INF.trio_flag[i] += collect_hp_regions(&b->olist, &R_INF, &(b->k_flag), RESEED_HP_RATE, Get_READ_LENGTH(R_INF, i), NULL);
@@ -682,6 +684,8 @@ static void worker_ovec_related_reads(void *data, long i, int tid)
 		}
 
         R_INF.trio_flag[i] = AMBIGU;
+
+        ///need to be fixed in r305
         // if(ha_idx_hp == NULL)
         // {
         //     R_INF.trio_flag[i] += collect_hp_regions(&b->olist, &R_INF, &(b->k_flag), RESEED_HP_RATE, Get_READ_LENGTH(R_INF, i), R_INF_FLAG.fp);
