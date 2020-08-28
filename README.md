@@ -8,7 +8,7 @@ cd hifiasm && make
 # Run on test data (use -f0 for small datasets)
 wget https://github.com/chhylp123/hifiasm/releases/download/v0.7/chr11-2M.fa.gz
 ./hifiasm -o test -t4 -f0 chr11-2M.fa.gz 2> test.log
-awk '/^S/{print ">"$1;print $2}' test.p_ctg.gfa > test.p_ctg.fa  # get primary contigs in FASTA
+awk '/^S/{print ">"$2;print $3}' test.p_ctg.gfa > test.p_ctg.fa  # get primary contigs in FASTA
 
 # Assemble inbred/homozygous genomes (-l0 disables duplication purging)
 hifiasm -o CHM13.asm -t32 -l0 CHM13-HiFi.fa.gz 2> CHM13.asm.log
