@@ -144,10 +144,10 @@ redwood genome in a few days on a single machine. For trio binning assembly:
 [NA12891-data]: https://www.ebi.ac.uk/ena/data/view/ERR194160
 [NA12892-data]: https://www.ebi.ac.uk/ena/data/view/ERR194161
 
-Except NA12878, the assemblies above were produced by hifiasm v0.7 and can be
+Except NA12878, the assemblies above were produced by hifiasm v0.12 and can be
 downloaded at
 ```txt
-ftp://ftp.dfci.harvard.edu/pub/hli/hifiasm/submission/v0.12/
+ftp://ftp.dfci.harvard.edu/pub/hli/hifiasm/submission/hifiasm-0.12/
 ```
 NA12878 was assembled with an older version of hifiasm and is available at
 ```txt
