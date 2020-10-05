@@ -147,9 +147,9 @@ redwood genome in a few days on a single machine. For trio binning assembly:
 Except NA12878, the assemblies above were produced by hifiasm v0.7 and can be
 downloaded at
 ```txt
-ftp://ftp.dfci.harvard.edu/pub/hli/hifiasm/submission/v0.7/
+ftp://ftp.dfci.harvard.edu/pub/hli/hifiasm/submission/v0.12/
 ```
-NA12878 was assembled with a more recent version of hifiasm and is available at
+NA12878 was assembled with an older version of hifiasm and is available at
 ```txt
 ftp://ftp.dfci.harvard.edu/pub/hli/hifiasm/NA12878-r253/
 ```
