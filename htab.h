@@ -29,6 +29,8 @@ extern void *ha_flt_tab;
 extern ha_pt_t *ha_idx;
 extern void *ha_flt_tab_hp;
 extern ha_pt_t *ha_idx_hp;
+extern void *ha_ct_table;
+
 
 void *ha_ft_gen(const hifiasm_opt_t *asm_opt, All_reads *rs, int *hom_cov, int is_hp_mode);
 int ha_ft_isflt(const void *hh, uint64_t y);
@@ -38,8 +40,11 @@ ha_pt_t *ha_pt_gen(const hifiasm_opt_t *asm_opt, const void *flt_tab, int read_f
 void ha_pt_destroy(ha_pt_t *h);
 const ha_idxpos_t *ha_pt_get(const ha_pt_t *h, uint64_t hash, int *n);
 
-int write_index(void *flt_tab, ha_pt_t *ha_idx, All_reads* r, hifiasm_opt_t* opt, char* file_name);
-int load_index(void **r_flt_tab, ha_pt_t **r_ha_idx, All_reads* r, hifiasm_opt_t* opt, char* file_name);
+int write_pt_index(void *flt_tab, ha_pt_t *ha_idx, All_reads* r, hifiasm_opt_t* opt, char* file_name);
+int load_pt_index(void **r_flt_tab, ha_pt_t **r_ha_idx, All_reads* r, hifiasm_opt_t* opt, char* file_name);
+int write_ct_index(void *ct_idx, char* file_name);
+int load_ct_index(void **ct_idx, char* file_name);
+int query_ct_index(void* ct_idx, uint64_t hash);
 
 ha_abuf_t *ha_abuf_init(void);
 void ha_abuf_destroy(ha_abuf_t *ab);
@@ -55,7 +60,7 @@ double yak_cpu_usage(void);
 void ha_triobin(const hifiasm_opt_t *opt);
 
 void ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mz1_v *p, const void *hf);
-void ha_sketch_query(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mz1_v *p, const void *hf, kvec_t_u8_warp* k_flag);
+void ha_sketch_query(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mz1_v *p, const void *hf, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct);
 int ha_analyze_count(int n_cnt, const int64_t *cnt, int *peak_het);
 
 static inline uint64_t yak_hash64(uint64_t key, uint64_t mask) // invertible integer hash function

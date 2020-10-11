@@ -690,6 +690,7 @@ void init_Debug_reads(Debug_reads* x, const char* file)
 		x->query_num++;
 	}
 	x->read_name = (char**)malloc(sizeof(char*)*x->query_num);
+	x->candidate_count = (kvec_t_u64_warp*)malloc(sizeof(kvec_t_u64_warp)*x->query_num);
 	fseek(x->fp, 0, SEEK_SET);
 
 	i = 0;
@@ -699,6 +700,7 @@ void init_Debug_reads(Debug_reads* x, const char* file)
 		x->read_name[i] = (char*)malloc(sizeof(char)*(nameLen+1));
 		memcpy(x->read_name[i], Name_Buffer, sizeof(char)*nameLen);
 		x->read_name[i][nameLen] = '\0';
+		kv_init(x->candidate_count[i].a);
 		i++;
 	}
 	
@@ -716,6 +718,7 @@ void destory_Debug_reads(Debug_reads* x)
 	for (i = 0; i < x->query_num; i++)
 	{
 		free(x->read_name[i]);
+		kv_destroy(x->candidate_count[i].a);
 	}
 	
 	free(x->read_name);

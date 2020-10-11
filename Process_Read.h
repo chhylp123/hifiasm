@@ -148,6 +148,7 @@ typedef struct
 {
     char** read_name;
     uint64_t query_num;
+    kvec_t_u64_warp* candidate_count;
     FILE* fp;
     pthread_mutex_t OutputMutex;
 } Debug_reads;

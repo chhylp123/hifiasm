@@ -2107,20 +2107,30 @@ static inline int asg_is_single_edge(const asg_t *g, uint32_t v, uint32_t start_
     return nv;
 }
 
-void debug_info_of_specfic_node(const char* name, asg_t *g, char* command)
+void debug_info_of_specfic_node(char* name, asg_t *g, R_to_U* ruIndex, char* command)
 {
     fprintf(stderr, "\n\n\n");
-    uint32_t v, n_vtx = g->n_seq * 2, queryLen = strlen(name), flag = 0;
+    uint32_t v, n_vtx = g->n_seq * 2, queryLen = strlen(name), flag = 0, contain_rId, is_Unitig;
     for (v = 0; v < n_vtx; ++v) 
     {
         if(queryLen == Get_NAME_LENGTH(R_INF, (v>>1)) && memcmp(name, Get_NAME(R_INF, (v>>1)), Get_NAME_LENGTH(R_INF, (v>>1))) == 0)
         {
             if(flag == 0) fprintf(stderr, "\nafter %s\n", command);
-            fprintf(stderr, "****************graph ref_read: %.*s, dir: %u****************\n", 
-            (int)Get_NAME_LENGTH(R_INF, (v>>1)), Get_NAME(R_INF, (v>>1)), v&1);
+            fprintf(stderr, "****************graph ref_read: %.*s, id: %u, dir: %u****************\n", 
+            (int)Get_NAME_LENGTH(R_INF, (v>>1)), Get_NAME(R_INF, (v>>1)), v>>1, v&1);
             if(g->seq[v>>1].del)
             {
-                fprintf(stderr, "read has already been deleted.\n");
+                get_R_to_U(ruIndex, (v>>1), &contain_rId, &is_Unitig);
+                if(contain_rId != (uint32_t)-1 && is_Unitig != 1)
+                {
+                    fprintf(stderr, "read is deleted as a contained read by: %.*s\n contain_rId: %u, del: %u\n", 
+                    (int)Get_NAME_LENGTH(R_INF, contain_rId), Get_NAME(R_INF, contain_rId), contain_rId, g->seq[contain_rId].del);
+                }
+                else
+                {
+                    fprintf(stderr, "read has already been deleted.\n");
+                }
+                
                 return;
             }
 
@@ -9757,12 +9767,13 @@ ma_hit_t_alloc* reverse_sources, int id, const char* command)
             for (j = 0; j < reverse_sources[i].length; j++)
             {
                 tn = Get_tn(reverse_sources[i].buffer[j]);
-                fprintf(stderr, "target: %.*s, qs: %u, qe: %u, ts: %u, te: %u, del: %u\n", 
+                fprintf(stderr, "target: %.*s, qs: %u, qe: %u, ts: %u, te: %u, rev: %u, del: %u\n", 
                 (int)Get_NAME_LENGTH(R_INF, tn), Get_NAME(R_INF, tn),
                 Get_qs(reverse_sources[i].buffer[j]),
                 Get_qe(reverse_sources[i].buffer[j]),
                 Get_ts(reverse_sources[i].buffer[j]),
                 Get_te(reverse_sources[i].buffer[j]),
+                reverse_sources[i].buffer[j].rev,
                 (uint32_t)sources[i].buffer[j].del);
             }
 
@@ -26919,6 +26930,7 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
     ///it seems we do not need ma_hit_cut & ma_hit_flt
     ma_hit_sub(min_dp, sources, n_read, readLen, mini_overlap_length, &coverage_cut);
     detect_chimeric_reads(sources, n_read, readLen, coverage_cut, asm_opt.max_ov_diff_final * 2.0);
+    
     ma_hit_cut(sources, n_read, readLen, mini_overlap_length, &coverage_cut);
     ///print_binned_reads(sources, n_read, coverage_cut);
     ma_hit_flt(sources, n_read, coverage_cut, max_hang_length, mini_overlap_length);
@@ -26926,8 +26938,10 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
     ///fix_binned_reads(sources, n_read, coverage_cut);
     ///just need to deal with trio here
     ma_hit_contained_advance(sources, n_read, coverage_cut, ruIndex, max_hang_length, mini_overlap_length);
-    
     sg = ma_sg_gen(sources, n_read, coverage_cut, max_hang_length, mini_overlap_length);
+
+    ///debug_info_of_specfic_node((char*)"m64062_190804_172951/130483063/ccs", sg, ruIndex, (char*)"sbsbsb");
+
     asg_arc_del_trans(sg, gap_fuzz);
 
     asm_opt.coverage = get_coverage(sources, coverage_cut, n_read);
@@ -27154,9 +27168,11 @@ long long bubble_dist, int read_graph, int write)
         &R_INF, output_file_name);
     }
 
+    debug_info_of_specfic_read("m64062_190803_042216/120916077/ccs", sources, reverse_sources, -1, "beg");
+    debug_info_of_specfic_read("m64062_190806_063919/71436446/ccs", sources, reverse_sources, -1, "beg");
+    debug_info_of_specfic_read("m64062_190803_042216/82117654/ccs", sources, reverse_sources, -1, "beg");
 
-    ///debug_info_of_specfic_read("m64062_190803_042216/15205346/ccs", sources, reverse_sources, -1, "beg");
- 
+
     if (!(asm_opt.flag & HA_F_BAN_ASSEMBLY))
     {
         try_rescue_overlaps(sources, reverse_sources, n_read, 4); 

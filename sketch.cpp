@@ -139,12 +139,15 @@ void ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc,
 
 
 void ha_sketch_query(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mz1_v *p, const void *hf, 
-kvec_t_u8_warp* k_flag)
+kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct)
 {	///in default, w = 51, k = 51, is_hpc = 1
 	/**
 	 uint64_t x;
 	 uint64_t rid:28, pos:27, rev:1, span:8;
 	 **/
+	extern void *ha_ct_table;
+	if(dbg_ct != NULL) dbg_ct->a.n = 0;
+
 	static const ha_mz1_t dummy = { UINT64_MAX, 0, 0, 0 };
 	uint64_t shift1 = k - 1, mask = (1ULL<<k) - 1, kmer[4] = {0,0,0,0}, filtered;
 	int i, j, l, buf_pos, min_pos, kmer_span = 0;
@@ -201,6 +204,7 @@ kvec_t_u8_warp* k_flag)
 
 				filtered = 0;
 				if(hf != 0) filtered = ha_ft_isflt(hf, y);
+				if(dbg_ct != NULL) kv_push(uint64_t, dbg_ct->a, ((((uint64_t)(query_ct_index(ha_ct_table, y))<<1)|filtered)<<32)|(uint64_t)(i));
 				///if (hf == 0 || ha_ft_isflt(hf, y) == 0)
 				if(filtered == 0)
 					info.x = y, info.rid = rid, info.pos = i, info.rev = z, info.span = kmer_span;

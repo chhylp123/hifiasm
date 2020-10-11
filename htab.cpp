@@ -37,6 +37,7 @@ void *ha_flt_tab;
 ha_pt_t *ha_idx;
 void *ha_flt_tab_hp;
 ha_pt_t *ha_idx_hp;
+void *ha_ct_table;
 
 /***************************
  * Yak specific parameters *
@@ -132,8 +133,8 @@ typedef struct {
 	ha_ct1_t *h;
 } ha_ct_t;
 
-///for 0-th counting, k = 51, pre = 12, n_hash = 4, n_shift = 0
-///for 1-th counting, opt.k = 51, opt->pre = 12, opt->bf_n_hash = 4, opt.bf_shift = 37
+///for 0-th counting, k = 51, pre = 12, n_hash = 4, n_shift = 37
+///for 1-th counting, opt.k = 51, opt->pre = 12, opt->bf_n_hash = 4, opt.bf_shift = 0
 static ha_ct_t *ha_ct_init(int k, int pre, int n_hash, int n_shift)
 {
 	ha_ct_t *h;
@@ -146,8 +147,7 @@ static ha_ct_t *ha_ct_init(int k, int pre, int n_hash, int n_shift)
 	///it seems there is a large hash table h, consisting 4096 small hash tables
 	for (i = 0; i < 1<<h->pre; ++i)
 		h->h[i].h = yak_ct_init();
-	///for 0-th counting, don't enter here
-	///seems used for minimzer
+	///for 0-th counting, enter here; used for bloom filter
 	if (n_hash > 0 && n_shift > h->pre) {
 		h->n_hash = n_hash, h->n_shift = n_shift;
 		for (i = 0; i < 1<<h->pre; ++i)
@@ -749,10 +749,10 @@ static ha_ct_t *yak_count(const yak_copt_t *opt, const char *fn, int flag, ha_pt
 	} else if (c0) {
 		pl.ct = c0, pl.create_new = !!(flag&HAF_CREATE_NEW);
 		assert(c0->k == opt->k && c0->pre == opt->pre);
-	} else {///for 0-th counting and 1-th counting, go into here
+	} else {///for ft-th counting and 1-th counting, go into here
 		pl.create_new = 1; // alware create new elements if the count table is empty
-		///for 0-th counting, opt.k = 51, opt->pre = 12, opt->bf_n_hash = 4, opt.bf_shift = 0
-		///for 1-th counting, opt.k = 51, opt->pre = 12, opt->bf_n_hash = 4, opt.bf_shift = 37
+		///for 0-th counting, opt.k = 51, opt->pre = 12, opt->bf_n_hash = 4, opt.bf_shift = 37
+		///for 1-th counting, opt.k = 51, opt->pre = 12, opt->bf_n_hash = 4, opt.bf_shift = 0
 		///building a large hash table consisting of 4096 small hash tables
 		pl.ct = ha_ct_init(opt->k, opt->pre, opt->bf_n_hash, opt->bf_shift);
 	}
@@ -785,11 +785,10 @@ ha_ct_t *ha_count(const hifiasm_opt_t *asm_opt, int flag, ha_pt_t *p0, const voi
 	opt.k = asm_opt->k_mer_length;
 	///always 0
 	opt.is_HPC = !(asm_opt->flag&HA_F_NO_HPC);
-	///for 0-th counting, shoud be 1
-	///for 1-th counting, shoud be 51
+	///for ft-counting, shoud be 1
 	opt.w = flag & HAF_COUNT_ALL? 1 : asm_opt->mz_win;
-	///for 0-th counting, shoud be 0
-	///for 1-th counting, shoud be 37
+	///for ft-counting, shoud be 37
+	///for ha_pt_gen, shoud be 0
 	opt.bf_shift = flag & HAF_COUNT_EXACT? 0 : asm_opt->bf_shift;
 	opt.n_thread = asm_opt->thread_num;
 	///asm_opt->num_reads is the number of fastq files
@@ -839,6 +838,32 @@ void ha_ft_destroy(void *h)
 	if (h) yak_ft_destroy((yak_ft_t*)h);
 }
 
+
+void debug_ct_index(void* q_ct_idx, void* r_ct_idx)
+{
+	ha_ct_t* ct_idx = (ha_ct_t*)q_ct_idx;
+	yak_ct_t *g = NULL;
+	uint64_t i;
+	khint_t k;
+	for (i = 0; (int)i < 1<<ct_idx->pre; i++)
+	{
+		g = ct_idx->h[i].h;
+		for (k = 0; k < kh_end(g); ++k) 
+		{
+			if (kh_exist(g, k)) 
+			{
+				int c = kh_key(g, k) & YAK_MAX_COUNT;
+				uint64_t hash = ((kh_key(g, k) >> ct_idx->pre)<<ct_idx->pre) | i;
+				int q = query_ct_index(r_ct_idx, hash);
+				if(q!=c)
+				{
+					fprintf(stderr, "ERROR:c: %d, q: %d\n", c, q);
+				}
+			}
+		}
+	}
+}
+
 /*************************
  * High-level interfaces *
  *************************/
@@ -851,6 +876,15 @@ void *ha_ft_gen(const hifiasm_opt_t *asm_opt, All_reads *rs, int *hom_cov, int i
 	if(is_hp_mode) ex_flag = HAF_RS_READ|HAF_SKIP_READ;
 	ha_ct_t *h;
 	h = ha_count(asm_opt, HAF_COUNT_ALL|HAF_RS_WRITE_LEN|ex_flag, NULL, NULL, rs);
+	if((asm_opt->flag & HA_F_VERBOSE_GFA))
+	{
+		write_ct_index((void*)h, asm_opt->output_file_name);
+		// load_ct_index(&ha_ct_table, asm_opt->output_file_name);
+		// debug_ct_index((void*)h, ha_ct_table);
+		// debug_ct_index(ha_ct_table, (void*)h);
+		// ha_ct_destroy((ha_ct_t *)ha_ct_table);
+	}
+	
 	if(!(ex_flag & HAF_SKIP_READ))
 	{
 		ha_ct_hist(h, cnt, asm_opt->thread_num);
@@ -917,9 +951,85 @@ ha_pt_t *ha_pt_gen(const hifiasm_opt_t *asm_opt, const void *flt_tab, int read_f
 	return pt;
 }
 
+int query_ct_index(void* ct_idx, uint64_t hash)
+{
+	ha_ct1_t *g = &(((ha_ct_t*)ct_idx)->h[hash & ((1ULL<<((ha_ct_t*)ct_idx)->pre) - 1)]);
+	khint_t k;
+	k = yak_ct_get(g->h, hash);
+	if (k == kh_end(g->h)) return 0;
+	return kh_key(g->h, k)&YAK_MAX_COUNT;
+}
 
 
-int write_index(void *flt_tab, ha_pt_t *ha_idx, All_reads* r, hifiasm_opt_t* opt, char* file_name)
+int write_ct_index(void *i_ct_idx, char* file_name)
+{
+	char* gfa_name = (char*)malloc(strlen(file_name)+25);
+    sprintf(gfa_name, "%s.ct_flt", file_name);
+    FILE* fp = fopen(gfa_name, "w");
+	if (!fp) {
+		free(gfa_name);
+        return 0;
+    }
+	ha_ct_t* ct_idx = (ha_ct_t*)i_ct_idx;
+	int i;
+	ha_ct1_t *g;
+	fwrite(&ct_idx->k, sizeof(ct_idx->k), 1, fp);
+	fwrite(&ct_idx->pre, sizeof(ct_idx->pre), 1, fp);
+	fwrite(&ct_idx->n_hash, sizeof(ct_idx->n_hash), 1, fp);
+	fwrite(&ct_idx->n_shift, sizeof(ct_idx->n_shift), 1, fp);
+	fwrite(&ct_idx->tot, sizeof(ct_idx->tot), 1, fp);
+	for (i = 0; i < 1<<ct_idx->pre; i++)
+	{
+		g = &(ct_idx->h[i]);
+		yak_ct_save(g->h, fp);
+	}
+
+
+	fprintf(stderr, "[M::%s] Index has been written.\n", __func__);
+    free(gfa_name);
+	fclose(fp);
+	return 1;
+}
+
+int load_ct_index(void **i_ct_idx, char* file_name)
+{
+	char* gfa_name = (char*)malloc(strlen(file_name)+25);
+    sprintf(gfa_name, "%s.ct_flt", file_name);
+    FILE* fp = fopen(gfa_name, "r");
+	if (!fp) {
+		free(gfa_name);
+        return 0;
+    }
+	ha_ct_t** ct_idx = (ha_ct_t**)i_ct_idx;
+	double index_time = 0;
+	int i;
+	ha_ct_t *h = 0;
+	ha_ct1_t *g;
+	CALLOC(h, 1);
+
+	fread(&h->k, sizeof(h->k), 1, fp);
+	fread(&h->pre, sizeof(h->pre), 1, fp);
+	fread(&h->n_hash, sizeof(h->n_hash), 1, fp);
+	fread(&h->n_shift, sizeof(h->n_shift), 1, fp);
+	fread(&h->tot, sizeof(h->tot), 1, fp);
+	CALLOC(h->h, 1<<h->pre);
+
+
+	index_time = yak_realtime();
+	for (i = 0; i < 1<<h->pre; ++i) 
+	{
+		g = &(h->h[i]);
+		yak_ct_load(&(g->h), fp);
+	}
+
+	(*ct_idx) = h;
+	fprintf(stderr, "[M::%s::%.3f] ==> Loaded count table\n", __func__, yak_realtime() - index_time);
+	fprintf(stderr, "[M::%s] Index has been loaded.\n", __func__);
+	free(gfa_name);
+	return 1;
+}
+
+int write_pt_index(void *flt_tab, ha_pt_t *ha_idx, All_reads* r, hifiasm_opt_t* opt, char* file_name)
 {
     char* gfa_name = (char*)malloc(strlen(file_name)+25);
     sprintf(gfa_name, "%s.pt_flt", file_name);
@@ -970,7 +1080,7 @@ int write_index(void *flt_tab, ha_pt_t *ha_idx, All_reads* r, hifiasm_opt_t* opt
 	return 1;
 }
 
-int load_index(void **r_flt_tab, ha_pt_t **r_ha_idx, All_reads* r, hifiasm_opt_t* opt, char* file_name)
+int load_pt_index(void **r_flt_tab, ha_pt_t **r_ha_idx, All_reads* r, hifiasm_opt_t* opt, char* file_name)
 {
 	char* gfa_name = (char*)malloc(strlen(file_name)+25);
     sprintf(gfa_name, "%s.pt_flt", file_name);
