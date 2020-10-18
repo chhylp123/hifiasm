@@ -299,30 +299,6 @@ void push_overlaps(ma_hit_t_alloc* paf, overlap_region_alloc* overlap_list, int 
     }
 }
 
-int if_exact_match(char* x, long long xLen, char* y, long long yLen, long long xBeg, long long xEnd, long long yBeg, long long yEnd)
-{
-    long long overlapLen = xEnd - xBeg + 1;
-
-    if(yEnd - yBeg + 1 == overlapLen)
-    {
-        long long i;
-
-        for (i = 0; i < overlapLen; i++)
-        {
-            if(x[xBeg + i] != y[yBeg + i])
-            {
-                break;
-            }
-        }
-
-        if(i == overlapLen)
-        {
-            return 1;
-        }
-    }
-
-    return 0;
-}
 
 long long push_final_overlaps(ma_hit_t_alloc* paf, ma_hit_t_alloc* reverse_paf_list, overlap_region_alloc* overlap_list, int flag)
 {

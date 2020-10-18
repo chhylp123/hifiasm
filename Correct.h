@@ -1175,6 +1175,20 @@ long long get_affine_gap_score(overlap_region* ovc, UC_Read* g_read, UC_Read* ov
 uint8_t* y_num, uint64_t EstimateXOlen, uint64_t EstimateYOlen);
 int collect_hp_regions(overlap_region_alloc* olist, All_reads* R_INF, kvec_t_u8_warp* k_flag, float hp_rate, int rlen, FILE* fp);
 
+inline int if_exact_match(char* x, long long xLen, char* y, long long yLen, long long xBeg, long long xEnd, long long yBeg, long long yEnd)
+{
+    long long overlapLen = xEnd - xBeg + 1;
+
+    if(yEnd - yBeg + 1 == overlapLen)
+    {
+        if(memcmp(x+xBeg, y+yBeg, overlapLen)==0) return 1;
+    }
+
+    return 0;
+}
+
+
+
 #define FORWARD_KSW 0
 #define BACKWARD_KSW 1
 #define MATCH_SCORE_KSW 2
