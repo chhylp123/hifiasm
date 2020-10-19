@@ -183,10 +183,12 @@ kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct)
 				}
 				tq_push(&tq, skip_len);
 				kmer_span += skip_len;
+				///how many bases that are covered by this HPC k-mer
+				///kmer_span includes at most k HPC elements
 				if (tq.count > k) kmer_span -= tq_shift(&tq);
 			} else kmer_span = l + 1 < k? l + 1 : k; 
 			///kmer_span should be used for HPC k-mer
-			///so for non-HPC k-mer, kmer_span should be k in any case?
+			///non-HPC k-mer, kmer_span should be k
 			///kmer_span is used to calculate anchor pos on reverse complementary strand
 
 			if(k_flag != NULL) k_flag->a.a[i] = 1;///lable all useful base, which are not ignored by HPC
