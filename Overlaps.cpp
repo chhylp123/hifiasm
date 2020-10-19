@@ -9225,7 +9225,6 @@ ma_sub_t *coverage_cut, kvec_asg_arc_t_warp* edge, int max_hang, int min_ovlp)
         afte = (uint64_t)(collection->a[afte_i])>>32;
 
 
-
         min_inexactLen = (uint32_t)-1;max_exactLen = 0;
         for (k = i; k < afte_i; k++)
         {
@@ -11367,6 +11366,9 @@ void merge_unitig_content(ma_utg_t* collection, ma_ug_t* ug, asg_t* read_g, kvec
     if(index == 0) return;
 
     fill_unitig(buffer, index, read_g, edge, collection->circ, &totalLen);
+
+    ///important. must be here
+    if(collection->n == 1 && ug->u.a[collection->a[0]>>33].circ) collection->circ = 1;
     
     free(collection->a);
     collection->a = buffer;
@@ -11377,6 +11379,11 @@ void merge_unitig_content(ma_utg_t* collection, ma_ug_t* ug, asg_t* read_g, kvec
         collection->start = collection->a[0]>>32;
         collection->end = (collection->a[collection->n-1]>>32)^1;
     }
+    else
+    {
+        collection->start = collection->end = UINT32_MAX;
+    }
+    
     
 }
 
@@ -13490,8 +13497,7 @@ ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, float double_check_rate)
 void delete_useless_nodes(ma_ug_t **ug)
 {
     asg_t* nsg = (*ug)->g;
-    uint32_t v, n_vtx = nsg->n_seq, convex;
-    long long nodeLen, baseLen, max_stop_nodeLen, max_stop_baseLen;
+    uint32_t v, n_vtx = nsg->n_seq;
     for (v = 0; v < n_vtx; ++v) 
     {
         if(nsg->seq[v].del) continue;
@@ -13510,6 +13516,7 @@ void delete_useless_nodes(ma_ug_t **ug)
 
         //note: after cleaning, some cirle might be gone, or we have some new circles
         //so need to renew .circ
+        /**
         if(get_unitig(nsg, NULL, (v<<1), &convex, &nodeLen, &baseLen, 
                                         &max_stop_nodeLen, &max_stop_baseLen, 1, NULL)==LOOP)
         {
@@ -13522,7 +13529,8 @@ void delete_useless_nodes(ma_ug_t **ug)
 
             (*ug)->u.a[v].start = (*ug)->u.a[v].a[0]>>32;
             (*ug)->u.a[v].end = ((*ug)->u.a[v].a[(*ug)->u.a[v].n-1]>>32)^1;
-        }        
+        }
+        **/        
     }
 
     asg_cleanup(nsg);
@@ -13535,10 +13543,8 @@ void delete_useless_trio_nodes(ma_ug_t **ug, asg_t* read_g, ma_sub_t* coverage_c
 ma_hit_t_alloc* sources, R_to_U* ruIndex)
 {
     asg_t* nsg = (*ug)->g;
-    uint32_t v, n_vtx = nsg->n_seq, convex;
-    long long nodeLen, baseLen, max_stop_nodeLen, max_stop_baseLen;
+    uint32_t v, n_vtx = nsg->n_seq;
     uint8_t* primary_flag = (uint8_t*)calloc(read_g->n_seq, sizeof(uint8_t));
-
 
     for (v = 0; v < n_vtx; ++v) 
     {
@@ -13560,6 +13566,7 @@ ma_hit_t_alloc* sources, R_to_U* ruIndex)
 
         //note: after cleaning, some cirle might be gone, or we have some new circles
         //so need to renew .circ
+        /**
         if(get_unitig(nsg, NULL, (v<<1), &convex, &nodeLen, &baseLen, 
                                         &max_stop_nodeLen, &max_stop_baseLen, 1, NULL)==LOOP)
         {
@@ -13572,7 +13579,8 @@ ma_hit_t_alloc* sources, R_to_U* ruIndex)
 
             (*ug)->u.a[v].start = (*ug)->u.a[v].a[0]>>32;
             (*ug)->u.a[v].end = ((*ug)->u.a[v].a[(*ug)->u.a[v].n-1]>>32)^1;
-        }        
+        }
+        **/        
     }
 
     asg_cleanup(nsg);
@@ -22862,6 +22870,7 @@ kvec_asg_arc_t_warp* new_rtg_edges)
         renew_utg(ug, read_g, new_rtg_edges);
     }
 
+
     if (!(asm_opt.flag & HA_F_BAN_POST_JOIN))
     {
         rescue_missing_overlaps_aggressive(*ug, read_g, sources, coverage_cut, ruIndex, max_hang,
@@ -22891,8 +22900,6 @@ kvec_asg_arc_t_warp* new_rtg_edges)
         asm_opt.purge_simi_rate, asm_opt.purge_overlap_len, max_hang, min_ovlp, bubble_dist, 
         drop_ratio, 0, 1);
     }
-
-    
 
     n_vtx = read_g->n_seq;
     for (v = 0; v < n_vtx; v++)
