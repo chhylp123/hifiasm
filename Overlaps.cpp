@@ -9464,8 +9464,8 @@ ma_hit_t_alloc* sources, kvec_asg_arc_t_warp* edge, int max_hang, int min_ovlp)
         if(u->m == 0) continue;
 
         polish_unitig(u, read_g, sources, coverage_cut, edge, max_hang, min_ovlp);
-
         polish_unitig_advance(u, read_g, RNF, sources, coverage_cut, edge, &g_read, &tmp, max_hang, min_ovlp);
+        g->g->seq[i].len = u->len;
 
 		uint32_t l = 0;
 		u->s = (char*)calloc(1, u->len + 1);
@@ -9514,6 +9514,25 @@ ma_hit_t_alloc* sources, kvec_asg_arc_t_warp* edge, int max_hang, int min_ovlp)
 
     destory_UC_Read(&g_read);
     destory_UC_Read(&tmp);
+
+
+    uint32_t n_vtx = g->g->n_seq * 2, v, nv;
+    uint32_t vLen = 0;
+    asg_arc_t* av = NULL;
+    for (v = 0; v < n_vtx; ++v) 
+    {
+        if (g->g->seq[v>>1].del) continue;
+        av = asg_arc_a(g->g, v);
+        nv = asg_arc_n(g->g, v);
+        for (i = 0; i < nv; i++)
+        {
+            if(av[i].del) continue;
+            vLen = g->g->seq[(av[i].ul>>33)].len - av[i].ol;
+            av[i].ul = (av[i].ul>>32)<<32;
+            av[i].ul = av[i].ul | vLen;
+        }
+    }
+
 	return 0;
 }
 
@@ -9597,12 +9616,48 @@ ma_hit_t_alloc* sources, R_to_U* ruIndex, int print_seq, const char* prefix, FIL
             
         }
 	}
-	for (i = 0; i < ug->g->n_arc; ++i) { // the Link lines in GFA
-		uint32_t u = ug->g->arc[i].ul>>32, v = ug->g->arc[i].v;
-		fprintf(fp, "L\t%s%.6d%c\t%c\t%s%.6d%c\t%c\t%dM\tL1:i:%d\n", 
-        prefix, (u>>1)+1, "lc"[ug->u.a[u>>1].circ], "+-"[u&1],
-		prefix,	(v>>1)+1, "lc"[ug->u.a[v>>1].circ], "+-"[v&1], ug->g->arc[i].ol, asg_arc_len(ug->g->arc[i]));
-	}
+	// for (i = 0; i < ug->g->n_arc; ++i) { // the Link lines in GFA
+	// 	uint32_t u = ug->g->arc[i].ul>>32, v = ug->g->arc[i].v;
+	// 	fprintf(fp, "L\t%s%.6d%c\t%c\t%s%.6d%c\t%c\t%dM\tL1:i:%d\n", 
+    //     prefix, (u>>1)+1, "lc"[ug->u.a[u>>1].circ], "+-"[u&1],
+	// 	prefix,	(v>>1)+1, "lc"[ug->u.a[v>>1].circ], "+-"[v&1], ug->g->arc[i].ol, asg_arc_len(ug->g->arc[i]));
+	// }
+    asg_arc_t* au = NULL;
+    uint32_t nu, u, v;
+    for (i = 0; i < ug->u.n; ++i) {
+        if(ug->u.a[i].m == 0) continue;
+        if(ug->u.a[i].circ)
+        {
+            fprintf(fp, "L\t%s%.6dc\t+\t%s%.6dc\t+\t%dM\tL1:i:%d\n", 
+            prefix, i+1, prefix, i+1, 0, ug->u.a[i].len);
+            fprintf(fp, "L\t%s%.6dc\t-\t%s%.6dc\t-\t%dM\tL1:i:%d\n", 
+            prefix, i+1, prefix, i+1, 0, ug->u.a[i].len);
+        } 
+        u = i<<1;
+        au = asg_arc_a(ug->g, u);
+        nu = asg_arc_n(ug->g, u);
+        for (j = 0; j < nu; j++)
+        {
+            if(au[j].del) continue;
+            v = au[j].v;
+            fprintf(fp, "L\t%s%.6d%c\t%c\t%s%.6d%c\t%c\t%dM\tL1:i:%d\n", 
+            prefix, (u>>1)+1, "lc"[ug->u.a[u>>1].circ], "+-"[u&1],
+            prefix,	(v>>1)+1, "lc"[ug->u.a[v>>1].circ], "+-"[v&1], au[j].ol, asg_arc_len(au[j]));
+        }
+
+
+        u = (i<<1) + 1;
+        au = asg_arc_a(ug->g, u);
+        nu = asg_arc_n(ug->g, u);
+        for (j = 0; j < nu; j++)
+        {
+            if(au[j].del) continue;
+            v = au[j].v;
+            fprintf(fp, "L\t%s%.6d%c\t%c\t%s%.6d%c\t%c\t%dM\tL1:i:%d\n", 
+            prefix, (u>>1)+1, "lc"[ug->u.a[u>>1].circ], "+-"[u&1],
+            prefix,	(v>>1)+1, "lc"[ug->u.a[v>>1].circ], "+-"[v&1], au[j].ol, asg_arc_len(au[j]));
+        }
+    }
     free(primary_flag);    
 }
 
@@ -22655,6 +22710,8 @@ void append_utg(ma_ug_t* ptg, ma_ug_t* atg)
         ptg->u.n++;
     }
 
+    if(ptg->g->idx != 0) free(ptg->g->idx); 
+    ptg->g->idx = 0;
     asg_cleanup(ptg->g);
 }
 
@@ -22781,7 +22838,6 @@ ma_hit_t_alloc* sources, R_to_U* ruIndex)
         asg_cleanup(nsg);
         asg_symm(nsg);
         append_utg(*ptg, atg);
-
 
         n_vtx = read_g->n_seq;
         for (v = 0; v < n_vtx; v++)
@@ -26895,6 +26951,7 @@ int max_hang, int min_ovlp)
     }
 }
 
+
 void clean_graph(
 int min_dp, ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, 
 long long n_read, uint64_t* readLen, long long mini_overlap_length, 
@@ -27075,7 +27132,6 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
         debug_gfa:;
         /*******************************for debug***************************************/
     }
-    
     /**
     debug_ma_hit_t(sources, coverage_cut, n_read, max_hang_length, 
     mini_overlap_length);
