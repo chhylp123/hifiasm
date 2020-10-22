@@ -24,6 +24,7 @@ static ko_longopt_t long_options[] = {
     { "purge-cov",     ko_required_argument, 309 },
     { "pri-range",     ko_required_argument, 310 },
     { "high-het",      ko_no_argument, 311 },
+    { "pb-range",      ko_required_argument, 312 },
 	{ 0, 0, 0 }
 };
 
@@ -59,6 +60,8 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "    -x FLOAT    max overlap drop ratio [%.2g]\n", asm_opt->max_drop_rate);
     fprintf(stderr, "    -y FLOAT    min overlap drop ratio [%.2g]\n", asm_opt->min_drop_rate);
     fprintf(stderr, "    -u          disable post join contigs step which may improve N50\n");
+    fprintf(stderr, "    --pb-range  INT\n");
+    fprintf(stderr, "                output contig regions with >=INT%% inconsistency in BED format; 0 to disable [%d]\n", asm_opt->bed_inconsist_rate);
 //	fprintf(stderr, "    --pri-range INT1[,INT2]\n");
 //	fprintf(stderr, "                keep contigs with coverage in this range in p_ctg.gfa; -1 to disable [auto,inf]\n");
 
@@ -130,6 +133,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->recover_atg_cov_min = -1024;
     asm_opt->recover_atg_cov_max = INT_MAX;
     asm_opt->hom_global_coverage = -1;
+    asm_opt->bed_inconsist_rate = 0;
 }
 
 void destory_opt(hifiasm_opt_t* asm_opt)
@@ -319,6 +323,12 @@ int check_option(hifiasm_opt_t* asm_opt)
         return 0;
     }
 
+    if(asm_opt->bed_inconsist_rate < 0 || asm_opt->bed_inconsist_rate > 100)
+    {
+        fprintf(stderr, "[ERROR] inconsistency rate should be [0, 100] (--pb-range)\n");
+        return 0;
+    }
+
 
     if(asm_opt->fn_bin_yak[0] != NULL && check_file(asm_opt->fn_bin_yak[0], "YAK1") == 0) return 0;
     if(asm_opt->fn_bin_yak[1] != NULL && check_file(asm_opt->fn_bin_yak[1], "YAK2") == 0) return 0;
@@ -438,6 +448,7 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
             }
         }
         else if (c == 311) asm_opt->flag |= HA_F_HIGH_HET;
+        else if (c == 312) asm_opt->bed_inconsist_rate = atoi(opt.arg);
         else if (c == 'l')
         {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
             asm_opt->purge_level_primary = asm_opt->purge_level_trio = atoi(opt.arg);
@@ -462,7 +473,6 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         Print_H(asm_opt);
         return 0;
     }
-    ///fprintf(stderr, "max_ov_diff_ec: %f, max_ov_diff_final: %f\n", asm_opt->max_ov_diff_ec, asm_opt->max_ov_diff_final);
 
     get_queries(argc, argv, &opt, asm_opt);
 

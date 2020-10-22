@@ -198,7 +198,14 @@ Min and max coverage cutoff of primary contigs.
 Keep contigs with coverage in this range at p_ctg.gfa. 
 Inferred automatically in default.
 If INT2 is not specified, it is set to infinity. 
-Set -1 to disable 
+Set -1 to disable.
+
+.TP
+.BI --pb-range \ INT
+Output contig regions with >=INT% inconsistency to the bed file 
+with suffix
+.B lowQ.bed
+[0]. Set 0 to disable. 
 
 .SS Trio-partition options
 

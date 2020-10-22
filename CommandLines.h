@@ -3,7 +3,7 @@
 
 #include <pthread.h>
 
-#define HA_VERSION "0.12-r305"
+#define HA_VERSION "0.13-r307"
 
 #define VERBOSE 0
 
@@ -62,6 +62,7 @@ typedef struct {
     int recover_atg_cov_min;
     int recover_atg_cov_max;
     int hom_global_coverage;
+    int bed_inconsist_rate;
 
     float max_hang_rate;
     float min_drop_rate;
