@@ -27472,6 +27472,8 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
 
 	*coverage_cut_ptr = coverage_cut;
 	*sg_ptr = sg;
+
+    fprintf(stderr, "Inconsistency threshold for low-quality regions in BED files: %u%%\n", asm_opt.bed_inconsist_rate);
 }
 
 void build_string_graph_without_clean(

@@ -24,7 +24,7 @@ static ko_longopt_t long_options[] = {
     { "purge-cov",     ko_required_argument, 309 },
     { "pri-range",     ko_required_argument, 310 },
     { "high-het",      ko_no_argument, 311 },
-    { "pb-range",      ko_required_argument, 312 },
+    { "lowQ",      ko_required_argument, 312 },
 	{ 0, 0, 0 }
 };
 
@@ -60,7 +60,7 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "    -x FLOAT    max overlap drop ratio [%.2g]\n", asm_opt->max_drop_rate);
     fprintf(stderr, "    -y FLOAT    min overlap drop ratio [%.2g]\n", asm_opt->min_drop_rate);
     fprintf(stderr, "    -u          disable post join contigs step which may improve N50\n");
-    fprintf(stderr, "    --pb-range  INT\n");
+    fprintf(stderr, "    --lowQ      INT\n");
     fprintf(stderr, "                output contig regions with >=INT%% inconsistency in BED format; 0 to disable [%d]\n", asm_opt->bed_inconsist_rate);
 //	fprintf(stderr, "    --pri-range INT1[,INT2]\n");
 //	fprintf(stderr, "                keep contigs with coverage in this range in p_ctg.gfa; -1 to disable [auto,inf]\n");
@@ -133,7 +133,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->recover_atg_cov_min = -1024;
     asm_opt->recover_atg_cov_max = INT_MAX;
     asm_opt->hom_global_coverage = -1;
-    asm_opt->bed_inconsist_rate = 0;
+    asm_opt->bed_inconsist_rate = 70;
 }
 
 void destory_opt(hifiasm_opt_t* asm_opt)
