@@ -30,6 +30,29 @@ produce primary/alternate assemblies of quality competitive with the best
 assemblers. It also introduces a new graph binning algorithm and achieves
 the best haplotype-resolved assembly given trio data.
 
+## Why Hifiasm?
+
+* Hifiasm delivers high-quality assemblies. It tends to generate longer contigs
+  and resolve more segmental duplications than other assemblers.
+
+* Given sequence reads from the parents, hifiasm can produce overall the best
+  haplotype-resolved assembly so far. It is the assembler of choice by the
+  [Human Pangenome Project][hpp] for the first batch of samples.
+
+* Hifiasm can purge duplications between haplotigs without relying on
+  third-party tools such as purge\_dups. Hifiasm does not need polishing tools
+  like pilon or racon, either. This simplifies the assembly pipeline and saves
+  running time.
+
+* Hifiasm is fast. It can assemble a human genome in half a day and assemble a
+  ~30Gb redwood genome in three days. No genome is too large for hifiasm.
+
+* Hifiasm is trivial to install and easy to use. It does not required python,
+  R or C++11 compilers and can be compiled into a single executable. The
+  default setting works well with a variety of genomes.
+
+[hpp]: https://humanpangenome.org
+
 ## Usage
 
 A typical hifiasm command line looks like:
@@ -144,12 +167,12 @@ redwood genome in a few days on a single machine. For trio binning assembly:
 [NA12891-data]: https://www.ebi.ac.uk/ena/data/view/ERR194160
 [NA12892-data]: https://www.ebi.ac.uk/ena/data/view/ERR194161
 
-Except NA12878, the assemblies above were produced by hifiasm v0.7 and can be
+Except NA12878, the assemblies above were produced by hifiasm v0.12 and can be
 downloaded at
 ```txt
-ftp://ftp.dfci.harvard.edu/pub/hli/hifiasm/submission/v0.7/
+ftp://ftp.dfci.harvard.edu/pub/hli/hifiasm/submission/hifiasm-0.12/
 ```
-NA12878 was assembled with a more recent version of hifiasm and is available at
+NA12878 was assembled with an older version of hifiasm and is available at
 ```txt
 ftp://ftp.dfci.harvard.edu/pub/hli/hifiasm/NA12878-r253/
 ```
