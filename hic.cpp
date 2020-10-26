@@ -194,6 +194,47 @@ void test_unitig_index(ha_ug_index* idx)
     }
 }
 
+void test_count1(char* seq, uint64_t len, uint64_t uID, ha_ug_index* idx, uint64_t direct_cnt)
+{
+    uint64_t i, l, cnt;
+    khint_t k;
+    uint64_t x[4], mask = (1ULL<<idx->k) - 1, shift = idx->k - 1, hash, skip;
+    for (i = l = 0, x[0] = x[1] = x[2] = x[3] = 0; i < len; ++i) {
+        int c = seq_nt4_table[(uint8_t)seq[i]];
+        ///c = 00, 01, 10, 11
+        if (c < 4) { // not an "N" base
+            ///x[0] & x[1] are the forward k-mer
+            ///x[2] & x[3] are the reverse complementary k-mer
+            x[0] = (x[0] << 1 | (c&1))  & mask;
+            x[1] = (x[1] << 1 | (c>>1)) & mask;
+            x[2] = x[2] >> 1 | (uint64_t)(1 - (c&1))  << shift;
+            x[3] = x[3] >> 1 | (uint64_t)(1 - (c>>1)) << shift;
+            if (++l >= idx->k)
+            {
+                hash = hc_hash_long(x, &skip);
+                if(skip == (uint64_t)-1) continue;
+                if(!direct_cnt)
+                {
+                    cnt = get_hc_pt1_count(idx, hash, NULL);
+                }
+                else
+                {
+                    k = hc_pt_get(idx->idx.h, hash);
+                    if (k == kh_end(idx->idx.h))
+                    {
+                        cnt = 0;
+                    }
+                    else
+                    {
+                        cnt = kh_val(idx->idx.h, k);
+                    }
+                    
+                }
+            }
+        } else l = 0, x[0] = x[1] = x[2] = x[3] = 0; // if there is an "N", restart
+    }
+}
+
 void hc_pt_t_gen(hc_pt1_t* pt)
 {
     khint_t k;
@@ -276,7 +317,7 @@ ha_ug_index* build_unitig_index(ma_ug_t *ug, int k)
     uint32_t i;
     ma_utg_t *u = NULL;
     ha_ug_index* idx = NULL; CALLOC(idx, 1);
-    double index_time = yak_realtime();
+    double index_time = yak_realtime(), beg_time;
     for (idx->uID_bits=1; (uint64_t)(1<<idx->uID_bits)<(uint64_t)ug->u.n; idx->uID_bits++);
     idx->pos_bits = 64 - idx->uID_bits - 1;
     idx->uID_mode = (((uint64_t)-1) << (64-idx->uID_bits))>>1;
@@ -286,21 +327,47 @@ ha_ug_index* build_unitig_index(ma_ug_t *ug, int k)
     idx->k = k;
     idx->idx.h = hc_pt_init();
 
+    beg_time = yak_realtime();
     for (i = 0; i < idx->ug->u.n; i++)
     {
         u = &(idx->ug->u.a[i]);
         if(u->m == 0) continue;
         count_hc_pt1(u->s, u->len, idx);
     }
-    
-    hc_pt_t_gen(&(idx->idx));
+    fprintf(stderr, "[M::%s::%.3f] ==> Counting\n", __func__, yak_realtime()-beg_time);
+    // beg_time = yak_realtime();
+    // for (i = 0; i < idx->ug->u.n; i++)
+    // {
+    //     u = &(idx->ug->u.a[i]);
+    //     if(u->m == 0) continue;
+    //     test_count1(u->s, u->len, i, idx, 1);
+    // }
+    // fprintf(stderr, "[M::%s::%.3f] ==> Counting 1\n", __func__, yak_realtime()-beg_time);
 
+
+    beg_time = yak_realtime();
+    hc_pt_t_gen(&(idx->idx));
+    fprintf(stderr, "[M::%s::%.3f] ==> Memory allocating\n", __func__, yak_realtime()-beg_time);
+
+
+    // beg_time = yak_realtime();
+    // for (i = 0; i < idx->ug->u.n; i++)
+    // {
+    //     u = &(idx->ug->u.a[i]);
+    //     if(u->m == 0) continue;
+    //     test_count1(u->s, u->len, i, idx, 0);
+    // }
+    // fprintf(stderr, "[M::%s::%.3f] ==> Counting 2\n", __func__, yak_realtime()-beg_time);
+
+
+    beg_time = yak_realtime();
     for (i = 0; i < idx->ug->u.n; i++)
     {
         u = &(idx->ug->u.a[i]);
         if(u->m == 0) continue;
         fill_hc_pt1(u->s, u->len, i, idx);
     }
+    fprintf(stderr, "[M::%s::%.3f] ==> Filling pos\n", __func__, yak_realtime()-beg_time);
 
     fprintf(stderr, "[M::%s::%.3f] ==> HiC index has been built\n", __func__, yak_realtime()-index_time);
 
