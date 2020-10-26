@@ -25,6 +25,8 @@ static ko_longopt_t long_options[] = {
     { "pri-range",     ko_required_argument, 310 },
     { "high-het",      ko_no_argument, 311 },
     { "lowQ",      ko_required_argument, 312 },
+    { "h1",      ko_required_argument, 313 },
+    { "h2",      ko_required_argument, 314 },
 	{ 0, 0, 0 }
 };
 
@@ -97,8 +99,11 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->read_file_names = NULL;
     asm_opt->output_file_name = (char*)(DEFAULT_OUTPUT);
     asm_opt->required_read_name = NULL;
+    asm_opt->hic_files[0] = NULL;
+    asm_opt->hic_files[1] = NULL;
     asm_opt->thread_num = 1;
     asm_opt->k_mer_length = 51;
+    asm_opt->hic_mer_length = 31;
 	asm_opt->mz_win = 51;
 	asm_opt->bf_shift = 37;
 	asm_opt->high_factor = 5.0;
@@ -325,7 +330,7 @@ int check_option(hifiasm_opt_t* asm_opt)
 
     if(asm_opt->bed_inconsist_rate < 0 || asm_opt->bed_inconsist_rate > 100)
     {
-        fprintf(stderr, "[ERROR] inconsistency rate should be [0, 100] (--pb-range)\n");
+        fprintf(stderr, "[ERROR] inconsistency rate should be [0, 100] (--lowQ)\n");
         return 0;
     }
 
@@ -335,6 +340,18 @@ int check_option(hifiasm_opt_t* asm_opt)
     if(asm_opt->fn_bin_list[0] != NULL && check_file(asm_opt->fn_bin_list[0], "LIST1") == 0) return 0;
     if(asm_opt->fn_bin_list[1] != NULL && check_file(asm_opt->fn_bin_list[1], "LIST2") == 0) return 0;
     if(asm_opt->required_read_name != NULL && check_file(asm_opt->required_read_name, "b") == 0) return 0;
+    if(asm_opt->hic_files[0] != NULL && check_file(asm_opt->hic_files[0], "HIC1") == 0) return 0;
+    if(asm_opt->hic_files[1] != NULL && check_file(asm_opt->hic_files[1], "HIC2") == 0) return 0;
+    if(asm_opt->hic_files[0] != NULL && asm_opt->hic_files[1] == NULL)
+    {
+        fprintf(stderr, "[ERROR] lack r2 of HiC reads (--h2)\n");
+        return 0;
+    }
+    if(asm_opt->hic_files[1] != NULL && asm_opt->hic_files[0] == NULL)
+    {
+        fprintf(stderr, "[ERROR] lack r1 of HiC reads (--h1)\n");
+        return 0;
+    }
     // fprintf(stderr, "input file num: %d\n", asm_opt->num_reads);
     // fprintf(stderr, "output file: %s\n", asm_opt->output_file_name);
     // fprintf(stderr, "number of threads: %d\n", asm_opt->thread_num);
@@ -449,6 +466,8 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         }
         else if (c == 311) asm_opt->flag |= HA_F_HIGH_HET;
         else if (c == 312) asm_opt->bed_inconsist_rate = atoi(opt.arg);
+        else if (c == 313) asm_opt->hic_files[0] = opt.arg;
+        else if (c == 314) asm_opt->hic_files[1] = opt.arg;
         else if (c == 'l')
         {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
             asm_opt->purge_level_primary = asm_opt->purge_level_trio = atoi(opt.arg);

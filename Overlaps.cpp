@@ -9,6 +9,7 @@
 #include "Hash_Table.h"
 #include "Correct.h"
 #include "Purge_Dups.h"
+#include "hic.h"
 
 uint32_t debug_purge_dup = 0;
 
@@ -11629,6 +11630,21 @@ ma_hit_t_alloc* sources, R_to_U* ruIndex, int max_hang, int min_ovlp)
     kv_destroy(new_rtg_edges.a);
 }
 
+
+void output_hic_graph(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name, 
+ma_hit_t_alloc* sources, R_to_U* ruIndex, int max_hang, int min_ovlp)
+{
+    kvec_asg_arc_t_warp new_rtg_edges;
+    kv_init(new_rtg_edges.a);
+
+    ma_ug_t *ug = NULL;
+    ug = ma_ug_gen(sg);
+    ma_ug_seq(ug, sg, &R_INF, coverage_cut, sources, &new_rtg_edges, max_hang, min_ovlp);
+    hic_analysis(ug);
+
+    ma_ug_destroy(ug);
+    kv_destroy(new_rtg_edges.a);
+}
 
 void merge_unitig_content(ma_utg_t* collection, ma_ug_t* ug, asg_t* read_g, kvec_asg_arc_t_warp* edge)
 {
@@ -23738,7 +23754,7 @@ void pre_clean(ma_hit_t_alloc* sources, ma_sub_t* coverage_cut, asg_t *sg, long 
         ///remove isoloated single read
         tri_flag += asg_arc_del_single_node_directly(sg, asm_opt.max_short_tip, sources);
 
-        if (!ha_opt_triobin(&asm_opt))
+        if ((!ha_opt_triobin(&asm_opt))&&(!ha_opt_hic(&asm_opt)))
         {
             tri_flag += asg_arc_del_triangular_advance(sg, bubble_dist);
             ///remove the cross at the bubble carefully, just remove inexact cross
@@ -25057,7 +25073,7 @@ kvec_t_u32_warp* new_rtg_nodes)
             int tri_flag = 0;
             ///remove very simple circle
             tri_flag += asg_arc_del_simple_circle_untig(sources, coverage_cut, r_g, 100, 0);
-            if (!ha_opt_triobin(&asm_opt))
+            if ((!ha_opt_triobin(&asm_opt))&&(!ha_opt_hic(&asm_opt)))
             {
                 ///remove isoloated single read
                 tri_flag += asg_arc_del_triangular_advance(r_g, bubble_dist);
@@ -25328,7 +25344,7 @@ kvec_asg_arc_t_warp* new_rtg_edges)
             int tri_flag = 0;
             ///remove very simple circle
             tri_flag += asg_arc_del_simple_circle_untig(sources, coverage_cut, r_g, 100, 0);
-            if (!ha_opt_triobin(&asm_opt))
+            if ((!ha_opt_triobin(&asm_opt))&&(!ha_opt_hic(&asm_opt)))
             {
                 ///remove isoloated single read
                 tri_flag += asg_arc_del_triangular_advance(r_g, bubble_dist);
@@ -25706,7 +25722,7 @@ uint32_t is_bubble_check, uint32_t is_primary_check)
             int tri_flag = 0;
             ///remove very simple circle
             tri_flag += asg_arc_del_simple_circle_untig(sources, coverage_cut, r_g, 100, 0);
-            if (!ha_opt_triobin(&asm_opt))
+            if ((!ha_opt_triobin(&asm_opt))&&(!ha_opt_hic(&asm_opt)))
             {
                 ///remove isoloated single read
                 tri_flag += asg_arc_del_triangular_advance(r_g, bubble_dist);
@@ -27449,6 +27465,10 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
         output_trio_unitig_graph(sg, coverage_cut, output_file_name, MOTHER, sources,
         reverse_sources, bubble_dist, (asm_opt.max_short_tip*2), 0.15, 3, ruIndex, 
         0.05, 0.9, max_hang_length, mini_overlap_length);
+    }
+    else if(ha_opt_hic(&asm_opt))
+    {
+        output_hic_graph(sg, coverage_cut, output_file_name, sources, ruIndex, max_hang_length, mini_overlap_length);;
     }
     else
     {

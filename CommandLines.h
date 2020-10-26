@@ -30,9 +30,11 @@ typedef struct {
 	char *fn_bin_yak[2];
 	char *fn_bin_list[2];
 	char *extract_list;
+    char *hic_files[2];
 	int extract_iter;
     int thread_num;
     int k_mer_length;
+    int hic_mer_length;
 	int mz_win;
 	int bf_shift;
 	double high_factor; // coverage cutoff set to high_factor*hom_cov
@@ -91,6 +93,11 @@ double Get_T(void);
 static inline int ha_opt_triobin(const hifiasm_opt_t *opt)
 {
 	return ((opt->fn_bin_yak[0] && opt->fn_bin_yak[1]) || (opt->fn_bin_list[0] && opt->fn_bin_list[1]));
+}
+
+static inline int ha_opt_hic(const hifiasm_opt_t *opt)
+{
+	return ((opt->hic_files[0] && opt->hic_files[1]));
 }
 
 #endif
