@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <assert.h>
 #include "htab.h"
 
 static void ha_hist_line(int c, int x, int exceed, int64_t cnt)
@@ -11,16 +12,19 @@ static void ha_hist_line(int c, int x, int exceed, int64_t cnt)
 	fprintf(stderr, " %lld\n", (long long)cnt);
 }
 
-int ha_analyze_count(int n_cnt, const int64_t *cnt, int *peak_het)
+int ha_analyze_count(int n_cnt, int start_cnt, const int64_t *cnt, int *peak_het)
 {
 	const int hist_max = 100;
 	int i, start, low_i, max_i, max2_i, max3_i;
 	int64_t max, max2, max3, min;
 
-	// find the low point from the left
+	// determine the start point
+	assert(n_cnt > start_cnt);
 	*peak_het = -1;
 	start = cnt[1] > 0? 1 : 2;
-	low_i = start;
+
+	// find the low point from the left
+	low_i = start > start_cnt? start : start_cnt;
 	for (i = low_i + 1; i < n_cnt; ++i)
 		if (cnt[i] > cnt[i-1]) break;
 	low_i = i - 1;
