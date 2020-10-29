@@ -35,6 +35,7 @@ typedef struct {
     int k_mer_length;
 	int mz_win;
 	int bf_shift;
+	int max_kmer_cnt;
 	double high_factor; // coverage cutoff set to high_factor*hom_cov
 	double max_ov_diff_ec;
 	double max_ov_diff_final;

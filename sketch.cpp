@@ -36,7 +36,7 @@ static inline int tq_shift(tiny_queue_t *q)
  * @param is_hpc homopolymer-compressed or not
  * @param p      minimizers
  */
-void ha_sketch_query(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mz1_v *p, const void *hf, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct)
+void ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mz1_v *p, const void *hf, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct)
 {	///in default, w = 51, k = 51, is_hpc = 1
 	/**
 	 uint64_t x;
@@ -57,8 +57,7 @@ void ha_sketch_query(const char *str, int len, int w, int k, uint32_t rid, int i
 		memset(k_flag->a.a, 0, k_flag->a.n);
 	} 
 
-	///sizeof(ha_mz1_t) = 16
-	memset(buf, 0xff, w * 16);
+	memset(buf, 0xff, w * sizeof(ha_mz1_t));
 	memset(&tq, 0, sizeof(tiny_queue_t));
 	///len/w is the evaluated minimizer numbers
 	kv_resize(ha_mz1_t, *p, p->n + len/w);
@@ -97,12 +96,13 @@ void ha_sketch_query(const char *str, int len, int w, int k, uint32_t rid, int i
 			++l;
 			if (l >= k && kmer_span < 256) {
 				uint64_t y;
-				int filtered = 0;
+				int32_t cnt = 0, filtered = 0;
 				y = yak_hash64_64(kmer[z<<1|0]) + yak_hash64_64(kmer[z<<1|1]);
-				if (hf != 0) filtered = (ha_ft_cnt(hf, y) > 0);
+				if (hf != 0) cnt = ha_ft_cnt(hf, y);
+				filtered = (cnt > 0);
 				if (dbg_ct != NULL) kv_push(uint64_t, dbg_ct->a, ((((uint64_t)(query_ct_index(ha_ct_table, y))<<1)|filtered)<<32)|(uint64_t)(i));
-				if (filtered == 0)
-					info.x = y, info.rid = rid, info.pos = i, info.rev = z, info.span = kmer_span;
+				if (cnt < 1<<28 && filtered == 0)
+					info.x = y, info.rid = cnt, info.pos = i, info.rev = z, info.span = kmer_span;
 				if (k_flag != NULL) k_flag->a.a[i]++;
 				if (k_flag != NULL && filtered > 0) k_flag->a.a[i]++;
 			}
@@ -150,4 +150,6 @@ void ha_sketch_query(const char *str, int len, int w, int k, uint32_t rid, int i
 	}
 	if (min.x != UINT64_MAX)
 		kv_push(ha_mz1_t, *p, min);
+	for (i = 0; i < (int)p->n; ++i) // populate .rid as this was keeping counts
+		p->a[i].rid = rid;
 }

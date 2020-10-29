@@ -31,9 +31,8 @@ extern void *ha_flt_tab_hp;
 extern ha_pt_t *ha_idx_hp;
 extern void *ha_ct_table;
 
-
 void *ha_ft_gen(const hifiasm_opt_t *asm_opt, All_reads *rs, int *hom_cov, int is_hp_mode);
-int ha_ft_cnt(const void *hh, uint64_t y);
+int32_t ha_ft_cnt(const void *hh, uint64_t y);
 void ha_ft_destroy(void *h);
 
 ha_pt_t *ha_pt_gen(const hifiasm_opt_t *asm_opt, const void *flt_tab, int read_from_store, int is_hp_mode, All_reads *rs, int *hom_cov, int *het_cov);
@@ -59,8 +58,7 @@ double yak_cpu_usage(void);
 
 void ha_triobin(const hifiasm_opt_t *opt);
 
-void ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mz1_v *p, const void *hf);
-void ha_sketch_query(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mz1_v *p, const void *hf, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct);
+void ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mz1_v *p, const void *hf, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct);
 int ha_analyze_count(int n_cnt, int start_cnt, const int64_t *cnt, int *peak_het);
 
 static inline uint64_t yak_hash64(uint64_t key, uint64_t mask) // invertible integer hash function
