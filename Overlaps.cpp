@@ -9974,8 +9974,7 @@ void clean_weak_ma_hit_t(ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_source
 
 
 
-void debug_info_of_specfic_read(const char* name, ma_hit_t_alloc* sources, 
-ma_hit_t_alloc* reverse_sources, int id, const char* command)
+void debug_info_of_specfic_read(const char* name, ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, int id, const char* command)
 {
     long long i, j, Len;
     uint32_t tn;
@@ -9999,7 +9998,7 @@ ma_hit_t_alloc* reverse_sources, int id, const char* command)
             fprintf(stderr, "\n\n\nafter %s\n", command);
 
             fprintf(stderr, "****************ma_hit_t (%lld)ref_read: %.*s, len: %lu****************\n", 
-            i, (int)Get_NAME_LENGTH(R_INF, i), Get_NAME(R_INF, i), Get_READ_LENGTH(R_INF, i));
+					i, (int)Get_NAME_LENGTH(R_INF, i), Get_NAME(R_INF, i), (unsigned long)Get_READ_LENGTH(R_INF, i));
 
 
             fprintf(stderr, "sources Len: %d, is_fully_corrected: %d\n", 

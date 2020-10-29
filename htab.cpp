@@ -557,7 +557,7 @@ static void worker_for_mz(void *data, long i, int tid)
 	ha_mz1_v *b = &s->mz_buf[tid];
 	s->mz_buf[tid].n = 0;
 	///s->p->opt->w = 51, s->p->opt->k
-	ha_sketch(s->seq[i], s->len[i], s->p->opt->w, s->p->opt->k, s->n_seq0 + i, s->p->opt->is_HPC, b, s->p->flt_tab);
+	ha_sketch_query(s->seq[i], s->len[i], s->p->opt->w, s->p->opt->k, s->n_seq0 + i, s->p->opt->is_HPC, b, s->p->flt_tab, 0, 0);
 	s->mz[i].n = s->mz[i].m = b->n;
 	MALLOC(s->mz[i].a, b->n);
 	memcpy(s->mz[i].a, b->a, b->n * sizeof(ha_mz1_t));
@@ -803,7 +803,7 @@ ha_ct_t *ha_count(const hifiasm_opt_t *asm_opt, int flag, ha_pt_t *p0, const voi
  * High count filter table *
  ***************************/
 
-KHASHL_SET_INIT(static klib_unused, yak_ft_t, yak_ft, uint64_t, kh_hash_dummy, kh_eq_generic)
+KHASHL_MAP_INIT(static klib_unused, yak_ft_t, yak_ft, uint64_t, int16_t, kh_hash_dummy, kh_eq_generic)
 
 static yak_ft_t *gen_hh(const ha_ct_t *h)
 {
@@ -813,12 +813,14 @@ static yak_ft_t *gen_hh(const ha_ct_t *h)
 	yak_ft_resize(hh, h->tot * 2);
 	for (i = 0; i < 1<<h->pre; ++i) {
 		yak_ct_t *ht = h->h[i].h;
-		khint_t k;
+		khint_t k, l;
 		for (k = 0; k < kh_end(ht); ++k) {
 			if (kh_exist(ht, k)) {
 				uint64_t y = kh_key(ht, k) >> h->pre << YAK_COUNTER_BITS | i;
 				int absent;
-				yak_ft_put(hh, y, &absent);
+				l = yak_ft_put(hh, y, &absent);
+				if (absent)
+					kh_val(hh, l) = kh_key(ht, k)&YAK_MAX_COUNT;
 			}
 		}
 	}
@@ -831,6 +833,14 @@ int ha_ft_isflt(const void *hh, uint64_t y)
 	khint_t k;
 	k = yak_ft_get(h, y);
 	return k == kh_end(h)? 0 : 1;
+}
+
+int ha_ft_cnt(const void *hh, uint64_t y)
+{
+	yak_ft_t *h = (yak_ft_t*)hh;
+	khint_t k;
+	k = yak_ft_get(h, y);
+	return k == kh_end(h)? 0 : kh_val(h, k);
 }
 
 void ha_ft_destroy(void *h)
@@ -1092,7 +1102,7 @@ int load_pt_index(void **r_flt_tab, ha_pt_t **r_ha_idx, All_reads* r, hifiasm_op
 
 	ha_pt_t *ha_idx = NULL;
 	char mode = 0;
-	int f_flag, absent, i;
+	int f_flag = 0, absent, i;
 	double index_time, index_s_time, pos_time, pos_s_time;
 
 	

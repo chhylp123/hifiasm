@@ -33,7 +33,7 @@ extern void *ha_ct_table;
 
 
 void *ha_ft_gen(const hifiasm_opt_t *asm_opt, All_reads *rs, int *hom_cov, int is_hp_mode);
-int ha_ft_isflt(const void *hh, uint64_t y);
+int ha_ft_cnt(const void *hh, uint64_t y);
 void ha_ft_destroy(void *h);
 
 ha_pt_t *ha_pt_gen(const hifiasm_opt_t *asm_opt, const void *flt_tab, int read_from_store, int is_hp_mode, All_reads *rs, int *hom_cov, int *het_cov);
