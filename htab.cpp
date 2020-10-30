@@ -189,7 +189,7 @@ static int ha_ct_insert_list(ha_ct_t *h, int create_new, int n, const uint64_t *
 		///so low 12 bits are not useful
 		uint64_t x = a[j] >> h->pre;
 		khint_t k;
-		if ((a[j]&mask) != (a[0]&mask)) continue;
+		assert((a[j]&mask) == (a[0]&mask));
 		if (create_new) {
 			///for 0-th counting, g->b = NULL
 			if (g->b)
@@ -365,9 +365,9 @@ int ha_pt_insert_list(ha_pt_t *h, int n, const ha_mz1_t *a)
 		khint_t k;
 		int n;
 		ha_idxpos_t *p;
-		if ((a[j].x&mask) != (a[0].x&mask)) continue;
+		assert((a[j].x&mask) == (a[0].x&mask));
 		k = yak_pt_get(g->h, x<<YAK_COUNTER_BITS);
-		if (k == kh_end(g->h)) continue;
+		if (k == kh_end(g->h)) continue; // TODO: understand why we sometimes come here
 		n = kh_key(g->h, k) & YAK_MAX_COUNT;
 		assert(n < YAK_MAX_COUNT);
 		p = &g->a[kh_val(g->h, k) + n];
@@ -518,7 +518,7 @@ typedef struct { // global data structure for kt_pipeline()
 	const yak_copt_t *opt;
 	const void *flt_tab;
 	int flag, create_new, is_store;
-	uint64_t n_seq; ///number of total reads
+	uint64_t n_mz, n_seq; ///number of total reads
 	kseq_t *ks;
 	UC_Read ucr;
 	ha_ct_t *ct;
@@ -573,8 +573,7 @@ static void *worker_count(void *data, int step, void *in) // callback for kt_pip
 		s->n_seq0 = p->n_seq;
 		if (p->rs_in && (p->flag & HAF_RS_READ)) {
 			while (p->n_seq < p->rs_in->total_reads) {
-				if((p->flag & HAF_SKIP_READ) && p->rs_in->trio_flag[p->n_seq] != AMBIGU)
-				{
+				if ((p->flag & HAF_SKIP_READ) && p->rs_in->trio_flag[p->n_seq] != AMBIGU) {
 					++p->n_seq;
 					continue;
 				}
@@ -685,6 +684,7 @@ static void *worker_count(void *data, int step, void *in) // callback for kt_pip
 						ct_insert_buf(s->buf, p->opt->pre, s->mz[i].a[j].x);
 			}
 			for (i = 0; i < s->n_seq; ++i) {
+				p->n_mz += s->mz[i].n;
 				free(s->mz[i].a);
 				if (!p->is_store) free(s->seq[i]);
 			}
@@ -763,6 +763,7 @@ static ha_ct_t *yak_count(const yak_copt_t *opt, const char *fn, int flag, ha_pt
 		gzclose(fp);
 	}
 	*n_seq = pl.n_seq;
+	if (pl.opt->w > 1) fprintf(stderr, "[M::%s] collected %ld minimizers\n", __func__, (long)pl.n_mz);
 	return pl.ct;
 }
 

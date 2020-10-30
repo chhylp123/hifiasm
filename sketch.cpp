@@ -25,6 +25,44 @@ static inline int tq_shift(tiny_queue_t *q)
 	return x;
 }
 
+static inline int mzcmp(const ha_mz1_t *a, const ha_mz1_t *b)
+{
+	return a->rid < b->rid? -1 : a->rid > b->rid? 1 : ((a->x > b->x) - (a->x < b->x));
+}
+
+static void select_mz(ha_mz1_v *p, int len)
+{
+	static const ha_mz1_t dummy = { UINT64_MAX, (1<<28) - 1, 0, 0 };
+	int32_t i, last0 = -1, n = (int32_t)p->n, m = 0;
+	if (n == 0 || n == 1) return;
+	for (i = 0; i < n; ++i)
+		if (p->a[i].rid != 0) ++m;
+	if (m == 0) return; // no high-frequency k-mers; do nothing
+	for (i = 0; i <= n; ++i) {
+		if (i == n || p->a[i].rid == 0) {
+			if (i - last0 > 1) {
+				int32_t ps = last0 < 0? 0 : p->a[last0].pos;
+				int32_t pe = i == n? len : p->a[i].pos;
+				int32_t j, st = last0 + 1, en = i;
+				ha_mz1_t min1 = dummy, min2 = dummy;
+				int32_t min1_i = -1, min2_i = -1;
+				for (j = st; j < en; ++j) { // choose up to two minimum k-mers
+					if (mzcmp(&p->a[j], &min1) < 0) min2 = min1, min2_i = min1_i, min1 = p->a[j], min1_i = j;
+					else if (mzcmp(&p->a[j], &min2) < 0) min2 = p->a[j], min2_i = j;
+				}
+				if (min1_i >= 0 && p->a[min1_i].rid < pe - ps) p->a[min1_i].rid = 0;
+				if (min2_i >= 0 && p->a[min2_i].rid < pe - ps) p->a[min2_i].rid = 0;
+			}
+			last0 = i;
+		}
+	}
+	for (i = n = 0; i < (int32_t)p->n; ++i) // squeeze out filtered minimizers
+		if (p->a[i].rid == 0)
+			p->a[n++] = p->a[i];
+//	fprintf(stderr, "X\tn0=%d,n1=%d,m=%d\n", p->n, n, m);
+	p->n = n;
+}
+
 /**
  * Find symmetric (w,k)-minimizers on a DNA sequence
  *
@@ -43,7 +81,7 @@ void ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc,
 	 uint64_t rid:28, pos:27, rev:1, span:8;
 	 **/
 	extern void *ha_ct_table;
-	static const ha_mz1_t dummy = { UINT64_MAX, 0, 0, 0 };
+	static const ha_mz1_t dummy = { UINT64_MAX, (1<<28) - 1, 0, 0 };
 	uint64_t shift1 = k - 1, mask = (1ULL<<k) - 1, kmer[4] = {0,0,0,0};
 	int i, j, l, buf_pos, min_pos, kmer_span = 0;
 	ha_mz1_t buf[256], min = dummy;
@@ -96,13 +134,12 @@ void ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc,
 			++l;
 			if (l >= k && kmer_span < 256) {
 				uint64_t y;
-				int32_t cnt = 0, filtered = 0;
+				int32_t cnt, filtered;
 				y = yak_hash64_64(kmer[z<<1|0]) + yak_hash64_64(kmer[z<<1|1]);
-				if (hf != 0) cnt = ha_ft_cnt(hf, y);
-				filtered = (cnt > 0);
+				cnt = hf? ha_ft_cnt(hf, y) : 0;
+				filtered = (cnt >= 1<<28);
 				if (dbg_ct != NULL) kv_push(uint64_t, dbg_ct->a, ((((uint64_t)(query_ct_index(ha_ct_table, y))<<1)|filtered)<<32)|(uint64_t)(i));
-				if (cnt < 1<<28 && filtered == 0)
-					info.x = y, info.rid = cnt, info.pos = i, info.rev = z, info.span = kmer_span;
+				if (!filtered) info.x = y, info.rid = cnt, info.pos = i, info.rev = z, info.span = kmer_span;
 				if (k_flag != NULL) k_flag->a.a[i]++;
 				if (k_flag != NULL && filtered > 0) k_flag->a.a[i]++;
 			}
@@ -115,9 +152,9 @@ void ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc,
 		buf[buf_pos] = info; // need to do this here as appropriate buf_pos and buf[buf_pos] are needed below
 		if (l == w + k - 1 && min.x != UINT64_MAX) { // special case for the first window - because identical k-mers are not stored yet
 			for (j = buf_pos + 1; j < w; ++j)
-				if (min.x == buf[j].x && buf[j].pos != min.pos) kv_push(ha_mz1_t, *p, buf[j]);
+				if (mzcmp(&min, &buf[j]) == 0 && buf[j].pos != min.pos) kv_push(ha_mz1_t, *p, buf[j]);
 			for (j = 0; j < buf_pos; ++j)
-				if (min.x == buf[j].x && buf[j].pos != min.pos) kv_push(ha_mz1_t, *p, buf[j]);
+				if (mzcmp(&min, &buf[j]) == 0 && buf[j].pos != min.pos) kv_push(ha_mz1_t, *p, buf[j]);
 		}
 		/**
 		 * There are three cases:
@@ -135,21 +172,22 @@ void ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc,
 			///buf_pos == min_pos, means current minimizer has moved outside the window
 			///so for now we need to find a new minimizer at the current window (w k-mers)
 			for (j = buf_pos + 1, min.x = UINT64_MAX; j < w; ++j) // the two loops are necessary when there are identical k-mers
-				if (min.x >= buf[j].x) min = buf[j], min_pos = j; // >= is important s.t. min is always the closest k-mer
+				if (mzcmp(&min, &buf[j]) >= 0) min = buf[j], min_pos = j; // >= is important s.t. min is always the closest k-mer
 			for (j = 0; j <= buf_pos; ++j)
-				if (min.x >= buf[j].x) min = buf[j], min_pos = j;
+				if (mzcmp(&min, &buf[j]) >= 0) min = buf[j], min_pos = j;
 
 			if (l >= w + k - 1 && min.x != UINT64_MAX) { // write identical k-mers
 				for (j = buf_pos + 1; j < w; ++j) // these two loops make sure the output is sorted
-					if (min.x == buf[j].x && min.pos != buf[j].pos) kv_push(ha_mz1_t, *p, buf[j]);
+					if (mzcmp(&min, &buf[j]) == 0 && min.pos != buf[j].pos) kv_push(ha_mz1_t, *p, buf[j]);
 				for (j = 0; j <= buf_pos; ++j)
-					if (min.x == buf[j].x && min.pos != buf[j].pos) kv_push(ha_mz1_t, *p, buf[j]);
+					if (mzcmp(&min, &buf[j]) == 0 && min.pos != buf[j].pos) kv_push(ha_mz1_t, *p, buf[j]);
 			}
 		}
 		if (++buf_pos == w) buf_pos = 0;
 	}
 	if (min.x != UINT64_MAX)
 		kv_push(ha_mz1_t, *p, min);
+	select_mz(p, len);
 	for (i = 0; i < (int)p->n; ++i) // populate .rid as this was keeping counts
 		p->a[i].rid = rid;
 }
