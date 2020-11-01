@@ -44,14 +44,24 @@ static void select_mz(ha_mz1_v *p, int len)
 				int32_t ps = last0 < 0? 0 : p->a[last0].pos;
 				int32_t pe = i == n? len : p->a[i].pos;
 				int32_t j, st = last0 + 1, en = i;
-				ha_mz1_t min1 = dummy, min2 = dummy;
-				int32_t min1_i = -1, min2_i = -1;
-				for (j = st; j < en; ++j) { // choose up to two minimum k-mers
-					if (mzcmp(&p->a[j], &min1) < 0) min2 = min1, min2_i = min1_i, min1 = p->a[j], min1_i = j;
-					else if (mzcmp(&p->a[j], &min2) < 0) min2 = p->a[j], min2_i = j;
+				ha_mz1_t min1 = dummy, min2 = dummy, min3 = dummy;
+				int32_t min1_i = -1, min2_i = -1, min3_i = -1;
+				for (j = st; j < en; ++j) { // choose up to three minimum k-mers
+					if (mzcmp(&p->a[j], &min1) < 0)
+						min3 = min2, min3_i = min2_i, min2 = min1, min2_i = min1_i, min1 = p->a[j], min1_i = j;
+					else if (mzcmp(&p->a[j], &min2) < 0)
+						min3 = min2, min3_i = min2_i, min2 = p->a[j], min2_i = j;
+					else if (mzcmp(&p->a[j], &min3) < 0)
+						min3 = p->a[j], min3_i = j;
 				}
-				if (min1_i >= 0 && p->a[min1_i].rid < pe - ps) p->a[min1_i].rid = 0;
-				if (min2_i >= 0 && p->a[min2_i].rid < pe - ps) p->a[min2_i].rid = 0;
+				if (min1_i >= 0 && p->a[min1_i].rid < pe - ps) {
+					p->a[min1_i].rid = 0;
+					if (min2_i >= 0 && p->a[min2_i].rid < pe - ps) {
+						p->a[min2_i].rid = 0;
+						if (min3_i >= 0 && p->a[min3_i].rid < pe - ps)
+							p->a[min3_i].rid = 0;
+					}
+				}
 			}
 			last0 = i;
 		}
