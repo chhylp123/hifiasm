@@ -4,6 +4,10 @@
 #include <string.h>
 #include "kvec.h"
 #include "htab.h"
+#include "ksort.h"
+
+#define MAX_HIGH_OCC     3   // TODO: don't hard code if we need to tune this parameter
+#define MAX_MAX_HIGH_OCC 16
 
 typedef struct { // a simplified version of kdq
 	int front, count;
@@ -30,11 +34,18 @@ static inline int mzcmp(const ha_mz1_t *a, const ha_mz1_t *b)
 	return a->rid < b->rid? -1 : a->rid > b->rid? 1 : ((a->x > b->x) - (a->x < b->x));
 }
 
-static void select_mz(ha_mz1_v *p, int len)
-{
-	static const ha_mz1_t dummy = { UINT64_MAX, (1<<28) - 1, 0, 0 };
+#define mz_lt(a, b) (mzcmp(&(a), &(b)) < 0)
+KSORT_INIT(mz, ha_mz1_t, mz_lt)
+
+static void select_mz(ha_mz1_v *p, int len, int max_high_occ)
+{ // for high-occ minimizers, choose up to max_high_occ in each high-occ streak
 	int32_t i, last0 = -1, n = (int32_t)p->n, m = 0;
+	ha_mz1_t b[MAX_MAX_HIGH_OCC]; // this is to avoid a heap allocation
+
 	if (n == 0 || n == 1) return;
+	assert(n < 1<<27); // 27 is the number of bits for ha_mz1_t::pos; this should be safe as there are more bases than minimizers
+	if (max_high_occ > MAX_MAX_HIGH_OCC)
+		max_high_occ = MAX_MAX_HIGH_OCC;
 	for (i = 0; i < n; ++i)
 		if (p->a[i].rid != 0) ++m;
 	if (m == 0) return; // no high-frequency k-mers; do nothing
@@ -43,25 +54,22 @@ static void select_mz(ha_mz1_v *p, int len)
 			if (i - last0 > 1) {
 				int32_t ps = last0 < 0? 0 : p->a[last0].pos;
 				int32_t pe = i == n? len : p->a[i].pos;
-				int32_t j, st = last0 + 1, en = i;
-				ha_mz1_t min1 = dummy, min2 = dummy, min3 = dummy;
-				int32_t min1_i = -1, min2_i = -1, min3_i = -1;
-				for (j = st; j < en; ++j) { // choose up to three minimum k-mers
-					if (mzcmp(&p->a[j], &min1) < 0)
-						min3 = min2, min3_i = min2_i, min2 = min1, min2_i = min1_i, min1 = p->a[j], min1_i = j;
-					else if (mzcmp(&p->a[j], &min2) < 0)
-						min3 = min2, min3_i = min2_i, min2 = p->a[j], min2_i = j;
-					else if (mzcmp(&p->a[j], &min3) < 0)
-						min3 = p->a[j], min3_i = j;
-				}
-				if (min1_i >= 0 && p->a[min1_i].rid < pe - ps) {
-					p->a[min1_i].rid = 0;
-					if (min2_i >= 0 && p->a[min2_i].rid < pe - ps) {
-						p->a[min2_i].rid = 0;
-						if (min3_i >= 0 && p->a[min3_i].rid < pe - ps)
-							p->a[min3_i].rid = 0;
+				int32_t j, k, st = last0 + 1, en = i;
+				for (j = st, k = 0; j < en && k < max_high_occ; ++j, ++k)
+					b[k] = p->a[j], b[k].pos = j; // b[].pos keeps the index in p->a[]
+				if (j < en) { // if there are more, choose top max_high_occ
+					assert(k == max_high_occ);
+					ks_heapmake_mz(max_high_occ, b); // initialize the binomial heap
+					for (; j < en; ++j) {
+						if (mz_lt(p->a[j], b[0])) { // then update the heap
+							b[0] = p->a[j], b[0].pos = j;
+							ks_heapdown_mz(0, max_high_occ, b);
+						}
 					}
 				}
+				for (j = 0; j < k; ++j)
+					if (b[j].rid < pe - ps)
+						p->a[b[j].pos].rid = 0;
 			}
 			last0 = i;
 		}
@@ -149,7 +157,7 @@ void ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc,
 				cnt = hf? ha_ft_cnt(hf, y) : 0;
 				filtered = (cnt >= 1<<28);
 				if (dbg_ct != NULL) kv_push(uint64_t, dbg_ct->a, ((((uint64_t)(query_ct_index(ha_ct_table, y))<<1)|filtered)<<32)|(uint64_t)(i));
-				if (!filtered) info.x = y, info.rid = cnt, info.pos = i, info.rev = z, info.span = kmer_span;
+				if (!filtered) info.x = y, info.rid = cnt, info.pos = i, info.rev = z, info.span = kmer_span; // initially ha_mz1_t::rid keeps the k-mer count
 				if (k_flag != NULL) k_flag->a.a[i]++;
 				if (k_flag != NULL && filtered > 0) k_flag->a.a[i]++;
 			}
@@ -197,7 +205,7 @@ void ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc,
 	}
 	if (min.x != UINT64_MAX)
 		kv_push(ha_mz1_t, *p, min);
-	select_mz(p, len);
+	select_mz(p, len, MAX_HIGH_OCC);
 	for (i = 0; i < (int)p->n; ++i) // populate .rid as this was keeping counts
 		p->a[i].rid = rid;
 }
