@@ -57,16 +57,14 @@ static void select_mz(ha_mz1_v *p, int len, int max_high_occ)
 				int32_t j, k, st = last0 + 1, en = i;
 				for (j = st, k = 0; j < en && k < max_high_occ; ++j, ++k)
 					b[k] = p->a[j], b[k].pos = j; // b[].pos keeps the index in p->a[]
-				if (j < en) { // if there are more, choose top max_high_occ
-					assert(k == max_high_occ);
-					ks_heapmake_mz(max_high_occ, b); // initialize the binomial heap
-					for (; j < en; ++j) {
-						if (mz_lt(p->a[j], b[0])) { // then update the heap
-							b[0] = p->a[j], b[0].pos = j;
-							ks_heapdown_mz(0, max_high_occ, b);
-						}
+				ks_heapmake_mz(k, b); // initialize the binomial heap
+				for (; j < en; ++j) { // if there are more, choose top max_high_occ
+					if (mz_lt(p->a[j], b[0])) { // then update the heap
+						b[0] = p->a[j], b[0].pos = j;
+						ks_heapdown_mz(0, k, b);
 					}
 				}
+				//ks_heapsort_mz(k, b); // sorting is not needed for now
 				for (j = 0; j < k; ++j)
 					if (b[j].rid < pe - ps)
 						p->a[b[j].pos].rid = 0;
@@ -77,7 +75,6 @@ static void select_mz(ha_mz1_v *p, int len, int max_high_occ)
 	for (i = n = 0; i < (int32_t)p->n; ++i) // squeeze out filtered minimizers
 		if (p->a[i].rid == 0)
 			p->a[n++] = p->a[i];
-//	fprintf(stderr, "X\tn0=%d,n1=%d,m=%d\n", p->n, n, m);
 	p->n = n;
 }
 

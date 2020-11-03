@@ -58,6 +58,14 @@ typedef struct {
 		for (i = (lsize >> 1) - 1; i != (size_t)(-1); --i) \
 			ks_heapdown_##name(i, lsize, l); \
 	} \
+	void ks_heapsort_##name(size_t lsize, type_t l[]) \
+	{ \
+		size_t i; \
+		for (i = lsize - 1; i > 0; --i) { \
+			type_t tmp; \
+			tmp = *l; *l = l[i]; l[i] = tmp; ks_heapdown_##name(0, i, l); \
+		} \
+	} \
 	static inline void __ks_insertsort_##name(type_t *s, type_t *t)		\
 	{																	\
 		type_t *i, *j, swap_tmp;										\
