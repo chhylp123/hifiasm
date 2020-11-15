@@ -147,13 +147,14 @@ static kh_inline khint_t __kh_h2b(khint_t hash, khint_t bits) { return hash * 26
 	SCOPE khint_t prefix##_load(HType **h, FILE* fp) { \
 		(*h) = prefix##_init(); \
 		khint_t n_buckets; \
-		fread(&n_buckets, sizeof(n_buckets), 1, fp); \
-		fread(&(*h)->bits, sizeof((*h)->bits), 1, fp); \
-		fread(&(*h)->count, sizeof((*h)->count), 1, fp); \
+		uint64_t flag = 0;\
+		flag += fread(&n_buckets, sizeof(n_buckets), 1, fp); \
+		flag += fread(&(*h)->bits, sizeof((*h)->bits), 1, fp); \
+		flag += fread(&(*h)->count, sizeof((*h)->count), 1, fp); \
 		(*h)->used = (khint32_t*)kmalloc(__kh_fsize(n_buckets) * sizeof(khint32_t)); \
 		(*h)->keys = (khkey_t*)kmalloc(n_buckets * sizeof(khkey_t)); \
-		fread((*h)->used, sizeof(khint32_t), __kh_fsize(n_buckets), fp); \
-		fread((*h)->keys, sizeof(khkey_t), n_buckets, fp); \
+		flag += fread((*h)->used, sizeof(khint32_t), __kh_fsize(n_buckets), fp); \
+		flag += fread((*h)->keys, sizeof(khkey_t), n_buckets, fp); \
 		return 1; \
 	} \
 

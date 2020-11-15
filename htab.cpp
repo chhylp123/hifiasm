@@ -1002,16 +1002,17 @@ int load_ct_index(void **i_ct_idx, char* file_name)
     }
 	ha_ct_t** ct_idx = (ha_ct_t**)i_ct_idx;
 	double index_time = 0;
+	uint64_t flag = 0;
 	int i;
 	ha_ct_t *h = 0;
 	ha_ct1_t *g;
 	CALLOC(h, 1);
 
-	fread(&h->k, sizeof(h->k), 1, fp);
-	fread(&h->pre, sizeof(h->pre), 1, fp);
-	fread(&h->n_hash, sizeof(h->n_hash), 1, fp);
-	fread(&h->n_shift, sizeof(h->n_shift), 1, fp);
-	fread(&h->tot, sizeof(h->tot), 1, fp);
+	flag += fread(&h->k, sizeof(h->k), 1, fp);
+	flag += fread(&h->pre, sizeof(h->pre), 1, fp);
+	flag += fread(&h->n_hash, sizeof(h->n_hash), 1, fp);
+	flag += fread(&h->n_shift, sizeof(h->n_shift), 1, fp);
+	flag += fread(&h->tot, sizeof(h->tot), 1, fp);
 	CALLOC(h->h, 1<<h->pre);
 
 

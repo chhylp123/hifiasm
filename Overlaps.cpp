@@ -11630,18 +11630,74 @@ ma_hit_t_alloc* sources, R_to_U* ruIndex, int max_hang, int min_ovlp)
     kv_destroy(new_rtg_edges.a);
 }
 
+void classify_untigs(ma_ug_t *ug, asg_t *sg, ma_sub_t* coverage_cut, 
+ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, 
+kvec_asg_arc_t_warp* new_rtg_edges, int max_hang, int min_ovlp)
+{
+    uint64_t i, dip_thres;
+    uint8_t* primary_flag = (uint8_t*)calloc(sg->n_seq, sizeof(uint8_t));
+    int tmp_cov = asm_opt.hom_global_coverage;
+    asm_opt.hom_global_coverage = -1;
+    purge_dups(ug, sg, coverage_cut, sources, reverse_sources, ruIndex, new_rtg_edges, 
+        asm_opt.purge_simi_rate, asm_opt.purge_overlap_len, max_hang, min_ovlp, 0, 0, 0, 1);
+    dip_thres = ((double)asm_opt.hom_global_coverage)/((double)HOM_PEAK_RATE)*0.6;
+    asm_opt.hom_global_coverage = tmp_cov;
+    
+    for (i = 0; i < ug->g->n_seq; i++)
+    {
+        if(get_ug_coverage(&ug->u.a[i], sg, coverage_cut, sources, ruIndex, primary_flag)<dip_thres)
+        {
+            ug->g->seq[i].c = 1;
+        }
+        else
+        {
+            ug->g->seq[i].c = 0;
+        }
+    }
+    free(primary_flag); 
+
+    ///fprintf(stderr, "[M::%s] diploid coverage threshold: %lu\n", __func__, dip_thres);
+}
 
 void output_hic_graph(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name, 
-ma_hit_t_alloc* sources, R_to_U* ruIndex, int max_hang, int min_ovlp)
-{
+ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, int max_hang, 
+int min_ovlp)
+{ 
     kvec_asg_arc_t_warp new_rtg_edges;
     kv_init(new_rtg_edges.a);
 
     ma_ug_t *ug = NULL;
     ug = ma_ug_gen(sg);
     ma_ug_seq(ug, sg, &R_INF, coverage_cut, sources, &new_rtg_edges, max_hang, min_ovlp);
-    hic_analysis(ug);
+    
+    
+    
+    
+    /**
+    fprintf(stderr, "Writing raw unitig GFA to disk... \n");
+    char* gfa_name = (char*)malloc(strlen(output_file_name)+25);
+    sprintf(gfa_name, "%s.r_utg.gfa", output_file_name);
+    FILE* output_file = fopen(gfa_name, "w");
+    ma_ug_print(ug, &R_INF, sg, coverage_cut, sources, ruIndex, "utg", output_file);
+    fclose(output_file);
+    sprintf(gfa_name, "%s.r_utg.noseq.gfa", output_file_name);
+    output_file = fopen(gfa_name, "w");
+    ma_ug_print_simple(ug, &R_INF, sg, coverage_cut, sources, ruIndex, "utg", output_file);
+    fclose(output_file);
+    if(asm_opt.bed_inconsist_rate != 0)
+    {
+        sprintf(gfa_name, "%s.r_utg.lowQ.bed", output_file_name);
+        output_file = fopen(gfa_name, "w");
+        ma_ug_print_bed(ug, sg, &R_INF, coverage_cut, sources, &new_rtg_edges, 
+        max_hang, min_ovlp, asm_opt.bed_inconsist_rate, "utg", output_file);
+        fclose(output_file);
+    }
 
+    free(gfa_name);
+    **/
+    classify_untigs(ug, sg, coverage_cut, sources, reverse_sources, ruIndex, &new_rtg_edges, 
+    max_hang, min_ovlp);
+    hic_analysis(ug);
     ma_ug_destroy(ug);
     kv_destroy(new_rtg_edges.a);
 }
@@ -27426,20 +27482,6 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
 
     asg_arc_del_simple_circle_untig(sources, coverage_cut, sg, 100, 0);
 
-    if (asm_opt.flag & HA_F_VERBOSE_GFA)
-    {
-        /*******************************for debug***************************************/
-        write_debug_graph(sg, sources, coverage_cut, output_file_name, n_read, reverse_sources, ruIndex);
-        debug_gfa:;
-        /*******************************for debug***************************************/
-    }
-    /**
-    debug_ma_hit_t(sources, coverage_cut, n_read, max_hang_length, 
-    mini_overlap_length);
-    debug_ma_hit_t(reverse_sources, coverage_cut, n_read, max_hang_length, 
-    mini_overlap_length);
-    **/
- 
     ///note: don't apply asg_arc_del_too_short_overlaps() after this function!!!!
     rescue_contained_reads_aggressive(NULL, sg, sources, coverage_cut, ruIndex, max_hang_length, 
     mini_overlap_length, bubble_dist, 10, 1, 0, NULL, NULL);
@@ -27451,6 +27493,14 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
     // max_hang_length, mini_overlap_length, bubble_dist, NULL);
     // rescue_no_coverage_aggressive(sg, sources, reverse_sources, &coverage_cut, ruIndex, max_hang_length, 
     // mini_overlap_length, bubble_dist, 10);
+
+    if (asm_opt.flag & HA_F_VERBOSE_GFA)
+    {
+        /*******************************for debug***************************************/
+        write_debug_graph(sg, sources, coverage_cut, output_file_name, n_read, reverse_sources, ruIndex);
+        debug_gfa:;
+        /*******************************for debug***************************************/
+    }
 
     if (ha_opt_triobin(&asm_opt))
     {
@@ -27468,7 +27518,10 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
     }
     else if(ha_opt_hic(&asm_opt))
     {
-        output_hic_graph(sg, coverage_cut, output_file_name, sources, ruIndex, max_hang_length, mini_overlap_length);;
+        char *buf = (char*)calloc(strlen(output_file_name) + 25, 1);
+		sprintf(buf, "%s.hic", output_file_name);
+        output_hic_graph(sg, coverage_cut, buf, sources, reverse_sources, ruIndex, max_hang_length, mini_overlap_length);;
+        free(buf);
     }
     else
     {
