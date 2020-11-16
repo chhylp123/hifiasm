@@ -24,10 +24,11 @@ static ko_longopt_t long_options[] = {
     { "purge-cov",     ko_required_argument, 309 },
     { "pri-range",     ko_required_argument, 310 },
     { "high-het",      ko_no_argument, 311 },
-    { "lowQ",      ko_required_argument, 312 },
-    { "h1",      ko_required_argument, 313 },
-    { "h2",      ko_required_argument, 314 },
-    { "enzyme",      ko_required_argument, 315 },
+    { "lowQ",          ko_required_argument, 312 },
+	{ "min-hist-cnt",  ko_required_argument, 313 },
+    { "h1",      ko_required_argument, 314 },
+    { "h2",      ko_required_argument, 315 },
+    { "enzyme",      ko_required_argument, 316 },
 	{ 0, 0, 0 }
 };
 
@@ -114,8 +115,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
 	asm_opt->hom_cov = 20;
     asm_opt->het_cov = -1024;
 	asm_opt->max_n_chain = 100;
-    asm_opt->k_mer_min_freq = 3;
-    asm_opt->k_mer_max_freq = 66;
+	asm_opt->min_hist_kmer_cnt = 5;
     asm_opt->load_index_from_disk = 1;
     asm_opt->write_index_to_disk = 1;
     asm_opt->number_of_round = 3;
@@ -471,8 +471,9 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         }
         else if (c == 311) asm_opt->flag |= HA_F_HIGH_HET;
         else if (c == 312) asm_opt->bed_inconsist_rate = atoi(opt.arg);
-        else if (c == 313) asm_opt->hic_files[0] = opt.arg;
-        else if (c == 314) asm_opt->hic_files[1] = opt.arg;
+        else if (c == 313) asm_opt->min_hist_kmer_cnt = atoi(opt.arg);
+        else if (c == 314) asm_opt->hic_files[0] = opt.arg;
+        else if (c == 315) asm_opt->hic_files[1] = opt.arg;
         else if (c == 'l')
         {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
             asm_opt->purge_level_primary = asm_opt->purge_level_trio = atoi(opt.arg);

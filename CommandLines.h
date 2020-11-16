@@ -45,8 +45,7 @@ typedef struct {
 	int hom_cov;
     int het_cov;
 	int max_n_chain; // fall-back max number of chains to consider
-    int k_mer_min_freq;
-    int k_mer_max_freq;
+	int min_hist_kmer_cnt;
     int load_index_from_disk;
     int write_index_to_disk;
     int number_of_round;
