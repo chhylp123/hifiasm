@@ -27,6 +27,7 @@ static ko_longopt_t long_options[] = {
     { "lowQ",      ko_required_argument, 312 },
     { "h1",      ko_required_argument, 313 },
     { "h2",      ko_required_argument, 314 },
+    { "enzyme",      ko_required_argument, 315 },
 	{ 0, 0, 0 }
 };
 
@@ -101,6 +102,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->required_read_name = NULL;
     asm_opt->hic_files[0] = NULL;
     asm_opt->hic_files[1] = NULL;
+    asm_opt->hic_enzymes = NULL;
     asm_opt->thread_num = 1;
     asm_opt->k_mer_length = 51;
     asm_opt->hic_mer_length = 31;
@@ -139,14 +141,13 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->recover_atg_cov_max = INT_MAX;
     asm_opt->hom_global_coverage = -1;
     asm_opt->bed_inconsist_rate = 70;
+    asm_opt->bub_mer_length = 3;
 }
 
 void destory_opt(hifiasm_opt_t* asm_opt)
 {
-    if(asm_opt->read_file_names != NULL)
-    {
-        free(asm_opt->read_file_names);
-    }
+    if(asm_opt->read_file_names != NULL) free(asm_opt->read_file_names);
+    if(asm_opt->hic_enzymes != NULL) free(asm_opt->hic_enzymes);
 }
 
 void ha_opt_reset_to_round(hifiasm_opt_t* asm_opt, int round)
@@ -401,6 +402,10 @@ void get_queries(int argc, char *argv[], ketopt_t* opt, hifiasm_opt_t* asm_opt)
     }
 }
 
+void get_hic_enzymes(char *argv, hifiasm_opt_t* asm_opt)
+{
+    ///strtok
+}
 
 int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
 {

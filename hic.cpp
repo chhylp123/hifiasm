@@ -60,9 +60,11 @@ typedef struct{
     kvec_t(uint8_t) rGraphSet;
     kvec_t(uint8_t) rGraphVis;
     kvec_t(uint8_t) utgVis;
+    kvec_t(uint8_t) bmerVis;
     kdq_t(uint64_t) *q;
     kvec_t(uint64_t) parent;
     uint64_t uID_mode, uID_shift, n, src, dest;
+    int p_mer, a_mer, b_mer;
 } min_cut_t;
 
 typedef struct {
@@ -1445,6 +1447,8 @@ void identify_bubbles(ma_ug_t* ug, bubble_type* bub)
         {
             bub->index[(a[v]>>1)] = i;
         }
+
+        bub->index[(beg>>1)] = bub->index[(sink>>1)] = (uint32_t)-1;
     }
 
     ///free(bub->index); bub->index = NULL;
@@ -1859,8 +1863,10 @@ void init_min_cut_t(min_cut_t* x, hc_links* link, const bubble_type* bub, const 
     x->n = utg_num;
 
     kv_malloc(x->rGraphSet, utg_num); x->rGraphSet.n = utg_num;
+    ///must utg_num<<1)
     kv_malloc(x->rGraphVis, utg_num); x->rGraphVis.n = utg_num;
     kv_malloc(x->utgVis, utg_num); x->utgVis.n = utg_num;
+    kv_malloc(x->bmerVis, utg_num); x->bmerVis.n = utg_num;
     kv_malloc(x->order, utg_num); x->order.n = utg_num;
     kv_malloc(x->parent, utg_num); x->parent.n = utg_num;
     ///uresolved BUGs, if use kv_resize segfault; if use kv_malloc, work?????
@@ -1881,6 +1887,7 @@ void init_min_cut_t(min_cut_t* x, hc_links* link, const bubble_type* bub, const 
         x->rGraphSet.a[i] = 0;
         x->rGraphVis.a[i] = 0;
         x->utgVis.a[i] = 0;
+        x->bmerVis.a[i] = 0;
         x->parent.a[i] = (uint64_t)-1;
         
         ///uresolved BUGs, if use kv_resize segfault; if use kv_malloc, work?????
@@ -1906,6 +1913,7 @@ void init_min_cut_t(min_cut_t* x, hc_links* link, const bubble_type* bub, const 
     x->q = kdq_init(uint64_t);
     radix_sort_hc64(x->order.a, x->order.a + x->order.n);
 
+    x->b_mer = asm_opt.bub_mer_length;
     ///fprintf(stderr, "[M::%s]\n",  __func__);
     ///exit(0);
 }
@@ -1917,6 +1925,7 @@ void destory_min_cut_t(min_cut_t* x)
     kv_destroy(x->rGraphSet);
     kv_destroy(x->rGraphVis);
     kv_destroy(x->utgVis);
+    kv_destroy(x->bmerVis);
     uint64_t i;
     for (i = 0; i < x->rGraph.m; i++)
     {
@@ -1931,12 +1940,13 @@ void reset_min_cut_t(min_cut_t* x, hc_links* link)
     ///no need to reset parent[] and q
     uint64_t i, j;
     ///important to have this line
-    x->parent.n = x->order.n = x->rGraph.n = x->rGraphVis.n = x->rGraphSet.n = link->a.n;
+    x->bmerVis.n = x->parent.n = x->order.n = x->rGraph.n = x->rGraphVis.n = x->rGraphSet.n = link->a.n;
     kdq_clear(x->q);
 
     for (i = 0; i < x->rGraphSet.n; i++)
     {
         x->rGraphVis.a[i] = 0;
+        ///x->bmerVis.a[i] = 0;
         ///important to have this line
         x->rGraph.a[i].n = link->a.a[i].e.n;
 
@@ -1955,6 +1965,7 @@ uint64_t add_mul_convex(min_cut_t* x, uint64_t* a, uint64_t n)
     if(n == 1) return a[0];
     kv_push(uint8_t, x->rGraphSet, 0);
     kv_push(uint8_t, x->rGraphVis, 0);
+    kv_push(uint8_t, x->bmerVis, 0);
     kv_push(uint64_t, x->parent, 0);
     kv_resize(hc_edge_warp, x->rGraph, x->rGraph.n+1); 
     kv_init(x->rGraph.a[x->rGraph.n]);
@@ -2021,6 +2032,7 @@ uint64_t bfs_flow(uint64_t src, uint64_t dest, min_cut_t* x, kvec_t_u64_warp* bu
             if(x->rGraph.a[v].a[i].weight == 0) continue;
             u = x->rGraph.a[v].a[i].uID;
             if(x->rGraphVis.a[u]) continue;
+            if(!x->bmerVis.a[u]) continue;
 
             ///x->parent.a[u] = v;
             x->parent.a[u] = x->rGraph.a[v].a[i].weight;
@@ -2125,6 +2137,7 @@ void graph_cut(uint64_t src, uint64_t dest, min_cut_t* x)
                 if(x->rGraph.a[i].a[j].del) continue;
                 u = x->rGraph.a[i].a[j].uID;
                 if(x->rGraphVis.a[u]) continue;
+                if(!x->bmerVis.a[u]) continue;
                 /*******************************for debug************************************/
                 fprintf(stderr, "utg%.6lul\tutg%.6lul\t%d\n", v+1, u+1, x->rGraph.a[i].a[j].weight);    
                 /*******************************for debug************************************/
@@ -2252,6 +2265,106 @@ uint64_t src, uint64_t dest, uint64_t utg_thres, int weight_thres)
     return 1;
 }
 
+uint64_t inline set_dv(uint64_t v, uint64_t dis)
+{
+    dis <<= 32; dis |= v;
+    return dis; 
+}
+
+
+
+uint64_t select_bmer(uint32_t src, uint64_t k, const bubble_type* bub, min_cut_t* x)
+{
+    uint32_t beg, sink, n, *a;
+    uint32_t v, d, u, i, nv, b_mer_d, j;
+    asg_t *sg = bub->ug->g;
+    uint64_t *p = NULL;
+    asg_arc_t *av = NULL;
+
+    memset(x->rGraphVis.a, 0, x->rGraphVis.n);
+    kdq_push(uint64_t, x->q, set_dv(src , 0));
+    b_mer_d = 0; 
+
+    x->rGraphVis.a[src] = 1;
+    x->bmerVis.a[src] = 1;
+
+    while (1)
+    {
+        p = kdq_shift(uint64_t, x->q);
+        if(!p) break;
+        v = (uint32_t)(*p); d = ((uint64_t)(*p))>>32;
+
+        v = v<<1;
+        av = asg_arc_a(sg, v);
+        nv = asg_arc_n(sg, v);
+        for (i = 0; i < nv; i++)
+        {
+            if(av[i].del) continue;
+            u = av[i].v>>1;
+            if(x->rGraphVis.a[u]) continue;
+            x->rGraphVis.a[u] = 1;
+            if(bub->index[u] > bub->num.n)
+            {
+                if(d < k) kdq_push(uint64_t, x->q, set_dv(u, d+1));
+            }
+            else
+            {
+                x->bmerVis.a[u] = 1;
+                kdq_push(uint64_t, x->q, set_dv(u , d));
+                b_mer_d = d;
+            }            
+        }
+
+
+        v = v + 1;
+        av = asg_arc_a(sg, v);
+        nv = asg_arc_n(sg, v);
+        for (i = 0; i < nv; i++)
+        {
+            if(av[i].del) continue;
+            u = av[i].v>>1;
+            if(x->rGraphVis.a[u]) continue;
+            x->rGraphVis.a[u] = 1;
+            if(bub->index[u] > bub->num.n)
+            {
+                if(d < k) kdq_push(uint64_t, x->q, set_dv(u, d+1));
+            }
+            else
+            {
+                kdq_push(uint64_t, x->q, set_dv(u , d));
+                b_mer_d = d;
+                if(bub->index[u] < bub->num.n && x->bmerVis.a[u] == 0)
+                {
+                    get_bubbles((bubble_type*)bub, bub->index[u], &beg, &sink, &a, &n);
+                    for (j = 0; j < n; j++) x->bmerVis.a[(a[j]>>1)] = 1;
+                }
+                //must be here
+                x->bmerVis.a[u] = 1;
+            }            
+        }
+    }
+
+    return b_mer_d;
+}
+
+void get_bmer_unitgs(min_cut_t* x, const bubble_type* bub, uint64_t k, uint64_t src)
+{
+    memset(x->bmerVis.a, 0, x->bmerVis.n);
+    select_bmer(src, k, bub, x);
+    /*******************************for debug************************************/
+    uint64_t i;
+    for (i = 0; i < x->bmerVis.n; ++i) 
+    { 
+        if(x->bmerVis.a[i] == 0) continue;
+        fprintf(stderr, "(k)utg%.6dl\n", (int)(i+1));    
+    }
+    // for (i = 0; i < x->bmerVis.n; ++i) 
+    // { 
+    //     fprintf(stderr, "(label)utg%.6dl: %u, (num)%u\n", (int)(i+1), bub->index[i], bub->num.n);    
+    // }
+    /*******************************for debug************************************/
+}
+
 void clean_hap(hc_links* link, bubble_type* bub, const ma_ug_t *ug)
 {
     min_cut_t x;
@@ -2286,6 +2399,10 @@ void clean_hap(hc_links* link, bubble_type* bub, const ma_ug_t *ug)
 
         /*******************************for debug************************************/
         if(!select_large_node(ug, &x, x.src, x.dest, 10, 10)) continue; 
+
+
+        get_bmer_unitgs(&x, bub, x.b_mer, x.src);
+        x.bmerVis.a[x.src] = x.bmerVis.a[x.dest] = 1;
         /*******************************for debug************************************/
 
         graph_cut(x.src, x.dest, &x);

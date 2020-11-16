@@ -31,10 +31,12 @@ typedef struct {
 	char *fn_bin_list[2];
 	char *extract_list;
     char *hic_files[2];
+    char **hic_enzymes;
 	int extract_iter;
     int thread_num;
     int k_mer_length;
     int hic_mer_length;
+    int bub_mer_length;
 	int mz_win;
 	int bf_shift;
 	double high_factor; // coverage cutoff set to high_factor*hom_cov
