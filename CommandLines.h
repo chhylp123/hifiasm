@@ -21,6 +21,11 @@
 
 #define HA_MIN_OV_DIFF       0.02 // min sequence divergence in an overlap
 
+typedef struct{
+    int *l, n; 
+    char **a;
+}enzyme;
+
 typedef struct {
 	int flag;
     int num_reads;
@@ -31,7 +36,7 @@ typedef struct {
 	char *fn_bin_list[2];
 	char *extract_list;
     char *hic_files[2];
-    char **hic_enzymes;
+    enzyme *hic_enzymes;
 	int extract_iter;
     int thread_num;
     int k_mer_length;

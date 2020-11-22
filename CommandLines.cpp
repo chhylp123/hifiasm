@@ -141,13 +141,24 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->recover_atg_cov_max = INT_MAX;
     asm_opt->hom_global_coverage = -1;
     asm_opt->bed_inconsist_rate = 70;
-    asm_opt->bub_mer_length = 3;
+    ///asm_opt->bub_mer_length = 3;
+    asm_opt->bub_mer_length = 10;
 }
 
 void destory_opt(hifiasm_opt_t* asm_opt)
 {
     if(asm_opt->read_file_names != NULL) free(asm_opt->read_file_names);
-    if(asm_opt->hic_enzymes != NULL) free(asm_opt->hic_enzymes);
+    if(asm_opt->hic_enzymes != NULL)
+    {
+        int i;
+        for (i = 0; i < asm_opt->hic_enzymes->n; i++)
+        {
+            free(asm_opt->hic_enzymes->a[i]);
+        }
+        free(asm_opt->hic_enzymes->a);
+        free(asm_opt->hic_enzymes->l);
+        free(asm_opt->hic_enzymes);
+    }
 }
 
 void ha_opt_reset_to_round(hifiasm_opt_t* asm_opt, int round)
@@ -353,6 +364,13 @@ int check_option(hifiasm_opt_t* asm_opt)
         fprintf(stderr, "[ERROR] lack r1 of HiC reads (--h1)\n");
         return 0;
     }
+
+    if(asm_opt->hic_enzymes != NULL && asm_opt->hic_enzymes->n == 0)
+    {
+        fprintf(stderr, "[ERROR] wrong HiC enzymes (--enzyme)\n");
+        return 0;
+    }
+
     // fprintf(stderr, "input file num: %d\n", asm_opt->num_reads);
     // fprintf(stderr, "output file: %s\n", asm_opt->output_file_name);
     // fprintf(stderr, "number of threads: %d\n", asm_opt->thread_num);
@@ -404,7 +422,56 @@ void get_queries(int argc, char *argv[], ketopt_t* opt, hifiasm_opt_t* asm_opt)
 
 void get_hic_enzymes(char *argv, hifiasm_opt_t* asm_opt)
 {
-    ///strtok
+    int i, k, pre_i, len = strlen(argv);
+    asm_opt->hic_enzymes = (enzyme*)calloc(1, sizeof(enzyme));
+    if(len == 0)
+    {
+        asm_opt->hic_enzymes->n = 0;
+        asm_opt->hic_enzymes->l = NULL;
+        asm_opt->hic_enzymes->a = NULL;
+        return;
+    }
+
+
+    asm_opt->hic_enzymes->n = 1;
+    for (i = pre_i = 0; i < len; i++)
+    {
+        if(argv[i] == ',')
+        {
+            asm_opt->hic_enzymes->n++;
+            continue;
+        } 
+        
+        if(argv[i] != 'A' && argv[i] != 'C' && argv[i] != 'G' && argv[i] != 'T' &&
+           argv[i] != 'a' && argv[i] != 'c' && argv[i] != 'g' && argv[i] != 't' && 
+           argv[i] != 'N' && argv[i] != 'n')
+        {
+            asm_opt->hic_enzymes->n = 0;
+            asm_opt->hic_enzymes->l = NULL;
+            asm_opt->hic_enzymes->a = NULL;
+            return;
+        }
+    }
+    asm_opt->hic_enzymes->l = (int*)calloc(asm_opt->hic_enzymes->n, sizeof(int));
+    asm_opt->hic_enzymes->a = (char**)calloc(asm_opt->hic_enzymes->n, sizeof(char*));
+
+    for (i = pre_i = k = 0; i < len; i++)
+    {
+        if(argv[i] == ',')
+        {
+            asm_opt->hic_enzymes->l[k] = i - pre_i;
+            asm_opt->hic_enzymes->a[k] = (char*)malloc(sizeof(char)*(asm_opt->hic_enzymes->l[k]+1));
+            memcpy(asm_opt->hic_enzymes->a[k], argv + pre_i, asm_opt->hic_enzymes->l[k]);
+            asm_opt->hic_enzymes->a[k][asm_opt->hic_enzymes->l[k]] = '\0';
+            pre_i = i + 1;
+            k++;
+        }
+    }
+
+    asm_opt->hic_enzymes->l[k] = i - pre_i;
+    asm_opt->hic_enzymes->a[k] = (char*)malloc(sizeof(char)*(asm_opt->hic_enzymes->l[k]+1));
+    memcpy(asm_opt->hic_enzymes->a[k], argv + pre_i, asm_opt->hic_enzymes->l[k]);
+    asm_opt->hic_enzymes->a[k][asm_opt->hic_enzymes->l[k]] = '\0';
 }
 
 int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
@@ -474,6 +541,7 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         else if (c == 313) asm_opt->min_hist_kmer_cnt = atoi(opt.arg);
         else if (c == 314) asm_opt->hic_files[0] = opt.arg;
         else if (c == 315) asm_opt->hic_files[1] = opt.arg;
+        else if (c == 316) get_hic_enzymes(opt.arg, asm_opt);
         else if (c == 'l')
         {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
             asm_opt->purge_level_primary = asm_opt->purge_level_trio = atoi(opt.arg);
