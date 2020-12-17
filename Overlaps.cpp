@@ -9795,6 +9795,74 @@ ma_hit_t_alloc* sources, R_to_U* ruIndex, uint8_t* r_flag)
     return C_bases/R_bases;
 }
 
+uint32_t get_ug_coverage_aggressive(ma_ug_t *ug, uint32_t uID, asg_t* read_g, 
+const ma_sub_t* coverage_cut, ma_hit_t_alloc* sources, R_to_U* ruIndex, uint8_t* r_flag)
+{
+    ma_utg_t* u = &(ug->u.a[uID]);
+    uint32_t k, j, rId, tn, is_Unitig;
+    long long R_bases = 0, C_bases = 0;
+    ma_hit_t *h;
+    if(u->m == 0) return 0;
+
+    for (k = 0; k < u->n; k++)
+    {
+        rId = u->a[k]>>33;
+        r_flag[rId] = 1;
+    }
+
+
+    uint32_t nv, i;
+    asg_arc_t *av = NULL;
+    for (i = 0; i < 2; i++)
+    {
+        nv = asg_arc_n(ug->g, (uID<<1)+i);
+        av = asg_arc_a(ug->g, (uID<<1)+i);
+        for (j = 0; j < nv; j++)
+        {
+            u = &(ug->u.a[av[j].v>>1]);
+            for (k = 0; k < u->n; k++)
+            {
+                rId = u->a[k]>>33;
+                r_flag[rId] = 1;
+            }
+        }
+    }
+    
+
+    u = &(ug->u.a[uID]);
+    for (k = 0; k < u->n; k++)
+    {
+        rId = u->a[k]>>33;
+        R_bases += (coverage_cut[rId].e - coverage_cut[rId].s);
+        for (j = 0; j < (uint64_t)(sources[rId].length); j++)
+        {
+            h = &(sources[rId].buffer[j]);
+            if(h->el != 1) continue;
+            tn = Get_tn((*h));
+            if(read_g->seq[tn].del == 1)
+            {
+                ///get the id of read that contains it 
+                get_R_to_U(ruIndex, tn, &tn, &is_Unitig);
+                if(tn == (uint32_t)-1 || is_Unitig == 1 || read_g->seq[tn].del == 1) continue;
+            }
+            if(read_g->seq[tn].del == 1) continue;
+            if(r_flag[tn] != 1) continue;
+            C_bases += (Get_qe((*h)) - Get_qs((*h)));
+        }
+    }
+
+
+    for (k = 0; k < u->n; k++)
+    {
+        rId = u->a[k]>>33;
+        r_flag[rId] = 0;
+    }
+
+    return C_bases/R_bases;
+}
+
+
+
 void ma_ug_print2(const ma_ug_t *ug, All_reads *RNF, asg_t* read_g, const ma_sub_t *coverage_cut, 
 ma_hit_t_alloc* sources, R_to_U* ruIndex, int print_seq, const char* prefix, FILE *fp)
 {
@@ -10889,8 +10957,50 @@ uint32_t get_num_trio_flag(ma_ug_t *ug, uint32_t v, uint32_t flag)
     return flag_occ;
 }
 
+
+void set_pre_uid(buf_t* b, hc_links* link, ma_ug_t *ug)
+{
+    uint32_t k = 0, i = 0, m = 0, rId, pre = (uint32_t)-1;
+    ma_utg_t* u = NULL;
+    for (i = 0; i < b->b.n; i++)
+    {
+        u = &(ug->u.a[b->b.a[i]>>1]);
+        if(u->m == 0) continue;
+        for (k = 0; k < u->m; k++)
+        {
+            rId = u->a[k]>>33;
+            if(link->u_idx[rId] == (uint32_t)-1) continue;
+            if(pre == link->u_idx[rId]) continue;
+            pre = link->u_idx[rId];
+            b->b.a[m] = link->u_idx[rId];
+            m++;
+        }
+    }
+    b->b.n = m;
+}
+
+
+void collect_reverse_unitigs(buf_t* b_0, buf_t* b_1, hc_links* link, ma_ug_t *ug)
+{
+    uint32_t k, m;
+    uint64_t d = (uint64_t)-1;
+    set_pre_uid(b_0, link, ug);
+    set_pre_uid(b_1, link, ug);
+    
+    for (k = 0; k < b_0->b.n; k++)
+    {
+        for (m = 0; m < b_1->b.n; m++)
+        {
+            if(b_0->b.a[k] == b_1->b.a[m]) continue;
+            push_hc_edge(&(link->a.a[b_0->b.a[k]]), b_1->b.a[m], 1, 1, &d);
+            push_hc_edge(&(link->a.a[b_1->b.a[m]]), b_0->b.a[k], 1, 1, &d);
+        }
+    }
+}
+
+
 int untig_asg_arc_simple_large_bubbles_trio(ma_ug_t *ug, asg_t *read_sg, ma_hit_t_alloc* reverse_sources, 
-long long miniedgeLen, R_to_U* ruIndex, uint32_t positive_flag, uint32_t negative_flag)
+long long miniedgeLen, R_to_U* ruIndex, uint32_t positive_flag, uint32_t negative_flag, hc_links* link)
 {
     asg_t *g = ug->g;
     double startTime = Get_T();
@@ -11017,6 +11127,8 @@ long long miniedgeLen, R_to_U* ruIndex, uint32_t positive_flag, uint32_t negativ
                         {
                             asg_seq_drop(g, buffer.b.a[k]>>1);
                         }
+
+                        if(link) collect_reverse_unitigs(&b_0, &b_1, link, ug);
 
                         is_hap++;
                     }
@@ -11639,8 +11751,8 @@ kvec_asg_arc_t_warp* new_rtg_edges, int max_hang, int min_ovlp)
     int tmp_cov = asm_opt.hom_global_coverage;
     asm_opt.hom_global_coverage = -1;
     purge_dups(ug, sg, coverage_cut, sources, reverse_sources, ruIndex, new_rtg_edges, 
-        asm_opt.purge_simi_rate, asm_opt.purge_overlap_len, max_hang, min_ovlp, 0, 0, 0, 1);
-    dip_thres = ((double)asm_opt.hom_global_coverage)/((double)HOM_PEAK_RATE)*0.6;
+        asm_opt.purge_simi_rate, asm_opt.purge_overlap_len, max_hang, min_ovlp, 0, 0, 0, 1, NULL);
+    dip_thres = ((double)asm_opt.hom_global_coverage)/((double)HOM_PEAK_RATE)*0.75;
     asm_opt.hom_global_coverage = tmp_cov;
     
     for (i = 0; i < ug->g->n_seq; i++)
@@ -11648,6 +11760,10 @@ kvec_asg_arc_t_warp* new_rtg_edges, int max_hang, int min_ovlp)
         if(get_ug_coverage(&ug->u.a[i], sg, coverage_cut, sources, ruIndex, primary_flag)<dip_thres)
         {
             ug->g->seq[i].c = 1;
+            if(get_ug_coverage_aggressive(ug, i, sg, coverage_cut, sources, ruIndex, primary_flag)<dip_thres)
+            {
+                ug->g->seq[i].c = 2;
+            }
         }
         else
         {
@@ -12268,8 +12384,9 @@ asg_t *read_sg, ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, uint32_t min_e
 	return cnt;
 }
 
+
 int asg_arc_cut_trio_long_tip_primary(asg_t *g, ma_ug_t *ug, asg_t *read_sg, ma_hit_t_alloc* reverse_sources,
-R_to_U* ruIndex, uint32_t min_edge_length, float drop_ratio)
+R_to_U* ruIndex, uint32_t min_edge_length, float drop_ratio, hc_links* link)
 {
     double startTime = Get_T();
     ///the reason is that each read has two direction (query->target, target->query)
@@ -12370,6 +12487,8 @@ R_to_U* ruIndex, uint32_t min_edge_length, float drop_ratio)
                 }
 
 
+                if(link && operation != CUT) collect_reverse_unitigs(&b_0, &b_1, link, ug);
+
             }
         }
     }
@@ -12392,7 +12511,7 @@ R_to_U* ruIndex, uint32_t min_edge_length, float drop_ratio)
 }
 
 int asg_arc_cut_trio_long_tip_primary_complex(asg_t *g, ma_ug_t *ug, asg_t *read_sg, ma_hit_t_alloc* reverse_sources,
-R_to_U* ruIndex, uint32_t min_edge_length, float drop_ratio, uint32_t stops_threshold)
+R_to_U* ruIndex, uint32_t min_edge_length, float drop_ratio, uint32_t stops_threshold, hc_links* link)
 {
     double startTime = Get_T();
     uint32_t v, n_vtx = g->n_seq * 2, n_reduced = 0, convex, in, flag, operation;
@@ -12493,6 +12612,8 @@ R_to_U* ruIndex, uint32_t min_edge_length, float drop_ratio, uint32_t stops_thre
                     }
                 }
 
+                if(link && operation != CUT) collect_reverse_unitigs(&b_0, &b_1, link, ug);
+
                 break;
             }
         }
@@ -12590,7 +12711,8 @@ long long* base_maxLen, long long* base_maxLen_i, uint32_t stops_threshold, buf_
 }
 
 int asg_arc_cut_trio_long_equal_tips_assembly(asg_t *g, ma_ug_t *ug, asg_t *read_sg, 
-ma_hit_t_alloc* reverse_sources, long long miniedgeLen, R_to_U* ruIndex, uint32_t trio_flag)
+ma_hit_t_alloc* reverse_sources, long long miniedgeLen, R_to_U* ruIndex, uint32_t trio_flag,
+hc_links* link)
 {
     double startTime = Get_T();
     uint32_t v, n_vtx = g->n_seq * 2, n_reduced = 0, convex, flag, is_hap, n_tips, return_flag, k;
@@ -12676,6 +12798,8 @@ ma_hit_t_alloc* reverse_sources, long long miniedgeLen, R_to_U* ruIndex, uint32_
             {
                 asg_seq_drop(g, b.b.a[k]>>1);
             }
+
+            if(link) collect_reverse_unitigs(&b_0, &b_1, link, ug);
 
             is_hap++;
         }
@@ -12908,7 +13032,7 @@ R_to_U* ruIndex, uint32_t positive_flag, float drop_rate)
 }
 
 int asg_arc_cut_trio_long_equal_tips_assembly_complex(asg_t *g, ma_ug_t *ug, asg_t *read_sg, 
-ma_hit_t_alloc* reverse_sources, long long miniedgeLen, R_to_U* ruIndex, uint32_t stops_threshold)
+ma_hit_t_alloc* reverse_sources, long long miniedgeLen, R_to_U* ruIndex, uint32_t stops_threshold, hc_links* link)
 {
     double startTime = Get_T();
     uint32_t v, n_vtx = g->n_seq * 2, n_reduced = 0, convex, in, flag;
@@ -13001,6 +13125,7 @@ ma_hit_t_alloc* reverse_sources, long long miniedgeLen, R_to_U* ruIndex, uint32_
                     asg_seq_drop(g, b.b.a[k]>>1);
                 }
 
+                if(link) collect_reverse_unitigs(&b_0, &b_1, link, ug);
 
                 ///lable the primary one
                 b_0.b.n = 0; 
@@ -13369,7 +13494,7 @@ float drop_ratio, uint32_t trio_flag, float trio_drop_rate)
     ///print_untig((ug), 61955, "i-0:", 0);
 
     asg_pop_bubble_primary_trio(ug, bubble_dist, trio_flag, DROP);
-    untig_asg_arc_simple_large_bubbles_trio(ug, read_g, reverse_sources, 2, ruIndex, trio_flag, DROP); 
+    untig_asg_arc_simple_large_bubbles_trio(ug, read_g, reverse_sources, 2, ruIndex, trio_flag, DROP, NULL); 
     magic_trio_phasing(g, ug, read_g, coverage_cut, sources, reverse_sources, 2, ruIndex, trio_flag, trio_drop_rate);    
     ///drop_semi_circle(ug, g, read_g, reverse_sources, ruIndex);
     /**********debug**********/
@@ -13392,12 +13517,10 @@ float drop_ratio, uint32_t trio_flag, float trio_drop_rate)
         if(just_bubble_pop == 0)
         {
             ///need consider tangles
-            asg_arc_cut_trio_long_tip_primary(g, ug, read_g, reverse_sources, ruIndex, 2, tip_drop_ratio);            
-            asg_arc_cut_trio_long_equal_tips_assembly(g, ug, read_g, reverse_sources, 2, ruIndex, trio_flag);            
-            asg_arc_cut_trio_long_tip_primary_complex(g, ug, read_g, reverse_sources, ruIndex,
-            2, tip_drop_ratio, stops_threshold);
-            asg_arc_cut_trio_long_equal_tips_assembly_complex(g, ug, read_g, reverse_sources, 
-            2, ruIndex, stops_threshold);
+            asg_arc_cut_trio_long_tip_primary(g, ug, read_g, reverse_sources, ruIndex, 2, tip_drop_ratio, NULL);            
+            asg_arc_cut_trio_long_equal_tips_assembly(g, ug, read_g, reverse_sources, 2, ruIndex, trio_flag, NULL);            
+            asg_arc_cut_trio_long_tip_primary_complex(g, ug, read_g, reverse_sources, ruIndex, 2, tip_drop_ratio, stops_threshold, NULL);
+            asg_arc_cut_trio_long_equal_tips_assembly_complex(g, ug, read_g, reverse_sources, 2, ruIndex, stops_threshold, NULL);
             ///print_debug_gfa(read_g, ug, coverage_cut, "debug_chimeric", sources, ruIndex, asm_opt.max_hang_Len, asm_opt.min_overlap_Len);
             detect_chimeric_by_topo(g, ug, read_g, reverse_sources, 2, stops_threshold, chimeric_rate,
             ruIndex);
@@ -13407,7 +13530,7 @@ float drop_ratio, uint32_t trio_flag, float trio_drop_rate)
         /**********debug**********/
         cur_cons = get_graph_statistic(g);
     }
-    untig_asg_arc_simple_large_bubbles_trio(ug, read_g, reverse_sources, 2, ruIndex, trio_flag, DROP);
+    untig_asg_arc_simple_large_bubbles_trio(ug, read_g, reverse_sources, 2, ruIndex, trio_flag, DROP, NULL);
 
     if(just_bubble_pop == 0)
     {   
@@ -13433,7 +13556,7 @@ void clean_primary_untig_graph(ma_ug_t *ug, asg_t *read_g, ma_hit_t_alloc* rever
 long long bubble_dist, long long tipsLen, float tip_drop_ratio, long long stops_threshold, 
 R_to_U* ruIndex, buf_t* b_0, uint8_t* visit, float density, uint32_t miniHapLen, 
 uint32_t miniBiGraph, float chimeric_rate, int is_final_clean, int just_bubble_pop, 
-float drop_ratio)
+float drop_ratio, hc_links* link)
 {
     #define T_ROUND 2
     asg_t *g = ug->g;
@@ -13442,7 +13565,7 @@ float drop_ratio)
 
     redo:
     asg_pop_bubble_primary_trio(ug, bubble_dist, (uint32_t)-1, DROP);
-    untig_asg_arc_simple_large_bubbles_trio(ug, read_g, reverse_sources, 2, ruIndex, (uint32_t)-1, DROP); 
+    untig_asg_arc_simple_large_bubbles_trio(ug, read_g, reverse_sources, 2, ruIndex, (uint32_t)-1, DROP, link); 
 
     if(just_bubble_pop == 0)
     {
@@ -13460,15 +13583,11 @@ float drop_ratio)
         if(just_bubble_pop == 0)
         {
             ///need consider tangles
-            asg_arc_cut_trio_long_tip_primary(g, ug, read_g, reverse_sources, ruIndex, 
-            2, tip_drop_ratio);
-            asg_arc_cut_trio_long_equal_tips_assembly(g, ug, read_g, reverse_sources, 2, ruIndex, (uint32_t)-1);
-            asg_arc_cut_trio_long_tip_primary_complex(g, ug, read_g, reverse_sources, ruIndex,
-            2, tip_drop_ratio, stops_threshold);
-            asg_arc_cut_trio_long_equal_tips_assembly_complex(g, ug, read_g, reverse_sources, 
-            2, ruIndex, stops_threshold);
-            detect_chimeric_by_topo(g, ug, read_g, reverse_sources, 2, stops_threshold, chimeric_rate,
-            ruIndex);
+            asg_arc_cut_trio_long_tip_primary(g, ug, read_g, reverse_sources, ruIndex, 2, tip_drop_ratio, link);
+            asg_arc_cut_trio_long_equal_tips_assembly(g, ug, read_g, reverse_sources, 2, ruIndex, (uint32_t)-1, link);
+            asg_arc_cut_trio_long_tip_primary_complex(g, ug, read_g, reverse_sources, ruIndex, 2, tip_drop_ratio, stops_threshold, link);
+            asg_arc_cut_trio_long_equal_tips_assembly_complex(g, ug, read_g, reverse_sources, 2, ruIndex, stops_threshold, link);
+            detect_chimeric_by_topo(g, ug, read_g, reverse_sources, 2, stops_threshold, chimeric_rate, ruIndex);
             
             if(round != T_ROUND)
             {
@@ -13478,7 +13597,7 @@ float drop_ratio)
         }
         cur_cons = get_graph_statistic(g);
     }
-    untig_asg_arc_simple_large_bubbles_trio(ug, read_g, reverse_sources, 2, ruIndex, (uint32_t)-1, DROP);
+    untig_asg_arc_simple_large_bubbles_trio(ug, read_g, reverse_sources, 2, ruIndex, (uint32_t)-1, DROP, link);
 
     if(just_bubble_pop == 0)
     {   
@@ -14011,6 +14130,7 @@ void drop_semi_circle(ma_ug_t *ug, asg_t* nsg, asg_t* read_g, ma_hit_t_alloc* re
             {
                 av[i].del = 1;
 		        asg_arc_del(nsg, av[i].v^1, v^1, 1);
+                ///fprintf(stderr, "****, v>>1: %u, av[i].v>>1: %u\n", v>>1, av[i].v>>1);
             }
         }
         
@@ -14152,7 +14272,7 @@ kvec_asg_arc_t_warp* new_rtg_edges)
     **/
     purge_dups(*ug, read_g, coverage_cut, sources, reverse_sources, ruIndex, new_rtg_edges, 
         asm_opt.purge_simi_rate, asm_opt.purge_overlap_len, max_hang, min_ovlp, bubble_dist,
-        drop_ratio, 1, 1);
+        drop_ratio, 1, 1, NULL);
     if(asm_opt.recover_atg_cov_min == -1024)
     {
         asm_opt.recover_atg_cov_max = asm_opt.hom_global_coverage/HOM_PEAK_RATE;
@@ -14230,7 +14350,7 @@ kvec_asg_arc_t_warp* new_rtg_edges)
     {
 		purge_dups(*ug, read_g, coverage_cut, sources, reverse_sources, ruIndex, new_rtg_edges, 
         asm_opt.purge_simi_rate, asm_opt.purge_overlap_len, max_hang, min_ovlp, bubble_dist,
-        drop_ratio, 1, 0);
+        drop_ratio, 1, 0, NULL);
 		///delete_useless_nodes(ug);
         delete_useless_trio_nodes(ug, read_g, coverage_cut, sources, ruIndex);
 	}
@@ -23214,7 +23334,7 @@ void adjust_utg_by_primary(ma_ug_t **ug, asg_t* read_g, float drop_rate,
 ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, ma_sub_t* coverage_cut, 
 long long bubble_dist, long long tipsLen, float tip_drop_ratio, long long stops_threshold, 
 R_to_U* ruIndex, float chimeric_rate, float drop_ratio, int max_hang, int min_ovlp,
-kvec_asg_arc_t_warp* new_rtg_edges)
+kvec_asg_arc_t_warp* new_rtg_edges, hc_links* link)
 {
     asg_t* nsg = (*ug)->g;
     uint32_t v, n_vtx = nsg->n_seq, k, rId, just_contain;
@@ -23222,10 +23342,23 @@ kvec_asg_arc_t_warp* new_rtg_edges)
     
     ///print_utg_coverage(*ug, coverage_cut, 440, sources);
     ///exit(0);
-    /**
-    kvec_t_u32_warp new_rtg_nodes;
-    kv_init(new_rtg_nodes.a);
-    **/
+    if(link)
+    {
+        memset(link->u_idx, -1, R_INF.total_reads*sizeof(uint32_t));
+        nsg = (*ug)->g;
+        n_vtx = nsg->n_seq;
+        for (v = 0; v < n_vtx; ++v) 
+        {
+            if(nsg->seq[v].del) continue;
+            u = &((*ug)->u.a[v]);
+            if(u->m == 0) continue;
+            for (k = 0; k < u->n; k++)
+            {
+                rId = u->a[k]>>33;
+                link->u_idx[rId] = v;
+            }
+        }
+    }
 
     drop_semi_circle((*ug), nsg, read_g, reverse_sources, ruIndex);
     asg_cleanup(nsg);
@@ -23242,7 +23375,7 @@ kvec_asg_arc_t_warp* new_rtg_edges)
 
     clean_primary_untig_graph(*ug, read_g, reverse_sources, bubble_dist, tipsLen, 
     tip_drop_ratio, stops_threshold, ruIndex, NULL, NULL, 0, 0, 0, 
-    chimeric_rate, 0, 0, drop_ratio);
+    chimeric_rate, 0, 0, drop_ratio, link);
 
     delete_useless_nodes(ug);
     renew_utg(ug, read_g, new_rtg_edges);
@@ -23254,7 +23387,7 @@ kvec_asg_arc_t_warp* new_rtg_edges)
 
         purge_dups(*ug, read_g, coverage_cut, sources, reverse_sources, ruIndex, new_rtg_edges, 
         asm_opt.purge_simi_rate, asm_opt.purge_overlap_len, max_hang, min_ovlp, bubble_dist, 
-        drop_ratio, just_contain, 0);
+        drop_ratio, just_contain, 0, link);
         delete_useless_nodes(ug);
         renew_utg(ug, read_g, new_rtg_edges);
     }
@@ -23277,7 +23410,7 @@ kvec_asg_arc_t_warp* new_rtg_edges)
 
             purge_dups(*ug, read_g, coverage_cut, sources, reverse_sources, ruIndex, new_rtg_edges, 
             asm_opt.purge_simi_rate, asm_opt.purge_overlap_len, max_hang, min_ovlp, bubble_dist, 
-            drop_ratio, just_contain, 0);
+            drop_ratio, just_contain, 0, link);
             delete_useless_nodes(ug);
             renew_utg(ug, read_g, new_rtg_edges);
         }
@@ -23287,7 +23420,7 @@ kvec_asg_arc_t_warp* new_rtg_edges)
     {
         purge_dups(*ug, read_g, coverage_cut, sources, reverse_sources, ruIndex, new_rtg_edges, 
         asm_opt.purge_simi_rate, asm_opt.purge_overlap_len, max_hang, min_ovlp, bubble_dist, 
-        drop_ratio, 0, 1);
+        drop_ratio, 0, 1, link);
     }
 
     n_vtx = read_g->n_seq;
@@ -23341,10 +23474,7 @@ kvec_asg_arc_t_warp* new_rtg_edges)
     }
 
     recover_utg_by_coverage(ug, read_g, coverage_cut, sources, ruIndex);
-    
-    /**
-    kv_destroy(new_rtg_nodes.a);
-    **/
+
 }
 
 
@@ -23414,7 +23544,7 @@ R_to_U* ruIndex, float chimeric_rate, float drop_ratio, int max_hang, int min_ov
 
     adjust_utg_by_primary(&ug, sg, TRIO_THRES, sources, reverse_sources, coverage_cut, 
     bubble_dist, tipsLen, tip_drop_ratio, stops_threshold, ruIndex, chimeric_rate, drop_ratio, 
-    max_hang, min_ovlp, &new_rtg_edges);
+    max_hang, min_ovlp, &new_rtg_edges, NULL);
 
     ma_ug_seq(ug, sg, &R_INF, coverage_cut, sources, &new_rtg_edges, max_hang, min_ovlp);
     
@@ -27356,7 +27486,9 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
     ma_hit_contained_advance(sources, n_read, coverage_cut, ruIndex, max_hang_length, mini_overlap_length);
     sg = ma_sg_gen(sources, n_read, coverage_cut, max_hang_length, mini_overlap_length);
 
-    ///debug_info_of_specfic_node((char*)"m64062_190804_172951/130483063/ccs", sg, ruIndex, (char*)"sbsbsb");
+    ///debug_info_of_specfic_node((char*)"m64043_200504_050026/93784180/ccs", sg, ruIndex, (char*)"sbsbsb");
+
+
 
     asg_arc_del_trans(sg, gap_fuzz);
 
@@ -27371,8 +27503,9 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
     }
 
     asg_cut_tip(sg, asm_opt.max_short_tip);
-    ///debug_info_of_specfic_node("m64062_190803_042216/15205346/ccs", sg, "inner_1");
+    ///debug_info_of_specfic_node("m64043_200505_112554/8849050/ccs", sg, "inner_1");
     ///drop_inexact_edegs_at_bubbles(sg, bubble_dist);
+
     
     if(clean_round > 0)
     {
@@ -27587,7 +27720,6 @@ long long bubble_dist, int read_graph, int write)
     }
 
     ///debug_info_of_specfic_read("m64062_190803_042216/177341795/ccs", sources, reverse_sources, -1, "beg");
-    // debug_info_of_specfic_read("m64062_190807_194840/126682874/ccs", sources, reverse_sources, -1, "beg");
 
     if (!(asm_opt.flag & HA_F_BAN_ASSEMBLY))
     {

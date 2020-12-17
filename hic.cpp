@@ -35,30 +35,16 @@ typedef struct{
 } reads_t;
 
 typedef struct{
-    double weight;
-    uint32_t uID:31, del:1;
-    ///uint32_t enzyme;
-} hc_edge;
-
-typedef struct{
-    kvec_t(hc_edge) e;
-    kvec_t(hc_edge) f;//forbiden
-} hc_linkeage;
-
-typedef struct{
-    kvec_t(hc_linkeage) a;
-    kvec_t(uint64_t) enzymes;
-} hc_links;
-
-typedef struct{
-    ///kvec_t(hc_edge) a;
-    size_t n, m; 
-    hc_edge *a;
-}hc_edge_warp;
+    kvec_t(uint8_t) vis;
+    kvec_t(uint64_t) x;
+    kvec_t(uint64_t) dis;
+    uint64_t uID_mode, uID_shift, tmp_v, tmp_d;
+}pdq;
 
 typedef struct{
     kvec_t(hc_edge_warp) rGraph;
     kvec_t(uint64_t) order;
+    pdq pq;
     kvec_t(uint8_t) rGraphSet;
     kvec_t(uint8_t) rGraphVis;
     kvec_t(uint8_t) utgVis;
@@ -73,14 +59,15 @@ typedef struct{
 
 
 typedef struct{
-    kvec_t(uint64_t) a;
-    uint64_t h[2];
+    kvec_t(uint32_t) a;
+    uint32_t h[2];
+    uint8_t full_bub;
 }partition_warp;
 
 typedef struct{
     size_t n, m; 
     partition_warp* a;
-    kvec_t(uint64_t) block;
+    uint32_t* index;
 }G_partition;
 
 
@@ -113,7 +100,7 @@ typedef struct {
 
 typedef struct {
     uint32_t* index;
-    ma_ug_t* ug;
+    ///ma_ug_t* ug;
     kvec_t(uint32_t) list;
     kvec_t(uint32_t) num;
 } bubble_type;
@@ -164,9 +151,9 @@ typedef struct {
     kvec_t(pe_hit) a;
 } kvec_pe_hit;
 
-#define pe_hit_an1_key(x) ((x).s<<1)
+#define pe_hit_an1_key(x) ((x).s)
 KRADIX_SORT_INIT(pe_hit_an1, pe_hit, pe_hit_an1_key, 8)
-#define pe_hit_an2_key(x) ((x).e<<1)
+#define pe_hit_an2_key(x) ((x).e)
 KRADIX_SORT_INIT(pe_hit_an2, pe_hit, pe_hit_an2_key, 8)
 #define generic_key(x) (x)
 KRADIX_SORT_INIT(hc64, uint64_t, generic_key, 8)
@@ -213,6 +200,11 @@ KRADIX_SORT_INIT(hc_pos, uint64_t, hc_pos_key, 8)
 KRADIX_SORT_INIT(hc_s_hit_an1, s_hit, hc_s_hit_an1_key, 8)
 #define hc_s_hit_an2_key(a) ((uint32_t)(a).off_cnt)
 KRADIX_SORT_INIT(hc_s_hit_an2, s_hit, hc_s_hit_an2_key, 8)
+
+typedef struct {
+    kvec_t(kvec_t_u64_warp) matrix;
+    uint64_t uID_shift, dis_mode;
+} MT;
 
 #define Get_bub_num(RECORD) ((RECORD).num.n-1)
 
@@ -1121,7 +1113,7 @@ pe_hit* x, uint64_t rid)
     //     rid, rev1, uID1, self_p1, ref_p1, rev2, uID2, ref_p2, self_p2);
     // }
     /*******************************for debug************************************/
-    if(uID1 == uID2) return;
+    ///if(uID1 == uID2) return;
     if(ref_p1 < self_p1 || ref_p2 < self_p2) return;
     if(occ1 > 1)
     {
@@ -1353,7 +1345,7 @@ void dedup_hits(kvec_pe_hit* hits)
     radix_sort_pe_hit_an1(hits->a.a, hits->a.a + hits->a.n);
     for (k = 1, l = 0; k <= hits->a.n; ++k) 
     {   
-        if (k == hits->a.n || (hits->a.a[k].s<<1) != (hits->a.a[l].s<<1)) 
+        if (k == hits->a.n || hits->a.a[k].s != hits->a.a[l].s) 
         {
             if (k - l > 1) radix_sort_pe_hit_an2(hits->a.a + l, hits->a.a + k);
             cur = (uint64_t)-1;
@@ -1410,14 +1402,14 @@ void identify_bubbles(ma_ug_t* ug, bubble_type* bub)
     if (!ug->g->is_symm) asg_symm(ug->g);
     memset(bub, 0, sizeof(bubble_type));
     uint32_t v, n_vtx = ug->g->n_seq * 2, tLen, i, mode = (((uint32_t)-1)<<2);
-    bub->ug = ug; 
+    ///bub->ug = ug; 
     CALLOC(bub->index, n_vtx);
     for (i = 0; i < ug->g->n_seq; i++)
     {
-        if(ug->g->seq[i].c == 1)
+        if(ug->g->seq[i].c > 0)
         {
+            bub->index[i] = (ug->g->seq[i].c << 2);
             ug->g->seq[i].c = 0;
-            bub->index[i] = 4;
         } 
     }
     kv_init(bub->list); kv_init(bub->num);
@@ -1440,7 +1432,7 @@ void identify_bubbles(ma_ug_t* ug, bubble_type* bub)
                 bub->index[b.b.a[i]^1] &= mode; bub->index[b.b.a[i]^1] += 1;
             }
             bub->index[v] &= mode; bub->index[v] += 2;
-            bub->index[b.S.a[0]^1] &= mode;; bub->index[b.S.a[0]^1] += 3;
+            bub->index[b.S.a[0]^1] &= mode; bub->index[b.S.a[0]^1] += 3;
         }
     }
 
@@ -1475,7 +1467,14 @@ void identify_bubbles(ma_ug_t* ug, bubble_type* bub)
         }
         else
         {
-            bub->index[i] = bub->num.n;
+            if((bub->index[i]>>2) == 1)
+            {
+                bub->index[i] = bub->num.n;
+            }
+            else
+            {
+                bub->index[i] = bub->num.n + 1;
+            }
         }         
     }
 
@@ -1488,7 +1487,14 @@ void identify_bubbles(ma_ug_t* ug, bubble_type* bub)
             bub->index[(a[v]>>1)] = i;
         }
 
-        bub->index[(beg>>1)] = bub->index[(sink>>1)] = (uint32_t)-1;
+        if(bub->index[(beg>>1)] != (bub->num.n + 1)) bub->index[(beg>>1)] = (uint32_t)-1;
+        if(bub->index[(sink>>1)] != (bub->num.n + 1)) bub->index[(sink>>1)] = (uint32_t)-1;
+        ///bub->index[(beg>>1)] = bub->index[(sink>>1)] = (uint32_t)-1;
+    }
+
+    for (i = 0; i < ug->g->n_seq; i++)
+    {
+        if(bub->index[i] == bub->num.n + 1) bub->index[i] = bub->num.n;
     }
 
     ///free(bub->index); bub->index = NULL;
@@ -1663,6 +1669,8 @@ void init_hc_links(hc_links* link, uint64_t ug_num)
         kv_init(link->a.a[i].e);
         kv_init(link->a.a[i].f);
     }
+    MALLOC(link->u_idx, ug_num);
+    memset(link->u_idx, -1, ug_num*sizeof(uint32_t));
 }
 
 void destory_hc_links(hc_links* link)
@@ -1674,9 +1682,10 @@ void destory_hc_links(hc_links* link)
         kv_destroy(link->a.a[i].f);
     }
     kv_destroy(link->a);
+    free(link->u_idx);
 }
 
-void push_hc_edge(hc_linkeage* x, uint64_t uID, int weight, int dir)
+void push_hc_edge(hc_linkeage* x, uint64_t uID, int weight, int dir, uint64_t* d)
 {
     uint64_t k, n;
     hc_edge* a = NULL;
@@ -1698,6 +1707,7 @@ void push_hc_edge(hc_linkeage* x, uint64_t uID, int weight, int dir)
         if(a[k].uID == uID)
         {
             a[k].weight += weight;
+            if(d) a[k].dis = (*d);
             return;
         }
     }
@@ -1715,6 +1725,7 @@ void push_hc_edge(hc_linkeage* x, uint64_t uID, int weight, int dir)
     p->del = 0;
     p->uID = uID;
     p->weight = weight;
+    if(d) p->dis = (*d);
 }
 
 long long get_enzyme_occ_debug(char* t, long long tlen, char* p, long long plen)
@@ -1802,19 +1813,616 @@ long long get_enzyme_occ(char* t, long long tlen, char* p, long long plen)
     return occ;
 }
 
+#define pdq_cnt(q) ((q).x.a[0])
 
-void collect_hc_links(const ha_ug_index* idx, kvec_pe_hit* hits, hc_links* link)
+void init_pdq(pdq* q, uint64_t utg_num)
 {
-    uint64_t k, i, shif = 64 - idx->uID_bits, beg, end;
+    kv_init(q->x); kv_push(uint64_t, q->x, 0);
+    kv_malloc(q->dis, utg_num); q->dis.n = utg_num;
+    kv_malloc(q->vis, utg_num); q->vis.n = utg_num;
+
+    uint64_t i;
+    for (i = 1; (uint64_t)(1<<i) < utg_num; i++);
+    q->uID_mode = ((uint64_t)-1) >> (64-i); 
+    q->uID_shift = i;
+}
+
+void destory_pdq(pdq* q)
+{
+    kv_destroy(q->x);
+    kv_destroy(q->dis);
+}
+
+void reset_pdq(pdq* q)
+{
+    q->x.n = 1; pdq_cnt(*q) = 0;
+    memset(q->dis.a, -1, sizeof(uint64_t)*q->dis.n);
+    memset(q->vis.a, 0, sizeof(uint8_t)*q->vis.n);
+}
+
+void swap_pdq(uint64_t* i, uint64_t* j)
+{
+    uint64_t k;
+    k = (*i);
+    (*i) = (*j);
+    (*j) = k;
+}
+
+#define weight(q, i) (get_dv_adv((q).x.a[i], (q).uID_mode, (q).uID_shift, &(q).tmp_v, &(q).tmp_d))
+
+uint64_t inline set_dv_adv(uint64_t v, uint64_t dis, uint64_t v_mode, uint64_t v_shift)
+{
+    dis <<= v_shift; dis |= (v&v_mode);
+    return dis; 
+}
+
+uint64_t inline get_dv_adv(uint64_t x, uint64_t v_mode, uint64_t v_shift, uint64_t* v, uint64_t* dis)
+{
+    (*v) = x & v_mode;
+    (*dis) = x >> v_shift;
+    return (*dis);
+}
+
+
+void push_pdq(pdq* q, uint64_t v, uint64_t dis)
+{
+    kv_push(uint64_t, q->x, set_dv_adv(v, dis, q->uID_mode, q->uID_shift));
+    pdq_cnt(*q)++;
+    int c_i = pdq_cnt(*q), p_i = c_i>>1;
+
+    while ((p_i > 0) && (weight(*q, c_i) < weight(*q, p_i)))
+    {
+        swap_pdq(&(q->x.a[c_i]), &(q->x.a[p_i]));
+        c_i  = p_i;
+        p_i = c_i >> 1;
+    }
+}
+
+void pop_pdq(pdq* q, uint64_t* min_v, uint64_t* min_dis)
+{
+    (*min_v) = (*min_dis) = (uint64_t)-1;
+    if(pdq_cnt(*q) == 0) return;
+    get_dv_adv((*q).x.a[1], (*q).uID_mode, (*q).uID_shift, min_v, min_dis);
+    /*******************************for debug************************************/
+    // uint64_t i;
+    // for (i = 1; i < q->x.n; i++)
+    // {
+    //     if(weight(*q, i) < (*min_dis)) fprintf(stderr, "ERROR\n");
+    // }
+    /*******************************for debug************************************/
+    ///min = q->x.a[1];
+    swap_pdq(&(q->x.a[1]), &(q->x.a[pdq_cnt(*q)]));
+    pdq_cnt(*q)--;
+    q->x.n--;
+
+    int c_i = 1, left_i, right_i, min_i, flag = 1;
+    while(flag == 1) 
+    {
+        flag = 0;
+        left_i = c_i << 1;
+        right_i = left_i + 1;
+        if(left_i > (int)(pdq_cnt(*q)))
+        {
+            break; // both children are null
+        } 
+        else if(right_i > (int)(pdq_cnt(*q)))
+        {
+            min_i = left_i; // right children is null
+        }
+        else
+        {
+            min_i = (weight(*q, left_i) < weight(*q, right_i))? left_i : right_i;
+        }
+
+        if(weight(*q, c_i) > weight(*q, min_i))
+        {
+            swap_pdq(&(q->x.a[c_i]), &(q->x.a[min_i]));
+            c_i = min_i;
+            flag = 1;
+        }
+    }
+}
+
+
+void get_shortest_path(uint32_t src, pdq* pq, asg_t *sg)
+{
+    uint64_t v, u, i, nv, w;
+    asg_arc_t *av = NULL;
+    reset_pdq(pq);
+    pq->dis.a[src] = 0;
+    push_pdq(pq, src, 0);
+    while (pdq_cnt(*pq) > 0)
+    {
+        pop_pdq(pq, &v, &w);
+        pq->vis.a[v] = 1;
+
+        av = asg_arc_a(sg, v);
+        nv = asg_arc_n(sg, v);
+
+        for (i = 0; i < nv; i++)
+        {
+            if(av[i].del) continue;
+            u = av[i].v;
+            w = (uint32_t)av[i].ul;
+
+            if(pq->vis.a[u] == 0 && pq->dis.a[u] > pq->dis.a[v] + w)
+            {
+                pq->dis.a[u] = pq->dis.a[v] + w;
+                push_pdq(pq, u, pq->dis.a[u]);
+            }
+        }
+    }
+}
+
+
+
+void all_pair_shortest_path(const ha_ug_index* idx, hc_links* link, MT* M)
+{
+    double index_time = yak_realtime();
+    asg_t *sg = idx->ug->g;
+    hc_linkeage* t = NULL;
+    pdq pq;
+    init_pdq(&pq, sg->n_seq<<1);
+    uint32_t n_vtx = sg->n_seq<<1, v;
+    uint64_t k, *p = NULL;
+
+    for (v = 0; v < n_vtx; ++v)
+    {
+        if (sg->seq[v>>1].del) continue;
+        t = &(link->a.a[v>>1]);
+        if (t->e.n == 0) continue;
+        get_shortest_path(v, &pq, sg);
+        for (k = 0; k < pq.dis.n; k++)
+        {
+            if(pq.dis.a[k] == (uint64_t)-1) continue;
+            kv_pushp(uint64_t, M->matrix.a[v].a, &p);
+            (*p) = k << M->uID_shift;
+            (*p) = (*p) | pq.dis.a[k];
+        }
+    }
+    
+    destory_pdq(&pq);
+    fprintf(stderr, "[M::%s::%.3f]\n", __func__, yak_realtime()-index_time);
+}
+
+uint64_t LCA_distance(long long d_x, long long d_y, long long xLen, long long yLen, uint8_t* rev)
+{
+    (*rev) = 0;
+    long long x_beg, x_end, y_beg, y_end, t_beg, t_end;
+    x_end = d_x; x_beg = x_end - xLen + 1;
+    y_end = d_y; y_beg = y_end - yLen + 1;
+    if(x_end >= y_end)
+    {
+        t_end = x_end; (*rev) = 0;
+        t_beg = y_beg;
+    }
+    else
+    {
+        t_end = y_end; (*rev) = 1;
+        t_beg = x_beg;
+    }
+
+    return t_end + 1 - t_beg;
+}
+
+uint64_t get_LCA_bubble(uint32_t x, uint64_t xLen, uint32_t y, uint64_t yLen, uint8_t* dis, uint64_t n, MT* M, bubble_type* bub, uint64_t* min_rev)
+{
+    uint32_t j, v, k;
+    uint64_t u, d = (uint64_t)-1, tmp;
+    uint8_t rev;
+    uint32_t root[2], a_n, *a;
+    get_bubbles(bub, bub->index[x>>1], &root[0], &root[1], &a, &a_n);
+    root[0] ^= 1; root[1] ^= 1;
+    if(root[0] > root[1])
+    {
+        k = root[0];
+        root[0] = root[1];
+        root[1] = k;
+    }
+
+    dis[root[0]] = (uint8_t)-1;
+    dis[root[1]] = (uint8_t)-1;
+
+    v = x;
+    for (j = 0; j < M->matrix.a[v].a.n; j++)
+    {
+        u = M->matrix.a[v].a.a[j] >> M->uID_shift;
+        d = M->matrix.a[v].a.a[j] & M->dis_mode;
+        dis[u] = dis[u] >> 4;
+    }
+
+    v = y;
+    for (j = 0; j < M->matrix.a[v].a.n; j++)
+    {
+        u = M->matrix.a[v].a.a[j] >> M->uID_shift;
+        d = M->matrix.a[v].a.a[j] & M->dis_mode;
+        dis[u] = dis[u] >> 4;
+    }
+    uint64_t x_i = 0, y_i = 0, d_x, d_y, min_d = (uint64_t)-1;
+    uint32_t min_j = (uint32_t)-1;
+    (*min_rev) = (uint64_t)-1;
+
+
+    for (k = 0; k < 2; k++)
+    {
+        j = root[k];
+        if(dis[j] != 0)
+        {
+            dis[j] = (uint8_t)-1;
+            continue;
+        } 
+        
+        for (; x_i < M->matrix.a[x].a.n; x_i++)
+        {
+            u = M->matrix.a[x].a.a[x_i] >> M->uID_shift;
+            d = M->matrix.a[x].a.a[x_i] & M->dis_mode;
+            if(u == j) break;
+        }
+        if(x_i == M->matrix.a[x].a.n) fprintf(stderr, "ERROR X\n");
+        d_x = d;
+
+        for (; y_i < M->matrix.a[y].a.n; y_i++)
+        {
+            u = M->matrix.a[y].a.a[y_i] >> M->uID_shift;
+            d = M->matrix.a[y].a.a[y_i] & M->dis_mode;
+            if(u == j) break;
+        }
+        if(y_i == M->matrix.a[y].a.n) fprintf(stderr, "ERROR Y\n");
+        d_y = d;
+
+        tmp = LCA_distance(d_x, d_y, xLen, yLen, &rev);
+        if(tmp < min_d) min_d = tmp, (*min_rev) = rev, min_j = j;
+    }
+
+    if(min_j == x || min_j == y) return (uint64_t)-1;
+
+    return min_d;
+
+
+}
+
+uint64_t get_LCA(uint32_t x, uint64_t xLen, uint32_t y, uint64_t yLen, uint8_t* dis, uint64_t n, MT* M, bubble_type* bub, uint64_t* min_rev)
+{
+    
+
+    if(bub->index[x>>1] < bub->num.n && bub->index[y>>1] < bub->num.n &&
+       bub->index[x>>1] == bub->index[y>>1])
+    {
+        return get_LCA_bubble(x, xLen, y, yLen, dis, n, M, bub, min_rev);
+    }
+    else
+    {
+        memset(dis, -1, sizeof(uint8_t)*n);
+    }
+
+    uint32_t j, v;
+    uint64_t u, d = (uint64_t)-1, tmp;
+    uint8_t rev;
+    
+    v = x;
+    for (j = 0; j < M->matrix.a[v].a.n; j++)
+    {
+        u = M->matrix.a[v].a.a[j] >> M->uID_shift;
+        d = M->matrix.a[v].a.a[j] & M->dis_mode;
+        dis[u] = dis[u] >> 4;
+    }
+
+    v = y;
+    for (j = 0; j < M->matrix.a[v].a.n; j++)
+    {
+        u = M->matrix.a[v].a.a[j] >> M->uID_shift;
+        d = M->matrix.a[v].a.a[j] & M->dis_mode;
+        dis[u] = dis[u] >> 4;
+    }
+
+    uint64_t x_i = 0, y_i = 0, d_x, d_y, min_d = (uint64_t)-1;
+    uint32_t min_j = (uint32_t)-1;
+    (*min_rev) = (uint64_t)-1;
+    for (j = 0; j < n; j++)
+    {
+        if(dis[j] != 0)
+        {
+            dis[j] = (uint8_t)-1;
+            continue;
+        } 
+        
+        for (; x_i < M->matrix.a[x].a.n; x_i++)
+        {
+            u = M->matrix.a[x].a.a[x_i] >> M->uID_shift;
+            d = M->matrix.a[x].a.a[x_i] & M->dis_mode;
+            if(u == j) break;
+        }
+        if(x_i == M->matrix.a[x].a.n) fprintf(stderr, "ERROR X\n");
+        d_x = d;
+
+        for (; y_i < M->matrix.a[y].a.n; y_i++)
+        {
+            u = M->matrix.a[y].a.a[y_i] >> M->uID_shift;
+            d = M->matrix.a[y].a.a[y_i] & M->dis_mode;
+            if(u == j) break;
+        }
+        if(y_i == M->matrix.a[y].a.n) fprintf(stderr, "ERROR Y\n");
+        d_y = d;
+
+        tmp = LCA_distance(d_x, d_y, xLen, yLen, &rev);
+        if(tmp < min_d) min_d = tmp, (*min_rev) = rev, min_j = j;
+    }
+
+    if(min_j == x || min_j == y) return (uint64_t)-1;
+
+    return min_d;
+}
+
+void fill_utg_distance(const ha_ug_index* idx, hc_links* link, MT* M, bubble_type* bub)
+{
+    double index_time = yak_realtime();
+    asg_t *sg = idx->ug->g;
+    hc_linkeage* t = NULL;
+    uint32_t n_vtx = sg->n_seq<<1, v, u, k, j, i;
+    uint64_t d[2], db[2], q_u, min, min_i, min_b, rev[2], min_rev;
+    kvec_t(uint8_t) dis_buf;
+    kv_malloc(dis_buf, n_vtx); dis_buf.n = n_vtx;
+    ///for (v = 0; v < n_vtx; ++v)
+    for (i = 0; i < sg->n_seq; i++)
+    {
+        if (sg->seq[i].del) continue;
+        t = &(link->a.a[i]);
+        if (t->e.n == 0) continue;
+
+        for (k = 0; k < t->e.n; k++)
+        {
+            if(t->e.a[k].del) continue;
+            u = t->e.a[k].uID;
+
+            for (v = (i<<1); v < ((i+1)<<1); v++)
+            {
+                d[0] = d[1] = db[0] = db[1] = (uint64_t)-1;
+                
+                for (j = 0; j < M->matrix.a[v].a.n; j++)
+                {
+                    q_u = M->matrix.a[v].a.a[j] >> M->uID_shift;
+                    if((q_u>>1) == u) d[q_u&1] = (M->matrix.a[v].a.a[j] & M->dis_mode) + sg->seq[q_u>>1].len;
+                    if((q_u>>1) > u) break;
+                }
+
+                min = min_i = min_b = (uint64_t)-1;
+                if(t->e.a[k].dis != (uint64_t)-1) min = t->e.a[k].dis >> 3;
+                
+                if(d[0] < min) min = d[0], min_i = 0, min_b = 0;
+                if(d[1] < min) min = d[1], min_i = 1, min_b = 0;
+
+                if(min_i != (uint64_t)-1 && min != (uint64_t)-1)
+                {
+                    t->e.a[k].dis = min<<1;
+                    t->e.a[k].dis += min_b;
+                    t->e.a[k].dis <<=1;
+                    t->e.a[k].dis += v&1;
+                    t->e.a[k].dis <<=1;
+                    t->e.a[k].dis += min_i;
+                }
+            }
+
+
+            if(bub->index[i] >= bub->num.n && bub->index[u] >= bub->num.n && 
+                bub->index[i] == bub->index[u] && t->e.a[k].dis != (uint64_t)-1)
+            {
+                continue;
+            }
+
+
+
+            for (v = (i<<1); v < ((i+1)<<1); v++)
+            {
+                d[0] = d[1] = db[0] = db[1] = (uint64_t)-1;  
+                db[0] = get_LCA(v, sg->seq[v>>1].len, u<<1, sg->seq[u].len, 
+                                                            dis_buf.a, dis_buf.n, M, bub, &rev[0]);
+                db[1] = get_LCA(v, sg->seq[v>>1].len, (u<<1) + 1, sg->seq[u].len, 
+                                                            dis_buf.a, dis_buf.n, M, bub, &rev[1]);
+        
+
+                min = min_i = min_b = min_rev = (uint64_t)-1;
+                if(t->e.a[k].dis != (uint64_t)-1) min = t->e.a[k].dis >> 3;
+                
+                if(db[0] < min) min = db[0], min_i = 0, min_b = 1, min_rev = rev[0];
+                if(db[1] < min) min = db[1], min_i = 1, min_b = 1, min_rev = rev[1];
+
+                if(min_i != (uint64_t)-1 && min != (uint64_t)-1)
+                {
+                    t->e.a[k].dis = min<<1;
+                    t->e.a[k].dis += (min_b^min_rev);
+                    t->e.a[k].dis <<=1;
+                    t->e.a[k].dis += ((v&1)^min_rev);
+                    t->e.a[k].dis <<=1;
+                    t->e.a[k].dis += min_i;
+                }
+            }
+
+        }
+    }
+    kv_destroy(dis_buf);
+    fprintf(stderr, "[M::%s::%.3f]\n", __func__, yak_realtime()-index_time);
+}
+
+typedef struct { // data structure for each step in kt_pipeline()
+    const ha_ug_index* idx; 
+    hc_links* link; 
+    MT* M; 
+    bubble_type* bub;
+    uint8_t** dis_buf;
+} utg_d_t;
+
+
+static void worker_for_dis(void *data, long i, int tid) 
+{
+    utg_d_t* s = (utg_d_t*)data;
+    const ha_ug_index* idx = s->idx;
+    hc_links* link = s->link;
+    MT* M = s->M; 
+    bubble_type* bub = s->bub;
+    uint8_t* dis_buf = s->dis_buf[tid];
+    asg_t *sg = idx->ug->g;
+    hc_linkeage* t = NULL;
+    uint32_t n_vtx = sg->n_seq<<1, v, u, k, j;
+    uint64_t d[2], db[2], q_u, min, min_i, min_b, rev[2], min_rev;
+
+    if (sg->seq[i].del) return;
+    t = &(link->a.a[i]);
+    if (t->e.n == 0) return;
+
+    for (k = 0; k < t->e.n; k++)
+    {
+        if(t->e.a[k].del) continue;
+        u = t->e.a[k].uID;
+
+        for (v = ((uint64_t)(i)<<1); v < ((uint64_t)(i+1)<<1); v++)
+        {
+            d[0] = d[1] = db[0] = db[1] = (uint64_t)-1;
+            
+            for (j = 0; j < M->matrix.a[v].a.n; j++)
+            {
+                q_u = M->matrix.a[v].a.a[j] >> M->uID_shift;
+                if((q_u>>1) == u) d[q_u&1] = (M->matrix.a[v].a.a[j] & M->dis_mode) + sg->seq[q_u>>1].len;
+                if((q_u>>1) > u) break;
+            }
+
+            min = min_i = min_b = (uint64_t)-1;
+            if(t->e.a[k].dis != (uint64_t)-1) min = t->e.a[k].dis >> 3;
+            
+            if(d[0] < min) min = d[0], min_i = 0, min_b = 0;
+            if(d[1] < min) min = d[1], min_i = 1, min_b = 0;
+
+            // if((v>>1) == 8185 && u == 3845)
+            // {
+            //     fprintf(stderr, "***v>>1: %u, v&1: %u, u: %u, d[0]: %lu, d[1]: %lu, db[0]: %lu, db[1]: %lu\n", 
+            //     v>>1, v&1, u, d[0], d[1], db[0], db[1]);
+            // }
+
+            if(min_i != (uint64_t)-1 && min != (uint64_t)-1)
+            {
+                t->e.a[k].dis = min<<1;
+                t->e.a[k].dis += min_b;
+                t->e.a[k].dis <<=1;
+                t->e.a[k].dis += v&1;
+                t->e.a[k].dis <<=1;
+                t->e.a[k].dis += min_i;
+            }
+        }
+
+        ///might be wrong
+        if(bub->index[i] < bub->num.n && bub->index[u] < bub->num.n 
+            && t->e.a[k].dis != (uint64_t)-1)
+        {
+            continue;
+        }
+
+
+
+        for (v = ((uint64_t)(i)<<1); v < ((uint64_t)(i+1)<<1); v++)
+        {
+            d[0] = d[1] = db[0] = db[1] = (uint64_t)-1;  
+            db[0] = get_LCA(v, sg->seq[v>>1].len, u<<1, sg->seq[u].len, 
+                                                        dis_buf, n_vtx, M, bub, &rev[0]);
+            db[1] = get_LCA(v, sg->seq[v>>1].len, (u<<1) + 1, sg->seq[u].len, 
+                                                        dis_buf, n_vtx, M, bub, &rev[1]);
+    
+
+            min = min_i = min_b = min_rev = (uint64_t)-1;
+            if(t->e.a[k].dis != (uint64_t)-1) min = t->e.a[k].dis >> 3;
+            
+            if(db[0] < min) min = db[0], min_i = 0, min_b = 1, min_rev = rev[0];
+            if(db[1] < min) min = db[1], min_i = 1, min_b = 1, min_rev = rev[1];
+
+            // if((v>>1) == 8185 && u == 3845)
+            // {
+            //     fprintf(stderr, "###v>>1: %u, v&1: %u, u: %u, d[0]: %lu, d[1]: %lu, db[0]: %lu, db[1]: %lu\n", 
+            //     v>>1, v&1, u, d[0], d[1], db[0], db[1]);
+            // }
+
+            if(min_i != (uint64_t)-1 && min != (uint64_t)-1)
+            {
+                t->e.a[k].dis = min<<1;
+                t->e.a[k].dis += min_b;
+                t->e.a[k].dis <<=1;
+                t->e.a[k].dis += ((v&1)^min_rev);
+                t->e.a[k].dis <<=1;
+                t->e.a[k].dis += (min_i^min_rev);
+            }
+        }
+
+
+        // if(bub->index[i] < bub->num.n && bub->index[u] < bub->num.n && 
+        //    bub->index[i] == bub->index[u])
+        // {
+        //     if(t->e.a[k].dis == (uint64_t)-1) fprintf(stderr, "hahahahahahahaha\n");
+        //     fprintf(stderr, "sb-utg%.6d\tdb-utg%.6d\n", (int)(i+1), (int)(u+1));
+        // }
+
+    }
+
+}
+
+void fill_utg_distance_multi(const ha_ug_index* idx, hc_links* link, MT* M, bubble_type* bub)
+{
+    double index_time = yak_realtime();
+    uint32_t i;
+    utg_d_t s;
+    s.idx = idx; s.link = link; s.M = M; s.bub = bub;
+    s.dis_buf = (uint8_t**)malloc(sizeof(uint8_t*)*asm_opt.thread_num);
+    for (i = 0; i < (uint32_t)asm_opt.thread_num; i++)
+    {
+        s.dis_buf[i] = (uint8_t*)malloc(sizeof(uint8_t)*(s.idx->ug->g->n_seq<<1));
+    }
+    
+    kt_for(asm_opt.thread_num, worker_for_dis, &s, s.idx->ug->g->n_seq);
+
+
+    for (i = 0; i < (uint32_t)asm_opt.thread_num; i++)
+    {
+        free(s.dis_buf[i]);
+    }
+    free(s.dis_buf);
+    fprintf(stderr, "[M::%s::%.3f]\n", __func__, yak_realtime()-index_time);
+}
+
+void collect_hc_links(const ha_ug_index* idx, kvec_pe_hit* hits, hc_links* link, bubble_type* bub)
+{
+    double index_time = yak_realtime();
+    uint64_t k, i, shif = 64 - idx->uID_bits, beg, end, t_d;
     for (k = 0; k < hits->a.n; ++k) 
     {
         beg = ((hits->a.a[k].s<<1)>>shif);
         end = ((hits->a.a[k].e<<1)>>shif);
-        push_hc_edge(&(link->a.a[beg]), end, 1, 0);
-        push_hc_edge(&(link->a.a[end]), beg, 1, 0);
+
+        if(beg == end) continue;
+        if(bub->index[beg] > bub->num.n) continue;
+        if(bub->index[end] > bub->num.n) continue;
+
+        t_d = (uint64_t)-1;
+        push_hc_edge(&(link->a.a[beg]), end, 1, 0, &t_d);
+        push_hc_edge(&(link->a.a[end]), beg, 1, 0, &t_d);
     }
 
-    double index_time = yak_realtime();
+    uint32_t n_vtx = idx->ug->g->n_seq<<1, v;
+    MT M;
+    kv_init(M.matrix); kv_malloc(M.matrix, n_vtx); M.matrix.n = n_vtx;
+    for (v = 0; v < n_vtx; ++v) kv_init(M.matrix.a[v].a);
+    for (v = 1; (uint64_t)(1<<v) < n_vtx; v++);
+    M.uID_shift = 64 - v; M.dis_mode = ((uint64_t)-1) >> v; 
+
+    all_pair_shortest_path(idx, link, &M);
+    ///fill_utg_distance(idx, link, &M, bub);
+    fill_utg_distance_multi(idx, link, &M, bub);
+
+    for (v = 0; v < n_vtx; ++v) kv_destroy(M.matrix.a[v].a);
+    kv_destroy(M.matrix);
+    fprintf(stderr, "[M::%s::%.3f] ==> Hi-C linkages have been counted\n", __func__, yak_realtime()-index_time);
+    return;
+
+
+
+
+
+    index_time = yak_realtime();
     for (k = 0; k < link->enzymes.n; k++)
     {
         link->enzymes.a[k] = 0;
@@ -1822,14 +2430,6 @@ void collect_hc_links(const ha_ug_index* idx, kvec_pe_hit* hits, hc_links* link)
         {
             link->enzymes.a[k] += get_enzyme_occ(idx->ug->u.a[k].s, idx->ug->u.a[k].len, 
                                                 asm_opt.hic_enzymes->a[i], asm_opt.hic_enzymes->l[i]);
-            // long long occ = get_enzyme_occ(idx->ug->u.a[k].s, idx->ug->u.a[k].len, 
-            //                                     asm_opt.hic_enzymes->a[i], asm_opt.hic_enzymes->l[i]);
-            // long long occ_debug = get_enzyme_occ_debug(idx->ug->u.a[k].s, idx->ug->u.a[k].len, 
-            //                                     asm_opt.hic_enzymes->a[i], asm_opt.hic_enzymes->l[i]);
-            
-            // if(occ != occ_debug)
-            // {
-            //     fprintf(stderr, "ERROR: occ: %lld, occ_debug: %lld\n", occ, occ_debug);
         }
     }
     fprintf(stderr, "[M::%s::%.3f] ==> Enzymes have been counted\n", __func__, yak_realtime()-index_time);
@@ -1879,7 +2479,7 @@ uint32_t v, uint32_t beg, uint32_t sink)
 
 void set_reverse_links(uint32_t* bub, uint32_t n, kvec_t_u32_warp* reach, uint32_t root, hc_links* link)
 {
-    uint64_t i, k;
+    uint64_t i, k, d = 0;
     uint32_t v;
     for (i = 0; i < n; i++)
     {
@@ -1891,8 +2491,8 @@ void set_reverse_links(uint32_t* bub, uint32_t n, kvec_t_u32_warp* reach, uint32
 
         if(k == reach->a.n)
         {
-            push_hc_edge(&(link->a.a[root]), v, 1, 1);
-            push_hc_edge(&(link->a.a[v]), root, 1, 1);
+            push_hc_edge(&(link->a.a[root]), v, 1, 1, &d);
+            push_hc_edge(&(link->a.a[v]), root, 1, 1, &d);
         }
     }
     
@@ -1900,7 +2500,7 @@ void set_reverse_links(uint32_t* bub, uint32_t n, kvec_t_u32_warp* reach, uint32
 
 void collect_hc_reverse_links(hc_links* link, ma_ug_t* ug, bubble_type* bub)
 {
-    uint64_t i, k;
+    uint64_t i, k, d = 0;
     uint32_t beg, sink, n, v, *a = NULL;
     kvec_t_u32_warp stack, result;
     kv_init(stack.a); kv_init(result.a);
@@ -1909,8 +2509,8 @@ void collect_hc_reverse_links(hc_links* link, ma_ug_t* ug, bubble_type* bub)
         get_bubbles(bub, i, &beg, &sink, &a, &n);
         if(n == 2)
         {
-            push_hc_edge(&(link->a.a[a[0]>>1]), a[1]>>1, 1, 1);
-            push_hc_edge(&(link->a.a[a[1]>>1]), a[0]>>1, 1, 1);
+            push_hc_edge(&(link->a.a[a[0]>>1]), a[1]>>1, 1, 1, &d);
+            push_hc_edge(&(link->a.a[a[1]>>1]), a[0]>>1, 1, 1, &d);
             continue;
         }
         beg = beg>>1; sink = sink>>1;
@@ -1924,7 +2524,7 @@ void collect_hc_reverse_links(hc_links* link, ma_ug_t* ug, bubble_type* bub)
     kv_destroy(stack.a); kv_destroy(result.a);
 }
 
-void write_hc_links(hc_links* link, const char *fn)
+void write_hc_links(hc_links* link, kvec_pe_hit* hits, const char *fn)
 {
     uint64_t k;
     char *buf = (char*)calloc(strlen(fn) + 25, 1);
@@ -1944,11 +2544,15 @@ void write_hc_links(hc_links* link, const char *fn)
     fwrite(&link->enzymes.n, sizeof(link->enzymes.n), 1, fp);
     fwrite(link->enzymes.a, sizeof(uint64_t), link->enzymes.n, fp);
 
+
+    fwrite(&hits->a.n, sizeof(hits->a.n), 1, fp);
+    fwrite(hits->a.a, sizeof(pe_hit), hits->a.n, fp);
+
     fclose(fp);
     free(buf);
 }
 
-int load_hc_links(hc_links* link, const char *fn)
+int load_hc_links(hc_links* link, kvec_pe_hit* hits, const char *fn)
 {
     uint64_t k, flag = 0;
     char *buf = (char*)calloc(strlen(fn) + 25, 1);
@@ -1977,8 +2581,16 @@ int load_hc_links(hc_links* link, const char *fn)
     link->enzymes.m = link->enzymes.n; MALLOC(link->enzymes.a, link->enzymes.n);
     flag += fread(link->enzymes.a, sizeof(uint64_t), link->enzymes.n, fp);
 
+
+    kv_init(hits->a);
+    flag += fread(&hits->a.n, sizeof(hits->a.n), 1, fp);
+    hits->a.m = hits->a.n; MALLOC(hits->a.a, hits->a.n);
+    flag += fread(hits->a.a, sizeof(pe_hit), hits->a.n, fp);
+
+
     fclose(fp);
     free(buf);
+    fprintf(stderr, "[M::%s::] ==> Hi-C linkages have been loaded\n", __func__);
     return 1;
 }
 
@@ -1990,23 +2602,26 @@ void print_hc_links(hc_links* link)
         for (k = 0; k < link->a.a[i].e.n; k++)
         {
             if(link->a.a[i].e.a[k].del) continue;
-            fprintf(stderr, "utg%.6d\tutg%.6d\t%f\t+\n", 
-            (int)(i+1), (int)(link->a.a[i].e.a[k].uID+1), link->a.a[i].e.a[k].weight);    
+            fprintf(stderr, "s-utg%.6d(%c)\td-utg%.6d(%c)\t%lu\t%c\te\n", 
+            (int)(i+1), "01"[!!(link->a.a[i].e.a[k].dis&(uint64_t)2)],
+            (int)(link->a.a[i].e.a[k].uID+1), "01"[!!(link->a.a[i].e.a[k].dis&(uint64_t)1)],
+            link->a.a[i].e.a[k].dis == (uint64_t)-1? (uint64_t)-1 : link->a.a[i].e.a[k].dis>>3,
+            "fb"[!!(link->a.a[i].e.a[k].dis&(uint64_t)4)]);    
         }
     }
 
 
-    for (i = 0; i < link->a.n; ++i) 
-    { 
-        for (k = 0; k < link->a.a[i].f.n; k++)
-        {
-            if(link->a.a[i].f.a[k].del) continue;
-            fprintf(stderr, "utg%.6d\tutg%.6d\t%f\t-", 
-            (int)(i+1), (int)(link->a.a[i].f.a[k].uID+1), link->a.a[i].f.a[k].weight);
-            if(link->a.a[i].f.a[k].weight > 2) fprintf(stderr,"\tcomplex");  
-            fprintf(stderr,"\n");  
-        }
-    }
+    // for (i = 0; i < link->a.n; ++i) 
+    // { 
+    //     for (k = 0; k < link->a.a[i].f.n; k++)
+    //     {
+    //         if(link->a.a[i].f.a[k].del) continue;
+    //         fprintf(stderr, "utg%.6d\tutg%.6d\t%f\t-", 
+    //         (int)(i+1), (int)(link->a.a[i].f.a[k].uID+1), link->a.a[i].f.a[k].weight);
+    //         if(link->a.a[i].f.a[k].weight > 2) fprintf(stderr,"\tcomplex");  
+    //         fprintf(stderr,"\n");  
+    //     }
+    // }
 }
 
 void normalize_hc_links(hc_links* link)
@@ -2054,6 +2669,7 @@ void init_min_cut_t(min_cut_t* x, hc_links* link, const bubble_type* bub, const 
     kv_malloc(x->rGraph, utg_num); x->rGraph.n = utg_num;
     // kv_init(x->rGraph); kv_resize(hc_edge_warp, x->rGraph, utg_num); x->rGraph.n = utg_num;
     x->enzymes = link->enzymes.a;
+    init_pdq(&(x->pq), utg_num<<1);
 
     //must be utg_num + 2 since we may need to add fake nodes
     for (i = 1; (uint64_t)(1<<i) < (utg_num + 2); i++);
@@ -2141,6 +2757,7 @@ void destory_min_cut_t(min_cut_t* x)
     kv_destroy(x->rGraphVis);
     kv_destroy(x->utgVis);
     kv_destroy(x->bmerVis);
+    destory_pdq(&(x->pq));
     uint64_t i;
     for (i = 0; i < x->rGraph.m; i++)
     {
@@ -2222,18 +2839,16 @@ void get_s_t(min_cut_t* x, hc_links* link, uint64_t uID, uint64_t* src, uint64_t
     buff->a.n = 0; (*src) = (*dest) = (uint64_t)-1;
     if(link->a.a[uID].f.n == 0) return;
     (*src) = uID; 
-    if(link->a.a[uID].f.n == 1)
-    {
-        (*dest) = link->a.a[uID].f.a[0].uID;
-        return;
-    }
 
-    uint64_t i;
-    for (i = 0; i < link->a.a[uID].f.n; i++)
+    uint64_t i, n;
+    for (i = 0, n = 0; i < link->a.a[uID].f.n; i++)
     {
         if(link->a.a[uID].f.a[i].del) continue;
         kv_push(uint64_t, buff->a, link->a.a[uID].f.a[i].uID);
+        (*dest) = link->a.a[uID].f.a[i].uID;
+        n++;
     }
+    if(n == 1 || n == 0) return;
     (*dest) = add_mul_convex(x, buff->a.a, buff->a.n);
 }
 
@@ -2402,13 +3017,13 @@ void graph_cut(uint64_t src, uint64_t dest, min_cut_t* x)
         uint64_t i, j, v, u;
         hc_edge *p;
         /*******************************for debug************************************/
-        // if(src == 45179)
-        // ///if(src == 26818)
-        // {
-        //     ///print_debug_rGraph(x);
-        //     print_src_dest(src, x, "src utg:");
-        //     print_src_dest(dest, x, "dest utg:");
-        // }
+        if(src == 45179)
+        ///if(src == 26818)
+        {
+            ///print_debug_rGraph(x);
+            print_src_dest(src, x, "src utg:");
+            print_src_dest(dest, x, "dest utg:");
+        }
         /*******************************for debug************************************/
         for (i = 0; i < x->rGraphVis.n; i++)
         {
@@ -2422,7 +3037,7 @@ void graph_cut(uint64_t src, uint64_t dest, min_cut_t* x)
                 if(x->rGraphVis.a[u]) continue;
                 if(!x->bmerVis.a[u]) continue;
                 /*******************************for debug************************************/
-                ///if(src == 45179) fprintf(stderr, "utg%.6lul\tutg%.6lul\t%f\n", v+1, u+1, x->rGraph.a[i].a[j].weight);    
+                if(src == 45179) fprintf(stderr, "utg%.6lul\tutg%.6lul\t%f\n", v+1, u+1, x->rGraph.a[i].a[j].weight);    
                 /*******************************for debug************************************/
                 ///delete <v, u>
                 x->rGraph.a[i].a[j].del = 1;
@@ -2582,7 +3197,6 @@ uint64_t inline set_dv(uint64_t v, uint64_t dis)
 }
 
 
-
 uint64_t select_bmer(uint32_t src, uint64_t k, const bubble_type* bub, min_cut_t* x, uint32_t bub_only)
 {
     uint32_t beg, sink, n, *a;
@@ -2663,10 +3277,69 @@ uint64_t select_bmer(uint32_t src, uint64_t k, const bubble_type* bub, min_cut_t
     return b_mer_d;
 }
 
+
+void select_bmer_distance(uint32_t src, uint64_t k, const bubble_type* bub, min_cut_t* x, 
+uint32_t bub_only, uint32_t bub_extend)
+{
+    uint32_t beg, sink, n, *a;
+    asg_t *sg = bub->ug->g;
+    uint64_t v, u, i, j, nv, w, first = 1;
+    asg_arc_t *av = NULL;
+    reset_pdq(&(x->pq));
+
+    x->bmerVis.a[src>>1] = 1;
+    x->pq.dis.a[src] = 0;
+    push_pdq(&(x->pq), src, 0);
+
+    while (pdq_cnt(x->pq) > 0)
+    {
+        pop_pdq(&(x->pq), &v, &w);
+        x->pq.vis.a[v] = 1;
+        if(x->pq.dis.a[v] > k) break;
+
+        ///fprintf(stderr, "******utg%.6dl, dis: %lu\n", (int)((v>>1)+1), x->pq.dis.a[v]); 
+
+        if(bub->index[v>>1] < bub->num.n)
+        {
+            if(bub_extend && x->bmerVis.a[v>>1] == 0)
+            {
+                get_bubbles((bubble_type*)bub, bub->index[v>>1], &beg, &sink, &a, &n);
+                for (j = 0; j < n; j++) x->bmerVis.a[(a[j]>>1)] = 1;
+            }
+            x->bmerVis.a[v>>1] = 1;
+        }
+         
+        if(bub->index[v>>1] == bub->num.n && bub_only == 0) x->bmerVis.a[v>>1] = 1;
+
+        av = asg_arc_a(sg, v);
+        nv = asg_arc_n(sg, v);
+        for (i = 0; i < nv; i++)
+        {
+            if(av[i].del) continue;
+            u = av[i].v;
+            w = (uint32_t)av[i].ul;
+            if(first) w = 0;
+
+            if(x->pq.vis.a[u] == 0 && x->pq.dis.a[u] > x->pq.dis.a[v] + w)
+            {
+                x->pq.dis.a[u] = x->pq.dis.a[v] + w;
+                push_pdq(&(x->pq), u, x->pq.dis.a[u]);
+            }
+        }
+
+        first = 0;
+    }
+}
+
 void get_bmer_unitgs(min_cut_t* x, const bubble_type* bub, uint64_t k, uint64_t src)
 {
+    uint32_t beg, sink, n, *a;
+    if(bub->index[src] >= bub->num.n) return;
+    get_bubbles((bubble_type*)bub, bub->index[src], &beg, &sink, &a, &n);
     memset(x->bmerVis.a, 0, x->bmerVis.n);
-    select_bmer(src, k, bub, x, 1);
+    ///select_bmer(src, k, bub, x, 1);
+    select_bmer_distance(beg^1, k, bub, x, 1, 1);
+    select_bmer_distance(sink^1, k, bub, x, 1, 1);
     /*******************************for debug************************************/
     // uint64_t i;
     // for (i = 0; i < x->bmerVis.n; ++i) 
@@ -2700,7 +3373,6 @@ min_cut_t* clean_hap(hc_links* link, bubble_type* bub, const ma_ug_t *ug)
     ///for (i = 0; (uint64_t)i < x.n; i++)
     for (i = x->n - 1; i >= 0; i--)
     {
-        ///fprintf(stderr, "i: %lu\n", i);
         uID = x->order.a[i] & x->uID_mode;
         ///fprintf(stderr, "uID: %lu, f.n: %lu\n", uID, (uint64_t)link->a.a[uID].f.n);
         if(link->a.a[uID].f.n == 0) continue;
@@ -2720,8 +3392,7 @@ min_cut_t* clean_hap(hc_links* link, bubble_type* bub, const ma_ug_t *ug)
         /*******************************for debug************************************/
         ///if(!select_large_node(ug, &x, x.src, x.dest, 10, 0)) continue; 
         ///if(uID != 26818) continue;
-        ///if(uID != 45179) continue;
-
+        //if(uID != 45179) continue;
         ///memset(x.bmerVis.a, 1, x.bmerVis.n);
         get_bmer_unitgs(x, bub, x->b_mer, x->src);
         x->bmerVis.a[x->src] = x->bmerVis.a[x->dest] = 1;
@@ -2743,64 +3414,16 @@ min_cut_t* clean_hap(hc_links* link, bubble_type* bub, const ma_ug_t *ug)
     return x;
 }
 
-void dump_unitigs(uint64_t src, hc_links* link, min_cut_t* m, partition_warp* res, 
-                                                        uint64_t* blcok, uint64_t blocID)
-{
-    uint64_t *p = NULL, v, u, d, k;
-    kdq_clear(m->q);
-    memset(m->rGraphVis.a, 0, m->rGraphVis.n);
-    res->h[0] = res->h[1] = 0;
-
-
-    kdq_push(uint64_t, m->q, src<<1); 
-    kv_push(uint64_t, res->a, src<<1);
-    res->h[0]++;
-    m->rGraphVis.a[src] = 1;
-    blcok[src] = blocID<<1;
-
-    while (1)
-    {
-        p = kdq_shift(uint64_t, m->q);
-        if(!p) break;
-        v = (*p)>>1; d = (*p) & (uint64_t)1;
-
-        for (k = 0; k < link->a.a[v].f.n; k++)
-        {
-            if(link->a.a[v].f.a[k].del) continue;
-            u = link->a.a[v].f.a[k].uID;
-            if(m->rGraphVis.a[u]) continue;
-
-
-            kdq_push(uint64_t, m->q, (u<<1)+(1-d)); 
-            kv_push(uint64_t, res->a, (u<<1)+(1-d));
-            res->h[(1-d)]++;
-            m->rGraphVis.a[u] = 1;
-            blcok[u] = (blocID<<1)+(1-d);
-        }
-    }
-
-    radix_sort_g_partition(res->a.a, res->a.a + res->a.n);
-}
-
-void init_G_partition(G_partition* x, hc_links* link, min_cut_t* m)
+void init_G_partition(G_partition* x, uint64_t n_utg)
 {
     uint64_t i;
-    partition_warp* p = NULL;
     kv_init(*x);
-    kv_malloc(x->block, link->a.n); x->block.n = link->a.n;
-
-    for (i = 0; i < link->a.n; i++)
+    MALLOC(x->index, n_utg);
+    for (i = 0; i < n_utg; i++)
     {
-        x->block.a[i] = (uint32_t)-1;
-    }    
-
-    for (i = 0; i < link->a.n; i++)
-    {
-        if(link->a.a[i].f.n == 0 || x->block.a[i] != (uint32_t)-1) continue;
-        kv_pushp(partition_warp, *x, &p); 
-        kv_init(p->a);
-        dump_unitigs(i, link, m, p, x->block.a, x->n-1);
+        x->index[i] = (uint32_t)-1;
     }
+    
 }
 
 void destory_G_partition(G_partition* x)
@@ -2810,20 +3433,10 @@ void destory_G_partition(G_partition* x)
     {
         kv_destroy(x->a[i].a);
     }
-    kv_destroy(x->block);
     kv_destroy(*x);
+    free(x->index);
 }
 
-G_partition* haplotype_partition(hc_links* link, bubble_type* bub, min_cut_t* m, const ma_ug_t *ug)
-{
-    double index_time = yak_realtime();
-    G_partition* x; CALLOC(x, 1);
-    init_G_partition(x, link, m);
-
-
-    fprintf(stderr, "[M::%s::%.3f]\n", __func__, yak_realtime()-index_time);
-    return x;
-}
 
 double get_hc_weight(uint32_t query, uint32_t v0, uint32_t root, bub_p_t_warp *b, min_cut_t* x)
 {
@@ -2842,20 +3455,20 @@ double get_hc_weight(uint32_t query, uint32_t v0, uint32_t root, bub_p_t_warp *b
     return weight;
 }
 
-void set_path(bub_p_t_warp *b, uint32_t root, uint8_t* flag)
+void set_path(bub_p_t_warp *b, uint32_t root, uint8_t* flag, uint8_t label)
 {
     uint32_t v, u;
     ///v is the sink of this bubble
 	v = b->S.a[0];
     do {
 		u = b->a[v].p; // u->v
-        flag[v>>1] = (flag[v>>1]<<1) + 1;
+        flag[v>>1] |= label;
 		v = u;
 	} while (v != root);
     flag[b->S.a[0]>>1] = 0;
 }
 
-uint64_t trace_phase_path(ma_ug_t *ug, uint32_t s, uint32_t d, bub_p_t_warp *b, min_cut_t* x, uint8_t* flag)
+uint64_t trace_phase_path(ma_ug_t *ug, uint32_t s, uint32_t d, bub_p_t_warp *b, min_cut_t* x, uint8_t* flag, uint8_t label)
 {
     asg_t *g = ug->g;
     if(g->seq[s>>1].del) return 0; // already deleted
@@ -2868,7 +3481,7 @@ uint64_t trace_phase_path(ma_ug_t *ug, uint32_t s, uint32_t d, bub_p_t_warp *b, 
     b->a[s].d = b->a[s].nc = b->a[s].ac = b->a[s].uc = 0; b->a[s].nh = 0;
     ///b->S is the nodes with all incoming edges visited
     kv_push(uint32_t, b->S, s);
-    n_tips = n_pop = n_pending = 0;
+    n_pop = n_tips = n_pending = 0;
     tip_end = (uint32_t)-1;
     is_first = 1;
 
@@ -2996,7 +3609,7 @@ uint64_t trace_phase_path(ma_ug_t *ug, uint32_t s, uint32_t d, bub_p_t_warp *b, 
 
     n_pop = 1;
     /**need fix**/
-    set_path(b, s, flag);
+    set_path(b, s, flag, label);
     pop_reset:
 
     for (i = 0; i < b->b.n; ++i) { // clear the states of visited vertices
@@ -3008,20 +3621,319 @@ uint64_t trace_phase_path(ma_ug_t *ug, uint32_t s, uint32_t d, bub_p_t_warp *b, 
     return n_pop;
 }
 
-void phase_bubble(bub_p_t_warp *b)
+inline void get_phased_block(G_partition* x, bubble_type* bub, uint64_t id, 
+uint32_t* beg, uint32_t* sink, uint32_t** h0, uint32_t* h0_n, uint32_t** h1, uint32_t* h1_n,
+uint32_t* phased, uint32_t* bub_id)
 {
+    if(bub && beg && sink)
+    {
+        (*bub_id) = bub->index[x->a[id].a.a[0]];
+        (*beg) = bub->list.a[bub->num.a[(*bub_id)]];
+        (*sink) = bub->list.a[bub->num.a[(*bub_id)] + 1];
+    }
     
+    (*h0) = x->a[id].a.a; 
+    (*h0_n) = x->a[id].h[0];
+
+    (*h1) = x->a[id].a.a + x->a[id].h[0];
+    (*h1_n) = x->a[id].h[1];
+    (*phased) = x->a[id].full_bub;
+}
+
+double get_co_weight(uint32_t *query, uint32_t query_n, uint32_t *target, uint32_t target_n, min_cut_t* m)
+{
+    double weight = 0;
+    hc_edge *p = NULL;
+    uint32_t i, k;
+    for (i = 0; i < query_n; i++)
+    {
+        for (k = 0; k < target_n; k++)
+        {
+            p = get_rGraph_edge(m, query[i], target[k]);
+            if(p) weight += p->weight;
+        }
+    }
+
+    return weight;
+}
+
+void phase_bubble(uint64_t bid, bub_p_t_warp *b, bubble_type* bub, uint8_t* flag, const ma_ug_t *ug, 
+min_cut_t* m, hc_links* link, G_partition* x)
+{
+    #define HAP1_LAB 1
+    #define HAP2_LAB 2
+
+    partition_warp* res = NULL;
+    kv_pushp(partition_warp, *x, &res);
+    memset(flag, 0, ug->g->n_seq);
+    uint32_t beg, sink, n, *a, i, k;
+    get_bubbles(bub, bid, &beg, &sink, &a, &n);
+    res->full_bub = 0;
+    trace_phase_path((ma_ug_t *)ug, beg, sink, b, m, flag, HAP1_LAB);
+    trace_phase_path((ma_ug_t *)ug, beg, sink, b, m, flag, HAP2_LAB);
+    kv_init(res->a);
+    for (i = 0; i < ug->g->n_seq; i++)
+    {
+        if(flag[i] & (uint8_t)HAP1_LAB) kv_push(uint32_t, res->a, i);
+    }
+    res->h[0] = res->a.n;
+    for (i = 0; i < ug->g->n_seq; i++)
+    {
+        if(flag[i] & (uint8_t)HAP2_LAB) kv_push(uint32_t, res->a, i);
+    }
+    res->h[1] = res->a.n - res->h[0];
+    if(n == 2) res->full_bub = 1;
+    if(res->full_bub == 0)
+    {
+        double self = 0, intersec = 0;
+        uint32_t *h0 = NULL, *h1 = NULL;
+        h0 = res->a.a; h1 = res->a.a + res->h[0];
+        self += get_co_weight(h0, res->h[0], h0, res->h[0], m);
+        self += get_co_weight(h1, res->h[1], h1, res->h[1], m);
+
+        intersec += get_co_weight(h0, res->h[0], h1, res->h[1], m);
+        intersec = intersec * 2;
+
+        if(self > intersec) res->full_bub = 1;
+    }
+
+    if(res->full_bub == 0)
+    {
+        res->a.n = 0;
+        uint32_t v, u = 0, uv, k_n, pre_n = x->n;
+        hc_linkeage* t = NULL;
+        x->n--;
+        for (i = 0; i < n; i++)
+        {
+            v = a[i]>>1;
+            t = &(link->a.a[v]);
+            for (k = k_n = 0; k < t->f.n; k++)
+            {
+                if(t->f.a[k].del) continue;
+                k_n++;
+                u = t->f.a[k].uID;
+            }
+            if(k_n != 1) continue;
+
+            t = &(link->a.a[u]);
+            for (k = k_n = 0; k < t->f.n; k++)
+            {
+                if(t->f.a[k].del) continue;
+                k_n++;
+                uv = t->f.a[k].uID;
+            }
+            if(k_n != 1) continue;
+            if(uv != v) continue;
+            
+            ///avoid dups
+            for (k = 0; k < i; k++)
+            {
+                if((a[k]>>1) == u) break;
+            }
+            if(k < i) continue;
+            
+
+            kv_pushp(partition_warp, *x, &res);
+            if(x->n > pre_n) kv_init(res->a);
+            res->full_bub = 0;
+            res->h[0] = res->h[1] = 1;
+            kv_push(uint32_t, res->a, v);
+            kv_push(uint32_t, res->a, u);
+
+            for (k = 0; k < res->a.n; k++)
+            {
+                x->index[res->a.a[k]] = x->n-1;
+            }
+        }
+    }
+    else
+    {
+        for (k = 0; k < res->a.n; k++)
+        {
+            x->index[res->a.a[k]] = x->n-1;
+        }
+    }
+    
+    /*******************************for debug************************************/
+    // for (i = 0; i < ug->g->n_seq; i++)
+    // {
+    //     if(flag[i] & (uint8_t)3)
+    //     {
+    //         uint32_t k;
+    //         for (k = 0; k < n; k++)
+    //         {
+    //             if((a[k]>>1) == i)
+    //             {
+    //                 break;
+    //             }
+    //         }
+
+    //         if(k == n) fprintf(stderr, "ERROR5\n");
+    //     }
+    // }
+    /*******************************for debug************************************/
+}
+
+
+void print_phased_bubble(G_partition* x, bubble_type* bub, uint32_t utg_n)
+{
+    uint64_t i, k;
+    uint32_t beg = 0, sink = 0, h0_n, h1_n, *h0, *h1, full_bub = 0, bubID = 0;
+
+    for (i = 0; i < x->n; i++)
+    {
+        get_phased_block(x, bub, i, &beg, &sink, &h0, &h0_n, &h1, &h1_n, &full_bub, &bubID);
+
+        fprintf(stderr, "\n[%lu]\tbeg:utg%.6ul\tsink:utg%.6ul\tphased=%u\n", i, (beg>>1)+1, (sink>>1)+1, full_bub);
+        for (k = 0; k < h0_n; k++)
+        {
+            fprintf(stderr, "(0) utg%.6ul\n", h0[k] + 1);
+        }
+
+        for (k = 0; k < h1_n; k++)
+        {
+            fprintf(stderr, "(1) utg%.6ul\n", h1[k] + 1);
+        }
+
+        uint32_t n, *a;
+        get_bubbles(bub, bubID, &beg, &sink, &a, &n);
+        if(n > 2) fprintf(stderr, "complex\n");
+    }
+
+    /*******************************for debug************************************/
+    for (i = 0; i < utg_n; i++)
+    {
+        if(x->index[i] == (uint32_t)-1) continue;
+        partition_warp* p = &(x->a[x->index[i]]);
+        for (k = 0; k < p->a.n; k++)
+        {
+            if(p->a.a[k] != i) break;
+        }
+
+        if(k == p->a.n) fprintf(stderr, "ERROR\n");
+    }
+    /*******************************for debug************************************/
 }
 
 G_partition* clean_bubbles(hc_links* link, bubble_type* bub, min_cut_t* m, const ma_ug_t *ug)
 {
     double index_time = yak_realtime();
+    uint64_t i;
+    bub_p_t_warp b; 
+    memset(&b, 0, sizeof(bub_p_t_warp));
+    CALLOC(b.a, ug->g->n_seq*2); 
+    uint8_t* flag = NULL;
+    CALLOC(flag, ug->g->n_seq);
     G_partition* x; CALLOC(x, 1);
-    init_G_partition(x, link, m);
+    init_G_partition(x, ug->g->n_seq);
 
+    for (i = 0; i < bub->num.n-1; i++)
+    {
+        phase_bubble(i, &b, bub, flag, ug, m, link, x);
+    }
 
+    free(b.a); free(b.S.a); free(b.T.a); free(b.b.a); free(b.e.a);
+    free(flag);
     fprintf(stderr, "[M::%s::%.3f]\n", __func__, yak_realtime()-index_time);
+    ///print_phased_bubble(x, bub, ug->g->n_seq);
+
     return x;
+}
+
+
+void debug_hc_links(ha_ug_index* idx, hc_links* link, sldat_t* sl, bubble_type* bub, const char *fn1)
+{
+    ///print_hits(idx, &sl->hits, fn1);
+    destory_hc_links(link);
+    init_hc_links(link, sl->idx->ug->g->n_seq);
+    collect_hc_links(sl->idx, &sl->hits, link, bub);
+    print_hc_links(link);
+}
+
+uint64_t get_hic_distance(pe_hit* hit, hc_links* link, const ha_ug_index* idx)
+{
+    uint64_t s_uid, s_dir, e_uid, e_dir, u_dis, k;
+    long long s_pos, e_pos;
+    s_uid = ((hit->s<<1)>>(64 - idx->uID_bits)); s_pos = hit->s & idx->pos_mode;
+    e_uid = ((hit->e<<1)>>(64 - idx->uID_bits)); e_pos = hit->e & idx->pos_mode;
+    if(s_uid == e_uid) return MAX(s_pos, e_pos) - MIN(s_pos, e_pos);
+    hc_linkeage* t = &(link->a.a[s_uid]);
+    for (k = 0; k < t->e.n; k++)
+    {
+        if(t->e.a[k].del || t->e.a[k].uID != e_uid) continue;
+        s_dir = (!!(t->e.a[k].dis&(uint64_t)2));
+        e_dir = (!!(t->e.a[k].dis&(uint64_t)1));
+        u_dis = (t->e.a[k].dis ==(uint64_t)-1? (uint64_t)-1 : t->e.a[k].dis>>3);
+        if(u_dis == (uint64_t)-1) return (uint64_t)-1;
+        if(s_dir == 1) s_pos = (long long)idx->ug->g->seq[s_uid].len - s_pos - 1;
+        if(e_dir == 1) e_pos = (long long)idx->ug->g->seq[e_uid].len - e_pos - 1;
+        e_pos = e_pos + u_dis - (long long)idx->ug->g->seq[e_uid].len;
+        return MAX(s_pos, e_pos) - MIN(s_pos, e_pos);
+    }
+
+    return (uint64_t)-1;
+}
+
+hc_edge* get_hc_edge(hc_links* link, uint64_t src, uint64_t dest, uint64_t dir)
+{
+    if(src >= link->a.n) return NULL;
+    uint64_t i, n;
+    hc_edge* a = NULL;
+    if(dir == 0)
+    {
+        n = link->a.a[src].e.n;
+        a = link->a.a[src].e.a;
+    }
+    else
+    {
+        n = link->a.a[src].f.n;
+        a = link->a.a[src].f.a;
+    }
+    
+    for (i = 0; i < n; i++)
+    {
+        if(a[i].del) continue;
+        if(a[i].uID == dest) return &(a[i]);
+    }
+
+    return NULL;
+}
+
+void init_hic_p(const ha_ug_index* idx, kvec_pe_hit* hits, hc_links* link, bubble_type* bub)
+{
+    uint64_t k, beg, end, t_d;
+    kvec_t(uint64_t) buf;
+    kv_init(buf);
+    
+    for (k = 0; k < hits->a.n; ++k) 
+    {
+        beg = ((hits->a.a[k].s<<1)>>(64 - idx->uID_bits));
+        end = ((hits->a.a[k].e<<1)>>(64 - idx->uID_bits));
+
+        if(bub->index[beg] > bub->num.n) continue;
+        if(bub->index[end] > bub->num.n) continue;
+
+        if(beg == end)
+        {
+            t_d = get_hic_distance(&(hits->a.a[k]), link, idx);
+            t_d = (t_d << 1);
+            kv_push(uint64_t, buf, t_d); 
+            continue;
+        } 
+
+        if(get_hc_edge(link, beg, end, 1))
+        {
+            t_d = get_hic_distance(&(hits->a.a[k]), link, idx);
+            t_d = (t_d << 1) + 1; 
+            kv_push(uint64_t, buf, t_d); 
+        }
+
+    }
+
+    ///might have bias, we may not use right linkage larger than trans rc linkage
+    radix_sort_hc64(buf.a, buf.a+buf.n);
+
+    kv_destroy(buf);
 }
 
 int hic_short_align(const char *fn1, const char *fn2, ha_ug_index* idx)
@@ -3042,7 +3954,13 @@ int hic_short_align(const char *fn1, const char *fn2, ha_ug_index* idx)
     kv_init(sl.hits.a);
     fprintf(stderr, "u.n: %d, uID_bits: %lu, pos_bits: %lu\n", (uint32_t)idx->ug->u.n, idx->uID_bits, idx->pos_bits);
     
-    if(!load_hc_links(&link, asm_opt.output_file_name))
+    bubble_type bub;
+    identify_bubbles(idx->ug, &bub);
+    init_hc_links(&link, sl.idx->ug->g->n_seq);
+    collect_hc_reverse_links(link, idx->ug, bub);
+
+
+    if(!load_hc_links(&link, &sl.hits, asm_opt.output_file_name))
     {
         /*******************************for debug************************************/
         // load_reads(&R1, fn1);
@@ -3058,17 +3976,20 @@ int hic_short_align(const char *fn1, const char *fn2, ha_ug_index* idx)
         /*******************************for debug************************************/
         dedup_hits(&sl.hits);
 
-        init_hc_links(&link, sl.idx->ug->g->n_seq);
-        collect_hc_links(sl.idx, &sl.hits, &link);
-        write_hc_links(&link, asm_opt.output_file_name);
+        collect_hc_links(sl.idx, &sl.hits, &link, &bub);
+        write_hc_links(&link, &sl.hits, asm_opt.output_file_name);
     }
+
+
+
+    debug_hc_links(idx, &link, &sl, &bub, fn1);
+    init_hic_p(sl.idx, &sl.hits, &link, &bub);
+    return 1;
     
     /*******************************for debug************************************/
     // destory_reads(&R1);
     // destory_reads(&R2);
     /*******************************for debug************************************/
-    bubble_type bub;
-    identify_bubbles(idx->ug, &bub);
     print_bubbles(idx->ug, &bub, sl.hits.a.n?&sl.hits:NULL, &link, idx);
     collect_hc_reverse_links(&link, idx->ug, &bub);
     normalize_hc_links(&link);
@@ -3077,12 +3998,11 @@ int hic_short_align(const char *fn1, const char *fn2, ha_ug_index* idx)
     /*******************************for debug************************************/
     min_cut_t* cut = clean_hap(&link, &bub, idx->ug);
     ///print_bubbles(idx->ug, &bub, NULL, &link, idx);
-    ///G_partition* gp = haplotype_partition(&link, &bub, cut, idx->ug);
-
-
+    G_partition* gp = clean_bubbles(&link, &bub, cut, idx->ug);
+    ///print_hc_links(&link);
 
     destory_min_cut_t(cut); free(cut);
-    ///destory_G_partition(gp); free(gp);
+    destory_G_partition(gp); free(gp);
     kv_destroy(sl.hits.a);
     destory_hc_links(&link);
     destory_bubbles(&bub);

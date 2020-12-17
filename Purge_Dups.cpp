@@ -7,6 +7,7 @@
 #include "Correct.h"
 #include "kthread.h"
 #include "kdq.h"
+#include "hic.h"
 
 KDQ_INIT(uint64_t)
 
@@ -3925,10 +3926,54 @@ kvec_t_i32_warp* prevIndex, int max_hang, int min_ovlp, kvec_asg_arc_t_warp* edg
     
 }
 
+
+
+void collect_reverse_unitig_pair(hc_links* link, ma_ug_t *ug, uint32_t b_0, uint32_t b_1)
+{
+    uint32_t i = 0, k = 0, rId_0, rId_1, pre_0 , pre_1;
+    uint64_t d = (uint64_t)-1;
+    ma_utg_t* u_b_0 = &(ug->u.a[b_0]);
+    ma_utg_t* u_b_1 = &(ug->u.a[b_1]);
+    if(u_b_0->n == 0) return;
+    if(u_b_1->n == 0) return;
+
+    for (i = 0, pre_0 = (uint32_t)-1; i < u_b_0->n; i++)
+    {
+        rId_0 = u_b_0->a[i]>>33;
+        if(link->u_idx[rId_0] == (uint32_t)-1) continue;
+        if(pre_0 == link->u_idx[rId_0]) continue;
+        pre_0 = link->u_idx[rId_0];
+        
+        for (k = 0, pre_1  = (uint32_t)-1; k < u_b_1->n; k++)
+        {
+            rId_1 = u_b_1->a[k]>>33;
+            if(link->u_idx[rId_1] == (uint32_t)-1) continue;
+            if(pre_1 == link->u_idx[rId_1]) continue;
+            pre_1 = link->u_idx[rId_1];
+            push_hc_edge(&(link->a.a[pre_0]), pre_1, 1, 1, &d);
+            push_hc_edge(&(link->a.a[pre_1]), pre_0, 1, 1, &d);
+        }
+    }
+
+}
+
+
+void collect_reverse_unitigs_purge(buf_t* b_0, hc_links* link, ma_ug_t *ug)
+{
+    if(b_0->b.n <= 1) return;
+    uint32_t k;
+    for (k = 0; k < b_0->b.n - 1; k++)
+    {
+        collect_reverse_unitig_pair(link, ug, b_0->b.a[k]>>1, b_0->b.a[k+1]>>1);
+    }
+}
+
+
 void link_unitigs(asg_t *purge_g, ma_ug_t *ug, hap_overlaps_list* all_ovlp,
 R_to_U* ruIndex, ma_hit_t_alloc* reverse_sources, ma_sub_t *coverage_cut, asg_t *read_g, 
 uint64_t* position_index, kvec_asg_arc_t_offset* u_buffer, kvec_t_i32_warp* tailIndex, 
-kvec_t_i32_warp* prevIndex, int max_hang, int min_ovlp, kvec_asg_arc_t_warp* edge, uint8_t* visit)
+kvec_t_i32_warp* prevIndex, int max_hang, int min_ovlp, kvec_asg_arc_t_warp* edge, uint8_t* visit,
+hc_links* link)
 {
     uint32_t v, n_vtx = purge_g->n_seq * 2, beg, end;
     long long nodeLen, baseLen, max_stop_nodeLen, max_stop_baseLen;
@@ -3948,6 +3993,8 @@ kvec_t_i32_warp* prevIndex, int max_hang, int min_ovlp, kvec_asg_arc_t_warp* edg
         {
             continue;
         }
+
+        if(link) collect_reverse_unitigs_purge(&b_0, link, ug);
         purge_merge(purge_g, ug, all_ovlp, &b_0, ruIndex, reverse_sources, coverage_cut, 
         read_g, position_index, u_buffer, tailIndex, prevIndex,max_hang, min_ovlp, edge, visit);
     }
@@ -4168,11 +4215,10 @@ uint32_t minLen, double purge_threshold)
     return 0;
 }
 
-
 void purge_dups(ma_ug_t *ug, asg_t *read_g, ma_sub_t* coverage_cut, ma_hit_t_alloc* sources, 
 ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, kvec_asg_arc_t_warp* edge, float density, 
 uint32_t purege_minLen, int max_hang, int min_ovlp, long long bubble_dist, float drop_ratio, 
-uint32_t just_contain, uint32_t just_coverage)
+uint32_t just_contain, uint32_t just_coverage, hc_links* link)
 {
     asg_t *purge_g = NULL;
     purge_g = asg_init();
@@ -4301,6 +4347,7 @@ uint32_t just_contain, uint32_t just_coverage)
                 purge_g->seq[all_ovlp.x[uId].a.a[i].xUid].c = ALTER_LABLE;
                 purge_g->seq[all_ovlp.x[uId].a.a[i].xUid].del = 1;
                 all_ovlp.x[uId].a.a[i].status = DELETE;
+                if(link) collect_reverse_unitig_pair(link, ug, all_ovlp.x[uId].a.a[i].xUid, all_ovlp.x[uId].a.a[i].yUid);
             }
 
             if(all_ovlp.x[uId].a.a[i].type == XCY)
@@ -4309,6 +4356,7 @@ uint32_t just_contain, uint32_t just_coverage)
                 purge_g->seq[all_ovlp.x[uId].a.a[i].yUid].c = ALTER_LABLE;
                 purge_g->seq[all_ovlp.x[uId].a.a[i].yUid].del = 1;
                 all_ovlp.x[uId].a.a[i].status = DELETE;
+                if(link) collect_reverse_unitig_pair(link, ug, all_ovlp.x[uId].a.a[i].xUid, all_ovlp.x[uId].a.a[i].yUid);
             }
             ///print_hap_paf(ug, &(all_ovlp.x[uId].a.a[i]));
         }
@@ -4360,7 +4408,7 @@ uint32_t just_contain, uint32_t just_coverage)
 
         link_unitigs(purge_g, ug, &all_ovlp, ruIndex, reverse_sources, coverage_cut, read_g, position_index, 
         &(hap_buf.buf[0].u_buffer), &(hap_buf.buf[0].u_buffer_tailIndex), &(hap_buf.buf[0].u_buffer_prevIndex),
-        max_hang, min_ovlp, edge, hap_buf.buf[0].visit);
+        max_hang, min_ovlp, edge, hap_buf.buf[0].visit, link);
     }
 
     for (v = 0; v < all_ovlp.num; v++)

@@ -142,7 +142,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->hom_global_coverage = -1;
     asm_opt->bed_inconsist_rate = 70;
     ///asm_opt->bub_mer_length = 3;
-    asm_opt->bub_mer_length = 10;
+    asm_opt->bub_mer_length = 1000000;
 }
 
 void destory_opt(hifiasm_opt_t* asm_opt)

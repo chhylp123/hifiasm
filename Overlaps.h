@@ -1064,6 +1064,45 @@ uint64_t asg_bub_pop1_primary_trio(asg_t *g, ma_ug_t *utg, uint32_t v0, int max_
 uint32_t positive_flag, uint32_t negative_flag, uint32_t is_pop);
 int unitig_arc_del_short_diploid_by_length(asg_t *g, float drop_ratio);
 
+
+typedef struct{
+    double weight;
+    uint32_t uID:31, del:1;
+    uint64_t dis;
+    ///uint32_t enzyme;
+} hc_edge;
+
+typedef struct{
+    kvec_t(hc_edge) e;
+    kvec_t(hc_edge) f;//forbiden
+} hc_linkeage;
+
+typedef struct{
+    kvec_t(hc_linkeage) a;
+    kvec_t(uint64_t) enzymes;
+    uint32_t* u_idx;
+} hc_links;
+
+typedef struct{
+    ///kvec_t(hc_edge) a;
+    size_t n, m; 
+    hc_edge *a;
+}hc_edge_warp;
+
+
+void clean_primary_untig_graph(ma_ug_t *ug, asg_t *read_g, ma_hit_t_alloc* reverse_sources,
+long long bubble_dist, long long tipsLen, float tip_drop_ratio, long long stops_threshold, 
+R_to_U* ruIndex, buf_t* b_0, uint8_t* visit, float density, uint32_t miniHapLen, 
+uint32_t miniBiGraph, float chimeric_rate, int is_final_clean, int just_bubble_pop, 
+float drop_ratio, hc_links* link);
+void adjust_utg_by_primary(ma_ug_t **ug, asg_t* read_g, float drop_rate,
+ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, ma_sub_t* coverage_cut, 
+long long bubble_dist, long long tipsLen, float tip_drop_ratio, long long stops_threshold, 
+R_to_U* ruIndex, float chimeric_rate, float drop_ratio, int max_hang, int min_ovlp,
+kvec_asg_arc_t_warp* new_rtg_edges, hc_links* link);
+void collect_reverse_unitigs(buf_t* b_0, buf_t* b_1, hc_links* link, ma_ug_t *ug);
+
+
 #define JUNK_COV 5
 #define DISCARD_RATE 0.8
 
