@@ -3292,7 +3292,7 @@ int asg_pop_bubble_purge_graph(asg_t *purge_g, int max_dist)
 		for (i = 0; i < nv; ++i) // asg_bub_pop1() may delete some edges/arcs
 			if (!av[i].del) ++n_arc;
 		if (n_arc > 1)
-			n_pop += asg_bub_pop1_primary_trio(purge_g, NULL, v, max_dist, &b, (uint32_t)-1, DROP, 1);
+			n_pop += asg_bub_pop1_primary_trio(purge_g, NULL, v, max_dist, &b, (uint32_t)-1, DROP, 1, NULL);
 	}
 	free(b.a); free(b.S.a); free(b.T.a); free(b.b.a); free(b.e.a);
 	if (n_pop) asg_cleanup(purge_g);
@@ -3928,23 +3928,23 @@ kvec_t_i32_warp* prevIndex, int max_hang, int min_ovlp, kvec_asg_arc_t_warp* edg
 
 
 
-void collect_reverse_unitig_pair(hc_links* link, ma_ug_t *ug, uint32_t b_0, uint32_t b_1)
+void collect_reverse_unitig_pair(hc_links* link, ma_ug_t *ug, hap_overlaps* t)
 {
-    uint32_t i = 0, k = 0, rId_0, rId_1, pre_0 , pre_1;
+    uint32_t i = 0, k = 0, rId_0, rId_1, pre_0, pre_1, b_0 = t->xUid, b_1 = t->yUid;
     uint64_t d = (uint64_t)-1;
     ma_utg_t* u_b_0 = &(ug->u.a[b_0]);
     ma_utg_t* u_b_1 = &(ug->u.a[b_1]);
     if(u_b_0->n == 0) return;
     if(u_b_1->n == 0) return;
 
-    for (i = 0, pre_0 = (uint32_t)-1; i < u_b_0->n; i++)
+    for (i = t->x_beg_id, pre_0 = (uint32_t)-1; i < t->x_end_id; i++)
     {
         rId_0 = u_b_0->a[i]>>33;
         if(link->u_idx[rId_0] == (uint32_t)-1) continue;
         if(pre_0 == link->u_idx[rId_0]) continue;
         pre_0 = link->u_idx[rId_0];
         
-        for (k = 0, pre_1  = (uint32_t)-1; k < u_b_1->n; k++)
+        for (k = t->y_beg_id, pre_1  = (uint32_t)-1; k < t->y_end_id; k++)
         {
             rId_1 = u_b_1->a[k]>>33;
             if(link->u_idx[rId_1] == (uint32_t)-1) continue;
@@ -3958,13 +3958,16 @@ void collect_reverse_unitig_pair(hc_links* link, ma_ug_t *ug, uint32_t b_0, uint
 }
 
 
-void collect_reverse_unitigs_purge(buf_t* b_0, hc_links* link, ma_ug_t *ug)
+void collect_reverse_unitigs_purge(buf_t* b_0, hc_links* link, ma_ug_t *ug, hap_overlaps_list* all_ovlp)
 {
     if(b_0->b.n <= 1) return;
     uint32_t k;
+    int index = 0;
     for (k = 0; k < b_0->b.n - 1; k++)
     {
-        collect_reverse_unitig_pair(link, ug, b_0->b.a[k]>>1, b_0->b.a[k+1]>>1);
+        index = get_specific_hap_overlap(&(all_ovlp->x[b_0->b.a[k]>>1]), b_0->b.a[k]>>1, b_0->b.a[k+1]>>1);
+        if(index == -1) continue;
+        collect_reverse_unitig_pair(link, ug, &(all_ovlp->x[b_0->b.a[k]>>1].a.a[index]));
     }
 }
 
@@ -3994,7 +3997,7 @@ hc_links* link)
             continue;
         }
 
-        if(link) collect_reverse_unitigs_purge(&b_0, link, ug);
+        if(link) collect_reverse_unitigs_purge(&b_0, link, ug, all_ovlp);
         purge_merge(purge_g, ug, all_ovlp, &b_0, ruIndex, reverse_sources, coverage_cut, 
         read_g, position_index, u_buffer, tailIndex, prevIndex,max_hang, min_ovlp, edge, visit);
     }
@@ -4347,7 +4350,7 @@ uint32_t just_contain, uint32_t just_coverage, hc_links* link)
                 purge_g->seq[all_ovlp.x[uId].a.a[i].xUid].c = ALTER_LABLE;
                 purge_g->seq[all_ovlp.x[uId].a.a[i].xUid].del = 1;
                 all_ovlp.x[uId].a.a[i].status = DELETE;
-                if(link) collect_reverse_unitig_pair(link, ug, all_ovlp.x[uId].a.a[i].xUid, all_ovlp.x[uId].a.a[i].yUid);
+                if(link) collect_reverse_unitig_pair(link, ug, &(all_ovlp.x[uId].a.a[i]));
             }
 
             if(all_ovlp.x[uId].a.a[i].type == XCY)
@@ -4356,7 +4359,7 @@ uint32_t just_contain, uint32_t just_coverage, hc_links* link)
                 purge_g->seq[all_ovlp.x[uId].a.a[i].yUid].c = ALTER_LABLE;
                 purge_g->seq[all_ovlp.x[uId].a.a[i].yUid].del = 1;
                 all_ovlp.x[uId].a.a[i].status = DELETE;
-                if(link) collect_reverse_unitig_pair(link, ug, all_ovlp.x[uId].a.a[i].xUid, all_ovlp.x[uId].a.a[i].yUid);
+                if(link) collect_reverse_unitig_pair(link, ug, &(all_ovlp.x[uId].a.a[i]));
             }
             ///print_hap_paf(ug, &(all_ovlp.x[uId].a.a[i]));
         }

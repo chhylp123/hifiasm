@@ -67,6 +67,7 @@ typedef struct {
     int purge_level_primary;
     int purge_level_trio;
     int purge_overlap_len;
+    int purge_overlap_len_hic;
     int recover_atg_cov_min;
     int recover_atg_cov_max;
     int hom_global_coverage;
@@ -76,6 +77,7 @@ typedef struct {
     float min_drop_rate;
     float max_drop_rate;
     float purge_simi_rate;
+    float purge_simi_rate_hic;
 
     long long small_pop_bubble_size;
     long long large_pop_bubble_size;
