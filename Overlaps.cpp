@@ -11970,6 +11970,7 @@ kvec_asg_arc_t_warp* new_rtg_edges, int max_hang, int min_ovlp)
         asm_opt.purge_simi_rate, asm_opt.purge_overlap_len, max_hang, min_ovlp, 0, 0, 0, 1, NULL);
     dip_thres = ((double)asm_opt.hom_global_coverage)/((double)HOM_PEAK_RATE)*0.75;
     asm_opt.hom_global_coverage = tmp_cov;
+
     
     for (i = 0; i < ug->g->n_seq; i++)
     {
@@ -12026,52 +12027,48 @@ R_to_U* ruIndex, float chimeric_rate, float drop_ratio, int max_hang, int min_ov
 { 
     kvec_asg_arc_t_warp new_rtg_edges;
     kv_init(new_rtg_edges.a);
-    ma_ug_t *ug = NULL, *copy = NULL;
+    ma_ug_t *ug = NULL;
     ug = ma_ug_gen_primary(sg, PRIMARY_LABLE);
+
+    
+
+
 
 
     hc_links link;
     init_hc_links(&link, ug->g->n_seq, R_INF.total_reads);
-    copy = copy_untig_graph(ug);    
+    asg_t *copy_sg = copy_read_graph(sg);
+    ma_ug_t *copy_ug = copy_untig_graph(ug);    
     asm_opt.purge_overlap_len = asm_opt.purge_overlap_len_hic;
     asm_opt.purge_simi_rate = asm_opt.purge_simi_rate_hic;
-    adjust_utg_by_primary(&copy, sg, TRIO_THRES, sources, reverse_sources, coverage_cut, 
+    adjust_utg_by_primary(&copy_ug, copy_sg, TRIO_THRES, sources, reverse_sources, coverage_cut, 
     bubble_dist, tipsLen, tip_drop_ratio, stops_threshold, ruIndex, chimeric_rate, drop_ratio, 
     max_hang, min_ovlp, &new_rtg_edges, &link);
-    ma_ug_destroy(copy);
+    ma_ug_destroy(copy_ug);
+    asg_destroy(copy_sg);
+
+
+
+
+
 
 
     new_rtg_edges.a.n = 0;
     ma_ug_seq(ug, sg, &R_INF, coverage_cut, sources, &new_rtg_edges, max_hang, min_ovlp);
-    
-    /**
-    fprintf(stderr, "Writing raw unitig GFA to disk... \n");
-    char* gfa_name = (char*)malloc(strlen(output_file_name)+25);
-    sprintf(gfa_name, "%s.r_utg.gfa", output_file_name);
-    FILE* output_file = fopen(gfa_name, "w");
-    ma_ug_print(ug, &R_INF, sg, coverage_cut, sources, ruIndex, "utg", output_file);
-    fclose(output_file);
-    sprintf(gfa_name, "%s.r_utg.noseq.gfa", output_file_name);
-    output_file = fopen(gfa_name, "w");
-    ma_ug_print_simple(ug, &R_INF, sg, coverage_cut, sources, ruIndex, "utg", output_file);
-    fclose(output_file);
-    if(asm_opt.bed_inconsist_rate != 0)
-    {
-        sprintf(gfa_name, "%s.r_utg.lowQ.bed", output_file_name);
-        output_file = fopen(gfa_name, "w");
-        ma_ug_print_bed(ug, sg, &R_INF, coverage_cut, sources, &new_rtg_edges, 
-        max_hang, min_ovlp, asm_opt.bed_inconsist_rate, "utg", output_file);
-        fclose(output_file);
-    }
-
-    free(gfa_name);
-    **/
     classify_untigs(ug, sg, coverage_cut, sources, reverse_sources, ruIndex, &new_rtg_edges, 
     max_hang, min_ovlp);
     hic_analysis(ug, sg, &link);
     destory_hc_links(&link);
     ma_ug_destroy(ug);
     kv_destroy(new_rtg_edges.a);
+
+    output_unitig_graph(sg, coverage_cut, output_file_name, sources, ruIndex, max_hang, min_ovlp);
+    output_trio_unitig_graph(sg, coverage_cut, output_file_name, FATHER, sources, 
+    reverse_sources, bubble_dist, (asm_opt.max_short_tip*2), 0.15, 3, ruIndex, 
+    0.05, 0.9, max_hang, min_ovlp, 0);
+    output_trio_unitig_graph(sg, coverage_cut, output_file_name, MOTHER, sources,
+    reverse_sources, bubble_dist, (asm_opt.max_short_tip*2), 0.15, 3, ruIndex, 
+    0.05, 0.9, max_hang, min_ovlp, 0);
 }
 
 ma_ug_t* merge_utg(ma_ug_t **dest, ma_ug_t **src)
@@ -13809,6 +13806,41 @@ ma_ug_t* copy_untig_graph(ma_ug_t *src)
     return NULL;
     **/
     return ug;
+}
+
+asg_t* copy_read_graph(asg_t *src)
+{
+    asg_t *dest = NULL;
+    dest = asg_init();
+
+    dest->r_seq = src->r_seq;
+    dest->m_seq = dest->n_seq = src->n_seq;
+    dest->seq = (asg_seq_t*)malloc(dest->n_seq * sizeof(asg_seq_t));
+    memcpy(dest->seq, src->seq, sizeof(asg_seq_t)*dest->n_seq);
+
+    dest->m_arc = dest->n_arc = src->n_arc;
+    dest->arc = (asg_arc_t*)malloc(dest->n_arc*sizeof(asg_arc_t));
+    memcpy(dest->arc, src->arc, sizeof(asg_arc_t)*dest->n_arc);
+
+    dest->is_srt = src->is_srt;
+    dest->is_symm = src->is_symm;
+    dest->idx = (uint64_t*)malloc(dest->n_seq*2*8);
+    memcpy(dest->idx, src->idx, dest->n_seq*2*8); 
+    asg_cleanup(dest);
+
+    if(src->seq_vis)
+    {
+        dest->seq_vis = (uint8_t*)malloc(dest->n_seq*2*sizeof(uint8_t));
+        memcpy(dest->seq_vis, src->seq_vis, dest->n_seq*2*sizeof(uint8_t));
+    }
+
+    if(src->n_F_seq > 0 && src->F_seq)
+    {
+        dest->n_F_seq = src->n_F_seq;
+        dest->F_seq = (ma_utg_t*)malloc(dest->n_F_seq*sizeof(ma_utg_t));
+        memcpy(dest->F_seq, src->F_seq, dest->n_F_seq*sizeof(ma_utg_t));
+    }
+    return dest;
 }
 
 void clean_trio_untig_graph(ma_ug_t *ug, asg_t *read_g, ma_sub_t* coverage_cut, 
@@ -28063,8 +28095,7 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
         char *buf = (char*)calloc(strlen(output_file_name) + 25, 1);
 		sprintf(buf, "%s.hic", output_file_name);
         output_hic_graph(sg, coverage_cut, buf, sources, reverse_sources, bubble_dist, 
-        (asm_opt.max_short_tip*2), 0.15, 3, ruIndex, 0.05, 0.9, max_hang_length,
-        mini_overlap_length);
+        (asm_opt.max_short_tip*2), 0.15, 3, ruIndex, 0.05, 0.9, max_hang_length, mini_overlap_length);
         free(buf);
     }
     else

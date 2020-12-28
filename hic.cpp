@@ -61,6 +61,8 @@ typedef struct{
     kvec_t(uint32_t) a;
     uint32_t h[2];
     uint8_t full_bub;
+    int status[2];
+    double weight[2];
 }partition_warp;
 
 typedef struct{
@@ -73,10 +75,10 @@ typedef struct{
     uint64_t n; 
     uint8_t* lock;
     uint32_t* hap;
-    double* weight;
     uint32_t m[3];
     uint32_t label, label_add;
     hc_links* link;
+    G_partition g_p;
 }H_partition;
 
 typedef struct {
@@ -2713,7 +2715,16 @@ int load_hc_hits(kvec_pe_hit* hits, const char *fn)
     return 1;
 }
 
-void print_hc_links(hc_links* link, int dir)
+inline int get_phase_status(H_partition* hap, uint32_t uID)
+{
+    int d = -2;
+    if(hap->hap[uID] & hap->m[0]) d = 1;
+    if(hap->hap[uID] & hap->m[1]) d = -1;
+    if(hap->hap[uID] & hap->m[2]) d = 0;
+    return d;
+}
+
+void print_hc_links(hc_links* link, int dir, H_partition* hap)
 {
     uint64_t i, k;
     if(dir == 0)
@@ -2723,9 +2734,11 @@ void print_hc_links(hc_links* link, int dir)
             for (k = 0; k < link->a.a[i].e.n; k++)
             {
                 if(link->a.a[i].e.a[k].del) continue;
-                fprintf(stderr, "s-utg%.6d(%c)\td-utg%.6d(%c)\t%lu\t%c\t%f\te\n", 
+                fprintf(stderr, "s-utg%.6d(%c)\tCLU:%u:%d\td-utg%.6d(%c)\tCLU:%u:%d\t%lu\t%c\t%f\te\n", 
                 (int)(i+1), "01"[!!(link->a.a[i].e.a[k].dis&(uint64_t)2)],
+                hap->hap[i]>>3, get_phase_status(hap, i),
                 (int)(link->a.a[i].e.a[k].uID+1), "01"[!!(link->a.a[i].e.a[k].dis&(uint64_t)1)],
+                hap->hap[link->a.a[i].e.a[k].uID]>>3, get_phase_status(hap, link->a.a[i].e.a[k].uID),
                 link->a.a[i].e.a[k].dis == (uint64_t)-1? (uint64_t)-1 : link->a.a[i].e.a[k].dis>>3,
                 "fb"[!!(link->a.a[i].e.a[k].dis&(uint64_t)4)], link->a.a[i].e.a[k].weight);    
             }
@@ -3750,11 +3763,18 @@ inline void get_phased_block(G_partition* x, bubble_type* bub, uint64_t id,
 uint32_t* beg, uint32_t* sink, uint32_t** h0, uint32_t* h0_n, uint32_t** h1, uint32_t* h1_n,
 uint32_t* phased, uint32_t* bub_id)
 {
-    if(bub && beg && sink)
+    if(bub && beg && sink && bub_id)
     {
-        (*bub_id) = bub->index[x->a[id].a.a[0]];
-        (*beg) = bub->list.a[bub->num.a[(*bub_id)]];
-        (*sink) = bub->list.a[bub->num.a[(*bub_id)] + 1];
+        (*bub_id) = (*beg) = (*sink) = (uint32_t)-1;
+        if(x->a[id].a.n > 0)
+        {
+            (*bub_id) = bub->index[x->a[id].a.a[0]];
+            if((*bub_id) < bub->num.n)
+            {
+                (*beg) = bub->list.a[bub->num.a[(*bub_id)]];
+                (*sink) = bub->list.a[bub->num.a[(*bub_id)] + 1];
+            }
+        }
     }
     
     (*h0) = x->a[id].a.a; 
@@ -3762,7 +3782,9 @@ uint32_t* phased, uint32_t* bub_id)
 
     (*h1) = x->a[id].a.a + x->a[id].h[0];
     (*h1_n) = x->a[id].h[1];
-    (*phased) = x->a[id].full_bub;
+    if(phased) (*phased) = x->a[id].full_bub;
+    if((*h0_n) == 0) (*h0) = NULL;
+    if((*h1_n) == 0) (*h1) = NULL;
 }
 
 double get_co_weight(uint32_t *query, uint32_t query_n, uint32_t *target, uint32_t target_n, min_cut_t* m)
@@ -3972,7 +3994,7 @@ void debug_hc_links(ha_ug_index* idx, hc_links* link, sldat_t* sl, bubble_type* 
     destory_hc_links(link);
     init_hc_links(link, sl->idx->ug->g->n_seq, R_INF.total_reads);
     collect_hc_links(sl->idx, &sl->hits, link, bub);
-    print_hc_links(link, 0);
+    ///print_hc_links(link, 0);
 }
 
 uint64_t get_hic_distance(pe_hit* hit, hc_links* link, const ha_ug_index* idx)
@@ -4035,8 +4057,8 @@ inline double get_trans(const ha_ug_index* idx, uint64_t x)
 
 inline double get_trans_weight(const ha_ug_index* idx, uint64_t x)
 {
-    #define OFFSET_RATE 0.0000001
-    #define OFFSET_RATE_THRES 16.118095551
+    #define OFFSET_RATE 0.000000001
+    #define OFFSET_RATE_THRES 20.7232658359
     long double rate = get_trans(idx, x);
     if(rate < 0) rate = 0;
     rate += OFFSET_RATE;
@@ -4627,7 +4649,7 @@ uint32_t get_available_com(H_partition* hap, bubble_type* bub, ma_ug_t *ug, uint
 {
     hc_links* link = hap->link;
     uint32_t beg, sink, n, *a, i, j, k, uID, max_bub_i, max_non_bub_i, max_i, is_ava;
-    double w, max_bub_w, max_non_bub_w;
+    double w, cur_w0 = 0, cur_w1 = 0, max_bub_w, max_non_bub_w;
     max_i = (uint32_t)-1;
 
     for (i = 0, max_bub_w = -1, max_bub_i = (uint32_t)-1; i < bub->num.n-1; i++)
@@ -4638,12 +4660,25 @@ uint32_t get_available_com(H_partition* hap, bubble_type* bub, ma_ug_t *ug, uint
         {
             uID = a[j]>>1;
             if(check_self && is_hap_set(uID, *hap)) break;
-            for (k = 0; k < link->a.a[uID].e.n; k++)
+            if(check_others)
             {
-                if(link->a.a[uID].e.a[k].del) continue;
-                if(check_others && (!is_hap_set(link->a.a[uID].e.a[k].uID, *hap))) continue;
-                w += link->a.a[uID].e.a[k].weight;
-                is_ava = 1;
+                get_related_weight(uID, hap, &cur_w0, &cur_w1);
+                w += (MAX(cur_w0, cur_w1) - MIN(cur_w0, cur_w1));
+                for (k = 0; k < link->a.a[uID].e.n; k++)
+                {
+                    if(link->a.a[uID].e.a[k].del) continue;
+                    if(!is_hap_set(link->a.a[uID].e.a[k].uID, *hap)) continue;
+                    is_ava = 1;
+                }
+            }
+            else
+            {
+                for (k = 0; k < link->a.a[uID].e.n; k++)
+                {
+                    if(link->a.a[uID].e.a[k].del) continue;
+                    w += link->a.a[uID].e.a[k].weight;
+                    is_ava = 1;
+                }
             }
         }
         if(j != n) continue;
@@ -4662,13 +4697,27 @@ uint32_t get_available_com(H_partition* hap, bubble_type* bub, ma_ug_t *ug, uint
         {
             uID = i;
             if(check_self && is_hap_set(uID, *hap)) continue;
-            for (k = 0, w = 0, is_ava = 0; k < link->a.a[uID].e.n; k++)
+            if(check_others)
             {
-                if(link->a.a[uID].e.a[k].del) continue;
-                if(check_others && (!is_hap_set(link->a.a[uID].e.a[k].uID, *hap))) continue;
-                w += link->a.a[uID].e.a[k].weight;
-                is_ava = 1;
+                get_related_weight(uID, hap, &cur_w0, &cur_w1);
+                w += (MAX(cur_w0, cur_w1) - MIN(cur_w0, cur_w1));
+                for (k = 0, w = 0, is_ava = 0; k < link->a.a[uID].e.n; k++)
+                {
+                    if(link->a.a[uID].e.a[k].del) continue;
+                    if(!is_hap_set(link->a.a[uID].e.a[k].uID, *hap)) continue;
+                    is_ava = 1;
+                }
             }
+            else
+            {
+                for (k = 0, w = 0, is_ava = 0; k < link->a.a[uID].e.n; k++)
+                {
+                    if(link->a.a[uID].e.a[k].del) continue;
+                    w += link->a.a[uID].e.a[k].weight;
+                    is_ava = 1;
+                }
+            }
+            
             if(is_ava == 0) continue;
 
             if(w > max_non_bub_w)
@@ -4773,15 +4822,16 @@ void phase_com(H_partition* hap, ma_ug_t *ug, bub_p_t_warp* b, bubble_type* bub,
     {
         uint32_t beg = (uint32_t)-1, sink = (uint32_t)-1, n, *a;
         get_bubbles(bub, bid>>1, &beg, &sink, &a, &n, NULL);
-        fprintf(stderr, "bubble-%uth, beg: %u, sink: %u, phasing ID: %u\n", bid>>1, beg>>1, sink>>1, hap->label>>3);
+        ///fprintf(stderr, "+bubble-%uth, beg: %u, sink: %u, phasing ID: %u\n", bid>>1, beg>>1, sink>>1, hap->label>>3);
         get_phase_path(ug, beg, sink, b, hap);
         get_phase_path(ug, beg, sink, b, hap);
+        ///fprintf(stderr, "-bubble-%uth, beg: %u, sink: %u, phasing ID: %u\n", bid>>1, beg>>1, sink>>1, hap->label>>3);
     }
     else
     {
         double cur_w0, cur_w1;
         get_related_weight(bid>>1, hap, &cur_w0, &cur_w1);
-        fprintf(stderr, "utg-%uth, phasing ID: %u\n", bid>>1, hap->label>>3);
+        ///fprintf(stderr, "utg-%uth, phasing ID: %u\n", bid>>1, hap->label>>3);
         if(cur_w0 >= cur_w1)
         {
             hap->hap[bid>>1] |= (hap->label | hap->m[0]);
@@ -4793,13 +4843,169 @@ void phase_com(H_partition* hap, ma_ug_t *ug, bub_p_t_warp* b, bubble_type* bub,
     }
 }
 
-inline uint32_t get_phase_status(H_partition* hap, uint32_t uID)
+
+double get_cluster_weight(H_partition* hap, hc_links* link, uint32_t *h, uint32_t h_n)
 {
-    int d = -2;
-    if(hap->hap[uID] & hap->m[0]) d = 1;
-    if(hap->hap[uID] & hap->m[1]) d = -1;
-    if(hap->hap[uID] & hap->m[2]) d = 0;
-    return d;
+    int o_d = 0;
+    double weight = 0;
+    uint32_t j, k, m;
+    for (j = 0, weight = 0; j < h_n; j++)
+    {
+        for (k = 0; k < link->a.a[h[j]].e.n; k++)
+        {
+            if(link->a.a[h[j]].e.a[k].del) continue;
+            for (m = 0; m < h_n; m++)
+            {
+                if(h[m] == link->a.a[h[j]].e.a[k].uID) break;
+            }
+            if(m < h_n) continue;
+
+            o_d = get_phase_status(hap, link->a.a[h[j]].e.a[k].uID);
+            ///if(o_d < -1) fprintf(stderr, "ERROR\n");
+            weight += (o_d*link->a.a[h[j]].e.a[k].weight);
+        }
+    }
+
+    return weight;
+}
+
+void update_partition_flag(H_partition* hap, hc_links* link, uint32_t id)
+{
+    uint32_t k, *h0, h0_n, *h1, h1_n, uID, flag = 0;
+    int status;
+    get_phased_block(&(hap->g_p), NULL, id, NULL, NULL, &h0, &h0_n, &h1, &h1_n, NULL, NULL);
+
+    status = hap->g_p.a[id].status[0];
+    if(status == 1) flag = hap->m[0];
+    else if(status == -1) flag = hap->m[1];
+    else if(status == 0) flag = hap->m[2];
+    else if(status == -2) flag = 0;
+    for (k = 0; k < h0_n; k++)
+    {
+        uID = h0[k];
+        hap->hap[uID] >>= 3;
+        hap->hap[uID] <<= 3;
+        hap->hap[uID] |= flag;
+    }
+
+    status = hap->g_p.a[id].status[1];
+    if(status == 1) flag = hap->m[0];
+    else if(status == -1) flag = hap->m[1];
+    else if(status == 0) flag = hap->m[2];
+    else if(status == -2) flag = 0;
+    for (k = 0; k < h1_n; k++)
+    {
+        uID = h1[k];
+        hap->hap[uID] >>= 3;
+        hap->hap[uID] <<= 3;
+        hap->hap[uID] |= flag;
+    }
+}
+
+void print_contig_partition(H_partition* hap, const char* debug)
+{
+    uint32_t i;
+    int status;
+    for (i = 0; i < hap->n; i++)
+    {
+        status = get_phase_status(hap, i);
+        fprintf(stderr, "%s\tutg%.6d\tP:%u\tHG:A:%d\n", debug, (int)(i+1), hap->hap[i]>>3, status);
+    }
+}
+
+void adjust_contig_partition(H_partition* hap, hc_links* link)
+{
+    uint32_t i, k, *h0, h0_n, *h1, h1_n;
+    uint32_t h0_status[4], h1_status[4], h0_status_max;
+    int h0_h, h1_h;
+    for (i = 0; i < hap->g_p.n; i++)
+    {
+
+        get_phased_block(&(hap->g_p), NULL, i, NULL, NULL, &h0, &h0_n, &h1, &h1_n, NULL, NULL);
+        hap->g_p.a[i].status[0] = hap->g_p.a[i].status[1] = -2;
+        hap->g_p.a[i].weight[0] = hap->g_p.a[i].weight[1] = 0;
+
+
+        h0_status[0] = h0_status[1] = h0_status[2] = h0_status[3] = 0;
+        for (k = 0; k < h0_n; k++)
+        {
+            ///fprintf(stderr, "(0) utg%.6ul\n", h0[k] + 1);
+            ///if((hap->g_p.index[h0[k]]>>1) != i) fprintf(stderr, "ERROR\n");
+            h0_status[get_phase_status(hap, h0[k])+2]++;
+        }
+
+        hap->g_p.a[i].weight[0] = get_cluster_weight(hap, link, h0, h0_n);
+        if(h1_n == 0)
+        {
+            if(h0_status[0] == h0_n)
+            {
+                hap->g_p.a[i].status[0] = -2;
+            }
+            else
+            {
+                if(h0_status[1] > 0 || h0_status[3] > 0)
+                {
+                    h0_status[0] = h0_status[2] = 0;
+
+                    h0_h = -2;
+                    h0_status_max = 0;
+                    for (k = 0; k < 4; k++)
+                    {
+                        if(h0_status[k] > h0_status_max) h0_status_max = h0_status[k], h0_h = (int)(k) - 2;
+                    }
+                    hap->g_p.a[i].status[0] = h0_h;
+                }
+                else if(h0_status[2] > 0)
+                {
+                    hap->g_p.a[i].status[0] = 0;
+                }
+                else
+                {
+                    hap->g_p.a[i].status[0] = -2;
+                }
+            }
+        }
+        else
+        {
+            hap->g_p.a[i].weight[1] = get_cluster_weight( hap, link, h1, h1_n);
+            h1_status[0] = h1_status[1] = h1_status[2] = h1_status[3] = 0;
+            for (k = 0; k < h1_n; k++)
+            {
+                ///fprintf(stderr, "(1) utg%.6ul\n", h1[k] + 1);
+                ///if((hap->g_p.index[h1[k]]>>1) != i) fprintf(stderr, "ERROR\n");
+                h1_status[get_phase_status(hap, h1[k])+2]++;
+            }
+
+
+            h0_h = h1_h = 0;
+            for (k = 0; k < 4; k++)
+            {
+                if(h0_status[k] == h0_n) h0_h = (int)(k) - 2;
+                if(h1_status[k] == h1_n) h1_h = (int)(k) - 2;
+            }
+
+            if(h0_h * h1_h == -1)
+            {
+                hap->g_p.a[i].status[0] = h0_h;
+                hap->g_p.a[i].status[1] = h1_h;
+            }
+            else
+            {
+                if(hap->g_p.a[i].weight[0] >= hap->g_p.a[i].weight[1])
+                {
+                    hap->g_p.a[i].status[0] = 1;
+                    hap->g_p.a[i].status[1] = -1;
+                }
+                else
+                {
+                    hap->g_p.a[i].status[0] = -1;
+                    hap->g_p.a[i].status[1] = 1;
+                }
+            }
+        }
+
+        update_partition_flag(hap, link, i);
+    }
 }
 
 uint32_t init_contig_partition(H_partition* hap, ha_ug_index* idx, bubble_type* bub)
@@ -4809,8 +5015,7 @@ uint32_t init_contig_partition(H_partition* hap, ha_ug_index* idx, bubble_type* 
     bub_p_t_warp b;
     memset(&b, 0, sizeof(bub_p_t_warp));
     CALLOC(b.a, ug->g->n_seq*2); 
-    uint32_t i, k, nv = ug->g->n_seq * 2;
-    int s_d, o_d;
+    uint32_t i, k, k_n, nv = ug->g->n_seq * 2;
     for (i = 0; i < nv; i++)
     {
         b.a[i].w[0] = b.a[i].w[1] = b.a[i].nh = 0;
@@ -4823,11 +5028,11 @@ uint32_t init_contig_partition(H_partition* hap, ha_ug_index* idx, bubble_type* 
     memset(hap->hap, 0, hap->n*sizeof(uint32_t));
     MALLOC(hap->lock, hap->n);
     memset(hap->lock, 0, hap->n);
-    MALLOC(hap->weight, hap->n);
     hap->m[0] = 1; hap->m[1] = 2; hap->m[2] = 4;
     hap->link = link;
     hap->label = 0;
     hap->label_add = 8;
+    init_G_partition(&(hap->g_p), hap->n);
 
     uint32_t max_i = get_available_com(hap, bub, ug, 0, 0);
     
@@ -4841,52 +5046,308 @@ uint32_t init_contig_partition(H_partition* hap, ha_ug_index* idx, bubble_type* 
         phase_com(hap, ug, &b, bub, max_i);
     }
 
-    free(b.a); free(b.S.a); free(b.T.a); free(b.b.a); free(b.e.a);
-
-    s_d = 0;
     for (i = 0; i < hap->n; i++)
     {
-        if(bub->index[i] > bub->num.n) continue;
-        s_d = get_phase_status(hap, i);
-        ///if(s_d == -2 && link->a.a[i].e.n > 0) fprintf(stderr, "ERROR\n");
-        if(s_d == -2) continue;
-        hap->weight[i] = 0;
-
-        for (k = 0; k < link->a.a[i].e.n; k++)
+        if((hap->hap[i]&hap->m[0])&&(hap->hap[i]&hap->m[1]))
         {
-            if(link->a.a[i].e.a[k].del) continue;
-            o_d = get_phase_status(hap, link->a.a[i].e.a[k].uID);
-            ///if(o_d == -2) fprintf(stderr, "ERROR\n");
-            hap->weight[i] += (s_d*o_d*link->a.a[i].e.a[k].weight);
+            hap->hap[i] >>= 3;
+            hap->hap[i] <<= 3;
+            hap->hap[i] |= hap->m[2];
         }
     }
-    
+
+    free(b.a); free(b.S.a); free(b.T.a); free(b.b.a); free(b.e.a);
+
+    partition_warp* res = NULL;
+    hc_edge *a = NULL;
+    uint32_t a_n, v, u, uv = (uint32_t)-1, k_nv, k_nu;
+    for (i = 0; i < hap->n; i++)
+    {
+        v = i;
+        a = link->a.a[v].f.a;
+        a_n = link->a.a[v].f.n;
+        for (k = k_n = 0; k < a_n; k++)
+        {
+            if(a[k].del) continue;
+            if(a[k].dis != 0) break;
+            u = a[k].uID;
+            k_n++;
+        }
+        if(k_n != 1)
+        {   
+            u = (uint32_t)-1;
+            goto push_uv;
+        } 
+        
+        a = link->a.a[u].f.a;
+        a_n = link->a.a[u].f.n;
+        for (k = k_n = 0; k < a_n; k++)
+        {
+            if(a[k].del) continue;
+            if(a[k].dis != 0) break;
+            uv = a[k].uID;
+            k_n++;
+        }
+        if(k_n != 1 || uv != v)
+        {
+            u = (uint32_t)-1;
+            goto push_uv;
+        } 
+
+        push_uv:
+        k_nv = 0;k_nu = 0;
+
+        a = link->a.a[v].e.a;
+        a_n = link->a.a[v].e.n;
+        for (k = 0; k < a_n; k++)
+        {
+            if(a[k].del) continue;
+            k_nv++;
+        }
+                
+        if(u != (uint32_t)-1)
+        {
+            a = link->a.a[u].e.a;
+            a_n = link->a.a[u].e.n;
+            for (k = 0; k < a_n; k++)
+            {
+                if(a[k].del) continue;
+                k_nu++;
+            }
+        }
+        if(k_nv == 0) continue;
+        if(k_nv > 0 && k_nu > 0 && v > u) continue;
+
+        kv_pushp(partition_warp, hap->g_p, &res);
+        kv_init(res->a);
+        res->full_bub = 0;
+        res->h[0] = 1; res->h[1] = 0;
+        kv_push(uint32_t, res->a, v);
+        if(u != (uint32_t)-1)
+        {
+            res->h[1] = 1;
+            kv_push(uint32_t, res->a, u);
+        }
+
+        for (k = 0; k < res->h[0]; k++)
+        {
+            if(hap->g_p.index[res->a.a[k]] != (uint32_t)-1) fprintf(stderr, "ERROR\n");
+            hap->g_p.index[res->a.a[k]] = hap->g_p.n-1;
+            hap->g_p.index[res->a.a[k]] = hap->g_p.index[res->a.a[k]] << 1;
+        } 
+
+        for (; k < res->a.n; k++)
+        {
+            if(hap->g_p.index[res->a.a[k]] != (uint32_t)-1) fprintf(stderr, "ERROR\n");
+            hap->g_p.index[res->a.a[k]] = hap->g_p.n-1;
+            hap->g_p.index[res->a.a[k]] = (hap->g_p.index[res->a.a[k]] << 1) + 1;
+        } 
+    }
+
+    ///print_contig_partition(hap, "first");
+
+    adjust_contig_partition(hap, link);
+
+    ///print_contig_partition(hap, "second");
+
     return 1;
 }
 
+
 uint32_t get_max_unitig(H_partition* hap, hc_links* link, ma_ug_t *ug, bubble_type* bub)
 {
-    uint32_t i;
-    for (i = 0; i < hap->n; i++)
+    double min, weight;
+    uint32_t i, min_i;
+     
+    for (i = 0, min = 1, min_i = (uint32_t)-1; i < hap->g_p.n; i++)
     {
+        if(hap->lock[i]) continue;
+        weight = 0;
+        if(hap->g_p.a[i].h[0] > 0 && (hap->g_p.a[i].status[0] == 1 || hap->g_p.a[i].status[0] == -1))
+        {
+            weight += (hap->g_p.a[i].weight[0] * hap->g_p.a[i].status[0]);
+        }
 
+        if(hap->g_p.a[i].h[1] > 0 && (hap->g_p.a[i].status[1] == 1 || hap->g_p.a[i].status[1] == -1))
+        {
+            weight += (hap->g_p.a[i].weight[1] * hap->g_p.a[i].status[1]);
+        }
+
+        if(weight >= 0) continue;
+        if(weight < min)
+        {
+            min = weight;
+            min_i = i;
+        }
     }
 
-    return 0;
+    return min_i;
 }
 
-uint32_t phasing_improevment(H_partition* hap, ha_ug_index* idx, bubble_type* bub)
-{   
-    ;
+void flip_unitig(H_partition* hap, hc_links* link, ma_ug_t *ug, bubble_type* bub, uint32_t id)
+{
+    if(hap->g_p.a[id].h[0] > 0 && hap->g_p.a[id].status[0] != 1 && hap->g_p.a[id].status[0] != -1) return;
+    if(hap->g_p.a[id].h[1] > 0 && hap->g_p.a[id].status[1] != 1 && hap->g_p.a[id].status[1] != -1) return;
+    uint32_t k, j, m, *h0, h0_n, *h1, h1_n, uID, *h = NULL, h_n;
+    int status;
+    double weight;
+    get_phased_block(&(hap->g_p), NULL, id, NULL, NULL, &h0, &h0_n, &h1, &h1_n, NULL, NULL);
+    if(h0_n > 0)
+    {
+        status = hap->g_p.a[id].status[0];
+        h = h0; h_n = h0_n;
+        for (j = 0; j < h_n; j++)
+        {
+            for (k = 0; k < link->a.a[h[j]].e.n; k++)
+            {
+                if(link->a.a[h[j]].e.a[k].del) continue;
+                for (m = 0; m < h_n; m++)
+                {
+                    if(h[m] == link->a.a[h[j]].e.a[k].uID) break;
+                }
+                if(m < h_n) continue;
 
-    return 0;
+                uID = link->a.a[h[j]].e.a[k].uID;
+                weight = link->a.a[h[j]].e.a[k].weight;
+                hap->g_p.a[hap->g_p.index[uID]>>1].weight[hap->g_p.index[uID]&1] -= (2*status*weight);
+            }
+        }
+        hap->g_p.a[id].status[0] *= -1;
+    }
+
+    if(h1_n > 0)
+    {
+        status = hap->g_p.a[id].status[1];
+        h = h1; h_n = h1_n;
+        for (j = 0; j < h_n; j++)
+        {
+            for (k = 0; k < link->a.a[h[j]].e.n; k++)
+            {
+                if(link->a.a[h[j]].e.a[k].del) continue;
+                for (m = 0; m < h_n; m++)
+                {
+                    if(h[m] == link->a.a[h[j]].e.a[k].uID) break;
+                }
+                if(m < h_n) continue;
+
+                uID = link->a.a[h[j]].e.a[k].uID;
+                weight = link->a.a[h[j]].e.a[k].weight;
+                hap->g_p.a[hap->g_p.index[uID]>>1].weight[hap->g_p.index[uID]&1] -= (2*status*weight);
+            }
+        }
+        hap->g_p.a[id].status[1] *= -1;
+    }
+}
+
+
+uint32_t phasing_improvement(H_partition* hap, ha_ug_index* idx, bubble_type* bub)
+{   
+    uint32_t i, occ = 0;
+    memset(hap->lock, 0, sizeof(uint8_t)*hap->g_p.n);
+    while (1)
+    {
+        i = get_max_unitig(hap, idx->link, idx->ug, bub);
+        if(i == (uint32_t)-1) break;
+        hap->lock[i] = 1;
+        flip_unitig(hap, idx->link, idx->ug, bub, i);
+        occ++;
+    }
+
+    for (i = 0; i < hap->g_p.n; i++)
+    {
+        update_partition_flag(hap, idx->link, i);
+    }
+    
+    return !!occ;
 } 
 
 void destory_contig_partition(H_partition* hap)
 {
     free(hap->lock);
     free(hap->hap);
-    free(hap->weight);
+    destory_G_partition(&(hap->g_p));
+}
+
+void label_unitigs(H_partition* hap, ma_ug_t* ug)
+{
+    memset(R_INF.trio_flag, AMBIGU, R_INF.total_reads * sizeof(uint8_t));
+    uint32_t i, k, j, *h0, h0_n, *h1, h1_n, uID, *h = NULL, h_n, flag = AMBIGU;
+    int status;
+    ma_utg_t *u = NULL;
+
+    for (i = 0; i < hap->g_p.n; i++)
+    {
+        if(hap->g_p.a[i].h[0] > 0 && hap->g_p.a[i].status[0] != 1 && hap->g_p.a[i].status[0] != -1) continue;
+        if(hap->g_p.a[i].h[1] > 0 && hap->g_p.a[i].status[1] != 1 && hap->g_p.a[i].status[1] != -1) continue;
+        get_phased_block(&(hap->g_p), NULL, i, NULL, NULL, &h0, &h0_n, &h1, &h1_n, NULL, NULL);
+
+        status = hap->g_p.a[i].status[0];
+        h = h0; h_n = h0_n;
+        if(status == 1)
+        {
+            flag = FATHER;
+        }
+        else if (status == -1)
+        {
+            flag = MOTHER;
+        }
+        for (j = 0; j < h_n; j++)
+        {
+            uID = h[j];
+            u = &ug->u.a[uID];
+            if(u->m == 0) continue;
+            for (k = 0; k < u->n; k++)
+            {
+                R_INF.trio_flag[u->a[k]>>33] = flag;
+            }
+        }
+
+
+
+        status = hap->g_p.a[i].status[1];
+        h = h1; h_n = h1_n;
+        if(status == 1)
+        {
+            flag = FATHER;
+        }
+        else if (status == -1)
+        {
+            flag = MOTHER;
+        }
+        for (j = 0; j < h_n; j++)
+        {
+            uID = h[j];
+            u = &ug->u.a[uID];
+            if(u->m == 0) continue;
+            for (k = 0; k < u->n; k++)
+            {
+                R_INF.trio_flag[u->a[k]>>33] = flag;
+            }
+        }
+    }
+
+
+    uint64_t occ = 0; 
+    for (i = 0; i < ug->u.n; i++)
+    {
+        occ += ug->u.a[i].n;
+    }
+
+    fprintf(stderr, "# reads: %lu\n", occ);
+
+    for (i = occ = 0; i < R_INF.total_reads; i++)
+    {
+        if(R_INF.trio_flag[i] == FATHER) occ++;
+    }
+
+    fprintf(stderr, "# Father reads: %lu\n", occ);
+
+    for (i = occ = 0; i < R_INF.total_reads; i++)
+    {
+        if(R_INF.trio_flag[i] == MOTHER) occ++;
+    }
+    
+    fprintf(stderr, "# Mother reads: %lu\n", occ);
 }
 
 int hic_short_align(const char *fn1, const char *fn2, ha_ug_index* idx)
@@ -4934,11 +5395,16 @@ int hic_short_align(const char *fn1, const char *fn2, ha_ug_index* idx)
     ///debug_hc_links(idx, idx->link, &sl, &bub, fn1);
     
     init_hic_p((ha_ug_index*)sl.idx, &sl.hits, idx->link, &bub);
-    ///print_hc_links(idx->link, 0);
+    
     H_partition hap;
     init_contig_partition(&hap, idx, &bub);
-    destory_contig_partition(&hap);
+    phasing_improvement(&hap, idx, &bub);
+    label_unitigs(&hap, idx->ug);
+    
+    ///print_hc_links(idx->link, 0, &hap);
+    ///print_contig_partition(&hap, "final");
 
+    destory_contig_partition(&hap);
 
     return 1;
     

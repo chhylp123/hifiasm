@@ -1101,6 +1101,7 @@ ma_ug_t* output_trio_unitig_graph(asg_t *sg, ma_sub_t* coverage_cut, char* outpu
 uint8_t flag, ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, long long bubble_dist, 
 long long tipsLen, float tip_drop_ratio, long long stops_threshold, R_to_U* ruIndex, 
 float chimeric_rate, float drop_ratio, int max_hang, int min_ovlp, int is_bench);
+asg_t* copy_read_graph(asg_t *src);
 
 #define JUNK_COV 5
 #define DISCARD_RATE 0.8
