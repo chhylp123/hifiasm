@@ -10981,71 +10981,7 @@ void set_pre_uid(buf_t* b, hc_links* link, ma_ug_t *ug)
 }
 
 
-void collect_reverse_unitigs_back(buf_t* b_0, buf_t* b_1, hc_links* link, ma_ug_t *ug)
-{
-    uint32_t k, m;
-    uint64_t d = (uint64_t)-1;
-    set_pre_uid(b_0, link, ug);
-    set_pre_uid(b_1, link, ug);
-    
-    for (k = 0; k < b_0->b.n; k++)
-    {
-        for (m = 0; m < b_1->b.n; m++)
-        {
-            if(b_0->b.a[k] == b_1->b.a[m]) continue;
-            push_hc_edge(&(link->a.a[b_0->b.a[k]]), b_1->b.a[m], 1, 1, &d);
-            push_hc_edge(&(link->a.a[b_1->b.a[m]]), b_0->b.a[k], 1, 1, &d);
-        }
-    }
-}
-
-
-void collect_reverse_unitigs_back(buf_t* b_0, uint32_t b_0_uLen, buf_t* b_1, uint32_t b_1_uLen, hc_links* link, ma_ug_t *ug)
-{
-    uint32_t b_0_i, b_0_i_l, b_0_k, b_1_i, b_1_i_l, b_1_k, pre_0, pre_1, rId_0, rId_1;
-    uint64_t d = (uint64_t)-1;
-    ma_utg_t* u_b_0 = NULL;
-    ma_utg_t* u_b_1 = NULL;
-    if(b_0->b.n == 0 || b_1->b.n == 0) return;
-    if(b_0_uLen == 0 || b_1_uLen == 0) return;
-
-    for (b_0_i = b_0_i_l = 0, pre_0 = (uint32_t)-1; b_0_i < b_0->b.n; b_0_i++)
-    {
-        u_b_0 = &(ug->u.a[b_0->b.a[b_0_i]>>1]);
-        if(u_b_0->n == 0) continue;
-        for (b_0_k = 0; b_0_k < u_b_0->n; b_0_k++)
-        {
-            rId_0 = u_b_0->a[b_0_k]>>33;
-            if(link->u_idx[rId_0] == (uint32_t)-1) continue;
-            if(pre_0 == link->u_idx[rId_0]) continue;
-            pre_0 = link->u_idx[rId_0];
-            b_0_i_l++;
-            if(b_0_i_l > b_0_uLen) return;
-
-            for (b_1_i = b_1_i_l = 0, pre_1 = (uint32_t)-1; b_1_i < b_1->b.n; b_1_i++)
-            {
-                u_b_1 = &(ug->u.a[b_1->b.a[b_1_i]>>1]);
-                if(u_b_1->n == 0) continue;
-                for (b_1_k = 0; b_1_k < u_b_1->n; b_1_k++)
-                {
-                    rId_1 = u_b_1->a[b_1_k]>>33;
-                    if(link->u_idx[rId_1] == (uint32_t)-1) continue;
-                    if(pre_1 == link->u_idx[rId_1]) continue;
-                    pre_1 = link->u_idx[rId_1];
-                    b_1_i_l++;
-                    if(b_1_i_l > b_1_uLen) goto b_1_i_end;
-
-                    push_hc_edge(&(link->a.a[pre_0]), pre_1, 1, 1, &d);
-                    push_hc_edge(&(link->a.a[pre_1]), pre_0, 1, 1, &d);
-                }
-            }
-
-            b_1_i_end:;
-        }
-    }
-}
-
-inline uint64_t get_utg_len(buf_t* b, ma_ug_t *ug, asg_t *read_sg, uint64_t* len_thre, uint64_t* occ)
+inline uint64_t get_utg_len(buf_t* b, ma_ug_t *ug, asg_t *read_sg, uint64_t ignore_end, uint64_t* len_thre, uint64_t* occ)
 {
     if(len_thre && occ)(*occ) = (uint64_t)-1;
     uint32_t ori, uid, v, nv, l, k, idx;
@@ -11085,7 +11021,7 @@ inline uint64_t get_utg_len(buf_t* b, ma_ug_t *ug, asg_t *read_sg, uint64_t* len
                 }
                 if(k == nv) fprintf(stderr, "ERROR\n");
                 len += l;
-                if(len_thre && occ && len >= (*len_thre) && (*occ) != (uint64_t)-1)
+                if(len_thre && occ && len >= (*len_thre))
                 {
                     (*occ) = idx - 1;
                     return len;
@@ -11120,7 +11056,7 @@ inline uint64_t get_utg_len(buf_t* b, ma_ug_t *ug, asg_t *read_sg, uint64_t* len
                 }
                 if(k == nv) fprintf(stderr, "ERROR\n");
                 len += l;
-                if(len_thre && occ && len >= (*len_thre) && (*occ) != (uint64_t)-1)
+                if(len_thre && occ && len >= (*len_thre))
                 {
                     (*occ) = idx - 1;
                     return len;
@@ -11130,14 +11066,19 @@ inline uint64_t get_utg_len(buf_t* b, ma_ug_t *ug, asg_t *read_sg, uint64_t* len
         }
     }
 
-    if(p_v != (uint32_t)-1)
+    if(ignore_end == 0 && p_v != (uint32_t)-1)
     {
         len += read_sg->seq[p_v>>1].len;
-        if(len_thre && occ && len >= (*len_thre) && (*occ) != (uint64_t)-1)
+        if(len_thre && occ && len >= (*len_thre))
         {
             (*occ) = idx - 1;
             return len;
         }
+    }
+
+    if(len_thre && occ)
+    {
+        (*occ) = idx;
     }
 
     return len;
@@ -11146,17 +11087,17 @@ inline uint64_t get_utg_len(buf_t* b, ma_ug_t *ug, asg_t *read_sg, uint64_t* len
 void collect_reverse_unitigs(buf_t* b_0, buf_t* b_1, hc_links* link, ma_ug_t *ug, asg_t *read_sg)
 {
     uint32_t b_0_i, b_0_k, b_1_i, b_1_k, pre_0, pre_1, rId_0, rId_1, ori_0, ori_1;
-    uint64_t d = (uint64_t)-1, len_0, len_1, thre_0, thre_1;
+    uint64_t d = RC_1, len_0, len_1, thre_0, thre_1;
     ma_utg_t* u_b_0 = NULL;
     ma_utg_t* u_b_1 = NULL;
     if(b_0->b.n == 0 || b_1->b.n == 0) return;
 
-    len_0 = get_utg_len(b_0, ug, read_sg, NULL, NULL);
-    len_1 = get_utg_len(b_1, ug, read_sg, NULL, NULL);
+    len_0 = get_utg_len(b_0, ug, read_sg, 1, NULL, NULL);
+    len_1 = get_utg_len(b_1, ug, read_sg, 1, NULL, NULL);
 
     len_0 = MIN(len_0, len_1);
-    get_utg_len(b_0, ug, read_sg, &len_0, &thre_0);
-    get_utg_len(b_1, ug, read_sg, &len_0, &thre_1);
+    get_utg_len(b_0, ug, read_sg, 0, &len_0, &thre_0);
+    get_utg_len(b_1, ug, read_sg, 0, &len_0, &thre_1);
 
     
     for (b_0_i = len_0 = 0, pre_0 = (uint32_t)-1; b_0_i < b_0->b.n; b_0_i++)
@@ -11202,9 +11143,25 @@ void collect_reverse_unitigs(buf_t* b_0, buf_t* b_1, hc_links* link, ma_ug_t *ug
                     if(pre_1 == link->u_idx[rId_1]) continue;
                     pre_1 = link->u_idx[rId_1];
                 
-
+                    
                     push_hc_edge(&(link->a.a[pre_0]), pre_1, 1, 1, &d);
                     push_hc_edge(&(link->a.a[pre_1]), pre_0, 1, 1, &d);
+
+                    // if(pre_0 == 5 || pre_1 == 5)
+                    // {
+                    //     fprintf(stderr, "\npre_0: utg%.6ul, len_0: %lu, thre_0: %lu, pre_1: utg%.6ul, len_1: %lu, thre_1: %lu\n", 
+                    //     (int)(pre_0+1), len_0, thre_0, (int)(pre_1+1), len_1, thre_1);
+                    //     uint32_t xxx_i;
+                    //     for (xxx_i = 0; xxx_i < b_0->b.n; xxx_i++)
+                    //     {
+                    //         fprintf(stderr,"+: utg%.6ul\n", (int)((b_0->b.a[xxx_i]>>1)+1));
+                    //     }
+
+                    //     for (xxx_i = 0; xxx_i < b_1->b.n; xxx_i++)
+                    //     {
+                    //         fprintf(stderr,"-: utg%.6ul\n", (int)((b_1->b.a[xxx_i]>>1)+1));
+                    //     }
+                    // }
                 }
             }
 

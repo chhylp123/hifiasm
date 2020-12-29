@@ -3931,7 +3931,7 @@ kvec_t_i32_warp* prevIndex, int max_hang, int min_ovlp, kvec_asg_arc_t_warp* edg
 void collect_reverse_unitig_pair(hc_links* link, ma_ug_t *ug, hap_overlaps* t)
 {
     uint32_t i = 0, k = 0, rId_0, rId_1, pre_0, pre_1, b_0 = t->xUid, b_1 = t->yUid;
-    uint64_t d = (uint64_t)-1;
+    uint64_t d = RC_2;
     ma_utg_t* u_b_0 = &(ug->u.a[b_0]);
     ma_utg_t* u_b_1 = &(ug->u.a[b_1]);
     if(u_b_0->n == 0) return;
