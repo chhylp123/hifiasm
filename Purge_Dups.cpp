@@ -3292,7 +3292,7 @@ int asg_pop_bubble_purge_graph(asg_t *purge_g, int max_dist)
 		for (i = 0; i < nv; ++i) // asg_bub_pop1() may delete some edges/arcs
 			if (!av[i].del) ++n_arc;
 		if (n_arc > 1)
-			n_pop += asg_bub_pop1_primary_trio(purge_g, NULL, v, max_dist, &b, (uint32_t)-1, DROP, 1, NULL);
+			n_pop += asg_bub_pop1_primary_trio(purge_g, NULL, v, max_dist, &b, (uint32_t)-1, DROP, 1, NULL, NULL);
 	}
 	free(b.a); free(b.S.a); free(b.T.a); free(b.b.a); free(b.e.a);
 	if (n_pop) asg_cleanup(purge_g);

@@ -109,15 +109,6 @@ typedef struct {
 } hc_pt1_t;
 
 typedef struct {
-    uint32_t* index;
-    ma_ug_t* ug;
-    kvec_t(uint32_t) list;
-    kvec_t(uint32_t) num;
-    kvec_t(uint64_t) pathLen;
-    uint64_t f_bub, b_bub;
-} bubble_type;
-
-typedef struct {
 	ma_ug_t* ug;
     asg_t* read_g;
     hc_links* link;
@@ -230,7 +221,6 @@ typedef struct {
     uint64_t uID_shift, dis_mode;
 } MT;
 
-#define Get_bub_num(RECORD) ((RECORD).num.n-1)
 
 reads_t R1, R2;
 ha_ug_index* ug_index;
@@ -1413,14 +1403,16 @@ void destory_bubbles(bubble_type* bub)
     kv_destroy(bub->list);
     kv_destroy(bub->num);
     kv_destroy(bub->pathLen);
+    kv_destroy(bub->b_s_idx);
+    asg_destroy(bub->b_g);
 }
 
-inline void get_bubbles(bubble_type* bub, uint64_t id, uint32_t* beg, uint32_t* sink, uint32_t** a, uint32_t* n, uint64_t* pathBase)
+void get_bubbles(bubble_type* bub, uint64_t id, uint32_t* beg, uint32_t* sink, uint32_t** a, uint32_t* n, uint64_t* pathBase)
 {
-    (*a) = bub->list.a + bub->num.a[id] + 2;
-    (*n) = bub->num.a[id+1] - bub->num.a[id] - 2;
-    (*beg) = bub->list.a[bub->num.a[id]];
-    (*sink) = bub->list.a[bub->num.a[id] + 1];
+    if(a) (*a) = bub->list.a + bub->num.a[id] + 2;
+    if(n) (*n) = bub->num.a[id+1] - bub->num.a[id] - 2;
+    if(beg) (*beg) = bub->list.a[bub->num.a[id]];
+    if(sink) (*sink) = bub->list.a[bub->num.a[id] + 1];
     if(pathBase) (*pathBase) = bub->pathLen.a[id];
 }
 
@@ -1450,7 +1442,7 @@ void identify_bubbles(ma_ug_t* ug, bubble_type* bub, hc_links* link)
         if(ug->g->seq[v>>1].del) continue;
         if(asg_arc_n(ug->g, v) < 2) continue;
         if((bub->index[v]&(uint32_t)3) != 0) continue;
-        if(asg_bub_pop1_primary_trio(ug->g, NULL, v, tLen, &b, (uint32_t)-1, (uint32_t)-1, 0, NULL))
+        if(asg_bub_pop1_primary_trio(ug->g, NULL, v, tLen, &b, (uint32_t)-1, (uint32_t)-1, 0, NULL, NULL))
         {
             //beg is v, end is b.S.a[0]
             //note b.b include end, does not include beg
@@ -1470,7 +1462,7 @@ void identify_bubbles(ma_ug_t* ug, bubble_type* bub, hc_links* link)
     {
         if((bub->index[v]&(uint32_t)3) !=2) continue;
         kv_push(uint32_t, bub->num, bub->list.n);
-        if(asg_bub_pop1_primary_trio(ug->g, NULL, v, tLen, &b, (uint32_t)-1, (uint32_t)-1, 0, &pathLen))
+        if(asg_bub_pop1_primary_trio(ug->g, NULL, v, tLen, &b, (uint32_t)-1, (uint32_t)-1, 0, &pathLen, NULL))
         {
             kv_push(uint64_t, bub->pathLen, pathLen);
             //beg is v, end is b.S.a[0]
@@ -1488,7 +1480,8 @@ void identify_bubbles(ma_ug_t* ug, bubble_type* bub, hc_links* link)
 
     kv_push(uint32_t, bub->num, bub->list.n);
     free(b.a); free(b.S.a); free(b.T.a); free(b.b.a); free(b.e.a);
-
+    bub->f_bub = bub->num.n - 1; bub->b_bub = 0;
+    
     for (i = 0; i < ug->g->n_seq; i++)
     {
         if((bub->index[i]>>2) == 0)
@@ -1499,43 +1492,100 @@ void identify_bubbles(ma_ug_t* ug, bubble_type* bub, hc_links* link)
         {
             if((bub->index[i]>>2) == 1)
             {
-                bub->index[i] = bub->num.n;
+                bub->index[i] = P_het(*bub); ///potential het
             }
             else
             {
-                bub->index[i] = bub->num.n + 1;
+                bub->index[i] = M_het(*bub); ///must het
             }
         }         
     }
 
+    kv_init(bub->b_s_idx);
+    kv_malloc(bub->b_s_idx, ug->g->n_seq); 
+    bub->b_s_idx.n = ug->g->n_seq;
+    memset(bub->b_s_idx.a, -1, bub->b_s_idx.n * sizeof(uint64_t));
+
     uint32_t beg, sink, n, *a;
-    for (i = 0; i < bub->num.n-1; i++)
+    for (i = 0; i < bub->f_bub; i++)
     {
-        get_bubbles(bub, i, &beg, &sink, &a, &n, NULL);
+        get_bubbles(bub, i, &beg, &sink, &a, &n, &pathLen);
         for (v = 0; v < n; v++)
         {
             bub->index[(a[v]>>1)] = i;
         }
 
-        if(bub->index[(beg>>1)] != (bub->num.n + 1)) bub->index[(beg>>1)] = (uint32_t)-1;
-        if(bub->index[(sink>>1)] != (bub->num.n + 1)) bub->index[(sink>>1)] = (uint32_t)-1;
+        // if(bub->index[(beg>>1)] == M_het(*bub)) fprintf(stderr, "s-utg%.6ul\n", (int)((beg>>1)+1));
+        // if(bub->index[(sink>>1)] == M_het(*bub)) fprintf(stderr, "s-utg%.6ul\n", (int)((sink>>1)+1));
+
+        if((pathLen*2) >= ug->g->seq[beg>>1].len && (pathLen*2) >= ug->g->seq[sink>>1].len)
+        {
+            bub->index[(beg>>1)] = (uint32_t)-1;
+            bub->index[(sink>>1)] = (uint32_t)-1;
+        }
+
+        if(bub->index[(beg>>1)] != M_het(*bub)) bub->index[(beg>>1)] = (uint32_t)-1;
+        if(bub->index[(sink>>1)] != M_het(*bub)) bub->index[(sink>>1)] = (uint32_t)-1;
+
+
+
+        v = beg>>1;
+        if(bub->b_s_idx.a[v] == (uint64_t)-1)
+        {
+            bub->b_s_idx.a[v] <<= 32;
+            bub->b_s_idx.a[v] |= i;
+        }
+        else if((bub->b_s_idx.a[v] & 0xffffffff00000000) == 0xffffffff00000000)
+        {
+            bub->b_s_idx.a[v] <<= 32;
+            bub->b_s_idx.a[v] |= i;
+        }
+        // else
+        // {
+        //     fprintf(stderr, "bug-utg%.6ul\n", (int)(v+1));
+        // }
+
+
+
+
+        v = sink>>1;
+        if(bub->b_s_idx.a[v] == (uint64_t)-1)
+        {
+            bub->b_s_idx.a[v] <<= 32;
+            bub->b_s_idx.a[v] |= i;
+        }
+        else if((bub->b_s_idx.a[v] & 0xffffffff00000000) == 0xffffffff00000000)
+        {
+            bub->b_s_idx.a[v] <<= 32;
+            bub->b_s_idx.a[v] |= i;
+        }
+        // else
+        // {
+        //     fprintf(stderr, "bug-utg%.6ul\n", (int)(v+1));
+        // }
+        
+        // if(bub->index[(beg>>1)] == M_het(*bub)) fprintf(stderr, "e-utg%.6ul\n", (int)((beg>>1)+1));
+        // if(bub->index[(sink>>1)] == M_het(*bub)) fprintf(stderr, "e-utg%.6ul\n", (int)((sink>>1)+1));
     }
 
-    for (i = 0; i < ug->g->n_seq; i++)
+    if(link)
     {
-        if(bub->index[i] == bub->num.n + 1) bub->index[i] = bub->num.n;
-        if(bub->index[i] > bub->num.n)
+        for (i = 0; i < ug->g->n_seq; i++)
         {
-            for (k = 0; k < link->a.a[i].f.n; k++)
+            if(bub->index[i] == M_het(*bub)) bub->index[i] = P_het(*bub);
+            if(bub->index[i] > P_het(*bub))
             {
-                if(link->a.a[i].f.a[k].del || link->a.a[i].f.a[k].dis != RC_1) continue;
-                bub->index[i] = bub->num.n;
-                ///fprintf(stderr, "utg%.6ul\n", (int)(i+1));
-                break;
+                for (k = 0; k < link->a.a[i].f.n; k++)
+                {
+                    if(link->a.a[i].f.a[k].del || link->a.a[i].f.a[k].dis != RC_1) continue;
+                    bub->index[i] = P_het(*bub);
+                    ///fprintf(stderr, "p-utg%.6ul\n", (int)(i+1));
+                    break;
+                }
             }
         }
     }
-
+    
     build_bub_graph(ug, bub);
 }
 
@@ -1547,7 +1597,7 @@ void print_bubbles(ma_ug_t* ug, bubble_type* bub, kvec_pe_hit* hits, hc_links* l
     uint32_t beg, sink, n, *a;
     for (i = 0, tLen = 0; i < bub->ug->u.n; i++) tLen += bub->ug->u.a[i].len;
     fprintf(stderr, "[M::%s] # unitigs: %lu, # bases: %lu\n",  __func__, bub->ug->u.n, tLen);
-    for (i = 0, tLen = 0, t_utg = 0; i < bub->num.n-1; i++)
+    for (i = 0, tLen = 0, t_utg = 0; i < bub->f_bub; i++)
     {
         get_bubbles(bub, i, &beg, &sink, &a, &n, NULL);
         t_utg += n;
@@ -1562,7 +1612,7 @@ void print_bubbles(ma_ug_t* ug, bubble_type* bub, kvec_pe_hit* hits, hc_links* l
 
     for (i = 0, tLen = 0, t_utg = 0; i < ug->g->n_seq; i++)
     {
-        if(bub->index[i] < bub->num.n)
+        if(IF_BUB(i, *bub))
         {
             t_utg++;
             tLen +=bub->ug->u.a[i].len;
@@ -1573,7 +1623,7 @@ void print_bubbles(ma_ug_t* ug, bubble_type* bub, kvec_pe_hit* hits, hc_links* l
 
     for (i = 0, tLen = 0, t_utg = 0; i < ug->g->n_seq; i++)
     {
-        if(bub->index[i] == bub->num.n)
+        if(IF_HET(i, *bub))
         {
             t_utg++;
             tLen +=bub->ug->u.a[i].len;
@@ -1590,20 +1640,20 @@ void print_bubbles(ma_ug_t* ug, bubble_type* bub, kvec_pe_hit* hits, hc_links* l
             s_uid = ((hits->a.a[k].s<<1)>>shif);
             e_uid = ((hits->a.a[k].e<<1)>>shif);
             if(bub->index[s_uid] == (uint32_t)-1 || bub->index[e_uid] == (uint32_t)-1) continue;
-            if(bub->index[s_uid] < bub->num.n && bub->index[e_uid] < bub->num.n)
+            if(IF_BUB(s_uid, *bub) && IF_BUB(e_uid, *bub))
             {
                 flag[s_uid] |= 1;
                 flag[e_uid] |= 1;
                 continue;
             }
-            if(bub->index[s_uid] == bub->num.n && bub->index[e_uid] == bub->num.n)
+            if(IF_HET(s_uid, *bub) && IF_HET(e_uid, *bub))
             {
                 flag[s_uid] |= 4;
                 flag[e_uid] |= 4;
                 continue;
             }
-            if(bub->index[s_uid] < bub->num.n) flag[s_uid] |= 2, flag[e_uid] |= 2;
-            if(bub->index[e_uid] < bub->num.n) flag[e_uid] |= 2, flag[s_uid] |= 2;
+            if(IF_BUB(s_uid, *bub)) flag[s_uid] |= 2, flag[e_uid] |= 2;
+            if(IF_BUB(e_uid, *bub)) flag[e_uid] |= 2, flag[s_uid] |= 2;
         }
     }
     else if(link)
@@ -1616,20 +1666,20 @@ void print_bubbles(ma_ug_t* ug, bubble_type* bub, kvec_pe_hit* hits, hc_links* l
                 s_uid = i;
                 e_uid = link->a.a[i].e.a[k].uID;
                 if(bub->index[s_uid] == (uint32_t)-1 || bub->index[e_uid] == (uint32_t)-1) continue;
-                if(bub->index[s_uid] < bub->num.n && bub->index[e_uid] < bub->num.n)
+                if(IF_BUB(s_uid, *bub) && IF_BUB(e_uid, *bub))
                 {
                     flag[s_uid] |= 1;
                     flag[e_uid] |= 1;
                     continue;
                 }
-                if(bub->index[s_uid] == bub->num.n && bub->index[e_uid] == bub->num.n)
+                if(IF_HET(s_uid, *bub) && IF_HET(e_uid, *bub))
                 {
                     flag[s_uid] |= 4;
                     flag[e_uid] |= 4;
                     continue;
                 }
-                if(bub->index[s_uid] < bub->num.n) flag[s_uid] |= 2, flag[e_uid] |= 2;
-                if(bub->index[e_uid] < bub->num.n) flag[e_uid] |= 2, flag[s_uid] |= 2;
+                if(IF_BUB(s_uid, *bub)) flag[s_uid] |= 2, flag[e_uid] |= 2;
+                if(IF_BUB(e_uid, *bub)) flag[e_uid] |= 2, flag[s_uid] |= 2;
             }
         }
     }
@@ -1675,7 +1725,7 @@ void print_bubbles(ma_ug_t* ug, bubble_type* bub, kvec_pe_hit* hits, hc_links* l
 
     fprintf(stderr, "************bubble utgs************\n");
     uint64_t pathLen;
-    for (i = 0, tLen = 0, t_utg = 0; i < bub->num.n-1; i++)
+    for (i = 0, tLen = 0, t_utg = 0; i < bub->f_bub; i++)
     {
         get_bubbles(bub, i, &beg, &sink, &a, &n, &pathLen);
         t_utg += n;
@@ -1691,7 +1741,7 @@ void print_bubbles(ma_ug_t* ug, bubble_type* bub, kvec_pe_hit* hits, hc_links* l
     // fprintf(stderr, "************het utgs************\n");
     // for (i = 0; i < ug->g->n_seq; i++)
     // {
-    //     if(bub->index[i] == bub->num.n) fprintf(stderr, "utg%.6lu\n", i+1);
+    //     if(IF_HET(i, *bub)) fprintf(stderr, "utg%.6lu\n", i+1);
     // }
     // fprintf(stderr, "************het utgs************\n");
 }
@@ -2100,10 +2150,7 @@ uint64_t get_LCA_bubble(uint32_t x, uint64_t xLen, uint32_t y, uint64_t yLen, ui
 
 uint64_t get_LCA(uint32_t x, uint64_t xLen, uint32_t y, uint64_t yLen, uint8_t* dis, uint64_t n, MT* M, bubble_type* bub, uint64_t* min_rev)
 {
-    
-
-    if(bub->index[x>>1] < bub->num.n && bub->index[y>>1] < bub->num.n &&
-       bub->index[x>>1] == bub->index[y>>1])
+    if(IF_BUB(x>>1, *bub) && IF_BUB(y>>1, *bub) && bub->index[x>>1] == bub->index[y>>1])
     {
         return get_LCA_bubble(x, xLen, y, yLen, dis, n, M, bub, min_rev);
     }
@@ -2168,96 +2215,6 @@ uint64_t get_LCA(uint32_t x, uint64_t xLen, uint32_t y, uint64_t yLen, uint8_t* 
     if(min_j == x || min_j == y) return (uint64_t)-1;
 
     return min_d;
-}
-
-void fill_utg_distance(const ha_ug_index* idx, hc_links* link, MT* M, bubble_type* bub)
-{
-    double index_time = yak_realtime();
-    asg_t *sg = idx->ug->g;
-    hc_linkeage* t = NULL;
-    uint32_t n_vtx = sg->n_seq<<1, v, u, k, j, i;
-    uint64_t d[2], db[2], q_u, min, min_i, min_b, rev[2], min_rev;
-    kvec_t(uint8_t) dis_buf;
-    kv_malloc(dis_buf, n_vtx); dis_buf.n = n_vtx;
-    ///for (v = 0; v < n_vtx; ++v)
-    for (i = 0; i < sg->n_seq; i++)
-    {
-        if (sg->seq[i].del) continue;
-        t = &(link->a.a[i]);
-        if (t->e.n == 0) continue;
-
-        for (k = 0; k < t->e.n; k++)
-        {
-            if(t->e.a[k].del) continue;
-            u = t->e.a[k].uID;
-
-            for (v = (i<<1); v < ((i+1)<<1); v++)
-            {
-                d[0] = d[1] = db[0] = db[1] = (uint64_t)-1;
-                
-                for (j = 0; j < M->matrix.a[v].a.n; j++)
-                {
-                    q_u = M->matrix.a[v].a.a[j] >> M->uID_shift;
-                    if((q_u>>1) == u) d[q_u&1] = (M->matrix.a[v].a.a[j] & M->dis_mode) + sg->seq[q_u>>1].len;
-                    if((q_u>>1) > u) break;
-                }
-
-                min = min_i = min_b = (uint64_t)-1;
-                if(t->e.a[k].dis != (uint64_t)-1) min = t->e.a[k].dis >> 3;
-                
-                if(d[0] < min) min = d[0], min_i = 0, min_b = 0;
-                if(d[1] < min) min = d[1], min_i = 1, min_b = 0;
-
-                if(min_i != (uint64_t)-1 && min != (uint64_t)-1)
-                {
-                    t->e.a[k].dis = min<<1;
-                    t->e.a[k].dis += min_b;
-                    t->e.a[k].dis <<=1;
-                    t->e.a[k].dis += v&1;
-                    t->e.a[k].dis <<=1;
-                    t->e.a[k].dis += min_i;
-                }
-            }
-
-
-            if(bub->index[i] >= bub->num.n && bub->index[u] >= bub->num.n && 
-                bub->index[i] == bub->index[u] && t->e.a[k].dis != (uint64_t)-1)
-            {
-                continue;
-            }
-
-
-
-            for (v = (i<<1); v < ((i+1)<<1); v++)
-            {
-                d[0] = d[1] = db[0] = db[1] = (uint64_t)-1;  
-                db[0] = get_LCA(v, sg->seq[v>>1].len, u<<1, sg->seq[u].len, 
-                                                            dis_buf.a, dis_buf.n, M, bub, &rev[0]);
-                db[1] = get_LCA(v, sg->seq[v>>1].len, (u<<1) + 1, sg->seq[u].len, 
-                                                            dis_buf.a, dis_buf.n, M, bub, &rev[1]);
-        
-
-                min = min_i = min_b = min_rev = (uint64_t)-1;
-                if(t->e.a[k].dis != (uint64_t)-1) min = t->e.a[k].dis >> 3;
-                
-                if(db[0] < min) min = db[0], min_i = 0, min_b = 1, min_rev = rev[0];
-                if(db[1] < min) min = db[1], min_i = 1, min_b = 1, min_rev = rev[1];
-
-                if(min_i != (uint64_t)-1 && min != (uint64_t)-1)
-                {
-                    t->e.a[k].dis = min<<1;
-                    t->e.a[k].dis += (min_b^min_rev);
-                    t->e.a[k].dis <<=1;
-                    t->e.a[k].dis += ((v&1)^min_rev);
-                    t->e.a[k].dis <<=1;
-                    t->e.a[k].dis += min_i;
-                }
-            }
-
-        }
-    }
-    kv_destroy(dis_buf);
-    fprintf(stderr, "[M::%s::%.3f]\n", __func__, yak_realtime()-index_time);
 }
 
 typedef struct { // data structure for each step in kt_pipeline()
@@ -2326,7 +2283,7 @@ static void worker_for_dis(void *data, long i, int tid)
         }
 
         ///might be wrong
-        if(bub->index[i] < bub->num.n && bub->index[u] < bub->num.n 
+        if(IF_BUB(i, *bub) && IF_BUB(u, *bub)
             && bub->index[i] != bub->index[u] && t->e.a[k].dis != (uint64_t)-1)
         {
             continue;
@@ -2365,15 +2322,6 @@ static void worker_for_dis(void *data, long i, int tid)
                 t->e.a[k].dis += (min_i^min_rev);
             }
         }
-
-
-        // if(bub->index[i] < bub->num.n && bub->index[u] < bub->num.n && 
-        //    bub->index[i] == bub->index[u])
-        // {
-        //     if(t->e.a[k].dis == (uint64_t)-1) fprintf(stderr, "hahahahahahahaha\n");
-        //     fprintf(stderr, "sb-utg%.6d\tdb-utg%.6d\n", (int)(i+1), (int)(u+1));
-        // }
-
     }
 
 }
@@ -2411,8 +2359,8 @@ void collect_hc_links(const ha_ug_index* idx, kvec_pe_hit* hits, hc_links* link,
         end = ((hits->a.a[k].e<<1)>>shif);
 
         if(beg == end) continue;
-        if(bub->index[beg] > bub->num.n) continue;
-        if(bub->index[end] > bub->num.n) continue;
+        if(IF_HOM(beg, *bub)) continue;
+        if(IF_HOM(end, *bub)) continue;
 
         t_d = (uint64_t)-1;
         push_hc_edge(&(link->a.a[beg]), end, 0, 0, &t_d);
@@ -2427,7 +2375,6 @@ void collect_hc_links(const ha_ug_index* idx, kvec_pe_hit* hits, hc_links* link,
     M.uID_shift = 64 - v; M.dis_mode = ((uint64_t)-1) >> v; 
 
     all_pair_shortest_path(idx, link, &M);
-    ///fill_utg_distance(idx, link, &M, bub);
     fill_utg_distance_multi(idx, link, &M, bub);
 
     for (v = 0; v < n_vtx; ++v) kv_destroy(M.matrix.a[v].a);
@@ -2524,7 +2471,7 @@ void collect_hc_reverse_links(hc_links* link, ma_ug_t* ug, bubble_type* bub)
     kv_init(stack.a); kv_init(result.a);
     ///clean all reverse overlaps within bubbles
     ///might be wrong
-    for (i = 0; i < bub->num.n-1; i++)
+    for (i = 0; i < bub->f_bub; i++)
     {
         get_bubbles(bub, i, &beg, &sink, &a, &n, NULL);
         for (k = 0; k < n; k++)
@@ -2541,7 +2488,7 @@ void collect_hc_reverse_links(hc_links* link, ma_ug_t* ug, bubble_type* bub)
         }
 
         v = beg>>1; 
-        if(bub->index[v] > bub->num.n)
+        if(IF_HOM(v, *bub))
         {
             for (j = 0; j < link->a.a[v].f.n; j++)
             {
@@ -2554,7 +2501,7 @@ void collect_hc_reverse_links(hc_links* link, ma_ug_t* ug, bubble_type* bub)
         }
 
         v = sink>>1;
-        if(bub->index[v] > bub->num.n)
+        if(IF_HOM(v, *bub))
         {
             for (j = 0; j < link->a.a[v].f.n; j++)
             {
@@ -2567,7 +2514,7 @@ void collect_hc_reverse_links(hc_links* link, ma_ug_t* ug, bubble_type* bub)
         }
     }
 
-    for (i = 0; i < bub->num.n-1; i++)
+    for (i = 0; i < bub->f_bub; i++)
     {
         get_bubbles(bub, i, &beg, &sink, &a, &n, NULL);
         if(n == 2)
@@ -2859,9 +2806,8 @@ void init_min_cut_t(min_cut_t* x, hc_links* link, const bubble_type* bub, const 
                 x->rGraph.a[i].a[k] = link->a.a[i].e.a[k];
                 x->n_e++;
                 
-                if((x->rGraph.a[i].a[k].weight == 0) || 
-                   (bub->index[x->rGraph.a[i].a[k].uID] > bub->num.n) || 
-                   (bub->index[i] > bub->num.n) || (x->rGraph.a[i].a[k].del))
+                if((x->rGraph.a[i].a[k].weight == 0) || IF_HOM(x->rGraph.a[i].a[k].uID, *bub) 
+                   || IF_HOM(i, *bub) || (x->rGraph.a[i].a[k].del))
                 {
                     x->rGraph.a[i].a[k].del = 1;
                     x->n_e--;
@@ -3384,7 +3330,7 @@ uint64_t select_bmer(uint32_t src, uint64_t k, const bubble_type* bub, min_cut_t
             u = av[i].v>>1;
             if(x->rGraphVis.a[u]) continue;
             x->rGraphVis.a[u] = 1;
-            if(bub->index[u] > bub->num.n)
+            if(IF_HOM(u, *bub))
             {
                 if(d < k) kdq_push(uint64_t, x->q, set_dv(u, d+1));
             }
@@ -3392,7 +3338,7 @@ uint64_t select_bmer(uint32_t src, uint64_t k, const bubble_type* bub, min_cut_t
             {
                 kdq_push(uint64_t, x->q, set_dv(u , d));
                 b_mer_d = d;
-                if(bub->index[u] < bub->num.n && x->bmerVis.a[u] == 0)
+                if(IF_BUB(u, *bub) && x->bmerVis.a[u] == 0)
                 {
                     get_bubbles((bubble_type*)bub, bub->index[u], &beg, &sink, &a, &n, NULL);
                     for (j = 0; j < n; j++) x->bmerVis.a[(a[j]>>1)] = 1;
@@ -3412,7 +3358,7 @@ uint64_t select_bmer(uint32_t src, uint64_t k, const bubble_type* bub, min_cut_t
             u = av[i].v>>1;
             if(x->rGraphVis.a[u]) continue;
             x->rGraphVis.a[u] = 1;
-            if(bub->index[u] > bub->num.n)
+            if(IF_HOM(u, *bub))
             {
                 if(d < k) kdq_push(uint64_t, x->q, set_dv(u, d+1));
             }
@@ -3420,7 +3366,7 @@ uint64_t select_bmer(uint32_t src, uint64_t k, const bubble_type* bub, min_cut_t
             {
                 kdq_push(uint64_t, x->q, set_dv(u , d));
                 b_mer_d = d;
-                if(bub->index[u] < bub->num.n && x->bmerVis.a[u] == 0)
+                if(IF_BUB(u, *bub) && x->bmerVis.a[u] == 0)
                 {
                     get_bubbles((bubble_type*)bub, bub->index[u], &beg, &sink, &a, &n, NULL);
                     for (j = 0; j < n; j++) x->bmerVis.a[(a[j]>>1)] = 1;
@@ -3456,7 +3402,7 @@ uint32_t bub_only, uint32_t bub_extend)
 
         ///fprintf(stderr, "******utg%.6dl, dis: %lu\n", (int)((v>>1)+1), x->pq.dis.a[v]); 
 
-        if(bub->index[v>>1] < bub->num.n)
+        if(IF_BUB(v>>1, *bub))
         {
             if(bub_extend && x->bmerVis.a[v>>1] == 0)
             {
@@ -3466,7 +3412,7 @@ uint32_t bub_only, uint32_t bub_extend)
             x->bmerVis.a[v>>1] = 1;
         }
          
-        if(bub->index[v>>1] == bub->num.n && bub_only == 0) x->bmerVis.a[v>>1] = 1;
+        if(IF_HET(v>>1, *bub) && bub_only == 0) x->bmerVis.a[v>>1] = 1;
 
         av = asg_arc_a(sg, v);
         nv = asg_arc_n(sg, v);
@@ -3491,24 +3437,12 @@ uint32_t bub_only, uint32_t bub_extend)
 void get_bmer_unitgs(min_cut_t* x, const bubble_type* bub, uint64_t k, uint64_t src)
 {
     uint32_t beg, sink, n, *a;
-    if(bub->index[src] >= bub->num.n) return;
+    if(!IF_BUB(src, *bub)) return;
     get_bubbles((bubble_type*)bub, bub->index[src], &beg, &sink, &a, &n, NULL);
     memset(x->bmerVis.a, 0, x->bmerVis.n);
     ///select_bmer(src, k, bub, x, 1);
     select_bmer_distance(beg^1, k, bub, x, 1, 1);
     select_bmer_distance(sink^1, k, bub, x, 1, 1);
-    /*******************************for debug************************************/
-    // uint64_t i;
-    // for (i = 0; i < x->bmerVis.n; ++i) 
-    // { 
-    //     if(x->bmerVis.a[i] == 0) continue;
-    //     fprintf(stderr, "(k)utg%.6dl\n", (int)(i+1));    
-    // }
-    // for (i = 0; i < x->bmerVis.n; ++i) 
-    // { 
-    //     fprintf(stderr, "(label)utg%.6dl: %u, (num)%u\n", (int)(i+1), bub->index[i], bub->num.n);    
-    // }
-    /*******************************for debug************************************/
 }
 
 
@@ -3788,7 +3722,7 @@ uint32_t* phased, uint32_t* bub_id)
         if(x->a[id].a.n > 0)
         {
             (*bub_id) = bub->index[x->a[id].a.a[0]];
-            if((*bub_id) < bub->num.n)
+            if(IF_BUB(x->a[id].a.a[0], *bub))
             {
                 (*beg) = bub->list.a[bub->num.a[(*bub_id)]];
                 (*sink) = bub->list.a[bub->num.a[(*bub_id)] + 1];
@@ -3993,7 +3927,7 @@ G_partition* clean_bubbles(hc_links* link, bubble_type* bub, min_cut_t* m, const
     G_partition* x; CALLOC(x, 1);
     init_G_partition(x, ug->g->n_seq);
 
-    for (i = 0; i < bub->num.n-1; i++)
+    for (i = 0; i < bub->f_bub; i++)
     {
         phase_bubble(i, &b, bub, flag, ug, m, link, x);
     }
@@ -4201,8 +4135,8 @@ void weight_edges(ha_ug_index* idx, kvec_pe_hit* hits, hc_links* link, bubble_ty
         end = ((hits->a.a[k].e<<1)>>shif);
 
         if(beg == end) continue;
-        if(bub->index[beg] > bub->num.n) continue;
-        if(bub->index[end] > bub->num.n) continue;
+        if(IF_HOM(beg, *bub)) continue;
+        if(IF_HOM(end, *bub)) continue;
 
         t_d = get_hic_distance(&(hits->a.a[k]), link, idx);
         if(t_d == (uint64_t)-1) continue;
@@ -4217,56 +4151,395 @@ void weight_edges(ha_ug_index* idx, kvec_pe_hit* hits, hc_links* link, bubble_ty
     }
 }
 
+#define BUB_2(bub, v) ((((bub).b_s_idx.a[(v)] & 0xffffffff00000000) != 0xffffffff00000000) &&\
+                            (((bub).b_s_idx.a[(v)] & 0xffffffff) != 0xffffffff))
+void get_bub_id(bubble_type* bub, uint32_t root, uint64_t* id0, uint64_t* id1)
+{
+    if(id0) (*id0) = (uint64_t)-1;
+    if(id1) (*id1) = (uint64_t)-1;
+
+    if((bub->b_s_idx.a[root]&0xffffffff) != 0xffffffff)
+    {
+        if(id0) (*id0) = bub->b_s_idx.a[root]&0xffffffff;
+    }
+
+    if((bub->b_s_idx.a[root]&0xffffffff00000000) != 0xffffffff00000000)
+    {
+        if(id1)
+        {
+            (*id1) = bub->b_s_idx.a[root]&0xffffffff00000000;
+            (*id1) >>= 32;
+        }
+    }
+}
+
+int ma_2_bub_arc(bubble_type* bub, uint32_t x_0, uint32_t x_1, asg_arc_t *p)
+{
+    uint64_t id0, ori_0, id1, ori_1, tmp_id;
+    uint32_t beg, sink, n, *a, x;
+    uint32_t beg_0, sink_0, beg_1, sink_1;
+    if((x_0 != (uint32_t)-1) && (x_1 != (uint32_t)-1))
+    {
+        if(((x_0>>1) == (x_1>>1)))
+        {
+            get_bub_id(bub, x_0>>1, &id0, &id1);
+
+            get_bubbles(bub, id0, &beg_0, &sink_0, &a, &n, NULL);
+            get_bubbles(bub, id1, &beg_1, &sink_1, &a, &n, NULL);
+
+            ori_0 = (uint64_t)-1;
+            if(x_0 == (beg_0^1))
+            {
+                ori_0 = 1;
+            }
+            else if(x_0 == (sink_0^1))
+            {
+                ori_0 = 0;
+            }
+            else if(x_0 == (beg_1^1))
+            {
+                ori_0 = 1+2;
+            }
+            else if(x_0 == (sink_1^1))
+            {
+                ori_0 = 0+2;
+            }
+            else
+            {
+                fprintf(stderr, "error 0\n");
+                return 0;
+            }
+
+
+            ori_1 = (uint64_t)-1;
+            if(x_1 == (beg_0^1))
+            {
+                ori_1 = 1;
+            }
+            else if(x_1 == (sink_0^1))
+            {
+                ori_1 = 0;
+            }
+            else if(x_1 == (beg_1^1))
+            {
+                ori_1 = 1 + 2;
+            }
+            else if(x_1 == (sink_1^1))
+            {
+                ori_1 = 0 + 2;
+            }
+            else
+            {
+                fprintf(stderr, "error 1\n");
+                return 0;
+            }
+
+            
+
+            if((((ori_0>>1)^(ori_1>>1))&1) != 1)
+            {
+                fprintf(stderr, "error 10\n");
+                fprintf(stderr, "x_0: %u, id0: %lu, beg_0: %u, sink_0: %u, ori_0: %lu\n", 
+                                                            x_0, id0, beg_0, sink_0, ori_0);
+                fprintf(stderr, "x_1: %u, id1: %lu, beg_1: %u, sink_1: %u, ori_1: %lu\n", 
+                                                            x_1, id1, beg_1, sink_1, ori_1);
+                return 0;
+            }
+             
+            if(ori_0 & 2)
+            {
+                tmp_id = id0; id0 = id1; id1 = tmp_id;
+            }
+            
+            ori_0 &= 1; ori_1 &= 1; ori_1 ^= 1;
+
+
+            
+            p->ul = (id0<<1) | ori_0; p->ul <<= 32; p->ul += 0;
+            p->v = (id1<<1) | ori_1; 
+            p->ol = 0; p->del = 0; p->el = p->no_l_indel = p->strong = 1;
+        }
+        else
+        {
+            get_bub_id(bub, x_0>>1, &id0, NULL);
+            get_bub_id(bub, x_1>>1, &id1, NULL);
+
+
+            get_bubbles(bub, id0, &beg, &sink, &a, &n, NULL);
+            ori_0 = (uint64_t)-1;
+            if(x_0 == (beg^1))
+            {
+                ori_0 = 1;
+            }
+            else if(x_0 == (sink^1))
+            {
+                ori_0 = 0;
+            }
+            else
+            {
+                fprintf(stderr, "error 0\n");
+                return 0;
+            }
+            
+            
+
+            get_bubbles(bub, id1, &beg, &sink, &a, &n, NULL);
+            ori_1 = (uint64_t)-1;
+            if(x_1 == (beg^1))
+            {
+                ori_1 = 1;
+            }
+            else if(x_1 == (sink^1))
+            {
+                ori_1 = 0;
+            }
+            else
+            {
+                fprintf(stderr, "error 1\n");
+                return 0;
+            }
+            ori_0 &= 1; ori_1 &= 1; ori_1 ^= 1;
+
+            p->ul = (id0<<1) | ori_0; p->ul <<= 32; p->ul += 0;
+            p->v = (id1<<1) | ori_1; 
+            p->ol = 0; p->del = 0; p->el = p->no_l_indel = p->strong = 1;
+        }
+    }
+    else
+    {
+        x = (uint32_t)-1;
+        if(x_0 != (uint32_t)-1) x = x_0;
+        if(x_1 != (uint32_t)-1) x = x_1;
+        if(x == (uint32_t)-1) return 0;
+        get_bub_id(bub, x>>1, &id0, &id1);
+
+        if(id0 != (uint64_t)-1)
+        {
+            get_bubbles(bub, id0, &beg, &sink, &a, &n, NULL);
+            if(x == (beg^1))
+            {
+                return 1;
+            }
+            else if(x == (sink^1))
+            {
+                return 1;
+            }
+
+            return 0;
+        }
+        
+        if(id1 != (uint64_t)-1)
+        {
+            get_bubbles(bub, id1, &beg, &sink, &a, &n, NULL);
+            if(x == (beg^1))
+            {
+                return 1;
+            }
+            else if(x == (sink^1))
+            {
+                return 1;
+            }
+
+            return 0;
+        }
+    }
+    
+    return 1;
+}
+
+#define arc_first(g, v) ((g)->arc[(g)->idx[(v)]>>32])
+void debug_bub_utg(bubble_type* bub, ma_ug_t *bug, asg_t *bsg)
+{
+    uint32_t i, k, rId, rId_next, ori, ori_next, root, beg, end;
+    uint64_t id0, id1;
+    ma_utg_t *u = NULL;
+    asg_arc_t *t = NULL;
+    for (i = 0; i < bug->u.n; i++)
+    {
+        u = &(bug->u.a[i]);
+        if(u->n == 0) continue;
+        for (k = 0; k < u->n; k++)
+        {
+            if(k+1 >= u->n) continue;
+            rId = u->a[k]>>33;
+            ori = u->a[k]>>32&1;
+            get_bubbles(bub, rId, ori == 1?&root:NULL, ori == 0?&root:NULL, NULL, NULL, NULL);
+
+            t = &(arc_first(bsg, u->a[k]>>32));
+            get_bub_id(bub, root>>1, &id0, &id1);
+            if(id0 == (uint64_t)-1 || (t->el == 1 && id1 == (uint64_t)-1))
+            {
+                fprintf(stderr, "sbsbsb0sbsbsb-utg%.6d\n", (int)((root>>1)+1));
+                continue;
+            }
+
+            ///fprintf(stderr, "aaaaaaaa10aaaaaaaa-utg%.6d\n", (int)((root>>1)+1));
+
+            rId_next = u->a[k+1]>>33;
+            ori_next = u->a[k+1]>>32&1;
+
+
+            get_bubbles(bub, rId, &beg, &end, NULL, NULL, NULL);
+            if(ori == 1)
+            {
+                if(root != beg) fprintf(stderr, "sbsbsb1sbsbsb, root: %u, beg: %u, end: %u\n", root, beg, end);
+            }
+            else
+            {
+                if(root != end) fprintf(stderr, "sbsbsb2sbsbsb, root: %u, beg: %u, end: %u\n", root, beg, end);
+            }
+
+            if(t->el == 1)
+            {
+                get_bubbles(bub, rId_next, &beg, &end, NULL, NULL, NULL);
+                if(ori_next == 0)
+                {
+                    if(root != (beg^1)) fprintf(stderr, "sbsbsb3sbsbsb, root: %u, beg: %u, end: %u\n", root, beg, end);
+                }
+                else
+                {
+                    if(root != (end^1)) fprintf(stderr, "sbsbsb4sbsbsb, root: %u, beg: %u, end: %u\n", root, beg, end);
+                }
+            }
+        }
+    }
+
+    fprintf(stderr, "[M::%s]\n", __func__);
+}
+
+
+inline void set_bub_idx(bubble_type* bub, ma_utg_t *bu, asg_t *untig_sg, int beg_idx, int end_idx)
+{
+    int k;
+    uint32_t rId, ori, root;
+    uint64_t id0, id1, len0, len1;
+    for (k = beg_idx; k <= end_idx; k++)
+    {
+        rId = bu->a[k]>>33;
+        ori = bu->a[k]>>32&1;
+        get_bubbles(bub, rId, ori == 1?&root:NULL, ori == 0?&root:NULL, NULL, NULL, NULL);
+
+        if(IF_HET(root>>1, *bub))
+        {
+            get_bub_id(bub, root>>1, &id0, &id1);
+            if(id0 == (uint64_t)-1 || id1 == (uint64_t)-1) continue;
+            get_bubbles(bub, id0, NULL, NULL, NULL, NULL, &len0);
+            get_bubbles(bub, id1, NULL, NULL, NULL, NULL, &len1);
+
+            if(untig_sg->seq[root>>1].len > (MIN(len0, len1)*3)) continue;
+
+            bub->index[root>>1] = (uint32_t)-1;
+            ///fprintf(stderr, "renew-utg%.6d\n", (int)((root>>1)+1));
+        }
+    }
+}
+
+
+void detect_bub_graph(bubble_type* bub, asg_t *untig_sg)
+{
+    asg_t *bg = bub->b_g;
+    ma_ug_t *ug = NULL;
+    ug = ma_ug_gen(bub->b_g);
+    ///debug_bub_utg(bub, ug, bg);
+    uint32_t i, k, v, rId, ori, root;
+    int beg_idx, end_idx;
+    uint64_t pLen, rLEN, r_hetLen;
+    ma_utg_t *u = NULL;
+    asg_arc_t *t = NULL;
+    for (i = 0; i < ug->u.n; i++)
+    {
+        u = &(ug->u.a[i]);
+        if(u->n == 0) continue;
+        for (k = pLen = rLEN = r_hetLen = beg_idx = 0, end_idx = -1; k < u->n; k++)
+        {
+            rId = u->a[k]>>33;
+            ori = u->a[k]>>32&1;
+            get_bubbles(bub, rId, ori == 1?&root:NULL, ori == 0?&root:NULL, NULL, NULL, NULL);
+            
+            t = NULL;
+            if(k+1 < u->n) t = &(arc_first(bg, u->a[k]>>32));
+
+            pLen += bg->seq[rId].len;
+            if(t)
+            {
+                if(t->el == 0)
+                {
+                    if(pLen > 0 && rLEN > 0 && r_hetLen > 0)
+                    {
+                        if(rLEN < pLen*0.5 && r_hetLen < rLEN * 0.3)
+                        {
+                            set_bub_idx(bub, u, untig_sg, beg_idx, end_idx);
+                        }
+                    }
+                    pLen = rLEN = r_hetLen = 0;
+                    beg_idx = k + 1; end_idx = k;
+                }
+                else
+                {
+                    pLen += t->ol;
+                    rLEN += t->ol;
+                    if(IF_HET(root>>1, *bub)) r_hetLen += t->ol;
+                    end_idx = k;
+                }
+            }
+        }
+        if(pLen > 0 && rLEN > 0 && r_hetLen > 0)
+        {
+            if(rLEN < pLen*0.5 && r_hetLen < rLEN * 0.3)
+            {
+                set_bub_idx(bub, u, untig_sg, beg_idx, end_idx);
+            }
+        }
+    }
+    
+    ma_ug_destroy(ug);
+}
+
 void build_bub_graph(ma_ug_t* ug, bubble_type* bub)
 {
     asg_t *sg = ug->g;
+    asg_arc_t t, *p = NULL;
     pdq pq;
     init_pdq(&pq, sg->n_seq<<1);
-    uint32_t n_vtx = sg->n_seq<<1, v;
+    uint32_t n_vtx = sg->n_seq<<1, v, k;
     uint32_t *pre = NULL; MALLOC(pre, n_vtx);
-    uint64_t *flag = NULL; CALLOC(flag, sg->n_seq); 
-    uint64_t k, b_id_0, b_id_1;
-    uint32_t beg, sink, n, *a, pre_id, adjecent;
-    for (k = 0; k < bub->num.n-1; k++)
+    uint32_t pre_id, adjecent;
+    asg_t *bub_g = asg_init();
+    for (v = 0; v < bub->f_bub; v++)
     {
-        get_bubbles(bub, k, &beg, &sink, &a, &n, NULL);
-        pre_id = beg>>1;
-        if(bub->index[pre_id] > bub->num.n)
-        {
-            flag[pre_id] |= 1;
-            flag[pre_id] |= (uint64_t)((uint64_t)pre_id<<33);
-        }
-        
-        pre_id = sink>>1;
-        if(bub->index[pre_id] > bub->num.n)
-        {
-            flag[pre_id] |= 2;
-            flag[pre_id] |= (uint64_t)((uint64_t)pre_id<<2);
-        }
+        uint64_t pathbase;
+        get_bubbles(bub, v, NULL, NULL, NULL, NULL, &pathbase);
+        asg_seq_set(bub_g, v, pathbase, 0);
+        bub_g->seq[v].c = 0;
     }
 
     for (v = 0; v < n_vtx; ++v)
     {
         if(sg->seq[v>>1].del) continue;
-        if(flag[v>>1] == 0) continue;
-        if((flag[v>>1] & 1) && (flag[v>>1] & 2))
+        if(bub->b_s_idx.a[v>>1] == (uint64_t)-1) continue;
+        if(BUB_2(*bub, v>>1))
         {
-            fprintf(stderr, "+utg%.6ul -> utg%.6ul\n", 
-                        (int)((flag[v>>1]>>33)+1), (int)((flag[v>>1]>>2)+1));
+            if(ma_2_bub_arc(bub, v, v^1, &t))
+            {
+                t.ol = sg->seq[v>>1].len;
+                p = asg_arc_pushp(bub_g);
+                *p = t;
+            }
             continue;
         }
+        if(ma_2_bub_arc(bub, v, (uint32_t)-1, &t) == 0) continue;
 
         get_shortest_path(v, &pq, sg, pre);
         for (k = 0; k < pq.dis.n; k++)
         {
             if(pq.dis.a[k] == (uint64_t)-1) continue;
-            if((flag[k>>1]&3) == 0) continue;
-            if(k == v) continue;
+            if(bub->b_s_idx.a[k>>1] == (uint64_t)-1) continue;
+            if((k>>1) == (v>>1)) continue;
             pre_id = pre[k];
             adjecent = 0;
             while (pre_id != v)
             {
-                if(flag[pre_id>>1] > 0)
+                if(bub->b_s_idx.a[pre_id>>1] != (uint64_t)-1)
                 {
                     adjecent = 1;
                     break;
@@ -4276,18 +4549,48 @@ void build_bub_graph(ma_ug_t* ug, bubble_type* bub)
 
             if(adjecent == 0)
             {
-                b_id_0 = flag[k>>1] & 1? flag[k>>1]>>33 : flag[k>>1]>>2;
-                b_id_1 = flag[v>>1] & 1? flag[v>>1]>>33 : flag[v>>1]>>2;
-                if((flag[k>>1] & 3) == 3) fprintf(stderr, "ERROR1\n");
-                if((flag[v>>1] & 3) == 3) fprintf(stderr, "ERROR2\n");
-                fprintf(stderr, "-utg%.6ul -> utg%.6ul\n", (int)(b_id_0+1), (int)(b_id_1+1));
+                if(ma_2_bub_arc(bub, v, k^1, &t))
+                {
+                    t.el = 0; t.no_l_indel = 0;t.ol = pq.dis.a[k] + sg->seq[k>>1].len;
+                    p = asg_arc_pushp(bub_g);
+                    *p = t;
+                }
             }
         }
     }
 
     free(pre);
-    free(flag);
     destory_pdq(&pq);
+
+
+    // for (k = 0; k < bub_g->n_arc; k++)
+    // {
+    //     uint32_t d_v = (uint32_t)(bub_g->arc[k].ul>>32);
+    //     uint32_t d_u = bub_g->arc[k].v;
+    //     for (v = 0; v < bub_g->n_arc; v++)
+    //     {
+    //         if(((bub_g->arc[v].ul>>32) == (d_u^1)) && (bub_g->arc[v].v == (d_v^1))) break;      
+    //     }
+
+    //     if(v == bub_g->n_arc)
+    //     {
+    //         fprintf(stderr, "hahaha, el: %u, ul>>33: %lu, ul&1: %lu, v>>1: %u, v&1: %u\n", 
+    //                 bub_g->arc[k].el, bub_g->arc[k].ul>>33, (bub_g->arc[k].ul>>32)&1, bub_g->arc[k].v>>1, bub_g->arc[k].v&1);
+    //     }
+    //     else
+    //     {
+    //         fprintf(stderr, "hehehe, el: %u, ul>>33: %lu, ul&1: %lu, v>>1: %u, v&1: %u\n", 
+    //                 bub_g->arc[k].el, bub_g->arc[k].ul>>33, (bub_g->arc[k].ul>>32)&1, bub_g->arc[k].v>>1, bub_g->arc[k].v&1);
+    //     }
+    // }
+
+    
+
+    asg_cleanup(bub_g);
+    bub_g->r_seq = bub_g->n_seq;
+    bub->b_g = bub_g;
+
+    detect_bub_graph(bub, sg);
 }
 
 void init_hic_p(ha_ug_index* idx, kvec_pe_hit* hits, hc_links* link, bubble_type* bub, kvec_hc_edge* back_hc_edge)
@@ -4299,7 +4602,7 @@ void init_hic_p(ha_ug_index* idx, kvec_pe_hit* hits, hc_links* link, bubble_type
     kv_init(buf_idx);
 
     buf.n = 0;
-    for (i = 0; i < bub->num.n-1; i++)
+    for (i = 0; i < bub->f_bub; i++)
     {
         get_bubbles(bub, i, &b_beg, &b_end, &a, &n, &b_size);
         for (k = b_cnt = 0; k < n; k++)
@@ -4324,9 +4627,8 @@ void init_hic_p(ha_ug_index* idx, kvec_pe_hit* hits, hc_links* link, bubble_type
         beg = ((hits->a.a[k].s<<1)>>(64 - idx->uID_bits));
         end = ((hits->a.a[k].e<<1)>>(64 - idx->uID_bits));
 
-        if(bub->index[beg] > bub->num.n) continue;
-        if(bub->index[end] > bub->num.n) continue;
-
+        if(IF_HOM(beg, *bub)) continue;
+        if(IF_HOM(end, *bub)) continue;
         
 
         if(beg == end)
@@ -4752,7 +5054,7 @@ uint32_t get_available_com(H_partition* hap, bubble_type* bub, ma_ug_t *ug, uint
     double w, cur_w0 = 0, cur_w1 = 0, max_bub_w, max_non_bub_w;
     max_i = (uint32_t)-1;
 
-    for (i = 0, max_bub_w = -1, max_bub_i = (uint32_t)-1; i < bub->num.n-1; i++)
+    for (i = 0, max_bub_w = -1, max_bub_i = (uint32_t)-1; i < bub->f_bub; i++)
     {
         get_bubbles(bub, i, &beg, &sink, &a, &n, NULL);
 
@@ -4793,7 +5095,7 @@ uint32_t get_available_com(H_partition* hap, bubble_type* bub, ma_ug_t *ug, uint
 
     for (i = 0, max_non_bub_w = -1, max_non_bub_i = (uint32_t)-1; i < ug->u.n; i++)
     {
-        if(bub->index[i] == bub->num.n)
+        if(IF_HET(i, *bub))
         {
             uID = i;
             if(check_self && is_hap_set(uID, *hap)) continue;
@@ -4856,17 +5158,31 @@ uint32_t get_available_com(H_partition* hap, bubble_type* bub, ma_ug_t *ug, uint
     {
         for (i = 0, max_non_bub_w = -1, max_non_bub_i = (uint32_t)-1; i < ug->u.n; i++)
         {
-            if(bub->index[i] < bub->num.n)
+            if(IF_BUB(i, *bub))
             {
                 uID = i;
                 if(check_self && is_hap_set(uID, *hap)) continue;
-                for (k = 0, w = 0, is_ava = 0; k < link->a.a[uID].e.n; k++)
+                if(check_others)
                 {
-                    if(link->a.a[uID].e.a[k].del) continue;
-                    if(check_others && (!is_hap_set(link->a.a[uID].e.a[k].uID, *hap))) continue;
-                    w += link->a.a[uID].e.a[k].weight;
-                    is_ava = 1;
+                    get_related_weight(uID, hap, &cur_w0, &cur_w1);
+                    w += (MAX(cur_w0, cur_w1) - MIN(cur_w0, cur_w1));
+                    for (k = 0, w = 0, is_ava = 0; k < link->a.a[uID].e.n; k++)
+                    {
+                        if(link->a.a[uID].e.a[k].del) continue;
+                        if(!is_hap_set(link->a.a[uID].e.a[k].uID, *hap)) continue;
+                        is_ava = 1;
+                    }
                 }
+                else
+                {
+                    for (k = 0, w = 0, is_ava = 0; k < link->a.a[uID].e.n; k++)
+                    {
+                        if(link->a.a[uID].e.a[k].del) continue;
+                        w += link->a.a[uID].e.a[k].weight;
+                        is_ava = 1;
+                    }
+                }
+
                 if(is_ava == 0) continue;
 
                 if(w > max_non_bub_w)
