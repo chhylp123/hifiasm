@@ -72,6 +72,7 @@ typedef struct {
     int recover_atg_cov_max;
     int hom_global_coverage;
     int bed_inconsist_rate;
+    int hic_inconsist_rate;
 
     float max_hang_rate;
     float min_drop_rate;

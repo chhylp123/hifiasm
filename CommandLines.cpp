@@ -143,6 +143,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->recover_atg_cov_max = INT_MAX;
     asm_opt->hom_global_coverage = -1;
     asm_opt->bed_inconsist_rate = 70;
+    asm_opt->hic_inconsist_rate = 30;
     ///asm_opt->bub_mer_length = 3;
     asm_opt->bub_mer_length = 1000000;
 }

@@ -1051,9 +1051,20 @@ typedef struct{
 } hc_linkeage;
 
 typedef struct{
+	uint64_t beg, end;
+}bed_interval;
+
+typedef struct{
+	size_t n, m;
+	bed_interval* a;
+}bed_in;
+
+typedef struct{
     kvec_t(hc_linkeage) a;
     kvec_t(uint64_t) enzymes;
+	kvec_t(bed_in) bed;
     uint32_t* u_idx;
+	uint64_t r_num;
 } hc_links;
 
 typedef struct{
@@ -1083,6 +1094,15 @@ float chimeric_rate, float drop_ratio, int max_hang, int min_ovlp, int is_bench)
 asg_t* copy_read_graph(asg_t *src);
 ma_ug_t *ma_ug_gen(asg_t *g);
 void ma_ug_destroy(ma_ug_t *ug);
+
+
+inline int inter_interval(int a_s, int a_e, int b_s, int b_e, int* i_s, int* i_e)
+{
+    if(a_s > b_e || b_s > a_e) return 0;
+    if(i_s) (*i_s) = a_s >= b_s? a_s : b_s; ///MAX(a_s, b_s);
+    if(i_e) (*i_e) = a_e <= b_e? a_e : b_e; ///MIN(a_e, b_e);
+    return 1;
+}
 
 #define JUNK_COV 5
 #define DISCARD_RATE 0.8
