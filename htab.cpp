@@ -556,7 +556,7 @@ static void worker_for_mz(void *data, long i, int tid)
 	ha_mz1_v *b = &s->mz_buf[tid];
 	s->mz_buf[tid].n = 0;
 	///s->p->opt->w = 51, s->p->opt->k
-	ha_sketch(s->seq[i], s->len[i], s->p->opt->w, s->p->opt->k, s->n_seq0 + i, s->p->opt->is_HPC, b, s->p->flt_tab, 0, 0);
+	ha_sketch(s->seq[i], s->len[i], s->p->opt->w, s->p->opt->k, s->n_seq0 + i, s->p->opt->is_HPC, b, s->p->flt_tab, 0, 0, 0);
 	s->mz[i].n = s->mz[i].m = b->n;
 	MALLOC(s->mz[i].a, b->n);
 	memcpy(s->mz[i].a, b->a, b->n * sizeof(ha_mz1_t));

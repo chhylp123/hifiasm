@@ -6,7 +6,7 @@
 #include "htab.h"
 #include "ksort.h"
 
-#define MAX_HIGH_OCC     3   // TODO: don't hard code if we need to tune this parameter
+#define MAX_HIGH_OCC     8   // TODO: don't hard code if we need to tune this parameter
 #define MAX_MAX_HIGH_OCC 16
 
 typedef struct { // a simplified version of kdq
@@ -37,15 +37,13 @@ static inline int mzcmp(const ha_mz1_t *a, const ha_mz1_t *b)
 #define mz_lt(a, b) (mzcmp(&(a), &(b)) < 0)
 KSORT_INIT(mz, ha_mz1_t, mz_lt)
 
-static void select_mz(ha_mz1_v *p, int len, int max_high_occ)
+static void select_mz(ha_mz1_v *p, int len, int sample_dist)
 { // for high-occ minimizers, choose up to max_high_occ in each high-occ streak
 	int32_t i, last0 = -1, n = (int32_t)p->n, m = 0;
 	ha_mz1_t b[MAX_MAX_HIGH_OCC]; // this is to avoid a heap allocation
 
 	if (n == 0 || n == 1) return;
 	assert(n < 1<<27); // 27 is the number of bits for ha_mz1_t::pos; this should be safe as there are more bases than minimizers
-	if (max_high_occ > MAX_MAX_HIGH_OCC)
-		max_high_occ = MAX_MAX_HIGH_OCC;
 	for (i = 0; i < n; ++i)
 		if (p->a[i].rid != 0) ++m;
 	if (m == 0) return; // no high-frequency k-mers; do nothing
@@ -55,6 +53,9 @@ static void select_mz(ha_mz1_v *p, int len, int max_high_occ)
 				int32_t ps = last0 < 0? 0 : p->a[last0].pos;
 				int32_t pe = i == n? len : p->a[i].pos;
 				int32_t j, k, st = last0 + 1, en = i;
+				int32_t max_high_occ = (int32_t)((double)(pe - ps) / sample_dist + .499);
+				if (max_high_occ > MAX_MAX_HIGH_OCC)
+					max_high_occ = MAX_MAX_HIGH_OCC;
 				for (j = st, k = 0; j < en && k < max_high_occ; ++j, ++k)
 					b[k] = p->a[j], b[k].pos = j; // b[].pos keeps the index in p->a[]
 				ks_heapmake_mz(k, b); // initialize the binomial heap
@@ -66,8 +67,7 @@ static void select_mz(ha_mz1_v *p, int len, int max_high_occ)
 				}
 				//ks_heapsort_mz(k, b); // sorting is not needed for now
 				for (j = 0; j < k; ++j)
-					if (b[j].rid < pe - ps)
-						p->a[b[j].pos].rid = 0;
+					p->a[b[j].pos].rid = 0;
 			}
 			last0 = i;
 		}
@@ -89,7 +89,7 @@ static void select_mz(ha_mz1_v *p, int len, int max_high_occ)
  * @param is_hpc homopolymer-compressed or not
  * @param p      minimizers
  */
-void ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mz1_v *p, const void *hf, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct)
+void ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mz1_v *p, const void *hf, int sample_dist, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct)
 {	///in default, w = 51, k = 51, is_hpc = 1
 	/**
 	 uint64_t x;
@@ -202,7 +202,7 @@ void ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc,
 	}
 	if (min.x != UINT64_MAX)
 		kv_push(ha_mz1_t, *p, min);
-	select_mz(p, len, MAX_HIGH_OCC);
+	if (sample_dist > w) select_mz(p, len, MAX_HIGH_OCC);
 	for (i = 0; i < (int)p->n; ++i) // populate .rid as this was keeping counts
 		p->a[i].rid = rid;
 }

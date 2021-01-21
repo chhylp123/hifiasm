@@ -3,7 +3,7 @@
 
 #include <pthread.h>
 
-#define HA_VERSION "0.13-r329-dirty"
+#define HA_VERSION "0.13-r330-dirty"
 
 #define VERBOSE 0
 
@@ -34,6 +34,7 @@ typedef struct {
     int thread_num;
     int k_mer_length;
 	int mz_win;
+	int sample_dist;
 	int bf_shift;
 	int max_kmer_cnt;
 	double high_factor; // coverage cutoff set to high_factor*hom_cov
