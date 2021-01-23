@@ -67,7 +67,8 @@ static void select_mz(ha_mz1_v *p, int len, int sample_dist)
 				}
 				//ks_heapsort_mz(k, b); // sorting is not needed for now
 				for (j = 0; j < k; ++j)
-					p->a[b[j].pos].rid = 0;
+					if (b[j].rid < pe - ps)
+						p->a[b[j].pos].rid = 0;
 			}
 			last0 = i;
 		}
