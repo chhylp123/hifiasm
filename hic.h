@@ -21,7 +21,7 @@ typedef struct {
 }chain_w_type;
 
 typedef struct {
-    uint32_t* index;
+    uint32_t* index, round_id, n_round;
     ma_ug_t* ug;
     kvec_t(uint32_t) list;
     kvec_t(uint32_t) num;

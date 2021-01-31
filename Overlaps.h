@@ -1043,6 +1043,7 @@ typedef struct{
     double weight;
     uint32_t uID:31, del:1;
     uint64_t dis;
+	uint64_t occ;
     ///uint32_t enzyme;
 } hc_edge;
 
