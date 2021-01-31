@@ -286,8 +286,6 @@ void asg_cleanup(asg_t *g)
 
 
 
-
-
 // delete multi-arcs
 /**
  * remove edges like:   v has two out-edges to w
@@ -7885,12 +7883,6 @@ add_unitig:
 	free(mark);
 	return ug;
 }
-
-
-
-
-
-
 
 ma_ug_t *ma_ug_gen_primary(asg_t *g, uint8_t flag)
 {
@@ -24705,7 +24697,7 @@ long long bubble_dist, int read_graph, int write)
         &R_INF, output_file_name);
     }
 
-    ///debug_info_of_specfic_read("m64062_190803_042216/177341795/ccs", sources, reverse_sources, -1, "beg");
+    ///debug_info_of_specfic_read("m64011_190830_220126/31720629/ccs", sources, reverse_sources, -1, "beg");
 
     if (!(asm_opt.flag & HA_F_BAN_ASSEMBLY))
     {

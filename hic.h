@@ -27,12 +27,10 @@ typedef struct {
     kvec_t(uint32_t) num;
     kvec_t(uint64_t) pathLen;
     kvec_t(uint64_t) b_s_idx;
-    uint64_t s_bub, f_bub, b_bub;
+    uint64_t s_bub, f_bub, b_bub, b_end_bub, tangle_bub, cross_bub;
     uint32_t check_het;
     asg_t *b_g;
-    uint32_t *b_g_index; 
     ma_ug_t* b_ug;
-    uint32_t *b_ug_index; 
     kvec_t(chain_w_type) chain_weight;
 } bubble_type;
 #define P_het(B) ((B).num.n)

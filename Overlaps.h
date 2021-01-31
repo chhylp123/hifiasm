@@ -395,7 +395,8 @@ typedef struct {
 }kvec_asg_arc_t_warp;
 
 void sort_kvec_t_u64_warp(kvec_t_u64_warp* u_vecs, uint32_t is_descend);
-
+int asg_arc_del_multi(asg_t *g);
+int asg_arc_del_asymm(asg_t *g);
 
 typedef struct {
 	uint32_t q_pos;
@@ -1094,7 +1095,6 @@ float chimeric_rate, float drop_ratio, int max_hang, int min_ovlp, int is_bench)
 asg_t* copy_read_graph(asg_t *src);
 ma_ug_t *ma_ug_gen(asg_t *g);
 void ma_ug_destroy(ma_ug_t *ug);
-
 
 inline int inter_interval(int a_s, int a_e, int b_s, int b_e, int* i_s, int* i_e)
 {
