@@ -848,7 +848,7 @@ void ha_overlap_and_correct(int round)
 		b[i] = ha_ovec_init(0, (round == asm_opt.number_of_round - 1));
     if(ha_idx) hom_cov = asm_opt.hom_cov;
 	if(ha_idx == NULL) ha_idx = ha_pt_gen(&asm_opt, ha_flt_tab, round == 0? 0 : 1, 0, &R_INF, &hom_cov, &het_cov); // build the index
-	debug_adapter(&asm_opt, &R_INF);
+	///debug_adapter(&asm_opt, &R_INF);
     if (round == 0 && ha_flt_tab == 0) // then asm_opt.hom_cov hasn't been updated
 		ha_opt_update_cov(&asm_opt, hom_cov);
 	if (asm_opt.required_read_name)
