@@ -62,6 +62,7 @@ void ha_triobin(const hifiasm_opt_t *opt);
 void ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mz1_v *p, const void *hf);
 void ha_sketch_query(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mz1_v *p, const void *hf, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct);
 int ha_analyze_count(int n_cnt, const int64_t *cnt, int *peak_het);
+void debug_adapter(const hifiasm_opt_t *asm_opt, All_reads *rs);
 
 static inline uint64_t yak_hash64(uint64_t key, uint64_t mask) // invertible integer hash function
 {

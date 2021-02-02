@@ -720,6 +720,48 @@ static void *worker_count(void *data, int step, void *in) // callback for kt_pip
 	return 0;
 }
 
+void debug_adapter(const hifiasm_opt_t *asm_opt, All_reads *rs)
+{
+    int ret;
+    uint32_t i, m, pass, unpass;
+    gzFile fp = 0;
+    kseq_t *ks = NULL;
+    UC_Read ucr;
+    init_UC_Read(&ucr);
+
+    for (i = m = pass = unpass = 0; i < (uint32_t)asm_opt->num_reads; ++i)
+    {
+        if ((fp = gzopen(asm_opt->read_file_names[i], "r")) == 0) continue;
+        ks = kseq_init(fp);
+        while ((ret = kseq_read(ks)) >= 0) 
+        {
+            int l = ks->seq.l;
+            if((l - asm_opt->adapterLen*2) <= 0) continue;
+            recover_UC_Read(&ucr, rs, m);
+            fprintf(stderr, "l: %d, ucr.length: %lld, asm_opt->adapterLen: %d\n", 
+            l, ucr.length, asm_opt->adapterLen);
+            if(memcmp(ucr.seq, ks->seq.s+asm_opt->adapterLen, ucr.length) == 0)
+            {
+                pass++;
+            }
+            else
+            {
+                unpass++;
+            }
+            m++;
+        }
+        kseq_destroy(ks);
+        gzclose(fp);
+        ks = NULL;
+        fp = 0;
+    }
+
+    destory_UC_Read(&ucr);
+
+    fprintf(stderr, "[M::%s::# reads: %u, # pass: %u, # unpass: %u\n]", __func__, m, pass, unpass);
+    exit(1);
+}
+
 static ha_ct_t *yak_count(const yak_copt_t *opt, const char *fn, int flag, ha_pt_t *p0, ha_ct_t *c0, const void *flt_tab, All_reads *rs, int64_t *n_seq)
 {
 	///for 0-th counting, flag = HAF_COUNT_ALL|HAF_RS_WRITE_LEN|HAF_CREATE_NEW
