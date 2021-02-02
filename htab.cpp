@@ -49,6 +49,7 @@ typedef struct {
 	int32_t pre;
 	int32_t n_thread;
 	int64_t chunk_size;
+	int adaLen;
 } yak_copt_t;
 
 void yak_copt_init(yak_copt_t *o)
@@ -565,159 +566,161 @@ static void worker_for_mz(void *data, long i, int tid)
 
 static void *worker_count(void *data, int step, void *in) // callback for kt_pipeline()
 {
-	pl_data_t *p = (pl_data_t*)data;
-	if (step == 0) { // step 1: read a block of sequences
-		int ret;
-		st_data_t *s;
-		CALLOC(s, 1);
-		s->p = p;
-		s->n_seq0 = p->n_seq;
-		if (p->rs_in && (p->flag & HAF_RS_READ)) {
-			while (p->n_seq < p->rs_in->total_reads) {
-				if((p->flag & HAF_SKIP_READ) && p->rs_in->trio_flag[p->n_seq] != AMBIGU)
-				{
-					++p->n_seq;
-					continue;
-				}
-				int l;
-				recover_UC_Read(&p->ucr, p->rs_in, p->n_seq);
-				l = p->ucr.length;
-				if (s->n_seq == s->m_seq) {
-					s->m_seq = s->m_seq < 16? 16 : s->m_seq + (s->m_seq>>1);
-					REALLOC(s->len, s->m_seq);
-					REALLOC(s->seq, s->m_seq);
-				}
-				MALLOC(s->seq[s->n_seq], l);
-				memcpy(s->seq[s->n_seq], p->ucr.seq, l);
-				s->len[s->n_seq++] = l;
-				++p->n_seq;
-				s->sum_len += l;
-				s->nk += l >= p->opt->k? l - p->opt->k + 1 : 0;
-				if (s->sum_len >= p->opt->chunk_size)
-					break;
-			}
-		} else {
-			while ((ret = kseq_read(p->ks)) >= 0) {
-				int l = p->ks->seq.l;
-				if (p->n_seq >= 1<<28) {
-					fprintf(stderr, "ERROR: this implementation supports no more than %d reads\n", 1<<28);
-					exit(1);
-				}
-				if (p->rs_out) {
-					///for 0-th count, just insert read length to R_INF, instead of read
-					if (p->flag & HAF_RS_WRITE_LEN) {
-						assert(p->n_seq == p->rs_out->total_reads);
-						ha_insert_read_len(p->rs_out, l, p->ks->name.l);
-					} else if (p->flag & HAF_RS_WRITE_SEQ) {
-						int i, n_N;
-						assert(l == (int)p->rs_out->read_length[p->n_seq]);
-						for (i = n_N = 0; i < l; ++i) // count number of ambiguous bases
-							if (seq_nt4_table[(uint8_t)p->ks->seq.s[i]] >= 4)
-								++n_N;
-						ha_compress_base(Get_READ(*p->rs_out, p->n_seq), p->ks->seq.s, l, &p->rs_out->N_site[p->n_seq], n_N);
-						memcpy(&p->rs_out->name[p->rs_out->name_index[p->n_seq]], p->ks->name.s, p->ks->name.l);
-					}
-				}
-				///for 0-th count, insert both seq and length to local block
-				if (s->n_seq == s->m_seq) {
-					s->m_seq = s->m_seq < 16? 16 : s->m_seq + (s->m_seq>>1);
-					REALLOC(s->len, s->m_seq);
-					REALLOC(s->seq, s->m_seq);
-				}
-				MALLOC(s->seq[s->n_seq], l);
-				memcpy(s->seq[s->n_seq], p->ks->seq.s, l);
-				s->len[s->n_seq++] = l;
-				++p->n_seq;
-				s->sum_len += l;
-				s->nk += l >= p->opt->k? l - p->opt->k + 1 : 0;
-				///p->opt->chunk_size is the block max size
-				if (s->sum_len >= p->opt->chunk_size)
-					break;
-			}
-		}
-		if (s->sum_len == 0) free(s);
-		else return s;
-	} else if (step == 1) { // step 2: extract k-mers
-		///s is the block of reads
-		st_data_t *s = (st_data_t*)in;
-		///for 0-th counting, n_pre = 4096
-		int i, n_pre = 1<<p->opt->pre, m;
-		// allocate the k-mer buffer
-		CALLOC(s->buf, n_pre);
-		m = (int)(s->nk * 1.2 / n_pre) + 1;
-		//pre-allocate memory for each of 4096 buffer
-		for (i = 0; i < n_pre; ++i) {
-			s->buf[i].m = m;
-			///for 0-th counting, p->pt = NULL
-			if (p->pt) MALLOC(s->buf[i].b, m);
-			else MALLOC(s->buf[i].a, m);
-		}
-		// fill the buffer
-		///for 0-th counting, p->opt->w == 1
-		if (p->opt->w == 1) { // enumerate all k-mers
-			///scan all reads
-			for (i = 0; i < s->n_seq; ++i) {
-				if (p->opt->is_HPC)
-					count_seq_buf_HPC(s->buf, p->opt->k, p->opt->pre, s->len[i], s->seq[i]);
-				else
-					count_seq_buf(s->buf, p->opt->k, p->opt->pre, s->len[i], s->seq[i]);
-				if (!p->is_store) free(s->seq[i]);
-			}
-		} else { // minimizers only
-			uint32_t j;
-			// compute minimizers
-			// s->n_seq is how many reads at this buffer
-			// s->mz && s->mz_buf are lists of minimzer vectors
-			CALLOC(s->mz, s->n_seq);
-			CALLOC(s->mz_buf, p->opt->n_thread);
-			///calculate minimzers for each read, each read corresponds to one thread
-			kt_for(p->opt->n_thread, worker_for_mz, s, s->n_seq);
-			for (i = 0; i < p->opt->n_thread; ++i)
-				free(s->mz_buf[i].a);
-			free(s->mz_buf);
-			// insert minimizers
-			if (p->pt) {///insert whole minimizer
-				for (i = 0; i < s->n_seq; ++i)
-					for (j = 0; j < s->mz[i].n; ++j)
-						pt_insert_buf(s->buf, p->opt->pre, &s->mz[i].a[j]);
-			} else {///just insert the hash key of minimizer
-				for (i = 0; i < s->n_seq; ++i)
-					for (j = 0; j < s->mz[i].n; ++j)
-						ct_insert_buf(s->buf, p->opt->pre, s->mz[i].a[j].x);
-			}
-			for (i = 0; i < s->n_seq; ++i) {
-				free(s->mz[i].a);
-				if (!p->is_store) free(s->seq[i]);
-			}
-			free(s->mz);
-		}
-		///just clean seq
-		free(s->seq); free(s->len);
-		s->seq = 0, s->len = 0;
-		return s;
-	} else if (step == 2) { // step 3: insert k-mers to hash table
-		st_data_t *s = (st_data_t*)in;
-		int i, n = 1<<p->opt->pre;
-		uint64_t n_ins = 0;
-		///for 0-th counting, p->pt = NULL
-		kt_for(p->opt->n_thread, worker_for_insert, s, n);
-		///n_ins is number of distinct k-mers
-		for (i = 0; i < n; ++i) {
-			n_ins += s->buf[i].n_ins;
-			if (p->pt) free(s->buf[i].b);
-			else free(s->buf[i].a);
-		}
-		if (p->ct) p->ct->tot += n_ins;
-		if (p->pt) p->pt->tot_pos += n_ins;
-		free(s->buf);
-		#if 0
-		fprintf(stderr, "[M::%s::%.3f*%.2f] processed %ld sequences; %ld %s in the hash table\n", __func__,
-				yak_realtime(), yak_cpu_usage(), (long)s->n_seq0 + s->n_seq,
-				(long)(p->pt? p->pt->tot_pos : p->ct->tot), p->pt? "positions" : "distinct k-mers");
-		#endif
-		free(s);
-	}
-	return 0;
+    pl_data_t *p = (pl_data_t*)data;
+    if (step == 0) { // step 1: read a block of sequences
+        int ret;
+        st_data_t *s;
+        CALLOC(s, 1);
+        s->p = p;
+        s->n_seq0 = p->n_seq;
+        if (p->rs_in && (p->flag & HAF_RS_READ)) {
+            while (p->n_seq < p->rs_in->total_reads) {
+                if((p->flag & HAF_SKIP_READ) && p->rs_in->trio_flag[p->n_seq] != AMBIGU)
+                {
+                    ++p->n_seq;
+                    continue;
+                }
+                int l;
+                recover_UC_Read(&p->ucr, p->rs_in, p->n_seq);
+                l = p->ucr.length;
+                if (s->n_seq == s->m_seq) {
+                    s->m_seq = s->m_seq < 16? 16 : s->m_seq + (s->m_seq>>1);
+                    REALLOC(s->len, s->m_seq);
+                    REALLOC(s->seq, s->m_seq);
+                }
+                MALLOC(s->seq[s->n_seq], l);
+                memcpy(s->seq[s->n_seq], p->ucr.seq, l);
+                s->len[s->n_seq++] = l;
+                ++p->n_seq;
+                s->sum_len += l;
+                s->nk += l >= p->opt->k? l - p->opt->k + 1 : 0;
+                if (s->sum_len >= p->opt->chunk_size)
+                    break;
+            }
+        } else {
+            while ((ret = kseq_read(p->ks)) >= 0) {
+                int l = (int)(p->ks->seq.l) - (int)(p->opt->adaLen) - (int)(p->opt->adaLen);
+                if(l <= 0) continue;
+
+                if (p->n_seq >= 1<<28) {
+                    fprintf(stderr, "ERROR: this implementation supports no more than %d reads\n", 1<<28);
+                    exit(1);
+                }
+                if (p->rs_out) {
+                    ///for 0-th count, just insert read length to R_INF, instead of read
+                    if (p->flag & HAF_RS_WRITE_LEN) {
+                        assert(p->n_seq == p->rs_out->total_reads);
+                        ha_insert_read_len(p->rs_out, l, p->ks->name.l);
+                    } else if (p->flag & HAF_RS_WRITE_SEQ) {
+                        int i, n_N;
+                        assert(l == (int)p->rs_out->read_length[p->n_seq]);
+                        for (i = n_N = 0; i < l; ++i) // count number of ambiguous bases
+                            if (seq_nt4_table[(uint8_t)p->ks->seq.s[i+p->opt->adaLen]] >= 4)
+                                ++n_N;
+                        ha_compress_base(Get_READ(*p->rs_out, p->n_seq), p->ks->seq.s+p->opt->adaLen, l, &p->rs_out->N_site[p->n_seq], n_N);
+                        memcpy(&p->rs_out->name[p->rs_out->name_index[p->n_seq]], p->ks->name.s, p->ks->name.l);
+                    }
+                }
+                ///for 0-th count, insert both seq and length to local block
+                if (s->n_seq == s->m_seq) {
+                    s->m_seq = s->m_seq < 16? 16 : s->m_seq + (s->m_seq>>1);
+                    REALLOC(s->len, s->m_seq);
+                    REALLOC(s->seq, s->m_seq);
+                }
+                MALLOC(s->seq[s->n_seq], l);
+                memcpy(s->seq[s->n_seq], p->ks->seq.s+p->opt->adaLen, l);
+                s->len[s->n_seq++] = l;
+                ++p->n_seq;
+                s->sum_len += l;
+                s->nk += l >= p->opt->k? l - p->opt->k + 1 : 0;
+                ///p->opt->chunk_size is the block max size
+                if (s->sum_len >= p->opt->chunk_size)
+                    break;
+            }
+        }
+        if (s->sum_len == 0) free(s);
+        else return s;
+    } else if (step == 1) { // step 2: extract k-mers
+        ///s is the block of reads
+        st_data_t *s = (st_data_t*)in;
+        ///for 0-th counting, n_pre = 4096
+        int i, n_pre = 1<<p->opt->pre, m;
+        // allocate the k-mer buffer
+        CALLOC(s->buf, n_pre);
+        m = (int)(s->nk * 1.2 / n_pre) + 1;
+        //pre-allocate memory for each of 4096 buffer
+        for (i = 0; i < n_pre; ++i) {
+            s->buf[i].m = m;
+            ///for 0-th counting, p->pt = NULL
+            if (p->pt) MALLOC(s->buf[i].b, m);
+            else MALLOC(s->buf[i].a, m);
+        }
+        // fill the buffer
+        ///for 0-th counting, p->opt->w == 1
+        if (p->opt->w == 1) { // enumerate all k-mers
+            ///scan all reads
+            for (i = 0; i < s->n_seq; ++i) {
+                if (p->opt->is_HPC)
+                    count_seq_buf_HPC(s->buf, p->opt->k, p->opt->pre, s->len[i], s->seq[i]);
+                else
+                    count_seq_buf(s->buf, p->opt->k, p->opt->pre, s->len[i], s->seq[i]);
+                if (!p->is_store) free(s->seq[i]);
+            }
+        } else { // minimizers only
+            uint32_t j;
+            // compute minimizers
+            // s->n_seq is how many reads at this buffer
+            // s->mz && s->mz_buf are lists of minimzer vectors
+            CALLOC(s->mz, s->n_seq);
+            CALLOC(s->mz_buf, p->opt->n_thread);
+            ///calculate minimzers for each read, each read corresponds to one thread
+            kt_for(p->opt->n_thread, worker_for_mz, s, s->n_seq);
+            for (i = 0; i < p->opt->n_thread; ++i)
+                free(s->mz_buf[i].a);
+            free(s->mz_buf);
+            // insert minimizers
+            if (p->pt) {///insert whole minimizer
+                for (i = 0; i < s->n_seq; ++i)
+                    for (j = 0; j < s->mz[i].n; ++j)
+                        pt_insert_buf(s->buf, p->opt->pre, &s->mz[i].a[j]);
+            } else {///just insert the hash key of minimizer
+                for (i = 0; i < s->n_seq; ++i)
+                    for (j = 0; j < s->mz[i].n; ++j)
+                        ct_insert_buf(s->buf, p->opt->pre, s->mz[i].a[j].x);
+            }
+            for (i = 0; i < s->n_seq; ++i) {
+                free(s->mz[i].a);
+                if (!p->is_store) free(s->seq[i]);
+            }
+            free(s->mz);
+        }
+        ///just clean seq
+        free(s->seq); free(s->len);
+        s->seq = 0, s->len = 0;
+        return s;
+    } else if (step == 2) { // step 3: insert k-mers to hash table
+        st_data_t *s = (st_data_t*)in;
+        int i, n = 1<<p->opt->pre;
+        uint64_t n_ins = 0;
+        ///for 0-th counting, p->pt = NULL
+        kt_for(p->opt->n_thread, worker_for_insert, s, n);
+        ///n_ins is number of distinct k-mers
+        for (i = 0; i < n; ++i) {
+            n_ins += s->buf[i].n_ins;
+            if (p->pt) free(s->buf[i].b);
+            else free(s->buf[i].a);
+        }
+        if (p->ct) p->ct->tot += n_ins;
+        if (p->pt) p->pt->tot_pos += n_ins;
+        free(s->buf);
+        #if 0
+        fprintf(stderr, "[M::%s::%.3f*%.2f] processed %ld sequences; %ld %s in the hash table\n", __func__,
+                yak_realtime(), yak_cpu_usage(), (long)s->n_seq0 + s->n_seq,
+                (long)(p->pt? p->pt->tot_pos : p->ct->tot), p->pt? "positions" : "distinct k-mers");
+        #endif
+        free(s);
+    }
+    return 0;
 }
 
 void debug_adapter(const hifiasm_opt_t *asm_opt, All_reads *rs)
@@ -811,34 +814,35 @@ static ha_ct_t *yak_count(const yak_copt_t *opt, const char *fn, int flag, ha_pt
 
 ha_ct_t *ha_count(const hifiasm_opt_t *asm_opt, int flag, ha_pt_t *p0, const void *flt_tab, All_reads *rs)
 {
-	int i;
-	int64_t n_seq = 0;
-	yak_copt_t opt;
-	ha_ct_t *h = 0;
-	assert(!(flag & HAF_RS_WRITE_LEN) || !(flag & HAF_RS_WRITE_SEQ)); // not both
-	///for 0-th counting, flag = HAF_COUNT_ALL|HAF_RS_WRITE_LEN
-	if (rs) {
-		if (flag & HAF_RS_WRITE_LEN)
-			init_All_reads(rs);
-		else if (flag & HAF_RS_WRITE_SEQ)
-			malloc_All_reads(rs);
-	}
-	yak_copt_init(&opt);
-	opt.k = asm_opt->k_mer_length;
-	///always 0
-	opt.is_HPC = !(asm_opt->flag&HA_F_NO_HPC);
-	///for ft-counting, shoud be 1
-	opt.w = flag & HAF_COUNT_ALL? 1 : asm_opt->mz_win;
-	///for ft-counting, shoud be 37
-	///for ha_pt_gen, shoud be 0
-	opt.bf_shift = flag & HAF_COUNT_EXACT? 0 : asm_opt->bf_shift;
-	opt.n_thread = asm_opt->thread_num;
-	///asm_opt->num_reads is the number of fastq files
-	for (i = 0; i < asm_opt->num_reads; ++i)
-		h = yak_count(&opt, asm_opt->read_file_names[i], flag|HAF_CREATE_NEW, p0, h, flt_tab, rs, &n_seq);
-	if (h && opt.bf_shift > 0)
-		ha_ct_destroy_bf(h);
-	return h;
+    int i;
+    int64_t n_seq = 0;
+    yak_copt_t opt;
+    ha_ct_t *h = 0;
+    assert(!(flag & HAF_RS_WRITE_LEN) || !(flag & HAF_RS_WRITE_SEQ)); // not both
+    ///for 0-th counting, flag = HAF_COUNT_ALL|HAF_RS_WRITE_LEN
+    if (rs) {
+        if (flag & HAF_RS_WRITE_LEN)
+            init_All_reads(rs);
+        else if (flag & HAF_RS_WRITE_SEQ)
+            malloc_All_reads(rs);
+    }
+    yak_copt_init(&opt);
+    opt.k = asm_opt->k_mer_length;
+    ///always 0
+    opt.is_HPC = !(asm_opt->flag&HA_F_NO_HPC);
+    ///for ft-counting, shoud be 1
+    opt.w = flag & HAF_COUNT_ALL? 1 : asm_opt->mz_win;
+    ///for ft-counting, shoud be 37
+    ///for ha_pt_gen, shoud be 0
+    opt.bf_shift = flag & HAF_COUNT_EXACT? 0 : asm_opt->bf_shift;
+    opt.n_thread = asm_opt->thread_num;
+    opt.adaLen = asm_opt->adapterLen;
+    ///asm_opt->num_reads is the number of fastq files
+    for (i = 0; i < asm_opt->num_reads; ++i)
+        h = yak_count(&opt, asm_opt->read_file_names[i], flag|HAF_CREATE_NEW, p0, h, flt_tab, rs, &n_seq);
+    if (h && opt.bf_shift > 0)
+        ha_ct_destroy_bf(h);
+    return h;
 }
 
 /***************************
