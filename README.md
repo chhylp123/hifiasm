@@ -193,3 +193,7 @@ page](https://github.com/chhylp123/hifiasm/issues).
 ## Limitations
 
 1. Purging haplotig duplications may introduce misassemblies.
+
+## Citation
+
+Cheng, H., Concepcion, G.T., Feng, X., Zhang, H., Li H. Haplotype-resolved de novo assembly using phased assembly graphs with hifiasm. Nat Methods 18, 170–175 (2021). https://doi.org/10.1038/s41592-020-01056-5
