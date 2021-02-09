@@ -29,6 +29,7 @@ static ko_longopt_t long_options[] = {
     { "h1",      ko_required_argument, 314 },
     { "h2",      ko_required_argument, 315 },
     { "enzyme",      ko_required_argument, 316 },
+    { "b-cov",      ko_required_argument, 317 },
 	{ 0, 0, 0 }
 };
 
@@ -66,6 +67,9 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "    -u          disable post join contigs step which may improve N50\n");
     fprintf(stderr, "    --lowQ      INT\n");
     fprintf(stderr, "                output contig regions with >=INT%% inconsistency in BED format; 0 to disable [%d]\n", asm_opt->bed_inconsist_rate);
+    fprintf(stderr, "    --b-cov     INT\n");
+    fprintf(stderr, "                break contigs at breakpoints with coverage drop at <INT-fold coverage [%d]\n", asm_opt->break_cov);
+    
 //	fprintf(stderr, "    --pri-range INT1[,INT2]\n");
 //	fprintf(stderr, "                keep contigs with coverage in this range in p_ctg.gfa; -1 to disable [auto,inf]\n");
 
@@ -87,6 +91,9 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "                coverage upper bound of Purge-dups [auto]\n");
     fprintf(stderr, "    --high-het  enable this mode for high heterozygosity sample [experimental, not stable]\n");
     
+    fprintf(stderr, "  Hi-C-partition [experimental, not stable]:\n");
+    fprintf(stderr, "    --h1 FILEs   file names of Hi-C R1  [r1_1.fq,r1_2.fq,...]\n");
+    fprintf(stderr, "    --h2 FILEs   file names of Hi-C R2  [r2_1.fq,r2_2.fq,...]\n");
 
     fprintf(stderr, "Example: ./hifiasm -o NA12878.asm -t 32 NA12878.fq.gz\n");
     fprintf(stderr, "See `man ./hifiasm.1' for detailed description of these command-line options.\n");
@@ -101,9 +108,9 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->read_file_names = NULL;
     asm_opt->output_file_name = (char*)(DEFAULT_OUTPUT);
     asm_opt->required_read_name = NULL;
-    asm_opt->hic_files[0] = NULL;
-    asm_opt->hic_files[1] = NULL;
     asm_opt->hic_enzymes = NULL;
+    asm_opt->hic_reads[0] = NULL;
+    asm_opt->hic_reads[1] = NULL;
     asm_opt->thread_num = 1;
     asm_opt->k_mer_length = 51;
     asm_opt->hic_mer_length = 31;
@@ -146,22 +153,30 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->hic_inconsist_rate = 30;
     ///asm_opt->bub_mer_length = 3;
     asm_opt->bub_mer_length = 1000000;
+    asm_opt->break_cov = 0;
+}
+
+void destory_enzyme(enzyme* f)
+{
+    int i;
+    if(f != NULL)
+    {
+        for (i = 0; i < f->n; i++)
+        {
+            free(f->a[i]);
+        }
+        free(f->a);
+        free(f->l);
+        free(f);
+    }
 }
 
 void destory_opt(hifiasm_opt_t* asm_opt)
 {
     if(asm_opt->read_file_names != NULL) free(asm_opt->read_file_names);
-    if(asm_opt->hic_enzymes != NULL)
-    {
-        int i;
-        for (i = 0; i < asm_opt->hic_enzymes->n; i++)
-        {
-            free(asm_opt->hic_enzymes->a[i]);
-        }
-        free(asm_opt->hic_enzymes->a);
-        free(asm_opt->hic_enzymes->l);
-        free(asm_opt->hic_enzymes);
-    }
+    if(asm_opt->hic_enzymes != NULL) destory_enzyme(asm_opt->hic_enzymes);
+    if(asm_opt->hic_reads[0] != NULL) destory_enzyme(asm_opt->hic_reads[0]);
+    if(asm_opt->hic_reads[1] != NULL) destory_enzyme(asm_opt->hic_reads[1]);
 }
 
 void ha_opt_reset_to_round(hifiasm_opt_t* asm_opt, int round)
@@ -198,6 +213,16 @@ static int check_file(char* name, const char* opt)
     } 
 
     fclose(is_exist);
+    return 1;
+}
+
+static int check_hic_reads(enzyme* f, const char* opt)
+{
+    int i;
+    for (i = 0; i < f->n; i++)
+    {
+        if(check_file(f->a[i], opt) == 0) return 0;
+    }
     return 1;
 }
 
@@ -355,22 +380,42 @@ int check_option(hifiasm_opt_t* asm_opt)
     if(asm_opt->fn_bin_list[0] != NULL && check_file(asm_opt->fn_bin_list[0], "LIST1") == 0) return 0;
     if(asm_opt->fn_bin_list[1] != NULL && check_file(asm_opt->fn_bin_list[1], "LIST2") == 0) return 0;
     if(asm_opt->required_read_name != NULL && check_file(asm_opt->required_read_name, "b") == 0) return 0;
-    if(asm_opt->hic_files[0] != NULL && check_file(asm_opt->hic_files[0], "HIC1") == 0) return 0;
-    if(asm_opt->hic_files[1] != NULL && check_file(asm_opt->hic_files[1], "HIC2") == 0) return 0;
-    if(asm_opt->hic_files[0] != NULL && asm_opt->hic_files[1] == NULL)
+    
+    if(asm_opt->hic_reads[0] != NULL && check_hic_reads(asm_opt->hic_reads[0], "HIC1") == 0) return 0;
+    if(asm_opt->hic_reads[1] != NULL && check_hic_reads(asm_opt->hic_reads[1], "HIC2") == 0) return 0;
+    if(asm_opt->hic_reads[0] != NULL && asm_opt->hic_reads[1] == NULL)
     {
         fprintf(stderr, "[ERROR] lack r2 of HiC reads (--h2)\n");
         return 0;
     }
-    if(asm_opt->hic_files[1] != NULL && asm_opt->hic_files[0] == NULL)
+    if(asm_opt->hic_reads[1] != NULL && asm_opt->hic_reads[0] == NULL)
     {
         fprintf(stderr, "[ERROR] lack r1 of HiC reads (--h1)\n");
+        return 0;
+    }
+
+    if(asm_opt->hic_reads[0] != NULL && asm_opt->hic_reads[1] != NULL && 
+                            asm_opt->hic_reads[0]->n != asm_opt->hic_reads[1]->n)
+    {
+        fprintf(stderr, "[ERROR] wrong r1 and r2 of HiC reads (--h1 && --h2)\n");
         return 0;
     }
 
     if(asm_opt->hic_enzymes != NULL && asm_opt->hic_enzymes->n == 0)
     {
         fprintf(stderr, "[ERROR] wrong HiC enzymes (--enzyme)\n");
+        return 0;
+    }
+
+    if(asm_opt->hic_reads[0] != NULL && asm_opt->hic_reads[0]->n == 0)
+    {
+        fprintf(stderr, "[ERROR] wrong r1 of HiC reads (--h1)\n");
+        return 0;
+    }
+
+    if(asm_opt->hic_reads[1] != NULL && asm_opt->hic_reads[1]->n == 0)
+    {
+        fprintf(stderr, "[ERROR] wrong r2 of HiC reads (--h2)\n");
         return 0;
     }
 
@@ -423,58 +468,60 @@ void get_queries(int argc, char *argv[], ketopt_t* opt, hifiasm_opt_t* asm_opt)
     }
 }
 
-void get_hic_enzymes(char *argv, hifiasm_opt_t* asm_opt)
+void get_hic_enzymes(char *argv, enzyme** x, int check_name)
 {
     int i, k, pre_i, len = strlen(argv);
-    asm_opt->hic_enzymes = (enzyme*)calloc(1, sizeof(enzyme));
+    (*x) = (enzyme*)calloc(1, sizeof(enzyme));
     if(len == 0)
     {
-        asm_opt->hic_enzymes->n = 0;
-        asm_opt->hic_enzymes->l = NULL;
-        asm_opt->hic_enzymes->a = NULL;
+        (*x)->n = 0; (*x)->l = NULL; (*x)->a = NULL;
         return;
     }
 
 
-    asm_opt->hic_enzymes->n = 1;
+    (*x)->n = 1;
     for (i = pre_i = 0; i < len; i++)
     {
         if(argv[i] == ',')
         {
-            asm_opt->hic_enzymes->n++;
+            (*x)->n++;
             continue;
         } 
         
-        if(argv[i] != 'A' && argv[i] != 'C' && argv[i] != 'G' && argv[i] != 'T' &&
-           argv[i] != 'a' && argv[i] != 'c' && argv[i] != 'g' && argv[i] != 't' && 
-           argv[i] != 'N' && argv[i] != 'n')
+        if(check_name)
         {
-            asm_opt->hic_enzymes->n = 0;
-            asm_opt->hic_enzymes->l = NULL;
-            asm_opt->hic_enzymes->a = NULL;
-            return;
+            if(argv[i] != 'A' && argv[i] != 'C' && argv[i] != 'G' && argv[i] != 'T' &&
+                argv[i] != 'a' && argv[i] != 'c' && argv[i] != 'g' && argv[i] != 't' && 
+                argv[i] != 'N' && argv[i] != 'n')
+            {
+                (*x)->n = 0;
+                (*x)->l = NULL;
+                (*x)->a = NULL;
+                return;
+            }
         }
+        
     }
-    asm_opt->hic_enzymes->l = (int*)calloc(asm_opt->hic_enzymes->n, sizeof(int));
-    asm_opt->hic_enzymes->a = (char**)calloc(asm_opt->hic_enzymes->n, sizeof(char*));
+    (*x)->l = (int*)calloc((*x)->n, sizeof(int));
+    (*x)->a = (char**)calloc((*x)->n, sizeof(char*));
 
     for (i = pre_i = k = 0; i < len; i++)
     {
         if(argv[i] == ',')
         {
-            asm_opt->hic_enzymes->l[k] = i - pre_i;
-            asm_opt->hic_enzymes->a[k] = (char*)malloc(sizeof(char)*(asm_opt->hic_enzymes->l[k]+1));
-            memcpy(asm_opt->hic_enzymes->a[k], argv + pre_i, asm_opt->hic_enzymes->l[k]);
-            asm_opt->hic_enzymes->a[k][asm_opt->hic_enzymes->l[k]] = '\0';
+            (*x)->l[k] = i - pre_i;
+            (*x)->a[k] = (char*)malloc(sizeof(char)*((*x)->l[k]+1));
+            memcpy((*x)->a[k], argv + pre_i, (*x)->l[k]);
+            (*x)->a[k][(*x)->l[k]] = '\0';
             pre_i = i + 1;
             k++;
         }
     }
 
-    asm_opt->hic_enzymes->l[k] = i - pre_i;
-    asm_opt->hic_enzymes->a[k] = (char*)malloc(sizeof(char)*(asm_opt->hic_enzymes->l[k]+1));
-    memcpy(asm_opt->hic_enzymes->a[k], argv + pre_i, asm_opt->hic_enzymes->l[k]);
-    asm_opt->hic_enzymes->a[k][asm_opt->hic_enzymes->l[k]] = '\0';
+    (*x)->l[k] = i - pre_i;
+    (*x)->a[k] = (char*)malloc(sizeof(char)*((*x)->l[k]+1));
+    memcpy((*x)->a[k], argv + pre_i, (*x)->l[k]);
+    (*x)->a[k][(*x)->l[k]] = '\0';
 }
 
 int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
@@ -542,9 +589,10 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         else if (c == 311) asm_opt->flag |= HA_F_HIGH_HET;
         else if (c == 312) asm_opt->bed_inconsist_rate = atoi(opt.arg);
         else if (c == 313) asm_opt->min_hist_kmer_cnt = atoi(opt.arg);
-        else if (c == 314) asm_opt->hic_files[0] = opt.arg;
-        else if (c == 315) asm_opt->hic_files[1] = opt.arg;
-        else if (c == 316) get_hic_enzymes(opt.arg, asm_opt);
+        else if (c == 314) get_hic_enzymes(opt.arg, &(asm_opt->hic_reads[0]), 0);
+        else if (c == 315) get_hic_enzymes(opt.arg, &(asm_opt->hic_reads[1]), 0);
+        else if (c == 316) get_hic_enzymes(opt.arg, &(asm_opt->hic_enzymes), 1);
+        else if (c == 317) asm_opt->break_cov = atoi(opt.arg);
         else if (c == 'l')
         {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
             asm_opt->purge_level_primary = asm_opt->purge_level_trio = atoi(opt.arg);
@@ -563,7 +611,7 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
 		}
     }
 
-
+    
     if (argc == opt.ind)
     {
         Print_H(asm_opt);
@@ -571,6 +619,8 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
     }
 
     get_queries(argc, argv, &opt, asm_opt);
+
+
 
     return check_option(asm_opt);
 }

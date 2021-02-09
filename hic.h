@@ -15,6 +15,21 @@ void hic_analysis(ma_ug_t *ug, asg_t* read_g, hc_links* link);
 void hic_benchmark(ma_ug_t *ug, asg_t* read_g);
 
 typedef struct {
+    double w;
+    uint32_t id, occ;
+    ///uint32_t *bid, bid_n;
+    ma_utg_t *u;
+    uint64_t l_d, r_d;
+}chain_hic_w_type;
+
+typedef struct {
+    size_t n, m;
+    chain_hic_w_type* a;
+    uint32_t max_bub_id;
+    uint32_t *chain_idx, u_n;
+}chain_hic_warp;
+
+typedef struct {
     long long g_occ, b_occ;
     uint64_t id;
     uint8_t del;
@@ -27,11 +42,12 @@ typedef struct {
     kvec_t(uint32_t) num;
     kvec_t(uint64_t) pathLen;
     kvec_t(uint64_t) b_s_idx;
-    uint64_t s_bub, f_bub, b_bub, b_end_bub, tangle_bub, cross_bub;
+    uint64_t s_bub, f_bub, b_bub, b_end_bub, tangle_bub, cross_bub, mess_bub;
     uint32_t check_het;
     asg_t *b_g;
     ma_ug_t* b_ug;
     kvec_t(chain_w_type) chain_weight;
+    chain_hic_warp c_w;
 } bubble_type;
 #define P_het(B) ((B).num.n)
 #define M_het(B) ((B).num.n + 1)
@@ -45,5 +61,12 @@ typedef struct {
 void get_bubbles(bubble_type* bub, uint64_t id, uint32_t* beg, uint32_t* sink, uint32_t** a, uint32_t* n, uint64_t* pathBase);
 int load_hc_links(hc_links* link, const char *fn);
 void write_hc_links(hc_links* link, const char *fn);
+void destory_bubbles(bubble_type* bub);
+void identify_bubbles(ma_ug_t* ug, bubble_type* bub, hc_links* link);
+void resolve_bubble_chain_tangle(ma_ug_t* ug, bubble_type* bub);
+uint32_t connect_bub_occ(bubble_type* bub, uint32_t root_id, uint32_t check_het);
+void get_bub_id(bubble_type* bub, uint32_t root, uint64_t* id0, uint64_t* id1, uint32_t check_het);
+void update_bubble_chain(ma_ug_t* ug, bubble_type* bub, uint32_t is_middle, uint32_t is_end);
+void set_b_utg_weight_flag(bubble_type* bub, buf_t* b, uint32_t v, uint8_t* vis_flag, uint32_t flag, uint32_t* occ);
 
 #endif

@@ -21,6 +21,7 @@
 #define PRIMARY_LABLE 0
 #define ALTER_LABLE 1
 #define HAP_LABLE 2
+#define FAKE_LABLE 4
 #define TRIO_THRES 0.9
 #define DOUBLE_CHECK_THRES 0.1
 #define FINAL_DOUBLE_CHECK_THRES 0.2
@@ -105,6 +106,11 @@ typedef struct {
 	uint8_t el;
 	uint8_t no_l_indel;
 } asg_arc_t;
+
+typedef struct {
+	size_t n, m;
+	asg_arc_t* a;
+} kv_asg_arc_t;
 
 
 typedef struct {
@@ -468,7 +474,7 @@ typedef struct {
 
 void init_R_to_U(R_to_U* x, uint64_t len);
 void destory_R_to_U(R_to_U* x);
-void set_R_to_U(R_to_U* x, uint32_t rID, uint32_t uID, uint32_t is_Unitig);
+void set_R_to_U(R_to_U* x, uint32_t rID, uint32_t uID, uint32_t is_Unitig, uint8_t* flag);
 void get_R_to_U(R_to_U* x, uint32_t rID, uint32_t* uID, uint32_t* is_Unitig);
 void transfor_R_to_U(R_to_U* x);
 void debug_utg_graph(ma_ug_t *ug, asg_t* read_g, int require_equal_nv, int test_tangle);
@@ -762,7 +768,7 @@ R_to_U* ruIndex, uint32_t min_edge_length, uint32_t stops_threshold)
 			for (b_max.readI = 0; b_max.readI < node_max->n; b_max.readI++)
 			{
 				qn = (node_max->a[b_max.readI]>>33);
-				set_R_to_U(ruIndex, qn, (b_max.b_0->b.a[b_max.untigI]>>1), 1);
+				set_R_to_U(ruIndex, qn, (b_max.b_0->b.a[b_max.untigI]>>1), 1, &(read_sg->seq[qn].c));
 			}
 		}
 		/*****************************label all unitigs****************************************/
@@ -819,7 +825,7 @@ R_to_U* ruIndex, uint32_t min_edge_length, uint32_t stops_threshold)
 		for (b_max.untigI = 0; b_max.untigI < b_max.b_0->b.n; b_max.untigI++)
 		{
 			qn = (b_max.b_0->b.a[b_max.untigI]>>1);
-			set_R_to_U(ruIndex, qn, 1, 1);
+			set_R_to_U(ruIndex, qn, 1, 1, &(read_sg->seq[qn].c));
 		}
 		/*****************************label all reads****************************************/
 
@@ -1043,7 +1049,7 @@ typedef struct{
     double weight;
     uint32_t uID:31, del:1;
     uint64_t dis;
-	uint64_t occ;
+	uint64_t occ:63, scaff:1;
     ///uint32_t enzyme;
 } hc_edge;
 

@@ -4278,7 +4278,7 @@ uint32_t just_contain, uint32_t just_coverage, hc_links* link)
         for (i = 0, offset = 0; i < reads->n; i++)
         {
             rId = reads->a[i]>>33;
-            set_R_to_U(ruIndex, rId, uId, 1);
+            set_R_to_U(ruIndex, rId, uId, 1, &(read_g->seq[rId].c));
 
             position_index[rId] = offset;
             position_index[rId] = position_index[rId] << 32;

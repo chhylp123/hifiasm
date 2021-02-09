@@ -3,7 +3,7 @@
 
 #include <pthread.h>
 
-#define HA_VERSION "0.13-r308"
+#define HA_VERSION "0.14-r309"
 
 #define VERBOSE 0
 
@@ -35,7 +35,7 @@ typedef struct {
 	char *fn_bin_yak[2];
 	char *fn_bin_list[2];
 	char *extract_list;
-    char *hic_files[2];
+    enzyme *hic_reads[2];
     enzyme *hic_enzymes;
 	int extract_iter;
     int thread_num;
@@ -49,6 +49,7 @@ typedef struct {
 	double max_ov_diff_final;
 	int hom_cov;
     int het_cov;
+    int break_cov;
 	int max_n_chain; // fall-back max number of chains to consider
 	int min_hist_kmer_cnt;
     int load_index_from_disk;
@@ -106,7 +107,7 @@ static inline int ha_opt_triobin(const hifiasm_opt_t *opt)
 
 static inline int ha_opt_hic(const hifiasm_opt_t *opt)
 {
-	return ((opt->hic_files[0] && opt->hic_files[1]));
+    return ((opt->hic_reads[0] && opt->hic_reads[1]));
 }
 
 #endif
