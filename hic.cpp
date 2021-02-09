@@ -11401,19 +11401,17 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx)
     return 1;
 }
 
-
-int hic_short_align_debug(const char *fn1, const char *fn2, ha_ug_index* idx)
+int hic_short_align_back(const char *fn1, const char *fn2, ha_ug_index* idx)
 {
     double index_time = yak_realtime();
     sldat_t sl;
+    gzFile fp1, fp2;
     kvec_hc_edge back_hc_edge;
     kv_init(back_hc_edge.a);
-    gzFile fp1, fp2;
     if ((fp1 = gzopen(fn1, "r")) == 0) return 0;
     if ((fp2 = gzopen(fn2, "r")) == 0) return 0;
     sl.ks1 = kseq_init(fp1);
     sl.ks2 = kseq_init(fp2);
-
     sl.idx = idx;
     sl.link = idx->link;
     sl.chunk_size = 20000000;
@@ -11430,20 +11428,20 @@ int hic_short_align_debug(const char *fn1, const char *fn2, ha_ug_index* idx)
         // load_reads(&R2, fn2);
         // test_reads(&R1, fn1);
         /*******************************for debug************************************/
-
+        fprintf(stderr, "+sl->hits.a.n: %u\n", (uint32_t)sl.hits.a.n);
         kt_pipeline(3, worker_pipeline, &sl, 3);
-        fprintf(stderr, "+sl->hits.a.n: %u\n", (uint32_t)sl.hits.a.n);
-        dedup_hits(&sl.hits);
-        fprintf(stderr, "+sl->hits.a.n: %u\n", (uint32_t)sl.hits.a.n);
+        fprintf(stderr, "-sl->hits.a.n: %u\n", (uint32_t)sl.hits.a.n);
+        fprintf(stderr, "fn1: %s, fn2: %s\n", fn1, fn2);
+
         /*******************************for debug************************************/
         // sort_hits(&sl.hits);
         // print_hits(idx, &sl.hits, fn1);
         /*******************************for debug************************************/
-        
+        dedup_hits(&sl.hits);
         write_hc_hits(&sl.hits, asm_opt.output_file_name);
     }
 
-    ///fprintf(stderr, "u.n: %d, uID_bits: %lu, pos_bits: %lu, sl.hits.a.n: %u\n", (uint32_t)idx->ug->u.n, idx->uID_bits, idx->pos_bits, (uint32_t)sl.hits.a.n);
+    fprintf(stderr, "u.n: %d, uID_bits: %lu, pos_bits: %lu, sl.hits.a.n: %u\n", (uint32_t)idx->ug->u.n, idx->uID_bits, idx->pos_bits, (uint32_t)sl.hits.a.n);
 
     H_partition hap;
     MT M;
@@ -11515,7 +11513,6 @@ int hic_short_align_debug(const char *fn1, const char *fn2, ha_ug_index* idx)
     destory_G_partition(gp); free(gp);
     kv_destroy(sl.hits.a);
     destory_bubbles(&bub);
-
     kseq_destroy(sl.ks1);
     kseq_destroy(sl.ks2);
     gzclose(fp1);
@@ -11537,7 +11534,7 @@ void hic_analysis(ma_ug_t *ug, asg_t* read_g, hc_links* link)
     ug_index->link = link;
     ///test_unitig_index(ug_index, ug);
     ///hic_short_align(asm_opt.hic_reads[0], asm_opt.hic_reads[1], ug_index);
-    hic_short_align_debug(asm_opt.hic_reads[0]->a[0], asm_opt.hic_reads[1]->a[0], ug_index);
+    hic_short_align_back(asm_opt.hic_reads[0]->a[0], asm_opt.hic_reads[1]->a[0], ug_index);
     
     destory_hc_pt_index(ug_index);
 }

@@ -10757,7 +10757,7 @@ R_to_U* ruIndex, float chimeric_rate, float drop_ratio, int max_hang, int min_ov
     ma_ug_destroy(ug);
     kv_destroy(new_rtg_edges.a);
 
-    ///output_unitig_graph(sg, coverage_cut, output_file_name, sources, ruIndex, max_hang, min_ovlp);
+    output_unitig_graph(sg, coverage_cut, output_file_name, sources, ruIndex, max_hang, min_ovlp);
     output_trio_unitig_graph(sg, coverage_cut, output_file_name, FATHER, sources, 
     reverse_sources, bubble_dist, (asm_opt.max_short_tip*2), 0.15, 3, ruIndex, 
     0.05, 0.9, max_hang, min_ovlp, 0);
@@ -26089,13 +26089,11 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
         /*******************************for debug***************************************/
     }
 
-
+    rescue_bubble_by_chain(sg, coverage_cut, sources, reverse_sources, bubble_dist, 
+        (asm_opt.max_short_tip*2), 0.15, 3, ruIndex, 0.05, 0.9, max_hang_length, mini_overlap_length, 10, gap_fuzz);
 
     if (ha_opt_triobin(&asm_opt) && ha_opt_hic(&asm_opt))
     {
-        rescue_bubble_by_chain(sg, coverage_cut, sources, reverse_sources, bubble_dist, 
-        (asm_opt.max_short_tip*2), 0.15, 3, ruIndex, 0.05, 0.9, max_hang_length, mini_overlap_length, 10, gap_fuzz);
-
         char *buf = (char*)calloc(strlen(output_file_name) + 25, 1);
 		sprintf(buf, "%s.hic.bench", output_file_name);
         benchmark_hic_graph(sg, coverage_cut, buf, sources, reverse_sources, bubble_dist, 
@@ -26104,9 +26102,6 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
     }
     else if (ha_opt_triobin(&asm_opt))
     {
-        rescue_bubble_by_chain(sg, coverage_cut, sources, reverse_sources, bubble_dist, 
-        (asm_opt.max_short_tip*2), 0.15, 3, ruIndex, 0.05, 0.9, max_hang_length, mini_overlap_length, 10, gap_fuzz);
-
 		char *buf = (char*)calloc(strlen(output_file_name) + 25, 1);
 		sprintf(buf, "%s.dip", output_file_name);
         output_unitig_graph(sg, coverage_cut, buf, sources, ruIndex, max_hang_length, mini_overlap_length);
@@ -26121,9 +26116,6 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
     }
     else if(ha_opt_hic(&asm_opt))
     {
-        rescue_bubble_by_chain(sg, coverage_cut, sources, reverse_sources, bubble_dist, 
-        (asm_opt.max_short_tip*2), 0.15, 3, ruIndex, 0.05, 0.9, max_hang_length, mini_overlap_length, 10, gap_fuzz);
-
         char *buf = (char*)calloc(strlen(output_file_name) + 25, 1);
 		sprintf(buf, "%s.hic", output_file_name);
         output_hic_graph(sg, coverage_cut, buf, sources, reverse_sources, bubble_dist, 
@@ -26138,9 +26130,6 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
         {
             output_read_graph(sg, coverage_cut, output_file_name, n_read);
         }
-
-        rescue_bubble_by_chain(sg, coverage_cut, sources, reverse_sources, bubble_dist, 
-        (asm_opt.max_short_tip*2), 0.15, 3, ruIndex, 0.05, 0.9, max_hang_length, mini_overlap_length, 10, gap_fuzz);
 
         output_contig_graph_primary_pre(sg, coverage_cut, output_file_name, sources, reverse_sources, 
         asm_opt.small_pop_bubble_size, asm_opt.max_short_tip, ruIndex, max_hang_length, mini_overlap_length);
