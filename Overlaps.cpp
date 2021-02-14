@@ -11553,8 +11553,10 @@ kvec_asg_arc_t_warp* new_rtg_edges, int max_hang, int min_ovlp)
     uint8_t* primary_flag = (uint8_t*)calloc(sg->n_seq, sizeof(uint8_t));
     int tmp_cov = asm_opt.hom_global_coverage;
     asm_opt.hom_global_coverage = -1;
+    fprintf(stderr, "xxx-0-xxx\n");
     purge_dups(ug, sg, coverage_cut, sources, reverse_sources, ruIndex, new_rtg_edges, 
         asm_opt.purge_simi_rate, asm_opt.purge_overlap_len, max_hang, min_ovlp, 0, 0, 0, 1, NULL);
+    fprintf(stderr, "xxx-1-xxx\n");
     dip_thre_max = ((double)asm_opt.hom_global_coverage)/((double)HOM_PEAK_RATE)*0.70;
     asm_opt.hom_global_coverage = tmp_cov;
     ///fprintf(stderr, "dip_thre_max: %lu\n", dip_thre_max);
@@ -25199,9 +25201,10 @@ float chimeric_rate, float drop_ratio, int max_hang, int min_ovlp, uint32_t chai
     memset(&bub, 0, sizeof(bubble_type));
     copy_ug = copy_untig_graph(ug);
 
-
+    fprintf(stderr, "\nstart: sbsbsb-0-sbsbsb\n");
     reset_bub(&bub, ug, sg, copy_ug, &link, &copy_link, ruIndex, coverage_cut, sources, 
     reverse_sources, max_hang, min_ovlp, &new_rtg_edges);
+    fprintf(stderr, "start: sbsbsb-0-sbsbsb\n");
     beg_idx = bub.f_bub; occ = bub.b_bub + bub.b_end_bub + bub.tangle_bub;
     rescue_bubbles_by_contained_reads(ug, sg, sources, coverage_cut, ruIndex, max_hang, min_ovlp, chainLenThres, beg_idx, occ, &bub);
     ///output_unitig_graph(sg, coverage_cut, (char*)"debug_1.hic", sources, ruIndex, max_hang, min_ovlp);
@@ -25209,16 +25212,20 @@ float chimeric_rate, float drop_ratio, int max_hang, int min_ovlp, uint32_t chai
 
 
     ma_ug_destroy(ug); ug = NULL; ug = ma_ug_gen_primary(sg, PRIMARY_LABLE);
+    fprintf(stderr, "\nstart: sbsbsb-1-sbsbsb\n");
     reset_bub(&bub, ug, sg, copy_ug, &link, &copy_link, ruIndex, coverage_cut, sources, 
     reverse_sources, max_hang, min_ovlp, &new_rtg_edges);
+    fprintf(stderr, "start: sbsbsb-1-sbsbsb\n");
     beg_idx = bub.f_bub; occ = bub.b_bub + bub.b_end_bub + bub.tangle_bub;
     rescue_bubbles_by_missing_ovlp(ug, sg, sources, coverage_cut, ruIndex, max_hang, min_ovlp, chainLenThres, beg_idx, occ, &bub);
     ///output_unitig_graph(sg, coverage_cut, (char*)"debug_2.hic", sources, ruIndex, max_hang, min_ovlp);
 
 
     ma_ug_destroy(ug); ug = NULL; ug = ma_ug_gen_primary(sg, PRIMARY_LABLE);
+    fprintf(stderr, "\nstart: sbsbsb-2-sbsbsb\n");
     reset_bub(&bub, ug, sg, copy_ug, &link, &copy_link, ruIndex, coverage_cut, sources, 
     reverse_sources, max_hang, min_ovlp, &new_rtg_edges);
+    fprintf(stderr, "start: sbsbsb-2-sbsbsb\n");
     beg_idx = bub.f_bub; occ = bub.b_bub + bub.b_end_bub + bub.tangle_bub;
     rescue_bubbles_by_missing_ovlp_backward(ug, sg, sources, coverage_cut, ruIndex, max_hang, min_ovlp, chainLenThres, beg_idx, occ, &bub);
     ///output_unitig_graph(sg, coverage_cut, (char*)"debug_3.hic", sources, ruIndex, max_hang, min_ovlp);

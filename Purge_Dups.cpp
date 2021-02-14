@@ -1493,13 +1493,24 @@ void quick_LIS(asg_arc_t_offset* x, uint32_t n, kvec_t_i32_warp* tailIndex, kvec
     tailIndex->a.n = prevIndex->a.n = 0;
     if(n == 0) return;
 
-    
     kv_resize(int32_t, tailIndex->a, n);
     kv_resize(int32_t, prevIndex->a, n);
 
-    long long len = 1, i, pos, m;
+    long long len = 1, i, pos, m; ///the length of chain must be >=1
     tailIndex->a.a[0] = 0;
     prevIndex->a.a[0] = -1;
+
+    /*******************************for debug************************************/
+    if(n == 3)
+    {
+        fprintf(stderr, "n=%u\n", n);
+        for(i = 0; i < (long long)n; i++) 
+        {
+            fprintf(stderr, "i: %lld, Get_xOff: %lld, Get_yOff: %lld\n", 
+                                    i, Get_xOff(x[i].Off), Get_yOff(x[i].Off));
+        }
+    }
+    /*******************************for debug************************************/
 
     ///x has already sorted by x_pos
     for(i = 1; i < (long long)n; i++) 
@@ -1521,8 +1532,14 @@ void quick_LIS(asg_arc_t_offset* x, uint32_t n, kvec_t_i32_warp* tailIndex, kvec
             // future subsequence 
             // It will replace ceil value in tailIndices 
             pos = GetCeilIndex(x, tailIndex, -1, len - 1, Get_yOff(x[i].Off)); 
-  
-            prevIndex->a.a[i] = tailIndex->a.a[pos - 1]; 
+            /*******************************for debug************************************/
+            if(n == 3)
+            {
+                fprintf(stderr, "++++i: %lld, Get_xOff: %lld, Get_yOff: %lld, pos: %lld\n", 
+                                    i, Get_xOff(x[i].Off), Get_yOff(x[i].Off), pos);
+            }
+            /*******************************for debug************************************/
+            prevIndex->a.a[i] = pos > 1? tailIndex->a.a[pos - 1] : -1; 
             tailIndex->a.a[pos] = i; 
         } 
     }
@@ -1627,8 +1644,9 @@ uint32_t* xBeg, uint32_t* xEnd, uint32_t* yBeg, uint32_t* yEnd)
     u_buffer->a.n = m;
 
     ///print_asg_arc_t_offset(u_buffer->a.a, u_buffer->a.n, "after");
-
+    fprintf(stderr, "+sbsbsbsbsbsb-quick_LIS, u_buffer->a.n: %u\n", (uint32_t)u_buffer->a.n);
     quick_LIS(u_buffer->a.a, u_buffer->a.n, tailIndex, prevIndex);
+    fprintf(stderr, "-sbsbsbsbsbsb-quick_LIS, u_buffer->a.n: %u\n", (uint32_t)u_buffer->a.n);
 
     if(tailIndex->a.n == 0) return;
 
@@ -1646,10 +1664,13 @@ kvec_t_i32_warp* prevIndex, long long* r_x_pos_beg, long long* r_x_pos_end, long
 {
     uint32_t x_pos_beg, y_pos_beg, x_pos_end, y_pos_end;
     /*************************x***************************/
+    fprintf(stderr, "+sbsbsbsbsbsb-xUid: %u, yUid: %u, Get_x_beg(*hap_can): %u, Get_x_end(*hap_can): %u, Get_y_beg(*hap_can): %u, Get_y_end(*hap_can): %u, Get_rev(*hap_can): %u\n", 
+    xUid, yUid, Get_x_beg(*hap_can), Get_x_end(*hap_can), Get_y_beg(*hap_can), Get_y_end(*hap_can), Get_rev(*hap_can));
     get_base_boundary_advance(ruIndex, reverse_sources, coverage_cut, read_g, position_index, 
     max_hang, min_ovlp, xReads, yReads, xUid, yUid, Get_x_beg(*hap_can), Get_x_end(*hap_can), 
     Get_y_beg(*hap_can), Get_y_end(*hap_can), Get_rev(*hap_can), u_buffer, tailIndex, prevIndex, 
     &x_pos_beg, &x_pos_end, &y_pos_beg, &y_pos_end);
+     fprintf(stderr, "-sbsbsbsbsbsb-xUid: %u, yUid: %u\n", xUid, yUid);
     /*************************x***************************/
 
     if(x_pos_beg == (uint32_t)-1 || y_pos_beg == (uint32_t)-1 
@@ -1927,10 +1948,13 @@ long long* r_x_pos_beg, long long* r_x_pos_end, long long* r_y_pos_beg, long lon
         hap_can->y_beg_pos = r_y_interval_beg;
         hap_can->y_end_pos = r_y_interval_end;
 
+        fprintf(stderr, "+inner-xUid: %u, yUid: %u\n", xUid, yUid);
         hap_can->index_end = determine_hap_overlap_type_advance(hap_can, xReads, yReads,
         ruIndex, reverse_sources, coverage_cut, read_g, position_index, max_hang, min_ovlp, 
         xUid, yUid, u_buffer, tailIndex, prevIndex, r_x_pos_beg, r_x_pos_end, r_y_pos_beg, 
         r_y_pos_end);
+         fprintf(stderr, "-inner-xUid: %u, yUid: %u\n", xUid, yUid);
+
         if(hap_can->index_end == XCY && yReads->len > (xReads->len*2)) return NON_PLOID;
         if(hap_can->index_end == YCX && xReads->len > (yReads->len*2)) return NON_PLOID;
         if(hap_can->index_end == (uint32_t)-1) return NON_PLOID;
@@ -2801,6 +2825,7 @@ void hap_alignment_worker(void *_data, long eid, int tid)
 
 static void hap_alignment_advance_worker(void *_data, long eid, int tid)
 {
+    fprintf(stderr, "\neid: %ld, tid: %d\n", eid, tid);
     hap_alignment_struct_pip* hap_buf = (hap_alignment_struct_pip*)_data;
     ma_ug_t *ug = hap_buf->ug;
     asg_t *read_g = hap_buf->read_g;
@@ -2972,13 +2997,20 @@ static void hap_alignment_advance_worker(void *_data, long eid, int tid)
             is_update = 0;
             if(u_can->a.a[k].weight < Get_match(hap_can)*Hap_rate) continue;
 
+            fprintf(stderr, "+k: %u, u_can->a.n: %u, xUid: %u, yUid: %u\n", 
+                                                    k, (uint32_t)u_can->a.n, xUid, yUid);
             if(calculate_pair_hap_similarity_advance(&(u_can->a.a[k]), position_index, xUid, yUid, 
             xReads, yReads, sources, reverse_sources, read_g, ruIndex, coverage_cut, Hap_rate, max_hang, 
             min_ovlp, cov_threshold, u_buffer, score_vc, prevIndex_vec, &r_x_pos_beg, &r_x_pos_end, 
             &r_y_pos_beg, &r_y_pos_end)!=PLOID)
             {
+                fprintf(stderr, "-0-k: %u, u_can->a.n: %u, xUid: %u, yUid: %u\n", 
+                                                    k, (uint32_t)u_can->a.n, xUid, yUid);
                 continue;
             }
+
+            fprintf(stderr, "-1-k: %u, u_can->a.n: %u, xUid: %u, yUid: %u\n", 
+                                                    k, (uint32_t)u_can->a.n, xUid, yUid);
             
             if(Get_match(hap_can) < Get_match(u_can->a.a[k]))
             {
@@ -4180,7 +4212,13 @@ uint32_t minLen, double purge_threshold)
 {
     asg_t* nsg = ug->g;
     uint64_t v, k, total_bases = 0, alter_bases = 0, primary_bases = 0, purge_bases = 0;
-    kt_for(asm_opt.thread_num, hap_alignment_advance_worker, hap_buf, nsg->n_seq);
+    /*******************************for debug************************************/
+    fprintf(stderr, "bbb-0-bbb\n");
+    fprintf(stderr, "asm_opt.thread_num: %d\n", asm_opt.thread_num);
+    ///kt_for(asm_opt.thread_num, hap_alignment_advance_worker, hap_buf, nsg->n_seq);
+    kt_for(1, hap_alignment_advance_worker, hap_buf, nsg->n_seq);
+    fprintf(stderr, "bbb-1-bbb\n");
+    /*******************************for debug************************************/
     filter_hap_overlaps_by_length(all_ovlp, minLen);
     normalize_hap_overlaps_advance(all_ovlp, back_all_ovlp, ug, read_g, reverse_sources, ruIndex);
 
@@ -4295,7 +4333,7 @@ uint32_t just_contain, uint32_t just_coverage, hc_links* link)
     init_hap_alignment_struct_pip(&hap_buf, asm_opt.thread_num, nsg->n_seq, ug, read_g,  
     sources, reverse_sources, ruIndex, coverage_cut, position_index, density, max_hang, min_ovlp, 
     0.05, &all_ovlp);
-
+    fprintf(stderr, "aaa-0-aaa\n");
     if(hap_buf.cov_threshold < 0)
     {
         if(if_ploid_sample(ug, read_g, ruIndex, sources, reverse_sources, coverage_cut, 
@@ -4313,9 +4351,10 @@ uint32_t just_contain, uint32_t just_coverage, hc_links* link)
     if(asm_opt.hom_global_coverage == -1) asm_opt.hom_global_coverage = hap_buf.cov_threshold;
     fprintf(stderr, "[M::%s] purge duplication coverage threshold: %lld\n", __func__, hap_buf.cov_threshold);
     if(just_coverage) goto end_coverage;
-
+    fprintf(stderr, "aaa-1-aaa\n");
     ///kt_for(asm_opt.thread_num, hap_alignment_worker, &hap_buf, nsg->n_seq);
     kt_for(asm_opt.thread_num, hap_alignment_advance_worker, &hap_buf, nsg->n_seq);
+    fprintf(stderr, "aaa-2-aaa\n");
 
 
     ///if(debug_enable) print_all_purge_ovlp(ug, &all_ovlp);
