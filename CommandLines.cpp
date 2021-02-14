@@ -30,6 +30,8 @@ static ko_longopt_t long_options[] = {
     { "h2",      ko_required_argument, 315 },
     { "enzyme",      ko_required_argument, 316 },
     { "b-cov",      ko_required_argument, 317 },
+    { "h-cov",      ko_required_argument, 318 },
+    { "m-rate",      ko_required_argument, 319 },
 	{ 0, 0, 0 }
 };
 
@@ -68,7 +70,12 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "    --lowQ      INT\n");
     fprintf(stderr, "                output contig regions with >=INT%% inconsistency in BED format; 0 to disable [%d]\n", asm_opt->bed_inconsist_rate);
     fprintf(stderr, "    --b-cov     INT\n");
-    fprintf(stderr, "                break contigs at breakpoints with coverage drop at <INT-fold coverage [%d]\n", asm_opt->break_cov);
+    fprintf(stderr, "                break contigs at positions with <INT-fold coverage; work with '--m-rate'; 0 to disable [%d]\n", asm_opt->b_low_cov);
+    fprintf(stderr, "    --h-cov     INT\n");
+    fprintf(stderr, "                break contigs at positions with >INT-fold coverage; work with '--m-rate'; -1 to disable [%d]\n", asm_opt->b_high_cov);
+    fprintf(stderr, "    --m-rate    FLOAT\n");
+    fprintf(stderr, "                break contigs at positions with <=FLOAT*coverage exact overlaps;\n");
+    fprintf(stderr, "                only work with '--b-cov' or '--h-cov'[%.2f]\n", asm_opt->m_rate);
     
 //	fprintf(stderr, "    --pri-range INT1[,INT2]\n");
 //	fprintf(stderr, "                keep contigs with coverage in this range in p_ctg.gfa; -1 to disable [auto,inf]\n");
@@ -153,7 +160,9 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->hic_inconsist_rate = 30;
     ///asm_opt->bub_mer_length = 3;
     asm_opt->bub_mer_length = 1000000;
-    asm_opt->break_cov = 0;
+    asm_opt->b_low_cov = 0;
+    asm_opt->b_high_cov = -1;
+    asm_opt->m_rate = 0.75;
 }
 
 void destory_enzyme(enzyme* f)
@@ -419,6 +428,30 @@ int check_option(hifiasm_opt_t* asm_opt)
         return 0;
     }
 
+    if(asm_opt->b_low_cov < 0)
+    {
+        fprintf(stderr, "[ERROR] must >= 0 (--b-cov)\n");
+        return 0;
+    }
+
+    if(asm_opt->b_high_cov != -1 && asm_opt->b_high_cov < 0)
+    {
+        fprintf(stderr, "[ERROR] must >= 0 (--h-cov)\n");
+        return 0;
+    }
+
+    if(asm_opt->m_rate < 0)
+    {
+        fprintf(stderr, "[ERROR] must >= 0 (--m-rate)\n");
+        return 0;
+    }
+
+    if(asm_opt->b_high_cov != -1 && asm_opt->b_high_cov <= asm_opt->b_low_cov)
+    {
+        fprintf(stderr, "[ERROR] [--h-cov] must >= [--b-cov]\n");
+        return 0;
+    }
+
     // fprintf(stderr, "input file num: %d\n", asm_opt->num_reads);
     // fprintf(stderr, "output file: %s\n", asm_opt->output_file_name);
     // fprintf(stderr, "number of threads: %d\n", asm_opt->thread_num);
@@ -592,7 +625,9 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         else if (c == 314) get_hic_enzymes(opt.arg, &(asm_opt->hic_reads[0]), 0);
         else if (c == 315) get_hic_enzymes(opt.arg, &(asm_opt->hic_reads[1]), 0);
         else if (c == 316) get_hic_enzymes(opt.arg, &(asm_opt->hic_enzymes), 1);
-        else if (c == 317) asm_opt->break_cov = atoi(opt.arg);
+        else if (c == 317) asm_opt->b_low_cov = atoi(opt.arg);
+        else if (c == 318) asm_opt->b_high_cov = atoi(opt.arg);
+        else if (c == 319) asm_opt->m_rate = atof(opt.arg);
         else if (c == 'l')
         {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
             asm_opt->purge_level_primary = asm_opt->purge_level_trio = atoi(opt.arg);

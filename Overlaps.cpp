@@ -9538,11 +9538,699 @@ const char* prefix, FILE *fp, hc_links* link)
     kv_destroy(total_count.a);
 }
 
-
-void detect_break_point(ma_utg_t *u, asg_t* read_g, const ma_sub_t* coverage_cut, 
-ma_hit_t_alloc* sources, R_to_U* ruIndex, kvec_asg_arc_t_warp* edge, uint8_t* r_flag)
+uint32_t get_break_point_cov(ma_utg_t* collection, uint32_t cur_i, uint32_t next_i, 
+asg_t* read_g, All_reads *RNF, ma_hit_t_alloc* sources, R_to_U* ruIndex, ma_sub_t *coverage_cut, 
+int max_hang, int min_ovlp, kvec_asg_arc_t_warp* edge, uint8_t* r_flag)
 {
-    uint32_t k, rId;
+    uint32_t v, w, i, tn, is_Unitig;
+    int v_beg, v_end, v_sub_beg, v_sub_end;
+    asg_arc_t t;
+
+    v = (uint64_t)(collection->a[cur_i])>>32;
+    ///last element
+    if(cur_i == collection->n-1 && next_i == collection->n)
+    {
+        if(!collection->circ)
+        {
+            next_i = (uint32_t)-1;
+        }
+        else
+        {
+            next_i = 0;
+        }
+    }
+
+    if(next_i != ((uint32_t)-1))
+    {
+        w = (uint64_t)(collection->a[next_i])>>32;
+
+        get_specific_edge(sources, coverage_cut, NULL, edge, read_g, max_hang, min_ovlp, v, w, &t);
+        v_beg = 0; v_end = asg_arc_len(t) - 1; 
+        if(v&1)
+        {
+            v_beg = Get_READ_LENGTH((*RNF), (v>>1)) - v_beg - 1;
+            v_end = Get_READ_LENGTH((*RNF), (v>>1)) - v_end - 1;
+            w = v_beg; v_beg = v_end; v_end = w;
+        }
+    }
+    else
+    {
+        v_beg = 0; v_end = Get_READ_LENGTH((*RNF), (v>>1)) - 1;
+    }
+
+    ma_hit_t_alloc* x = &(sources[v>>1]);
+    ma_hit_t *h = NULL;
+    long long R_bases = v_end + 1 - v_beg, C_bases = 0;
+    ///[v_beg, v_end] must be the end of read, which means v_beg = 0 or v_end = Get_READ_LENGTH((*RNF), (v>>1)) - 1
+    for (i = 0; i < x->length; i++)
+    {
+        h = &(x->buffer[i]);
+        tn = Get_tn((*h));
+        if(read_g->seq[tn].del == 1)
+        {
+            ///get the id of read that contains it 
+            get_R_to_U(ruIndex, tn, &tn, &is_Unitig);
+            if(tn == (uint32_t)-1 || is_Unitig == 1 || read_g->seq[tn].del == 1) continue;
+        }
+        if(read_g->seq[tn].del == 1) continue;
+        if(r_flag[tn] != 1) continue;
+
+
+        if(inter_interval(v_beg, v_end, Get_qs((*h)), Get_qe((*h)) - 1, 
+                                                &v_sub_beg, &v_sub_end) == 0)
+        {
+            continue;
+        }
+
+        C_bases += (v_sub_end + 1 - v_sub_beg);
+    }
+    if(R_bases <= 0 || C_bases <= 0) return 0;
+
+    return C_bases/R_bases;
+}
+
+
+
+uint32_t push_cov_interval_direct(kvec_t_u64_warp* a, long long x_beg, long long x_end, long long utg_len, uint64_t is_circle)
+{
+    if(x_beg <= x_end && x_beg >= 0 && x_end >= 0 && x_beg < utg_len && x_end < utg_len)
+    {
+        uint64_t key;
+        key = x_beg; key <<= 1; key |= (!is_circle); key <<= 1; key|=1;
+        kv_push(uint64_t, a->a, key);
+        key = x_end + 1; key <<= 1; key |= (!is_circle); key <<= 1; 
+        kv_push(uint64_t, a->a, key);
+        return 1;
+    }
+    return 0;
+}
+
+uint32_t push_cov_interval_advance(kvec_t_u64_warp* a, long long x_beg, long long x_end, long long utg_len, uint32_t is_circle)
+{
+    if(x_beg > x_end) return 0;
+    
+    if(push_cov_interval_direct(a, x_beg, x_end, utg_len, 0)) return 1;
+    
+
+    if(x_beg < 0 && x_end < 0)
+    {
+        x_beg = utg_len + x_beg;
+        x_end = utg_len + x_end;
+        return push_cov_interval_direct(a, x_beg, x_end, utg_len, 0);
+    }
+
+    if(x_beg >= utg_len && x_end >= utg_len)
+    {
+        x_beg = x_beg - utg_len;
+        x_end = x_end - utg_len;
+        return push_cov_interval_direct(a, x_beg, x_end, utg_len, 0);
+    }
+
+    if(x_beg < 0 && x_end >= 0)
+    {
+        x_beg = utg_len + x_beg;
+        if(push_cov_interval_direct(a, x_beg, utg_len - 1, utg_len, is_circle) || 
+             push_cov_interval_direct(a, 0, x_end, utg_len, is_circle))
+        {
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+void get_break_point_cov_advance(uint32_t v, long long c_beg, asg_t* read_g, All_reads *RNF, 
+ma_hit_t_alloc* sources, R_to_U* ruIndex, uint8_t* r_flag, kvec_t_u64_warp* depth, long long utg_len, 
+uint32_t is_circle, uint32_t* uID)
+{
+    uint32_t i, tn, is_Unitig;
+    long long v_beg, v_end, w_beg, w_end;
+    
+    v_beg = 0; v_end = Get_READ_LENGTH((*RNF), (v>>1)) - 1;
+    if(uID && (r_flag[v>>1]&1) && (!(r_flag[v>>1]&2)))
+    {
+        if(push_cov_interval_advance(depth, v_beg+c_beg, v_end+c_beg, utg_len, is_circle)) r_flag[v>>1] |= 2;
+        return;    
+    } 
+    
+
+    ma_hit_t_alloc* x = &(sources[v>>1]);
+    ma_hit_t *h = NULL;
+    long long qs, qe, ts, te;
+    ///[v_beg, v_end] must be the end of read, which means v_beg = 0 or v_end = Get_READ_LENGTH((*RNF), (v>>1)) - 1
+    for (i = 0; i < x->length; i++)
+    {
+        h = &(x->buffer[i]);
+        tn = Get_tn((*h));
+        if(read_g->seq[tn].del == 1)
+        {
+            ///get the id of read that contains it 
+            get_R_to_U(ruIndex, tn, &tn, &is_Unitig);
+            if(tn == (uint32_t)-1 || is_Unitig == 1 || read_g->seq[tn].del == 1) continue;
+        }
+        if(read_g->seq[tn].del == 1) continue;
+        if(!(r_flag[tn]&1)) continue;
+        tn = Get_tn((*h));///must!!!!
+        
+        if(r_flag[tn]&2) continue;
+
+        qs = Get_qs((*h)); qe = Get_qe((*h)) - 1;
+        ts = Get_ts((*h)); te = Get_te((*h)) - 1;
+        if(h->rev)
+        {
+            ts = (long long)(Get_READ_LENGTH((*RNF), tn)) - ((long long)(Get_te((*h))) - 1) - 1;
+            te = (long long)(Get_READ_LENGTH((*RNF), tn)) - (long long)(Get_ts((*h))) - 1;
+        }
+        ts = qs - ts;
+        te = qe + ((long long)(Get_READ_LENGTH((*RNF), tn)) - te - 1);
+        w_beg = ts; w_end = te;
+
+        if(v&1)
+        {
+            ts = (long long)(Get_READ_LENGTH((*RNF), v>>1)) - ts - 1;
+            te = (long long)(Get_READ_LENGTH((*RNF), v>>1)) - te - 1;
+            w_beg = te; w_end = ts;
+        }
+
+        if(push_cov_interval_advance(depth, w_beg+c_beg, w_end+c_beg, utg_len, is_circle)) r_flag[tn] |= 2;
+    }
+}
+typedef struct {
+	uint32_t dp;
+    uint64_t k_beg, k_end;
+} in_sub_t;
+
+typedef struct {
+	size_t n, m;
+	in_sub_t* a;
+}kv_in_sub_t;
+
+
+void debug_r_contig_pos(ma_utg_t *u, uint32_t tn, All_reads *RNF)
+{
+    uint32_t c_beg, c_end, l, k;
+    for (k = l = 0; k < u->n; k++)
+    {
+        c_beg = l;
+        c_end = c_beg + Get_READ_LENGTH((*RNF), (u->a[k]>>33));
+        l += (uint32_t)u->a[k];
+        if((u->a[k]>>33) == tn)
+        {
+            fprintf(stderr, "#####c_beg: %u, c_end: %u\n", c_beg, c_end);
+            break;
+        }
+    }
+}
+
+uint32_t get_overlap_contig_dir(uint32_t v, uint32_t tn, ma_hit_t *h, All_reads *RNF, long long ctg_beg,
+uint32_t p_beg, uint32_t p_end)
+{
+    long long qs, qe, ts, te, c_beg, c_end;
+
+    qs = Get_qs((*h)); qe = Get_qe((*h)) - 1;
+    ts = Get_ts((*h)); te = Get_te((*h)) - 1;
+    if(h->rev)
+    {
+        ts = (long long)(Get_READ_LENGTH((*RNF), tn)) - ((long long)(Get_te((*h))) - 1) - 1;
+        te = (long long)(Get_READ_LENGTH((*RNF), tn)) - (long long)(Get_ts((*h))) - 1;
+    }
+    ts = qs - ts;
+    te = qe + ((long long)(Get_READ_LENGTH((*RNF), tn)) - te - 1);
+    c_beg = ts; c_end = te;
+
+    if(v&1)
+    {
+        ts = (long long)(Get_READ_LENGTH((*RNF), v>>1)) - ts - 1;
+        te = (long long)(Get_READ_LENGTH((*RNF), v>>1)) - te - 1;
+        c_beg = te; c_end = ts;
+    }
+
+    c_end++;
+    c_beg += ctg_beg; c_end += ctg_beg;
+
+    if((p_beg != p_end && c_beg <= p_beg && c_end >= p_end) || 
+                    (p_beg == p_end && c_beg < p_beg && c_end > p_end))
+    {
+        return 2;
+    }
+
+    if(c_beg < p_beg) return 0;
+    if(c_end > p_end) return 1;
+
+    return 2;
+
+}
+///[beg, end)
+uint32_t get_break_point_idx(ma_utg_t *u, All_reads *RNF, uint8_t* r_flag, ma_hit_t_alloc* sources, 
+asg_t* read_g, R_to_U* ruIndex, uint32_t p_beg, uint32_t p_end, double m_rate)
+{
+    uint32_t k, i, tn, is_Unitig, min_k = (uint32_t)-1, min_l = (uint32_t)-1, l, c_beg, c_end, index;
+    uint32_t e_occ = 0, ne_occ = 0;
+    double e_occ_dir[3], ne_occ_dir[3], rate[2];
+    ma_hit_t_alloc* x = NULL;
+    ma_hit_t *h = NULL;
+
+    e_occ = ne_occ = 0;
+    for (k = l = 0; k < u->n; k++)
+    {
+        c_beg = l;
+        c_end = c_beg + Get_READ_LENGTH((*RNF), (u->a[k]>>33));
+        l += (uint32_t)u->a[k];
+
+        if((p_beg != p_end && c_beg <= p_beg && c_end >= p_end) || 
+                    (p_beg == p_end && c_beg < p_beg && c_end > p_end))
+        {
+
+            if(min_k == (uint32_t)-1) min_k = k, min_l = c_beg;
+
+            x = &(sources[u->a[k]>>33]);
+            for (i = 0; i < x->length; i++)
+            {
+                h = &(x->buffer[i]);
+                tn = Get_tn((*h));
+                if(read_g->seq[tn].del == 1)
+                {
+                    ///get the id of read that contains it 
+                    get_R_to_U(ruIndex, tn, &tn, &is_Unitig);
+                    if(tn == (uint32_t)-1 || is_Unitig == 1 || read_g->seq[tn].del == 1) continue;
+                }
+                if(read_g->seq[tn].del == 1) continue;
+                if(!(r_flag[tn]&1)) continue;
+                if(h->el) e_occ++;
+                else ne_occ++;
+            }
+        }
+        else if(min_k != (uint32_t)-1)
+        {
+            break;
+        }
+    }
+
+    if(min_k == (uint32_t)-1) return (uint32_t)-1;
+    if(e_occ <= ((e_occ+ne_occ)*m_rate)) goto c_break;
+    
+    e_occ = ne_occ = 0;
+    for (k = min_k, l = min_l; k < u->n; k++)
+    {
+        c_beg = l;
+        c_end = c_beg + Get_READ_LENGTH((*RNF), (u->a[k]>>33));
+        l += (uint32_t)u->a[k];
+        
+        if((p_beg != p_end && c_beg <= p_beg && c_end >= p_end) || 
+                    (p_beg == p_end && c_beg < p_beg && c_end > p_end))
+        {
+            e_occ_dir[0] = e_occ_dir[1] = e_occ_dir[2] = 0;
+            ne_occ_dir[0] = ne_occ_dir[1] = ne_occ_dir[2] = 0;
+
+            x = &(sources[u->a[k]>>33]);
+            for (i = 0; i < x->length; i++)
+            {
+                h = &(x->buffer[i]);
+                tn = Get_tn((*h));
+                if(read_g->seq[tn].del == 1)
+                {
+                    ///get the id of read that contains it 
+                    get_R_to_U(ruIndex, tn, &tn, &is_Unitig);
+                    if(tn == (uint32_t)-1 || is_Unitig == 1 || read_g->seq[tn].del == 1) continue;
+                }
+                if(read_g->seq[tn].del == 1) continue;
+                if(!(r_flag[tn]&1)) continue;
+
+                tn = Get_tn((*h));///must!!!!
+
+                index = get_overlap_contig_dir(u->a[k]>>32, tn, h, RNF, c_beg, p_beg, p_end);
+
+                ///debug_r_contig_pos(u, tn, RNF);
+                if(h->el) e_occ_dir[index]++;
+                else ne_occ_dir[index]++;
+            }
+
+            e_occ_dir[0] += e_occ_dir[2]; e_occ_dir[1] += e_occ_dir[2];
+            ne_occ_dir[0] += ne_occ_dir[2]; ne_occ_dir[1] += ne_occ_dir[2];
+            rate[0] = ne_occ_dir[0] / (ne_occ_dir[0] + e_occ_dir[0]);
+            rate[1] = ne_occ_dir[1] / (ne_occ_dir[1] + e_occ_dir[1]);
+            if(rate[0] >= rate[1])
+            {
+                e_occ += e_occ_dir[0];
+                ne_occ += ne_occ_dir[0];
+            }
+            else
+            {
+                e_occ += e_occ_dir[1];
+                ne_occ += ne_occ_dir[1];
+            }
+        }
+        else if(min_k != (uint32_t)-1)
+        {
+            break;
+        }
+    }
+    
+    if(e_occ <= ((e_occ+ne_occ)*m_rate)) goto c_break;
+    return (uint32_t)-1;
+
+
+    c_break:
+    k = min_k; c_beg = min_l; c_end = c_beg + Get_READ_LENGTH((*RNF), (u->a[k]>>33));
+    if((p_beg - c_beg) <= (c_end - p_end))
+    {
+        if(k == 0 && !u->circ) return (uint32_t)-1;
+        return k;
+    }
+    else
+    {
+        if((k+1) < u->n) return k+1;
+        if((k+1) == u->n && u->circ) return 0;
+        return (uint32_t)-1;
+    }
+
+    return (uint32_t)-1;
+}
+
+void debug_break_point_advance(ma_utg_t *u, uint32_t uID, asg_t* read_g, All_reads *RNF, ma_hit_t_alloc* sources, 
+R_to_U* ruIndex, kvec_asg_arc_t_warp* edge, uint8_t* r_flag)
+{
+    if(u->n < 2 || u->m == 0) return;
+    uint32_t k, l, c_beg;
+    memset(r_flag, 0, read_g->n_seq);
+    for (k = 0; k < u->n; k++) r_flag[u->a[k]>>33] = 1;
+    kvec_t_u64_warp d; kv_init(d.a);
+    kvec_t_u64_warp b_d; kv_init(b_d.a);
+
+    d.a.n = 0;
+    for (k = l = 0; k < u->n; k++)
+    {
+        c_beg = l;
+        l += (uint32_t)u->a[k];
+        get_break_point_cov_advance((uint64_t)(u->a[k])>>32, c_beg, read_g, RNF, sources, ruIndex, r_flag, &d, u->len, u->circ, &uID);
+    }
+    
+    for (k = l = 0; k < u->n; k++)
+    {
+        c_beg = l;
+        l += (uint32_t)u->a[k];
+        get_break_point_cov_advance((uint64_t)(u->a[k])>>32, c_beg, read_g, RNF, sources, ruIndex, r_flag, &d, u->len, u->circ, NULL);
+    }
+
+    kv_malloc(b_d.a, d.a.n); b_d.a.n = d.a.n;
+    memcpy(b_d.a.a, d.a.a, d.a.n*sizeof(uint64_t));
+
+    radix_sort_arch64(d.a.a, d.a.a + d.a.n);
+
+    long long dp, o_dp;
+    uint32_t idx, o_idx, dir, o_dir, i;
+    uint64_t k_beg, k_end, k_dp, b_beg, b_end, occ;
+    dp = 0; o_idx = 0; o_dir = 1;///means it is a beg 
+    for (k = 0; k < d.a.n; k++)
+    {
+        o_dp = dp;
+        ///if start = end, we should meet end first, otherwise it will have a bug
+        if(d.a.a[k]&1) ++dp;
+        else --dp;
+
+        dir = d.a.a[k]&1; idx = d.a.a[k]>>2;
+        if((idx - o_idx > 0) || (idx == o_idx && o_dir != dir))
+        {
+            k_beg = o_idx; k_end = idx; k_dp = o_dp;
+
+            for (i = occ = 0; i < b_d.a.n; i += 2)
+            {
+                b_beg = b_d.a.a[i]>>2;
+                b_end = b_d.a.a[i+1]>>2;
+                if(b_beg <= k_beg && b_end >= k_end) occ++;
+                if((k_beg == k_end) && (b_beg == k_beg || b_end == k_beg)) occ--;
+            }
+            if(occ != k_dp)
+            {
+                fprintf(stderr, "k_beg: %lu, k_end: %lu, k_dp: %lu, occ: %lu\n", k_beg, k_end, k_dp, occ);
+            } 
+        } 
+        o_idx = idx;
+        o_dir = dir;
+    }
+
+    if(o_idx != u->len)
+    {
+        k_beg = o_idx; k_end = u->len; k_dp = 0;
+
+        for (i = occ = 0; i < b_d.a.n; i += 2)
+        {
+            b_beg = b_d.a.a[i]>>2;
+            b_end = b_d.a.a[i+1]>>2;
+            if(b_beg <= k_beg && b_end >= k_end) occ++;
+        }
+        if(occ != k_dp)
+        {
+            fprintf(stderr, "k_beg: %lu, k_end: %lu, k_dp: %lu, occ: %lu\n", k_beg, k_end, k_dp, occ);
+        } 
+    }
+
+    kv_destroy(d.a); kv_destroy(b_d.a);
+}
+
+void detect_break_point_advance(ma_utg_t *u, uint32_t uID, asg_t* read_g, All_reads *RNF, ma_sub_t* coverage_cut, 
+ma_hit_t_alloc* sources, R_to_U* ruIndex, kvec_asg_arc_t_warp* edge, int max_hang, int min_ovlp,
+uint8_t* r_flag, kvec_t_u64_warp* d, kv_in_sub_t* depth_i, kvec_t_u64_warp* res, int* b_low_cov,
+int* b_high_cov, double m_rate)
+{
+    if(u->n < 2 || u->m == 0) return;
+    uint32_t k, l, c_beg;
+    memset(r_flag, 0, read_g->n_seq);
+    for (k = 0; k < u->n; k++) r_flag[u->a[k]>>33] = 1;
+
+    d->a.n = 0;
+    for (k = l = 0; k < u->n; k++)
+    {
+        c_beg = l;
+        l += (uint32_t)u->a[k];
+        get_break_point_cov_advance((uint64_t)(u->a[k])>>32, c_beg, read_g, RNF, sources, ruIndex, r_flag, d, u->len, u->circ, &uID);
+    }
+    
+    for (k = l = 0; k < u->n; k++)
+    {
+        c_beg = l;
+        l += (uint32_t)u->a[k];
+        get_break_point_cov_advance((uint64_t)(u->a[k])>>32, c_beg, read_g, RNF, sources, ruIndex, r_flag, d, u->len, u->circ, NULL);
+    }
+
+    radix_sort_arch64(d->a.a, d->a.a + d->a.n);
+
+    long long dp, o_dp;
+    uint32_t idx, o_idx, dir, o_dir;
+    in_sub_t* p = NULL;
+
+
+
+    /*******************************for debug************************************/
+    ///debug_break_point_advance(u, uID, read_g, RNF, sources, ruIndex, edge, r_flag);
+    /*******************************for debug************************************/
+
+
+
+
+
+
+
+
+
+    depth_i->n = 0;
+    ///[start, end)
+    ///for circle
+    dp = 0; o_idx = 0; o_dir = 1;///means it is a beg 
+    for (k = 0; k < d->a.n; k++)
+    {
+        o_dp = dp;
+        ///if start = end, we should meet end first, otherwise it will have a bug
+        if(d->a.a[k]&1) ++dp;
+        else --dp;
+
+        dir = d->a.a[k]&1; idx = d->a.a[k]>>2;
+        if((idx - o_idx > 0) || (idx == o_idx && o_dir != dir))
+        {
+            if(b_low_cov)
+            {
+                ///merge
+                if(o_dp >= (*b_low_cov) && depth_i->n > 0 && (int)depth_i->a[depth_i->n-1].dp >= (*b_low_cov))
+                {
+                    p = &(depth_i->a[depth_i->n-1]);
+                    p->k_end = idx;
+                    p->dp = o_dp;
+                }
+                else //insert new
+                {
+                    kv_pushp(in_sub_t, *depth_i, &p);
+                    p->k_beg = o_idx;
+                    p->k_end = idx;
+                    p->dp = o_dp;
+                }
+            }
+
+            if(b_high_cov)
+            {
+                if(o_dp <= (*b_high_cov) && depth_i->n > 0 && (int)depth_i->a[depth_i->n-1].dp <= (*b_high_cov))
+                {
+                    p = &(depth_i->a[depth_i->n-1]);
+                    p->k_end = idx;
+                    p->dp = o_dp;
+                }
+                else //insert new
+                {
+                    kv_pushp(in_sub_t, *depth_i, &p);
+                    p->k_beg = o_idx;
+                    p->k_end = idx;
+                    p->dp = o_dp;
+                }
+            }
+            
+        } 
+        o_idx = idx;
+        o_dir = dir;
+    }
+
+    if(o_idx != u->len)
+    {
+        kv_pushp(in_sub_t, *depth_i, &p);
+        p->k_beg = o_idx;
+        p->k_end = u->len;
+        p->dp = 0;
+    }
+
+    // if(b_high_cov)
+    // {
+    //     fprintf(stderr, "\n\n\n\n\n\n\n\n\n\n");
+    //     fprintf(stderr, "uID: %u, u->n: %u, u->len: %u\n", uID, (uint32_t)u->n, (uint32_t)u->len);
+    //     for (k = 0; k < depth_i->n; k++)
+    //     {
+    //         fprintf(stderr, "k: %u, k_beg: %lu, k_end: %lu, dp: %u\n", 
+    //         k, depth_i->a[k].k_beg, depth_i->a[k].k_end, depth_i->a[k].dp);
+    //     }
+    // }
+    
+
+    uint32_t beg_idx, end_idx, cir_beg_idx, cir_end_idx, min, min_idx, cur_idx, i;
+    beg_idx = end_idx = (uint32_t)-1;
+    cir_beg_idx = cir_end_idx = (uint32_t)-1;
+    uint64_t tmp;
+
+    for (k = 0; k < depth_i->n; k++)
+    {
+        if(k > 0) 
+        {
+            if((b_low_cov && (int)depth_i->a[k-1].dp >= (*b_low_cov) && (int)depth_i->a[k].dp < (*b_low_cov)) ||
+                (b_high_cov && (int)depth_i->a[k-1].dp <= (*b_high_cov) && (int)depth_i->a[k].dp > (*b_high_cov)))
+            {
+                beg_idx = k;
+            }
+        }
+
+        if(k < depth_i->n-1)
+        {
+            if((b_low_cov && (int)depth_i->a[k].dp < (*b_low_cov) && (int)depth_i->a[k+1].dp >= (*b_low_cov)) || 
+                (b_high_cov && (int)depth_i->a[k].dp > (*b_high_cov) && (int)depth_i->a[k+1].dp <= (*b_high_cov)))
+            {
+                end_idx = k;
+                if(beg_idx == (uint32_t)-1) cir_end_idx = k;
+
+
+                if(beg_idx != (uint32_t)-1 && end_idx >= beg_idx)
+                {
+                    min = min_idx = (uint32_t)-1;
+                    for (i = beg_idx; i <= end_idx; i++)
+                    {
+                        // if(b_high_cov)
+                        // {
+                        //     fprintf(stderr, "+k_end: %lu, k_end: %lu, dp: %u\n", depth_i->a[i].k_beg, depth_i->a[i].k_end, depth_i->a[i].dp);
+                        // }
+                        if(depth_i->a[i].dp < min)
+                        {
+                            cur_idx = get_break_point_idx(u, RNF, r_flag, sources, read_g, ruIndex,
+                                                    depth_i->a[i].k_beg, depth_i->a[i].k_end, m_rate);
+                            if(cur_idx == (uint32_t)-1) continue;
+                            min = depth_i->a[i].dp; min_idx = cur_idx;
+                        }
+                    }
+                    if(min_idx != (uint32_t)-1)
+                    {
+                        //fprintf(stderr, "+uID: %u, min_idx: %u, k_beg: %lu, k_end: %lu\n", uID, min_idx, depth_i->a[min_idx].k_beg, depth_i->a[min_idx].k_end);
+                        if(min_idx != (uint32_t)-1)
+                        {
+                            tmp = uID; tmp <<=32; tmp += min_idx;
+                            kv_push(uint64_t, res->a, tmp);
+                        }
+                    } 
+                }
+                beg_idx = end_idx = (uint32_t)-1;
+            }
+        }
+    }
+
+    if(beg_idx != (uint32_t)-1 && end_idx == (uint32_t)-1) cir_beg_idx = beg_idx;
+
+     if(u->circ && (cir_beg_idx != (uint32_t)-1 || cir_end_idx != (uint32_t)-1))
+     {
+        beg_idx = cir_beg_idx;
+        end_idx = cir_end_idx;
+
+        min = min_idx = (uint32_t)-1;
+        if(beg_idx != (uint32_t)-1)
+        {
+            for (i = beg_idx; i < depth_i->n; i++)
+            {
+                // if(b_high_cov)
+                // {
+                //     fprintf(stderr, "-0-k_end: %lu, k_end: %lu, dp: %u\n", depth_i->a[i].k_beg, depth_i->a[i].k_end, depth_i->a[i].dp);
+                // }
+                if(depth_i->a[i].dp < min)
+                {
+                    // min = depth_i->a[i].dp;
+                    // min_idx = i;
+                    cur_idx = get_break_point_idx(u, RNF, r_flag, sources, read_g, ruIndex,
+                                            depth_i->a[i].k_beg, depth_i->a[i].k_end, m_rate);
+                    if(cur_idx == (uint32_t)-1) continue;
+                    min = depth_i->a[i].dp; min_idx = cur_idx;
+                }
+            }
+        }
+
+        if(end_idx != (uint32_t)-1)
+        {
+            for (i = 0; i <= end_idx; i++)
+            {
+                // if(b_high_cov)
+                // {
+                //     fprintf(stderr, "-1-k_end: %lu, k_end: %lu, dp: %u\n", depth_i->a[i].k_beg, depth_i->a[i].k_end, depth_i->a[i].dp);
+                // }
+                if(depth_i->a[i].dp < min)
+                {
+                    cur_idx = get_break_point_idx(u, RNF, r_flag, sources, read_g, ruIndex,
+                                            depth_i->a[i].k_beg, depth_i->a[i].k_end, m_rate);
+                    if(cur_idx == (uint32_t)-1) continue;
+                    min = depth_i->a[i].dp; min_idx = cur_idx;
+                }
+            }
+        }
+
+        if(min_idx != (uint32_t)-1)
+        {
+            ///fprintf(stderr, "-uID: %u, min_idx: %u, k_beg: %lu, k_end: %lu\n", uID, min_idx, depth_i->a[min_idx].k_beg, depth_i->a[min_idx].k_end);
+            if(min_idx != (uint32_t)-1)
+            {
+                tmp = uID; tmp <<=32; tmp += min_idx;
+                kv_push(uint64_t, res->a, tmp);
+            }
+        } 
+     }
+}
+
+void detect_break_point(ma_utg_t *u, uint32_t uID, asg_t* read_g, All_reads *RNF, ma_sub_t* coverage_cut, 
+ma_hit_t_alloc* sources, R_to_U* ruIndex, kvec_asg_arc_t_warp* edge, int max_hang, int min_ovlp,
+uint8_t* r_flag, kvec_t_u32_warp* depth, kvec_t_u64_warp* res, uint32_t b_low_cov)
+{
+    depth->a.n = 0;
+    ///res->a.n = 0;
+    if(u->n < 2) return;
+    uint32_t k, i, min, min_idx, rId, *p = NULL, beg_idx, end_idx, cir_beg_idx, cir_end_idx;
+    uint64_t tmp;
     if(u->m == 0) return;
     for (k = 0; k < u->n; k++)
     {
@@ -9553,9 +10241,85 @@ ma_hit_t_alloc* sources, R_to_U* ruIndex, kvec_asg_arc_t_warp* edge, uint8_t* r_
 
     for (k = 0; k < u->n; k++)
     {
-        ;
+        kv_pushp(uint32_t, depth->a, &p);
+        (*p) = get_break_point_cov(u, k, k+1, read_g, RNF, sources, ruIndex, coverage_cut, max_hang, min_ovlp, edge, r_flag);
     }
-    
+
+
+    beg_idx = end_idx = (uint32_t)-1;
+    cir_beg_idx = cir_end_idx = (uint32_t)-1;
+    for (k = 0; k < u->n; k++)
+    {
+        if(k > 0 && depth->a.a[k-1] >= b_low_cov && depth->a.a[k] < b_low_cov)
+        {
+            beg_idx = k;
+        }
+
+        if(k < u->n-1 && depth->a.a[k] < b_low_cov && depth->a.a[k+1] >= b_low_cov)
+        {
+            end_idx = k;
+            if(beg_idx == (uint32_t)-1) cir_end_idx = k;
+            if(beg_idx != (uint32_t)-1 && end_idx >= beg_idx)
+            {
+                min = min_idx = (uint32_t)-1;
+                for (i = beg_idx; i <= end_idx; i++)
+                {
+                    if(depth->a.a[i] < min)
+                    {
+                        min = depth->a.a[i];
+                        min_idx = i;
+                    }
+                }
+                if(min_idx != (uint32_t)-1)
+                {
+                    tmp = uID; tmp <<=32; tmp += min_idx;
+                    kv_push(uint64_t, res->a, tmp);
+                } 
+            }
+            beg_idx = end_idx = (uint32_t)-1;
+        }
+    }
+
+    if(beg_idx != (uint32_t)-1 && end_idx == (uint32_t)-1) cir_beg_idx = beg_idx;
+
+    if(u->circ && (cir_beg_idx != (uint32_t)-1 || cir_end_idx != (uint32_t)-1))
+    {
+        beg_idx = cir_beg_idx;
+        end_idx = cir_end_idx;
+
+        min = min_idx = (uint32_t)-1;
+
+        if(beg_idx != (uint32_t)-1)
+        {
+            for (i = beg_idx; i < u->n; i++)
+            {
+                if(depth->a.a[i] < min)
+                {
+                    min = depth->a.a[i];
+                    min_idx = i;
+                }
+            }
+        }
+
+        if(end_idx != (uint32_t)-1)
+        {
+            for (i = 0; i <= end_idx; i++)
+            {
+                if(depth->a.a[i] < min)
+                {
+                    min = depth->a.a[i];
+                    min_idx = i;
+                }
+            }
+        }
+
+        if(min_idx != (uint32_t)-1)
+        {
+            tmp = uID; tmp <<=32; tmp += min_idx;
+            kv_push(uint64_t, res->a, tmp);
+        } 
+    }
+
 
     for (k = 0; k < u->n; k++)
     {
@@ -9564,33 +10328,367 @@ ma_hit_t_alloc* sources, R_to_U* ruIndex, kvec_asg_arc_t_warp* edge, uint8_t* r_
     }
 }
 
-void break_ug_contig(ma_ug_t **ug, asg_t *read_g, All_reads *RNF, ma_sub_t *coverage_cut,
-ma_hit_t_alloc* sources, R_to_U* ruIndex, kvec_asg_arc_t_warp* edge, int max_hang, int min_ovlp, uint32_t break_cov)
+void debug_break_point(ma_utg_t *u, uint32_t uID, asg_t* read_g, All_reads *RNF, ma_sub_t* coverage_cut, 
+ma_hit_t_alloc* sources, R_to_U* ruIndex, kvec_asg_arc_t_warp* edge, int max_hang, int min_ovlp,
+uint8_t* r_flag, kvec_t_u32_warp* depth, kvec_t_u64_warp* res, uint32_t b_low_cov)
 {
-    UC_Read g_read;
-    init_UC_Read(&g_read);
-    UC_Read tmp;
-    init_UC_Read(&tmp);
+    depth->a.n = 0;
+    ///res->a.n = 0;
+    if(u->n < 2) return;
+    uint32_t k, min, min_idx, rId, *p = NULL;
+    if(u->m == 0) return;
+    for (k = 0; k < u->n; k++)
+    {
+        rId = u->a[k]>>33;
+        r_flag[rId] = 1;
+    }
+
+
+    for (k = 0; k < u->n; k++)
+    {
+        kv_pushp(uint32_t, depth->a, &p);
+        (*p) = get_break_point_cov(u, k, k+1, read_g, RNF, sources, ruIndex, coverage_cut, max_hang, min_ovlp, edge, r_flag);
+    }
+
+    int k_i, is_end;
+    min_idx = min = (uint32_t)-1;
+    for (k = 0; k < res->a.n; k++)
+    {
+        if((res->a.a[k]>>32) != uID) continue;
+        min_idx = (uint32_t)res->a.a[k];
+        min = depth->a.a[min_idx];
+
+        is_end = 0;
+        k_i = (int)(min_idx) - 1;
+        while (k_i >= 0)
+        {
+            if(depth->a.a[k_i] >= b_low_cov) break;
+            if(depth->a.a[k_i] < min) fprintf(stderr, "ERROR1\n");
+            k_i--;
+            if(k_i < 0 && u->circ && is_end == 0)
+            {
+                k_i = u->n - 1;
+                is_end = 1;
+            }
+        }
+
+        is_end = 0;
+        k_i = (int)(min_idx) + 1;
+        while(k_i < (int)u->n)
+        {
+            if(depth->a.a[k_i] >= b_low_cov) break;
+            if(depth->a.a[k_i] < min) fprintf(stderr, "ERROR2\n");
+            k_i++;
+            if(k_i >= (int)u->n && u->circ && is_end == 0)
+            {
+                k_i = 0;
+                is_end = 1;
+            }
+        }
+    }
+
+    
+    for (k = 0; k < u->n; k++)
+    {
+        rId = u->a[k]>>33;
+        r_flag[rId] = 0;
+    }
+}
+
+void debug_contig_end(ma_ug_t *ug, asg_t* read_g, kvec_asg_arc_t_warp* edge)
+{
+    asg_t* nsg = ug->g;
+    uint32_t n_vtx = nsg->n_seq<<1, v, w, nv, v_occ, rv, rw, i;
+    asg_arc_t *av = NULL;
+    ma_utg_t* u = NULL;
+
+    for (v = 0; v < n_vtx; v++)
+    {
+        if(ug->g->seq[v>>1].del) continue;
+        u = &(ug->u.a[v>>1]);
+        if(u->n == 0) continue;
+        av = asg_arc_a(ug->g, v);
+        nv = asg_arc_n(ug->g, v);
+        if(nv == 0) continue;
+
+        if(v&1) rv = ug->u.a[v>>1].start^1;
+        else rv = ug->u.a[v>>1].end^1;
+
+        for (i = v_occ = 0; i < nv; i++)
+        {
+            if(av[i].del) continue;
+            v_occ++;
+        }
+        if(v_occ == 0) continue;
+
+        for (i = 0; i < nv; i++)
+        {
+            if(av[i].del) continue;
+            w = av[i].v;
+            if(w&1) rw = ug->u.a[w>>1].end;
+            else rw = ug->u.a[w>>1].start;
+
+            fprintf(stderr, "utg: (v>>1: %u)[v&1: %u]->(w>>1: %u)[w&1: %u]\n", v>>1, v&1, w>>1, w&1);
+            fprintf(stderr, "rtg: (r_v>>1: %u)[r_v&1: %u]->(r_w>>1: %u)[r_w&1: %u]\n\n", 
+                                    rv>>1, rv&1, rw>>1, rw&1);
+        }
+    }
+}
+
+void renew_utg(ma_ug_t **ug, asg_t* read_g, kvec_asg_arc_t_warp* edge);
+void push_sub_unitig(ma_ug_t *n_ug, ma_utg_t *src_u, asg_t *read_g, kvec_asg_arc_t_warp* edge, 
+uint32_t beg_idx, uint32_t occ)
+{
+    uint32_t i;
+    uint64_t totalLen;
+    ma_utg_t* p = NULL;
+    kv_pushp(ma_utg_t, n_ug->u, &p);
+    p->s = NULL;
+    p->n = occ;
+    p->circ = 0;
+    if(beg_idx == 0 && occ == src_u->n) p->circ = src_u->circ;
+    p->m = p->n;
+    p->a = (uint64_t*)malloc(8 * p->m);
+    for (i = 0; i < occ; i++) p->a[i] = src_u->a[beg_idx+i];
+    fill_unitig(p->a, occ, read_g, edge, p->circ, &totalLen);
+    p->len = totalLen;
+    if(!p->circ)
+    {
+        p->start = p->a[0]>>32;
+        p->end = (p->a[p->n-1]>>32)^1;
+    }
+    else
+    {
+        p->start = p->end = UINT32_MAX;
+    }
+}
+
+void break_all_contigs(ma_ug_t **ug, asg_t *read_g, kvec_asg_arc_t_warp* edge, kvec_t_u64_warp* break_points)
+{
+    asg_cleanup((*ug)->g);
+    uint32_t k, l, m, occ, uID, idx;
+    uint64_t *a = NULL, w;
+    ma_utg_t *u = NULL;
+    radix_sort_arch64(break_points->a.a, break_points->a.a + break_points->a.n);
+    uint32_t *utg_idx = NULL; MALLOC(utg_idx, (*ug)->u.n<<1);
+    memset(utg_idx, -1, sizeof(uint32_t)*((*ug)->u.n<<1));
+    asg_arc_t *av = NULL;
+    uint32_t p_u_idx, nv, v, s_i, p_i;
+    ma_ug_t *n_ug = NULL;
+    ma_utg_t *p = NULL, *z = NULL;
+    n_ug = (ma_ug_t*)calloc(1, sizeof(ma_ug_t));
+    n_ug->g = asg_init();
+
+    for (k = m = 0; k < break_points->a.n; k++)
+    {
+        if(k == 0 || (m > 0 && break_points->a.a[m-1] != break_points->a.a[k]))
+        {
+            break_points->a.a[m] = break_points->a.a[k];
+            m++;
+        }
+    }
+    ///fprintf(stderr, "break_points->a.n: %u, m: %u\n", (uint32_t)break_points->a.n, m);
+    break_points->a.n = m;
+
+    for (k = 1, l = 0, p_i = 0; k <= break_points->a.n; ++k) 
+    {
+        if (k == break_points->a.n || (break_points->a.a[k]>>32) != (break_points->a.a[l]>>32)) 
+        {
+            occ = k - l;
+            a = break_points->a.a + l;
+            l = k;
+            if(occ == 0) continue;
+            uID = a[0]>>32;
+            u = &((*ug)->u.a[uID]);
+            if(u->n < 2) continue;
+
+            for (s_i = p_i; s_i < uID; s_i++)
+            {
+                kv_pushp(ma_utg_t, n_ug->u, &p);
+                z = &((*ug)->u.a[s_i]);
+                (*p) = (*z);
+                z->len = z->circ = /**z->start = z->end =**/ z->m = z->n = 0;
+                z->a = NULL; z->s = NULL;
+
+                utg_idx[s_i<<1] = ((uint32_t)(n_ug->u.n-1))<<1;
+                utg_idx[(s_i<<1)+1] = (((uint32_t)(n_ug->u.n-1))<<1)+1;
+            }
+            p_i = uID + 1;
+
+
+            utg_idx[(uID<<1)+1] = (((uint32_t)(n_ug->u.n))<<1)+1;
+            for (m = p_u_idx = 0; m < occ; m++)
+            {
+                idx = (uint32_t)(a[m]);
+                if(!u->circ && idx == 0)
+                {
+                    fprintf(stderr, "ERROR 1\n");
+                    continue;
+                } 
+                
+
+                if(u->circ && idx == 0) 
+                {
+                    av = asg_arc_a((*ug)->g, (uID<<1)+1);
+                    nv = asg_arc_n((*ug)->g, (uID<<1)+1);
+                    for (v = 0; v < nv; v++)
+                    {
+                        if(av[v].del) continue;
+                        av[v].del = 1;
+                        asg_arc_del((*ug)->g, (av[v].v)^1, (av[v].ul>>32)^1, 1);
+                    }
+                    u->circ = 0;
+                    u->start = u->a[0]>>32;
+                    u->end = (u->a[u->n-1]>>32)^1;
+                    continue; 
+                }
+
+                if(idx - p_u_idx <= 0)
+                {
+                    fprintf(stderr, "ERROR2: uID: %u, u->circ: %u, idx: %u, p_u_idx: %u\n", 
+                                                                        uID, u->circ, idx, p_u_idx);
+                    continue;
+                } 
+                
+                
+                push_sub_unitig(n_ug, u, read_g, edge, p_u_idx, idx - p_u_idx);
+                p_u_idx = idx;
+            }
+            push_sub_unitig(n_ug, u, read_g, edge, p_u_idx, u->n - p_u_idx);
+            utg_idx[(uID<<1)] = ((uint32_t)(n_ug->u.n-1))<<1;
+
+        }
+    }
+
+    for (s_i = p_i; s_i < (*ug)->u.n; s_i++)
+    {
+        kv_pushp(ma_utg_t, n_ug->u, &p);
+        z = &((*ug)->u.a[s_i]);
+        (*p) = (*z);
+        z->len = z->circ = /**z->start = z->end =**/ z->m = z->n = 0;
+        z->a = NULL; z->s = NULL;
+
+        utg_idx[s_i<<1] = ((uint32_t)(n_ug->u.n-1))<<1;
+        utg_idx[(s_i<<1)+1] = (((uint32_t)(n_ug->u.n-1))<<1)+1;
+    }
+
+    // for (k = 0; k < (*ug)->u.n; k++)
+    // {
+    //     if(utg_idx[(k<<1)] == (uint32_t)-1) fprintf(stderr, "ERROR 3\n");
+    //     if(utg_idx[(k<<1)+1] == (uint32_t)-1) fprintf(stderr, "ERROR 4\n");
+    // }
+    
+    asg_arc_t *q = NULL;
+    for (k = 0; k < (*ug)->g->n_arc; k++)
+    {
+        if((*ug)->g->arc[k].del) continue;
+        q = asg_arc_pushp(n_ug->g);
+        (*q) = (*ug)->g->arc[k];
+
+        q->v = utg_idx[q->v^1]^1;
+
+        w = q->ul>>32; w = utg_idx[w]; w <<= 32;
+        q->ul <<= 32; q->ul >>= 32; q->ul |= w;
+    }
+    
+    for (k = 0; k < n_ug->u.n; k++)
+    {
+        asg_seq_set(n_ug->g, k, n_ug->u.a[k].len, 0);
+    }
+    
+    asg_cleanup(n_ug->g);
+    
+    // fprintf(stderr, "n_ug->u.n: %u, n_ug->g->n_seq: %u, (*ug)->u.n: %u\n", (uint32_t)n_ug->u.n, (uint32_t)n_ug->g->n_seq,
+    // (uint32_t)(*ug)->u.n);
+
+    // for (k = 0; k < ((*ug)->u.n<<1); k++)
+    // {
+    //     uint32_t ug_rid, n_ug_rid;
+    //     if(k&1) ug_rid = ((*ug)->u.a[k>>1]).start;
+    //     else ug_rid = ((*ug)->u.a[k>>1]).end;
+
+    //     if(utg_idx[k]&1) n_ug_rid = n_ug->u.a[utg_idx[k]>>1].start;
+    //     else n_ug_rid = n_ug->u.a[utg_idx[k]>>1].end;
+        
+    //     if(ug_rid != n_ug_rid)
+    //     {
+    //         fprintf(stderr, "ERROR, uid: %u, dir: %u, circle: %u, ug_rid: %u, n_ug_rid: %u\n", 
+    //                     k>>1, k&1, (*ug)->u.a[k>>1].circ, ug_rid, n_ug_rid);
+    //     }
+    // }
+
+
+
+    ma_ug_destroy((*ug));
+    (*ug) = n_ug;
+    renew_utg(ug, read_g, edge); ///for circle
+    // fprintf(stderr, "***********(1)edge->a.n: %u***********\n", (uint32_t)edge->a.n);
+    // debug_utg_graph(*ug, read_g, edge, 0, 0);
+    // fprintf(stderr, "***********(1)edge->a.n: %u***********\n", (uint32_t)edge->a.n);
+    free(utg_idx);
+}
+
+void print_utg_stats(ma_ug_t *ug, const char* command)
+{
+    uint32_t i;
+    uint64_t len, occ_n, occ_m, occ_n_0;
+    for (i = len = occ_n = occ_m = occ_n_0 = 0; i < ug->u.n; ++i) {
+		ma_utg_t *u = &ug->u.a[i];
+        len += u->len;
+        occ_n += u->n;
+        occ_m += u->m;
+        if(u->n == 0) occ_n_0++;
+    }
+
+    fprintf(stderr, "%s: len: %lu, occ_n: %lu, occ_m: %lu, occ_n_0: %lu\n", 
+                                command, len, occ_n, occ_m, occ_n_0);
+}
+
+void break_ug_contig(ma_ug_t **ug, asg_t *read_g, All_reads *RNF, ma_sub_t *coverage_cut,
+ma_hit_t_alloc* sources, R_to_U* ruIndex, kvec_asg_arc_t_warp* edge, int max_hang, int min_ovlp, 
+int* b_low_cov, int* b_high_cov, double m_rate)
+{
+    if(b_low_cov)
+    {
+        fprintf(stderr, "[M::%s] break potential misassemblies with <%d-fold coverage\n", 
+        __func__, *b_low_cov);
+    }
+
+    if(b_high_cov)
+    {
+        fprintf(stderr, "[M::%s] break potential misassemblies with >%d-fold coverage\n", 
+        __func__, *b_high_cov);
+    }
+
     kvec_t_u64_warp depth;
     kv_init(depth.a);
+    kvec_t_u64_warp break_points;
+    kv_init(break_points.a);
+    kv_in_sub_t depth_i;
+    kv_init(depth_i);
     uint32_t i;
     uint8_t* primary_flag = (uint8_t*)calloc(read_g->n_seq, sizeof(uint8_t));
+    ma_utg_t *u = NULL;
 
     for (i = 0; i < (*ug)->u.n; ++i) 
     {
-        ma_utg_t *u = &((*ug)->u.a[i]);
+        u = &((*ug)->u.a[i]);
         if(u->m == 0) continue;
         if(u->n < 2) continue;
-
+        // detect_break_point(u, i, read_g, RNF, coverage_cut, sources, ruIndex, edge, max_hang, min_ovlp, primary_flag, &depth, &break_points, b_low_cov);
+        // debug_break_point(u, i, read_g, RNF, coverage_cut, sources, ruIndex, edge, max_hang, min_ovlp, primary_flag, &depth, &break_points, b_low_cov);
+        detect_break_point_advance(u, i, read_g, RNF, coverage_cut, sources, ruIndex, edge, max_hang, min_ovlp,
+        primary_flag, &depth, &depth_i, &break_points, b_low_cov, b_high_cov, m_rate);
+        
     }
 
-    destory_UC_Read(&g_read);
-    destory_UC_Read(&tmp);
-    kv_destroy(depth.a);
+    break_all_contigs(ug, read_g, edge, &break_points);
 
+    kv_destroy(depth.a);
+    kv_destroy(break_points.a);
+    kv_destroy(depth_i);
     free(primary_flag);
 }
-
 
 int asg_arc_cut_long_tip_primary_complex(asg_t *g, float drop_ratio, uint32_t stops_threshold)
 {
@@ -10726,7 +11824,7 @@ R_to_U* ruIndex, float chimeric_rate, float drop_ratio, int max_hang, int min_ov
 
     hc_links link;
 
-    if(load_hc_links(&link, output_file_name) == 0)
+    ///if(load_hc_links(&link, output_file_name) == 0)
     {
         init_hc_links(&link, ug->g->n_seq, R_INF.total_reads);
         asg_t *copy_sg = copy_read_graph(sg);
@@ -10742,7 +11840,7 @@ R_to_U* ruIndex, float chimeric_rate, float drop_ratio, int max_hang, int min_ov
         ma_ug_print_bed(ug, sg, &R_INF, coverage_cut, sources, &new_rtg_edges, 
                 max_hang, min_ovlp, asm_opt.hic_inconsist_rate, NULL, NULL, &link);
 
-        write_hc_links(&link, output_file_name);
+        ///write_hc_links(&link, output_file_name);
     }
 
 
@@ -10757,7 +11855,7 @@ R_to_U* ruIndex, float chimeric_rate, float drop_ratio, int max_hang, int min_ov
     ma_ug_destroy(ug);
     kv_destroy(new_rtg_edges.a);
 
-    output_unitig_graph(sg, coverage_cut, output_file_name, sources, ruIndex, max_hang, min_ovlp);
+    ///output_unitig_graph(sg, coverage_cut, output_file_name, sources, ruIndex, max_hang, min_ovlp);
     output_trio_unitig_graph(sg, coverage_cut, output_file_name, FATHER, sources, 
     reverse_sources, bubble_dist, (asm_opt.max_short_tip*2), 0.15, 3, ruIndex, 
     0.05, 0.9, max_hang, min_ovlp, 0);
@@ -10887,7 +11985,9 @@ void merge_unitig_content(ma_utg_t* collection, ma_ug_t* ug, asg_t* read_g, kvec
 
     if(index == 0) return;
 
-    fill_unitig(buffer, index, read_g, edge, collection->circ, &totalLen);
+    ///fill_unitig(buffer, index, read_g, edge, collection->circ, &totalLen);
+    fill_unitig(buffer, index, read_g, edge, /**collection->circ**/
+                    (collection->n == 1 && ug->u.a[collection->a[0]>>33].circ), &totalLen);
 
     ///important. must be here
     if(collection->n == 1 && ug->u.a[collection->a[0]>>33].circ) collection->circ = 1;
@@ -13339,6 +14439,7 @@ kvec_asg_arc_t_warp* new_rtg_edges)
     ///delete_useless_nodes(ug);
     delete_useless_trio_nodes(ug, read_g, coverage_cut, sources, ruIndex);
 
+
     if(asm_opt.purge_level_trio == 1)
     {
 		purge_dups(*ug, read_g, coverage_cut, sources, reverse_sources, ruIndex, new_rtg_edges, 
@@ -13392,6 +14493,19 @@ float chimeric_rate, float drop_ratio, int max_hang, int min_ovlp, int is_bench)
     adjust_utg_by_trio(&ug, sg, flag, TRIO_THRES, sources, reverse_sources, coverage_cut, 
     bubble_dist, tipsLen, tip_drop_ratio, stops_threshold, ruIndex, chimeric_rate, drop_ratio, 
     max_hang, min_ovlp, &new_rtg_edges);    
+
+    if(asm_opt.b_low_cov > 0)
+    {
+        break_ug_contig(&ug, sg, &R_INF, coverage_cut, sources, ruIndex, &new_rtg_edges, max_hang, min_ovlp, 
+        &asm_opt.b_low_cov, NULL, asm_opt.m_rate);
+    }
+
+    if(asm_opt.b_high_cov > 0)
+    {
+        break_ug_contig(&ug, sg, &R_INF, coverage_cut, sources, ruIndex, &new_rtg_edges, max_hang, min_ovlp, 
+        NULL, &asm_opt.b_high_cov, asm_opt.m_rate);
+    }
+
     ///debug_utg_graph(ug, sg, 0, 0);
     ///debug_untig_length(ug, tipsLen, gfa_name);
     ///print_untig_by_read(ug, "m64011_190901_095311/125831121/ccs", 2310925, "end");
@@ -18534,11 +19648,11 @@ uint32_t collect_ma_utg_ts(ma_ug_t *ug, uint32_t v, uint32_t w, ma_utg_t* result
 }
 
 
-void debug_utg_graph(ma_ug_t *ug, asg_t* read_g, int require_equal_nv, int test_tangle)
+void debug_utg_graph(ma_ug_t *ug, asg_t* read_g, kvec_asg_arc_t_warp* edge, int require_equal_nv, int test_tangle)
 {
     asg_t* nsg = ug->g;
     uint32_t n_vtx = nsg->n_seq, i, j, k, l, totalLen, v, nv, nw, w, untig_v, rid_v;
-    asg_arc_t *aw = NULL, *av = NULL;
+    asg_arc_t *aw = NULL, *av = NULL, *t_v = NULL, *t_w = NULL;
     for (i = 0; i < n_vtx; i++)
     {
         if(ug->g->seq[i].del) continue;
@@ -18568,7 +19682,7 @@ void debug_utg_graph(ma_ug_t *ug, asg_t* read_g, int require_equal_nv, int test_
 
             av = asg_arc_a(read_g, v);
             nv = asg_arc_n(read_g, v);
-            l = 0;
+            l = (uint32_t)-1;
             for (k = 0; k < nv; k++)
             {
                 if(av[k].del) continue;
@@ -18578,8 +19692,28 @@ void debug_utg_graph(ma_ug_t *ug, asg_t* read_g, int require_equal_nv, int test_
                     break;
                 }
             }
+
+            if(edge && k == nv)
+            {
+                for (k = 0; k < edge->a.n; k++)
+                {
+                    if(edge->a.a[k].del) continue;
+                    if((edge->a.a[k].ul>>32) == v && edge->a.a[k].v == w)
+                    {
+                        l = asg_arc_len(edge->a.a[k]);
+                        k = nv + 1;
+                        break;
+                    }
+                }
+            }
+            
             if(k == nv) fprintf(stderr ,"******error, j: %u, k: %u, nv: %u\n", j, k, nv);
-            if(l != (uint32_t)(result->a[j])) fprintf(stderr ,"ERROR Length\n");
+            if(l != (uint32_t)(result->a[j]))
+            {
+                fprintf(stderr ,"(i: %u) ERROR Length, l: %u, result->a[j]: %u, j: %u, k: %u, nv: %u, circ: %u, result->n: %u\n", 
+                            i, l, (uint32_t)(result->a[j]), j, k, nv, result->circ, (uint32_t)result->n);
+            }
+             
             totalLen = totalLen + l;
         }
 
@@ -18621,20 +19755,40 @@ void debug_utg_graph(ma_ug_t *ug, asg_t* read_g, int require_equal_nv, int test_
             untig_v = av[j].v;
             if(untig_v&1) rid_v = ug->u.a[untig_v>>1].end;
             else rid_v = ug->u.a[untig_v>>1].start;
-            
+
+            t_v = t_w = NULL;
             for (k = 0; k < nw; k++)
             {
                 if(aw[k].del) continue;
-                if(aw[k].v == rid_v) break;
+                if(aw[k].v == rid_v)
+                {
+                    t_w = &(aw[k]);
+                    break;
+                } 
+                
             }
 
-            if(k == nw) fprintf(stderr, "#########ERROR: i: %u\n", i);
-            if((k != nw) && (av[j].ol != aw[k].ol))
+            if(edge && t_w == NULL)
+            {
+                for (k = 0; k < edge->a.n; k++)
+                {
+                    if(edge->a.a[k].del) continue;
+                    if((edge->a.a[k].ul>>32) == w && edge->a.a[k].v == rid_v)
+                    {
+                        t_w = &(edge->a.a[k]);
+                        break;
+                    }
+                }
+            }
+            
+            if(t_w == NULL) fprintf(stderr, "#########ERROR: i: %u\n", i);
+            t_v = &av[j];
+            if(t_w && (t_v->ol != t_w->ol))
             {
                 fprintf(stderr, "#########????????ERROR\n");
                 fprintf(stderr, "nv: %u, nw: %u\n", nv, nw);
                 fprintf(stderr, "av[%u].ol: %u, aw[%u].ol: %u, untig_v>>1: %u, untig_v&1: %u\n", 
-                j, av[j].ol, k, aw[k].ol, untig_v>>1, untig_v&1);
+                j, t_v->ol, k, t_w->ol, untig_v>>1, untig_v&1);
             }
         }
 
@@ -18661,19 +19815,39 @@ void debug_utg_graph(ma_ug_t *ug, asg_t* read_g, int require_equal_nv, int test_
             if(untig_v&1) rid_v = ug->u.a[untig_v>>1].end;
             else rid_v = ug->u.a[untig_v>>1].start;
             
+            t_v = t_w = NULL;
             for (k = 0; k < nw; k++)
             {
                 if(aw[k].del) continue;
-                if(aw[k].v == rid_v) break;
+                if(aw[k].v == rid_v)
+                {
+                    t_w = &(aw[k]);
+                    break;
+                } 
+                
             }
 
-            if(k == nw) fprintf(stderr, "***********ERROR: i: %u\n", i);
-            if((k != nw) && (av[j].ol != aw[k].ol))
+            if(edge && t_w == NULL)
             {
-                fprintf(stderr, "***********????????ERROR\n");
+                for (k = 0; k < edge->a.n; k++)
+                {
+                    if(edge->a.a[k].del) continue;
+                    if((edge->a.a[k].ul>>32) == w && edge->a.a[k].v == rid_v)
+                    {
+                        t_w = &(edge->a.a[k]);
+                        break;
+                    }
+                }
+            }
+            
+            if(t_w == NULL) fprintf(stderr, "#########ERROR: i: %u\n", i);
+            t_v = &av[j];
+            if(t_w && (t_v->ol != t_w->ol))
+            {
+                fprintf(stderr, "#########????????ERROR\n");
                 fprintf(stderr, "nv: %u, nw: %u\n", nv, nw);
                 fprintf(stderr, "av[%u].ol: %u, aw[%u].ol: %u, untig_v>>1: %u, untig_v&1: %u\n", 
-                j, av[j].ol, k, aw[k].ol, untig_v>>1, untig_v&1);
+                j, t_v->ol, k, t_w->ol, untig_v>>1, untig_v&1);
             }
         }
 
@@ -19764,7 +20938,6 @@ int load_asg_t(asg_t **sg, char* read_file_name)
     return 1;
 }
 
-
 int write_debug_graph(asg_t *sg, ma_hit_t_alloc* sources, ma_sub_t* coverage_cut, 
 char* output_file_name, long long n_read, ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex)
 {
@@ -20295,7 +21468,6 @@ kvec_asg_arc_t_warp* new_rtg_edges, hc_links* link)
             link->a.a[v].f.n = m;
         }
     }
-
 }
 
 
@@ -20351,7 +21523,6 @@ long long tipsLen, R_to_U* ruIndex, int max_hang, int min_ovlp)
     kv_destroy(new_rtg_edges.a);
 }
 
-
 void output_contig_graph_primary(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name, 
 ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, long long bubble_dist, 
 long long tipsLen, float tip_drop_ratio, long long stops_threshold, 
@@ -20368,7 +21539,22 @@ R_to_U* ruIndex, float chimeric_rate, float drop_ratio, int max_hang, int min_ov
     bubble_dist, tipsLen, tip_drop_ratio, stops_threshold, ruIndex, chimeric_rate, drop_ratio, 
     max_hang, min_ovlp, &new_rtg_edges, NULL);
 
+
+    if(asm_opt.b_low_cov > 0)
+    {
+        break_ug_contig(&ug, sg, &R_INF, coverage_cut, sources, ruIndex, &new_rtg_edges, max_hang, min_ovlp, 
+        &asm_opt.b_low_cov, NULL, asm_opt.m_rate);
+    }
+
+    if(asm_opt.b_high_cov > 0)
+    {
+        break_ug_contig(&ug, sg, &R_INF, coverage_cut, sources, ruIndex, &new_rtg_edges, max_hang, min_ovlp, 
+        NULL, &asm_opt.b_high_cov, asm_opt.m_rate);
+    }
+
     ma_ug_seq(ug, sg, &R_INF, coverage_cut, sources, &new_rtg_edges, max_hang, min_ovlp);
+
+    
     
     fprintf(stderr, "Writing primary contig GFA to disk... \n");
     char* gfa_name = (char*)malloc(strlen(output_file_name)+35);
@@ -20405,6 +21591,12 @@ ma_hit_t_alloc* sources, R_to_U* ruIndex, int max_hang, int min_ovlp)
     kv_init(new_rtg_edges.a);
     ma_ug_t *ug = NULL;
     ug = ma_ug_gen_primary(sg, ALTER_LABLE);
+
+    // if(asm_opt.b_low_cov > 0)
+    // {
+    //     break_ug_contig(&ug, sg, &R_INF, coverage_cut, sources, ruIndex, &new_rtg_edges, max_hang, min_ovlp, asm_opt.b_low_cov);
+    // }
+
     ma_ug_seq(ug, sg, &R_INF, coverage_cut, sources, &new_rtg_edges, max_hang, min_ovlp);
 
     fprintf(stderr, "Writing alternate contig GFA to disk... \n");
@@ -26089,11 +27281,12 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
         /*******************************for debug***************************************/
     }
 
-    rescue_bubble_by_chain(sg, coverage_cut, sources, reverse_sources, bubble_dist, 
-        (asm_opt.max_short_tip*2), 0.15, 3, ruIndex, 0.05, 0.9, max_hang_length, mini_overlap_length, 10, gap_fuzz);
 
     if (ha_opt_triobin(&asm_opt) && ha_opt_hic(&asm_opt))
     {
+        rescue_bubble_by_chain(sg, coverage_cut, sources, reverse_sources, bubble_dist, 
+        (asm_opt.max_short_tip*2), 0.15, 3, ruIndex, 0.05, 0.9, max_hang_length, mini_overlap_length, 10, gap_fuzz);
+
         char *buf = (char*)calloc(strlen(output_file_name) + 25, 1);
 		sprintf(buf, "%s.hic.bench", output_file_name);
         benchmark_hic_graph(sg, coverage_cut, buf, sources, reverse_sources, bubble_dist, 
@@ -26102,6 +27295,9 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
     }
     else if (ha_opt_triobin(&asm_opt))
     {
+        rescue_bubble_by_chain(sg, coverage_cut, sources, reverse_sources, bubble_dist, 
+        (asm_opt.max_short_tip*2), 0.15, 3, ruIndex, 0.05, 0.9, max_hang_length, mini_overlap_length, 10, gap_fuzz);
+
 		char *buf = (char*)calloc(strlen(output_file_name) + 25, 1);
 		sprintf(buf, "%s.dip", output_file_name);
         output_unitig_graph(sg, coverage_cut, buf, sources, ruIndex, max_hang_length, mini_overlap_length);
@@ -26116,6 +27312,9 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
     }
     else if(ha_opt_hic(&asm_opt))
     {
+        rescue_bubble_by_chain(sg, coverage_cut, sources, reverse_sources, bubble_dist, 
+        (asm_opt.max_short_tip*2), 0.15, 3, ruIndex, 0.05, 0.9, max_hang_length, mini_overlap_length, 10, gap_fuzz);
+
         char *buf = (char*)calloc(strlen(output_file_name) + 25, 1);
 		sprintf(buf, "%s.hic", output_file_name);
         output_hic_graph(sg, coverage_cut, buf, sources, reverse_sources, bubble_dist, 
@@ -26133,6 +27332,9 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
 
         output_contig_graph_primary_pre(sg, coverage_cut, output_file_name, sources, reverse_sources, 
         asm_opt.small_pop_bubble_size, asm_opt.max_short_tip, ruIndex, max_hang_length, mini_overlap_length);
+
+        rescue_bubble_by_chain(sg, coverage_cut, sources, reverse_sources, bubble_dist, 
+        (asm_opt.max_short_tip*2), 0.15, 3, ruIndex, 0.05, 0.9, max_hang_length, mini_overlap_length, 10, gap_fuzz);
 
         output_contig_graph_primary(sg, coverage_cut, output_file_name, sources, reverse_sources, 
         bubble_dist, (asm_opt.max_short_tip*2), 0.15, 3, ruIndex, 0.05, 0.9, max_hang_length,

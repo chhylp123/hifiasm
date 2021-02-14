@@ -7369,7 +7369,7 @@ void init_chain_hic_warp(ma_ug_t* ug, hc_links* link, bubble_type* bub, chain_hi
         }
     }
 
-    fprintf(stderr, "# chain: %u, # pre chain: %u\n", m, (uint32_t)(*c_w).n);
+    ///fprintf(stderr, "# chain: %u, # pre chain: %u\n", m, (uint32_t)(*c_w).n);
     (*c_w).n = m;
     for (i = 0; i < (*c_w).n; i++)
     {
@@ -11272,7 +11272,7 @@ int alignment_worker_pipeline(sldat_t* sl, const enzyme *fn1, const enzyme *fn2)
 
         kt_pipeline(3, worker_pipeline, sl, 3);
 
-        fprintf(stderr, "fn1->a[i]: %s, fn2->a[i]: %s, sl->hits.a.n: %u\n", fn1->a[i], fn2->a[i], (uint32_t)sl->hits.a.n);
+        ///fprintf(stderr, "fn1->a[i]: %s, fn2->a[i]: %s, sl->hits.a.n: %u\n", fn1->a[i], fn2->a[i], (uint32_t)sl->hits.a.n);
         
         
         kseq_destroy(sl->ks1);
@@ -11281,11 +11281,11 @@ int alignment_worker_pipeline(sldat_t* sl, const enzyme *fn1, const enzyme *fn2)
         gzclose(fp2);
     }
 
-    fprintf(stderr, "+sl->hits.a.n: %u\n", (uint32_t)sl->hits.a.n);
+    ///fprintf(stderr, "+sl->hits.a.n: %u\n", (uint32_t)sl->hits.a.n);
 
     dedup_hits(&(sl->hits));
 
-    fprintf(stderr, "-sl->hits.a.n: %u\n", (uint32_t)sl->hits.a.n);
+    ///fprintf(stderr, "-sl->hits.a.n: %u\n", (uint32_t)sl->hits.a.n);
     
     return 1;
 }
@@ -11401,127 +11401,6 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx)
     return 1;
 }
 
-int hic_short_align_back(const char *fn1, const char *fn2, ha_ug_index* idx)
-{
-    double index_time = yak_realtime();
-    sldat_t sl;
-    gzFile fp1, fp2;
-    kvec_hc_edge back_hc_edge;
-    kv_init(back_hc_edge.a);
-    if ((fp1 = gzopen(fn1, "r")) == 0) return 0;
-    if ((fp2 = gzopen(fn2, "r")) == 0) return 0;
-    sl.ks1 = kseq_init(fp1);
-    sl.ks2 = kseq_init(fp2);
-    sl.idx = idx;
-    sl.link = idx->link;
-    sl.chunk_size = 20000000;
-    sl.n_thread = asm_opt.thread_num;
-    sl.total_base = sl.total_pair = 0;
-    idx->max_cnt = 5;
-    kv_init(sl.hits.a);
-    
-    if(!load_hc_hits(&sl.hits, asm_opt.output_file_name))
-    {
-        /*******************************for debug************************************/
-        // load_reads(&R1, fn1);
-        // test_reads(&R1, fn1);
-        // load_reads(&R2, fn2);
-        // test_reads(&R1, fn1);
-        /*******************************for debug************************************/
-        fprintf(stderr, "+sl->hits.a.n: %u\n", (uint32_t)sl.hits.a.n);
-        kt_pipeline(3, worker_pipeline, &sl, 3);
-        fprintf(stderr, "-sl->hits.a.n: %u\n", (uint32_t)sl.hits.a.n);
-        fprintf(stderr, "fn1: %s, fn2: %s\n", fn1, fn2);
-
-        /*******************************for debug************************************/
-        // sort_hits(&sl.hits);
-        // print_hits(idx, &sl.hits, fn1);
-        /*******************************for debug************************************/
-        dedup_hits(&sl.hits);
-        write_hc_hits(&sl.hits, asm_opt.output_file_name);
-    }
-
-    fprintf(stderr, "u.n: %d, uID_bits: %lu, pos_bits: %lu, sl.hits.a.n: %u\n", (uint32_t)idx->ug->u.n, idx->uID_bits, idx->pos_bits, (uint32_t)sl.hits.a.n);
-
-    H_partition hap;
-    MT M;
-    init_MT(&M, idx->ug->g->n_seq<<1);
-    bubble_type bub; 
-    memset(&bub, 0, sizeof(bubble_type));
-    bub.round_id = 0; bub.n_round = 2;
-    for (bub.round_id = 0; bub.round_id < bub.n_round; bub.round_id++)
-    {
-        identify_bubbles(idx->ug, &bub, idx->link);
-        if(bub.round_id == 0)
-        {
-            collect_hc_links(sl.idx, &sl.hits, idx->link, &bub, &M);
-            collect_hc_reverse_links(idx->link, idx->ug, &bub);
-        }
-        init_hic_p((ha_ug_index*)sl.idx, &sl.hits, idx->link, &bub, &back_hc_edge, &M, &hap, 0);
-        ///init_hic_p_new((ha_ug_index*)sl.idx, &sl.hits, idx->link, &bub, &back_hc_edge, &M);
-        reset_H_partition(&hap, (bub.round_id == 0? 1 : 0));
-        init_contig_partition(&hap, idx, &bub);
-        phasing_improvement(&hap, &(hap.g_p), idx, &bub);
-        label_unitigs(&(hap.g_p), idx->ug);
-
-        ///print_hc_links(idx->link, 0, &hap);
-    }
-
-    cluster_contigs(&bub, idx, &sl.hits, &M, &hap);
-
-    destory_MT(&M);
-
-    ///print_bubbles(idx->ug, &bub, sl.hits.a.n?&sl.hits:NULL, idx->link, idx);
-    ///print_hits(idx, &sl.hits, fn1);
-    
-
-    ///print_debug_bubble_graph(&bub, idx->ug, asm_opt.output_file_name);
-    // print_bubble_chain(&bub);
-    // print_hc_links(idx->link, 0, &hap);
-    
-    ///print_contig_partition(&hap, "final");
-
-    // uint32_t i;
-    // for (i = 0; i < idx->ug->g->n_seq; i++)
-    // {
-    //     fprintf(stderr, "utg%.6ul, index: %u\n", (int)(i+1), bub.index[i]);
-    // }
-    
-
-
-
-    destory_contig_partition(&hap);
-    kv_destroy(back_hc_edge.a);
-    return 1;
-    
-    /*******************************for debug************************************/
-    // destory_reads(&R1);
-    // destory_reads(&R2);
-    /*******************************for debug************************************/
-    print_bubbles(idx->ug, &bub, sl.hits.a.n?&sl.hits:NULL, idx->link, idx);
-    collect_hc_reverse_links(idx->link, idx->ug, &bub);
-    normalize_hc_links(idx->link);
-    /*******************************for debug************************************/
-    ///print_hc_links(&link);
-    /*******************************for debug************************************/
-    min_cut_t* cut = clean_hap(idx->link, &bub, idx->ug);
-    ///print_bubbles(idx->ug, &bub, NULL, &link, idx);
-    G_partition* gp = clean_bubbles(idx->link, &bub, cut, idx->ug);
-    ///print_hc_links(&link);
-
-    destory_min_cut_t(cut); free(cut);
-    destory_G_partition(gp); free(gp);
-    kv_destroy(sl.hits.a);
-    destory_bubbles(&bub);
-    kseq_destroy(sl.ks1);
-    kseq_destroy(sl.ks2);
-    gzclose(fp1);
-    gzclose(fp2);
-    
-    fprintf(stderr, "[M::%s::%.3f] processed %lu pairs; %lu bases\n", __func__, yak_realtime()-index_time, sl.total_pair, sl.total_base);
-    return 1;
-}
-
 
 void hic_analysis(ma_ug_t *ug, asg_t* read_g, hc_links* link)
 {
@@ -11533,8 +11412,7 @@ void hic_analysis(ma_ug_t *ug, asg_t* read_g, hc_links* link)
     ug_index->read_g = read_g;
     ug_index->link = link;
     ///test_unitig_index(ug_index, ug);
-    ///hic_short_align(asm_opt.hic_reads[0], asm_opt.hic_reads[1], ug_index);
-    hic_short_align_back(asm_opt.hic_reads[0]->a[0], asm_opt.hic_reads[1]->a[0], ug_index);
+    hic_short_align(asm_opt.hic_reads[0], asm_opt.hic_reads[1], ug_index);
     
     destory_hc_pt_index(ug_index);
 }

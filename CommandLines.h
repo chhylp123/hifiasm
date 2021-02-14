@@ -3,7 +3,7 @@
 
 #include <pthread.h>
 
-#define HA_VERSION "0.14-r309"
+#define HA_VERSION "0.14-r310"
 
 #define VERBOSE 0
 
@@ -49,7 +49,9 @@ typedef struct {
 	double max_ov_diff_final;
 	int hom_cov;
     int het_cov;
-    int break_cov;
+    int b_low_cov;
+    int b_high_cov;
+    double m_rate;
 	int max_n_chain; // fall-back max number of chains to consider
 	int min_hist_kmer_cnt;
     int load_index_from_disk;
