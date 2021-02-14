@@ -43,7 +43,7 @@ Assembly.o: kthread.h
 CommandLines.o: CommandLines.h ketopt.h
 Correct.o: Correct.h Hash_Table.h htab.h Process_Read.h Overlaps.h kvec.h
 Correct.o: kdq.h CommandLines.h Levenshtein_distance.h POA.h Assembly.h
-Correct.o: ksw2.h
+Correct.o: ksw2.h ksort.h
 Hash_Table.o: Hash_Table.h htab.h Process_Read.h Overlaps.h kvec.h kdq.h
 Hash_Table.o: CommandLines.h ksort.h
 Levenshtein_distance.o: Levenshtein_distance.h
