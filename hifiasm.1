@@ -385,6 +385,21 @@ maternal/haplotype2 assembly.
 .RE
 
 .PP
+With Hi-C partition, hifiasm outputs the assembly graphs like trio partition,
+but with additional prefix
+.B [hic].
+In this mode, hifiasm keeps Hi-C alignment results and Hi-C index in two bin 
+files: 
+.B *hic.lk.bin
+and 
+.B *hic.tlb.bin.
+Rerunning hifiasm with different Hi-C reads needs to delete these bin files.
+.RE
+
+
+
+
+.PP
 For each graph, hifiasm also outputs a simplified version without sequences for
 the ease of visualization. Hifiasm keeps corrected reads and overlaps in three
 binary files such as it can regenerate assembly graphs from the binary files

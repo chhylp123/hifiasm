@@ -11601,7 +11601,6 @@ void init_hc_links(hc_links* link, uint64_t ug_num, uint64_t r_num)
     {
         kv_init(link->bed.a[i]);
     }
-    
 }
 
 void destory_hc_links(hc_links* link)
@@ -11619,6 +11618,7 @@ void destory_hc_links(hc_links* link)
         kv_destroy(link->bed.a[i]);
     }
     kv_destroy(link->bed);
+    kv_destroy(link->enzymes);
 }
 
 void pop_small_bub(ma_ug_t *ug)
@@ -11855,7 +11855,7 @@ R_to_U* ruIndex, float chimeric_rate, float drop_ratio, int max_hang, int min_ov
     ma_ug_destroy(ug);
     kv_destroy(new_rtg_edges.a);
 
-    ///output_unitig_graph(sg, coverage_cut, output_file_name, sources, ruIndex, max_hang, min_ovlp);
+    output_unitig_graph(sg, coverage_cut, output_file_name, sources, ruIndex, max_hang, min_ovlp);
     output_trio_unitig_graph(sg, coverage_cut, output_file_name, FATHER, sources, 
     reverse_sources, bubble_dist, (asm_opt.max_short_tip*2), 0.15, 3, ruIndex, 
     0.05, 0.9, max_hang, min_ovlp, 0);

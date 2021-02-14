@@ -444,7 +444,7 @@ void hc_pt_t_gen_single(hc_pt1_t* pt, uint64_t* up_bound)
 int write_hc_pt_index(ha_ug_index* idx, char* file_name)
 {
     char* gfa_name = (char*)malloc(strlen(file_name)+25);
-    sprintf(gfa_name, "%s.hc_tlb", file_name);
+    sprintf(gfa_name, "%s.hic.tlb.bin", file_name);
     FILE* fp = fopen(gfa_name, "w");
     if (!fp) {
         free(gfa_name);
@@ -481,7 +481,7 @@ int load_hc_pt_index(ha_ug_index** r_idx, char* file_name)
     uint64_t flag = 0;
     double index_time = yak_realtime();
     char* gfa_name = (char*)malloc(strlen(file_name)+25);
-    sprintf(gfa_name, "%s.hc_tlb", file_name);
+    sprintf(gfa_name, "%s.hic.tlb.bin", file_name);
     FILE* fp = fopen(gfa_name, "r");
     if (!fp) {
         free(gfa_name);
@@ -2142,6 +2142,7 @@ void destory_pdq(pdq* q)
 {
     kv_destroy(q->x);
     kv_destroy(q->dis);
+    kv_destroy(q->vis);
 }
 
 void reset_pdq(pdq* q)
@@ -2889,7 +2890,7 @@ int load_hc_links(hc_links* link, const char *fn)
 void write_hc_hits(kvec_pe_hit* hits, const char *fn)
 {
     char *buf = (char*)calloc(strlen(fn) + 25, 1);
-	sprintf(buf, "%s.hic.lk", fn);
+	sprintf(buf, "%s.hic.lk.bin", fn);
     FILE* fp = fopen(buf, "w");
 
     fwrite(&hits->a.n, sizeof(hits->a.n), 1, fp);
@@ -2903,7 +2904,7 @@ int load_hc_hits(kvec_pe_hit* hits, const char *fn)
 {
     uint64_t flag = 0;
     char *buf = (char*)calloc(strlen(fn) + 25, 1);
-	sprintf(buf, "%s.hic.lk", fn);
+	sprintf(buf, "%s.hic.lk.bin", fn);
 
     FILE* fp = NULL; 
     fp = fopen(buf, "r"); 
