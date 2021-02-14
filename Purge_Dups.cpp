@@ -1539,7 +1539,7 @@ void quick_LIS(asg_arc_t_offset* x, uint32_t n, kvec_t_i32_warp* tailIndex, kvec
                                     i, Get_xOff(x[i].Off), Get_yOff(x[i].Off), pos);
             }
             /*******************************for debug************************************/
-            prevIndex->a.a[i] = pos > 1? tailIndex->a.a[pos - 1] : -1; 
+            prevIndex->a.a[i] = pos > 0? tailIndex->a.a[pos - 1] : -1; 
             tailIndex->a.a[pos] = i; 
         } 
     }
