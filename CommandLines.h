@@ -90,6 +90,7 @@ typedef struct {
     long long num_recorrected_bases;
 	long long mem_buf;
     long long coverage;
+    int hap_occ;
     
 } hifiasm_opt_t;
 

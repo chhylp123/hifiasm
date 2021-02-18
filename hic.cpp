@@ -135,7 +135,7 @@ typedef struct {
     uint64_t pos_mode;
     uint64_t rev_mode;
     uint64_t k;
-    uint64_t max_cnt;
+    uint64_t hap_cnt;
 
 
     uint64_t pre;
@@ -271,7 +271,8 @@ void init_ha_ug_index_opt(ha_ug_index* idx, ma_ug_t *ug, int k, pldat_t* p)
     idx->pre = HIC_COUNTER_BITS;
     idx->tot = 1 << idx->pre;
     idx->tot_pos = 0;
-    idx->up_bound = 1;
+    ///idx->up_bound = 1;
+    idx->up_bound = asm_opt.hap_occ;
     CALLOC(idx->idx_buf, idx->tot);
     for (i = 0; i < idx->tot; i++)
     {
@@ -962,7 +963,7 @@ inline void print_pos_list(const ha_ug_index* idx, s_hit *l, uint64_t occ, uint6
     }
 }
 
-void get_alignment(char *r, uint64_t len, uint64_t k_mer, kvec_vote* buf, 
+void get_alignment_back(char *r, uint64_t len, uint64_t k_mer, kvec_vote* buf, 
 const ha_ug_index* idx, uint64_t buf_iter, uint64_t rid)
 {
     uint64_t i, j, l = 0, skip, *pos_list = NULL, cnt, rev, self_p, ref_p, u_len, uID;
@@ -990,7 +991,7 @@ const ha_ug_index* idx, uint64_t buf_iter, uint64_t rid)
                 // }
                 /*******************************for debug************************************/
                 cnt = get_hc_pt1_count((ha_ug_index*)idx, hash, &pos_list);
-                if(cnt > idx->max_cnt) continue;
+                if(cnt > idx->hap_cnt) continue;
                 if(cnt != 1) continue; ///might be able to be disabled in future
 
                 
@@ -1162,6 +1163,210 @@ const ha_ug_index* idx, uint64_t buf_iter, uint64_t rid)
     // fprintf(stderr, "\n");
     /*******************************for debug************************************/
 }
+
+
+void get_alignment(char *r, uint64_t len, uint64_t k_mer, kvec_vote* buf, 
+const ha_ug_index* idx, uint64_t buf_iter, uint64_t rid)
+{
+    uint64_t i, j, l = 0, skip, *pos_list = NULL, cnt, rev, self_p, ref_p, u_len, uID;
+    uint64_t x[4], mask = (1ULL<<k_mer) - 1, shift = k_mer - 1, hash;
+    s_hit *p = NULL;
+    ///buf->a.n = 0;
+    for (i = l = 0, x[0] = x[1] = x[2] = x[3] = 0; i < len; ++i) {
+        int c = seq_nt4_table[(uint8_t)r[i]];
+        ///c = 00, 01, 10, 11
+        if (c < 4) { // not an "N" base
+            ///x[0] & x[1] are the forward k-mer
+            ///x[2] & x[3] are the reverse complementary k-mer
+            x[0] = (x[0] << 1 | (c&1))  & mask;
+            x[1] = (x[1] << 1 | (c>>1)) & mask;
+            x[2] = x[2] >> 1 | (uint64_t)(1 - (c&1))  << shift;
+            x[3] = x[3] >> 1 | (uint64_t)(1 - (c>>1)) << shift;
+            if (++l >= k_mer)
+            {
+                hash = hc_hash_long(x, &skip, k_mer);
+                if(skip == (uint64_t)-1) continue;
+                /*******************************for debug************************************/
+                // if(debug_hash_value(r, i, k_mer) != hash)
+                // {
+                //     fprintf(stderr, "ERROR\n");
+                // }
+                /*******************************for debug************************************/
+                cnt = get_hc_pt1_count((ha_ug_index*)idx, hash, &pos_list);
+                if(cnt > idx->hap_cnt) continue;
+                if(cnt != 1) continue; ///might be able to be disabled in future
+
+                ///rev:uID:pos
+                for (j = 0; j < cnt; j++)
+                {
+                    kv_pushp(s_hit, buf->a, &p);
+                    rev = (pos_list[j]>>63) != skip;
+                    self_p = i;
+                    ref_p = pos_list[j] & idx->pos_mode;
+                    uID = (pos_list[j] << 1) >> (64 - idx->uID_bits);
+                    u_len = idx->ug->u.a[uID].len;
+                    if(rev) ref_p = u_len - 1 - (ref_p + 1 - k_mer);
+                    p->off_cnt = self_p | ((uint64_t)k_mer << 32); ///high bits should be the legnth
+
+                    p->ref = ref_p >= self_p? (ref_p-self_p) 
+                                    : (self_p-ref_p) + ((uint64_t)1 << (idx->pos_bits - 1));
+                    p->ref = (rev << 63)|(pos_list[j] & idx->uID_mode)|(p->ref&idx->pos_mode);
+
+
+                    /*******************************for debug************************************/
+                    // if(check_exact_match(r, i + 1 - k_mer, len,
+                    //                     idx->ug->u.a[uID].s, ref_p  + 1 - k_mer, u_len, k_mer, rev, 0) != k_mer
+                    //     ||
+                    //    check_exact_match(r, i, len,
+                    //                     idx->ug->u.a[uID].s, ref_p, u_len, k_mer, rev, 1) != k_mer)
+                    // {
+                    //     fprintf(stderr, "ERROR\n");
+                    // }
+                    /*******************************for debug************************************/
+                }
+                
+                if(cnt == 1)
+                {
+                    ///uint64_t debug_right = 0, debug_left = 0, debug_len;
+
+                    j = check_exact_match(r, self_p + 1, len, idx->ug->u.a[uID].s, ref_p + 1, u_len, len, rev, 0);
+                    
+                    ///debug_right = j;
+                    ///if(j == 0) continue;
+                    if((j + 1) >= k_mer)
+                    {
+                        l = 0, x[0] = x[1] = x[2] = x[3] = 0;
+                        i = i + j - (k_mer - 1);
+                    }
+                    else
+                    {
+                        ///l = i - (i + j - (k_mer - 1));
+                        l = k_mer - j -1;
+                    }
+                    buf->a.a[buf->a.n-1].off_cnt += ((uint64_t)j << 32) + j;
+
+                    if(self_p >= k_mer && ref_p >= k_mer)
+                    {
+                        j = check_exact_match(r, self_p - k_mer, len, idx->ug->u.a[uID].s, 
+                                                                ref_p - k_mer, u_len, len, rev, 1);
+                        buf->a.a[buf->a.n-1].off_cnt += ((uint64_t)j << 32);
+                        ///debug_left = j;
+                    }
+
+
+                    // debug_len = check_exact_match(r, self_p + debug_right, len, idx->ug->u.a[uID].s, 
+                    // ref_p + debug_right, u_len, len, rev, 1);
+                    // if(debug_len!= (debug_left + debug_right + k_mer))
+                    // {
+                    //     fprintf(stderr, "debug_len: %lu, debug_left: %lu, debug_right: %lu\n",
+                    //     debug_len, debug_left, debug_right);
+                    // }
+                }
+                
+            }
+            
+        } else l = 0, x[0] = x[1] = x[2] = x[3] = 0; // if there is an "N", restart
+    }
+    
+    ///if(buf->a.n - buf_iter <= 1) return;
+    if(buf->a.n - buf_iter == 0) return;
+    if(buf->a.n - buf_iter > 1) radix_sort_hc_s_hit_an1(buf->a.a + buf_iter, buf->a.a + buf->a.n);
+
+
+
+    /*******************************for debug************************************/
+    // print_pos_list(idx, buf->a.a+buf_iter, buf->a.n - buf_iter, rid, (buf_iter != 0));
+    // fprintf(stderr, "len0:%lu\n", buf->a.n - buf_iter);
+    // for (i = buf_iter; i < buf->a.n; i++)
+    // {
+    //     interpret_pos(idx, &buf->a.a[i], &rev, &uID, &ref_p, &self_p, &cnt, NULL);
+    //     fprintf(stderr, "(%lu) rev: %lu, uID: %lu, ref_p: %lu, self_p: %lu, len: %lu\n", 
+    //                                                         i, rev, uID, ref_p, self_p, cnt);
+    // }
+    /*******************************for debug************************************/
+
+
+
+
+
+    uint64_t cur_ref_p, thres = (len * HIC_R_E_RATE) + 1, m, index_beg, ovlp, maxLen = 0, max_i = (uint64_t)-1;
+    i = m = buf_iter;
+    while (i < buf->a.n)
+    {
+        interpret_pos(idx, &buf->a.a[i], &rev, &uID, &ref_p, &self_p, &cnt, NULL);
+        /*******************************for debug************************************/
+        // if(check_exact_match(r, self_p, len, idx->ug->u.a[uID].s, 
+        //                         ref_p, idx->ug->u.a[uID].len, cnt, rev, 1) != cnt)
+        // {
+        //     fprintf(stderr, "ERROR\n");
+        // }
+        /*******************************for debug************************************/
+        // if(self_p > ref_p)
+        // {
+        //     i++; 
+        //     continue; ///fix this in future
+        // } 
+        cur_ref_p = buf->a.a[i].ref;
+        index_beg = i;
+        while ((i < buf->a.n) && ((buf->a.a[i].ref>>idx->pos_bits) == (cur_ref_p>>idx->pos_bits)) && 
+               (buf->a.a[i].ref - cur_ref_p <= thres))
+        {
+            i++;
+        }
+        if(i - index_beg > 1)
+        {
+            radix_sort_hc_s_hit_an2(buf->a.a + index_beg, buf->a.a + i);
+        }
+        ovlp = collect_votes(buf->a.a + index_beg, i - index_beg);
+        buf->a.a[m] = buf->a.a[i - 1];
+        buf->a.a[m].off_cnt = (buf->a.a[m].off_cnt << 32)>>32;
+        buf->a.a[m].off_cnt += ((uint64_t)ovlp<<32);
+
+        if(maxLen < (ovlp&((uint64_t)65535))) maxLen = (ovlp&((uint64_t)65535)), max_i = m;
+
+        m++;
+    }
+    buf->a.n = m; 
+
+    /*******************************for debug************************************/
+    // for (i = buf_iter; i < buf->a.n; i++)
+    // {
+    //     uint64_t eLen, tLen;
+    //     interpret_pos(idx, &buf->a.a[i], &rev, &uID, &ref_p, &self_p, &eLen, &tLen);
+    //     if(maxLen < eLen) fprintf(stderr, "ERROR1\n");
+    //     if(i == max_i && maxLen != eLen) fprintf(stderr, "ERROR2\n");
+    // }
+    /*******************************for debug************************************/
+    ///select the best alignment at [buf_iter, m)
+    
+    /*******************************for debug************************************/
+    // fprintf(stderr, "len1:%lu, max_i: %lu\n", buf->a.n - buf_iter, max_i);
+    // for (i = buf_iter; i < buf->a.n; i++)
+    // {
+    //     uint64_t eLen, tLen;
+    //     interpret_pos(idx, &buf->a.a[i], &rev, &uID, &ref_p, &self_p, &eLen, &tLen);
+    //     fprintf(stderr, "(%lu) rev: %lu, uID: %lu, ref_p: %lu, self_p: %lu, eLen: %lu, tLen: %lu\n", 
+    //                                                         i, rev, uID, ref_p, self_p, eLen, tLen);
+    // }
+    /*******************************for debug************************************/
+
+    compress_mapped_pos(idx, buf, buf_iter, max_i, thres);
+    
+    /*******************************for debug************************************/
+    // fprintf(stderr, "len2:%lu, max_i: %lu\n", buf->a.n - buf_iter, max_i);
+    // for (i = buf_iter; i < buf->a.n; i++)
+    // {
+    //     uint64_t eLen, tLen;
+    //     interpret_pos(idx, &buf->a.a[i], &rev, &uID, &ref_p, &self_p, &eLen, &tLen);
+    //     fprintf(stderr, "(%lu) rev: %lu, uID: %lu, ref_p: %lu, self_p: %lu, eLen: %lu, tLen: %lu\n", 
+    //                                                         i, rev, uID, ref_p, self_p, eLen, tLen);
+    // }
+    // if(buf->a.n != m) fprintf(stderr, "Changed\n");
+    // fprintf(stderr, "\n");
+    /*******************************for debug************************************/
+}
+
+
 inline int is_unreliable_hits(long long rev, long long ref_p, long long tLen, uint64_t uID, hc_links* link)
 {
     uint64_t i;
@@ -2797,7 +3002,7 @@ void write_hc_links(hc_links* link, const char *fn)
 {
     uint64_t k;
     char *buf = (char*)calloc(strlen(fn) + 25, 1);
-	sprintf(buf, "%s.hic.link", fn);
+	sprintf(buf, "%s.hic.link.bin", fn);
     FILE* fp = fopen(buf, "w");
 
     fwrite(&link->a.n, sizeof(link->a.n), 1, fp);
@@ -2833,7 +3038,7 @@ int load_hc_links(hc_links* link, const char *fn)
 {
     uint64_t k, flag = 0;
     char *buf = (char*)calloc(strlen(fn) + 25, 1);
-	sprintf(buf, "%s.hic.link", fn);
+	sprintf(buf, "%s.hic.link.bin", fn);
 
     FILE* fp = NULL; 
     fp = fopen(buf, "r"); 
@@ -2941,8 +3146,9 @@ void print_hc_links(hc_links* link, int dir, H_partition* hap)
     if(dir == 0)
     {
         double f_w, r_w;
-        for (i = 0, f_w = r_w = 0; i < link->a.n; ++i) 
+        for (i = 0; i < link->a.n; ++i) 
         { 
+            f_w = r_w = 0;
             for (k = 0; k < link->a.a[i].e.n; k++)
             {
                 if(link->a.a[i].e.a[k].del) continue;
@@ -2964,7 +3170,7 @@ void print_hc_links(hc_links* link, int dir, H_partition* hap)
             }
 
             fprintf(stderr, "self-utg%.6dl\tFW:%f\tRW:%f\tRT:%f\n**************************************************\n", 
-            (int)(i+1), f_w, r_w, r_w/f_w);
+            (int)(i+1), f_w, r_w, (f_w+r_w) != 0? r_w/(f_w+r_w):0);
         }
     }
     
@@ -11272,8 +11478,6 @@ int alignment_worker_pipeline(sldat_t* sl, const enzyme *fn1, const enzyme *fn2)
         sl->ks2 = kseq_init(fp2);
 
         kt_pipeline(3, worker_pipeline, sl, 3);
-
-        ///fprintf(stderr, "fn1->a[i]: %s, fn2->a[i]: %s, sl->hits.a.n: %u\n", fn1->a[i], fn2->a[i], (uint32_t)sl->hits.a.n);
         
         
         kseq_destroy(sl->ks1);
@@ -11282,7 +11486,6 @@ int alignment_worker_pipeline(sldat_t* sl, const enzyme *fn1, const enzyme *fn2)
         gzclose(fp2);
     }
 
-    ///fprintf(stderr, "+sl->hits.a.n: %u\n", (uint32_t)sl->hits.a.n);
 
     dedup_hits(&(sl->hits));
 
@@ -11302,7 +11505,7 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx)
     sl.chunk_size = 20000000;
     sl.n_thread = asm_opt.thread_num;
     sl.total_base = sl.total_pair = 0;
-    idx->max_cnt = 5;
+    idx->hap_cnt = asm_opt.hap_occ;
     kv_init(sl.hits.a);
     
     if(!load_hc_hits(&sl.hits, asm_opt.output_file_name))
@@ -11350,6 +11553,8 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx)
 
         ///print_hc_links(idx->link, 0, &hap);
     }
+
+    ///print_hc_links(idx->link, 0, &hap);
 
     cluster_contigs(&bub, idx, &sl.hits, &M, &hap);
 
@@ -11698,7 +11903,7 @@ int hic_short_align_bench(const enzyme *fn1, const enzyme *fn2, const char *outp
     sl.chunk_size = 20000000;
     sl.n_thread = asm_opt.thread_num;
     sl.total_base = sl.total_pair = 0;
-    idx->max_cnt = 5;
+    idx->hap_cnt = asm_opt.hap_occ;
     kv_init(sl.hits.a);
     fprintf(stderr, "u.n: %d, uID_bits: %lu, pos_bits: %lu\n", (uint32_t)idx->ug->u.n, idx->uID_bits, idx->pos_bits);
     

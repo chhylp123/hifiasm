@@ -11825,7 +11825,7 @@ R_to_U* ruIndex, float chimeric_rate, float drop_ratio, int max_hang, int min_ov
 
     hc_links link;
 
-    ///if(load_hc_links(&link, output_file_name) == 0)
+    if(load_hc_links(&link, output_file_name) == 0)
     {
         init_hc_links(&link, ug->g->n_seq, R_INF.total_reads);
         asg_t *copy_sg = copy_read_graph(sg);
@@ -11841,7 +11841,7 @@ R_to_U* ruIndex, float chimeric_rate, float drop_ratio, int max_hang, int min_ov
         ma_ug_print_bed(ug, sg, &R_INF, coverage_cut, sources, &new_rtg_edges, 
                 max_hang, min_ovlp, asm_opt.hic_inconsist_rate, NULL, NULL, &link);
 
-        ///write_hc_links(&link, output_file_name);
+        write_hc_links(&link, output_file_name);
     }
 
 
@@ -13779,9 +13779,11 @@ uint8_t is_final_check, float double_check_rate, uint8_t flag, float drop_rate)
                 if(R_INF.trio_flag[rId] == flag) flag_occ++;
                 if(R_INF.trio_flag[rId] != flag) non_flag_occ++;
             }
+            
             if(is_final_check == 0 && hap_label_occ == u->n) continue;
             ///if(is_double_check && non_flag_occ < u->n*DOUBLE_CHECK_THRES) continue;
             ///if(is_double_check && non_flag_occ < u->n*double_check_rate) continue;
+ 
             if(is_final_check)
             {
                 if(non_flag_occ < u->n*double_check_rate) continue;
@@ -13813,10 +13815,12 @@ uint8_t is_final_check, float double_check_rate, uint8_t flag, float drop_rate)
             
             if(non_flag_occ > ((non_flag_occ+flag_occ)*drop_rate))
             {
+                
                 if(if_primary_unitig(u, read_g, coverage_cut, sources, ruIndex, primary_flag))
                 {
                     continue;
                 }
+
                 if(u->m != 0)
                 {
                     u->circ = u->end = u->len = u->m = u->n = u->start = 0;
@@ -14429,7 +14433,8 @@ kvec_asg_arc_t_warp* new_rtg_edges)
         renew_utg(ug, read_g, new_rtg_edges);
     }
 
-    
+    ///if(flag == MOTHER) print_untig_by_read(*ug, "m64043_200627_000137/124716590/ccs", 2789716, NULL, NULL, "beg");
+
     update_unitig_graph((*ug), read_g, coverage_cut, sources, reverse_sources, ruIndex, 1, 
     FINAL_DOUBLE_CHECK_THRES, flag, drop_rate);
 
@@ -24044,6 +24049,87 @@ void minor_transitive_reduction_r_g(asg_t *r_g, asg_arc_t* rbub_edges, uint32_t 
             }
         }
     }
+}
+
+
+
+int if_recoverable(asg_t *sg, ma_ug_t *ug, bubble_type* bub, uint32_t bid, kvec_t_u32_warp* stack, uint8_t* vis_flag)
+{
+    uint32_t beg_utg, sink_utg, *a = NULL, n, begRid, sinkRid, i;
+    get_bubbles(bub, bid, &beg_utg, &sink_utg, &a, &n, NULL);
+    if(beg_utg == (uint32_t)-1 || sink_utg == (uint32_t)-1) return 0;
+    if(beg_utg&1)
+    {
+        begRid = ug->u.a[beg_utg>>1].start^1;
+    }
+    else
+    {
+        begRid = ug->u.a[beg_utg>>1].end^1;
+    }
+
+    if(sink_utg&1)
+    {
+        sinkRid = ug->u.a[sink_utg>>1].start;
+    }
+    else
+    {
+        sinkRid = ug->u.a[sink_utg>>1].end;
+    }
+
+    asg_arc_t *acur = NULL;
+    uint32_t cur, ncur, v, n_vx = sg->n_seq<<1;
+    stack->a.n = 0; 
+    memset(vis_flag, 0, n_vx);
+
+    kv_push(uint32_t, stack->a, begRid);
+    while (stack->a.n > 0)
+    {
+        stack->a.n--;
+        cur = stack->a.a[stack->a.n];
+        ncur = asg_arc_n(sg, cur);
+        acur = asg_arc_a(sg, cur);
+        vis_flag[cur] |= 1;
+        for (i = 0; i < ncur; i++)
+        {
+            if(acur[i].del) continue;
+            if(vis_flag[acur[i].v]&1) return 0;
+            if(vis_flag[acur[i].v^1]&1) return 0;
+            if(acur[i].v == sinkRid) continue;
+            kv_push(uint32_t, stack->a, acur[i].v);
+        }
+    }
+    vis_flag[sinkRid] |= 1;
+
+
+
+    begRid ^= 1; sinkRid ^= 1; v = begRid; begRid = sinkRid; sinkRid = v;
+    
+    stack->a.n = 0; 
+    kv_push(uint32_t, stack->a, begRid);
+    while (stack->a.n > 0)
+    {
+        stack->a.n--;
+        cur = stack->a.a[stack->a.n];
+        ncur = asg_arc_n(sg, cur);
+        acur = asg_arc_a(sg, cur);
+        vis_flag[cur] |= 2;
+        for (i = 0; i < ncur; i++)
+        {
+            if(acur[i].del) continue;
+            if(vis_flag[acur[i].v]&2) return 0;
+            if(vis_flag[acur[i].v]&1) return 0;
+            if(vis_flag[acur[i].v^1]&2) return 0;
+            if(acur[i].v == sinkRid) continue;
+            kv_push(uint32_t, stack->a, acur[i].v);
+        }
+    }
+    vis_flag[sinkRid] |= 2;
+
+
+
+    begRid ^= 1; sinkRid ^= 1; v = begRid; begRid = sinkRid; sinkRid = v;
+
+    return 1;
 }
 
 void rescue_bubbles_by_contained_reads(ma_ug_t *i_u_g, asg_t *r_g, ma_hit_t_alloc* sources, ma_sub_t *coverage_cut, 
