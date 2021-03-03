@@ -7,6 +7,7 @@
 #include "Correct.h"
 #include "kthread.h"
 #include "kdq.h"
+#include "hic.h"
 
 KDQ_INIT(uint64_t)
 
@@ -1492,11 +1493,10 @@ void quick_LIS(asg_arc_t_offset* x, uint32_t n, kvec_t_i32_warp* tailIndex, kvec
     tailIndex->a.n = prevIndex->a.n = 0;
     if(n == 0) return;
 
-    
     kv_resize(int32_t, tailIndex->a, n);
     kv_resize(int32_t, prevIndex->a, n);
 
-    long long len = 1, i, pos, m;
+    long long len = 1, i, pos, m; ///the length of chain must be >=1
     tailIndex->a.a[0] = 0;
     prevIndex->a.a[0] = -1;
 
@@ -1520,8 +1520,7 @@ void quick_LIS(asg_arc_t_offset* x, uint32_t n, kvec_t_i32_warp* tailIndex, kvec
             // future subsequence 
             // It will replace ceil value in tailIndices 
             pos = GetCeilIndex(x, tailIndex, -1, len - 1, Get_yOff(x[i].Off)); 
-  
-            prevIndex->a.a[i] = tailIndex->a.a[pos - 1]; 
+            prevIndex->a.a[i] = pos > 0? tailIndex->a.a[pos - 1] : -1; 
             tailIndex->a.a[pos] = i; 
         } 
     }
@@ -1626,7 +1625,6 @@ uint32_t* xBeg, uint32_t* xEnd, uint32_t* yBeg, uint32_t* yEnd)
     u_buffer->a.n = m;
 
     ///print_asg_arc_t_offset(u_buffer->a.a, u_buffer->a.n, "after");
-
     quick_LIS(u_buffer->a.a, u_buffer->a.n, tailIndex, prevIndex);
 
     if(tailIndex->a.n == 0) return;
@@ -1930,6 +1928,7 @@ long long* r_x_pos_beg, long long* r_x_pos_end, long long* r_y_pos_beg, long lon
         ruIndex, reverse_sources, coverage_cut, read_g, position_index, max_hang, min_ovlp, 
         xUid, yUid, u_buffer, tailIndex, prevIndex, r_x_pos_beg, r_x_pos_end, r_y_pos_beg, 
         r_y_pos_end);
+
         if(hap_can->index_end == XCY && yReads->len > (xReads->len*2)) return NON_PLOID;
         if(hap_can->index_end == YCX && xReads->len > (yReads->len*2)) return NON_PLOID;
         if(hap_can->index_end == (uint32_t)-1) return NON_PLOID;
@@ -2978,6 +2977,7 @@ static void hap_alignment_advance_worker(void *_data, long eid, int tid)
             {
                 continue;
             }
+
             
             if(Get_match(hap_can) < Get_match(u_can->a.a[k]))
             {
@@ -3291,7 +3291,7 @@ int asg_pop_bubble_purge_graph(asg_t *purge_g, int max_dist)
 		for (i = 0; i < nv; ++i) // asg_bub_pop1() may delete some edges/arcs
 			if (!av[i].del) ++n_arc;
 		if (n_arc > 1)
-			n_pop += asg_bub_pop1_primary_trio(purge_g, NULL, v, max_dist, &b, (uint32_t)-1, DROP, 1);
+			n_pop += asg_bub_pop1_primary_trio(purge_g, NULL, v, max_dist, &b, (uint32_t)-1, DROP, 1, NULL, NULL);
 	}
 	free(b.a); free(b.S.a); free(b.T.a); free(b.b.a); free(b.e.a);
 	if (n_pop) asg_cleanup(purge_g);
@@ -3925,10 +3925,57 @@ kvec_t_i32_warp* prevIndex, int max_hang, int min_ovlp, kvec_asg_arc_t_warp* edg
     
 }
 
+
+
+void collect_reverse_unitig_pair(hc_links* link, ma_ug_t *ug, hap_overlaps* t)
+{
+    uint32_t i = 0, k = 0, rId_0, rId_1, pre_0, pre_1, b_0 = t->xUid, b_1 = t->yUid;
+    uint64_t d = RC_2;
+    ma_utg_t* u_b_0 = &(ug->u.a[b_0]);
+    ma_utg_t* u_b_1 = &(ug->u.a[b_1]);
+    if(u_b_0->n == 0) return;
+    if(u_b_1->n == 0) return;
+
+    for (i = t->x_beg_id, pre_0 = (uint32_t)-1; i < t->x_end_id; i++)
+    {
+        rId_0 = u_b_0->a[i]>>33;
+        if(link->u_idx[rId_0] == (uint32_t)-1) continue;
+        if(pre_0 == link->u_idx[rId_0]) continue;
+        pre_0 = link->u_idx[rId_0];
+        
+        for (k = t->y_beg_id, pre_1  = (uint32_t)-1; k < t->y_end_id; k++)
+        {
+            rId_1 = u_b_1->a[k]>>33;
+            if(link->u_idx[rId_1] == (uint32_t)-1) continue;
+            if(pre_1 == link->u_idx[rId_1]) continue;
+            pre_1 = link->u_idx[rId_1];
+            push_hc_edge(&(link->a.a[pre_0]), pre_1, 1, 1, &d);
+            push_hc_edge(&(link->a.a[pre_1]), pre_0, 1, 1, &d);
+        }
+    }
+
+}
+
+
+void collect_reverse_unitigs_purge(buf_t* b_0, hc_links* link, ma_ug_t *ug, hap_overlaps_list* all_ovlp)
+{
+    if(b_0->b.n <= 1) return;
+    uint32_t k;
+    int index = 0;
+    for (k = 0; k < b_0->b.n - 1; k++)
+    {
+        index = get_specific_hap_overlap(&(all_ovlp->x[b_0->b.a[k]>>1]), b_0->b.a[k]>>1, b_0->b.a[k+1]>>1);
+        if(index == -1) continue;
+        collect_reverse_unitig_pair(link, ug, &(all_ovlp->x[b_0->b.a[k]>>1].a.a[index]));
+    }
+}
+
+
 void link_unitigs(asg_t *purge_g, ma_ug_t *ug, hap_overlaps_list* all_ovlp,
 R_to_U* ruIndex, ma_hit_t_alloc* reverse_sources, ma_sub_t *coverage_cut, asg_t *read_g, 
 uint64_t* position_index, kvec_asg_arc_t_offset* u_buffer, kvec_t_i32_warp* tailIndex, 
-kvec_t_i32_warp* prevIndex, int max_hang, int min_ovlp, kvec_asg_arc_t_warp* edge, uint8_t* visit)
+kvec_t_i32_warp* prevIndex, int max_hang, int min_ovlp, kvec_asg_arc_t_warp* edge, uint8_t* visit,
+hc_links* link)
 {
     uint32_t v, n_vtx = purge_g->n_seq * 2, beg, end;
     long long nodeLen, baseLen, max_stop_nodeLen, max_stop_baseLen;
@@ -3948,6 +3995,8 @@ kvec_t_i32_warp* prevIndex, int max_hang, int min_ovlp, kvec_asg_arc_t_warp* edg
         {
             continue;
         }
+
+        if(link) collect_reverse_unitigs_purge(&b_0, link, ug, all_ovlp);
         purge_merge(purge_g, ug, all_ovlp, &b_0, ruIndex, reverse_sources, coverage_cut, 
         read_g, position_index, u_buffer, tailIndex, prevIndex,max_hang, min_ovlp, edge, visit);
     }
@@ -4086,6 +4135,7 @@ long long get_specific_contig_length(asg_t *g, uint8_t *del)
         totalLen += len;
     }
     //kdq_destroy(uint64_t, q);
+    free(mark);
     return totalLen;
 }
 
@@ -4131,6 +4181,7 @@ uint32_t minLen, double purge_threshold)
     asg_t* nsg = ug->g;
     uint64_t v, k, total_bases = 0, alter_bases = 0, primary_bases = 0, purge_bases = 0;
     kt_for(asm_opt.thread_num, hap_alignment_advance_worker, hap_buf, nsg->n_seq);
+    
     filter_hap_overlaps_by_length(all_ovlp, minLen);
     normalize_hap_overlaps_advance(all_ovlp, back_all_ovlp, ug, read_g, reverse_sources, ruIndex);
 
@@ -4168,11 +4219,10 @@ uint32_t minLen, double purge_threshold)
     return 0;
 }
 
-
 void purge_dups(ma_ug_t *ug, asg_t *read_g, ma_sub_t* coverage_cut, ma_hit_t_alloc* sources, 
 ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, kvec_asg_arc_t_warp* edge, float density, 
 uint32_t purege_minLen, int max_hang, int min_ovlp, long long bubble_dist, float drop_ratio, 
-uint32_t just_contain, uint32_t just_coverage)
+uint32_t just_contain, uint32_t just_coverage, hc_links* link)
 {
     asg_t *purge_g = NULL;
     purge_g = asg_init();
@@ -4229,7 +4279,7 @@ uint32_t just_contain, uint32_t just_coverage)
         for (i = 0, offset = 0; i < reads->n; i++)
         {
             rId = reads->a[i]>>33;
-            set_R_to_U(ruIndex, rId, uId, 1);
+            set_R_to_U(ruIndex, rId, uId, 1, &(read_g->seq[rId].c));
 
             position_index[rId] = offset;
             position_index[rId] = position_index[rId] << 32;
@@ -4246,7 +4296,7 @@ uint32_t just_contain, uint32_t just_coverage)
     init_hap_alignment_struct_pip(&hap_buf, asm_opt.thread_num, nsg->n_seq, ug, read_g,  
     sources, reverse_sources, ruIndex, coverage_cut, position_index, density, max_hang, min_ovlp, 
     0.05, &all_ovlp);
-
+    
     if(hap_buf.cov_threshold < 0)
     {
         if(if_ploid_sample(ug, read_g, ruIndex, sources, reverse_sources, coverage_cut, 
@@ -4301,6 +4351,7 @@ uint32_t just_contain, uint32_t just_coverage)
                 purge_g->seq[all_ovlp.x[uId].a.a[i].xUid].c = ALTER_LABLE;
                 purge_g->seq[all_ovlp.x[uId].a.a[i].xUid].del = 1;
                 all_ovlp.x[uId].a.a[i].status = DELETE;
+                if(link) collect_reverse_unitig_pair(link, ug, &(all_ovlp.x[uId].a.a[i]));
             }
 
             if(all_ovlp.x[uId].a.a[i].type == XCY)
@@ -4309,6 +4360,7 @@ uint32_t just_contain, uint32_t just_coverage)
                 purge_g->seq[all_ovlp.x[uId].a.a[i].yUid].c = ALTER_LABLE;
                 purge_g->seq[all_ovlp.x[uId].a.a[i].yUid].del = 1;
                 all_ovlp.x[uId].a.a[i].status = DELETE;
+                if(link) collect_reverse_unitig_pair(link, ug, &(all_ovlp.x[uId].a.a[i]));
             }
             ///print_hap_paf(ug, &(all_ovlp.x[uId].a.a[i]));
         }
@@ -4360,7 +4412,7 @@ uint32_t just_contain, uint32_t just_coverage)
 
         link_unitigs(purge_g, ug, &all_ovlp, ruIndex, reverse_sources, coverage_cut, read_g, position_index, 
         &(hap_buf.buf[0].u_buffer), &(hap_buf.buf[0].u_buffer_tailIndex), &(hap_buf.buf[0].u_buffer_prevIndex),
-        max_hang, min_ovlp, edge, hap_buf.buf[0].visit);
+        max_hang, min_ovlp, edge, hap_buf.buf[0].visit, link);
     }
 
     for (v = 0; v < all_ovlp.num; v++)

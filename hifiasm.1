@@ -1,4 +1,4 @@
-.TH hifiasm 1 "19 July 2020" "hifiasm-0.9 (r289)" "Bioinformatics tools"
+.TH hifiasm 1 "13 Feb 2021" "hifiasm-0.14 (r310)" "Bioinformatics tools"
 
 .SH NAME
 .PP
@@ -212,6 +212,32 @@ with suffix
 .B lowQ.bed
 [70]. Set 0 to disable. 
 
+
+.TP
+.BI --b-cov \ INT
+Break contigs at potential misassemblies with <INT-fold coverage [0].
+Work with 
+.B --m-rate.
+Set 0 to disable. 
+
+.TP
+.BI --h-cov \ INT
+Break contigs at potential misassemblies with >INT-fold coverage [-1].
+Work with 
+.B --m-rate.
+Set -1 to disable. 
+
+.TP
+.BI --m-rate \ FLOAT
+Break contigs with <=FLOAT*coverage exact overlaps [0.75].
+Only work with 
+.B --b-cov
+and
+.B --h-cov.
+
+
+
+
 .SS Trio-partition options
 
 .TP 10
@@ -289,6 +315,17 @@ For ordinary samples, no need to enable this mode [experimental, not stable].
 Write additional files to speed up the debugging of graph cleaning.
 
 
+.SS Hi-C-partition options [experimental, not stable]
+
+.TP
+.BI --h1 \ FILEs 
+File names of input Hi-C R1 [r1_1.fq,r1_2.fq,...]
+
+.TP
+.BI --h2 \ FILEs 
+File names of input Hi-C R2 [r2_1.fq,r2_2.fq,...]
+
+
 .SH OUTPUTS
 
 .PP
@@ -346,6 +383,21 @@ paternal/haplotype1 assembly.
 phased maternal/haplotype2 contig graph. This graph keeps the phased
 maternal/haplotype2 assembly.
 .RE
+
+.PP
+With Hi-C partition, hifiasm outputs the assembly graphs like trio partition,
+but with additional prefix
+.B [hic].
+In this mode, hifiasm keeps Hi-C alignment results and Hi-C index in two bin 
+files: 
+.B *hic.lk.bin
+and 
+.B *hic.tlb.bin.
+Rerunning hifiasm with different Hi-C reads needs to delete these bin files.
+.RE
+
+
+
 
 .PP
 For each graph, hifiasm also outputs a simplified version without sequences for

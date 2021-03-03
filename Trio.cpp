@@ -67,7 +67,7 @@ static yak_ch_t *yak_ch_restore_core(yak_ch_t *ch0, const char *fn, int mode, ..
 {
 	va_list ap;
 	FILE *fp;
-	uint32_t t[3];
+	uint32_t t[3], f_tmp = 0;
 	char magic[4];
 	int i, j, absent, min_cnt = 0, mid_cnt = 0, mode_err = 0;
 	uint64_t mask = (1ULL<<YAK_COUNTER_BITS) - 1, n_ins = 0, n_new = 0;
@@ -92,33 +92,36 @@ static yak_ch_t *yak_ch_restore_core(yak_ch_t *ch0, const char *fn, int mode, ..
 		fclose(fp);
 		return 0;
 	}
-	fread(t, 4, 3, fp);
+	f_tmp += fread(t, 4, 3, fp);
 	if (t[2] != YAK_COUNTER_BITS) {
 		fprintf(stderr, "ERROR: saved counter bits: %d; compile-time counter bits: %d\n", t[2], YAK_COUNTER_BITS);
 		fclose(fp);
 		return 0;
 	}
-
+	///t[0] = k; t[1] = pre, t[2] = YAK_COUNTER_BITS;
 	ch = ch0 == 0? yak_ch_init(t[0], t[1]) : ch0;
 	assert((int)t[0] == ch->k && (int)t[1] == ch->pre);
 	for (i = 0; i < 1<<ch->pre; ++i) {
 		yak_ht_t *h = ch->h[i].h;
-		fread(t, 4, 2, fp);
+		f_tmp += fread(t, 4, 2, fp);
+		///t[0] = kh_capacity(h), t[1] = kh_size(h);
 		if (ch0 == 0) yak_ht_resize(h, t[0]);
 		for (j = 0; j < (int)t[1]; ++j) {
 			uint64_t key;
-			fread(&key, 8, 1, fp);
+			f_tmp += fread(&key, 8, 1, fp);
 			if (mode == YAK_LOAD_ALL) {
 				++n_ins;
 				yak_ht_put(h, key, &absent);
 				if (absent) ++n_new;
 			} else if (mode == YAK_LOAD_TRIOBIN1 || mode == YAK_LOAD_TRIOBIN2) {
 				int cnt = key & mask, x, shift = mode == YAK_LOAD_TRIOBIN1? 0 : 2;
+				//1. filter singleton k-mer; 2. label non-repeat and repeat
 				if (cnt >= mid_cnt) x = 2<<shift;
 				else if (cnt >= min_cnt) x = 1<<shift;
 				else x = -1;
 				if (x >= 0) {
 					khint_t k;
+					///no need cnt at all
 					key = (key & ~mask) | x;
 					++n_ins;
 					k = yak_ht_put(h, key, &absent);

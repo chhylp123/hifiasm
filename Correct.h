@@ -21,8 +21,8 @@
 
 ///#define FLAG_THRE 0
 
-#define MAX(x, y) ((x >= y)?(x):(y))
-#define MIN(x, y) ((x <= y)?(x):(y))
+#define MAX(x, y) (((x) >= (y))?(x):(y))
+#define MIN(x, y) (((x) <= (y))?(x):(y))
 #define DIFF(x, y) ((MAX((x), (y))) - (MIN((x), (y))))
 #define OVERLAP(x_start, x_end, y_start, y_end) (MIN(x_end, y_end) - MAX(x_start, y_start) + 1) 
 ///#define OVERLAP(x_start, x_end, y_start, y_end) MIN(x_end, y_end) - MAX(x_start, y_start) + 1 

@@ -3,7 +3,7 @@
 
 #include <pthread.h>
 
-#define HA_VERSION "0.13-r334-dirty"
+#define HA_VERSION "0.14-r312"
 
 #define VERBOSE 0
 
@@ -21,6 +21,11 @@
 
 #define HA_MIN_OV_DIFF       0.02 // min sequence divergence in an overlap
 
+typedef struct{
+    int *l, n; 
+    char **a;
+}enzyme;
+
 typedef struct {
 	int flag;
     int num_reads;
@@ -30,9 +35,13 @@ typedef struct {
 	char *fn_bin_yak[2];
 	char *fn_bin_list[2];
 	char *extract_list;
+    enzyme *hic_reads[2];
+    enzyme *hic_enzymes;
 	int extract_iter;
     int thread_num;
     int k_mer_length;
+    int hic_mer_length;
+    int bub_mer_length;
 	int mz_win;
 	int mz_sample_dist;
 	int bf_shift;
@@ -42,6 +51,9 @@ typedef struct {
 	double max_ov_diff_final;
 	int hom_cov;
     int het_cov;
+    int b_low_cov;
+    int b_high_cov;
+    double m_rate;
 	int max_n_chain; // fall-back max number of chains to consider
 	int min_hist_kmer_cnt;
     int load_index_from_disk;
@@ -60,15 +72,18 @@ typedef struct {
     int purge_level_primary;
     int purge_level_trio;
     int purge_overlap_len;
+    int purge_overlap_len_hic;
     int recover_atg_cov_min;
     int recover_atg_cov_max;
     int hom_global_coverage;
     int bed_inconsist_rate;
+    int hic_inconsist_rate;
 
     float max_hang_rate;
     float min_drop_rate;
     float max_drop_rate;
     float purge_simi_rate;
+    float purge_simi_rate_hic;
 
     long long small_pop_bubble_size;
     long long large_pop_bubble_size;
@@ -92,6 +107,11 @@ double Get_T(void);
 static inline int ha_opt_triobin(const hifiasm_opt_t *opt)
 {
 	return ((opt->fn_bin_yak[0] && opt->fn_bin_yak[1]) || (opt->fn_bin_list[0] && opt->fn_bin_list[1]));
+}
+
+static inline int ha_opt_hic(const hifiasm_opt_t *opt)
+{
+    return ((opt->hic_reads[0] && opt->hic_reads[1]));
 }
 
 #endif

@@ -48,6 +48,7 @@ typedef struct {
 	int32_t pre;
 	int32_t n_thread;
 	int64_t chunk_size;
+	int adaLen;
 } yak_copt_t;
 
 void yak_copt_init(yak_copt_t *o)
@@ -596,7 +597,9 @@ static void *worker_count(void *data, int step, void *in) // callback for kt_pip
 			}
 		} else {
 			while ((ret = kseq_read(p->ks)) >= 0) {
-				int l = p->ks->seq.l;
+				int l = (int)(p->ks->seq.l) - (int)(p->opt->adaLen) - (int)(p->opt->adaLen);
+				if(l <= 0) continue;
+
 				if (p->n_seq >= 1<<28) {
 					fprintf(stderr, "ERROR: this implementation supports no more than %d reads\n", 1<<28);
 					exit(1);
@@ -610,9 +613,9 @@ static void *worker_count(void *data, int step, void *in) // callback for kt_pip
 						int i, n_N;
 						assert(l == (int)p->rs_out->read_length[p->n_seq]);
 						for (i = n_N = 0; i < l; ++i) // count number of ambiguous bases
-							if (seq_nt4_table[(uint8_t)p->ks->seq.s[i]] >= 4)
+							if (seq_nt4_table[(uint8_t)p->ks->seq.s[i+p->opt->adaLen]] >= 4)
 								++n_N;
-						ha_compress_base(Get_READ(*p->rs_out, p->n_seq), p->ks->seq.s, l, &p->rs_out->N_site[p->n_seq], n_N);
+						ha_compress_base(Get_READ(*p->rs_out, p->n_seq), p->ks->seq.s+p->opt->adaLen, l, &p->rs_out->N_site[p->n_seq], n_N);
 						memcpy(&p->rs_out->name[p->rs_out->name_index[p->n_seq]], p->ks->name.s, p->ks->name.l);
 					}
 				}
@@ -623,7 +626,7 @@ static void *worker_count(void *data, int step, void *in) // callback for kt_pip
 					REALLOC(s->seq, s->m_seq);
 				}
 				MALLOC(s->seq[s->n_seq], l);
-				memcpy(s->seq[s->n_seq], p->ks->seq.s, l);
+				memcpy(s->seq[s->n_seq], p->ks->seq.s+p->opt->adaLen, l);
 				s->len[s->n_seq++] = l;
 				++p->n_seq;
 				s->sum_len += l;
@@ -719,6 +722,48 @@ static void *worker_count(void *data, int step, void *in) // callback for kt_pip
 	return 0;
 }
 
+void debug_adapter(const hifiasm_opt_t *asm_opt, All_reads *rs)
+{
+	int ret;
+    uint32_t i, m, pass, unpass;
+    gzFile fp = 0;
+    kseq_t *ks = NULL;
+	UC_Read ucr;
+	init_UC_Read(&ucr);
+
+    for (i = m = pass = unpass = 0; i < (uint32_t)asm_opt->num_reads; ++i)
+    {
+		if ((fp = gzopen(asm_opt->read_file_names[i], "r")) == 0) continue;
+		ks = kseq_init(fp);
+		while ((ret = kseq_read(ks)) >= 0) 
+		{
+			int l = ks->seq.l;
+			if((l - asm_opt->adapterLen*2) <= 0) continue;
+			recover_UC_Read(&ucr, rs, m);
+			fprintf(stderr, "l: %d, ucr.length: %lld, asm_opt->adapterLen: %d\n", 
+			l, ucr.length, asm_opt->adapterLen);
+			if(memcmp(ucr.seq, ks->seq.s+asm_opt->adapterLen, ucr.length) == 0)
+			{
+				pass++;
+			}
+			else
+			{
+				unpass++;
+			}
+			m++;
+		}
+        kseq_destroy(ks);
+        gzclose(fp);
+		ks = NULL;
+		fp = 0;
+    }
+
+	destory_UC_Read(&ucr);
+
+	fprintf(stderr, "[M::%s::# reads: %u, # pass: %u, # unpass: %u\n]", __func__, m, pass, unpass);
+	exit(1);
+}
+
 static ha_ct_t *yak_count(const yak_copt_t *opt, const char *fn, int flag, ha_pt_t *p0, ha_ct_t *c0, const void *flt_tab, All_reads *rs, int64_t *n_seq)
 {
 	///for 0-th counting, flag = HAF_COUNT_ALL|HAF_RS_WRITE_LEN|HAF_CREATE_NEW
@@ -791,6 +836,7 @@ ha_ct_t *ha_count(const hifiasm_opt_t *asm_opt, int flag, ha_pt_t *p0, const voi
 	///for ha_pt_gen, shoud be 0
 	opt.bf_shift = flag & HAF_COUNT_EXACT? 0 : asm_opt->bf_shift;
 	opt.n_thread = asm_opt->thread_num;
+	opt.adaLen = asm_opt->adapterLen;
 	///asm_opt->num_reads is the number of fastq files
 	for (i = 0; i < asm_opt->num_reads; ++i)
 		h = yak_count(&opt, asm_opt->read_file_names[i], flag|HAF_CREATE_NEW, p0, h, flt_tab, rs, &n_seq);
@@ -1008,16 +1054,17 @@ int load_ct_index(void **i_ct_idx, char* file_name)
     }
 	ha_ct_t** ct_idx = (ha_ct_t**)i_ct_idx;
 	double index_time = 0;
+	uint64_t flag = 0;
 	int i;
 	ha_ct_t *h = 0;
 	ha_ct1_t *g;
 	CALLOC(h, 1);
 
-	fread(&h->k, sizeof(h->k), 1, fp);
-	fread(&h->pre, sizeof(h->pre), 1, fp);
-	fread(&h->n_hash, sizeof(h->n_hash), 1, fp);
-	fread(&h->n_shift, sizeof(h->n_shift), 1, fp);
-	fread(&h->tot, sizeof(h->tot), 1, fp);
+	flag += fread(&h->k, sizeof(h->k), 1, fp);
+	flag += fread(&h->pre, sizeof(h->pre), 1, fp);
+	flag += fread(&h->n_hash, sizeof(h->n_hash), 1, fp);
+	flag += fread(&h->n_shift, sizeof(h->n_shift), 1, fp);
+	flag += fread(&h->tot, sizeof(h->tot), 1, fp);
 	CALLOC(h->h, 1<<h->pre);
 
 

@@ -21,6 +21,7 @@
 #define PRIMARY_LABLE 0
 #define ALTER_LABLE 1
 #define HAP_LABLE 2
+#define FAKE_LABLE 4
 #define TRIO_THRES 0.9
 #define DOUBLE_CHECK_THRES 0.1
 #define FINAL_DOUBLE_CHECK_THRES 0.2
@@ -106,6 +107,11 @@ typedef struct {
 	uint8_t no_l_indel;
 } asg_arc_t;
 
+typedef struct {
+	size_t n, m;
+	asg_arc_t* a;
+} kv_asg_arc_t;
+
 
 typedef struct {
 	uint32_t len:31, circ:1; // len: length of the unitig; circ: circular if non-zero
@@ -155,6 +161,7 @@ typedef struct { size_t n, m; ma_utg_t *a; } ma_utg_v;
 typedef struct {
 	ma_utg_v u;
 	asg_t *g;
+	kvec_t(uint64_t) occ;
 } ma_ug_t;
 
 typedef struct {
@@ -394,7 +401,8 @@ typedef struct {
 }kvec_asg_arc_t_warp;
 
 void sort_kvec_t_u64_warp(kvec_t_u64_warp* u_vecs, uint32_t is_descend);
-
+int asg_arc_del_multi(asg_t *g);
+int asg_arc_del_asymm(asg_t *g);
 
 typedef struct {
 	uint32_t q_pos;
@@ -442,11 +450,8 @@ long long max_hang_length, long long clean_round, long long gap_fuzz,
 float min_ovlp_drop_ratio, float max_ovlp_drop_ratio, char* output_file_name, 
 long long bubble_dist, int read_graph, int write);
 
-void debug_info_of_specfic_read(char* name, ma_hit_t_alloc* sources, 
-ma_hit_t_alloc* reverse_sources, int id, char* command);
-
+void debug_info_of_specfic_read(char* name, ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, int id, char* command);
 void collect_abnormal_edges(ma_hit_t_alloc* paf, ma_hit_t_alloc* rev_paf, long long readNum);
-
 void add_overlaps(ma_hit_t_alloc* source_paf, ma_hit_t_alloc* dest_paf, uint64_t* source_index, long long listLen);
 void remove_overlaps(ma_hit_t_alloc* source_paf, uint64_t* source_index, long long listLen);
 void add_overlaps_from_different_sources(ma_hit_t_alloc* source_paf_list, ma_hit_t_alloc* dest_paf, 
@@ -455,18 +460,6 @@ uint64_t* source_index, long long listLen);
 #define EvaluateLen(U, id) ((U).a[(id)].start)
 #define IsMerge(U, id) ((U).a[(id)].end)
 #define kv_reuse(v, rn, rm, r) ((v).n = (rn), (v).m = (rm), (v).a = (r))
-#define long_tip(U, id, threshold) ((EvaluateLen((U), (id))>=(threshold))&&(!((U).a[(id)].circ)))
-///there are threee cases: 
-///1. if this untig is too long (>maxShortUntig), it must be not short untig/must be a long untig
-///2. if this untig is long (>minLongUntig && EvaluateLen(ug->u, av[i].v>>1) > (EvaluateLen(ug->u, v>>1)*l_untig_rate)), it might be a long tip
-#define check_long_tip(U, id, minLongUntig, maxShortUntig, ShortUntigRate, mainLen) \
-                        ((!((U).a[(id)].circ)) \
-                        && \
-                        ((EvaluateLen((U), (id)) > (maxShortUntig))\
-                        ||\
-                        ((long_tip((U), (id), (minLongUntig)))\
-                        &&\
-                        (EvaluateLen((U), (id)) > (ShortUntigRate)*(mainLen)))))
 #define Get_vis(visit, v, d) (((visit)[(v)>>1])&(((((v)<<(d))&1)+1)))
 #define Set_vis(visit, v, d) (((visit)[(v)>>1])|=(((((v)<<(d))&1)+1)))
 
@@ -481,14 +474,10 @@ typedef struct {
 
 void init_R_to_U(R_to_U* x, uint64_t len);
 void destory_R_to_U(R_to_U* x);
-void set_R_to_U(R_to_U* x, uint32_t rID, uint32_t uID, uint32_t is_Unitig);
+void set_R_to_U(R_to_U* x, uint32_t rID, uint32_t uID, uint32_t is_Unitig, uint8_t* flag);
 void get_R_to_U(R_to_U* x, uint32_t rID, uint32_t* uID, uint32_t* is_Unitig);
 void transfor_R_to_U(R_to_U* x);
-void debug_utg_graph(ma_ug_t *ug, asg_t* read_g, int require_equal_nv, int test_tangle);
-void clean_untig_graph(ma_ug_t *ug, asg_t *read_g, ma_hit_t_alloc* reverse_sources,
-long long bubble_dist, long long tipsLen, float tip_drop_ratio, long long stops_threshold, 
-R_to_U* ruIndex, buf_t* b_0, uint8_t* visit, float density, uint32_t miniHapLen, 
-uint32_t miniBiGraph, float chimeric_rate, int is_final_clean);
+void debug_utg_graph(ma_ug_t *ug, asg_t* read_g, kvec_asg_arc_t_warp* edge, int require_equal_nv, int test_tangle);
 int asg_pop_bubble_primary(asg_t *g, int max_dist);
 long long asg_arc_del_simple_circle_untig(ma_hit_t_alloc* sources, ma_sub_t* coverage_cut, asg_t *g, long long circleLen, int is_drop);
 
@@ -743,13 +732,12 @@ R_to_U* ruIndex, uint32_t min_edge_length, uint32_t stops_threshold)
 	stops_threshold, b_0) == LOOP)
 	{
 		return UNAVAILABLE;
-	} 
+	}
 	if(get_unitig(nsg, ug, v_1, &vEnd, &ELen_1, &tmp, &max_stop_nodeLen, &max_stop_baseLen, 
 	stops_threshold, b_1) == LOOP)
 	{
 		return UNAVAILABLE;
 	}
-
 	if(ELen_0<=min_edge_length || ELen_1<=min_edge_length) return UNAVAILABLE;
 
 	rIdContig b_max, b_min;
@@ -770,7 +758,6 @@ R_to_U* ruIndex, uint32_t min_edge_length, uint32_t stops_threshold)
 
 	uint32_t max_count = 0, min_count = 0;
 	ma_utg_t *node_min = NULL, *node_max = NULL;
-
 	if(ug != NULL)
 	{
 		/*****************************label all unitigs****************************************/
@@ -781,11 +768,10 @@ R_to_U* ruIndex, uint32_t min_edge_length, uint32_t stops_threshold)
 			for (b_max.readI = 0; b_max.readI < node_max->n; b_max.readI++)
 			{
 				qn = (node_max->a[b_max.readI]>>33);
-				set_R_to_U(ruIndex, qn, (b_max.b_0->b.a[b_max.untigI]>>1), 1);
+				set_R_to_U(ruIndex, qn, (b_max.b_0->b.a[b_max.untigI]>>1), 1, &(read_sg->seq[qn].c));
 			}
 		}
 		/*****************************label all unitigs****************************************/
-
 
 		///each unitig
 		for (b_min.untigI = 0; b_min.untigI < b_min.b_0->b.n; b_min.untigI++)
@@ -820,7 +806,6 @@ R_to_U* ruIndex, uint32_t min_edge_length, uint32_t stops_threshold)
 				}
 			}
 		}
-
 		/*****************************label all unitigs****************************************/
 		for (b_max.untigI = 0; b_max.untigI < b_max.b_0->b.n; b_max.untigI++)
 		{
@@ -833,7 +818,6 @@ R_to_U* ruIndex, uint32_t min_edge_length, uint32_t stops_threshold)
 			}
 		}
 		/*****************************label all unitigs****************************************/
-		
 	}
 	else
 	{
@@ -841,7 +825,7 @@ R_to_U* ruIndex, uint32_t min_edge_length, uint32_t stops_threshold)
 		for (b_max.untigI = 0; b_max.untigI < b_max.b_0->b.n; b_max.untigI++)
 		{
 			qn = (b_max.b_0->b.a[b_max.untigI]>>1);
-			set_R_to_U(ruIndex, qn, 1, 1);
+			set_R_to_U(ruIndex, qn, 1, 1, &(read_sg->seq[qn].c));
 		}
 		/*****************************label all reads****************************************/
 
@@ -895,8 +879,6 @@ R_to_U* ruIndex, uint32_t min_edge_length, uint32_t stops_threshold)
 	if(max_count > min_count*DIFF_HAP_RATE) return PLOID;
 	return NON_PLOID;
 }
-
-
 
 inline uint32_t check_different_haps_naive(asg_t *nsg, ma_ug_t *ug, asg_t *read_sg, 
 uint32_t v_0, uint32_t v_1, ma_hit_t_alloc* reverse_sources, buf_t* b_0, buf_t* b_1, 
@@ -1047,8 +1029,6 @@ uint32_t is_primary_check, kvec_asg_arc_t_warp* new_rtg_edges, kvec_t_u32_warp* 
 void rescue_missing_overlaps_aggressive(ma_ug_t *i_ug, asg_t *r_g, ma_hit_t_alloc* sources, ma_sub_t *coverage_cut,
 R_to_U* ruIndex, int max_hang, int min_ovlp, long long bubble_dist, uint32_t is_bubble_check, 
 uint32_t is_primary_check, kvec_asg_arc_t_warp* new_rtg_edges);
-void deduplicate(ma_ug_t *src, asg_t *read_g, ma_hit_t_alloc* reverse_sources, long long minLongUntig, 
-long long maxShortUntig, float l_untig_rate, float max_node_threshold, R_to_U* ruIndex, uint32_t resolve_tangle);
 void all_to_all_deduplicate(ma_ug_t* ug, asg_t* read_g, ma_sub_t* coverage_cut, 
 ma_hit_t_alloc* sources, uint8_t postive_flag, float drop_rate, ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, float double_check_rate);
 void drop_semi_circle(ma_ug_t *ug, asg_t* nsg, asg_t* read_g, ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex);
@@ -1061,8 +1041,76 @@ uint32_t is_bubble_check, uint32_t is_primary_check);
 uint32_t get_edge_from_source(ma_hit_t_alloc* sources, ma_sub_t *coverage_cut, 
 R_to_U* ruIndex, int max_hang, int min_ovlp, uint32_t query, uint32_t target, asg_arc_t* t);
 uint64_t asg_bub_pop1_primary_trio(asg_t *g, ma_ug_t *utg, uint32_t v0, int max_dist, buf_t *b, 
-uint32_t positive_flag, uint32_t negative_flag, uint32_t is_pop);
+uint32_t positive_flag, uint32_t negative_flag, uint32_t is_pop, uint64_t* path_base_len, uint64_t* path_nodes);
 int unitig_arc_del_short_diploid_by_length(asg_t *g, float drop_ratio);
+
+
+typedef struct{
+    double weight;
+    uint32_t uID:31, del:1;
+    uint64_t dis;
+	uint64_t occ;
+	///uint64_t occ:63, scaff:1;
+    ///uint32_t enzyme;
+} hc_edge;
+
+typedef struct{
+    kvec_t(hc_edge) e;
+    kvec_t(hc_edge) f;//forbiden
+} hc_linkeage;
+
+typedef struct{
+	uint64_t beg, end;
+}bed_interval;
+
+typedef struct{
+	size_t n, m;
+	bed_interval* a;
+}bed_in;
+
+typedef struct{
+    kvec_t(hc_linkeage) a;
+    kvec_t(uint64_t) enzymes;
+	kvec_t(bed_in) bed;
+    uint32_t* u_idx;
+	uint64_t r_num;
+} hc_links;
+
+typedef struct{
+    ///kvec_t(hc_edge) a;
+    size_t n, m; 
+    hc_edge *a;
+}hc_edge_warp;
+
+void init_hc_links(hc_links* link, uint64_t ug_num, uint64_t r_num);
+void destory_hc_links(hc_links* link);
+void clean_primary_untig_graph(ma_ug_t *ug, asg_t *read_g, ma_hit_t_alloc* reverse_sources,
+long long bubble_dist, long long tipsLen, float tip_drop_ratio, long long stops_threshold, 
+R_to_U* ruIndex, buf_t* b_0, uint8_t* visit, float density, uint32_t miniHapLen, 
+uint32_t miniBiGraph, float chimeric_rate, int is_final_clean, int just_bubble_pop, 
+float drop_ratio, hc_links* link);
+void adjust_utg_by_primary(ma_ug_t **ug, asg_t* read_g, float drop_rate,
+ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, ma_sub_t* coverage_cut, 
+long long bubble_dist, long long tipsLen, float tip_drop_ratio, long long stops_threshold, 
+R_to_U* ruIndex, float chimeric_rate, float drop_ratio, int max_hang, int min_ovlp,
+kvec_asg_arc_t_warp* new_rtg_edges, hc_links* link);
+void collect_reverse_unitigs(buf_t* b_0, buf_t* b_1, hc_links* link, ma_ug_t *ug, asg_t *read_sg);
+ma_ug_t* copy_untig_graph(ma_ug_t *src);
+ma_ug_t* output_trio_unitig_graph(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name, 
+uint8_t flag, ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, long long bubble_dist, 
+long long tipsLen, float tip_drop_ratio, long long stops_threshold, R_to_U* ruIndex, 
+float chimeric_rate, float drop_ratio, int max_hang, int min_ovlp, int is_bench);
+asg_t* copy_read_graph(asg_t *src);
+ma_ug_t *ma_ug_gen(asg_t *g);
+void ma_ug_destroy(ma_ug_t *ug);
+
+inline int inter_interval(int a_s, int a_e, int b_s, int b_e, int* i_s, int* i_e)
+{
+    if(a_s > b_e || b_s > a_e) return 0;
+    if(i_s) (*i_s) = a_s >= b_s? a_s : b_s; ///MAX(a_s, b_s);
+    if(i_e) (*i_e) = a_e <= b_e? a_e : b_e; ///MIN(a_e, b_e);
+    return 1;
+}
 
 #define JUNK_COV 5
 #define DISCARD_RATE 0.8
