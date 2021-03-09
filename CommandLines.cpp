@@ -89,7 +89,7 @@ void Print_H(hifiasm_opt_t* asm_opt)
 	fprintf(stderr, "    -4 FILE     list of hap2/maternal read names []\n");
 
     fprintf(stderr, "  Purge-dups:\n");
-    fprintf(stderr, "    -l INT      purge level. 0: no purging; 1: light; 2: aggressive [0 for trio; 2 for unzip]\n");
+    fprintf(stderr, "    -l INT      purge level. 0: no purging; 1: light; 2/3: aggressive [0 for trio; 2 for unzip]\n");
     fprintf(stderr, "    -s FLOAT    similarity threshold for duplicate haplotigs [%g]\n", 
                                      asm_opt->purge_simi_rate);
     fprintf(stderr, "    -O INT      min number of overlapped reads for duplicate haplotigs [%d]\n", 
@@ -360,9 +360,9 @@ int check_option(hifiasm_opt_t* asm_opt)
         return 0;
     }
 
-    if(asm_opt->purge_level_primary < 0 || asm_opt->purge_level_primary > 2)
+    if(asm_opt->purge_level_primary < 0 || asm_opt->purge_level_primary > 3)
     {
-        fprintf(stderr, "[ERROR] the level of purge-dup should be [0, 2] (-l)\n");
+        fprintf(stderr, "[ERROR] the level of purge-dup should be [0, 3] (-l)\n");
         return 0;
     }
 

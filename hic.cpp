@@ -38,6 +38,7 @@ typedef struct{
     kvec_t(uint64_t) name_Len;
     kvec_t(char) r;
     kvec_t(uint64_t) r_Len;
+    uint64_t idx;
 } reads_t;
 
 typedef struct{
@@ -168,6 +169,18 @@ typedef struct { // global data structure for kt_pipeline()
 } pldat_t;
 
 typedef struct {
+	uint64_t *a, id;
+    uint16_t occ1, occ2;
+} pe_hit_hap;
+
+typedef struct {
+    pe_hit_hap* a;
+    size_t n, m;
+    uint64_t n_u;
+} kvec_pe_hit_hap;
+
+
+typedef struct {
 	uint64_t s, e, id;
 } pe_hit;
 
@@ -190,6 +203,18 @@ KRADIX_SORT_INIT(u32, uint32_t, generic_key, 4)
 #define g_partition_key(x) (((x)>>1)+((x)<<63))
 KRADIX_SORT_INIT(g_partition, uint64_t, g_partition_key, 8)
 
+#define get_pe_s(x) ((x).a[0])
+#define get_pe_e(x) ((x).a[(x).occ1])
+KRADIX_SORT_INIT(pe_an1, pe_hit_hap, get_pe_s, 8)
+KRADIX_SORT_INIT(pe_an2, pe_hit_hap, get_pe_e, 8)
+
+#define pe_occ_key_1(x) ((x).occ1)
+KRADIX_SORT_INIT(pe_occ1, pe_hit_hap, pe_occ_key_1, member_size(pe_hit_hap, occ1))
+#define pe_occ_key_2(x) ((x).occ2)
+KRADIX_SORT_INIT(pe_occ2, pe_hit_hap, pe_occ_key_2, member_size(pe_hit_hap, occ2))
+#define pe_occ_key_t(x) (((uint64_t)((x).occ1))+((uint64_t)((x).occ2)))
+KRADIX_SORT_INIT(pe_occ_t, pe_hit_hap, pe_occ_key_t, 8)
+
 
 typedef struct { // global data structure for kt_pipeline()
 	const ha_ug_index* idx;
@@ -198,7 +223,8 @@ typedef struct { // global data structure for kt_pipeline()
     uint64_t n_thread;
     uint64_t total_base;
     uint64_t total_pair;
-    kvec_pe_hit hits;
+    ///kvec_pe_hit hits;
+    kvec_pe_hit_hap hits;
     hc_links* link;
 } sldat_t;
 
@@ -218,7 +244,8 @@ typedef struct { // data structure for each step in kt_pipeline()
 	char **seq;
 	ch_buf_t *buf;
     kvec_vote* pos_buf;
-    pe_hit* pos;
+    ///pe_hit* pos;
+    pe_hit_hap* pos;
     hc_links* link;
 } stepdat_t;
 
@@ -232,6 +259,8 @@ KRADIX_SORT_INIT(hc_pos, uint64_t, hc_pos_key, 8)
 KRADIX_SORT_INIT(hc_s_hit_an1, s_hit, hc_s_hit_an1_key, 8)
 #define hc_s_hit_an2_key(a) ((uint32_t)(a).off_cnt)
 KRADIX_SORT_INIT(hc_s_hit_an2, s_hit, hc_s_hit_an2_key, 8)
+#define hc_s_hit_off_cnt_key(a) ((a).off_cnt)
+KRADIX_SORT_INIT(hc_s_hit_off_cnt, s_hit, hc_s_hit_off_cnt_key, 8)
 #define hc_edge_key_u(a) ((a).uID)
 KRADIX_SORT_INIT(hc_edge_u, hc_edge, hc_edge_key_u, 4)
 #define hc_edge_key_d(a) ((a).dis)
@@ -870,11 +899,12 @@ uint64_t debug_hash_value(char *r, uint64_t end, uint64_t k_mer)
 inline uint64_t collect_votes(s_hit* a, uint64_t n)
 {
     if(n == 0) return 0;
-    if(n == 1) return (a[0].off_cnt>>32);
+    if(n == 1) return (a[0].off_cnt>>32); //seed length
     long long i = 0;
-    uint64_t cur_beg, cur_end, beg, end, ovlp = 0, tLen = 0;
+    uint64_t cur_beg, cur_end, beg, end, ovlp = 0, tLen = 0; 
     cur_end = (uint32_t)a[n-1].off_cnt;
     cur_beg = cur_end + 1 - (a[n-1].off_cnt>>32);
+    
 
     for (i = n - 2; i >= 0; i--)
     {
@@ -1164,13 +1194,198 @@ const ha_ug_index* idx, uint64_t buf_iter, uint64_t rid)
     /*******************************for debug************************************/
 }
 
+uint64_t get_longest_hit(char *r, uint64_t len, uint64_t k_mer, uint64_t self_p, uint64_t self_rev, kvec_vote* buf, const ha_ug_index* idx, 
+uint64_t *pos_list, uint64_t cnt, uint64_t* c_sfx)
+{
+    uint64_t max_p, map_p_occ, i, j, m, rev, ref_p, u_len, uID, k_len;
+    s_hit *p = NULL;
+    ///each k-mer at different unitigs
+    ///rev:uID:pos
+    if(c_sfx) (*c_sfx) = (uint64_t)-1;
+    for (j = 0; j < cnt; j++)
+    {
+        ///get
+        kv_pushp(s_hit, buf->a, &p);
+        rev = (pos_list[j]>>63) != self_rev;
+        ref_p = pos_list[j] & idx->pos_mode;
+        uID = (pos_list[j] << 1) >> (64 - idx->uID_bits);
+        u_len = idx->ug->u.a[uID].len;
+        if(rev) ref_p = u_len - 1 - (ref_p + 1 - k_mer);
+        p->off_cnt = self_p | ((uint64_t)k_mer << 32); ///high bits should be the legnth
+
+        p->ref = ref_p >= self_p? (ref_p-self_p) 
+                        : (self_p-ref_p) + ((uint64_t)1 << (idx->pos_bits - 1));
+        p->ref = (rev << 63)|(pos_list[j] & idx->uID_mode)|(p->ref&idx->pos_mode);
+
+
+        ///extend
+        k_len = check_exact_match(r, self_p + 1, len, idx->ug->u.a[uID].s, ref_p + 1, u_len, len, rev, 0);
+        if(c_sfx && cnt == idx->hap_cnt && k_len < (*c_sfx)) (*c_sfx) = k_len;
+        
+        p->off_cnt += ((uint64_t)k_len << 32) + k_len;
+
+        if(self_p >= k_mer && ref_p >= k_mer)
+        {
+            k_len = check_exact_match(r, self_p - k_mer, len, idx->ug->u.a[uID].s, 
+                                                    ref_p - k_mer, u_len, len, rev, 1);
+            p->off_cnt += ((uint64_t)k_len << 32);
+        }
+        // if(cnt > 0) fprintf(stderr, "inner j: %lu, rev: %lu, uID: %lu, ref_p: %lu, self_p: %u, len: %lu\n", j, rev, uID, ref_p, (uint32_t)p->off_cnt, p->off_cnt>>32);
+    }
+
+    p = buf->a.a + buf->a.n - cnt;
+    if(cnt > 1) radix_sort_hc_s_hit_off_cnt(p, p + cnt);
+    max_p = map_p_occ = 0; 
+    for (j = 1, i = 0; j <= cnt; ++j)
+    {
+        if(j == cnt || p[j].off_cnt != p[i].off_cnt)
+        {
+            if((max_p>>32) < (p[i].off_cnt>>32))
+            {
+                max_p = p[i].off_cnt;
+                map_p_occ = j - i;
+            }
+            else if(((max_p>>32) == (p[i].off_cnt>>32)) && ((j - i) > map_p_occ))
+            {
+                max_p = p[i].off_cnt;
+                map_p_occ = j - i;
+            }
+            i = j;///must
+        }
+    }
+
+    buf->a.n -= cnt;
+    for (j = m = 0; j < cnt; j++)
+    {
+        if(p[j].off_cnt == max_p)
+        {
+            p[m] = p[j];
+            m++;
+        }
+    }
+    cnt = m;
+    buf->a.n += cnt;
+    
+    // if(cnt > 0) fprintf(stderr, "max_p_offset: %u, max_p_len: %lu, map_p_occ: %lu\n", (uint32_t)max_p, max_p>>32, map_p_occ);
+    return max_p;
+}
+
+#define is_update_hit(mL, mR, cL, cR) (((mL)<(cL))||((mL)==(cL)&&(mR)<(cR))) 
+inline void compress_mapped_pos_advance(const ha_ug_index* idx, kvec_vote* buf, uint64_t buf_iter, uint64_t ovlp_thre)
+{
+    if(buf_iter >= buf->a.n)
+    {
+        buf->a.n = buf_iter;
+        return;
+    }
+    s_hit *p = NULL;
+    uint64_t rev, uID, ref_p, self_p, eLen, tLen, i, j, cnt;
+    uint64_t max_beg = 0, max_end = 0, max_i, max_occ, cur_beg, cur_end, ovlp;
+    uint64_t second_i = (uint64_t)-1, second_occ;
+    uint64_t max_eLen, sec_eLen;
+    double max_eRate, sec_eRate, eRate;
+    p = buf->a.a + buf_iter;
+    cnt = buf->a.n - buf_iter;
+    radix_sort_hc_s_hit_off_cnt(p, p + cnt); ///buf save all hits, here sort by offset in reads 
+    max_eLen = 0; max_i = (uint64_t)-1; max_occ = 0; max_eRate = 0;
+    for (j = 1, i = 0; j <= cnt; ++j)
+    {
+        if(j == cnt || p[j].off_cnt != p[i].off_cnt)
+        {
+            ///occ = j - i;
+            interpret_pos((ha_ug_index*)idx, &p[i], &rev, &uID, &ref_p, &self_p, &eLen, &tLen);
+            eRate = (double)(eLen)/(double)(tLen);
+            if(is_update_hit(max_eLen, max_eRate, eLen, eRate))
+            {
+                max_eLen = eLen; max_eRate = eRate;
+                max_end = self_p; max_beg = self_p + 1 - tLen;
+                max_i = i; max_occ = j - i;
+            }
+            // fprintf(stderr, "\n++++++[%lu, %lu] uID: %lu, ref_p: %lu, self_p: %lu, eLen: %lu, tLen: %lu, max_i: %lu\n", 
+            // i, j, uID, ref_p, self_p, eLen, tLen, max_i);
+            i = j;///must
+        }
+    }
+
+
+    sec_eLen = 0; second_i = (uint64_t)-1; second_occ = 0; sec_eRate = 0;
+    for (j = 1, i = 0; j <= cnt; ++j)
+    {
+        if(j == cnt || p[j].off_cnt != p[i].off_cnt)
+        {
+            if(i != max_i)
+            {
+                interpret_pos((ha_ug_index*)idx, &p[i], &rev, &uID, &ref_p, &self_p, &eLen, &tLen);
+                eRate = (double)(eLen)/(double)(tLen);
+                cur_end = self_p;
+                cur_beg = self_p + 1 - tLen;
+                // fprintf(stderr, "\n----[%lu, %lu] uID: %lu, ref_p: %lu, self_p: %lu, eLen: %lu, tLen: %lu, max_i: %lu\n", 
+                // i, j, uID, ref_p, self_p, eLen, tLen, max_i);
+                // fprintf(stderr, "max_beg: %lu, max_end: %lu, cur_beg: %lu, cur_end: %lu\n", 
+                // max_beg, max_end, cur_beg, cur_end);
+                ///overlap with max interval
+                if(MAX(cur_beg, max_beg) <= MIN(cur_end, max_end))
+                {
+                    ovlp = MIN(cur_end, max_end) - MAX(cur_beg, max_beg) + 1;
+                    if(ovlp == MIN(max_end+1-max_end, tLen))
+                    {
+                        i = j;///must
+                        continue;///fully contain
+                    }
+                     
+                    if(ovlp > ((max_end+1-max_end)*0.8) && eLen > (max_eLen*0.8))///best is not unique
+                    {
+                        buf->a.n = buf_iter;
+                        return;
+                    }
+                    if(ovlp > ((max_end+1-max_end)*0.15))
+                    {
+                        i = j;///must
+                        continue;///fully contain
+                    }
+                }
+
+                if(is_update_hit(sec_eLen, sec_eRate, eLen, eRate))
+                {
+                    sec_eLen = eLen; sec_eRate = eRate;
+                    second_i = i; second_occ = j - i;
+                }
+            }
+            i = j;///must
+        }
+    }
+
+    // fprintf(stderr, "max_i: %lu, max_occ: %lu, second_i: %lu, second_occ: %lu\n", 
+    //             max_i, max_occ, second_i, second_occ);
+
+    if(second_i == (uint64_t)-1)
+    {
+        i = 0;
+        for (j = max_i; j < max_i + max_occ; j++, i++) p[i] = p[j];
+    }
+    else ///be carful about overwritten
+    {
+        i = 0;
+        if(max_i <= second_i)
+        {
+            for (j = max_i; j < max_i + max_occ; j++, i++) p[i] = p[j];
+            for (j = second_i; j < second_i + second_occ; j++, i++) p[i] = p[j];
+        }
+        else
+        {
+            for (j = second_i; j < second_i + second_occ; j++, i++) p[i] = p[j];
+            for (j = max_i; j < max_i + max_occ; j++, i++) p[i] = p[j];
+        } 
+    }
+
+    buf->a.n = buf_iter + max_occ + second_occ;
+}
 
 void get_alignment(char *r, uint64_t len, uint64_t k_mer, kvec_vote* buf, 
 const ha_ug_index* idx, uint64_t buf_iter, uint64_t rid)
 {
-    uint64_t i, j, l = 0, skip, *pos_list = NULL, cnt, rev, self_p, ref_p, u_len, uID;
+    uint64_t i, j, k, l = 0, k_len, c_sfx, m, skip, *pos_list = NULL, cnt, rev, self_p, ref_p, uID;
     uint64_t x[4], mask = (1ULL<<k_mer) - 1, shift = k_mer - 1, hash;
-    s_hit *p = NULL;
     ///buf->a.n = 0;
     for (i = l = 0, x[0] = x[1] = x[2] = x[3] = 0; i < len; ++i) {
         int c = seq_nt4_table[(uint8_t)r[i]];
@@ -1186,144 +1401,75 @@ const ha_ug_index* idx, uint64_t buf_iter, uint64_t rid)
             {
                 hash = hc_hash_long(x, &skip, k_mer);
                 if(skip == (uint64_t)-1) continue;
-                /*******************************for debug************************************/
-                // if(debug_hash_value(r, i, k_mer) != hash)
-                // {
-                //     fprintf(stderr, "ERROR\n");
-                // }
-                /*******************************for debug************************************/
                 cnt = get_hc_pt1_count((ha_ug_index*)idx, hash, &pos_list);
-                if(cnt > idx->hap_cnt) continue;
-                if(cnt != 1) continue; ///might be able to be disabled in future
+                if(cnt > idx->hap_cnt || cnt < 0) continue;
 
-                ///rev:uID:pos
-                for (j = 0; j < cnt; j++)
+                if(cnt > 1)
                 {
-                    kv_pushp(s_hit, buf->a, &p);
-                    rev = (pos_list[j]>>63) != skip;
-                    self_p = i;
-                    ref_p = pos_list[j] & idx->pos_mode;
-                    uID = (pos_list[j] << 1) >> (64 - idx->uID_bits);
-                    u_len = idx->ug->u.a[uID].len;
-                    if(rev) ref_p = u_len - 1 - (ref_p + 1 - k_mer);
-                    p->off_cnt = self_p | ((uint64_t)k_mer << 32); ///high bits should be the legnth
+                    for (j = 0; j < cnt; j++)
+                    {
+                        uID = (pos_list[j] << 1) >> (64 - idx->uID_bits);
+                        for (k = j + 1; k < cnt; k++)
+                        {
+                            if(uID == ((pos_list[k] << 1) >> (64 - idx->uID_bits))) break;
+                        }
+                        if(k < cnt) break;
+                    }
 
-                    p->ref = ref_p >= self_p? (ref_p-self_p) 
-                                    : (self_p-ref_p) + ((uint64_t)1 << (idx->pos_bits - 1));
-                    p->ref = (rev << 63)|(pos_list[j] & idx->uID_mode)|(p->ref&idx->pos_mode);
-
-
-                    /*******************************for debug************************************/
-                    // if(check_exact_match(r, i + 1 - k_mer, len,
-                    //                     idx->ug->u.a[uID].s, ref_p  + 1 - k_mer, u_len, k_mer, rev, 0) != k_mer
-                    //     ||
-                    //    check_exact_match(r, i, len,
-                    //                     idx->ug->u.a[uID].s, ref_p, u_len, k_mer, rev, 1) != k_mer)
-                    // {
-                    //     fprintf(stderr, "ERROR\n");
-                    // }
-                    /*******************************for debug************************************/
+                    if(j < cnt) continue;
                 }
-                
-                if(cnt == 1)
+                // if(cnt > 0) fprintf(stderr, "+i: %lu, l: %lu, cnt: %lu\n", i, l, cnt);
+                get_longest_hit(r, len, k_mer, i, skip, buf, idx, pos_list, cnt, &c_sfx);
+                // if(cnt > 0) fprintf(stderr, "c_sfx: %lu\n", c_sfx);
+                if(c_sfx != (uint64_t)-1)
                 {
-                    ///uint64_t debug_right = 0, debug_left = 0, debug_len;
-
-                    j = check_exact_match(r, self_p + 1, len, idx->ug->u.a[uID].s, ref_p + 1, u_len, len, rev, 0);
-                    
-                    ///debug_right = j;
-                    ///if(j == 0) continue;
-                    if((j + 1) >= k_mer)
+                    k_len = c_sfx;
+                    if((k_len + 1) >= k_mer)
                     {
                         l = 0, x[0] = x[1] = x[2] = x[3] = 0;
-                        i = i + j - (k_mer - 1);
+                        i = i + k_len - (k_mer - 1);
                     }
                     else
                     {
-                        ///l = i - (i + j - (k_mer - 1));
-                        l = k_mer - j -1;
-                    }
-                    buf->a.a[buf->a.n-1].off_cnt += ((uint64_t)j << 32) + j;
-
-                    if(self_p >= k_mer && ref_p >= k_mer)
-                    {
-                        j = check_exact_match(r, self_p - k_mer, len, idx->ug->u.a[uID].s, 
-                                                                ref_p - k_mer, u_len, len, rev, 1);
-                        buf->a.a[buf->a.n-1].off_cnt += ((uint64_t)j << 32);
-                        ///debug_left = j;
-                    }
-
-
-                    // debug_len = check_exact_match(r, self_p + debug_right, len, idx->ug->u.a[uID].s, 
-                    // ref_p + debug_right, u_len, len, rev, 1);
-                    // if(debug_len!= (debug_left + debug_right + k_mer))
-                    // {
-                    //     fprintf(stderr, "debug_len: %lu, debug_left: %lu, debug_right: %lu\n",
-                    //     debug_len, debug_left, debug_right);
-                    // }
+                        ///l = i - (i + k_len - (k_mer - 1));
+                        l = k_mer - k_len - 1;
+                    }  
                 }
-                
+                // if(cnt > 0) fprintf(stderr, "-i: %lu, l: %lu\n", i, l);
             }
             
         } else l = 0, x[0] = x[1] = x[2] = x[3] = 0; // if there is an "N", restart
     }
     
-    ///if(buf->a.n - buf_iter <= 1) return;
     if(buf->a.n - buf_iter == 0) return;
     if(buf->a.n - buf_iter > 1) radix_sort_hc_s_hit_an1(buf->a.a + buf_iter, buf->a.a + buf->a.n);
 
 
-
-    /*******************************for debug************************************/
-    // print_pos_list(idx, buf->a.a+buf_iter, buf->a.n - buf_iter, rid, (buf_iter != 0));
-    // fprintf(stderr, "len0:%lu\n", buf->a.n - buf_iter);
-    // for (i = buf_iter; i < buf->a.n; i++)
-    // {
-    //     interpret_pos(idx, &buf->a.a[i], &rev, &uID, &ref_p, &self_p, &cnt, NULL);
-    //     fprintf(stderr, "(%lu) rev: %lu, uID: %lu, ref_p: %lu, self_p: %lu, len: %lu\n", 
-    //                                                         i, rev, uID, ref_p, self_p, cnt);
-    // }
-    /*******************************for debug************************************/
-
-
-
-
-
-    uint64_t cur_ref_p, thres = (len * HIC_R_E_RATE) + 1, m, index_beg, ovlp, maxLen = 0, max_i = (uint64_t)-1;
+    uint64_t cur_ref_p, thres = (len * HIC_R_E_RATE) + 1, index_beg, ovlp;
     i = m = buf_iter;
     while (i < buf->a.n)
     {
         interpret_pos(idx, &buf->a.a[i], &rev, &uID, &ref_p, &self_p, &cnt, NULL);
-        /*******************************for debug************************************/
-        // if(check_exact_match(r, self_p, len, idx->ug->u.a[uID].s, 
-        //                         ref_p, idx->ug->u.a[uID].len, cnt, rev, 1) != cnt)
-        // {
-        //     fprintf(stderr, "ERROR\n");
-        // }
-        /*******************************for debug************************************/
-        // if(self_p > ref_p)
-        // {
-        //     i++; 
-        //     continue; ///fix this in future
-        // } 
+        ///fprintf(stderr, "after-i: %lu, uID: %lu, ref_p: %lu, self_p: %lu\n", i, uID, ref_p, self_p);
         cur_ref_p = buf->a.a[i].ref;
         index_beg = i;
-        while ((i < buf->a.n) && ((buf->a.a[i].ref>>idx->pos_bits) == (cur_ref_p>>idx->pos_bits)) && 
+        ///ref>>(idx->pos_bits-1) = (rev:1):(uID:uID-bits):(ref_pos>=self_pos:1)
+        while ((i < buf->a.n) && 
+                ((buf->a.a[i].ref>>(idx->pos_bits-1)) == (cur_ref_p>>(idx->pos_bits-1))) && 
                (buf->a.a[i].ref - cur_ref_p <= thres))
         {
             i++;
         }
         if(i - index_beg > 1)
         {
-            radix_sort_hc_s_hit_an2(buf->a.a + index_beg, buf->a.a + i);
+            radix_sort_hc_s_hit_an2(buf->a.a + index_beg, buf->a.a + i);//sort by self_p
         }
         ovlp = collect_votes(buf->a.a + index_beg, i - index_beg);
+        ///fprintf(stderr, "i-1: %lu, self_p: %u\n", i-1, (uint32_t)buf->a.a[i - 1].off_cnt);
         buf->a.a[m] = buf->a.a[i - 1];
         buf->a.a[m].off_cnt = (buf->a.a[m].off_cnt << 32)>>32;
         buf->a.a[m].off_cnt += ((uint64_t)ovlp<<32);
-
-        if(maxLen < (ovlp&((uint64_t)65535))) maxLen = (ovlp&((uint64_t)65535)), max_i = m;
-
+        ///fprintf(stderr, "m: %lu, self_p: %u\n", m, (uint32_t)buf->a.a[m].off_cnt);
         m++;
     }
     buf->a.n = m; 
@@ -1349,9 +1495,7 @@ const ha_ug_index* idx, uint64_t buf_iter, uint64_t rid)
     //                                                         i, rev, uID, ref_p, self_p, eLen, tLen);
     // }
     /*******************************for debug************************************/
-
-    compress_mapped_pos(idx, buf, buf_iter, max_i, thres);
-    
+    compress_mapped_pos_advance(idx, buf, buf_iter, (k_mer * 0.1) > 0? (k_mer * 0.1) : 1);    
     /*******************************for debug************************************/
     // fprintf(stderr, "len2:%lu, max_i: %lu\n", buf->a.n - buf_iter, max_i);
     // for (i = buf_iter; i < buf->a.n; i++)
@@ -1394,6 +1538,7 @@ inline int is_unreliable_hits(long long rev, long long ref_p, long long tLen, ui
 
     return 0;
 }
+
 inline void set_pe_pos(ha_ug_index* idx, s_hit *l1, uint64_t occ1, s_hit *l2, uint64_t occ2, 
 pe_hit* x, uint64_t rid, hc_links* link)
 {
@@ -1442,31 +1587,162 @@ pe_hit* x, uint64_t rid, hc_links* link)
     }
 }
 
+void get_5_3_list(ha_ug_index* idx, s_hit* p, uint64_t cnt, s_hit** l5, uint64_t* l5_occ, 
+s_hit** l3, uint64_t* l3_occ)
+{
+    (*l5) = (*l3) = NULL;
+    (*l5_occ) = (*l3_occ) = 0;
+    uint64_t i, j, rev, uID, ref_p, self_p, eLen, tLen, cur_beg, num;
+    uint64_t beg_5 = (uint64_t)-1;
+    for (j = 1, i = 0, num = 0; j <= cnt; ++j)
+    {
+        if(j == cnt || p[j].off_cnt != p[i].off_cnt)
+        {
+            interpret_pos((ha_ug_index*)idx, &p[i], &rev, &uID, &ref_p, &self_p, &eLen, &tLen);
+            ///cur_end = self_p;
+            cur_beg = self_p + 1 - tLen;
+            num++;
+            if(cur_beg <= beg_5)
+            {
+                (*l3_occ) = (*l5_occ); (*l3) = (*l5);
+                beg_5 = cur_beg; (*l5_occ) = j - i; (*l5) = p + i;
+            }
+            else
+            {
+                (*l3_occ) = j - i; (*l3) = p + i;
+            }
+            i = j;///must
+        }
+    }
+
+    ///if(num > 2) fprintf(stderr, "ERROR: get_5_3_list\n");
+}
+inline void set_pe_pos_hap(ha_ug_index* idx, s_hit *l1, uint64_t occ1, s_hit *l2, uint64_t occ2, 
+pe_hit_hap* x, uint64_t rid, hc_links* link)
+{
+    if(occ1 == 0 || occ2 == 0) return;
+    uint64_t rev, uID, ref_p, self_p, eLen, tLen, i, is_unreliable = 0;
+    s_hit *l1_5 = NULL, *l1_3 = NULL, *l2_5 = NULL, *l2_3 = NULL; 
+    uint64_t l1_5_occ = 0, l1_3_occ = 0, l2_5_occ = 0, l2_3_occ = 0;
+
+    /***************************for debug******************************/
+    // fprintf(stderr, "\nrid: %lu, occ1: %lu, occ2: %lu\n", rid, occ1, occ2);
+    // for (i = 0; i < occ1; i++)
+    // {
+    //     interpret_pos(idx, &l1[i], &rev, &uID, &ref_p, &self_p, &eLen, &tLen);
+    //     fprintf(stderr, "***-1-rev: %lu, uID: %lu, ref_p: %lu, self_p: %lu\n", 
+    //     rev, uID, ref_p, self_p);
+    // }
+
+    // for (i = 0; i < occ2; i++)
+    // {
+    //     interpret_pos(idx, &l2[i], &rev, &uID, &ref_p, &self_p, &eLen, &tLen);
+    //     fprintf(stderr, "***-2-rev: %lu, uID: %lu, ref_p: %lu, self_p: %lu\n", 
+    //     rev, uID, ref_p, self_p);
+    // }
+    /***************************for debug******************************/
+
+
+    get_5_3_list(idx, l1, occ1, &l1_5, &l1_5_occ, &l1_3, &l1_3_occ);
+    get_5_3_list(idx, l2, occ2, &l2_5, &l2_5_occ, &l2_3, &l2_3_occ);
+    if(l1_5_occ == 0 || l2_5_occ == 0) return;
+    x->id = rid;
+    MALLOC(x->a, l1_5_occ + l2_5_occ);
+
+    x->occ1 = 0; 
+    for (i = 0; i < l1_5_occ; i++)
+    {
+        interpret_pos(idx, &l1_5[i], &rev, &uID, &ref_p, &self_p, &eLen, &tLen);
+        if(ref_p < self_p) continue;
+        ref_p -= self_p; 
+        if(rev) ref_p = idx->ug->u.a[uID].len - 1 - ref_p;
+        if(link && (is_unreliable_hits(rev, ref_p, tLen, uID, link)))
+        {
+            is_unreliable = 1;
+            continue;
+        }
+        x->a[x->occ1++] = (rev<<63) | ((uID << (64-idx->uID_bits))>>1) | (ref_p & idx->pos_mode);
+    }
+    
+    x->occ2 = x->occ1; 
+    for (i = 0; i < l2_5_occ; i++)
+    {
+        interpret_pos(idx, &l2_5[i], &rev, &uID, &ref_p, &self_p, &eLen, &tLen);
+        if(ref_p < self_p) continue;
+        ref_p -= self_p; 
+        if(rev) ref_p = idx->ug->u.a[uID].len - 1 - ref_p;
+        if(link && (is_unreliable_hits(rev, ref_p, tLen, uID, link)))
+        {
+            is_unreliable = 1;
+            continue;
+        }
+        x->a[x->occ2++] = (rev<<63) | ((uID << (64-idx->uID_bits))>>1) | (ref_p & idx->pos_mode);
+    }
+    x->occ2 -= x->occ1; 
+
+    if(x->occ1 == 0 || x->occ2 == 0 || is_unreliable)
+    {
+        free(x->a); x->occ1 = x->occ2 = 0; x->a = NULL; x->id = (uint64_t)-1;
+        return;
+    }
+
+
+    if(x->occ1 > 1) radix_sort_hc64(x->a, x->a + x->occ1);
+    if(x->occ2 > 1) radix_sort_hc64(x->a + x->occ1, x->a + x->occ1 + x->occ2);
+
+
+    /***************************for debug******************************/
+    // fprintf(stderr, "-------------saved: x->occ1: %u, x->occ2: %u-------------\n", x->occ1, x->occ2);
+    // for (i = 0; i < x->occ1; i++)
+    // {
+    //     fprintf(stderr, "###-1-rev: %lu, uID: %lu, ref_p: %lu\n", 
+    //     x->a[i]>>63, (x->a[i]<<1)>>(64-idx->uID_bits), x->a[i] & idx->pos_mode);
+    // }
+
+    // for (i = 0; i < x->occ2; i++)
+    // {
+    //     fprintf(stderr, "###-2-rev: %lu, uID: %lu, ref_p: %lu\n", 
+    //     x->a[i+x->occ1]>>63, (x->a[i+x->occ1]<<1)>>(64-idx->uID_bits), x->a[i+x->occ1] & idx->pos_mode);
+    // }
+    // fprintf(stderr, "-------------get_pe_s-rev: %lu, uID: %lu, ref_p: %lu-------------\n", 
+    //     get_pe_s(*x)>>63, (get_pe_s(*x)<<1)>>(64-idx->uID_bits), get_pe_s(*x) & idx->pos_mode);
+    // fprintf(stderr, "-------------get_pe_e-rev: %lu, uID: %lu, ref_p: %lu-------------\n", 
+    //     get_pe_e(*x)>>63, (get_pe_e(*x)<<1)>>(64-idx->uID_bits), get_pe_e(*x) & idx->pos_mode);
+    /***************************for debug******************************/
+}
+
+uint64_t if_debug_read(uint64_t rid)
+{
+    if(rid == 177 || rid == 439 || rid == 97 || rid == 114)
+    {
+        return 1;
+    }
+    return 0;
+}
+
 static void worker_for_alignment(void *data, long i, int tid) // callback for kt_for()
 {
     stepdat_t *s = (stepdat_t*)data;
-    s->pos[i].id = s->pos[i].s = s->pos[i].e = (uint64_t)-1;
+    s->pos[i].id = (uint64_t)-1; s->pos[i].occ1 = s->pos[i].occ2 = 0; s->pos[i].a = NULL;
+
+    /*******************************for debug************************************/
+    // if(!if_debug_read(s->id+i)) return;
+    // fprintf(stderr, "work-rid: %lu\n", (uint64_t)(s->id+i));
+    /*******************************for debug************************************/
+
     uint64_t len1 = s->len[i]>>32, len2 = (uint32_t)s->len[i], occ1, occ2;
     char *r1 = s->seq[i], *r2 = s->seq[i] + len1;
-    /*******************************for debug************************************/
-    // if(memcmp(r1, R1.r.a + R1.r_Len.a[s->id+i], len1) != 0)
-    // {
-    //     fprintf(stderr, "haha1\n");
-    // }
-    // if(memcmp(r2, R2.r.a + R2.r_Len.a[s->id+i], len2) != 0)
-    // {
-    //     fprintf(stderr, "haha2\n");
-    // }
-    /*******************************for debug************************************/
+    // fprintf(stderr, "**********R1**********\n");
     s->pos_buf[tid].a.n = 0;
     get_alignment(r1, len1, s->idx->k, &s->pos_buf[tid], s->idx, 0, s->id+i);
     occ1 = s->pos_buf[tid].a.n;
     if(occ1 == 0) return;
+    // fprintf(stderr, "**********R2**********\n");
     get_alignment(r2, len2, s->idx->k, &s->pos_buf[tid], s->idx, occ1, s->id+i);
     occ2 = s->pos_buf[tid].a.n - occ1;
     if(occ2 == 0) return;   
     
-    set_pe_pos((ha_ug_index*)s->idx, s->pos_buf[tid].a.a, occ1, s->pos_buf[tid].a.a + occ1, occ2, &(s->pos[i]), s->id+i, s->link);
+    set_pe_pos_hap((ha_ug_index*)s->idx, s->pos_buf[tid].a.a, occ1, s->pos_buf[tid].a.a + occ1, occ2, &(s->pos[i]), s->id+i, s->link);
 
     /*******************************for debug************************************/
     // if(memcmp(r1, R1.r.a + R1.r_Len.a[s->id+i], len1) != 0)
@@ -1532,7 +1808,7 @@ static void *worker_pipeline(void *data, int step, void *in) // callback for kt_
     else if (step == 1) { // step 2: alignment
         stepdat_t *s = (stepdat_t*)in;
         CALLOC(s->pos_buf, p->n_thread);
-        MALLOC(s->pos, s->n);
+        CALLOC(s->pos, s->n);
         int i;
         kt_for(p->n_thread, worker_for_alignment, s, s->n);
         for (i = 0; i < s->n; ++i) {
@@ -1551,8 +1827,8 @@ static void *worker_pipeline(void *data, int step, void *in) // callback for kt_
         stepdat_t *s = (stepdat_t*)in;
         int i;
         for (i = 0; i < s->n; ++i) {
-            if(s->pos[i].s == (uint64_t)-1) continue;
-            kv_push(pe_hit, p->hits.a, s->pos[i]);
+            if(s->pos[i].a == NULL) continue;
+            kv_push(pe_hit_hap, p->hits, s->pos[i]);
         }
         free(s->pos);
         free(s);
@@ -1561,38 +1837,53 @@ static void *worker_pipeline(void *data, int step, void *in) // callback for kt_
 }
 
 
-void load_reads(reads_t* x, const char *fn)
+int load_reads(reads_t* x, const enzyme *fn1, const enzyme *fn2)
 {
     kv_init(x->name);
     kv_init(x->name_Len);
     kv_init(x->r);
     kv_init(x->r_Len);
-    gzFile fp;
-    kseq_t *ks;
+    
     int ret;
     uint64_t name_tot, base_total;
-
+    int i;
     name_tot = base_total = 0;
-    if ((fp = gzopen(fn, "r")) == 0) return;
-    ks = kseq_init(fp);
-    while (((ret = kseq_read(ks)) >= 0))
+
+    for (i = 0; i < fn1->n && i < fn2->n; i++)
     {
-        kv_push(uint64_t, x->name_Len, name_tot);
-        kv_resize(char, x->name, name_tot + ks->name.l);
-        memcpy(x->name.a + name_tot, ks->name.s, ks->name.l);
-        name_tot += ks->name.l;
+        gzFile fp;
+        if ((fp = gzopen(fn1->a[i], "r")) == 0)
+        {
+            kv_destroy(x->name);
+            kv_destroy(x->name_Len);
+            kv_destroy(x->r);
+            kv_destroy(x->r_Len);
+            return 0;
+        } 
+        
+        kseq_t *ks;
+        ks = kseq_init(fp);
 
-        kv_push(uint64_t, x->r_Len, base_total);
-        kv_resize(char, x->r, base_total + ks->seq.l);
-        memcpy(x->r.a + base_total, ks->seq.s, ks->seq.l);
-        base_total += ks->seq.l;
+        while (((ret = kseq_read(ks)) >= 0))
+        {
+            kv_push(uint64_t, x->name_Len, name_tot);
+            kv_resize(char, x->name, name_tot + ks->name.l);
+            memcpy(x->name.a + name_tot, ks->name.s, ks->name.l);
+            name_tot += ks->name.l;
+
+            kv_push(uint64_t, x->r_Len, base_total);
+            kv_resize(char, x->r, base_total + ks->seq.l);
+            memcpy(x->r.a + base_total, ks->seq.s, ks->seq.l);
+            base_total += ks->seq.l;
+        }
+        
+        kseq_destroy(ks);
+        gzclose(fp);
     }
-
     kv_push(uint64_t, x->name_Len, name_tot);
     kv_push(uint64_t, x->r_Len, base_total);
-
-    kseq_destroy(ks);
-    gzclose(fp);
+    x->idx = 0;
+    return 1;
 }
 
 
@@ -1625,11 +1916,11 @@ void destory_reads(reads_t* x)
     kv_destroy(x->r_Len);
 }
 
-void print_hits(ha_ug_index* idx, kvec_pe_hit* hits, const char *fn)
+void print_hits(ha_ug_index* idx, kvec_pe_hit* hits, const enzyme *fn1, const enzyme *fn2)
 {
     uint64_t k, shif = 64 - idx->uID_bits;
     reads_t r1;
-    load_reads(&r1, fn);
+    load_reads(&r1, fn1, fn2);
     char dir[2] = {'+', '-'};
     for (k = 0; k < hits->a.n; ++k) 
     { 
@@ -1643,32 +1934,114 @@ void print_hits(ha_ug_index* idx, kvec_pe_hit* hits, const char *fn)
     destory_reads(&r1);
 }
 
-void dedup_hits(kvec_pe_hit* hits)
+inline void swap_pe_hit_hap(pe_hit_hap* x, pe_hit_hap* y)
+{
+    pe_hit_hap tmp;
+    tmp = (*x); (*x) = (*y); (*y) = tmp;
+}
+
+void dedup_hits(kvec_pe_hit_hap* hits, const ha_ug_index* idx)
 {
     double index_time = yak_realtime();
-    uint64_t k, l, m = 0, cur;
-    radix_sort_pe_hit_an1(hits->a.a, hits->a.a + hits->a.n);
-    for (k = 1, l = 0; k <= hits->a.n; ++k) 
-    {   
-        if (k == hits->a.n || hits->a.a[k].s != hits->a.a[l].s) 
+    uint64_t k, l, m = 0, cur = (uint64_t)-1;
+    radix_sort_pe_an1(hits->a, hits->a + hits->n);
+    /***************************for debug******************************/
+    // for (k = 0; k < hits->n; ++k)
+    // {
+    //     for (l = k + 1; l < hits->n; l++)
+    //     {
+    //         if(get_pe_s(hits->a[k]) == get_pe_s(hits->a[l]) && 
+    //                 get_pe_e(hits->a[k]) == get_pe_e(hits->a[l]))
+    //         {
+    //             fprintf(stderr, "DUP: k_id=%lu, l_id=%lu\n", hits->a[k].id, hits->a[l].id);
+    //         }
+    //     }
+    // }
+
+    /**
+    fprintf(stderr, "\n\n\n\n\n\n\n\n\n\n*********************dedup_hits*********************\n");
+    for (k = 0; k < hits->n; ++k)
+    {
+        pe_hit_hap *x = &(hits->a[k]);
+        fprintf(stderr, "\nsorted-rid: %lu, occ1: %u, occ2: %u\n", x->id, x->occ1, x->occ2);
+        fprintf(stderr, "---get_pe_s-rev: %lu, uID: %lu, ref_p: %lu---\n", 
+            get_pe_s(*x)>>63, (get_pe_s(*x)<<1)>>(64-idx->uID_bits), get_pe_s(*x) & idx->pos_mode);
+        fprintf(stderr, "---get_pe_e-rev: %lu, uID: %lu, ref_p: %lu---\n", 
+            get_pe_e(*x)>>63, (get_pe_e(*x)<<1)>>(64-idx->uID_bits), get_pe_e(*x) & idx->pos_mode);
+        uint64_t i;
+        for (i = 0; i < x->occ1; i++)
         {
-            if (k - l > 1) radix_sort_pe_hit_an2(hits->a.a + l, hits->a.a + k);
-            cur = (uint64_t)-1;
+            fprintf(stderr, "###-1-rev: %lu, uID: %lu, ref_p: %lu\n", 
+            x->a[i]>>63, (x->a[i]<<1)>>(64-idx->uID_bits), x->a[i] & idx->pos_mode);
+        }
+
+        for (i = 0; i < x->occ2; i++)
+        {
+            fprintf(stderr, "###-2-rev: %lu, uID: %lu, ref_p: %lu\n", 
+            x->a[i+x->occ1]>>63, (x->a[i+x->occ1]<<1)>>(64-idx->uID_bits), x->a[i+x->occ1] & idx->pos_mode);
+        }
+    }
+    **/
+    /***************************for debug******************************/
+    for (k = 1, l = 0; k <= hits->n; ++k) 
+    {   
+        if (k == hits->n || get_pe_s(hits->a[k]) != get_pe_s(hits->a[l])) 
+        {
+            if (k - l > 1) radix_sort_pe_an2(hits->a + l, hits->a + k);
+            ////fprintf(stderr, "\nl: %lu, k: %lu, %s\n", l, k, k - l > 1? "Found":"NONE");
+
+            cur = (uint64_t)-1;   
             while (l < k)
             {
-                if(hits->a.a[l].e != cur)
+                if(get_pe_e(hits->a[l]) != cur)
                 {
-                    cur = hits->a.a[l].e;
-                    hits->a.a[m++] = hits->a.a[l];
+                    cur = get_pe_e(hits->a[l]);
+                    if(m != l) swap_pe_hit_hap(&hits->a[m], &hits->a[l]);
+                    m++;
                 }
                 l++;
             }
             l = k;
         }
     }
-    hits->a.n = m;
-    fprintf(stderr, "[M::%s::%.3f] ==> Dedup\n", __func__, yak_realtime()-index_time);
+
+    for (k = m; k < hits->n; k++)
+    {
+        hits->a[k].id = (uint64_t)-1;
+        hits->a[k].occ1 = hits->a[k].occ2 = 0;
+        free(hits->a[k].a); hits->a[k].a = NULL;
+    }
+
+    radix_sort_pe_occ_t(hits->a, hits->a + m);
+    for (k = 0, hits->n_u = 0; k < m; k++)
+    {
+        if(hits->a[k].occ1 == 1 && hits->a[k].occ2 == 1) hits->n_u++;
+    }
+    
+
+    fprintf(stderr, "[M::%s::%.3f] ==> Dedup (# dup: %lu, # non-dup: %lu, # non-dup-unique: %lu)\n", 
+    __func__, yak_realtime()-index_time, (uint64_t)(hits->n - m), m, hits->n_u);
+    hits->n = m;
 }
+
+void int_kvec_pe_hit_hap(kvec_pe_hit_hap* x)
+{
+    x->m = x->n = x->n_u = 0;
+    x->a = NULL;
+}
+
+void destory_kvec_pe_hit_hap(kvec_pe_hit_hap* x)
+{
+    uint64_t k;
+    for (k = 0; k < x->n; k++)
+    {
+        x->a[k].id = (uint64_t)-1;
+        x->a[k].occ1 = x->a[k].occ2 = 0;
+        free(x->a[k].a); x->a[k].a = NULL;
+    }
+    free(x->a);
+}
+
 
 void sort_hits(kvec_pe_hit* hits)
 {
@@ -1849,7 +2222,7 @@ void identify_bubbles(ma_ug_t* ug, bubble_type* bub, hc_links* link)
             if(ug->g->seq[v>>1].del) continue;
             if(asg_arc_n(ug->g, v) < 2) continue;
             if((bub->index[v]&(uint32_t)3) != 0) continue;
-            if(asg_bub_pop1_primary_trio(ug->g, NULL, v, tLen, &b, (uint32_t)-1, (uint32_t)-1, 0, NULL, NULL))
+            if(asg_bub_pop1_primary_trio(ug->g, NULL, v, tLen, &b, (uint32_t)-1, (uint32_t)-1, 0, NULL, NULL, NULL))
             {
                 //beg is v, end is b.S.a[0]
                 //note b.b include end, does not include beg
@@ -1870,7 +2243,7 @@ void identify_bubbles(ma_ug_t* ug, bubble_type* bub, hc_links* link)
         for (v = 0; v < n_vtx; ++v) 
         {
             if((bub->index[v]&(uint32_t)3) !=2) continue;
-            if(asg_bub_pop1_primary_trio(ug->g, NULL, v, tLen, &b, (uint32_t)-1, (uint32_t)-1, 0, &pathLen, NULL))
+            if(asg_bub_pop1_primary_trio(ug->g, NULL, v, tLen, &b, (uint32_t)-1, (uint32_t)-1, 0, &pathLen, NULL, NULL))
             {   
                 //note b.b include end, does not include beg
                 i = b.b.n + 1;
@@ -1903,7 +2276,7 @@ void identify_bubbles(ma_ug_t* ug, bubble_type* bub, hc_links* link)
             if((bub->num.a[k]>>31) == 0) bub->s_bub++;
             v = (bub->num.a[k]<<1)>>1;
             bub->num.a[k] = bub->list.n;
-            if(asg_bub_pop1_primary_trio(ug->g, NULL, v, tLen, &b, (uint32_t)-1, (uint32_t)-1, 0, &pathLen, NULL))
+            if(asg_bub_pop1_primary_trio(ug->g, NULL, v, tLen, &b, (uint32_t)-1, (uint32_t)-1, 0, &pathLen, NULL, NULL))
             {
                 kv_push(uint64_t, bub->pathLen, pathLen);
                 //beg is v, end is b.S.a[0]
@@ -2026,7 +2399,7 @@ void identify_bubbles(ma_ug_t* ug, bubble_type* bub, hc_links* link)
 
 
 
-void print_bubbles(ma_ug_t* ug, bubble_type* bub, kvec_pe_hit* hits, hc_links* link, ha_ug_index* idx)
+void print_bubbles(ma_ug_t* ug, bubble_type* bub, kvec_pe_hit_hap* hits, hc_links* link, ha_ug_index* idx)
 {
     uint64_t tLen, t_utg, i, k;
     uint32_t beg, sink, n, *a;
@@ -2070,10 +2443,10 @@ void print_bubbles(ma_ug_t* ug, bubble_type* bub, kvec_pe_hit* hits, hc_links* l
     uint64_t s_uid, e_uid, shif = 64 - idx->uID_bits;
     if(hits)
     {
-        for (k = 0; k < hits->a.n; ++k) 
+        for (k = 0; k < hits->n_u; ++k) 
         {
-            s_uid = ((hits->a.a[k].s<<1)>>shif);
-            e_uid = ((hits->a.a[k].e<<1)>>shif);
+            s_uid = ((get_pe_s(hits->a[k])<<1)>>shif);
+            e_uid = ((get_pe_e(hits->a[k])<<1)>>shif);
             if(bub->index[s_uid] == (uint32_t)-1 || bub->index[e_uid] == (uint32_t)-1) continue;
             if(IF_BUB(s_uid, *bub) && IF_BUB(e_uid, *bub))
             {
@@ -2803,14 +3176,14 @@ void destory_MT(MT* M)
     kv_destroy(M->matrix);
 }
 
-void collect_hc_links(const ha_ug_index* idx, kvec_pe_hit* hits, hc_links* link, bubble_type* bub, MT* M)
+void collect_hc_links(const ha_ug_index* idx, kvec_pe_hit_hap* hits, hc_links* link, bubble_type* bub, MT* M)
 {
     double index_time = yak_realtime();
     uint64_t k, i, shif = 64 - idx->uID_bits, beg, end, t_d;
-    for (k = 0; k < hits->a.n; ++k) 
+    for (k = 0; k < hits->n_u; ++k) 
     {
-        beg = ((hits->a.a[k].s<<1)>>shif);
-        end = ((hits->a.a[k].e<<1)>>shif);
+        beg = ((get_pe_s(hits->a[k])<<1)>>shif);
+        end = ((get_pe_e(hits->a[k])<<1)>>shif);
 
         if(beg == end) continue;
         if(IF_HOM(beg, *bub)) continue;
@@ -3092,22 +3465,179 @@ int load_hc_links(hc_links* link, const char *fn)
 }
 
 
-void write_hc_hits(kvec_pe_hit* hits, const char *fn)
+void write_hc_hits(kvec_pe_hit_hap* hits, const char *fn)
 {
     char *buf = (char*)calloc(strlen(fn) + 25, 1);
 	sprintf(buf, "%s.hic.lk.bin", fn);
     FILE* fp = fopen(buf, "w");
 
-    fwrite(&hits->a.n, sizeof(hits->a.n), 1, fp);
-    fwrite(hits->a.a, sizeof(pe_hit), hits->a.n, fp);
-
+    uint64_t k;
+    fwrite(&hits->n_u, sizeof(hits->n_u), 1, fp);
+    fwrite(&hits->n, sizeof(hits->n), 1, fp);
+    for (k = 0; k < hits->n; k++)
+    {
+        fwrite(&hits->a[k].id, sizeof(hits->a[k].id), 1, fp);
+        fwrite(&hits->a[k].occ1, sizeof(hits->a[k].occ1), 1, fp);
+        fwrite(&hits->a[k].occ2, sizeof(hits->a[k].occ2), 1, fp);
+        fwrite(hits->a[k].a, sizeof(uint64_t), hits->a[k].occ1 + hits->a[k].occ2, fp);
+    }
+    
     fclose(fp);
     free(buf);
 }
 
-int load_hc_hits(kvec_pe_hit* hits, const char *fn)
+void write_hc_hits_v14(kvec_pe_hit_hap* i_hits, const char *fn)
+{
+    char *buf = (char*)calloc(strlen(fn) + 25, 1);
+	sprintf(buf, "%s.v14.hic.lk.bin", fn);
+    FILE* fp = fopen(buf, "w");
+    kvec_pe_hit hits; 
+    kv_init(hits.a);
+    uint64_t i, m_u = (uint64_t)-1, m_m = (uint64_t)-1;
+    pe_hit* p = NULL;
+    for (i = 0; i < i_hits->n; i++)
+    {
+        if(i_hits->a[i].occ1 == 1 && i_hits->a[i].occ2 == 1) 
+        {
+            kv_pushp(pe_hit, hits.a, &p);
+            p->id = i_hits->a[i].id;
+            p->s = i_hits->a[i].a[0];
+            p->e = i_hits->a[i].a[1];
+            m_u = i;
+        }
+        else
+        {
+            if(m_m == (uint64_t)-1) m_m = i;
+        }
+    }
+    fprintf(stderr, "m_u: %lu, m_m: %lu, n_u: %lu\n", m_u, m_m, i_hits->n_u);
+
+    fwrite(&hits.a.n, sizeof(hits.a.n), 1, fp);
+    fwrite(hits.a.a, sizeof(pe_hit), hits.a.n, fp);
+
+    kv_destroy(hits.a);
+    fclose(fp);
+    free(buf);
+    exit(1);
+}
+
+#define pe_hit_hap_id_key(x) ((x).id)
+KRADIX_SORT_INIT(pe_hit_hap_id, pe_hit_hap, pe_hit_hap_id_key, member_size(pe_hit_hap, id))
+
+#define pe_hit_id_key(x) ((x).id)
+KRADIX_SORT_INIT(pe_hit_id, pe_hit, pe_hit_id_key, member_size(pe_hit, id))
+
+void debug_hc_hits_v14(kvec_pe_hit_hap* i_hits, const char *fn, const ha_ug_index* idx)
 {
     uint64_t flag = 0;
+    char *buf = (char*)calloc(strlen(fn) + 25, 1);
+	sprintf(buf, "%s.v14.hic.lk.bin", fn);
+    kvec_pe_hit hits; 
+    kv_init(hits.a);
+    FILE* fp = NULL; 
+    fp = fopen(buf, "r"); 
+
+    kv_init(hits.a);
+    flag += fread(&hits.a.n, sizeof(hits.a.n), 1, fp);
+    hits.a.m = hits.a.n; MALLOC(hits.a.a, hits.a.n);
+    flag += fread(hits.a.a, sizeof(pe_hit), hits.a.n, fp);
+
+    radix_sort_pe_hit_id(hits.a.a, hits.a.a + hits.a.n);
+    radix_sort_pe_hit_hap_id(i_hits->a, i_hits->a + i_hits->n_u);
+
+    fprintf(stderr, "i_hits->n_u: %lu, hits.a.n: %lu\n", (uint64_t)i_hits->n_u, (uint64_t)hits.a.n);
+
+    uint64_t i, k;
+    uint64_t i_beg_utg, i_beg_pos, i_beg_rev;
+    uint64_t i_end_utg, i_end_pos, i_end_rev;
+    uint64_t k_beg_utg, k_beg_pos, k_beg_rev;
+    uint64_t k_end_utg, k_end_pos, k_end_rev;
+    uint64_t i_id, k_id;
+    uint64_t same_occ = 0, diff_occ = 0, miss_occ = 0;
+    for (i = 0, k = 0; i < i_hits->n_u; i++)
+    {
+        i_beg_rev = get_pe_s(i_hits->a[i])>>63;
+        i_beg_utg = ((get_pe_s(i_hits->a[i])<<1)>>(64 - idx->uID_bits));
+        i_beg_pos = get_pe_s(i_hits->a[i]) & idx->pos_mode;
+
+        i_end_rev = get_pe_e(i_hits->a[i])>>63;
+        i_end_utg = ((get_pe_e(i_hits->a[i])<<1)>>(64 - idx->uID_bits));
+        i_end_pos = get_pe_e(i_hits->a[i]) & idx->pos_mode;
+
+        i_id = i_hits->a[i].id;
+        for (; k < hits.a.n; k++)
+        {
+            k_beg_rev = hits.a.a[k].s>>63;
+            k_beg_utg = ((hits.a.a[k].s<<1)>>(64 - idx->uID_bits));
+            k_beg_pos = hits.a.a[k].s & idx->pos_mode;
+
+            k_end_rev = hits.a.a[k].e>>63;
+            k_end_utg = ((hits.a.a[k].e<<1)>>(64 - idx->uID_bits));
+            k_end_pos = hits.a.a[k].e & idx->pos_mode;
+
+            k_id = hits.a.a[k].id;
+
+            if(k_id > i_id)
+            {
+                miss_occ++;
+                fprintf(stderr, "\n[MISS]rid=%lu\n", i_id);
+                fprintf(stderr, "********v0.15********\n");
+                fprintf(stderr, "beg_rev: %lu, beg_utg: %lu, beg_pos: %lu\n", 
+                i_beg_rev, i_beg_utg, i_beg_pos);
+                fprintf(stderr, "end_rev: %lu, end_utg: %lu, end_pos: %lu\n", 
+                i_end_rev, i_end_utg, i_end_pos);
+                break;
+            } 
+            
+            if(k_id == i_id)
+            {
+                if(get_pe_s(i_hits->a[i]) == hits.a.a[k].s && get_pe_e(i_hits->a[i]) == hits.a.a[k].e)
+                {
+                    same_occ++;
+                    // fprintf(stderr, "\n[SAME]rid=%lu\n", i_id);
+                    // fprintf(stderr, "********v0.15********\n");
+                    // fprintf(stderr, "beg_rev: %lu, beg_utg: %lu, beg_pos: %lu\n", 
+                    // i_beg_rev, i_beg_utg, i_beg_pos);
+                    // fprintf(stderr, "end_rev: %lu, end_utg: %lu, end_pos: %lu\n", 
+                    // i_end_rev, i_end_utg, i_end_pos);
+                    // fprintf(stderr, "********v0.14********\n");
+                    // fprintf(stderr, "beg_rev: %lu, beg_utg: %lu, beg_pos: %lu\n", 
+                    // k_beg_rev, k_beg_utg, k_beg_pos);
+                    // fprintf(stderr, "end_rev: %lu, end_utg: %lu, end_pos: %lu\n", 
+                    // k_end_rev, k_end_utg, k_end_pos);
+                }
+                else
+                {
+                    diff_occ++;
+                    fprintf(stderr, "\n[DIFF]rid=%lu\n", i_id);
+                    fprintf(stderr, "********v0.15********\n");
+                    fprintf(stderr, "beg_rev: %lu, beg_utg: %lu, beg_pos: %lu\n", 
+                    i_beg_rev, i_beg_utg, i_beg_pos);
+                    fprintf(stderr, "end_rev: %lu, end_utg: %lu, end_pos: %lu\n", 
+                    i_end_rev, i_end_utg, i_end_pos);
+                    fprintf(stderr, "********v0.14********\n");
+                    fprintf(stderr, "beg_rev: %lu, beg_utg: %lu, beg_pos: %lu\n", 
+                    k_beg_rev, k_beg_utg, k_beg_pos);
+                    fprintf(stderr, "end_rev: %lu, end_utg: %lu, end_pos: %lu\n", 
+                    k_end_rev, k_end_utg, k_end_pos);
+                }
+                break;
+            }
+        }
+    }
+    
+    fprintf(stderr, "same_occ: %lu, diff_occ: %lu, miss_occ: %lu", same_occ, diff_occ, miss_occ);
+
+
+    kv_destroy(hits.a);
+    fclose(fp);
+    free(buf);
+    exit(1);
+}
+
+int load_hc_hits(kvec_pe_hit_hap* hits, const char *fn)
+{
+    uint64_t flag = 0, k;
     char *buf = (char*)calloc(strlen(fn) + 25, 1);
 	sprintf(buf, "%s.hic.lk.bin", fn);
 
@@ -3115,10 +3645,19 @@ int load_hc_hits(kvec_pe_hit* hits, const char *fn)
     fp = fopen(buf, "r"); 
     if(!fp) return 0;
 
-    kv_init(hits->a);
-    flag += fread(&hits->a.n, sizeof(hits->a.n), 1, fp);
-    hits->a.m = hits->a.n; MALLOC(hits->a.a, hits->a.n);
-    flag += fread(hits->a.a, sizeof(pe_hit), hits->a.n, fp);
+    kv_init(*hits);
+    flag += fread(&hits->n_u, sizeof(hits->n_u), 1, fp);
+    flag += fread(&hits->n, sizeof(hits->n), 1, fp);
+    hits->m = hits->n; MALLOC(hits->a, hits->n);
+
+    for (k = 0; k < hits->n; k++)
+    {
+        flag += fread(&hits->a[k].id, sizeof(hits->a[k].id), 1, fp);
+        flag += fread(&hits->a[k].occ1, sizeof(hits->a[k].occ1), 1, fp);
+        flag += fread(&hits->a[k].occ2, sizeof(hits->a[k].occ2), 1, fp);
+        MALLOC(hits->a[k].a, hits->a[k].occ1 + hits->a[k].occ2);
+        flag += fread(hits->a[k].a, sizeof(uint64_t), hits->a[k].occ1 + hits->a[k].occ2, fp);
+    }
 
     fclose(fp);
     free(buf);
@@ -4414,12 +4953,12 @@ G_partition* clean_bubbles(hc_links* link, bubble_type* bub, min_cut_t* m, const
 
 
 
-uint64_t get_hic_distance(pe_hit* hit, hc_links* link, const ha_ug_index* idx)
+uint64_t get_hic_distance(pe_hit_hap* hit, hc_links* link, const ha_ug_index* idx)
 {
     uint64_t s_uid, s_dir, e_uid, e_dir, u_dis, k;
     long long s_pos, e_pos;
-    s_uid = ((hit->s<<1)>>(64 - idx->uID_bits)); s_pos = hit->s & idx->pos_mode;
-    e_uid = ((hit->e<<1)>>(64 - idx->uID_bits)); e_pos = hit->e & idx->pos_mode;
+    s_uid = ((get_pe_s(*hit)<<1)>>(64 - idx->uID_bits)); s_pos = get_pe_s(*hit) & idx->pos_mode;
+    e_uid = ((get_pe_e(*hit)<<1)>>(64 - idx->uID_bits)); e_pos = get_pe_e(*hit) & idx->pos_mode;
     if(s_uid == e_uid) return MAX(s_pos, e_pos) - MIN(s_pos, e_pos);
     hc_linkeage* t = &(link->a.a[s_uid]);
     for (k = 0; k < t->e.n; k++)
@@ -4677,7 +5216,7 @@ void LeastSquare_advance(trans_idx* dis, ha_ug_index* idx, uint64_t med)
 }
 
 
-void weight_edges(ha_ug_index* idx, kvec_pe_hit* hits, hc_links* link, bubble_type* bub)
+void weight_edges(ha_ug_index* idx, kvec_pe_hit_hap* hits, hc_links* link, bubble_type* bub)
 {
     uint64_t k, i, shif = 64 - idx->uID_bits, beg, end, t_d;
     hc_edge *e1 = NULL, *e2 = NULL;
@@ -4692,16 +5231,16 @@ void weight_edges(ha_ug_index* idx, kvec_pe_hit* hits, hc_links* link, bubble_ty
         }
     }
 
-    for (k = 0; k < hits->a.n; ++k) 
+    for (k = 0; k < hits->n_u; ++k) 
     {
-        beg = ((hits->a.a[k].s<<1)>>shif);
-        end = ((hits->a.a[k].e<<1)>>shif);
+        beg = ((get_pe_s(hits->a[k])<<1)>>shif);
+        end = ((get_pe_e(hits->a[k])<<1)>>shif);
 
         if(beg == end) continue;
         if(IF_HOM(beg, *bub)) continue;
         if(IF_HOM(end, *bub)) continue;
         
-        t_d = get_hic_distance(&(hits->a.a[k]), link, idx);
+        t_d = get_hic_distance(&(hits->a[k]), link, idx);
         if(t_d == (uint64_t)-1) continue;
 
         e1 = get_hc_edge(link, beg, end, 0);
@@ -4718,7 +5257,7 @@ void weight_edges(ha_ug_index* idx, kvec_pe_hit* hits, hc_links* link, bubble_ty
 }
 
 
-void weight_edges_advance(ha_ug_index* idx, kvec_pe_hit* hits, hc_links* link, bubble_type* bub, trans_idx* dis)
+void weight_edges_advance(ha_ug_index* idx, kvec_pe_hit_hap* hits, hc_links* link, bubble_type* bub, trans_idx* dis)
 {
     uint64_t k, i, shif = 64 - idx->uID_bits, beg, end, t_d;
     hc_edge *e1 = NULL, *e2 = NULL;
@@ -4733,16 +5272,16 @@ void weight_edges_advance(ha_ug_index* idx, kvec_pe_hit* hits, hc_links* link, b
         }
     }
 
-    for (k = 0; k < hits->a.n; ++k) 
+    for (k = 0; k < hits->n_u; ++k) 
     {
-        beg = ((hits->a.a[k].s<<1)>>shif);
-        end = ((hits->a.a[k].e<<1)>>shif);
+        beg = ((get_pe_s(hits->a[k])<<1)>>shif);
+        end = ((get_pe_e(hits->a[k])<<1)>>shif);
 
         if(beg == end) continue;
         if(IF_HOM(beg, *bub)) continue;
         if(IF_HOM(end, *bub)) continue;
         
-        t_d = get_hic_distance(&(hits->a.a[k]), link, idx);
+        t_d = get_hic_distance(&(hits->a[k]), link, idx);
         if(t_d == (uint64_t)-1) continue;
 
         e1 = get_hc_edge(link, beg, end, 0);
@@ -7747,7 +8286,7 @@ void get_forward_distance(uint32_t src, uint32_t dest, asg_t *sg, hc_links* link
 
 
 
-int get_trans_rate_function(ha_ug_index* idx, kvec_pe_hit* hits, hc_links* link, bubble_type* bub, MT* M, H_partition* hap, trans_idx* dis)
+int get_trans_rate_function(ha_ug_index* idx, kvec_pe_hit_hap* hits, hc_links* link, bubble_type* bub, MT* M, H_partition* hap, trans_idx* dis)
 {
     kvec_t(uint64_t) buf, buf_idx;
     kv_init(buf);
@@ -7766,16 +8305,16 @@ int get_trans_rate_function(ha_ug_index* idx, kvec_pe_hit* hits, hc_links* link,
 
 
     buf.n = 0;
-    for (k = 0; k < hits->a.n; ++k) 
+    for (k = 0; k < hits->n_u; ++k) 
     {
-        beg = ((hits->a.a[k].s<<1)>>(64 - idx->uID_bits));
-        end = ((hits->a.a[k].e<<1)>>(64 - idx->uID_bits));
+        beg = ((get_pe_s(hits->a[k])<<1)>>(64 - idx->uID_bits));
+        end = ((get_pe_e(hits->a[k])<<1)>>(64 - idx->uID_bits));
 
         if(IF_HOM(beg, *bub)) continue;
         if(IF_HOM(end, *bub)) continue;
 
 
-        t_d = get_hic_distance(&(hits->a.a[k]), link, idx);
+        t_d = get_hic_distance(&(hits->a[k]), link, idx);
         if(t_d == (uint64_t)-1) continue;
         if(beg == end)
         {
@@ -7809,7 +8348,6 @@ int get_trans_rate_function(ha_ug_index* idx, kvec_pe_hit* hits, hc_links* link,
         if((buf.a[k]&1) == 1) f_idx = k;
     }
     buf.n = MIN(r_idx, f_idx);
-
     for (k = 0; k < buf.n; k++)
     {
         if((buf.a[k]&1) == 1)
@@ -7817,7 +8355,6 @@ int get_trans_rate_function(ha_ug_index* idx, kvec_pe_hit* hits, hc_links* link,
             kv_push(uint64_t, buf_idx, buf.a[k]>>1); 
         } 
     }
-
     uint64_t cutoff = buf_idx.n * 0.9, t = buf_idx.n * 0.005, pre, step;
     k = 0;
     if(cutoff >= t) k = cutoff - t;
@@ -7829,14 +8366,12 @@ int get_trans_rate_function(ha_ug_index* idx, kvec_pe_hit* hits, hc_links* link,
         pre = buf_idx.a[k];
         i++;
     }
-    
     if(t_d == 0 || i == 0 || t == 0)
     {
         kv_destroy(buf);
         kv_destroy(buf_idx);
         return 0;
     }
-
     step = (t_d/i)*20;
 
     if(step == 0)
@@ -7845,7 +8380,6 @@ int get_trans_rate_function(ha_ug_index* idx, kvec_pe_hit* hits, hc_links* link,
         kv_destroy(buf_idx);
         return 0;
     }
-
     trans_p_t* p = NULL;
     dis->n = 0;
     uint64_t step_s = 0, step_e = step;
@@ -7871,8 +8405,9 @@ int get_trans_rate_function(ha_ug_index* idx, kvec_pe_hit* hits, hc_links* link,
                 cnt[0] = cnt[1] = 0;
             }
         }
+        // fprintf(stderr, "-k: %lu, buf.n: %lu, buf.a[k]: %lu, step_s: %lu, step_e: %lu\n", 
+        // k, (uint64_t)buf.n, (buf.a[k]>>1), step_s, step_e);
     }
-
     if(cnt[0] > 0 || cnt[1] > 0)
     {
         kv_pushp(trans_p_t, *dis, &p);
@@ -7881,7 +8416,6 @@ int get_trans_rate_function(ha_ug_index* idx, kvec_pe_hit* hits, hc_links* link,
         p->cnt_0 = cnt[0];
         p->cnt_1 = cnt[1];
     }
-
 
     uint64_t smooth_step = 20, k_i, cnt_0;
     if(dis->n > 0) med = dis->a[dis->n-1].end;
@@ -7898,7 +8432,6 @@ int get_trans_rate_function(ha_ug_index* idx, kvec_pe_hit* hits, hc_links* link,
             break;
         }
     }
-
    
     long long b_k = 0, b_i = 0, b_j, pass = 0;
     ///for (b_k = b_i = 0; b_k < (long long)dis->n; b_k++)
@@ -7964,7 +8497,6 @@ int get_trans_rate_function(ha_ug_index* idx, kvec_pe_hit* hits, hc_links* link,
         pass = 0;
         break;
     }
-
     dis->n = b_i;
     if(dis->n == 0 || pass == 0)
     {
@@ -7980,9 +8512,7 @@ int get_trans_rate_function(ha_ug_index* idx, kvec_pe_hit* hits, hc_links* link,
     //     dis->a[i].beg, dis->a[i].end, dis->a[i].cnt_0, dis->a[i].cnt_1, (double)(dis->a[i].cnt_1)/(double)(dis->a[i].cnt_1 + dis->a[i].cnt_0));
     // }
     
-    
     LeastSquare_advance(dis, idx, med);
-
     // fprintf(stderr, "idx->a: %f, idx->b: %f, idx->frac: %f, med: %lu\n", 
     // (double)idx->a, (double)idx->b, (double)idx->frac, med);
 
@@ -7991,7 +8521,6 @@ int get_trans_rate_function(ha_ug_index* idx, kvec_pe_hit* hits, hc_links* link,
     
     kv_destroy(buf);
     kv_destroy(buf_idx);
-
     if(idx->a < 0) idx->a = 0;
     if(idx->a == 0)
     {
@@ -8002,25 +8531,24 @@ int get_trans_rate_function(ha_ug_index* idx, kvec_pe_hit* hits, hc_links* link,
         idx->b = ((double)(dis->a[dis->n-1].cnt_1))/((double)(dis->a[dis->n-1].cnt_0 + dis->a[dis->n-1].cnt_1));
     } 
 
-
     // fprintf(stderr, "idx->a: %f, idx->b: %f, idx->frac: %f, med: %lu\n", 
     // (double)idx->a, (double)idx->b, (double)idx->frac, med);
 
     return 1;
 }
 
-void init_hic_p(ha_ug_index* idx, kvec_pe_hit* hits, hc_links* link, bubble_type* bub, 
+void init_hic_p(ha_ug_index* idx, kvec_pe_hit_hap* hits, hc_links* link, bubble_type* bub, 
 kvec_hc_edge* back_hc_edge, MT* M, H_partition* hap, uint32_t ignore_dis)
 {
     uint64_t k, i, m, uID, is_comples_weight = 0;
     trans_idx dis;
     kv_init(dis);
-
+    
     if(bub->round_id > 0 && ignore_dis == 0)
     {
         is_comples_weight = get_trans_rate_function(idx, hits, link, bub, M, hap, &dis);
     }
-
+    
 
     hc_edge *e = NULL;
     for (i = 0; i < link->a.n; i++)
@@ -8082,9 +8610,7 @@ kvec_hc_edge* back_hc_edge, MT* M, H_partition* hap, uint32_t ignore_dis)
         }
         link->a.a[i].e.n = m;
     }
-
     weight_edges_advance(idx, hits, link, bub, is_comples_weight == 1? &dis : NULL);
-
 
     for (i = 0; i < link->a.n; i++)
     {
@@ -11340,7 +11866,7 @@ void print_bubble_chain(bubble_type* bub)
     }
 }
 
-void init_contig_H_partition(bubble_type* bub, ha_ug_index* idx, kvec_pe_hit* hits, H_partition* hap)
+void init_contig_H_partition(bubble_type* bub, ha_ug_index* idx, kvec_pe_hit_hap* hits, H_partition* hap)
 {
     uint32_t i, k_i, k_j, uID, *a = NULL, n, *h0, h0_n, *h1, h1_n;
     destory_G_partition(&(hap->group_g_p)); memset(&(hap->group_g_p), 0, sizeof(G_partition));
@@ -11416,15 +11942,15 @@ void init_contig_H_partition(bubble_type* bub, ha_ug_index* idx, kvec_pe_hit* hi
     label_unitigs(&(hap->group_g_p), idx->ug);
 }
 
-void cluster_contigs(bubble_type* bub, ha_ug_index* idx, kvec_pe_hit* hits, MT* M, H_partition* hap)
+void cluster_contigs(bubble_type* bub, ha_ug_index* idx, kvec_pe_hit_hap* hits, MT* M, H_partition* hap)
 {   
     uint64_t k, i, shif = 64 - idx->uID_bits, beg, end, t_d;
     hc_links* link = idx->link;
     for (i = 0; i < link->a.n; i++) link->a.a[i].e.n = 0;
-    for (k = 0; k < hits->a.n; ++k) 
+    for (k = 0; k < hits->n_u; ++k) 
     {
-        beg = ((hits->a.a[k].s<<1)>>shif);
-        end = ((hits->a.a[k].e<<1)>>shif);
+        beg = ((get_pe_s(hits->a[k])<<1)>>shif);
+        end = ((get_pe_e(hits->a[k])<<1)>>shif);
 
         if(beg == end) continue;
         if(IF_HOM(beg, *bub)) continue;
@@ -11468,6 +11994,7 @@ void reset_H_partition(H_partition* hap, uint32_t is_init)
 
 int alignment_worker_pipeline(sldat_t* sl, const enzyme *fn1, const enzyme *fn2)
 {
+    double index_time = yak_realtime();
     int i;
     for (i = 0; i < fn1->n && i < fn2->n; i++)
     {
@@ -11479,20 +12006,227 @@ int alignment_worker_pipeline(sldat_t* sl, const enzyme *fn1, const enzyme *fn2)
 
         kt_pipeline(3, worker_pipeline, sl, 3);
         
-        
         kseq_destroy(sl->ks1);
         kseq_destroy(sl->ks2);
         gzclose(fp1);
         gzclose(fp2);
     }
+    fprintf(stderr, "[M::%s::%.3f] ==> Qualification\n", __func__, yak_realtime()-index_time);
 
-
-    dedup_hits(&(sl->hits));
-
-    ///fprintf(stderr, "-sl->hits.a.n: %u\n", (uint32_t)sl->hits.a.n);
-    
+    dedup_hits(&(sl->hits), sl->idx);    
     return 1;
 }
+
+/**
+typedef struct{
+    FILE* fp;
+    kvec_t(char) buf; 
+    kvec_t(char) name;
+    kvec_t_u64_warp pos;
+}pe_aln_t;
+
+int init_pe_aln_t(pe_aln_t* x, const char* aln)
+{
+    memset(x, 0, sizeof(*x));
+    if(!strcmp(aln,"-")) x->fp = stdin;
+    else if ((x->fp = fopen(aln, "r")) == 0) return 0;
+    kv_malloc(x->buf, 10); x->buf.n = 0;   
+    kv_malloc(x->name, 10); x->name.n = 0;
+    kv_init(x->pos.a); 
+    return 1;
+}
+
+void destory_pe_aln_t(pe_aln_t* x)
+{
+    fclose(x->fp);
+    kv_destroy(x->buf); 
+    kv_destroy(x->name); 
+    kv_destroy(x->pos.a);
+}
+
+char* get_alnLine(pe_aln_t* x)
+{
+    uint64_t len;
+    uint64_t b_size = x->buf.m;
+    char* b = x->buf.a;
+    while (fgets(b, b_size, x->fp) != NULL)
+    {
+        len = strlen(x->buf.a);
+        if(x->buf.a[len - 1] == '\n')
+        {
+            x->buf.a[len - 1] = '\0';
+            return x->buf.a;
+        }
+        kv_resize(char, x->buf, x->buf.m<<1);
+        b = x->buf.a + len; b_size = x->buf.m - len;
+    }
+    return NULL;
+}
+
+uint64_t get_read_id_by_name(char* name, uint64_t name_len, reads_t* r1)
+{
+    uint64_t size = r1->r_Len.n - 1, r_len;
+    uint64_t end_idx = r1->idx;
+    char* r_char = NULL;
+    while(1)
+    {
+        r_len = r1->name_Len.a[r1->idx + 1] - r1->name_Len.a[r1->idx];
+        r_char = r1->name.a + r1->name_Len.a[r1->idx];
+        if(name_len == r_len && memcmp(r_char, name, r_len) == 0) return r1->idx;
+        r1->idx++;
+        if(r1->idx >= size) r1->idx = 0;
+        if(r1->idx == end_idx) break;
+    }
+    return (uint64_t)-1;
+}
+uint64_t get_utg_id_by_name(char* u_name)
+{
+    uint64_t i, len = strlen(u_name), id;
+    char c = u_name[len - 1];
+    u_name[len - 1] = '\0';
+    for (i = 3; i < len; i++)
+    {
+        if(u_name[i] != '0') break;
+    }
+    id = atoi(u_name + i);
+    u_name[len - 1] = c;
+    return id;
+}
+
+uint64_t adjust_pos(uint64_t pos, uint64_t rev, char* cigar)
+{
+    long long i, occ = strlen(cigar);
+
+    if(rev == 0)
+    {
+        for (i = 0; i < occ; i++)
+        {
+            if(cigar[i] < '0' || cigar[i] > '9')
+            {
+                break;
+            }
+        }
+
+        if(cigar[i] == 'S')
+        {
+            cigar[i] = '\0';
+            pos = pos + atoll(cigar);
+            cigar[i] = 'S';
+        }
+    }
+    else
+    {
+        if(cigar[occ-1] == 'S')
+        {
+            cigar[occ-1] = '\0';
+            for (i = occ-2; i >= 0; i--)
+            {
+                if(cigar[i] < '0' || cigar[i] > '9')
+                {
+                    break;
+                }
+            }
+            pos = pos - atoll(cigar+i+1);
+            cigar[occ-1] = 'S';
+        }
+    }
+
+    return pos;
+}
+
+uint64_t parse_sam(char *x, char** name, uint64_t* flag, uint64_t* uid, kvec_t_u64_warp* pos)
+{
+    uint64_t p_pos, p_err, n_len;
+    p->a.n = 0;
+    char *t = NULL;
+
+    t = strtok (a, "\t\0");///name
+    n_len = strlen(t);
+    kv_resize(char, x->name, n_len+1);
+    memcpy(x->name, t, n_len+1);
+    (*name) = x->name;
+
+    (*flag) = atoll(strtok (NULL, "\t\0"));//flag
+    if(!((*flag)&1) || ((*flag)&4) || ((*flag)&256) || ((*flag)&2048)) return 0;
+    
+    (*uid) = get_utg_id_by_name(strtok(NULL, "\t\0")); ///utg name
+
+    p_pos = atoll(strtok(NULL, "\t\0")) - 1;//primary pos
+
+    strtok(NULL, "\t\0");///MAPQ
+
+    p_pos = adjust_pos(p_pos, !!((*flag)&16), strtok(NULL, "\t\0")); ///cigar
+
+    strtok(NULL, "\t\0");
+    strtok(NULL, "\t\0");
+    strtok(NULL, "\t\0");
+    strtok(NULL, "\t\0");
+    strtok(NULL, "\t\0");
+
+    p_err = atoll(strtok(NULL, "\t\0") + 5); //NM:i:
+
+    t = strtok(NULL, "\t\0");
+    while (t != NULL)
+    {
+        n_len = strlen(t);
+        if(n_len > 5 && t[0] == 'X' && t[1] == 'A' && t[2] == ':' && t[3] == 'Z' && t[4] == ':')
+        {
+            break;
+        }
+        t = strtok(NULL, "\t\0");
+    }
+}
+
+uint64_t get_sam(pe_aln_t* x)
+{
+    char *a = x->buf.a, *t = NULL;
+    uint64_t n_len;
+    while (1)
+    {
+        if(x->buf.n == 0)
+        {
+            a = get_alnLine(x);
+            if(a == NULL) break;
+            x->buf.n = 1;
+        } 
+        
+        ///parse_sam(char *x, char** name, uint64_t* flag, uint64_t* uid, kvec_t_u64_warp* pos)
+
+
+    }
+
+    return 0;
+}
+
+
+
+int debug_hits_sam(ha_ug_index* idx, kvec_pe_hit_hap* hits, const enzyme *fn1, const enzyme *fn2, 
+const char* aln)
+{
+    uint64_t k, id, uid, shif = 64 - idx->uID_bits, b_size = 100000, flag;
+    reads_t r1;
+    load_reads(&r1, fn1, fn2); r1.idx = 0;
+    pe_aln_t p;
+    init_pe_aln_t(&p, aln);
+
+
+
+
+    while (get_alnLine(p) != NULL)
+    {
+        str = strtok (buffer, "\t");///name
+        id = get_read_id_by_name(str, strlen(str), &r1);
+        if(id == (uint64_t)-1) fprintf(stderr, "ERROR\n");
+        flag = atoi(strtok (NULL, "\t"));//flag
+        if(!(flag&1) || (flag&4) || (flag&256) || (flag&2048)) continue;
+        uid = get_utg_id_by_name(strtok (NULL, "\t")); ///utg name
+
+    }
+
+    destory_reads(&r1);
+    destory_pe_aln_t(&p);
+}
+**/
 
 int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx)
 {
@@ -11506,7 +12240,8 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx)
     sl.n_thread = asm_opt.thread_num;
     sl.total_base = sl.total_pair = 0;
     idx->hap_cnt = asm_opt.hap_occ;
-    kv_init(sl.hits.a);
+    int_kvec_pe_hit_hap(&sl.hits);
+
     
     if(!load_hc_hits(&sl.hits, asm_opt.output_file_name))
     {
@@ -11528,6 +12263,9 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx)
         write_hc_hits(&sl.hits, asm_opt.output_file_name);
     }
 
+    ///debug_hc_hits_v14(&sl.hits, asm_opt.output_file_name, sl.idx);
+    ////dedup_hits(&(sl.hits), sl.idx);   
+    ///write_hc_hits_v14(&sl.hits, asm_opt.output_file_name);
     ///fprintf(stderr, "u.n: %d, uID_bits: %lu, pos_bits: %lu, sl.hits.a.n: %u\n", (uint32_t)idx->ug->u.n, idx->uID_bits, idx->pos_bits, (uint32_t)sl.hits.a.n);
 
     H_partition hap;
@@ -11550,7 +12288,6 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx)
         init_contig_partition(&hap, idx, &bub);
         phasing_improvement(&hap, &(hap.g_p), idx, &bub);
         label_unitigs(&(hap.g_p), idx->ug);
-
         ///print_hc_links(idx->link, 0, &hap);
     }
 
@@ -11581,13 +12318,14 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx)
 
     destory_contig_partition(&hap);
     kv_destroy(back_hc_edge.a);
+    destory_kvec_pe_hit_hap(&sl.hits);
     return 1;
     
     /*******************************for debug************************************/
     // destory_reads(&R1);
     // destory_reads(&R2);
     /*******************************for debug************************************/
-    print_bubbles(idx->ug, &bub, sl.hits.a.n?&sl.hits:NULL, idx->link, idx);
+    print_bubbles(idx->ug, &bub, sl.hits.n?&sl.hits:NULL, idx->link, idx);
     collect_hc_reverse_links(idx->link, idx->ug, &bub);
     normalize_hc_links(idx->link);
     /*******************************for debug************************************/
@@ -11600,7 +12338,6 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx)
 
     destory_min_cut_t(cut); free(cut);
     destory_G_partition(gp); free(gp);
-    kv_destroy(sl.hits.a);
     destory_bubbles(&bub);
     
     fprintf(stderr, "[M::%s::%.3f] processed %lu pairs; %lu bases\n", __func__, yak_realtime()-index_time, sl.total_pair, sl.total_base);
@@ -11755,13 +12492,13 @@ void print_bench_idx(bench_idx* idx, ma_ug_t *ug)
     
 }
 
-uint64_t get_hic_distance_bench(pe_hit* hit, hc_links* link, bench_idx* idx, ma_ug_t *ug, uint64_t* is_trans)
+uint64_t get_hic_distance_bench(pe_hit_hap* hit, hc_links* link, bench_idx* idx, ma_ug_t *ug, uint64_t* is_trans)
 {
     (*is_trans) = (uint64_t)-1;
     uint64_t s_uid, e_uid;
     long long s_pos, e_pos;
-    s_uid = ((hit->s<<1)>>(64 - idx->uID_bits)); s_pos = hit->s & idx->pos_mode;
-    e_uid = ((hit->e<<1)>>(64 - idx->uID_bits)); e_pos = hit->e & idx->pos_mode;
+    s_uid = ((get_pe_s(*hit)<<1)>>(64 - idx->uID_bits)); s_pos = get_pe_s(*hit) & idx->pos_mode;
+    e_uid = ((get_pe_e(*hit)<<1)>>(64 - idx->uID_bits)); e_pos = get_pe_e(*hit) & idx->pos_mode;
     if(s_uid == e_uid)
     {
         (*is_trans) = 0;
@@ -11829,14 +12566,14 @@ void init_bench_idx(bench_idx* idx, asg_t* read_g, ma_ug_t *ug)
     }
 }
 
-void evaluate_bench_idx(bench_idx* idx, kvec_pe_hit* hits, ma_ug_t *ug)
+void evaluate_bench_idx(bench_idx* idx, kvec_pe_hit_hap* hits, ma_ug_t *ug)
 {
     uint64_t k, distance, is_trans, trans[2];
     kvec_t(uint64_t) buf;
     kv_init(buf);
-    for (k = trans[0] = trans[1] = 0; k < hits->a.n; ++k) 
+    for (k = trans[0] = trans[1] = 0; k < hits->n_u; ++k) 
     {
-        distance = get_hic_distance_bench(&(hits->a.a[k]), &(idx->link), idx, ug, &is_trans);
+        distance = get_hic_distance_bench(&(hits->a[k]), &(idx->link), idx, ug, &is_trans);
         if(is_trans != (uint64_t)-1) trans[is_trans]++;
         if(distance == (uint64_t)-1 || is_trans == (uint64_t)-1) continue;
         distance = (distance << 1) + is_trans;
@@ -11904,7 +12641,7 @@ int hic_short_align_bench(const enzyme *fn1, const enzyme *fn2, const char *outp
     sl.n_thread = asm_opt.thread_num;
     sl.total_base = sl.total_pair = 0;
     idx->hap_cnt = asm_opt.hap_occ;
-    kv_init(sl.hits.a);
+    int_kvec_pe_hit_hap(&sl.hits);
     fprintf(stderr, "u.n: %d, uID_bits: %lu, pos_bits: %lu\n", (uint32_t)idx->ug->u.n, idx->uID_bits, idx->pos_bits);
     
     if(!load_hc_hits(&sl.hits, output_file_name))
@@ -11920,7 +12657,7 @@ int hic_short_align_bench(const enzyme *fn1, const enzyme *fn2, const char *outp
     evaluate_bench_idx(&bench, &sl.hits, idx->ug);
 
     destory_bench_idx(&bench);
-    kv_destroy(sl.hits.a);
+    destory_kvec_pe_hit_hap(&sl.hits);
     fprintf(stderr, "[M::%s::%.3f] processed %lu pairs; %lu bases\n", __func__, yak_realtime()-index_time, sl.total_pair, sl.total_base);
     return 1;
 }
