@@ -503,24 +503,10 @@ typedef struct {
 	uint64_t i;
 }kvec_asg_arc_t_offset;
 
-typedef struct {
-    uint32_t n;
-    uint32_t* cov;
-    uint64_t* pos_idx;
-    ma_hit_t_alloc* reverse_sources;
-    ma_sub_t *coverage_cut;
-    R_to_U* ruIndex;
-	asg_t *read_g;
-    int max_hang;
-    int min_ovlp;
-    kvec_asg_arc_t_offset u_buffer; 
-    kvec_t_i32_warp tailIndex;
-    kvec_t_i32_warp prevIndex;
-}hap_cov_t;
+
 
 void init_Edge_iter(asg_t* g, uint32_t v, asg_arc_t* new_edges, uint32_t new_edges_n, Edge_iter* x);
 int get_arc_t(Edge_iter* x, asg_arc_t* get);
-int asg_pop_bubble_primary_trio(ma_ug_t *ug, int max_dist, uint32_t positive_flag, uint32_t negative_flag, hap_cov_t *cov);
 
 
 inline int get_real_length(asg_t *g, uint32_t v, uint32_t* v_s)
@@ -1065,8 +1051,6 @@ R_to_U* ruIndex, int max_hang, int min_ovlp, long long bubble_dist, uint32_t bac
 uint32_t is_bubble_check, uint32_t is_primary_check);
 uint32_t get_edge_from_source(ma_hit_t_alloc* sources, ma_sub_t *coverage_cut, 
 R_to_U* ruIndex, int max_hang, int min_ovlp, uint32_t query, uint32_t target, asg_arc_t* t);
-uint64_t asg_bub_pop1_primary_trio(asg_t *g, ma_ug_t *utg, uint32_t v0, int max_dist, buf_t *b, uint32_t positive_flag, 
-uint32_t negative_flag, uint32_t is_pop, uint64_t* path_base_len, uint64_t* path_nodes, hap_cov_t *cov);
 int unitig_arc_del_short_diploid_by_length(asg_t *g, float drop_ratio);
 void asg_bub_backtrack_primary(asg_t *g, uint32_t v0, buf_t *b);
 
@@ -1102,6 +1086,31 @@ typedef struct{
 } hc_links;
 
 typedef struct{
+	kvec_t(uint32_t) uIDs;
+	kvec_t(uint32_t) idx;
+	uint32_t chain_num;
+	uint32_t* u_idx;
+	uint64_t r_num;
+}trans_chain;
+
+typedef struct {
+    uint32_t n;
+    uint32_t* cov;
+    uint64_t* pos_idx;
+    ma_hit_t_alloc* reverse_sources;
+    ma_sub_t *coverage_cut;
+    R_to_U* ruIndex;
+	asg_t *read_g;
+    int max_hang;
+    int min_ovlp;
+    kvec_asg_arc_t_offset u_buffer; 
+    kvec_t_i32_warp tailIndex;
+    kvec_t_i32_warp prevIndex;
+	hc_links* link;
+	///trans_chain t_ch;
+}hap_cov_t;
+
+typedef struct{
     ///kvec_t(hc_edge) a;
     size_t n, m; 
     hc_edge *a;
@@ -1109,6 +1118,10 @@ typedef struct{
 
 void init_hc_links(hc_links* link, uint64_t ug_num, uint64_t r_num);
 void destory_hc_links(hc_links* link);
+int asg_pop_bubble_primary_trio(ma_ug_t *ug, int max_dist, uint32_t positive_flag, uint32_t negative_flag, hap_cov_t *cov);
+uint64_t asg_bub_pop1_primary_trio(asg_t *g, ma_ug_t *utg, uint32_t v0, int max_dist, buf_t *b, uint32_t positive_flag, 
+uint32_t negative_flag, uint32_t is_pop, uint64_t* path_base_len, uint64_t* path_nodes, hap_cov_t *cov);
+
 void adjust_utg_by_primary(ma_ug_t **ug, asg_t* read_g, float drop_rate,
 ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, ma_sub_t* coverage_cut, 
 long long bubble_dist, long long tipsLen, float tip_drop_ratio, long long stops_threshold, 
@@ -1123,6 +1136,9 @@ float chimeric_rate, float drop_ratio, int max_hang, int min_ovlp, int is_bench)
 asg_t* copy_read_graph(asg_t *src);
 ma_ug_t *ma_ug_gen(asg_t *g);
 void ma_ug_destroy(ma_ug_t *ug);
+
+
+
 
 inline int inter_interval(int a_s, int a_e, int b_s, int b_e, int* i_s, int* i_e)
 {

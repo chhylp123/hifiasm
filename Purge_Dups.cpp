@@ -4242,7 +4242,7 @@ void link_unitigs(asg_t *purge_g, ma_ug_t *ug, hap_overlaps_list* all_ovlp,
 R_to_U* ruIndex, ma_hit_t_alloc* reverse_sources, ma_sub_t *coverage_cut, asg_t *read_g, 
 uint64_t* position_index, kvec_asg_arc_t_offset* u_buffer, kvec_t_i32_warp* tailIndex, 
 kvec_t_i32_warp* prevIndex, int max_hang, int min_ovlp, kvec_asg_arc_t_warp* edge, uint8_t* visit,
-hc_links* link, hap_cov_t *cov)
+hap_cov_t *cov)
 {
     uint32_t v, n_vtx = purge_g->n_seq * 2, beg, end;
     long long nodeLen, baseLen, max_stop_nodeLen, max_stop_baseLen;
@@ -4263,7 +4263,7 @@ hc_links* link, hap_cov_t *cov)
             continue;
         }
 
-        if(link) collect_reverse_unitigs_purge(&b_0, link, ug, all_ovlp);
+        if(cov->link) collect_reverse_unitigs_purge(&b_0, cov->link, ug, all_ovlp);
         purge_merge(purge_g, ug, all_ovlp, &b_0, ruIndex, reverse_sources, coverage_cut, 
         read_g, position_index, u_buffer, tailIndex, prevIndex,max_hang, min_ovlp, edge, visit, cov);
     }
@@ -4540,7 +4540,7 @@ void sort_hap_chain(hap_overlaps_list* all_ovlp)
     kv_destroy(pri); kv_destroy(alt);
 }
 
-void remove_contained_haplotig(hap_overlaps_list* all_ovlp, ma_ug_t *ug, asg_t* nsg, asg_t *purge_g, hc_links* link, hap_cov_t *cov)
+void remove_contained_haplotig(hap_overlaps_list* all_ovlp, ma_ug_t *ug, asg_t* nsg, asg_t *purge_g, hap_cov_t *cov)
 {
     uint32_t v, i, uId, xUid;
     hap_overlaps *p = NULL;
@@ -4571,7 +4571,7 @@ void remove_contained_haplotig(hap_overlaps_list* all_ovlp, ma_ug_t *ug, asg_t* 
                 purge_g->seq[xUid].del = 1;
 
                 all_ovlp->x[uId].a.a[i].status = DELETE;
-                if(link) collect_reverse_unitig_pair(link, ug, &(all_ovlp->x[uId].a.a[i]));
+                if(cov->link) collect_reverse_unitig_pair(cov->link, ug, &(all_ovlp->x[uId].a.a[i]));
                 collect_trans_purge_cov(cov, ug, &(all_ovlp->x[uId].a.a[i]), 0);
             }
 
@@ -4613,7 +4613,7 @@ void remove_contained_haplotig(hap_overlaps_list* all_ovlp, ma_ug_t *ug, asg_t* 
 void purge_dups(ma_ug_t *ug, asg_t *read_g, ma_sub_t* coverage_cut, ma_hit_t_alloc* sources, 
 ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, kvec_asg_arc_t_warp* edge, float density, 
 uint32_t purege_minLen, int max_hang, int min_ovlp, long long bubble_dist, float drop_ratio, 
-uint32_t just_contain, uint32_t just_coverage, hc_links* link, hap_cov_t *cov)
+uint32_t just_contain, uint32_t just_coverage, hap_cov_t *cov)
 {
     asg_t *purge_g = NULL;
     purge_g = asg_init();
@@ -4705,7 +4705,7 @@ uint32_t just_contain, uint32_t just_coverage, hc_links* link, hap_cov_t *cov)
     normalize_hap_overlaps_advance(&all_ovlp, &back_all_ovlp, ug, read_g, reverse_sources, ruIndex);
     ///debug_hap_overlaps(&all_ovlp, &back_all_ovlp);
     
-    remove_contained_haplotig(&all_ovlp, ug, nsg, purge_g, link, cov);
+    remove_contained_haplotig(&all_ovlp, ug, nsg, purge_g, cov);
     
     
     if(just_contain == 0)
@@ -4754,7 +4754,7 @@ uint32_t just_contain, uint32_t just_coverage, hc_links* link, hap_cov_t *cov)
 
         link_unitigs(purge_g, ug, &all_ovlp, ruIndex, reverse_sources, coverage_cut, read_g, position_index, 
         &(hap_buf.buf[0].u_buffer), &(hap_buf.buf[0].u_buffer_tailIndex), &(hap_buf.buf[0].u_buffer_prevIndex),
-        max_hang, min_ovlp, edge, hap_buf.buf[0].visit, link, cov);
+        max_hang, min_ovlp, edge, hap_buf.buf[0].visit, cov);
     }
 
     for (v = 0; v < all_ovlp.num; v++)
@@ -4785,124 +4785,3 @@ uint32_t just_contain, uint32_t just_coverage, hc_links* link, hap_cov_t *cov)
     destory_hap_alignment_struct_pip(&hap_buf);
 }
 
-hap_cov_t* init_hap_cov_t(ma_ug_t *ug, asg_t* read_g, ma_hit_t_alloc* sources, R_to_U* ruIndex, 
-ma_hit_t_alloc* reverse_sources, ma_sub_t *coverage_cut, int max_hang, int min_ovlp)
-{
-    uint32_t n_ux = ug->g->n_seq, i, k, j, v, rId, tn, is_Unitig, r_i, nv, w, C_bases;
-    uint8_t *set = NULL; CALLOC(set, read_g->n_seq<<1);
-    hap_cov_t *x = NULL; CALLOC(x, 1);
-    x->n = read_g->n_seq; CALLOC(x->cov, x->n); 
-    MALLOC(x->pos_idx, x->n); memset(x->pos_idx, -1, x->n*sizeof(uint64_t));
-    x->reverse_sources = reverse_sources;
-    x->coverage_cut = coverage_cut;
-    x->ruIndex = ruIndex;
-    x->max_hang = max_hang;
-    x->min_ovlp = min_ovlp;
-    x->read_g = read_g;
-    kv_init(x->u_buffer.a);
-    kv_init(x->tailIndex.a);
-    kv_init(x->prevIndex.a);
-    ma_utg_t* u = NULL;
-    asg_arc_t *av = NULL;
-    ma_hit_t *h = NULL;
-
-    for (i = 0; i < n_ux; i++)
-    {    
-        if(ug->g->seq[i].del) continue;
-        u = &(ug->u.a[i]);
-        for (r_i = 0; r_i < u->n; r_i++) set[u->a[r_i]>>33] = 1;
-
-        v = i<<1; 
-        nv = asg_arc_n(ug->g, v);
-        av = asg_arc_a(ug->g, v);
-        for (k = 0; k < nv; k++)
-        {
-            w = av[k].v;
-            if(av[k].del) continue;
-            if(ug->g->seq[w>>1].del) continue;
-            u = &(ug->u.a[w>>1]);
-            for (r_i = 0; r_i < u->n; r_i++) set[u->a[r_i]>>33] = 1;
-        }
-        
-        v = (i<<1)+1; 
-        nv = asg_arc_n(ug->g, v);
-        av = asg_arc_a(ug->g, v);
-        for (k = 0; k < nv; k++)
-        {
-            w = av[k].v;
-            if(av[k].del) continue;
-            if(ug->g->seq[w>>1].del) continue;
-            u = &(ug->u.a[w>>1]);
-            for (r_i = 0; r_i < u->n; r_i++) set[u->a[r_i]>>33] = 1;
-        }
-
-
-
-        u = &(ug->u.a[i]); 
-        for (k = 0; k < u->n; k++)
-        {
-            C_bases = 0;
-            rId = u->a[k]>>33;
-            for (j = 0; j < (uint64_t)(sources[rId].length); j++)
-            {
-                h = &(sources[rId].buffer[j]);
-                tn = Get_tn((*h));
-                if(read_g->seq[tn].del == 1)
-                {
-                    ///get the id of read that contains it 
-                    get_R_to_U(ruIndex, tn, &tn, &is_Unitig);
-                    if(tn == (uint32_t)-1 || is_Unitig == 1 || read_g->seq[tn].del == 1) continue;
-                }
-                if(read_g->seq[tn].del == 1) continue;
-                if(!set[tn]) continue;
-                C_bases += (Get_qe((*h)) - Get_qs((*h)));
-            }
-            x->cov[rId] = MAX(C_bases, x->cov[rId]);
-        }
-        
-
-        
-        u = &(ug->u.a[i]);
-        for (r_i = 0; r_i < u->n; r_i++) set[u->a[r_i]>>33] = 0;
-
-        v = i<<1; 
-        nv = asg_arc_n(ug->g, v);
-        av = asg_arc_a(ug->g, v);
-        for (k = 0; k < nv; k++)
-        {
-            w = av[k].v;
-            if(av[k].del) continue;
-            if(ug->g->seq[w>>1].del) continue;
-            u = &(ug->u.a[w>>1]);
-            for (r_i = 0; r_i < u->n; r_i++) set[u->a[r_i]>>33] = 0;
-        }
-        
-        v = (i<<1)+1; 
-        nv = asg_arc_n(ug->g, v);
-        av = asg_arc_a(ug->g, v);
-        for (k = 0; k < nv; k++)
-        {
-            w = av[k].v;
-            if(av[k].del) continue;
-            if(ug->g->seq[w>>1].del) continue;
-            u = &(ug->u.a[w>>1]);
-            for (r_i = 0; r_i < u->n; r_i++) set[u->a[r_i]>>33] = 0;
-        }
-    }
-    
-    free(set);
-    return x;
-}
-
-void destory_hap_cov_t(hap_cov_t **x)
-{
-    if(*x)
-    {
-        free((*x)->cov);
-        free((*x)->pos_idx);
-        kv_destroy((*x)->u_buffer.a);
-        kv_destroy((*x)->tailIndex.a);
-        kv_destroy((*x)->prevIndex.a);
-        free((*x));
-    }
-}

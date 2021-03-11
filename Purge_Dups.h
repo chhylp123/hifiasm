@@ -16,13 +16,13 @@
 void purge_dups(ma_ug_t *ug, asg_t *read_g, ma_sub_t* coverage_cut, ma_hit_t_alloc* sources, 
 ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, kvec_asg_arc_t_warp* edge, float density, 
 uint32_t purege_minLen, int max_hang, int min_ovlp, long long bubble_dist, float drop_ratio, 
-uint32_t just_contain, uint32_t just_coverage, hc_links* link, hap_cov_t *cov);
+uint32_t just_contain, uint32_t just_coverage, hap_cov_t *cov);
 void fill_unitig(uint64_t* buffer, uint32_t bufferLen, asg_t* read_g, kvec_asg_arc_t_warp* edge,
 uint32_t is_circle, uint64_t* rLen);
 void get_contig_length(ma_ug_t *ug, asg_t *g, uint64_t* primaryLen, uint64_t* alterLen);
 void enable_debug_mode(uint32_t mode);
-hap_cov_t* init_hap_cov_t(ma_ug_t *ug, asg_t* read_g, ma_hit_t_alloc* sources, R_to_U* ruIndex, 
-ma_hit_t_alloc* reverse_sources, ma_sub_t *coverage_cut, int max_hang, int min_ovlp);
+hap_cov_t* init_hap_cov_t(ma_ug_t *ug, asg_t* read_g, ma_hit_t_alloc* sources, R_to_U* ruIndex, ma_hit_t_alloc* reverse_sources, 
+ma_sub_t *coverage_cut, int max_hang, int min_ovlp, hc_links* link);
 void destory_hap_cov_t(hap_cov_t **x);
 void chain_trans_ovlp(hap_cov_t *cov, ma_ug_t *ug, asg_t *read_sg, buf_t* xReads, uint32_t targetBaseLen, uint32_t* xEnd);
 
