@@ -2566,14 +2566,14 @@ void identify_bubbles(ma_ug_t* ug, bubble_type* bub, hc_links* link)
     if (!ug->g->is_symm) asg_symm(ug->g);
     uint32_t v, n_vtx = ug->g->n_seq * 2, i, k, mode = (((uint32_t)-1)<<2);
     uint32_t beg, sink, n, *a, n_occ;
-    uint64_t pathLen, tLen;
+    uint64_t pathLen;
     bub->ug = ug; 
-    for (i = 0, tLen = 1; i < ug->u.n; i++) tLen += ug->u.a[i].len;
     bub->b_bub = bub->b_end_bub = bub->tangle_bub = bub->cross_bub = bub->mess_bub = 0;
 
     if(bub->round_id == 0)
     {
         buf_t b; memset(&b, 0, sizeof(buf_t)); b.a = (binfo_t*)calloc(n_vtx, sizeof(binfo_t));
+        uint64_t tLen = get_bub_pop_max_dist_advance(ug->g, &b);
         kv_init(bub->list); kv_init(bub->num); kv_init(bub->pathLen);
         kv_init(bub->b_s_idx); kv_malloc(bub->b_s_idx, ug->g->n_seq); 
         bub->b_ug = NULL; kv_init(bub->chain_weight);

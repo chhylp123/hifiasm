@@ -2575,11 +2575,12 @@ long long* r_y_pos_beg, long long* r_y_pos_end)
 
 void print_hap_paf(ma_ug_t *ug, hap_overlaps* ovlp)
 {
-    fprintf(stderr, "utg%.6d%c\t%u(%u)\t%u(%u)\t%u(%u)\t%c\tutg%.6d%c\t%u(%u)\t%u(%u)\t%u(%u)\t%u\t%u\n", 
+    fprintf(stderr, "utg%.6d%c\t%u(%u)\t%u(%u)\t%u(%u)\t%c\tutg%.6d%c\t%u(%u)\t%u(%u)\t%u(%u)\t%u\t%u\t%lld(%u)\n", 
     ovlp->xUid+1, "lc"[ug->u.a[ovlp->xUid].circ], ug->u.a[ovlp->xUid].len, ug->u.a[ovlp->xUid].n,
     ovlp->x_beg_pos, ovlp->x_beg_id, ovlp->x_end_pos, ovlp->x_end_id, "+-"[ovlp->rev], 
     ovlp->yUid+1, "lc"[ug->u.a[ovlp->yUid].circ], ug->u.a[ovlp->yUid].len, ug->u.a[ovlp->yUid].n,
-    ovlp->y_beg_pos, ovlp->y_beg_id, ovlp->y_end_pos, ovlp->y_end_id, ovlp->type, (uint32_t)ovlp->weight);
+    ovlp->y_beg_pos, ovlp->y_beg_id, ovlp->y_end_pos, ovlp->y_end_id, ovlp->type, ovlp->weight, 
+    ovlp->score, ovlp->status);
 }
 
 inline long long get_max_index(asg_arc_t_offset* x, int32_t* Scores, uint8_t* Flag, long long n,
@@ -3148,6 +3149,7 @@ void set_reverse_hap_overlap(hap_overlaps* dest, hap_overlaps* source, uint32_t*
     dest->x_end_id = source->y_end_id;
     dest->y_beg_id = source->x_beg_id;
     dest->y_end_id = source->x_end_id;
+    dest->score = source->score;
 }
 
 /**
@@ -3409,13 +3411,13 @@ uint64_t asg_bub_pop1_purge_graph(asg_t *g, uint32_t v0, int max_dist, buf_t *b)
 		///assert(nv > 0);
 		///all out-edges of v
 		for (i = 0; i < nv; ++i) { // loop through v's neighbors
+            ///if this edge has been deleted
+			if (av[i].del) continue;
 			uint32_t w = av[i].v; // v->w with length l
 			binfo_t *t = &b->a[w];
 			///that means there is a circle, directly terminate the whole bubble poping
 			///if (w == v0) goto pop_reset;
             if ((w>>1) == (v0>>1)) goto pop_reset;
-			///if this edge has been deleted
-			if (av[i].del) continue;
             c_s = decode_score((uint32_t)av[i].ul, av[i].ol);
 			///push the edge
             ///high 32-bit of g->idx[v] is the start point of v's edges
@@ -3499,7 +3501,7 @@ pop_reset:
 
 
 // pop bubbles
-int asg_pop_bubble_purge_graph(asg_t *purge_g, int max_dist)
+int asg_pop_bubble_purge_graph(asg_t *purge_g)
 {
 	uint32_t v, n_vtx = purge_g->n_seq * 2;
 	uint64_t n_pop = 0;
@@ -3641,13 +3643,13 @@ int purge_g_arc_del_short_diploid_by_score(asg_t *g, float drop_ratio)
 }
 
 
-void clean_purge_graph(asg_t *purge_g, int max_dist, float drop_ratio)
+void clean_purge_graph(asg_t *purge_g, float drop_ratio)
 {
     uint64_t operation = 1;
     while (operation > 0)
     {
         operation = 0;
-        operation += asg_pop_bubble_purge_graph(purge_g, max_dist);
+        operation += asg_pop_bubble_purge_graph(purge_g);
         operation += purge_g_arc_del_short_diploid_by_score(purge_g, drop_ratio);
     }
     
@@ -4122,7 +4124,7 @@ hap_cov_t *cov)
             }
 
             purge_g->seq[w>>1].c = ALTER_LABLE;
-            collect_trans_purge_joint_cov(cov, ug, x);
+            if(cov) collect_trans_purge_joint_cov(cov, ug, x);
 
             // if(buffer.n > 1)
             // {
@@ -4263,20 +4265,21 @@ hap_cov_t *cov)
             continue;
         }
 
-        if(cov->link) collect_reverse_unitigs_purge(&b_0, cov->link, ug, all_ovlp);
+        ///if(cov->link) collect_reverse_unitigs_purge(&b_0, cov->link, ug, all_ovlp);
         purge_merge(purge_g, ug, all_ovlp, &b_0, ruIndex, reverse_sources, coverage_cut, 
         read_g, position_index, u_buffer, tailIndex, prevIndex,max_hang, min_ovlp, edge, visit, cov);
     }
     free(b_0.b.a);
 }
 
-void print_all_purge_ovlp(ma_ug_t *ug, hap_overlaps_list* all_ovlp)
+void print_all_purge_ovlp(ma_ug_t *ug, hap_overlaps_list* all_ovlp, const char* cmd)
 {
+    fprintf(stderr, "\n%s--->ug->u.n: %u\n", cmd, (uint32_t)ug->u.n);
     uint32_t v, uId, i;
     for (v = 0; v < all_ovlp->num; v++)
     {
         uId = v;
-        if(uId != 96 && uId != 272) continue;
+        ///if(uId != 96 && uId != 272) continue;
         for (i = 0; i < all_ovlp->x[uId].a.n; i++)
         {
             print_hap_paf(ug, &(all_ovlp->x[uId].a.a[i]));
@@ -4571,7 +4574,7 @@ void remove_contained_haplotig(hap_overlaps_list* all_ovlp, ma_ug_t *ug, asg_t* 
                 purge_g->seq[xUid].del = 1;
 
                 all_ovlp->x[uId].a.a[i].status = DELETE;
-                if(cov->link) collect_reverse_unitig_pair(cov->link, ug, &(all_ovlp->x[uId].a.a[i]));
+                ///if(cov->link) collect_reverse_unitig_pair(cov->link, ug, &(all_ovlp->x[uId].a.a[i]));
                 collect_trans_purge_cov(cov, ug, &(all_ovlp->x[uId].a.a[i]), 0);
             }
 
@@ -4612,8 +4615,8 @@ void remove_contained_haplotig(hap_overlaps_list* all_ovlp, ma_ug_t *ug, asg_t* 
 
 void purge_dups(ma_ug_t *ug, asg_t *read_g, ma_sub_t* coverage_cut, ma_hit_t_alloc* sources, 
 ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, kvec_asg_arc_t_warp* edge, float density, 
-uint32_t purege_minLen, int max_hang, int min_ovlp, long long bubble_dist, float drop_ratio, 
-uint32_t just_contain, uint32_t just_coverage, hap_cov_t *cov)
+uint32_t purege_minLen, int max_hang, int min_ovlp, float drop_ratio, uint32_t just_contain, 
+uint32_t just_coverage, hap_cov_t *cov)
 {
     asg_t *purge_g = NULL;
     purge_g = asg_init();
@@ -4697,16 +4700,14 @@ uint32_t just_contain, uint32_t just_coverage, hap_cov_t *cov)
 
     kt_for(asm_opt.thread_num, hap_alignment_advance_worker, &hap_buf, nsg->n_seq);
 
-
     ///if(debug_enable) print_all_purge_ovlp(ug, &all_ovlp);
     filter_hap_overlaps_by_length(&all_ovlp, purege_minLen);
 
     ///normalize_hap_overlaps(&all_ovlp, &back_all_ovlp);
     normalize_hap_overlaps_advance(&all_ovlp, &back_all_ovlp, ug, read_g, reverse_sources, ruIndex);
     ///debug_hap_overlaps(&all_ovlp, &back_all_ovlp);
-    
+
     remove_contained_haplotig(&all_ovlp, ug, nsg, purge_g, cov);
-    
     
     if(just_contain == 0)
     {
@@ -4747,7 +4748,7 @@ uint32_t just_contain, uint32_t just_coverage, hap_cov_t *cov)
         asg_cleanup(purge_g);
 		asg_symm(purge_g);
         ///may need to do transitive reduction
-        clean_purge_graph(purge_g, bubble_dist, drop_ratio);
+        clean_purge_graph(purge_g, drop_ratio);
 
         // if(debug_enable) print_purge_gfa(ug, purge_g);
         // if(debug_enable) print_all_purge_ovlp(ug, &all_ovlp);
