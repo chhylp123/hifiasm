@@ -215,6 +215,8 @@ KRADIX_SORT_INIT(pe_occ2, pe_hit_hap, pe_occ_key_2, member_size(pe_hit_hap, occ2
 #define pe_occ_key_t(x) (((uint64_t)((x).occ1))+((uint64_t)((x).occ2)))
 KRADIX_SORT_INIT(pe_occ_t, pe_hit_hap, pe_occ_key_t, 8)
 
+#define asg_arc_key(a) ((a).ul)
+KRADIX_SORT_INIT(asg_e, asg_arc_t, asg_arc_key, 8)
 
 typedef struct { // global data structure for kt_pipeline()
 	const ha_ug_index* idx;
@@ -284,6 +286,8 @@ typedef struct{
 
 reads_t R1, R2;
 ha_ug_index* ug_index;
+
+void print_debug_bubble_graph(bubble_type* bub, ma_ug_t* ug, const char *fn);
 
 void build_bub_graph(ma_ug_t* ug, bubble_type* bub);
 
@@ -5884,6 +5888,7 @@ asg_arc_t *p, uint32_t check_het)
             get_bubbles(bub, id0, &beg_0, &sink_0, &a, &n, NULL);
             get_bubbles(bub, id1, &beg_1, &sink_1, &a, &n, NULL);
 
+
             ori_0 = (uint64_t)-1;
             if(x_0 == (beg_0^1))
             {
@@ -6549,7 +6554,8 @@ int is_local_simple_circle(asg_t *g, uint32_t v)
     return 0;
 }
 
-void update_bub_b_s_idx(bubble_type* bub)
+///actually not useful, and may have bug when one bubble at multipe chains
+void update_bub_b_s_idx(bubble_type* bub) 
 {
     memset(bub->b_s_idx.a, -1, bub->b_s_idx.n * sizeof(uint64_t));
     uint32_t i, v, beg, sink, n_bub = bub->num.n - 1;
@@ -6598,6 +6604,7 @@ asg_arc_t *p_t, uint8_t *bsg_idx, ma_ug_t *unitig_ug, uint64_t* occ_thres, uint6
     uint32_t i, pre, n, bub_id, v;
     uint64_t occ;
     asg_arc_t t_f, t_r;
+    
     radix_sort_u32(broken->a.a, broken->a.a + broken->a.n);
     for (i = n = occ = 0, pre = (uint32_t)-1; i < broken->a.n; i++)
     {
@@ -6993,13 +7000,7 @@ uint32_t* extra_check)
     {
         stack->a.n--;
         cur = stack->a.a[stack->a.n];
-        // if((beg>>1) == 162)
-        // {
-        //     fprintf(stderr, ">>>###0###>>>beg=btg%.6ul, beg&1: %u, cur=btg%.6ul, cur&1: %u, sink=btg%.6ul, sink&1: %u, tan_occ: %u\n", 
-        //     (beg>>1)+1, beg&1, (cur>>1)+1, cur&1, (sink>>1)+1, sink&1, tan_occ);
-        // }
-
-
+        
         if(no_first && cur == beg) return 0;
         if(sink != (uint32_t)-1 && cur == sink) return 0;
 
@@ -7102,6 +7103,7 @@ uint32_t* r_utg_beg, uint32_t* r_utg_sink)
         if(no_root && is_vis[cur] == 0 && is_vis[cur^1] == 0)
         {
             c_occ = get_btg_occ(bub, cur>>1);
+            ///assume v_occ is the beg node, c_occ is the end node, which means tan_occ cannot be too large
             if((tan_occ*side_rate) < c_occ && (tan_occ*total_rate) < (c_occ + v_occ))
             {
                 if(check_bubble_tangle(bub, bub->b_ug, v, cur^1, side_rate, total_rate, v_occ, c_occ, 
@@ -7114,7 +7116,7 @@ uint32_t* r_utg_beg, uint32_t* r_utg_sink)
                     {
                         set_b_utg_weight_flag(bub, NULL, res_btg->a.a[k], chain_flag, 0, NULL);
                     }
-                    btg_beg = v; btg_sink = cur^1;
+                    btg_beg = v; btg_sink = cur^1;///b_utg id
 
                     u = &(bub_ug->u.a[btg_beg>>1]);
                     if((btg_beg&1)==1)
@@ -7129,7 +7131,7 @@ uint32_t* r_utg_beg, uint32_t* r_utg_sink)
                                                     ((u->a[u->n-1]>>32)&1) == 0?&w:NULL, NULL, NULL, NULL);
                         (*r_b_tg_beg) = u->a[u->n-1]>>32;
                     }
-                    utg_beg = w^1;
+                    utg_beg = w^1; ///ug id
 
 
                     u = &(bub_ug->u.a[btg_sink>>1]);
@@ -7145,12 +7147,7 @@ uint32_t* r_utg_beg, uint32_t* r_utg_sink)
                                                     ((u->a[u->n-1]>>32)&1) == 0?&w:NULL, NULL, NULL, NULL);
                         (*r_b_tg_sink) = u->a[u->n-1]>>32;
                     }
-                    utg_sink = w^1;
-
-                    // fprintf(stderr, "\nbtg_beg=btg%.6ul, utg_beg=utg%.6ul\n", 
-                    // (btg_beg>>1)+1, (utg_beg>>1)+1);
-                    // fprintf(stderr, "btg_sink=btg%.6ul, utg_sink=utg%.6ul\n", 
-                    // (btg_sink>>1)+1, (utg_sink>>1)+1);
+                    utg_sink = w^1; ///ug id
 
                     is_t = check_bubble_tangle(NULL, ug, utg_beg, utg_sink, side_rate, total_rate, 
                     (uint32_t)-1, (uint32_t)-1, is_vis2, stack2, res_utg, chain_flag, &extra_check);
@@ -7205,7 +7202,7 @@ uint32_t* r_utg_beg, uint32_t* r_utg_sink)
 
     if(tan_occ*side_rate >= v_occ) return 0;
     if(tan_occ*total_rate >= v_occ) return 0;
-
+    //let one end as a tangle
     if(check_bubble_tangle(bub, bub->b_ug, v, (uint32_t)-1, side_rate, total_rate, v_occ, (uint32_t)-1, 
                     is_vis2, stack2, res_btg, NULL, NULL) == 0)
     {
@@ -7382,7 +7379,78 @@ void debug_tangle_bubble(bubble_type* bub, long long beg_idx, long long end_idx,
     }
 }
 
+uint32_t print_b_utg_occ(bubble_type* bub, uint32_t v)
+{
+    ma_ug_t *bub_ug = bub->b_ug;
+    ma_utg_t *u = NULL;
+    uint32_t k_i, k_j, *a = NULL, n, tan_occ = 0, beg, sink;
 
+    
+    u = &(bub_ug->u.a[v]);
+    fprintf(stderr, "\nstart: %u-th bubble-utg-start (# bubbles: %u)\n", v, (uint32_t)u->n);
+    for (k_i = 0; k_i < u->n; k_i++)
+    {
+        get_bubbles(bub, u->a[k_i]>>33, &beg, &sink, &a, &n, NULL);
+        for (k_j = 0; k_j < n; k_j++)
+        {
+            tan_occ += bub->ug->u.a[a[k_j]>>1].n;
+        }
+
+        fprintf(stderr, "bid: %lu, n: %u, beg-utg%.6dl(%u), sink-utg%.6dl(%u)\n", u->a[k_i]>>33, n, (beg>>1)+1, beg&1, (sink>>1)+1, sink&1);
+    }
+
+    fprintf(stderr, "end: %u-th bubble-utg-end\n\n", v);
+    return tan_occ;
+}
+
+void update_bsg(asg_t *bsg, kvec_asg_arc_t_warp* edges)
+{
+    asg_arc_t *t = NULL;
+    uint32_t k, l, i, convex, max_i;
+    long long max, nodeLen, baseLen, max_stop_nodeLen, max_stop_baseLen;
+
+    for (k = 0; k < edges->a.n; k++)
+    {   
+        t = asg_arc_pushp(bsg);
+        *t = edges->a.a[k];
+    }
+    bsg->is_srt = 0; free(bsg->idx); bsg->idx = 0;
+    asg_cleanup(bsg);
+
+
+
+    radix_sort_asg_e(edges->a.a, edges->a.a + edges->a.n);
+    for (k = 1, l = 0; k <= edges->a.n; ++k)
+    {
+        if (k == edges->a.n || (edges->a.a[k].ul>>32) != (edges->a.a[l].ul>>32))
+        {
+            if(k - l > 1)
+            {
+                for (i = l, max = -1, max_i = (uint32_t)-1; i < k; i++)
+                {
+                    get_unitig(bsg, NULL, edges->a.a[i].v, &convex, &nodeLen, &baseLen, &max_stop_nodeLen, 
+                                                                    &max_stop_baseLen, 1, NULL);
+                    if(max < nodeLen) max = nodeLen, max_i = i;
+                }
+
+                ///fprintf(stderr, "k - l: %u, max_i: %u\n", k - l, max_i);
+                for (i = l; i < k; i++)
+                {
+                    // fprintf(stderr, "i: %u, +t->ul>>32: %lu, t->v: %u\n", 
+                    //                     i, edges->a.a[i].ul>>32, edges->a.a[i].v);
+                    if(i == max_i) continue;
+                    asg_arc_del(bsg, (edges->a.a[i].ul>>32), (edges->a.a[i].v), 1);
+                    asg_arc_del(bsg, (edges->a.a[i].v)^1, (edges->a.a[i].ul>>32)^1, 1);
+                    ///edges->a.a[i].del = 1;
+                }
+            }
+            l = k;
+        }
+    }
+    
+    asg_cleanup(bsg);
+    
+}
 void resolve_bubble_chain_tangle(ma_ug_t* ug, bubble_type* bub)
 {
     ma_ug_t *bub_ug = bub->b_ug;
@@ -7402,10 +7470,6 @@ void resolve_bubble_chain_tangle(ma_ug_t* ug, bubble_type* bub)
     uint32_t b_utg_beg, b_utg_sink, b_tg_beg, b_tg_sink, utg_beg, utg_sink;
     
 
-
-
-
-
     while(1)
     {
         occ_idx.n = 0; edges.a.n = 0;
@@ -7423,7 +7487,7 @@ void resolve_bubble_chain_tangle(ma_ug_t* ug, bubble_type* bub)
         memset(chain_flag, 0, n_vx);
         if(bub->num.n > 0) bub->num.n--;
         new_bub = bub->b_g->n_seq;
-
+        //label all unitigs in bubble chain
         for (k = 0; k < bub_ug->g->n_seq; k++)
         {
             kv_pushp(uint64_t, occ_idx, &p);
@@ -7465,12 +7529,10 @@ void resolve_bubble_chain_tangle(ma_ug_t* ug, bubble_type* bub)
                     if(b_utg_beg != (uint32_t)-1) is_used[b_utg_beg] = 1;
                     if(b_utg_sink != (uint32_t)-1) is_used[b_utg_sink] = 1;
                     if(b_tg_beg != (uint32_t)-1) b_tg_beg>>=1;
-                    if(b_tg_sink != (uint32_t)-1) b_tg_sink>>=1;                    
+                    if(b_tg_sink != (uint32_t)-1) b_tg_sink>>=1;    
                     update_bubble_graph(&res_utg, utg_beg, b_tg_beg, utg_sink, b_tg_sink, 
                     bub, &edges, bsg, NULL, NULL, ug, NULL, 0);
-
                     drop_g_edges_by_utg(bub, bsg, bub_ug, &res_btg, b_utg_beg, b_utg_sink);
-                    ///fprintf(stderr, "+>>>>>>beg=btg%.6ul, sink=btg%.6ul\n", (b_utg_beg>>1)+1, (b_utg_sink>>1)+1);
                 }
             }
             
@@ -7502,9 +7564,16 @@ void resolve_bubble_chain_tangle(ma_ug_t* ug, bubble_type* bub)
                     if(b_utg_sink != (uint32_t)-1) is_used[b_utg_sink] = 1;
                     if(b_tg_beg != (uint32_t)-1) b_tg_beg>>=1;
                     if(b_tg_sink != (uint32_t)-1) b_tg_sink>>=1;
-                    
-                    update_bubble_graph(&res_utg, utg_beg, b_tg_beg, utg_sink, b_tg_sink, 
-                    bub, &edges, bsg, NULL, NULL, ug, NULL, 0);
+                    /*******************************for debug************************************/
+                    // if(utg_beg == (utg_sink^1))
+                    // {
+                    //     print_b_utg_occ(bub, b_utg_beg>>1);
+                    //     print_b_utg_occ(bub, b_utg_sink>>1);
+                    //     print_b_utg_occ(bub, 42);
+                    //     ///print_debug_bubble_graph(bub, ug, asm_opt.output_file_name);
+                    // }
+                    /*******************************for debug************************************/
+                    update_bubble_graph(&res_utg, utg_beg, b_tg_beg, utg_sink, b_tg_sink, bub, &edges, bsg, NULL, NULL, ug, NULL, 0);
                     drop_g_edges_by_utg(bub, bsg, bub_ug, &res_btg, b_utg_beg, b_utg_sink);
                     ///fprintf(stderr, "->>>>>>beg=btg%.6ul, sink=btg%.6ul\n", (b_utg_beg>>1)+1, (b_utg_sink>>1)+1);
                 }
@@ -7513,16 +7582,10 @@ void resolve_bubble_chain_tangle(ma_ug_t* ug, bubble_type* bub)
         kv_push(uint32_t, bub->num, bub->list.n);
         new_bub = bub->b_g->n_seq - new_bub;
         bub->tangle_bub += new_bub;
+        ///actually not useful, and may have bug when one bubble at multipe chains
         if(new_bub) update_bub_b_s_idx(bub);
-        asg_arc_t *t = NULL;
-        for (k = 0; k < edges.a.n; k++)
-        {        
-            t = asg_arc_pushp(bsg);
-            *t = edges.a.a[k];
-        }
-
-        bsg->is_srt = 0; free(bsg->idx); bsg->idx = 0;
-        asg_cleanup(bsg);
+        update_bsg(bsg, &edges);
+        
         ma_ug_destroy(bub_ug);
         bub_ug = ma_ug_gen(bub->b_g);
         bub->b_ug = bub_ug;
@@ -7556,6 +7619,8 @@ void resolve_bubble_chain_tangle(ma_ug_t* ug, bubble_type* bub)
     free(is_vis); free(is_vis2); free(is_used); free(chain_flag); free(b.b.a); 
     kv_destroy(occ_idx); kv_destroy(stack.a); kv_destroy(stack2.a); 
     kv_destroy(res_btg.a); kv_destroy(res_utg.a); kv_destroy(edges.a);
+
+    ///print_debug_bubble_graph(bub, ug, asm_opt.output_file_name);
 }
 
 
@@ -7691,6 +7756,7 @@ void update_bubble_chain(ma_ug_t* ug, bubble_type* bub, uint32_t is_middle, uint
     kv_push(uint32_t, bub->num, bub->list.n);
     new_bub = bub->b_g->n_seq - new_bub;
     if(is_end) bub->b_end_bub += new_bub;
+    ///actually not useful, and may have bug when one bubble at multipe chains
     if(new_bub) update_bub_b_s_idx(bub);
 
 
@@ -8298,21 +8364,12 @@ void clean_bubble_chain_by_HiC(ma_ug_t* ug, hc_links* link, bubble_type* bub)
     kv_push(uint32_t, bub->num, bub->list.n);
     new_bub = bub->b_g->n_seq - new_bub;
     bub->cross_bub += new_bub;
+    ///actually not useful, and may have bug when one bubble at multipe chains
     if(new_bub) update_bub_b_s_idx(bub);
     
-    ///fprintf(stderr, "bub->cross_bub: %u\n", (uint32_t)bub->cross_bub);
     ///debug_tangle_bubble(bub, bub->b_g->n_seq - bub->cross_bub, bub->b_g->n_seq - 1, "Cross-tangle");
+    update_bsg(bub->b_g, &edges);
 
-    asg_arc_t *t = NULL;
-    for (i = 0; i < edges.a.n; i++)
-    {        
-        t = asg_arc_pushp(bub->b_g);
-        *t = edges.a.a[i];
-    }
-    bub->b_g->is_srt = 0; 
-    free(bub->b_g->idx); 
-    bub->b_g->idx = 0;
-    asg_cleanup(bub->b_g);
     ma_ug_destroy(bs_ug);
     bs_ug = ma_ug_gen(bub->b_g);
     bub->b_ug = bs_ug;
@@ -8437,9 +8494,9 @@ void append_boundary_chain(ma_ug_t* ug, hc_links* link, bubble_type* bub)
     kv_push(uint32_t, bub->num, bub->list.n);
     new_bub = bub->b_g->n_seq - new_bub;
     bub->mess_bub += new_bub;
+    ///actually not useful, and may have bug when one bubble at multipe chains
     if(new_bub) update_bub_b_s_idx(bub);
 
-    ///fprintf(stderr, "bub->mess_bub: %lu\n", bub->mess_bub);
 
     for (v = 0; v < n_vx; v++)
     {
@@ -8449,17 +8506,8 @@ void append_boundary_chain(ma_ug_t* ug, hc_links* link, bubble_type* bub)
         drop_g_edges_by_utg(bub, bub->b_g, bs_ug, NULL, v, (uint32_t)-1);
     }
 
+    update_bsg(bub->b_g, &edges);
 
-    asg_arc_t *t = NULL;
-    for (i = 0; i < edges.a.n; i++)
-    {        
-        t = asg_arc_pushp(bub->b_g);
-        *t = edges.a.a[i];
-    }
-    bub->b_g->is_srt = 0; 
-    free(bub->b_g->idx); 
-    bub->b_g->idx = 0;
-    asg_cleanup(bub->b_g);
     ma_ug_destroy(bs_ug);
     bs_ug = ma_ug_gen(bub->b_g);
     bub->b_ug = bs_ug;
