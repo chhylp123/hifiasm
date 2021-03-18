@@ -26,18 +26,6 @@ KDQ_INIT(uint64_t)
 uint8_t debug_enable = 0;
 
 typedef struct {
-	asg_arc_t x;
-    uint64_t Off;
-    uint64_t weight;
-}asg_arc_t_offset;
-
-typedef struct {
-	kvec_t(asg_arc_t_offset) a;
-	uint64_t i;
-}kvec_asg_arc_t_offset;
-
-
-typedef struct {
     uint64_t weight;
     uint32_t x_beg_pos;
     uint32_t x_end_pos;
@@ -45,6 +33,7 @@ typedef struct {
     uint32_t y_end_pos;
     uint32_t index_beg;
     uint32_t index_end;
+    long long score;
     uint8_t rev;
     asg_arc_t t;
 }hap_candidates;
@@ -73,6 +62,7 @@ typedef struct {
     uint32_t xUid;
     uint32_t yUid;
     uint32_t weight;
+    long long score;
 }hap_overlaps;
 
 typedef struct {
@@ -115,6 +105,7 @@ typedef struct {
     float chain_rate;
     hap_overlaps_list* all_ovlp;
     long long cov_threshold;
+    hap_cov_t *cov;
 }hap_alignment_struct_pip;
 
 
@@ -492,7 +483,7 @@ void destory_hap_alignment_struct(hap_alignment_struct* x)
 
 void init_hap_alignment_struct_pip(hap_alignment_struct_pip* x, uint32_t num_threads, uint32_t n_seq,
 ma_ug_t *ug, asg_t *read_g,  ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, ma_sub_t *coverage_cut, 
-uint64_t* position_index, float Hap_rate, int max_hang, int min_ovlp, float chain_rate, hap_overlaps_list* all_ovlp)
+uint64_t* position_index, float Hap_rate, int max_hang, int min_ovlp, float chain_rate, hap_overlaps_list* all_ovlp, hap_cov_t *cov)
 {
     uint32_t i;
     x->num_threads = num_threads;
@@ -514,6 +505,7 @@ uint64_t* position_index, float Hap_rate, int max_hang, int min_ovlp, float chai
     x->min_ovlp = min_ovlp;
     x->chain_rate = chain_rate;
     x->all_ovlp = all_ovlp;
+    x->cov = cov;
 }
 
 
@@ -857,10 +849,127 @@ uint64_t get_pair_hap_coverage(uint64_t* readIDs, uint32_t Len, ma_hit_t_alloc* 
     return C_bases/R_bases;
 }
 
+
+uint64_t get_pair_purge_coverage(ma_utg_t *xReads, long long xPosBeg, long long xPosEnd, 
+ma_utg_t *yReads, long long yPosBeg, long long yPosEnd, uint32_t rev, asg_t *read_g, hap_cov_t *cov)
+{
+    long long offset, r_beg, r_end, i_beg, i_end, ovlp, IdxBeg, IdxEnd;
+    uint64_t i, rId, uCov, uLen;
+    ma_utg_t *x = NULL;
+    uCov = uLen = 0;
+    if(rev) 
+    {
+        yPosBeg = yReads->len - yPosBeg - 1;
+        yPosEnd = yReads->len - yPosEnd - 1;
+        offset = yPosBeg; yPosBeg = yPosEnd; yPosEnd = offset;
+    }
+    
+
+    IdxBeg = IdxEnd = -1; 
+    x = xReads; i_beg = xPosBeg; i_end = xPosEnd;
+    for (i = 0, offset = 0; i < x->n; i++)
+    {
+        rId = x->a[i]>>33;
+        r_beg = offset; r_end = offset + (long long)(read_g->seq[rId].len) - 1;
+        offset += (uint32_t)x->a[i];
+        ovlp = (long long)(MIN(r_end, i_end)) - (long long)(MAX(r_beg, i_beg)) + 1;
+        if(ovlp <= 0 || ovlp < read_g->seq[rId].len * 0.8)
+        {
+            if(IdxBeg != -1 && IdxEnd != -1) break;
+            continue;
+        }
+
+        if(IdxBeg == -1) IdxBeg = i;
+        IdxEnd = i;
+    }
+    if(IdxBeg != -1 && IdxEnd != -1)
+    {
+        for (i = IdxBeg; (long long)i <= IdxEnd; i++)
+        {
+            rId = x->a[i]>>33;
+            uCov += cov->cov[rId];
+            uLen += cov->read_g->seq[rId].len;
+        }
+    }    
+
+
+
+    IdxBeg = IdxEnd = -1; 
+    x = yReads; i_beg = yPosBeg; i_end = yPosEnd;
+    for (i = 0, offset = 0; i < x->n; i++)
+    {
+        rId = x->a[i]>>33;
+        r_beg = offset; r_end = offset + (long long)(read_g->seq[rId].len) - 1;
+        offset += (uint32_t)x->a[i];
+        ovlp = (long long)(MIN(r_end, i_end)) - (long long)(MAX(r_beg, i_beg)) + 1;
+        if(ovlp <= 0 || ovlp < read_g->seq[rId].len * 0.8)
+        {
+            if(IdxBeg != -1 && IdxEnd != -1) break;
+            continue;
+        }
+
+        if(IdxBeg == -1) IdxBeg = i;
+        IdxEnd = i;
+    }
+    if(IdxBeg != -1 && IdxEnd != -1)
+    {
+        for (i = IdxBeg; (long long)i <= IdxEnd; i++)
+        {
+            rId = x->a[i]>>33;
+            uCov += cov->cov[rId];
+            uLen += cov->read_g->seq[rId].len;
+        }
+    }
+
+    return (uLen == 0? 0 : uCov / uLen);
+}
+
+
+void get_pair_hap_similarity_by_base(ma_utg_t *xReads, asg_t *read_g, uint32_t target_uId, 
+ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, long long xBegPos, long long xEndPos, 
+double* Match, double* Total)
+{
+    uint32_t i, j, qn, tn, is_Unitig, uId, min_count = 0, max_count = 0;
+    long long offset, r_beg, r_end, ovlp;
+    
+    for (i = 0, offset = 0; i < xReads->n; i++)
+    {
+        qn = xReads->a[i]>>33;
+        r_beg = offset; r_end = offset + (long long)(read_g->seq[qn].len) - 1;
+        offset += (uint32_t)xReads->a[i];
+        
+        ovlp = (long long)(MIN(r_end, xEndPos)) - (long long)(MAX(r_beg, xBegPos)) + 1;
+        if(ovlp <= 0) continue;
+
+        if(reverse_sources[qn].length > 0) min_count++;
+        if(reverse_sources[qn].length == 0) continue;
+        for (j = 0; j < reverse_sources[qn].length; j++)
+        {
+            tn = Get_tn(reverse_sources[qn].buffer[j]);
+            if(read_g->seq[tn].del == 1)
+            {
+                get_R_to_U(ruIndex, tn, &tn, &is_Unitig);
+                if(tn == (uint32_t)-1 || is_Unitig == 1 || read_g->seq[tn].del == 1) continue;
+            }
+
+
+            get_R_to_U(ruIndex, tn, &uId, &is_Unitig);
+            if(uId!=(uint32_t)-1 && is_Unitig == 1 && uId == target_uId)
+            {
+                max_count++;
+                break;
+            }
+        }
+    }
+
+    (*Match) = max_count;
+    (*Total) = min_count;
+}
+
 void get_pair_hap_similarity(uint64_t* readIDs, uint32_t Len, uint32_t target_uId, 
 ma_hit_t_alloc* reverse_sources, asg_t *read_g, R_to_U* ruIndex, double* Match, double* Total)
 {
-    #define CUTOFF_THRES 100
+    #define CUTOFF_THRES 1000
     uint32_t i, j, qn, tn, is_Unitig, uId, min_count = 0, max_count = 0, cutoff = 0;;
     for (i = 0; i < Len; i++)
     {
@@ -872,6 +981,7 @@ ma_hit_t_alloc* reverse_sources, asg_t *read_g, R_to_U* ruIndex, double* Match, 
         }
         qn = readIDs[i]>>33;
         if(reverse_sources[qn].length > 0) min_count++;
+        if(reverse_sources[qn].length == 0) continue;
         for (j = 0; j < reverse_sources[qn].length; j++)
         {
             tn = Get_tn(reverse_sources[qn].buffer[j]);
@@ -1028,7 +1138,7 @@ uint64_t* position_index, ma_hit_t_alloc* reverse_sources, asg_t *read_g, R_to_U
 
 void determin_hap_alignment_boundary_single_side(uint64_t* readIDs, long long queryLen, long long targetBeg, 
 long long targetEnd, long long targetID, long long eMatch, long long eTotal, long long dir, 
-float Hap_rate, uint64_t* position_index, ma_hit_t_alloc* reverse_sources, asg_t *read_g, 
+float H_rate, int is_local, uint64_t* position_index, ma_hit_t_alloc* reverse_sources, asg_t *read_g, 
 R_to_U* ruIndex, uint32_t* n_matchLen, uint32_t* n_max_count, uint32_t* n_min_count)
 {
     if(queryLen == 0)
@@ -1037,19 +1147,27 @@ R_to_U* ruIndex, uint32_t* n_matchLen, uint32_t* n_max_count, uint32_t* n_min_co
         return;
     }
     long long i, maxId, min_count = eTotal, max_count = eMatch, matchLen = 0;
+    long long rLen, score = 0, max_score = 0;
     uint32_t is_found, is_match;
     if(dir == 0)
     {
         for (i = 0, maxId = 0; i < queryLen; i++)
         {
+            
             check_hap_match(readIDs[i]>>33, targetBeg, targetEnd, targetID, position_index, reverse_sources, 
             read_g, ruIndex, &is_found, &is_match);
 
             min_count += is_found;
             max_count += is_match;
-            if(max_count > min_count*Hap_rate) maxId = i;
-        }
+            if(max_count > min_count*H_rate) maxId = i;
 
+            if(is_local && is_found)
+            {
+                rLen = read_g->seq[readIDs[i]>>33].len;
+                score += (is_match? rLen : (rLen*(-1)));
+                if(score >= max_score) max_score = score, maxId = i;
+            }
+        }
 
         for (i = maxId; i >= 0; i--)
         {
@@ -1064,7 +1182,7 @@ R_to_U* ruIndex, uint32_t* n_matchLen, uint32_t* n_max_count, uint32_t* n_min_co
             min_count -= is_found;
             max_count -= is_match;
         }
-
+        
         matchLen = i+1;
     }
     else
@@ -1076,7 +1194,14 @@ R_to_U* ruIndex, uint32_t* n_matchLen, uint32_t* n_max_count, uint32_t* n_min_co
 
             min_count += is_found;
             max_count += is_match;
-            if(max_count > min_count*Hap_rate) maxId = i;
+            if(max_count > min_count*H_rate) maxId = i;
+
+            if(is_local && is_found)
+            {
+                rLen = read_g->seq[readIDs[i]>>33].len;
+                score += (is_match? rLen : (rLen*(-1)));
+                if(score >= max_score) max_score = score, maxId = i;
+            }
         }
 
         for (i = maxId; i < queryLen; i++)
@@ -1123,7 +1248,7 @@ long long* target_beg, long long* target_end)
 
 void bi_direction_hap_alignment_extention(ma_utg_t* xReads, uint32_t xLeftBeg, uint32_t xLeftLen,
 uint32_t xRightBeg, uint32_t xRightLen, uint32_t targetUid, uint32_t target_beg, uint32_t target_end,
-float Hap_rate, uint64_t* position_index, ma_hit_t_alloc* reverse_sources, asg_t *read_g, R_to_U* ruIndex,
+float Hap_rate, int is_local, uint64_t* position_index, ma_hit_t_alloc* reverse_sources, asg_t *read_g, R_to_U* ruIndex,
 uint32_t rev, long long* x_interval_beg, long long* x_interval_end)
 {
     if(rev)
@@ -1136,27 +1261,27 @@ uint32_t rev, long long* x_interval_beg, long long* x_interval_end)
     uint32_t n_matchLenRight, x_max_countRight, x_min_countRight;
     n_matchLenLeft = x_max_countLeft = x_min_countLeft = 0;
     determin_hap_alignment_boundary_single_side(xReads->a+xLeftBeg, xLeftLen,
-    target_beg, target_end, targetUid, x_max_countLeft, x_min_countLeft, 1, Hap_rate, 
+    target_beg, target_end, targetUid, x_max_countLeft, x_min_countLeft, 1, Hap_rate, is_local,
     position_index, reverse_sources, read_g, ruIndex, &n_matchLenLeft, &x_max_countLeft, 
     &x_min_countLeft);
 
     n_matchLenRight = x_max_countRight = x_min_countRight = 0;
     determin_hap_alignment_boundary_single_side(xReads->a+xRightBeg, xRightLen,
-    target_beg, target_end, targetUid, x_max_countRight, x_min_countRight, 0, Hap_rate,
+    target_beg, target_end, targetUid, x_max_countRight, x_min_countRight, 0, Hap_rate, is_local,
     position_index, reverse_sources, read_g, ruIndex, &n_matchLenRight, &x_max_countRight,
     &x_min_countRight);
 
     if(x_max_countLeft >= x_max_countRight)
     {
         determin_hap_alignment_boundary_single_side(xReads->a+xRightBeg, xRightLen,
-        target_beg, target_end, targetUid, x_max_countLeft, x_min_countLeft, 0, Hap_rate,
+        target_beg, target_end, targetUid, x_max_countLeft, x_min_countLeft, 0, Hap_rate, is_local,
         position_index, reverse_sources, read_g, ruIndex, &n_matchLenRight, &x_max_countRight,
         &x_min_countRight);
     }
     else
     {
         determin_hap_alignment_boundary_single_side(xReads->a+xLeftBeg, xLeftLen,
-        target_beg, target_end, targetUid, x_max_countRight, x_min_countRight, 1, Hap_rate, 
+        target_beg, target_end, targetUid, x_max_countRight, x_min_countRight, 1, Hap_rate, is_local,
         position_index, reverse_sources, read_g, ruIndex, &n_matchLenLeft, &x_max_countLeft, 
         &x_min_countLeft);
     }
@@ -1170,7 +1295,7 @@ uint32_t xLeftMatch, uint32_t xLeftTotal, uint32_t yLeftMatch, uint32_t yLeftTot
 uint32_t xRightMatch, uint32_t xRightTotal, uint32_t yRightMatch, uint32_t yRightTotal,
 uint32_t xLeftBeg, uint32_t xLeftLen, uint32_t yLeftBeg, uint32_t yLeftLen,
 uint32_t xRightBeg, uint32_t xRightLen, uint32_t yRightBeg, uint32_t yRightLen,
-uint32_t xUid, uint32_t yUid, float Hap_rate, uint64_t* position_index,
+uint32_t xUid, uint32_t yUid, float Hap_rate, int is_local, uint64_t* position_index,
 ma_hit_t_alloc* reverse_sources, asg_t *read_g, R_to_U* ruIndex, uint32_t rev,
 long long* r_x_interval_beg, long long* r_x_interval_end, 
 long long* r_y_interval_beg, long long* r_y_interval_end)
@@ -1189,7 +1314,7 @@ long long* r_y_interval_beg, long long* r_y_interval_end)
         modify_target_interval(yLeftBeg, yLeftBeg+yLeftLen-1, yReads->n, &target_beg, &target_end);
         determin_hap_alignment_boundary_single_side(xReads->a+xLeftBeg, xLeftLen, 
         /**yLeftBeg, yLeftBeg+yLeftLen-1,**/ target_beg, target_end, yUid, 
-        x_max_count, x_min_count, 1, Hap_rate, position_index, reverse_sources, 
+        x_max_count, x_min_count, 1, Hap_rate, is_local, position_index, reverse_sources, 
         read_g, ruIndex, &n_matchLen, &x_max_count, &x_min_count);
 
         x_interval_beg = xLeftBeg + xLeftLen; x_interval_beg -= n_matchLen;
@@ -1202,7 +1327,7 @@ long long* r_y_interval_beg, long long* r_y_interval_end)
         modify_target_interval(xRightBeg, xRightBeg+xRightLen-1, xReads->n, &target_beg, &target_end);
         determin_hap_alignment_boundary_single_side(yReads->a+yRightBeg, yRightLen,
         /**xRightBeg, xRightBeg+xRightLen-1,**/ target_beg, target_end, xUid, 
-        y_max_count, y_min_count, rev, Hap_rate, position_index, reverse_sources, 
+        y_max_count, y_min_count, rev, Hap_rate, is_local, position_index, reverse_sources, 
         read_g, ruIndex, &n_matchLen, &y_max_count, &y_min_count);
         if(rev == 0)
         {
@@ -1225,7 +1350,7 @@ long long* r_y_interval_beg, long long* r_y_interval_end)
         modify_target_interval(yRightBeg, yRightBeg+yRightLen-1, yReads->n, &target_beg, &target_end);
         determin_hap_alignment_boundary_single_side(xReads->a+xRightBeg, xRightLen,
         /**yRightBeg, yRightBeg+yRightLen-1,**/ target_beg, target_end, yUid, 
-        x_max_count, x_min_count, 0, Hap_rate, position_index, reverse_sources, 
+        x_max_count, x_min_count, 0, Hap_rate, is_local, position_index, reverse_sources, 
         read_g, ruIndex, &n_matchLen, &x_max_count, &x_min_count);
 
         x_interval_beg = xLeftBeg;
@@ -1238,7 +1363,7 @@ long long* r_y_interval_beg, long long* r_y_interval_end)
         modify_target_interval(xLeftBeg, xLeftBeg+xLeftLen-1, xReads->n, &target_beg, &target_end);
         determin_hap_alignment_boundary_single_side(yReads->a+yLeftBeg, yLeftLen,
         /**xLeftBeg, xLeftBeg+xLeftLen-1,**/ target_beg, target_end, xUid, 
-        y_max_count, y_min_count, 1-rev, Hap_rate, position_index, reverse_sources, 
+        y_max_count, y_min_count, 1-rev, Hap_rate, is_local, position_index, reverse_sources, 
         read_g, ruIndex, &n_matchLen, &y_max_count, &y_min_count);
         if(rev == 0)
         {
@@ -1256,7 +1381,7 @@ long long* r_y_interval_beg, long long* r_y_interval_end)
     {
         /********************x*********************/   
         bi_direction_hap_alignment_extention(xReads, xLeftBeg, xLeftLen, xRightBeg, xRightLen, 
-        yUid, 0, yReads->n - 1, Hap_rate, position_index, reverse_sources, read_g, ruIndex, 0,
+        yUid, 0, yReads->n - 1, Hap_rate, is_local, position_index, reverse_sources, read_g, ruIndex, 0,
         &x_interval_beg, &x_interval_end);
         /********************x*********************/
 
@@ -1274,7 +1399,7 @@ long long* r_y_interval_beg, long long* r_y_interval_end)
 
         /********************y*********************/
         bi_direction_hap_alignment_extention(yReads, yLeftBeg, yLeftLen, yRightBeg, yRightLen,
-        xUid, 0, xReads->n - 1, Hap_rate, position_index, reverse_sources, read_g, ruIndex, rev,
+        xUid, 0, xReads->n - 1, Hap_rate, is_local, position_index, reverse_sources, read_g, ruIndex, rev,
         &y_interval_beg, &y_interval_end);
         /********************y*********************/
     } else abort();
@@ -1506,7 +1631,7 @@ void quick_LIS(asg_arc_t_offset* x, uint32_t n, kvec_t_i32_warp* tailIndex, kvec
         if(Get_yOff(x[i].Off) < Get_yOff(x[tailIndex->a.a[0]].Off))  
         { 
             // new smallest value 
-            tailIndex->a.a[0] = i; 
+            tailIndex->a.a[0] = i; ///doesn't matter too much
         } 
         else if(Get_yOff(x[i].Off) > Get_yOff(x[tailIndex->a.a[len - 1]].Off)) 
         { 
@@ -1534,7 +1659,309 @@ void quick_LIS(asg_arc_t_offset* x, uint32_t n, kvec_t_i32_warp* tailIndex, kvec
     tailIndex->a.n = len;
 }
 
-void get_base_boundary_advance(R_to_U* ruIndex, ma_hit_t_alloc* reverse_sources, ma_sub_t *coverage_cut, 
+inline uint64_t get_xy_pos_by_pos(asg_t *read_g, asg_arc_t* t, uint32_t v_in_unitig, uint32_t w_in_unitig, 
+uint32_t v_in_pos, uint32_t w_in_pos, uint32_t xUnitigLen, uint32_t yUnitigLen, uint8_t* rev)
+{
+    uint32_t x_pos, y_pos, x_dir = 0, y_dir = 0;
+    uint64_t tmp;
+    x_pos = y_pos = (uint32_t)-1;
+    if((t->ul>>32)==v_in_unitig)///end pos
+    {
+        x_pos = v_in_pos + read_g->seq[v_in_unitig>>1].len - 1;
+        x_dir = 0;
+    }
+    else if((t->ul>>32)==(v_in_unitig^1))///start pos
+    {
+        x_pos = v_in_pos;
+        x_dir = 1;
+    }
+    else
+    {
+        fprintf(stderr, "ERROR\n");
+    }
+    
+    if(t->v == w_in_unitig)
+    {
+        y_pos = w_in_pos + t->ol - 1;
+        y_dir = 0;
+    }
+    else if(t->v == (w_in_unitig^1))
+    {
+        y_pos = w_in_pos + read_g->seq[w_in_unitig>>1].len - t->ol;
+        y_dir = 1;
+    }
+    else
+    {
+        fprintf(stderr, "ERROR\n");
+    }
+
+    (*rev) = x_dir^y_dir;
+    if((*rev))
+    {
+        if(yUnitigLen <= y_pos)
+        {
+            y_pos = (uint32_t)-1;
+        }
+        else
+        {
+            y_pos = yUnitigLen - y_pos - 1;
+        }
+    } 
+
+    if(x_pos>=xUnitigLen) x_pos = (uint32_t)-1;
+    if(y_pos>=yUnitigLen) y_pos = (uint32_t)-1;
+    
+    tmp = x_pos; tmp = tmp << 32; tmp = tmp | y_pos;
+    return tmp;
+}
+
+void chain_trans_ovlp(hap_cov_t *cov, ma_ug_t *ug, asg_t *read_sg, buf_t* xReads, uint32_t targetBaseLen, uint32_t* xEnd)
+{
+    ma_hit_t_alloc* reverse_sources = cov->reverse_sources;
+    ma_sub_t *coverage_cut = cov->coverage_cut;
+    int max_hang = cov->max_hang;
+    int min_ovlp = cov->min_ovlp;
+    kvec_asg_arc_t_offset* u_buffer = &(cov->u_buffer);
+    kvec_t_i32_warp* tailIndex = &(cov->tailIndex);
+    kvec_t_i32_warp* prevIndex = &(cov->prevIndex);
+    ma_hit_t_alloc *xR = NULL;
+    ma_hit_t *h = NULL;
+    ma_sub_t *sq = NULL, *st = NULL;
+    int32_t r;
+    asg_arc_t t;
+    uint32_t rId, v, w;
+    uint64_t tmp;
+    asg_arc_t_offset t_offset;
+    u_buffer->a.n = 0;
+    (*xEnd) = (uint32_t)-1;
+    uint32_t u_i, r_i, k, j, m, len, p_v, *a = xReads->b.a, uid, ori, l, aOcc, nv, xOcc = (uint32_t)-1;
+    ma_utg_t* u = NULL;
+    asg_arc_t *av  = NULL;
+
+
+    for (u_i = r_i = len = aOcc = 0, xOcc = (uint32_t)-1, p_v = (uint32_t)-1; u_i < xReads->b.n; u_i++)
+    {
+        uid = a[u_i] >> 1;
+        ori = a[u_i] & 1;
+        u = &(ug->u.a[uid]);
+        if(u->n == 0) continue;
+
+        for (r_i = 0; r_i < u->n; r_i++, aOcc++)
+        {
+            l = 0;
+            v = (ori == 1?((uint64_t)((u->a[u->n - r_i - 1])^(uint64_t)(0x100000000)))>>32:((uint64_t)(u->a[r_i]))>>32);
+
+            if(p_v != (uint32_t)-1)
+            {
+                av = asg_arc_a(read_sg, p_v);
+                nv = asg_arc_n(read_sg, p_v);
+                
+                for (k = 0; k < nv; k++)
+                {
+                    if(av[k].del) continue;
+                    if(av[k].v == v) 
+                    {
+                        l = asg_arc_len(av[k]);
+                        break;
+                    }
+                }
+                if(k == nv) fprintf(stderr, "ERROR\n");
+            }
+
+            p_v = v; len += l;
+            if(len >= targetBaseLen)
+            {
+                xOcc = aOcc;
+                break;
+            }
+        }
+
+        if(xOcc != (uint32_t)-1) break;
+    }
+    if(xOcc == (uint32_t)-1) xOcc = aOcc;
+    if(xOcc == 0) xOcc = 1;
+
+
+
+    for (u_i = r_i = len = aOcc = 0, p_v = (uint32_t)-1; u_i < xReads->b.n; u_i++)
+    {
+        uid = a[u_i] >> 1;
+        ori = a[u_i] & 1;
+        u = &(ug->u.a[uid]);
+        if(u->n == 0) continue;
+
+        for (r_i = 0; r_i < u->n; r_i++, aOcc++)
+        {
+            if(aOcc >= xOcc) break;
+            l = 0;
+            v = (ori == 1?((uint64_t)((u->a[u->n - r_i - 1])^(uint64_t)(0x100000000)))>>32:((uint64_t)(u->a[r_i]))>>32);
+
+            if(p_v != (uint32_t)-1)
+            {
+                av = asg_arc_a(read_sg, p_v);
+                nv = asg_arc_n(read_sg, p_v);
+                
+                for (k = 0; k < nv; k++)
+                {
+                    if(av[k].del) continue;
+                    if(av[k].v == v) 
+                    {
+                        l = asg_arc_len(av[k]);
+                        break;
+                    }
+                }
+                if(k == nv) fprintf(stderr, "ERROR\n");
+            }
+
+            p_v = v; len += l;
+
+            xR = &(reverse_sources[v>>1]);
+            for (j = 0; j < xR->length; j++)
+            {
+                h = &(xR->buffer[j]);
+                sq = &(coverage_cut[Get_qn(*h)]);
+                st = &(coverage_cut[Get_tn(*h)]);
+                if(st->del || read_sg->seq[Get_tn(*h)].del) continue;
+                r = ma_hit2arc(h, sq->e - sq->s, st->e - st->s, max_hang, 
+                            asm_opt.max_hang_rate, min_ovlp, &t);
+                ///if it is a contained overlap, skip
+                if(r < 0) continue;
+
+                rId = t.v>>1;
+                if(read_sg->seq[rId].del == 1) continue;
+                if(cov->pos_idx[rId] == (uint64_t)-1) continue;
+                w = (uint32_t)(cov->pos_idx[rId]);
+                if(rId != (w>>1)) continue;
+
+                tmp = get_xy_pos_by_pos(read_sg, &t, v, w, len, cov->pos_idx[w>>1]>>32,
+                                                    (uint32_t)-1, targetBaseLen, &(t.el));
+                if(((tmp>>32) == (uint32_t)-1) || (((uint32_t)tmp) == (uint32_t)-1)) continue;
+                if(t.el) continue; ///must
+
+                t_offset.Off = tmp;
+                t_offset.x = t;
+                t_offset.weight = 1;
+                kv_push(asg_arc_t_offset, u_buffer->a, t_offset); 
+            }
+        }
+
+        if(aOcc >= xOcc) break;
+    }
+
+    if(u_buffer->a.n == 0) return;
+
+    qsort(u_buffer->a.a, u_buffer->a.n, sizeof(asg_arc_t_offset), cmp_hap_alignment_chaining);
+
+    ///print_asg_arc_t_offset(u_buffer->a.a, u_buffer->a.n, "before");
+
+
+    for (k = 1, l = 0, m = 0; k <= u_buffer->a.n; ++k)
+    {
+        if (k == u_buffer->a.n || u_buffer->a.a[k].x.el != u_buffer->a.a[l].x.el || 
+                                            u_buffer->a.a[k].Off != u_buffer->a.a[l].Off) 
+        {
+            u_buffer->a.a[m] = u_buffer->a.a[l];
+            for (l += 1; l < k; l++)
+            {
+                u_buffer->a.a[m].weight += u_buffer->a.a[l].weight;
+                if(u_buffer->a.a[l].x.ol > u_buffer->a.a[m].x.ol)
+                {
+                    u_buffer->a.a[m].x = u_buffer->a.a[l].x;
+                }
+            }
+            l = k;
+            m++;
+        }
+    } 
+    u_buffer->a.n = m;
+
+    ///print_asg_arc_t_offset(u_buffer->a.a, u_buffer->a.n, "after");
+    quick_LIS(u_buffer->a.a, u_buffer->a.n, tailIndex, prevIndex);
+    if(tailIndex->a.n == 0) return;
+
+
+    uint32_t xLen_thres = (uint32_t)-1;
+    asg_arc_t_offset* best = &(u_buffer->a.a[tailIndex->a.a[tailIndex->a.n-1]]);
+    for (u_i = r_i = len = aOcc = 0, p_v = (uint32_t)-1; u_i < xReads->b.n; u_i++)
+    {
+        uid = a[u_i] >> 1;
+        ori = a[u_i] & 1;
+        u = &(ug->u.a[uid]);
+        if(u->n == 0) continue;
+
+        for (r_i = 0; r_i < u->n; r_i++, aOcc++)
+        {
+            l = 0;
+            v = (ori == 1?((uint64_t)((u->a[u->n - r_i - 1])^(uint64_t)(0x100000000)))>>32:((uint64_t)(u->a[r_i]))>>32);
+
+            if(p_v != (uint32_t)-1)
+            {
+                av = asg_arc_a(read_sg, p_v);
+                nv = asg_arc_n(read_sg, p_v);
+                
+                for (k = 0; k < nv; k++)
+                {
+                    if(av[k].del) continue;
+                    if(av[k].v == v) 
+                    {
+                        l = asg_arc_len(av[k]);
+                        break;
+                    }
+                }
+                if(k == nv) fprintf(stderr, "ERROR\n");
+            }
+
+            p_v = v; len += l;
+
+            if((v>>1) == (best->x.ul>>33) && xLen_thres == (uint32_t)-1)
+            {
+                ///cov->pos_idx[v>>1] = len; 
+                xR = &(reverse_sources[v>>1]);
+                for (j = 0; j < xR->length; j++)
+                {
+                    h = &(xR->buffer[j]);
+                    sq = &(coverage_cut[Get_qn(*h)]);
+                    st = &(coverage_cut[Get_tn(*h)]);
+                    if(st->del || read_sg->seq[Get_tn(*h)].del) continue;
+                    r = ma_hit2arc(h, sq->e - sq->s, st->e - st->s, max_hang, 
+                                asm_opt.max_hang_rate, min_ovlp, &t);
+                    ///if it is a contained overlap, skip
+                    if(r < 0) continue;
+
+                    rId = t.v>>1;
+                    if(read_sg->seq[rId].del == 1) continue;
+                    if(cov->pos_idx[rId] == (uint64_t)-1) continue;
+                    w = (uint32_t)(cov->pos_idx[rId]);
+                    if(rId != (w>>1)) continue;
+
+                    tmp = get_xy_pos_by_pos(read_sg, &t, v, w, len, cov->pos_idx[w>>1]>>32,
+                                                        (uint32_t)-1, targetBaseLen, &(t.el));
+                    if(((tmp>>32) == (uint32_t)-1) || (((uint32_t)tmp) == (uint32_t)-1)) continue;
+                    if(t.el) continue; ///must
+
+                    t_offset.Off = tmp;
+                    t_offset.x = t;
+                    t_offset.weight = 1;
+                    if(t_offset.Off == best->Off && t_offset.x.v == best->x.v && t_offset.x.ul == best->x.ul)
+                    {
+                        xLen_thres = Get_xOff(best->Off) + targetBaseLen - Get_yOff(best->Off);
+                    }
+                }
+            }
+
+            if(len >= xLen_thres)
+            {
+                (*xEnd) = aOcc;
+                return;
+            }
+        }
+    }
+
+    (*xEnd) = aOcc;
+}
+
+
+void get_base_boundary_advance_back(R_to_U* ruIndex, ma_hit_t_alloc* reverse_sources, ma_sub_t *coverage_cut, 
 asg_t *read_g, uint64_t* position_index, int max_hang, int min_ovlp, ma_utg_t *xReads, ma_utg_t *yReads,
 uint32_t xUid, uint32_t yUid, long long xBegIndex, long long xEndIndex, long long yBegIndex, long long yEndIndex, 
 uint32_t rev, kvec_asg_arc_t_offset* u_buffer, kvec_t_i32_warp* tailIndex, kvec_t_i32_warp* prevIndex,
@@ -1635,15 +2062,14 @@ uint32_t* xBeg, uint32_t* xEnd, uint32_t* yBeg, uint32_t* yEnd)
     (*yEnd) = Get_yOff(u_buffer->a.a[tailIndex->a.a[tailIndex->a.n-1]].Off);
 }
 
-
-uint32_t determine_hap_overlap_type_advance(hap_candidates* hap_can, ma_utg_t *xReads, ma_utg_t *yReads,
+uint32_t determine_hap_overlap_type_advance_back(hap_candidates* hap_can, ma_utg_t *xReads, ma_utg_t *yReads,
 R_to_U* ruIndex, ma_hit_t_alloc* reverse_sources, ma_sub_t *coverage_cut, asg_t *read_g, uint64_t* position_index, 
 int max_hang, int min_ovlp, uint32_t xUid, uint32_t yUid, kvec_asg_arc_t_offset* u_buffer, kvec_t_i32_warp* tailIndex, 
 kvec_t_i32_warp* prevIndex, long long* r_x_pos_beg, long long* r_x_pos_end, long long* r_y_pos_beg, long long* r_y_pos_end)
 {
     uint32_t x_pos_beg, y_pos_beg, x_pos_end, y_pos_end;
     /*************************x***************************/
-    get_base_boundary_advance(ruIndex, reverse_sources, coverage_cut, read_g, position_index, 
+    get_base_boundary_advance_back(ruIndex, reverse_sources, coverage_cut, read_g, position_index, 
     max_hang, min_ovlp, xReads, yReads, xUid, yUid, Get_x_beg(*hap_can), Get_x_end(*hap_can), 
     Get_y_beg(*hap_can), Get_y_end(*hap_can), Get_rev(*hap_can), u_buffer, tailIndex, prevIndex, 
     &x_pos_beg, &x_pos_end, &y_pos_beg, &y_pos_end);
@@ -1664,6 +2090,321 @@ kvec_t_i32_warp* prevIndex, long long* r_x_pos_beg, long long* r_x_pos_end, long
     **/
     return classify_hap_overlap(x_pos_beg, x_pos_end, xReads->len, y_pos_beg, y_pos_end, yReads->len, 
     r_x_pos_beg, r_x_pos_end, r_y_pos_beg, r_y_pos_end);
+}
+
+void get_idx_by_base(ma_utg_t *x, asg_t *read_g, long long beg_base, long long end_base, 
+                                            long long* beg_idx, long long* end_idx)
+{
+    long long offset, r_beg, r_end;
+    uint64_t i, rId;
+    (*beg_idx) = (*end_idx) = -1;
+    for (i = 0, offset = 0; i < x->n; i++)
+    {
+        rId = x->a[i]>>33;
+        r_beg = offset; r_end = offset + (long long)(read_g->seq[rId].len) - 1;
+        offset += (uint32_t)x->a[i];
+        if(beg_base > r_end || r_beg > end_base)
+        {
+            if((*beg_idx) != -1 && (*end_idx) != -1) break;
+            continue;
+        } 
+        if((*beg_idx) == -1) (*beg_idx) = i;
+        (*end_idx) = i;
+    }
+}
+
+int get_base_boundary_chain(R_to_U* ruIndex, ma_hit_t_alloc* reverse_sources, ma_sub_t *coverage_cut, 
+asg_t *read_g, uint64_t* position_index, int max_hang, int min_ovlp, ma_utg_t *xReads, ma_utg_t *yReads,
+uint32_t xUid, uint32_t yUid, long long xBegIndex, long long xEndIndex, long long yBegIndex, long long yEndIndex, 
+uint32_t rev, kvec_asg_arc_t_offset* u_buffer, kvec_t_i32_warp* tailIndex, kvec_t_i32_warp* prevIndex)
+{
+    long long k, j, l, offset, m;
+    ma_hit_t_alloc *xR = NULL;
+    ma_hit_t *h = NULL;
+    ma_sub_t *sq = NULL, *st = NULL;
+    int32_t r;
+    asg_arc_t t;
+    uint32_t rId, Hap_uId, is_Unitig, v, w, v_dir, w_dir;
+    uint64_t tmp;
+    asg_arc_t_offset t_offset;
+    u_buffer->a.n = 0;
+    for (k = xBegIndex; k <= xEndIndex; k++)
+    {
+        xR = &(reverse_sources[xReads->a[k]>>33]);
+        for (j = 0; j < xR->length; j++)
+        {
+            h = &(xR->buffer[j]);
+            sq = &(coverage_cut[Get_qn(*h)]);
+            st = &(coverage_cut[Get_tn(*h)]);
+            if(st->del || read_g->seq[Get_tn(*h)].del) continue;
+
+            r = ma_hit2arc(h, sq->e - sq->s, st->e - st->s, max_hang, 
+                            asm_opt.max_hang_rate, min_ovlp, &t);
+            ///if it is a contained overlap, skip
+            if(r < 0) continue;
+
+            rId = t.v>>1;
+            if(read_g->seq[rId].del == 1) continue;
+            ///there are two cases: 
+            ///1. read at primary contigs, get_R_to_U() return its corresponding contig Id  
+            ///2. read at alternative contigs, get_R_to_U() return (uint32_t)-1
+            get_R_to_U(ruIndex, rId, &Hap_uId, &is_Unitig);
+            if(is_Unitig == 0 || Hap_uId == (uint32_t)-1) continue;
+            if(Hap_uId != yUid) continue;
+
+            v = xReads->a[k]>>32;
+            get_R_to_U(ruIndex, v>>1, &Hap_uId, &is_Unitig);
+            if(is_Unitig == 0 || Hap_uId == (uint32_t)-1) continue;
+            if(Hap_uId != xUid) continue;
+            if((uint32_t)(position_index[v>>1]) != k) continue;
+
+            w = (yReads->a[(uint32_t)(position_index[rId])])>>32;
+
+            v_dir = ((t.ul>>32)==v)?1:0;
+            w_dir = (t.v == w)?1:0;
+            if(rev == 0 && v_dir != w_dir) continue;
+            if(rev == 1 && v_dir == w_dir) continue;
+        
+            /****************************may have bugs********************************/
+            offset = (uint32_t)(position_index[rId]);
+            if(offset < yBegIndex || offset > yEndIndex) continue;
+            /****************************may have bugs********************************/
+
+            tmp = get_xy_pos(read_g, &t, v, w, xReads->len, yReads->len, position_index, &(t.el));
+            if(((tmp>>32) == (uint32_t)-1) || (((uint32_t)tmp) == (uint32_t)-1)) continue;
+
+            t_offset.Off = tmp;
+            t_offset.x = t;
+            t_offset.weight = 1;
+            kv_push(asg_arc_t_offset, u_buffer->a, t_offset);      
+        }
+    }
+    if(u_buffer->a.n == 0) return 0;
+
+    qsort(u_buffer->a.a, u_buffer->a.n, sizeof(asg_arc_t_offset), cmp_hap_alignment_chaining);
+
+    ///print_asg_arc_t_offset(u_buffer->a.a, u_buffer->a.n, "before");
+    for (k = 1, l = 0, m = 0; k <= (long long)u_buffer->a.n; ++k)
+    {
+        if (k == (long long)u_buffer->a.n || u_buffer->a.a[k].Off != u_buffer->a.a[l].Off) 
+        {
+            u_buffer->a.a[m] = u_buffer->a.a[l];
+            for (l += 1; l < k; l++)
+            {
+                u_buffer->a.a[m].weight += u_buffer->a.a[l].weight;
+                if(u_buffer->a.a[l].x.ol > u_buffer->a.a[m].x.ol)
+                {
+                    u_buffer->a.a[m].x = u_buffer->a.a[l].x;
+                }
+            }
+            l = k;
+            m++;
+        }
+    } 
+    u_buffer->a.n = m;
+
+    ///print_asg_arc_t_offset(u_buffer->a.a, u_buffer->a.n, "after");
+    quick_LIS(u_buffer->a.a, u_buffer->a.n, tailIndex, prevIndex);
+
+    if(tailIndex->a.n == 0) return 0;
+    return 1;
+}
+
+
+void get_base_boundary_advance(R_to_U* ruIndex, ma_hit_t_alloc* reverse_sources, ma_sub_t *coverage_cut, 
+asg_t *read_g, uint64_t* position_index, int max_hang, int min_ovlp, ma_utg_t *xReads, ma_utg_t *yReads,
+uint32_t xUid, uint32_t yUid, long long xBegIndex, long long xEndIndex, long long yBegIndex, long long yEndIndex, 
+uint32_t rev, kvec_asg_arc_t_offset* u_buffer, kvec_t_i32_warp* tailIndex, kvec_t_i32_warp* prevIndex,
+uint32_t* xBeg, uint32_t* xEnd, uint32_t* yBeg, uint32_t* yEnd)
+{
+    long long offset;
+    long long new_xBeg, new_yBeg, new_xEnd, new_yEnd;
+    long long new_xIdxBeg, new_yIdxBeg, new_xIdxEnd, new_yIdxEnd;
+
+    (*xBeg) = (*xEnd) = (*yBeg) = (*yEnd) = (uint32_t)-1;
+    if(!get_base_boundary_chain(ruIndex, reverse_sources, coverage_cut, read_g, position_index, 
+    max_hang, min_ovlp, xReads, yReads, xUid, yUid, xBegIndex, xEndIndex, yBegIndex, yEndIndex, 
+    rev, u_buffer, tailIndex, prevIndex))
+    {
+        return;
+    }
+    ///base
+    new_xBeg = Get_xOff(u_buffer->a.a[tailIndex->a.a[0]].Off);
+    new_yBeg = Get_yOff(u_buffer->a.a[tailIndex->a.a[0]].Off);
+    new_xEnd = Get_xOff(u_buffer->a.a[tailIndex->a.a[tailIndex->a.n-1]].Off);
+    new_yEnd = Get_yOff(u_buffer->a.a[tailIndex->a.a[tailIndex->a.n-1]].Off);
+
+    if(new_xBeg > new_xEnd || new_yBeg > new_yEnd) return;
+    
+    classify_hap_overlap(new_xBeg, new_xEnd, xReads->len, new_yBeg, new_yEnd, yReads->len, 
+                                                        &new_xBeg, &new_xEnd, &new_yBeg, &new_yEnd);
+
+    if(rev) 
+    {
+        new_yBeg = yReads->len - new_yBeg - 1;
+        new_yEnd = yReads->len - new_yEnd - 1;
+        offset = new_yBeg; new_yBeg = new_yEnd; new_yEnd = offset;
+    }
+    ///idx
+    get_idx_by_base(xReads, read_g, new_xBeg, new_xEnd, &new_xIdxBeg, &new_xIdxEnd);
+    get_idx_by_base(yReads, read_g, new_yBeg, new_yEnd, &new_yIdxBeg, &new_yIdxEnd);
+    if(new_xIdxBeg == -1 || new_xIdxEnd == -1 || new_yIdxBeg == -1 || new_yIdxEnd == -1) return;
+    
+    if(!get_base_boundary_chain(ruIndex, reverse_sources, coverage_cut, read_g, position_index, 
+    max_hang, min_ovlp, xReads, yReads, xUid, yUid, new_xIdxBeg, new_xIdxEnd, new_yIdxBeg, 
+    new_yIdxEnd, rev, u_buffer, tailIndex, prevIndex))
+    {
+        return;
+    }
+
+    (*xBeg) = Get_xOff(u_buffer->a.a[tailIndex->a.a[0]].Off);
+    (*yBeg) = Get_yOff(u_buffer->a.a[tailIndex->a.a[0]].Off);
+    (*xEnd) = Get_xOff(u_buffer->a.a[tailIndex->a.a[tailIndex->a.n-1]].Off);
+    (*yEnd) = Get_yOff(u_buffer->a.a[tailIndex->a.a[tailIndex->a.n-1]].Off);
+}
+
+#define generic_key(x) (x)
+KRADIX_SORT_INIT(i32, int32_t, generic_key, sizeof(int32_t))
+
+long long get_chain_score(ma_utg_t *xReads, asg_t *read_g, kvec_asg_arc_t_offset* u_buffer, kvec_t_i32_warp* tailIndex, kvec_t_i32_warp* idx, 
+ma_hit_t_alloc* reverse_sources, long long xBegPos, long long xEndPos)
+{
+    long long offset, r_beg, r_end, inp_beg, inp_end, hap_beg, hap_end, inp_match, hap_match, ovlp;
+    uint64_t i, k, rId;
+    idx->a.n = 0;
+    
+    for (i = k = 0; i < tailIndex->a.n; i++)
+    {
+        rId = u_buffer->a.a[tailIndex->a.a[i]].x.ul>>33;
+        
+        
+        for (; k < xReads->n; k++)
+        {
+            if(rId == (xReads->a[k]>>33)) break;
+        }
+
+        if(k >= xReads->n)
+        {
+            for (k = 0; k < xReads->n; k++)
+            {
+                if(rId == (xReads->a[k]>>33)) break;
+            }
+        }
+
+        if(k < xReads->n) kv_push(int32_t, idx->a, k);
+        else
+        {
+            fprintf(stderr, "\nERROR-get_chain_score: tailIndex->a.n: %lu, xReads->n: %lu\n", (uint64_t)tailIndex->a.n, (uint64_t)xReads->n);
+        } 
+    }
+    
+
+    radix_sort_i32(idx->a.a, idx->a.a + idx->a.n);
+    inp_beg = -1; inp_end = -2;
+    hap_beg = -1; hap_end = -2;
+    for (i = k = 0, offset = 0, inp_match = hap_match = 0; i < xReads->n; i++)
+    {
+        rId = xReads->a[i]>>33;
+        r_beg = offset; r_end = offset + (long long)(read_g->seq[rId].len) - 1;
+        offset += (uint32_t)xReads->a[i];
+
+        if(reverse_sources[rId].length > 0)
+        {
+            if(r_beg <= hap_end)
+            {
+                hap_end = MAX(hap_end, r_end);
+            } 
+            else
+            {
+                ///match += (hap_end - hap_beg + 1);
+                ovlp = (long long)(MIN(hap_end, xEndPos)) - (long long)(MAX(hap_beg, xBegPos)) + 1;
+                hap_match += (ovlp >= 0? ovlp : 0);
+                hap_beg = r_beg; hap_end = r_end;
+            }
+        }
+
+        for (; k < idx->a.n; k++)
+        {
+            if(i <= (uint64_t)idx->a.a[k]) break;
+        }
+
+        if(k >= idx->a.n) continue;
+        
+        if(i == (uint64_t)idx->a.a[k])
+        {
+            if(r_beg <= inp_end)
+            {
+                inp_end = MAX(inp_end, r_end);
+            } 
+            else
+            {
+                ovlp = (long long)(MIN(inp_end, xEndPos)) - (long long)(MAX(inp_beg, xBegPos)) + 1;
+                inp_match += (ovlp >= 0? ovlp : 0);
+                inp_beg = r_beg; inp_end = r_end;
+            }
+        }
+    }
+    
+    ovlp = (long long)(MIN(inp_end, xEndPos)) - (long long)(MAX(inp_beg, xBegPos)) + 1;
+    inp_match += (ovlp >= 0? ovlp : 0);
+    
+    ovlp = (long long)(MIN(hap_end, xEndPos)) - (long long)(MAX(hap_beg, xBegPos)) + 1;
+    hap_match += (ovlp >= 0? ovlp : 0);
+
+    // if(inp_match > (xEndPos - xBegPos + 1)) fprintf(stderr, "ERROR1\n");
+    // if(hap_match > (xEndPos - xBegPos + 1)) fprintf(stderr, "ERRO2\n");
+    // if(inp_match > hap_match) fprintf(stderr, "ERROR3\n");
+    // fprintf(stderr, "tailIndex->a.n: %u, xReads->n: %u, total_match: %lld, hap_match: %lld, inp_match: %lld\n", 
+    //                     tailIndex->a.n, xReads->n, (xEndPos - xBegPos + 1), hap_match, inp_match);
+    
+    return (inp_match*3) - ((hap_match-inp_match)*1);
+}
+
+
+uint32_t determine_hap_overlap_type_advance(hap_candidates* hap_can, ma_utg_t *xReads, ma_utg_t *yReads,
+R_to_U* ruIndex, ma_hit_t_alloc* reverse_sources, ma_sub_t *coverage_cut, asg_t *read_g, uint64_t* position_index, 
+int max_hang, int min_ovlp, uint32_t xUid, uint32_t yUid, kvec_asg_arc_t_offset* u_buffer, kvec_t_i32_warp* tailIndex, 
+kvec_t_i32_warp* prevIndex, long long* r_x_pos_beg, long long* r_x_pos_end, long long* r_y_pos_beg, long long* r_y_pos_end)
+{
+    uint32_t x_pos_beg, y_pos_beg, x_pos_end, y_pos_end;
+    /*************************x***************************/
+    get_base_boundary_advance(ruIndex, reverse_sources, coverage_cut, read_g, position_index, 
+    max_hang, min_ovlp, xReads, yReads, xUid, yUid, Get_x_beg(*hap_can), Get_x_end(*hap_can), 
+    Get_y_beg(*hap_can), Get_y_end(*hap_can), Get_rev(*hap_can), u_buffer, tailIndex, prevIndex, 
+    &x_pos_beg, &x_pos_end, &y_pos_beg, &y_pos_end);
+    /*************************x***************************/
+    if(x_pos_beg == (uint32_t)-1 || y_pos_beg == (uint32_t)-1 
+                    || x_pos_end == (uint32_t)-1 || y_pos_end == (uint32_t)-1)
+    {
+        return (uint32_t)-1;
+    }
+    if(x_pos_beg > x_pos_end || y_pos_beg > y_pos_end) return (uint32_t)-1;
+
+    /**
+    #define X2Y 0
+    #define Y2X 1
+    #define XCY 2
+    #define YCX 3
+    **/
+    hap_can->index_end = classify_hap_overlap(x_pos_beg, x_pos_end, xReads->len, y_pos_beg, y_pos_end, yReads->len, 
+    r_x_pos_beg, r_x_pos_end, r_y_pos_beg, r_y_pos_end);
+    hap_can->x_beg_pos = MIN((uint32_t)(position_index[u_buffer->a.a[tailIndex->a.a[0]].x.ul>>33]), 
+                                (uint32_t)(position_index[u_buffer->a.a[tailIndex->a.a[tailIndex->a.n-1]].x.ul>>33]));
+    hap_can->x_end_pos = MAX((uint32_t)(position_index[u_buffer->a.a[tailIndex->a.a[0]].x.ul>>33]), 
+                                (uint32_t)(position_index[u_buffer->a.a[tailIndex->a.a[tailIndex->a.n-1]].x.ul>>33]));
+    hap_can->y_beg_pos = MIN((uint32_t)(position_index[u_buffer->a.a[tailIndex->a.a[0]].x.v>>1]), 
+                                (uint32_t)(position_index[u_buffer->a.a[tailIndex->a.a[tailIndex->a.n-1]].x.v>>1]));
+    hap_can->y_end_pos = MAX((uint32_t)(position_index[u_buffer->a.a[tailIndex->a.a[0]].x.v>>1]), 
+                                (uint32_t)(position_index[u_buffer->a.a[tailIndex->a.a[tailIndex->a.n-1]].x.v>>1]));
+    double xLeftMatch, xLeftTotal;
+    get_pair_hap_similarity(xReads->a + hap_can->x_beg_pos, hap_can->x_end_pos + 1 - hap_can->x_beg_pos, 
+        yUid, reverse_sources, read_g, ruIndex, &xLeftMatch, &xLeftTotal);
+    if(xLeftMatch == 0 || xLeftTotal == 0) return (uint32_t)-1;
+    hap_can->weight = xLeftMatch;
+    hap_can->index_beg = xLeftTotal;
+    hap_can->score = get_chain_score(xReads, read_g, u_buffer, tailIndex, prevIndex, reverse_sources, 
+                                                                        (*r_x_pos_beg), (*r_x_pos_end));
+    return hap_can->index_end;
 }
 
 
@@ -1702,133 +2443,12 @@ long long* r_x_pos_beg, long long* r_x_pos_end, long long* r_y_pos_beg, long lon
 }
 
 
-uint32_t calculate_pair_hap_similarity(kvec_asg_arc_t_offset* u_buffer, hap_candidates* hap_can, 
-uint64_t* position_index, uint32_t xUid, uint32_t yUid, ma_utg_t* xReads, ma_utg_t* yReads, 
-ma_hit_t_alloc* reverse_sources, asg_t *read_g, R_to_U* ruIndex, ma_sub_t *coverage_cut, 
-float Hap_rate, int max_hang, int min_ovlp, long long* r_x_pos_beg, long long* r_x_pos_end, 
-long long* r_y_pos_beg, long long* r_y_pos_end)
-{
-    uint32_t max_count = 0, min_count = 0, i, flag;
-    uint32_t xLen = xReads->n, xIndex/**, xBasePos**/;
-    uint32_t yLen = yReads->n, yIndex/**, yBasePos**/;
-    uint32_t xLeftBeg, xLeftLen, yLeftBeg, yLeftLen;
-    uint32_t xRightBeg, xRightLen, yRightBeg, yRightLen;
-    uint64_t totalWeigth;
-    double xLeftMatch = 0, xLeftTotal = 0, yLeftMatch = 0, yLeftTotal = 0;
-    double xRightMatch = 0, xRightTotal = 0, yRightMatch = 0, yRightTotal = 0;
-    asg_arc_t_offset* arch = NULL;
-
-    for (i = hap_can->index_beg, totalWeigth = 0; i <= hap_can->index_end; i++)
-    {
-        totalWeigth += u_buffer->a.a[i].weight;
-        if(totalWeigth >= (hap_can->weight/2)) break;
-    }
-    if(i > hap_can->index_end) i = hap_can->index_end;
-
-    arch = &(u_buffer->a.a[i]);
-    xIndex = (uint32_t)(position_index[arch->x.ul>>33]);
-    yIndex = (uint32_t)(position_index[arch->x.v>>1]);
-    ///xBasePos = (uint32_t)(arch->Off>>32);
-    ///yBasePos = (uint32_t)(arch->Off);
-    
-    if(hap_can->rev == 0)
-    {
-        xLeftBeg = 0; xLeftLen = xIndex; xRightBeg = xIndex; xRightLen = xLen - xRightBeg;
-        yLeftBeg = 0; yLeftLen = yIndex; yRightBeg = yIndex; yRightLen = yLen - yRightBeg;
-    }
-    else
-    {
-        xLeftBeg = 0; xLeftLen = xIndex; xRightBeg = xIndex; xRightLen = xLen - xRightBeg;
-
-        yLeftBeg = yIndex + 1; yLeftLen = yLen - yLeftBeg;
-        yRightBeg = 0; yRightLen = yIndex + 1;
-    }
-
-    ///flag = classify_hap_overlap(xBasePos, xBasePos, xReads->len, yBasePos, yBasePos, yReads->len);
-    flag = vote_overlap_type(u_buffer, hap_can, position_index, xReads, yReads);
-
-
-    if(flag == XCY)
-    {
-        get_pair_hap_similarity(yReads->a, yLen, xUid, reverse_sources, read_g, ruIndex, 
-        &yLeftMatch, &yLeftTotal);
-        max_count = yLeftMatch;
-        min_count = yLeftTotal;
-    }
-    else if(flag == YCX)
-    {
-        get_pair_hap_similarity(xReads->a, xLen, yUid, reverse_sources, read_g, ruIndex, 
-        &xLeftMatch, &xLeftTotal);
-        max_count = xLeftMatch;
-        min_count = xLeftTotal;
-    }
-    else if(flag == X2Y)
-    {
-        get_pair_hap_similarity(yReads->a+yLeftBeg, yLeftLen, xUid, reverse_sources, read_g, ruIndex,
-        &yLeftMatch, &yLeftTotal);
-        get_pair_hap_similarity(xReads->a+xRightBeg, xRightLen, yUid, reverse_sources, read_g, ruIndex, 
-        &xRightMatch, &xRightTotal);
-        max_count = yLeftMatch + xRightMatch;
-        min_count = yLeftTotal + xRightTotal;
-    }
-    else if(flag == Y2X)
-    {
-        get_pair_hap_similarity(xReads->a+xLeftBeg, xLeftLen, yUid, reverse_sources, read_g, ruIndex, 
-        &xLeftMatch, &xLeftTotal);
-        get_pair_hap_similarity(yReads->a+yRightBeg, yRightLen, xUid, reverse_sources, read_g, ruIndex,
-        &yRightMatch, &yRightTotal);
-        max_count = xLeftMatch + yRightMatch;
-        min_count = xLeftTotal + yRightTotal;
-    } else abort();
-
-    hap_can->weight = hap_can->index_beg = 0;
-    if(min_count == 0) return NON_PLOID;
-    if(max_count > min_count*Hap_rate)
-    {
-        long long r_x_interval_beg, r_x_interval_end, r_y_interval_beg, r_y_interval_end;
-
-        ///for containment, don't need to do anything
-        get_hap_alignment_boundary(xReads, yReads, flag, xLeftMatch, xLeftTotal, 
-        yLeftMatch, yLeftTotal, xRightMatch, xRightTotal, yRightMatch, yRightTotal,
-        xLeftBeg, xLeftLen, yLeftBeg, yLeftLen, xRightBeg, xRightLen, yRightBeg, yRightLen,
-        xUid, yUid, Hap_rate, position_index, reverse_sources, read_g, ruIndex, hap_can->rev,
-        &r_x_interval_beg, &r_x_interval_end, &r_y_interval_beg, &r_y_interval_end);
-
-        if(r_x_interval_beg < 0 || r_x_interval_end < 0 || r_y_interval_beg < 0 || r_y_interval_end < 0)
-        {
-            return NON_PLOID;
-        }
-
-        get_pair_hap_similarity(xReads->a + r_x_interval_beg, r_x_interval_end + 1 - r_x_interval_beg, 
-        yUid, reverse_sources, read_g, ruIndex, &xLeftMatch, &xLeftTotal);
-        if(xLeftMatch == 0 || xLeftTotal == 0) return NON_PLOID;
-        
-        hap_can->weight = xLeftMatch;
-        hap_can->index_beg = xLeftTotal;
-        hap_can->index_end = flag;
-        hap_can->x_beg_pos = r_x_interval_beg;
-        hap_can->x_end_pos = r_x_interval_end;
-        hap_can->y_beg_pos = r_y_interval_beg;
-        hap_can->y_end_pos = r_y_interval_end;
-
-        hap_can->index_end = determine_hap_overlap_type(hap_can, xReads, yReads, ruIndex, 
-        reverse_sources, coverage_cut, read_g, position_index, max_hang, min_ovlp, xUid, 
-        yUid, r_x_pos_beg, r_x_pos_end, r_y_pos_beg, r_y_pos_end);
-        if(hap_can->index_end == XCY && yReads->len > (xReads->len*2)) return NON_PLOID;
-        if(hap_can->index_end == YCX && xReads->len > (yReads->len*2)) return NON_PLOID;
-        if(hap_can->index_end == (uint32_t)-1) return NON_PLOID;
-
-        return PLOID;
-    } 
-	return NON_PLOID;
-}
-
-
 uint32_t calculate_pair_hap_similarity_advance(hap_candidates* hap_can, 
 uint64_t* position_index, uint32_t xUid, uint32_t yUid, ma_utg_t* xReads, ma_utg_t* yReads,
 ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, asg_t *read_g, R_to_U* ruIndex, ma_sub_t *coverage_cut, 
-float Hap_rate, int max_hang, int min_ovlp, uint64_t cov_threshold, kvec_asg_arc_t_offset* u_buffer, kvec_t_i32_warp* tailIndex, kvec_t_i32_warp* prevIndex, 
-long long* r_x_pos_beg, long long* r_x_pos_end, long long* r_y_pos_beg, long long* r_y_pos_end)
+float Hap_rate, int is_local, int max_hang, int min_ovlp, uint64_t cov_threshold, kvec_asg_arc_t_offset* u_buffer, 
+kvec_t_i32_warp* tailIndex, kvec_t_i32_warp* prevIndex, hap_cov_t *cov, long long* r_x_pos_beg, long long* r_x_pos_end, 
+long long* r_y_pos_beg, long long* r_y_pos_end)
 {
     uint32_t max_count = 0, min_count = 0, flag;
     uint32_t xLen = xReads->n, xIndex;
@@ -1895,7 +2515,7 @@ long long* r_x_pos_beg, long long* r_x_pos_end, long long* r_y_pos_beg, long lon
 
     hap_can->weight = hap_can->index_beg = 0;
     if(min_count == 0) return NON_PLOID;
-    if(max_count > min_count*Hap_rate)
+    if((max_count > min_count*Hap_rate) || is_local)
     {
         long long r_x_interval_beg, r_x_interval_end, r_y_interval_beg, r_y_interval_end;
         uint64_t ploid_coverage = 0;
@@ -1904,8 +2524,8 @@ long long* r_x_pos_beg, long long* r_x_pos_end, long long* r_y_pos_beg, long lon
         get_hap_alignment_boundary(xReads, yReads, flag, xLeftMatch, xLeftTotal, 
         yLeftMatch, yLeftTotal, xRightMatch, xRightTotal, yRightMatch, yRightTotal,
         xLeftBeg, xLeftLen, yLeftBeg, yLeftLen, xRightBeg, xRightLen, yRightBeg, yRightLen,
-        xUid, yUid, Hap_rate, position_index, reverse_sources, read_g, ruIndex, hap_can->rev,
-        &r_x_interval_beg, &r_x_interval_end, &r_y_interval_beg, &r_y_interval_end);
+        xUid, yUid, Hap_rate, is_local, position_index, reverse_sources, read_g, ruIndex, 
+        hap_can->rev, &r_x_interval_beg, &r_x_interval_end, &r_y_interval_beg, &r_y_interval_end);
 
         if(r_x_interval_beg < 0 || r_x_interval_end < 0 || r_y_interval_beg < 0 || r_y_interval_end < 0)
         {
@@ -1914,7 +2534,11 @@ long long* r_x_pos_beg, long long* r_x_pos_end, long long* r_y_pos_beg, long lon
 
         get_pair_hap_similarity(xReads->a + r_x_interval_beg, r_x_interval_end + 1 - r_x_interval_beg, 
         yUid, reverse_sources, read_g, ruIndex, &xLeftMatch, &xLeftTotal);
-        if(xLeftMatch == 0 || xLeftTotal == 0) return NON_PLOID;
+        if(xLeftMatch == 0 || xLeftTotal == 0 || (is_local == 0 && xLeftMatch <= xLeftTotal*Hap_rate))
+        {
+            return NON_PLOID;
+        }
+                
         
         hap_can->weight = xLeftMatch;
         hap_can->index_beg = xLeftTotal;
@@ -1923,24 +2547,25 @@ long long* r_x_pos_beg, long long* r_x_pos_end, long long* r_y_pos_beg, long lon
         hap_can->x_end_pos = r_x_interval_end;
         hap_can->y_beg_pos = r_y_interval_beg;
         hap_can->y_end_pos = r_y_interval_end;
-
         hap_can->index_end = determine_hap_overlap_type_advance(hap_can, xReads, yReads,
         ruIndex, reverse_sources, coverage_cut, read_g, position_index, max_hang, min_ovlp, 
         xUid, yUid, u_buffer, tailIndex, prevIndex, r_x_pos_beg, r_x_pos_end, r_y_pos_beg, 
         r_y_pos_end);
-
         if(hap_can->index_end == XCY && yReads->len > (xReads->len*2)) return NON_PLOID;
         if(hap_can->index_end == YCX && xReads->len > (yReads->len*2)) return NON_PLOID;
         if(hap_can->index_end == (uint32_t)-1) return NON_PLOID;
 
-        ploid_coverage = 0;
-        ploid_coverage += get_pair_hap_coverage(xReads->a+r_x_interval_beg, r_x_interval_end+1-r_x_interval_beg,
-        sources, coverage_cut);
-        ploid_coverage += get_pair_hap_coverage(yReads->a+r_y_interval_beg, r_y_interval_end+1-r_y_interval_beg, 
-        sources, coverage_cut);
-        ///fprintf(stderr, "ploid_coverage: %lu, cov_threshold: %lu\n", ploid_coverage, cov_threshold);
+        ploid_coverage = get_pair_purge_coverage(xReads, *r_x_pos_beg, *r_x_pos_end, 
+        yReads, *r_y_pos_beg, *r_y_pos_end, hap_can->rev, read_g, cov);
 
         if(cov_threshold > 0 && ploid_coverage >= cov_threshold) return NON_PLOID;
+
+        get_pair_hap_similarity_by_base(xReads, read_g, yUid, reverse_sources, ruIndex, 
+        *r_x_pos_beg, *r_x_pos_end, &xLeftMatch, &xLeftTotal);
+        if(xLeftMatch == 0 || xLeftTotal == 0 || xLeftMatch <= xLeftTotal*Hap_rate)
+        {
+            return NON_PLOID;
+        }
 
         return PLOID;
     } 
@@ -1950,283 +2575,13 @@ long long* r_x_pos_beg, long long* r_x_pos_end, long long* r_y_pos_beg, long lon
 
 void print_hap_paf(ma_ug_t *ug, hap_overlaps* ovlp)
 {
-    fprintf(stderr, "utg%.6d%c\t%u(%u)\t%u(%u)\t%u(%u)\t%c\tutg%.6d%c\t%u(%u)\t%u(%u)\t%u(%u)\t%u\t%u\n", 
+    fprintf(stderr, "utg%.6d%c\t%u(%u)\t%u(%u)\t%u(%u)\t%c\tutg%.6d%c\t%u(%u)\t%u(%u)\t%u(%u)\t%u\t%u\t%lld(%u)\n", 
     ovlp->xUid+1, "lc"[ug->u.a[ovlp->xUid].circ], ug->u.a[ovlp->xUid].len, ug->u.a[ovlp->xUid].n,
     ovlp->x_beg_pos, ovlp->x_beg_id, ovlp->x_end_pos, ovlp->x_end_id, "+-"[ovlp->rev], 
     ovlp->yUid+1, "lc"[ug->u.a[ovlp->yUid].circ], ug->u.a[ovlp->yUid].len, ug->u.a[ovlp->yUid].n,
-    ovlp->y_beg_pos, ovlp->y_beg_id, ovlp->y_end_pos, ovlp->y_end_id, ovlp->type, (uint32_t)ovlp->weight);
+    ovlp->y_beg_pos, ovlp->y_beg_id, ovlp->y_end_pos, ovlp->y_end_id, ovlp->type, ovlp->weight, 
+    ovlp->score, ovlp->status);
 }
-
-void hap_alignment(ma_ug_t *ug, asg_t *read_g,  ma_hit_t_alloc* reverse_sources, 
-R_to_U* ruIndex, ma_sub_t *coverage_cut, uint64_t* position_index, uint64_t* vote_counting, 
-uint8_t* visit, kvec_t_u64_warp* u_vecs, kvec_asg_arc_t_offset* u_buffer, kvec_hap_candidates* u_can,
-uint32_t Input_uId, float Hap_rate, int max_hang, int min_ovlp, float chain_rate, 
-hap_overlaps_list* all_ovlp)
-{
-    ma_utg_t *xReads = NULL, *yReads = NULL;
-    ma_hit_t_alloc *xR = NULL;
-    ma_hit_t *h = NULL;
-    ma_sub_t *sq = NULL, *st = NULL;
-    asg_t* nsg = ug->g;
-    uint32_t i, j, v, rId, k, is_Unitig, Hap_uId, xUid, yUid, seedOcc, xPos, yPos, is_update;
-    uint64_t tmp;
-    long long cur_offset, new_offset, interval_len;
-    long long r_x_pos_beg, r_x_pos_end, r_y_pos_beg, r_y_pos_end;
-    int32_t r;
-    asg_arc_t t;
-    asg_arc_t_offset t_offset;
-    hap_candidates hap_can;
-    memset(&hap_can, 0, sizeof(hap_candidates));
-    hap_overlaps hap_align;
-    xUid = Input_uId;
-    if(nsg->seq[xUid].del || nsg->seq[xUid].c == ALTER_LABLE) return;
-    memset(vote_counting, 0, sizeof(uint64_t)*nsg->n_seq);
-    memset(visit, 0, nsg->n_seq);
-    u_vecs->a.n = 0;
-    u_can->a.n = 0;
-
-    xReads = &(ug->u.a[xUid]);
-    for (i = 0; i < xReads->n; i++)
-    {
-        xR = &(reverse_sources[xReads->a[i]>>33]);
-        
-        for (k = 0; k < xR->length; k++)
-        {
-            rId = Get_tn(xR->buffer[k]);
-        
-            if(read_g->seq[rId].del == 1)
-            {
-                ///get the id of read that contains it 
-                get_R_to_U(ruIndex, rId, &rId, &is_Unitig);
-                if(rId == (uint32_t)-1 || is_Unitig == 1 || read_g->seq[rId].del == 1) continue;
-            }
-
-            ///there are two cases: 
-            ///1. read at primary contigs, get_R_to_U() return its corresponding contig Id  
-            ///2. read at alternative contigs, get_R_to_U() return (uint32_t)-1
-            get_R_to_U(ruIndex, rId, &Hap_uId, &is_Unitig);
-            if(is_Unitig == 0 || Hap_uId == (uint32_t)-1) continue;
-            ///here rId is the id of the read coming from the different haplotype
-            ///Hap_cId is the id of the corresponding contig (note here is the contig, instead of untig)
-            if(visit[Hap_uId]!=0) continue;
-            visit[Hap_uId] = 1;
-            if(vote_counting[Hap_uId] < UINT64_MAX) vote_counting[Hap_uId]++;
-        }
-
-        clean_visit_flag(visit, read_g, ruIndex, nsg->n_seq, xR);
-    }
-
-
-
-    u_vecs->a.n = 0;
-    for (i = 0; i < nsg->n_seq; i++)
-    {
-        if(i == xUid) continue;
-        if(vote_counting[i] == 0) continue;
-        tmp = vote_counting[i]; tmp = tmp << 32; tmp = tmp | (uint64_t)i;
-        kv_push(uint64_t, u_vecs->a, tmp);
-    }
-
-    if(u_vecs->a.n == 0) return;
-    sort_kvec_t_u64_warp(u_vecs, 1);
-
-
-    ///scan each candidate unitig
-    for (i = 0; i < u_vecs->a.n; i++)
-    {
-        yUid = (uint32_t)u_vecs->a.a[i];
-        seedOcc = u_vecs->a.a[i]>>32;
-        xReads = &(ug->u.a[xUid]);
-        yReads = &(ug->u.a[yUid]);
-        u_buffer->a.n = 0;
-
-        for (k = 0; k < xReads->n; k++)
-        {
-            xR = &(reverse_sources[xReads->a[k]>>33]);
-            for (j = 0; j < xR->length; j++)
-            {
-                h = &(xR->buffer[j]);
-                sq = &(coverage_cut[Get_qn(*h)]);
-                st = &(coverage_cut[Get_tn(*h)]);
-                if(st->del || read_g->seq[Get_tn(*h)].del) continue;
-
-                r = ma_hit2arc(h, sq->e - sq->s, st->e - st->s, max_hang, 
-                                asm_opt.max_hang_rate, min_ovlp, &t);
-                ///if it is a contained overlap, skip
-                if(r < 0) continue;
-
-                rId = t.v>>1;
-                if(read_g->seq[rId].del == 1) continue;
-                ///there are two cases: 
-                ///1. read at primary contigs, get_R_to_U() return its corresponding contig Id  
-                ///2. read at alternative contigs, get_R_to_U() return (uint32_t)-1
-                get_R_to_U(ruIndex, rId, &Hap_uId, &is_Unitig);
-                if(is_Unitig == 0 || Hap_uId == (uint32_t)-1) continue;
-                if(Hap_uId != yUid) continue;
-
-                v = xReads->a[k]>>32;
-                get_R_to_U(ruIndex, v>>1, &Hap_uId, &is_Unitig);
-                if(is_Unitig == 0 || Hap_uId == (uint32_t)-1) continue;
-                if(Hap_uId != xUid) continue;
-                if((uint32_t)(position_index[v>>1]) != k) continue;
-
-
-                if((prefilter((uint32_t)(position_index[v>>1]), (uint32_t)(position_index[rId]), 
-                    xReads->n, yReads->n, 0, Hap_rate, seedOcc)==NON_PLOID) && 
-                   (prefilter((uint32_t)(position_index[v>>1]), (uint32_t)(position_index[rId]), 
-                    xReads->n, yReads->n, 1, Hap_rate, seedOcc)==NON_PLOID))
-                {
-                    continue;
-                }
-            
-                t_offset.Off = get_xy_pos(read_g, &t, v, (yReads->a[(uint32_t)(position_index[rId])])>>32, 
-                xReads->len, yReads->len, position_index, &(t.el));
-                if(((t_offset.Off>>32) == (uint32_t)-1) || (((uint32_t)t_offset.Off) == (uint32_t)-1)) continue;
-
-                t_offset.x = t;
-                t_offset.weight = 1;
-
-                kv_push(asg_arc_t_offset, u_buffer->a, t_offset);
-            }
-
-            deduplicate_edge(u_buffer);
-        }
-
-        if(u_buffer->a.n == 0) continue;
-        
-        qsort(u_buffer->a.a, u_buffer->a.n, sizeof(asg_arc_t_offset), cmp_hap_alignment);
-        k = 0;
-        u_can->a.n = 0;
-        while (k < u_buffer->a.n)
-        {
-            hap_can.rev = u_buffer->a.a[k].x.el;
-            hap_can.index_beg = k;
-            hap_can.index_end = k;
-            hap_can.weight = u_buffer->a.a[k].weight;
-            hap_can.x_beg_pos = hap_can.x_end_pos = (uint32_t)(u_buffer->a.a[k].Off>>32);
-            hap_can.y_beg_pos = hap_can.y_end_pos = (uint32_t)(u_buffer->a.a[k].Off);
-            cur_offset = Cal_Off(u_buffer->a.a[k].Off);
-            interval_len = get_hap_overlapLen(hap_can.x_beg_pos, hap_can.x_end_pos, xReads->len, 
-            hap_can.y_beg_pos, hap_can.y_end_pos, yReads->len, NULL, NULL, NULL, NULL);
-
-
-            k++;
-            while (k < u_buffer->a.n)
-            {
-                new_offset = Cal_Off(u_buffer->a.a[k].Off);
-                if(u_buffer->a.a[k].x.el != hap_can.rev) break;
-                if((new_offset - cur_offset)>(interval_len*chain_rate)) break;
-                
-
-                hap_can.index_end = k;
-                hap_can.weight += u_buffer->a.a[k].weight;
-
-                is_update = 0;
-                xPos = (uint32_t)(u_buffer->a.a[k].Off>>32);
-                yPos = (uint32_t)(u_buffer->a.a[k].Off);
-                if(xPos < hap_can.x_beg_pos)
-                {
-                    hap_can.x_beg_pos = xPos;
-                    is_update = 1;
-                } 
-
-                if(xPos > hap_can.x_end_pos)
-                {
-                    hap_can.x_end_pos = xPos;
-                    is_update = 1;
-                }
-
-                if(yPos < hap_can.y_beg_pos)
-                {
-                    hap_can.y_beg_pos = yPos;
-                    is_update = 1;
-                }
-
-                if(yPos > hap_can.y_end_pos)
-                {
-                    hap_can.y_end_pos = yPos;
-                    is_update = 1;
-                }
-
-                if(new_offset == cur_offset) is_update = 0;
-
-                if(is_update)
-                {
-                    interval_len = get_hap_overlapLen(hap_can.x_beg_pos, hap_can.x_end_pos, xReads->len, 
-                    hap_can.y_beg_pos, hap_can.y_end_pos, yReads->len, NULL, NULL, NULL, NULL);
-                }
-
-                k++;
-            }
-
-            kv_push(hap_candidates, u_can->a, hap_can);
-        }
-
-        if(u_can->a.n == 0) continue;
-        
-        qsort(u_can->a.a, u_can->a.n, sizeof(hap_candidates), cmp_hap_candidates);
-
-        Get_match(hap_can) = Get_total(hap_can) = 0;
-        memset(&hap_align, 0, sizeof(hap_overlaps));
-        
-        for (k = 0; k < u_can->a.n; k++)
-        {
-            is_update = 0;
-            if(u_can->a.a[k].weight < Get_match(hap_can)*Hap_rate) continue;
-
-            if(calculate_pair_hap_similarity(u_buffer, &(u_can->a.a[k]), position_index, xUid, yUid, 
-            xReads, yReads, reverse_sources, read_g, ruIndex, coverage_cut, Hap_rate, max_hang, 
-            min_ovlp, &r_x_pos_beg, &r_x_pos_end, &r_y_pos_beg, &r_y_pos_end)!=PLOID)
-            {
-                continue;
-            }
-            
-            if(Get_match(hap_can) < Get_match(u_can->a.a[k]))
-            {
-                is_update = 1;
-            }
-            else if(Get_match(hap_can) == Get_match(u_can->a.a[k]) && 
-                                    Get_total(hap_can) > Get_total(u_can->a.a[k]))
-            {
-                is_update = 1;
-            }
-
-            if(is_update)
-            {
-                hap_can = u_can->a.a[k];
-                hap_align.rev = Get_rev(hap_can);
-                hap_align.type = Get_type(hap_can);
-                hap_align.x_beg_id = Get_x_beg(hap_can);
-                hap_align.x_end_id = Get_x_end(hap_can) + 1;
-                hap_align.y_beg_id = Get_y_beg(hap_can);
-                hap_align.y_end_id = Get_y_end(hap_can) + 1;
-                hap_align.weight = Get_match(hap_can);
-                hap_align.x_beg_pos = r_x_pos_beg;
-                hap_align.x_end_pos = r_x_pos_end + 1;
-                if(hap_align.rev == 0)
-                {
-                    hap_align.y_beg_pos = r_y_pos_beg;
-                    hap_align.y_end_pos = r_y_pos_end + 1;
-                }
-                else
-                {
-                    hap_align.y_beg_pos = yReads->len - r_y_pos_end - 1;
-                    hap_align.y_end_pos = yReads->len - r_y_pos_beg - 1 + 1;
-                }
-                hap_align.xUid = xUid;
-                hap_align.yUid = yUid;
-                hap_align.status = SELF_EXIST;
-            }
-        }
-
-        if(Get_match(hap_can) == 0 || Get_total(hap_can) == 0) continue;
-        
-        kv_push(hap_overlaps, all_ovlp->x[hap_align.xUid].a, hap_align);
-    }
-
-}
-
-
 
 inline long long get_max_index(asg_arc_t_offset* x, int32_t* Scores, uint8_t* Flag, long long n,
 long long x_readLen, long long y_readLen)
@@ -2474,7 +2829,7 @@ long long y_readLen)
             if(is_merge == 0 && (Get_xOff(u_buffer->a.a[m-1].Off)==Get_xOff(u_buffer->a.a[i].Off)))
             {
                 if((Get_yOff(u_buffer->a.a[i].Off)-(Get_yOff(u_buffer->a.a[m-1].Off))) ==
-                  (i-anchor_i))
+                  (i-anchor_i))///not sure why, does it use for tolerate indels in overlaps? 
                 {
                     is_merge = 1;
                 }
@@ -2503,299 +2858,14 @@ long long y_readLen)
     begIndex_vec, flag_vec, band_width_threshold, max_skip, x_readLen, y_readLen, u_can);
 }
 
-
-///static void hap_alignment_worker(void *_data, long eid, int tid)
-void hap_alignment_worker(void *_data, long eid, int tid)
+int filter_secondary_chain(long long max_score, long long cur_score, double rate)
 {
-    hap_alignment_struct_pip* hap_buf = (hap_alignment_struct_pip*)_data;
-    ma_ug_t *ug = hap_buf->ug;
-    asg_t *read_g = hap_buf->read_g;
-    ma_hit_t_alloc* reverse_sources = hap_buf->reverse_sources;
-    R_to_U* ruIndex = hap_buf->ruIndex;
-    ma_sub_t *coverage_cut = hap_buf->coverage_cut;
-    uint64_t* position_index = hap_buf->position_index;
-    float Hap_rate = hap_buf->Hap_rate;
-    int max_hang = hap_buf->max_hang;
-    int min_ovlp = hap_buf->min_ovlp;
-    float chain_rate = hap_buf->chain_rate;
-    hap_overlaps_list* all_ovlp = hap_buf->all_ovlp;
-    uint32_t Input_uId = eid;
-    uint64_t* vote_counting = hap_buf->buf[tid].vote_counting;
-    uint8_t* visit = hap_buf->buf[tid].visit;
-    kvec_t_u64_warp* u_vecs = &(hap_buf->buf[tid].u_vecs);
-    kvec_asg_arc_t_offset* u_buffer = &(hap_buf->buf[tid].u_buffer);
-    kvec_hap_candidates* u_can = &(hap_buf->buf[tid].u_can);
-
-
-    ma_utg_t *xReads = NULL, *yReads = NULL;
-    ma_hit_t_alloc *xR = NULL;
-    ma_hit_t *h = NULL;
-    ma_sub_t *sq = NULL, *st = NULL;
-    asg_t* nsg = ug->g;
-    uint32_t i, j, v, rId, k, is_Unitig, Hap_uId, xUid, yUid, seedOcc, xPos, yPos, is_update;
-    uint64_t tmp;
-    long long cur_offset, new_offset, interval_len;
-    long long r_x_pos_beg, r_x_pos_end, r_y_pos_beg, r_y_pos_end;
-    int32_t r;
-    asg_arc_t t;
-    asg_arc_t_offset t_offset;
-    hap_candidates hap_can; 
-    memset(&hap_can, 0, sizeof(hap_candidates));
-    hap_overlaps hap_align;
-    xUid = Input_uId;
-    if(nsg->seq[xUid].del || nsg->seq[xUid].c == ALTER_LABLE) return;
-    memset(vote_counting, 0, sizeof(uint64_t)*nsg->n_seq);
-    memset(visit, 0, nsg->n_seq);
-    u_vecs->a.n = 0;
-    u_can->a.n = 0;
-
-    xReads = &(ug->u.a[xUid]);
-    for (i = 0; i < xReads->n; i++)
-    {
-        xR = &(reverse_sources[xReads->a[i]>>33]);
-        
-        for (k = 0; k < xR->length; k++)
-        {
-            rId = Get_tn(xR->buffer[k]);
-        
-            if(read_g->seq[rId].del == 1)
-            {
-                ///get the id of read that contains it 
-                get_R_to_U(ruIndex, rId, &rId, &is_Unitig);
-                if(rId == (uint32_t)-1 || is_Unitig == 1 || read_g->seq[rId].del == 1) continue;
-            }
-
-            ///there are two cases: 
-            ///1. read at primary contigs, get_R_to_U() return its corresponding contig Id  
-            ///2. read at alternative contigs, get_R_to_U() return (uint32_t)-1
-            get_R_to_U(ruIndex, rId, &Hap_uId, &is_Unitig);
-            if(is_Unitig == 0 || Hap_uId == (uint32_t)-1) continue;
-            ///here rId is the id of the read coming from the different haplotype
-            ///Hap_cId is the id of the corresponding contig (note here is the contig, instead of untig)
-            if(visit[Hap_uId]!=0) continue;
-            visit[Hap_uId] = 1;
-            if(vote_counting[Hap_uId] < UINT64_MAX) vote_counting[Hap_uId]++;
-        }
-
-        clean_visit_flag(visit, read_g, ruIndex, nsg->n_seq, xR);
-    }
-
-
-
-    u_vecs->a.n = 0;
-    for (i = 0; i < nsg->n_seq; i++)
-    {
-        if(i == xUid) continue;
-        if(vote_counting[i] == 0) continue;
-        tmp = vote_counting[i]; tmp = tmp << 32; tmp = tmp | (uint64_t)i;
-        kv_push(uint64_t, u_vecs->a, tmp);
-    }
-
-    if(u_vecs->a.n == 0) return;
-    sort_kvec_t_u64_warp(u_vecs, 1);
-
-
-    ///scan each candidate unitig
-    for (i = 0; i < u_vecs->a.n; i++)
-    {
-        yUid = (uint32_t)u_vecs->a.a[i];
-        seedOcc = u_vecs->a.a[i]>>32;
-        xReads = &(ug->u.a[xUid]);
-        yReads = &(ug->u.a[yUid]);
-        u_buffer->a.n = 0;
-
-        for (k = 0; k < xReads->n; k++)
-        {
-            xR = &(reverse_sources[xReads->a[k]>>33]);
-            for (j = 0; j < xR->length; j++)
-            {
-                h = &(xR->buffer[j]);
-                sq = &(coverage_cut[Get_qn(*h)]);
-                st = &(coverage_cut[Get_tn(*h)]);
-                if(st->del || read_g->seq[Get_tn(*h)].del) continue;
-
-                r = ma_hit2arc(h, sq->e - sq->s, st->e - st->s, max_hang, 
-                                asm_opt.max_hang_rate, min_ovlp, &t);
-                ///if it is a contained overlap, skip
-                if(r < 0) continue;
-
-                rId = t.v>>1;
-                if(read_g->seq[rId].del == 1) continue;
-                ///there are two cases: 
-                ///1. read at primary contigs, get_R_to_U() return its corresponding contig Id  
-                ///2. read at alternative contigs, get_R_to_U() return (uint32_t)-1
-                get_R_to_U(ruIndex, rId, &Hap_uId, &is_Unitig);
-                if(is_Unitig == 0 || Hap_uId == (uint32_t)-1) continue;
-                if(Hap_uId != yUid) continue;
-
-                v = xReads->a[k]>>32;
-                get_R_to_U(ruIndex, v>>1, &Hap_uId, &is_Unitig);
-                if(is_Unitig == 0 || Hap_uId == (uint32_t)-1) continue;
-                if(Hap_uId != xUid) continue;
-                if((uint32_t)(position_index[v>>1]) != k) continue;
-
-
-                if((prefilter((uint32_t)(position_index[v>>1]), (uint32_t)(position_index[rId]), 
-                    xReads->n, yReads->n, 0, Hap_rate, seedOcc)==NON_PLOID) && 
-                   (prefilter((uint32_t)(position_index[v>>1]), (uint32_t)(position_index[rId]), 
-                    xReads->n, yReads->n, 1, Hap_rate, seedOcc)==NON_PLOID))
-                {
-                    continue;
-                }
-            
-                t_offset.Off = get_xy_pos(read_g, &t, v, (yReads->a[(uint32_t)(position_index[rId])])>>32, 
-                xReads->len, yReads->len, position_index, &(t.el));
-                if(((t_offset.Off>>32) == (uint32_t)-1) || (((uint32_t)t_offset.Off) == (uint32_t)-1)) continue;
-
-                t_offset.x = t;
-                t_offset.weight = 1;
-
-                kv_push(asg_arc_t_offset, u_buffer->a, t_offset);
-            }
-
-            deduplicate_edge(u_buffer);
-        }
-
-        if(u_buffer->a.n == 0) continue;
-
-        // if(debug_enable)
-        // {
-        //     print_debug_unitig(xReads, position_index, "xReads");
-        //     print_debug_unitig(yReads, position_index, "yReads");
-        // }
-        
-        qsort(u_buffer->a.a, u_buffer->a.n, sizeof(asg_arc_t_offset), cmp_hap_alignment);
-        k = 0;
-        u_can->a.n = 0;
-        while (k < u_buffer->a.n)
-        {
-            hap_can.rev = u_buffer->a.a[k].x.el;
-            hap_can.index_beg = k;
-            hap_can.index_end = k;
-            hap_can.weight = u_buffer->a.a[k].weight;
-            hap_can.x_beg_pos = hap_can.x_end_pos = (uint32_t)(u_buffer->a.a[k].Off>>32);
-            hap_can.y_beg_pos = hap_can.y_end_pos = (uint32_t)(u_buffer->a.a[k].Off);
-            cur_offset = Cal_Off(u_buffer->a.a[k].Off);
-            interval_len = get_hap_overlapLen(hap_can.x_beg_pos, hap_can.x_end_pos, xReads->len, 
-            hap_can.y_beg_pos, hap_can.y_end_pos, yReads->len, NULL, NULL, NULL, NULL);
-
-
-            k++;
-            while (k < u_buffer->a.n)
-            {
-                new_offset = Cal_Off(u_buffer->a.a[k].Off);
-                if(u_buffer->a.a[k].x.el != hap_can.rev) break;
-                if((new_offset - cur_offset)>(interval_len*chain_rate)) break;
-                
-
-                hap_can.index_end = k;
-                hap_can.weight += u_buffer->a.a[k].weight;
-
-                is_update = 0;
-                xPos = (uint32_t)(u_buffer->a.a[k].Off>>32);
-                yPos = (uint32_t)(u_buffer->a.a[k].Off);
-                if(xPos < hap_can.x_beg_pos)
-                {
-                    hap_can.x_beg_pos = xPos;
-                    is_update = 1;
-                } 
-
-                if(xPos > hap_can.x_end_pos)
-                {
-                    hap_can.x_end_pos = xPos;
-                    is_update = 1;
-                }
-
-                if(yPos < hap_can.y_beg_pos)
-                {
-                    hap_can.y_beg_pos = yPos;
-                    is_update = 1;
-                }
-
-                if(yPos > hap_can.y_end_pos)
-                {
-                    hap_can.y_end_pos = yPos;
-                    is_update = 1;
-                }
-
-                if(new_offset == cur_offset) is_update = 0;
-
-                if(is_update)
-                {
-                    interval_len = get_hap_overlapLen(hap_can.x_beg_pos, hap_can.x_end_pos, xReads->len, 
-                    hap_can.y_beg_pos, hap_can.y_end_pos, yReads->len, NULL, NULL, NULL, NULL);
-                }
-
-                k++;
-            }
-
-            kv_push(hap_candidates, u_can->a, hap_can);
-        }
-
-        if(u_can->a.n == 0) continue;
-        
-        qsort(u_can->a.a, u_can->a.n, sizeof(hap_candidates), cmp_hap_candidates);
-
-        Get_match(hap_can) = Get_total(hap_can) = 0;
-        memset(&hap_align, 0, sizeof(hap_overlaps));
-        
-        for (k = 0; k < u_can->a.n; k++)
-        {
-            is_update = 0;
-            if(u_can->a.a[k].weight < Get_match(hap_can)*Hap_rate) continue;
-
-            if(calculate_pair_hap_similarity(u_buffer, &(u_can->a.a[k]), position_index, xUid, yUid, 
-            xReads, yReads, reverse_sources, read_g, ruIndex, coverage_cut, Hap_rate, max_hang, 
-            min_ovlp, &r_x_pos_beg, &r_x_pos_end, &r_y_pos_beg, &r_y_pos_end)!=PLOID)
-            {
-                continue;
-            }
-            
-            if(Get_match(hap_can) < Get_match(u_can->a.a[k]))
-            {
-                is_update = 1;
-            }
-            else if(Get_match(hap_can) == Get_match(u_can->a.a[k]) && 
-                                    Get_total(hap_can) > Get_total(u_can->a.a[k]))
-            {
-                is_update = 1;
-            }
-
-            if(is_update)
-            {
-                hap_can = u_can->a.a[k];
-                hap_align.rev = Get_rev(hap_can);
-                hap_align.type = Get_type(hap_can);
-                hap_align.x_beg_id = Get_x_beg(hap_can);
-                hap_align.x_end_id = Get_x_end(hap_can) + 1;
-                hap_align.y_beg_id = Get_y_beg(hap_can);
-                hap_align.y_end_id = Get_y_end(hap_can) + 1;
-                hap_align.weight = Get_match(hap_can);
-                hap_align.x_beg_pos = r_x_pos_beg;
-                hap_align.x_end_pos = r_x_pos_end + 1;
-                if(hap_align.rev == 0)
-                {
-                    hap_align.y_beg_pos = r_y_pos_beg;
-                    hap_align.y_end_pos = r_y_pos_end + 1;
-                }
-                else
-                {
-                    hap_align.y_beg_pos = yReads->len - r_y_pos_end - 1;
-                    hap_align.y_end_pos = yReads->len - r_y_pos_beg - 1 + 1;
-                }
-                hap_align.xUid = xUid;
-                hap_align.yUid = yUid;
-                hap_align.status = SELF_EXIST;
-            }
-        }
-
-        if(Get_match(hap_can) == 0 || Get_total(hap_can) == 0) continue;
-        
-        kv_push(hap_overlaps, all_ovlp->x[hap_align.xUid].a, hap_align);
-    }
-
+    if(cur_score >= max_score) return 1;
+    long long diff = max_score - cur_score;
+    if(max_score < 0) max_score *= -1;
+    if(diff >= max_score*(1-rate)) return 0;
+    return 1;
 }
-
 
 static void hap_alignment_advance_worker(void *_data, long eid, int tid)
 {
@@ -2823,21 +2893,21 @@ static void hap_alignment_advance_worker(void *_data, long eid, int tid)
     kvec_t_i32_warp* begIndex_vec = &(hap_buf->buf[tid].u_buffer_beg);
     kvec_t_u8_warp* flag_vec = &(hap_buf->buf[tid].u_buffer_flag);
     uint64_t cov_threshold = hap_buf->cov_threshold;
+    hap_cov_t *cov = hap_buf->cov;
     if(hap_buf->cov_threshold < 0) cov_threshold = (uint64_t)-1;
-
     ma_utg_t *xReads = NULL, *yReads = NULL;
     ma_hit_t_alloc *xR = NULL;
     ma_hit_t *h = NULL;
     ma_sub_t *sq = NULL, *st = NULL;
     asg_t* nsg = ug->g;
-    uint32_t i, j, v, rId, k, is_Unitig, Hap_uId, xUid, yUid, seedOcc, is_update;
-    uint64_t tmp;
-    long long r_x_pos_beg, r_x_pos_end, r_y_pos_beg, r_y_pos_end;
+    uint32_t i, j, v, rId, k, is_Unitig, Hap_uId, xUid, yUid, seedOcc;
+    uint64_t tmp, max_weight, m;
+    long long r_x_pos_beg, r_x_pos_end, r_y_pos_beg, r_y_pos_end, max_score;
     int32_t r;
     asg_arc_t t;
     asg_arc_t_offset t_offset;
-    hap_candidates hap_can;
     hap_overlaps hap_align;
+    hap_overlaps *hap_align_x = NULL;
     xUid = Input_uId;
     if(nsg->seq[xUid].del || nsg->seq[xUid].c == ALTER_LABLE) return;
     memset(vote_counting, 0, sizeof(uint64_t)*nsg->n_seq);
@@ -2868,7 +2938,7 @@ static void hap_alignment_advance_worker(void *_data, long eid, int tid)
             if(is_Unitig == 0 || Hap_uId == (uint32_t)-1) continue;
             ///here rId is the id of the read coming from the different haplotype
             ///Hap_cId is the id of the corresponding contig (note here is the contig, instead of untig)
-            if(visit[Hap_uId]!=0) continue;
+            if(visit[Hap_uId]!=0) continue; ///one read only has one vote for one hap unitig
             visit[Hap_uId] = 1;
             if(vote_counting[Hap_uId] < UINT64_MAX) vote_counting[Hap_uId]++;
         }
@@ -2903,6 +2973,7 @@ static void hap_alignment_advance_worker(void *_data, long eid, int tid)
         for (k = 0; k < xReads->n; k++)
         {
             xR = &(reverse_sources[xReads->a[k]>>33]);
+
             for (j = 0; j < xR->length; j++)
             {
                 h = &(xR->buffer[j]);
@@ -2930,8 +3001,8 @@ static void hap_alignment_advance_worker(void *_data, long eid, int tid)
                 if(Hap_uId != xUid) continue;
                 if((uint32_t)(position_index[v>>1]) != k) continue;
 
-
-                if((prefilter((uint32_t)(position_index[v>>1]), (uint32_t)(position_index[rId]), 
+                if(asm_opt.purge_level_primary <= 2 &&
+                    (prefilter((uint32_t)(position_index[v>>1]), (uint32_t)(position_index[rId]), 
                     xReads->n, yReads->n, 0, Hap_rate, seedOcc)==NON_PLOID) && 
                    (prefilter((uint32_t)(position_index[v>>1]), (uint32_t)(position_index[rId]), 
                     xReads->n, yReads->n, 1, Hap_rate, seedOcc)==NON_PLOID))
@@ -2962,64 +3033,88 @@ static void hap_alignment_advance_worker(void *_data, long eid, int tid)
         
         qsort(u_can->a.a, u_can->a.n, sizeof(hap_candidates), cmp_hap_candidates);
 
-        Get_match(hap_can) = Get_total(hap_can) = 0;
-        memset(&hap_align, 0, sizeof(hap_overlaps));
-        
+        memset(&hap_align, 0, sizeof(hap_overlaps));    
+        m = all_ovlp->x[xUid].a.n;     
+        max_weight = 0; max_score = 0;
         for (k = 0; k < u_can->a.n; k++)
         {
-            is_update = 0;
-            if(u_can->a.a[k].weight < Get_match(hap_can)*Hap_rate) continue;
-
+            if(u_can->a.a[k].weight < max_weight*0.33) continue;
             if(calculate_pair_hap_similarity_advance(&(u_can->a.a[k]), position_index, xUid, yUid, 
-            xReads, yReads, sources, reverse_sources, read_g, ruIndex, coverage_cut, Hap_rate, max_hang, 
-            min_ovlp, cov_threshold, u_buffer, score_vc, prevIndex_vec, &r_x_pos_beg, &r_x_pos_end, 
-            &r_y_pos_beg, &r_y_pos_end)!=PLOID)
+            xReads, yReads, sources, reverse_sources, read_g, ruIndex, coverage_cut, Hap_rate,
+            (asm_opt.purge_level_primary<=2? 0:1), max_hang, min_ovlp, cov_threshold, u_buffer, 
+            score_vc, prevIndex_vec, cov, &r_x_pos_beg, &r_x_pos_end, &r_y_pos_beg, &r_y_pos_end)!=PLOID)
             {
                 continue;
             }
-
-            
-            if(Get_match(hap_can) < Get_match(u_can->a.a[k]))
+            ///max_weight == 0 means the first matched chain
+            if(max_weight == 0 || max_score < u_can->a.a[k].score) max_score = u_can->a.a[k].score;
+            if(max_weight < u_can->a.a[k].weight) max_weight = u_can->a.a[k].weight;
+            ///if one is positive and another one is negative, it is wrong
+            if(!filter_secondary_chain(max_score, u_can->a.a[k].score, CHAIN_FILTER_RATE)) continue;
+                            
+            hap_align.rev = Get_rev(u_can->a.a[k]);
+            hap_align.type = Get_type(u_can->a.a[k]);
+            hap_align.x_beg_id = Get_x_beg(u_can->a.a[k]);
+            hap_align.x_end_id = Get_x_end(u_can->a.a[k]) + 1;
+            hap_align.y_beg_id = Get_y_beg(u_can->a.a[k]);
+            hap_align.y_end_id = Get_y_end(u_can->a.a[k]) + 1;
+            hap_align.weight = Get_match(u_can->a.a[k]);
+            hap_align.score = u_can->a.a[k].score;
+            hap_align.x_beg_pos = r_x_pos_beg;
+            hap_align.x_end_pos = r_x_pos_end + 1;
+            if(hap_align.rev == 0)
             {
-                is_update = 1;
+                hap_align.y_beg_pos = r_y_pos_beg;
+                hap_align.y_end_pos = r_y_pos_end + 1;
             }
-            else if(Get_match(hap_can) == Get_match(u_can->a.a[k]) && 
-                                    Get_total(hap_can) > Get_total(u_can->a.a[k]))
+            else
             {
-                is_update = 1;
+                hap_align.y_beg_pos = yReads->len - r_y_pos_end - 1;
+                hap_align.y_end_pos = yReads->len - r_y_pos_beg - 1 + 1;
             }
-
-            if(is_update)
+            hap_align.xUid = xUid;
+            hap_align.yUid = yUid;
+            hap_align.status = SELF_EXIST;
+            kv_push(hap_overlaps, all_ovlp->x[hap_align.xUid].a, hap_align);
+        }
+        /**
+        ///chains with same xUid && yUid
+        for (k = m; k < all_ovlp->x[xUid].a.n; k++)
+        {
+            if(!filter_secondary_chain(max_score, 
+                        all_ovlp->x[xUid].a.a[k].score, CHAIN_FILTER_RATE))
             {
-                hap_can = u_can->a.a[k];
-                hap_align.rev = Get_rev(hap_can);
-                hap_align.type = Get_type(hap_can);
-                hap_align.x_beg_id = Get_x_beg(hap_can);
-                hap_align.x_end_id = Get_x_end(hap_can) + 1;
-                hap_align.y_beg_id = Get_y_beg(hap_can);
-                hap_align.y_end_id = Get_y_end(hap_can) + 1;
-                hap_align.weight = Get_match(hap_can);
-                hap_align.x_beg_pos = r_x_pos_beg;
-                hap_align.x_end_pos = r_x_pos_end + 1;
-                if(hap_align.rev == 0)
+                continue;
+            } 
+            all_ovlp->x[xUid].a.a[m] = all_ovlp->x[xUid].a.a[k];
+            m++;
+        }
+        all_ovlp->x[xUid].a.n = m;
+        **/
+        
+        hap_align_x = NULL;
+        for (k = m; k < all_ovlp->x[xUid].a.n; k++)
+        {
+            if(all_ovlp->x[xUid].a.a[k].score != max_score) continue;
+            if(hap_align_x == NULL || all_ovlp->x[xUid].a.a[k].weight > hap_align_x->weight)
+            {
+                hap_align_x = &(all_ovlp->x[xUid].a.a[k]);
+            }
+            else if(all_ovlp->x[xUid].a.a[k].weight == hap_align_x->weight)
+            {
+                if((all_ovlp->x[xUid].a.a[k].x_end_pos 
+                            - all_ovlp->x[xUid].a.a[k].x_beg_pos) < 
+                    (hap_align_x->x_end_pos - hap_align_x->x_beg_pos))
                 {
-                    hap_align.y_beg_pos = r_y_pos_beg;
-                    hap_align.y_end_pos = r_y_pos_end + 1;
+                    hap_align_x = &(all_ovlp->x[xUid].a.a[k]);
                 }
-                else
-                {
-                    hap_align.y_beg_pos = yReads->len - r_y_pos_end - 1;
-                    hap_align.y_end_pos = yReads->len - r_y_pos_beg - 1 + 1;
-                }
-                hap_align.xUid = xUid;
-                hap_align.yUid = yUid;
-                hap_align.status = SELF_EXIST;
             }
         }
-
-        if(Get_match(hap_can) == 0 || Get_total(hap_can) == 0) continue;
-        
-        kv_push(hap_overlaps, all_ovlp->x[hap_align.xUid].a, hap_align);
+        if(hap_align_x)
+        {
+            all_ovlp->x[xUid].a.a[m] = (*hap_align_x);
+            all_ovlp->x[xUid].a.n = m + 1;
+        }
     }
 
 }
@@ -3054,6 +3149,7 @@ void set_reverse_hap_overlap(hap_overlaps* dest, hap_overlaps* source, uint32_t*
     dest->x_end_id = source->y_end_id;
     dest->y_beg_id = source->x_beg_id;
     dest->y_end_id = source->x_end_id;
+    dest->score = source->score;
 }
 
 /**
@@ -3137,8 +3233,9 @@ ma_ug_t *ug, asg_t *read_g, ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex)
                 y = &(all_ovlp->x[tn].a.a[index]);
                 if(x->rev == y->rev && types[x->type]==y->type) continue;
                 ///if(x->weight >= y->weight)
-                if((calculate_bi_weight(x, ug, read_g, reverse_sources, ruIndex)) >= 
-                   (calculate_bi_weight(y, ug, read_g, reverse_sources, ruIndex)))
+                // if((calculate_bi_weight(x, ug, read_g, reverse_sources, ruIndex)) >= 
+                //    (calculate_bi_weight(y, ug, read_g, reverse_sources, ruIndex)))
+                if(x->score >= y->score)
                 {
                     kv_push(hap_overlaps, back_all_ovlp->x[tn].a, (*y));
                     set_reverse_hap_overlap(y, x, types);
@@ -3160,6 +3257,7 @@ ma_ug_t *ug, asg_t *read_g, ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex)
 
 void filter_hap_overlaps_by_length(hap_overlaps_list* all_ovlp, uint32_t minLen)
 {
+    if(minLen == 0) return;
     hap_overlaps *x = NULL;
     uint32_t v, i, m, uId;    
 
@@ -3269,10 +3367,141 @@ void print_purge_gfa(ma_ug_t *ug, asg_t *purge_g)
     
 }
 
+long long decode_score(uint32_t h_bits, uint32_t l_bits)
+{
+    uint64_t x; 
+    x = h_bits; x <<= 32; x += l_bits;
+    long long score = ((uint64_t)((uint64_t)x<<1)>>1);
+    if((x>>63) == 0) score *= -1;
+    return score;
+}
+
+void encode_score(long long i_s, uint32_t *h_bits, uint32_t *l_bits)
+{
+    uint64_t score = (i_s >= 0? (i_s) : (i_s*(-1)));
+    if(i_s >= 0) score += (((uint64_t)1)<<63);
+    (*l_bits) = (uint32_t)score; (*h_bits)= (score>>32);
+}
+
+uint64_t asg_bub_pop1_purge_graph(asg_t *g, uint32_t v0, int max_dist, buf_t *b)
+{   
+	uint32_t i, n_pending = 0, n_tips, tip_end;
+	uint64_t n_pop = 0;
+	///if this node has been deleted
+	if (g->seq[v0>>1].del || g->seq[v0>>1].c == ALTER_LABLE) return 0; // already deleted
+	///if ((uint32_t)g->idx[v0] < 2) return 0; // no bubbles
+    if(get_real_length(g, v0, NULL)<2) return 0;
+	///S saves nodes with all incoming edges visited
+	b->S.n = b->T.n = b->b.n = b->e.n = 0;
+	///for each node, b->a saves all related information
+	b->a[v0].c = b->a[v0].d = b->a[v0].m = b->a[v0].nc = b->a[v0].np = 0;
+	///b->S is the nodes with all incoming edges visited
+	kv_push(uint32_t, b->S, v0);
+    n_tips = 0;
+    tip_end = (uint32_t)-1;
+
+	do {
+		///v is a node that all incoming edges have been visited
+		///d is the distance from v0 to v
+		uint32_t v = kv_pop(b->S), d = b->a[v].d;
+		uint32_t nv = asg_arc_n(g, v);
+		asg_arc_t *av = asg_arc_a(g, v);
+        long long t_s = decode_score(b->a[v].c, b->a[v].m), c_s;
+		///why we have this assert?
+		///assert(nv > 0);
+		///all out-edges of v
+		for (i = 0; i < nv; ++i) { // loop through v's neighbors
+            ///if this edge has been deleted
+			if (av[i].del) continue;
+			uint32_t w = av[i].v; // v->w with length l
+			binfo_t *t = &b->a[w];
+			///that means there is a circle, directly terminate the whole bubble poping
+			///if (w == v0) goto pop_reset;
+            if ((w>>1) == (v0>>1)) goto pop_reset;
+            c_s = decode_score((uint32_t)av[i].ul, av[i].ol);
+			///push the edge
+            ///high 32-bit of g->idx[v] is the start point of v's edges
+            //so here is the point of this specfic edge
+			kv_push(uint32_t, b->e, (g->idx[v]>>32) + i);
+			///find a too far path? directly terminate the whole bubble poping
+			if (d + 1 > (uint32_t)max_dist) break; // too far
+
+            ///if this node
+			if (t->s == 0) { // this vertex has never been visited
+				kv_push(uint32_t, b->b, w); // save it for revert
+				///t->p is the parent node of 
+				///t->s = 1 means w has been visited
+				///d is len(v0->v), l is len(v->w), so t->d is len(v0->w)
+				t->p = v, t->s = 1, t->d = d + 1;
+                encode_score(t_s + c_s, &(t->c), &(t->m));
+				///incoming edges of w
+				///t->r = count_out(g, w^1);
+                t->r = get_real_length(g, w^1, NULL);
+				++n_pending;
+			} else { // visited before
+                if((t_s + c_s)> decode_score(t->c, t->m))
+                {
+                    t->p = v;
+                    encode_score(t_s + c_s, &(t->c), &(t->m));
+                }
+                ///it is the shortest edge
+				if (d + 1 < t->d) t->d = d + 1; // update dist
+			}
+			///assert(t->r > 0);
+			//if all incoming edges of w have visited
+			//push it to b->S
+			if (--(t->r) == 0) {
+                uint32_t x = get_real_length(g, w, NULL);
+                /****************************may have bugs for bubble********************************/
+                if(x > 0)
+                {
+                    kv_push(uint32_t, b->S, w);
+                }
+                else
+                {
+                    ///at most one tip
+                    if(n_tips != 0) goto pop_reset;
+                    n_tips++;
+                    tip_end = w;
+                }
+                /****************************may have bugs for bubble********************************/
+				--n_pending;
+			}
+		}
+        //if found a tip
+        /****************************may have bugs for bubble********************************/
+        if(n_tips == 1)
+        {
+            if(tip_end != (uint32_t)-1 && n_pending == 0 && b->S.n == 0)
+            {
+                kv_push(uint32_t, b->S, tip_end);
+                break;
+            }
+            else
+            {
+                goto pop_reset;
+            }
+        }
+        /****************************may have bugs for bubble********************************/
+		///if i < nv, that means (d + l > max_dist)
+		if (i < nv || b->S.n == 0) goto pop_reset;
+	} while (b->S.n > 1 || n_pending);
+
+	asg_bub_backtrack_primary(g, v0, b);
+
+    n_pop = 1;
+pop_reset:
+	for (i = 0; i < b->b.n; ++i) { // clear the states of visited vertices
+		binfo_t *t = &b->a[b->b.a[i]];
+		t->s = t->c = t->d = t->m = t->nc = t->np = 0;
+	}
+	return n_pop;
+}
+
 
 
 // pop bubbles
-int asg_pop_bubble_purge_graph(asg_t *purge_g, int max_dist)
+int asg_pop_bubble_purge_graph(asg_t *purge_g)
 {
 	uint32_t v, n_vtx = purge_g->n_seq * 2;
 	uint64_t n_pop = 0;
@@ -3291,7 +3520,7 @@ int asg_pop_bubble_purge_graph(asg_t *purge_g, int max_dist)
 		for (i = 0; i < nv; ++i) // asg_bub_pop1() may delete some edges/arcs
 			if (!av[i].del) ++n_arc;
 		if (n_arc > 1)
-			n_pop += asg_bub_pop1_primary_trio(purge_g, NULL, v, max_dist, &b, (uint32_t)-1, DROP, 1, NULL, NULL);
+			n_pop += asg_bub_pop1_purge_graph(purge_g, v, purge_g->n_seq, &b);            
 	}
 	free(b.a); free(b.S.a); free(b.T.a); free(b.b.a); free(b.e.a);
 	if (n_pop) asg_cleanup(purge_g);
@@ -3320,179 +3549,113 @@ int min_ovlp, asg_arc_t* t)
     h.bl = h.el = h.ml = h.no_l_indel = 0;
 
     r = ma_hit2arc(&h, qLen, tLen, max_hang, max_hang_rate, min_ovlp, t);
+    if(r < 0) return r;
+    uint64_t score = (hap->score >= 0? (hap->score) : (hap->score*(-1)));
+    if(hap->score >= 0) score += (((uint64_t)1)<<63);
+    t->ol = (uint32_t)score;
+    t->ul >>= 32; t->ul <<= 32; t->ul |= (score>>32);
     return r;
 }
 
+typedef struct {
+    uint64_t eid;
+    uint64_t score;
+}e_score;
+
+typedef struct {
+    size_t n, m;
+    e_score* a;
+}e_score_warp;
+
+#define e_score_key(a) ((a).score)
+KRADIX_SORT_INIT(e_score, e_score, e_score_key, member_size(e_score, score))
+
+int purge_g_arc_del_short_diploid_by_score(asg_t *g, float drop_ratio)
+{
+    e_score_warp b;
+    kv_init(b);
+    e_score *p = NULL;
+
+	uint32_t v, n_vtx = g->n_seq * 2;
+    long long n_cut = 0;
+    
+    for (v = 0; v < n_vtx; ++v) 
+    {
+        if(g->seq[v>>1].c == ALTER_LABLE || g->seq[v>>1].del) continue;
+        asg_arc_t *av = asg_arc_a(g, v);
+        uint32_t nv = asg_arc_n(g, v);
+        if (nv < 2) continue;
+        uint64_t i;
+        for (i = 0; i < nv; ++i)
+        {
+            kv_pushp(e_score, b, &p);
+            p->eid = av - g->arc + i;
+            p->score = (uint32_t)av[i].ul; 
+            p->score <<= 32;
+            p->score |= av[i].ol;
+        }
+	}
+
+    radix_sort_e_score(b.a, b.a + b.n);
+
+    uint64_t k;
+    for (k = 0; k < b.n; k++)
+    {
+        asg_arc_t *a = &g->arc[b.a[k].eid];
+		///v is self id, w is the id of another end
+		uint32_t i, v = (a->ul)>>32;
+		uint32_t nv = asg_arc_n(g, v), kv;
+		long long ovlp_max = 0, ovlp;
+		asg_arc_t *av = NULL;
+		///nv must be >= 2
+		if (nv <= 1) continue;
+        av = asg_arc_a(g, v);
+
+        ///calculate the longest edge for v and w
+		for (i = 0, kv = 0; i < nv; ++i) {
+			if (av[i].del) continue;
+            ovlp = decode_score((uint32_t)av[i].ul, av[i].ol);
+            if (kv == 0 || ovlp_max < ovlp) ovlp_max = ovlp;
+			++kv;
+		}
+
+        if (kv <= 1) continue;
+        ovlp = decode_score((uint32_t)a->ul, a->ol);
+		if (kv >= 2)
+        {   
+            if(ovlp >= 0 && ovlp_max >= 0 && ovlp > ovlp_max * drop_ratio) continue;
+        }
+         
+        a->del = 1;
+        asg_arc_del(g, a->v^1, av->ul>>32^1, 1);
+        ++n_cut; 
+    }
+
+    kv_destroy(b); 
+	if (n_cut) 
+    {
+		asg_cleanup(g);
+		asg_symm(g);
+	}
+
+    
+	return n_cut;
+}
 
 
-void clean_purge_graph(asg_t *purge_g, int max_dist, float drop_ratio)
+void clean_purge_graph(asg_t *purge_g, float drop_ratio)
 {
     uint64_t operation = 1;
     while (operation > 0)
     {
         operation = 0;
-        operation += asg_pop_bubble_purge_graph(purge_g, max_dist);
-        operation += unitig_arc_del_short_diploid_by_length(purge_g, drop_ratio);
+        operation += asg_pop_bubble_purge_graph(purge_g);
+        operation += purge_g_arc_del_short_diploid_by_score(purge_g, drop_ratio);
     }
     
-    unitig_arc_del_short_diploid_by_length(purge_g, 1);
+    purge_g_arc_del_short_diploid_by_score(purge_g, 1);
 }
 
-
-void get_node_boundary(R_to_U* ruIndex, ma_hit_t_alloc* reverse_sources, ma_sub_t *coverage_cut, 
-asg_t *read_g, uint64_t* position_index, int max_hang, int min_ovlp, ma_utg_t *xReads, ma_utg_t *yReads,
-uint32_t xUid, uint32_t yUid, long long xBegIndex, long long xEndIndex, long long yBegIndex, 
-long long yEndIndex, uint32_t dir, uint32_t rev, asg_arc_t* reture_t_f, asg_arc_t* reture_t_r)
-{
-    long long k, j, offset;
-    ma_hit_t_alloc *xR = NULL;
-    ma_hit_t *h = NULL;
-    ma_sub_t *sq = NULL, *st = NULL;
-    int r, index;
-    asg_arc_t t_f, t_r;
-    uint32_t rId, Hap_uId, is_Unitig, v, w, v_dir, w_dir, is_found = 0, oLen = 0;
-    reture_t_f->del = reture_t_r->del = 1;
-    if(dir == 1)
-    {
-        for (k = xEndIndex; k >= xBegIndex; k--)
-        {
-            xR = &(reverse_sources[xReads->a[k]>>33]);
-            is_found = 0;
-            for (j = 0; j < xR->length; j++)
-            {
-                h = &(xR->buffer[j]);
-                sq = &(coverage_cut[Get_qn(*h)]);
-                st = &(coverage_cut[Get_tn(*h)]);
-                if(st->del || read_g->seq[Get_tn(*h)].del) continue;
-                r = ma_hit2arc(h, sq->e - sq->s, st->e - st->s, max_hang, 
-                                asm_opt.max_hang_rate, min_ovlp, &t_f);
-                ///if it is a contained overlap, skip
-                if(r < 0) continue;
-
-                rId = t_f.v>>1;
-                if(read_g->seq[rId].del == 1) continue;
-                ///there are two cases: 
-                ///1. read at primary contigs, get_R_to_U() return its corresponding contig Id  
-                ///2. read at alternative contigs, get_R_to_U() return (uint32_t)-1
-                get_R_to_U(ruIndex, rId, &Hap_uId, &is_Unitig);
-                if(is_Unitig == 0 || Hap_uId == (uint32_t)-1) continue;
-                if(Hap_uId != yUid) continue;
-
-                v = xReads->a[k]>>32;
-                get_R_to_U(ruIndex, v>>1, &Hap_uId, &is_Unitig);
-                if(is_Unitig == 0 || Hap_uId == (uint32_t)-1) continue;
-                if(Hap_uId != xUid) continue;
-                if((uint32_t)(position_index[v>>1]) != k) continue;
-
-                w = (yReads->a[(uint32_t)(position_index[rId])])>>32;
-                v_dir = ((t_f.ul>>32)==v)?1:0;
-                w_dir = (t_f.v == w)?1:0;
-
-                if(rev == 0 && v_dir != w_dir) continue;
-                if(rev == 1 && v_dir == w_dir) continue;
-                if(v_dir == 1) continue;
-
-                /****************************may have bugs********************************/
-                offset = (uint32_t)(position_index[rId]);
-                if(offset < yBegIndex || offset > yEndIndex) continue;
-                /****************************may have bugs********************************/
-
-                /************************get reverse edge*************************/
-                index = get_specific_overlap(&(reverse_sources[Get_tn(*h)]), Get_tn(*h), Get_qn(*h));
-                if(index == -1) continue;
-                h = &(reverse_sources[Get_tn(*h)].buffer[index]);
-                sq = &(coverage_cut[Get_qn(*h)]);
-                st = &(coverage_cut[Get_tn(*h)]);
-                if(st->del || read_g->seq[Get_tn(*h)].del) continue;
-                r = ma_hit2arc(h, sq->e - sq->s, st->e - st->s, max_hang, 
-                                asm_opt.max_hang_rate, min_ovlp, &t_r);
-                if(r < 0) continue;
-                /************************get reverse edge*************************/
-
-                if(is_found == 0 || t_f.ol > oLen)
-                {
-                    (*reture_t_f) = t_f;
-                    (*reture_t_r) = t_r;
-                    oLen = t_f.ol;
-                } 
-
-                is_found = 1; 
-            }
-            if(is_found) return;
-        }
-    }
-    else
-    {
-        for (k = xBegIndex; k <= xEndIndex; k++)
-        {
-            xR = &(reverse_sources[xReads->a[k]>>33]);
-            is_found = 0; oLen = 0;
-            for (j = 0; j < xR->length; j++)
-            {
-                h = &(xR->buffer[j]);
-                sq = &(coverage_cut[Get_qn(*h)]);
-                st = &(coverage_cut[Get_tn(*h)]);
-                if(st->del || read_g->seq[Get_tn(*h)].del) continue;
-
-                r = ma_hit2arc(h, sq->e - sq->s, st->e - st->s, max_hang, 
-                                asm_opt.max_hang_rate, min_ovlp, &t_f);
-                ///if it is a contained overlap, skip
-                if(r < 0) continue;
-
-                rId = t_f.v>>1;
-                if(read_g->seq[rId].del == 1) continue;
-                ///there are two cases: 
-                ///1. read at primary contigs, get_R_to_U() return its corresponding contig Id  
-                ///2. read at alternative contigs, get_R_to_U() return (uint32_t)-1
-                get_R_to_U(ruIndex, rId, &Hap_uId, &is_Unitig);
-                if(is_Unitig == 0 || Hap_uId == (uint32_t)-1) continue;
-                if(Hap_uId != yUid) continue;
-
-                v = xReads->a[k]>>32;
-                get_R_to_U(ruIndex, v>>1, &Hap_uId, &is_Unitig);
-                if(is_Unitig == 0 || Hap_uId == (uint32_t)-1) continue;
-                if(Hap_uId != xUid) continue;
-                if((uint32_t)(position_index[v>>1]) != k) continue;
-
-                w = (yReads->a[(uint32_t)(position_index[rId])])>>32;
-
-                v_dir = ((t_f.ul>>32)==v)?1:0;
-                w_dir = (t_f.v == w)?1:0;
-                if(rev == 0 && v_dir != w_dir) continue;
-                if(rev == 1 && v_dir == w_dir) continue;
-                if(v_dir == 0) continue;
-
-                /****************************may have bugs********************************/
-                offset = (uint32_t)(position_index[rId]);
-                if(offset < yBegIndex || offset > yEndIndex) continue;
-                /****************************may have bugs********************************/
-            
-                /************************get reverse edge*************************/
-                index = get_specific_overlap(&(reverse_sources[Get_tn(*h)]), Get_tn(*h), Get_qn(*h));
-                if(index == -1) continue;
-                h = &(reverse_sources[Get_tn(*h)].buffer[index]);
-                sq = &(coverage_cut[Get_qn(*h)]);
-                st = &(coverage_cut[Get_tn(*h)]);
-                if(st->del || read_g->seq[Get_tn(*h)].del) continue;
-                r = ma_hit2arc(h, sq->e - sq->s, st->e - st->s, max_hang, 
-                                asm_opt.max_hang_rate, min_ovlp, &t_r);
-                if(r < 0) continue;
-                /************************get reverse edge*************************/
-
-                if(is_found == 0 || t_f.ol > oLen)
-                {
-                    (*reture_t_f) = t_f;
-                    (*reture_t_r) = t_r;
-                    oLen = t_f.ol;
-                } 
-
-                is_found = 1;         
-            }
-            if(is_found) return;
-        }
-    }
-    
-}
 
 void get_node_boundary_advance(R_to_U* ruIndex, ma_hit_t_alloc* reverse_sources, ma_sub_t *coverage_cut, 
 asg_t *read_g, uint64_t* position_index, int max_hang, int min_ovlp, ma_utg_t *xReads, ma_utg_t *yReads,
@@ -3686,7 +3849,7 @@ uint32_t is_circle, uint64_t* rLen)
 
             if(k == edge->a.n)
             {
-                fprintf(stderr, "####ERROR1: i: %u, v>>1: %u, v&1: %u, w>>1: %u, w&1: %u\n",
+                fprintf(stderr, "####ERROR1-fill: i: %u, v>>1: %u, v&1: %u, w>>1: %u, w&1: %u\n",
                 i, v>>1, v&1, w>>1, w&1);
             }
         } 
@@ -3731,7 +3894,7 @@ uint32_t is_circle, uint64_t* rLen)
 
                 if(k == edge->a.n)
                 {
-                    fprintf(stderr, "####ERROR2: i: %u, v>>1: %u, v&1: %u, w>>1: %u, w&1: %u\n",
+                    fprintf(stderr, "####ERROR2-fill: i: %u, v>>1: %u, v&1: %u, w>>1: %u, w&1: %u\n",
                     i, v>>1, v&1, w>>1, w&1);
                 }
             } 
@@ -3754,10 +3917,101 @@ uint32_t is_circle, uint64_t* rLen)
 
 }
 
+void collect_trans_purge_cov(hap_cov_t *cov, ma_ug_t *ug, hap_overlaps* x, uint32_t is_keep_X)
+{
+    if(ug->u.a[x->xUid].n == 0 || ug->u.a[x->yUid].n == 0) return;
+    uint64_t *pri = NULL, pri_n, *aux = NULL, aux_n, i, rId, uCov = 0, uLen = 0;
+
+    if(is_keep_X)
+    {
+        pri = ug->u.a[x->xUid].a + x->x_beg_id;
+        pri_n = x->x_end_id - x->x_beg_id;
+
+        aux = ug->u.a[x->yUid].a + x->y_beg_id;
+        aux_n = x->y_end_id - x->y_beg_id;
+    }
+    else
+    {
+        pri = ug->u.a[x->yUid].a + x->y_beg_id;
+        pri_n = x->y_end_id - x->y_beg_id;
+
+        aux = ug->u.a[x->xUid].a + x->x_beg_id;
+        aux_n = x->x_end_id - x->x_beg_id;
+    }
+
+
+    uCov = uLen = 0;
+    for (i = 0; i < aux_n; i++)
+    {
+        rId = aux[i]>>33;
+        uCov += cov->cov[rId];
+    }
+
+    for (i = 0; i < pri_n; i++)
+    {
+        rId = pri[i]>>33;
+        uLen += cov->read_g->seq[rId].len;
+    }
+    
+    uCov = (uLen == 0? 0 : uCov / uLen);
+
+
+    for (i = 0; i < pri_n; i++)
+    {
+        rId = pri[i]>>33;
+        cov->cov[rId] += (uCov * cov->read_g->seq[rId].len);
+    }
+}
+
+
+void collect_trans_purge_joint_cov(hap_cov_t *cov, ma_ug_t *ug, hap_overlaps* x)
+{
+    if(ug->u.a[x->xUid].n == 0 || ug->u.a[x->yUid].n == 0) return;
+    uint64_t *a[2], a_n[2], uCov[2], uLen[2], uDepth[2], i, rId;
+    
+    a[0] = ug->u.a[x->xUid].a + x->x_beg_id;
+    a_n[0] = x->x_end_id - x->x_beg_id;
+    uCov[0] = uLen[0] = 0;
+    for (i = 0; i < a_n[0]; i++)
+    {
+        rId = a[0][i]>>33;
+        uCov[0] += cov->cov[rId];
+        uLen[0] += cov->read_g->seq[rId].len;
+    }
+    
+    a[1] = ug->u.a[x->yUid].a + x->y_beg_id;
+    a_n[1] = x->y_end_id - x->y_beg_id;
+    uCov[1] = uLen[1] = 0;
+    for (i = 0; i < a_n[1]; i++)
+    {
+        rId = a[1][i]>>33;
+        uCov[1] += cov->cov[rId];
+        uLen[1] += cov->read_g->seq[rId].len;
+    }
+    
+    uDepth[0] = (uLen[0] == 0? 0 : uCov[1] / uLen[0]);
+    uDepth[1] = (uLen[1] == 0? 0 : uCov[0] / uLen[1]);
+
+    for (i = 0; i < a_n[0]; i++)
+    {
+        rId = a[0][i]>>33;
+        cov->cov[rId] += (uDepth[0] * cov->read_g->seq[rId].len);
+    }
+
+    for (i = 0; i < a_n[1]; i++)
+    {
+        rId = a[1][i]>>33;
+        cov->cov[rId] += (uDepth[1] * cov->read_g->seq[rId].len);
+    }
+}
+
+
+
 void purge_merge(asg_t *purge_g, ma_ug_t *ug, hap_overlaps_list* all_ovlp, buf_t* b_0,
 R_to_U* ruIndex, ma_hit_t_alloc* reverse_sources, ma_sub_t *coverage_cut, asg_t *read_g, 
 uint64_t* position_index, kvec_asg_arc_t_offset* u_buffer, kvec_t_i32_warp* tailIndex, 
-kvec_t_i32_warp* prevIndex, int max_hang, int min_ovlp, kvec_asg_arc_t_warp* edge, uint8_t* visit)
+kvec_t_i32_warp* prevIndex, int max_hang, int min_ovlp, kvec_asg_arc_t_warp* edge, uint8_t* visit,
+hap_cov_t *cov)
 {
     uint32_t i, nv, k, v, w, x_beg_index, x_end_index, y_beg_index, y_end_index, cut_beg, cut_end, begIndex, endIndex, keepUid;
     hap_overlaps *x = NULL/**, *y = NULL**/;
@@ -3780,7 +4034,6 @@ kvec_t_i32_warp* prevIndex, int max_hang, int min_ovlp, kvec_asg_arc_t_warp* edg
         {
             for (k = 0; k < xReads->n; k++)
             {
-                ///aim[query->n - j - 1] = (query->a[j])^(uint64_t)(0x100000000);
                 kv_push(uint64_t, buffer, (xReads->a[xReads->n - k - 1])^(uint64_t)(0x100000000));
             }
         }
@@ -3819,9 +4072,6 @@ kvec_t_i32_warp* prevIndex, int max_hang, int min_ovlp, kvec_asg_arc_t_warp* edg
             endIndex = x->x_end_id-1;
             if(cut_end < endIndex) endIndex = cut_end;
 
-            // get_node_boundary(ruIndex, reverse_sources, coverage_cut, read_g, position_index, max_hang, 
-            // min_ovlp, xReads, yReads, v>>1, w>>1, begIndex, endIndex, x->y_beg_id, x->y_end_id-1, v&1, 
-            // x->rev, &t_forward, &t_backward);
             get_node_boundary_advance(ruIndex, reverse_sources, coverage_cut, read_g, position_index, max_hang, 
             min_ovlp, xReads, yReads, v>>1, w>>1, begIndex, endIndex, x->y_beg_id, x->y_end_id-1, v&1, 
             x->rev, u_buffer, tailIndex, prevIndex, &t_forward, &t_backward);
@@ -3874,10 +4124,33 @@ kvec_t_i32_warp* prevIndex, int max_hang, int min_ovlp, kvec_asg_arc_t_warp* edg
             }
 
             purge_g->seq[w>>1].c = ALTER_LABLE;
+            if(cov) collect_trans_purge_joint_cov(cov, ug, x);
+
+            // if(buffer.n > 1)
+            // {
+            //     for (k = 0; k < buffer.n - 1; k++)
+            //     {
+            //         if((buffer.a[k]>>32) == 854769 && (buffer.a[k+1]>>32) == 64486)
+            //         {
+            //             fprintf(stderr, "+++++++v: %u, w: %u, xReads->n: %u, yReads->n: %u\n", 
+            //                         v, w, xReads->n, yReads->n);
+            //             fprintf(stderr, "x->rev: %u, x->x_beg_id: %u, x->x_end_id: %u, x->y_beg_id: %u, x->y_end_id: %u\n", 
+            //                         x->rev, x->x_beg_id, x->x_end_id, x->y_beg_id, x->y_end_id);
+            //             fprintf(stderr, "t_forward.ul>>32: %u, t_forward.v: %u, y_beg_index: %u, y_end_index: %u\n", 
+            //                         t_forward.ul>>32, t_forward.v, y_beg_index, y_end_index);
+            //             fprintf(stderr, "type: %u, x->x_beg_pos: %u, x->x_end_pos: %u, xReads->len: %u\n", 
+            //                         x->type, x->x_beg_pos, x->x_end_pos, xReads->len);
+            //             fprintf(stderr, "x->y_beg_pos: %u, x->y_end_pos: %u, yReads->len: %u\n", 
+            //                         x->y_beg_pos, x->y_end_pos, yReads->len);
+            //         }
+            //     }
+            // }
         }
 
-
+        // fprintf(stderr, "+keepUid: %u, i: %u, b_0->b.n: %u, buffer.n: %u\n", 
+        //                             keepUid, i, (uint32_t)b_0->b.n, (uint32_t)buffer.n);
         fill_unitig(buffer.a, buffer.n, read_g, edge, 0, &totalLen);
+        ///fprintf(stderr, "-keepUid: %u\n", keepUid);
 
         xReads = &(ug->u.a[keepUid]);
         free(xReads->a);
@@ -3922,11 +4195,9 @@ kvec_t_i32_warp* prevIndex, int max_hang, int min_ovlp, kvec_asg_arc_t_warp* edg
         if(purge_g->seq[v>1].c != ALTER_LABLE) continue;
         asg_seq_drop(purge_g, v>1);
     }
-    
 }
 
-
-
+/**
 void collect_reverse_unitig_pair(hc_links* link, ma_ug_t *ug, hap_overlaps* t)
 {
     uint32_t i = 0, k = 0, rId_0, rId_1, pre_0, pre_1, b_0 = t->xUid, b_1 = t->yUid;
@@ -3953,7 +4224,6 @@ void collect_reverse_unitig_pair(hc_links* link, ma_ug_t *ug, hap_overlaps* t)
             push_hc_edge(&(link->a.a[pre_1]), pre_0, 1, 1, &d);
         }
     }
-
 }
 
 
@@ -3969,13 +4239,14 @@ void collect_reverse_unitigs_purge(buf_t* b_0, hc_links* link, ma_ug_t *ug, hap_
         collect_reverse_unitig_pair(link, ug, &(all_ovlp->x[b_0->b.a[k]>>1].a.a[index]));
     }
 }
+**/
 
 
 void link_unitigs(asg_t *purge_g, ma_ug_t *ug, hap_overlaps_list* all_ovlp,
 R_to_U* ruIndex, ma_hit_t_alloc* reverse_sources, ma_sub_t *coverage_cut, asg_t *read_g, 
 uint64_t* position_index, kvec_asg_arc_t_offset* u_buffer, kvec_t_i32_warp* tailIndex, 
 kvec_t_i32_warp* prevIndex, int max_hang, int min_ovlp, kvec_asg_arc_t_warp* edge, uint8_t* visit,
-hc_links* link)
+hap_cov_t *cov)
 {
     uint32_t v, n_vtx = purge_g->n_seq * 2, beg, end;
     long long nodeLen, baseLen, max_stop_nodeLen, max_stop_baseLen;
@@ -3996,20 +4267,21 @@ hc_links* link)
             continue;
         }
 
-        if(link) collect_reverse_unitigs_purge(&b_0, link, ug, all_ovlp);
+        ///if(cov->link) collect_reverse_unitigs_purge(&b_0, cov->link, ug, all_ovlp);
         purge_merge(purge_g, ug, all_ovlp, &b_0, ruIndex, reverse_sources, coverage_cut, 
-        read_g, position_index, u_buffer, tailIndex, prevIndex,max_hang, min_ovlp, edge, visit);
+        read_g, position_index, u_buffer, tailIndex, prevIndex,max_hang, min_ovlp, edge, visit, cov);
     }
     free(b_0.b.a);
 }
 
-void print_all_purge_ovlp(ma_ug_t *ug, hap_overlaps_list* all_ovlp)
+void print_all_purge_ovlp(ma_ug_t *ug, hap_overlaps_list* all_ovlp, const char* cmd)
 {
+    fprintf(stderr, "\n%s--->ug->u.n: %u\n", cmd, (uint32_t)ug->u.n);
     uint32_t v, uId, i;
     for (v = 0; v < all_ovlp->num; v++)
     {
         uId = v;
-        if(uId != 96 && uId != 272) continue;
+        ///if(uId != 96 && uId != 272) continue;
         for (i = 0; i < all_ovlp->x[uId].a.n; i++)
         {
             print_hap_paf(ug, &(all_ovlp->x[uId].a.a[i]));
@@ -4219,29 +4491,143 @@ uint32_t minLen, double purge_threshold)
     return 0;
 }
 
+int cmp_chain_score(const void * a, const void * b)
+{
+    if((*(hap_overlaps*)a).score < (*(hap_overlaps*)b).score) return 1;
+    if((*(hap_overlaps*)a).score > (*(hap_overlaps*)b).score) return -1;
+    
+    return 0;
+}
+long long get_ovlp_len(long long a_beg, long long a_end, long long b_beg, long long b_end)
+{
+    long long ovlp = (long long)(MIN(a_end, b_end)) - (long long)(MAX(a_beg, b_beg)) + 1;
+    return ovlp <= 0? 0 : ovlp;
+}
+void sort_hap_chain(hap_overlaps_list* all_ovlp)
+{
+    hap_overlaps *x = NULL, *p = NULL;
+    uint32_t v, i, k, uId;    
+    long long ovlp, xLen, pLen;
+    kvec_t(hap_overlaps) pri; kv_init(pri);
+    kvec_t(hap_overlaps) alt; kv_init(alt);
+
+    for (v = 0; v < all_ovlp->num; v++)
+    {
+        uId = v;
+        qsort(all_ovlp->x[uId].a.a, all_ovlp->x[uId].a.n, sizeof(hap_overlaps), cmp_chain_score);
+        pri.n = alt.n = 0;        
+        for (i = 0; i < all_ovlp->x[uId].a.n; i++)
+        {
+            x = &(all_ovlp->x[uId].a.a[i]);
+            xLen = x->x_end_pos - x->x_beg_pos;
+            for (k = 0; k < pri.n; k++)
+            {
+                p = &(pri.a[k]);
+                pLen = p->x_end_pos - p->x_beg_pos;
+                ovlp = get_ovlp_len(x->x_beg_pos, x->x_end_pos-1, p->x_beg_pos, p->x_end_pos-1);
+                if(ovlp == 0) continue;
+                if(ovlp >= (MIN(xLen, pLen))*0.5) break;
+            }
+
+            if(k < pri.n)
+            {
+                x->xUid = k;
+                kv_push(hap_overlaps, alt, *x);
+            }
+            else
+            {
+                kv_push(hap_overlaps, pri, *x);
+            } 
+        }
+
+    }
+
+    kv_destroy(pri); kv_destroy(alt);
+}
+
+void remove_contained_haplotig(hap_overlaps_list* all_ovlp, ma_ug_t *ug, asg_t* nsg, asg_t *purge_g, hap_cov_t *cov)
+{
+    uint32_t v, i, uId, xUid;
+    hap_overlaps *p = NULL;
+    for (v = 0; v < all_ovlp->num; v++)
+    {
+        uId = v; p = NULL;
+        for (i = 0; i < all_ovlp->x[uId].a.n; i++)
+        {
+            if(p == NULL || p->score < all_ovlp->x[uId].a.a[i].score)
+            {
+                p = &(all_ovlp->x[uId].a.a[i]);
+            }
+        }
+
+        for (i = 0; i < all_ovlp->x[uId].a.n; i++)
+        {
+            if(all_ovlp->x[uId].a.a[i].type == YCX)
+            {
+                if(!filter_secondary_chain(p->score, all_ovlp->x[uId].a.a[i].score, 0.95))
+                {
+                    continue;
+                } 
+                
+                xUid = all_ovlp->x[uId].a.a[i].xUid;
+
+                nsg->seq[xUid].c = ALTER_LABLE;
+                purge_g->seq[xUid].c = ALTER_LABLE;
+                purge_g->seq[xUid].del = 1;
+
+                all_ovlp->x[uId].a.a[i].status = DELETE;
+                ///if(cov->link) collect_reverse_unitig_pair(cov->link, ug, &(all_ovlp->x[uId].a.a[i]));
+                collect_trans_purge_cov(cov, ug, &(all_ovlp->x[uId].a.a[i]), 0);
+            }
+
+            ///print_hap_paf(ug, &(all_ovlp.x[uId].a.a[i]));
+        }
+    }
+
+    // for (v = 0; v < all_ovlp.num; v++)
+    // {
+    //     uId = v;
+    //     for (i = 0; i < all_ovlp.x[uId].a.n; i++)
+    //     {
+    //         if(all_ovlp.x[uId].a.a[i].type == YCX)
+    //         {
+    //             nsg->seq[all_ovlp.x[uId].a.a[i].xUid].c = ALTER_LABLE;
+    //             purge_g->seq[all_ovlp.x[uId].a.a[i].xUid].c = ALTER_LABLE;
+    //             purge_g->seq[all_ovlp.x[uId].a.a[i].xUid].del = 1;
+    //             all_ovlp.x[uId].a.a[i].status = DELETE;
+    //             if(link) collect_reverse_unitig_pair(link, ug, &(all_ovlp.x[uId].a.a[i]));
+    //             collect_trans_purge_cov(cov, ug, &(all_ovlp.x[uId].a.a[i]), 0);
+    //         }
+
+    //         if(all_ovlp.x[uId].a.a[i].type == XCY)
+    //         {
+    //             nsg->seq[all_ovlp.x[uId].a.a[i].yUid].c = ALTER_LABLE;
+    //             purge_g->seq[all_ovlp.x[uId].a.a[i].yUid].c = ALTER_LABLE;
+    //             purge_g->seq[all_ovlp.x[uId].a.a[i].yUid].del = 1;
+    //             all_ovlp.x[uId].a.a[i].status = DELETE;
+    //             if(link) collect_reverse_unitig_pair(link, ug, &(all_ovlp.x[uId].a.a[i]));
+    //             collect_trans_purge_cov(cov, ug, &(all_ovlp.x[uId].a.a[i]), 1);
+    //         }
+    //         ///print_hap_paf(ug, &(all_ovlp.x[uId].a.a[i]));
+    //     }
+    // }
+}
+
+
+
 void purge_dups(ma_ug_t *ug, asg_t *read_g, ma_sub_t* coverage_cut, ma_hit_t_alloc* sources, 
 ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, kvec_asg_arc_t_warp* edge, float density, 
-uint32_t purege_minLen, int max_hang, int min_ovlp, long long bubble_dist, float drop_ratio, 
-uint32_t just_contain, uint32_t just_coverage, hc_links* link)
+uint32_t purege_minLen, int max_hang, int min_ovlp, float drop_ratio, uint32_t just_contain, 
+uint32_t just_coverage, hap_cov_t *cov)
 {
     asg_t *purge_g = NULL;
     purge_g = asg_init();
     asg_t* nsg = ug->g;
     uint32_t v, rId, uId, i, offset;
     ma_utg_t* reads = NULL;
-
-    // kvec_t_u64_warp u_vecs;
-    // kv_init(u_vecs.a);
-    // uint8_t* visit = NULL;
-    // visit = (uint8_t*)malloc(sizeof(uint8_t) * nsg->n_seq);
-    // memset(visit, 0, nsg->n_seq);
-    // uint64_t* vote_counting = (uint64_t*)malloc(sizeof(uint64_t)*nsg->n_seq);
-    // memset(vote_counting, 0, sizeof(uint64_t)*nsg->n_seq);
-    // kvec_asg_arc_t_offset u_buffer;
-    // kv_init(u_buffer.a);
-    // kvec_hap_candidates u_can;
-    // kv_init(u_can.a);
-    uint64_t* position_index = (uint64_t*)malloc(sizeof(uint64_t)*read_g->n_seq);
+    uint64_t* position_index = NULL;
+    if(cov) position_index = cov->pos_idx;
+    else position_index = (uint64_t*)malloc(sizeof(uint64_t)*read_g->n_seq);
     memset(position_index, -1, sizeof(uint64_t)*read_g->n_seq);
     
     hap_overlaps_list all_ovlp;
@@ -4249,8 +4635,7 @@ uint32_t just_contain, uint32_t just_coverage, hc_links* link)
     hap_overlaps_list back_all_ovlp;
     init_hap_overlaps_list(&back_all_ovlp, nsg->n_seq);
     ///uint32_t junk_cov, hap_cov, dip_cov, junk_occ, repeat_occ, single_cov;
-    asg_arc_t t;
-    asg_arc_t* p = NULL;
+    asg_arc_t t, *p = NULL;
     int r;
     hap_alignment_struct_pip hap_buf;
     long long k_mer_only, coverage_only;
@@ -4295,7 +4680,7 @@ uint32_t just_contain, uint32_t just_coverage, hc_links* link)
 
     init_hap_alignment_struct_pip(&hap_buf, asm_opt.thread_num, nsg->n_seq, ug, read_g,  
     sources, reverse_sources, ruIndex, coverage_cut, position_index, density, max_hang, min_ovlp, 
-    0.05, &all_ovlp);
+    0.1, &all_ovlp, cov);
     
     if(hap_buf.cov_threshold < 0)
     {
@@ -4315,56 +4700,16 @@ uint32_t just_contain, uint32_t just_coverage, hc_links* link)
     fprintf(stderr, "[M::%s] purge duplication coverage threshold: %lld\n", __func__, hap_buf.cov_threshold);
     if(just_coverage) goto end_coverage;
 
-    ///kt_for(asm_opt.thread_num, hap_alignment_worker, &hap_buf, nsg->n_seq);
     kt_for(asm_opt.thread_num, hap_alignment_advance_worker, &hap_buf, nsg->n_seq);
 
-
     ///if(debug_enable) print_all_purge_ovlp(ug, &all_ovlp);
-    
-
-    // for (v = 0; v < nsg->n_seq; v++)
-    // {
-    //     uId = v;
-    //     if(nsg->seq[uId].del || nsg->seq[uId].c == ALTER_LABLE) continue;
-
-    //     hap_alignment(ug, read_g,  reverse_sources, ruIndex, coverage_cut, position_index, 
-    //     vote_counting, visit, &u_vecs, &u_buffer, &u_can, uId, density, max_hang, min_ovlp, 
-    //     0.05, &all_ovlp);
-    // }
-
-
     filter_hap_overlaps_by_length(&all_ovlp, purege_minLen);
 
     ///normalize_hap_overlaps(&all_ovlp, &back_all_ovlp);
     normalize_hap_overlaps_advance(&all_ovlp, &back_all_ovlp, ug, read_g, reverse_sources, ruIndex);
     ///debug_hap_overlaps(&all_ovlp, &back_all_ovlp);
-    
-    
-    for (v = 0; v < all_ovlp.num; v++)
-    {
-        uId = v;
-        for (i = 0; i < all_ovlp.x[uId].a.n; i++)
-        {
-            if(all_ovlp.x[uId].a.a[i].type == YCX)
-            {
-                nsg->seq[all_ovlp.x[uId].a.a[i].xUid].c = ALTER_LABLE;
-                purge_g->seq[all_ovlp.x[uId].a.a[i].xUid].c = ALTER_LABLE;
-                purge_g->seq[all_ovlp.x[uId].a.a[i].xUid].del = 1;
-                all_ovlp.x[uId].a.a[i].status = DELETE;
-                if(link) collect_reverse_unitig_pair(link, ug, &(all_ovlp.x[uId].a.a[i]));
-            }
 
-            if(all_ovlp.x[uId].a.a[i].type == XCY)
-            {
-                nsg->seq[all_ovlp.x[uId].a.a[i].yUid].c = ALTER_LABLE;
-                purge_g->seq[all_ovlp.x[uId].a.a[i].yUid].c = ALTER_LABLE;
-                purge_g->seq[all_ovlp.x[uId].a.a[i].yUid].del = 1;
-                all_ovlp.x[uId].a.a[i].status = DELETE;
-                if(link) collect_reverse_unitig_pair(link, ug, &(all_ovlp.x[uId].a.a[i]));
-            }
-            ///print_hap_paf(ug, &(all_ovlp.x[uId].a.a[i]));
-        }
-    }
+    remove_contained_haplotig(&all_ovlp, ug, nsg, purge_g, cov);
     
     if(just_contain == 0)
     {
@@ -4375,6 +4720,7 @@ uint32_t just_contain, uint32_t just_coverage, hc_links* link)
             for (i = 0; i < all_ovlp.x[uId].a.n; i++)
             {
                 if(all_ovlp.x[uId].a.a[i].status == DELETE) continue;
+                ///if(all_ovlp.x[uId].a.a[i].type == )
                 if(purge_g->seq[all_ovlp.x[uId].a.a[i].xUid].c == ALTER_LABLE||
                    purge_g->seq[all_ovlp.x[uId].a.a[i].xUid].del||
                    purge_g->seq[all_ovlp.x[uId].a.a[i].yUid].c == ALTER_LABLE||
@@ -4383,36 +4729,35 @@ uint32_t just_contain, uint32_t just_coverage, hc_links* link)
                     continue;
                 }
 
+                
                 ///print_hap_paf(ug, &(all_ovlp.x[uId].a.a[i]));
+                
                 r = get_hap_arch(&(all_ovlp.x[uId].a.a[i]), ug->u.a[all_ovlp.x[uId].a.a[i].xUid].len, 
                 ug->u.a[all_ovlp.x[uId].a.a[i].yUid].len, max_hang, asm_opt.max_hang_rate, min_ovlp, &t);
-
-                if (r >= 0) 
-                {
-                    ///push node?
-                    p = asg_arc_pushp(purge_g);
-                    *p = t;
-                }
-                else
-                {
-                    print_hap_paf(ug, &(all_ovlp.x[uId].a.a[i]));
-                    fprintf(stderr, "error: uId: %u, i: %u, xUid: %u, yUid: %u\n", 
-                    uId, i, all_ovlp.x[uId].a.a[i].xUid, all_ovlp.x[uId].a.a[i].yUid);
-                }
+                
+                // if(all_ovlp.x[uId].a.a[i].xUid == 118 && all_ovlp.x[uId].a.a[i].yUid == 82)
+                // {
+                //     fprintf(stderr, "r: %d\n", r);
+                //     print_hap_paf(ug, &(all_ovlp.x[uId].a.a[i]));
+                // }
+                
+                if(r < 0) continue;
+                p = asg_arc_pushp(purge_g);
+                *p = t;
             }
         }
 
         asg_cleanup(purge_g);
 		asg_symm(purge_g);
-
-        clean_purge_graph(purge_g, bubble_dist, drop_ratio);
+        ///may need to do transitive reduction
+        clean_purge_graph(purge_g, drop_ratio);
 
         // if(debug_enable) print_purge_gfa(ug, purge_g);
         // if(debug_enable) print_all_purge_ovlp(ug, &all_ovlp);
 
         link_unitigs(purge_g, ug, &all_ovlp, ruIndex, reverse_sources, coverage_cut, read_g, position_index, 
         &(hap_buf.buf[0].u_buffer), &(hap_buf.buf[0].u_buffer_tailIndex), &(hap_buf.buf[0].u_buffer_prevIndex),
-        max_hang, min_ovlp, edge, hap_buf.buf[0].visit, link);
+        max_hang, min_ovlp, edge, hap_buf.buf[0].visit, cov);
     }
 
     for (v = 0; v < all_ovlp.num; v++)
@@ -4437,12 +4782,9 @@ uint32_t just_contain, uint32_t just_coverage, hc_links* link)
     destory_hap_overlaps_list(&all_ovlp);
     destory_hap_overlaps_list(&back_all_ovlp);
     asg_destroy(purge_g);
-    free(position_index);
-    // kv_destroy(u_vecs.a);
-    // kv_destroy(u_buffer.a);
-    // kv_destroy(u_can.a);
-    // free(vote_counting);
-    // free(visit);
+    if(cov) memset(position_index, -1, sizeof(uint64_t)*read_g->n_seq);
+    else free(position_index);
+    
     destory_hap_alignment_struct_pip(&hap_buf);
 }
 

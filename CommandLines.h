@@ -3,7 +3,7 @@
 
 #include <pthread.h>
 
-#define HA_VERSION "0.14-r312"
+#define HA_VERSION "0.14.1-r314"
 
 #define VERBOSE 0
 
@@ -72,7 +72,7 @@ typedef struct {
     int purge_level_primary;
     int purge_level_trio;
     int purge_overlap_len;
-    int purge_overlap_len_hic;
+    ///int purge_overlap_len_hic;
     int recover_atg_cov_min;
     int recover_atg_cov_max;
     int hom_global_coverage;
@@ -82,8 +82,10 @@ typedef struct {
     float max_hang_rate;
     float min_drop_rate;
     float max_drop_rate;
-    float purge_simi_rate;
-    float purge_simi_rate_hic;
+    float purge_simi_rate_l2;
+    float purge_simi_rate_l3;
+    float purge_simi_thres;
+    ///float purge_simi_rate_hic;
 
     long long small_pop_bubble_size;
     long long large_pop_bubble_size;
@@ -92,6 +94,7 @@ typedef struct {
     long long num_recorrected_bases;
 	long long mem_buf;
     long long coverage;
+    int hap_occ;
     
 } hifiasm_opt_t;
 

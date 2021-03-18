@@ -286,12 +286,14 @@ times in the other sample.
 .TP 10
 .BI -l \ INT
 Level of purge-dup. 0 to disable purge-dup, 1 to only purge contained haplotigs, 
-2 to purge all types of haplotigs. In default, [2] for non-trio assembly, [0] for trio assembly.
+2 to purge all types of haplotigs, 3 to purge all types of haplotigs in most aggressive way 
+for high heterozygosity sample. 
+In default, [2] for non-trio assembly, [0] for trio assembly.
 For trio assembly, only level 0 and level 1 are allowed.
 
 .TP
 .BI -s \ FLOAT
-Similarity threshold for duplicate haplotigs that should be purged [0.75].
+Similarity threshold for duplicate haplotigs that should be purged [0.75 for -l1/-l2, 0.55 for -l3].
 
 .TP
 .BI -O \ FLOAT
@@ -301,11 +303,6 @@ Min number of overlapped reads for duplicate haplotigs that should be purged [1]
 .BI --purge-cov \ INT
 Coverage upper bound of Purge-dups, which is inferred automatically in default.
 If the coverage of a contig is higher than this bound, don't apply Purge-dups.
-
-.TP
-.BI --high-het \ INT
-Enable this mode for high heterozygosity sample, which will increase running time. 
-For ordinary samples, no need to enable this mode [experimental, not stable].
 
 
 .SS Debugging options
