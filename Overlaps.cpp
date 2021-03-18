@@ -11964,7 +11964,7 @@ bub_label_t* b_mask_t)
 
     hc_links link;
     
-    if(load_hc_links(&link, output_file_name) == 0)
+    ///if(load_hc_links(&link, output_file_name) == 0)
     {
         init_hc_links(&link, ug->g->n_seq, R_INF.total_reads);
         asg_t *copy_sg = copy_read_graph(sg);
@@ -11980,7 +11980,7 @@ bub_label_t* b_mask_t)
         ma_ug_print_bed(ug, sg, &R_INF, coverage_cut, sources, &new_rtg_edges, 
                 max_hang, min_ovlp, asm_opt.hic_inconsist_rate, NULL, NULL, &link);
 
-        write_hc_links(&link, output_file_name);
+        ///write_hc_links(&link, output_file_name);
     }
 
 
@@ -28169,6 +28169,8 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
     // rescue_no_coverage_aggressive(sg, sources, reverse_sources, &coverage_cut, ruIndex, max_hang_length, 
     // mini_overlap_length, bubble_dist, 10);
 
+    rescue_bubble_by_chain(sg, coverage_cut, sources, reverse_sources, (asm_opt.max_short_tip*2), 0.15, 3, 
+    ruIndex, 0.05, 0.9, max_hang_length, mini_overlap_length, 10, gap_fuzz, &b_mask_t);
 
     if (asm_opt.flag & HA_F_VERBOSE_GFA)
     {
@@ -28177,11 +28179,7 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
         debug_gfa:;
         /*******************************for debug***************************************/
     }
-
-    rescue_bubble_by_chain(sg, coverage_cut, sources, reverse_sources, (asm_opt.max_short_tip*2), 0.15, 3, 
-    ruIndex, 0.05, 0.9, max_hang_length, mini_overlap_length, 10, gap_fuzz, &b_mask_t);
-
-
+    
     if (ha_opt_triobin(&asm_opt) && ha_opt_hic(&asm_opt))
     {
         char *buf = (char*)calloc(strlen(output_file_name) + 25, 1);
