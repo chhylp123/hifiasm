@@ -23,7 +23,7 @@ static ko_longopt_t long_options[] = {
 	{ "ex-iter",       ko_required_argument, 308 },
     { "purge-cov",     ko_required_argument, 309 },
     { "pri-range",     ko_required_argument, 310 },
-    { "high-het",      ko_no_argument, 311 },
+    ///{ "high-het",      ko_no_argument, 311 },
     { "lowQ",          ko_required_argument, 312 },
 	{ "min-hist-cnt",  ko_required_argument, 313 },
     { "h1",      ko_required_argument, 314 },
@@ -90,13 +90,13 @@ void Print_H(hifiasm_opt_t* asm_opt)
 
     fprintf(stderr, "  Purge-dups:\n");
     fprintf(stderr, "    -l INT      purge level. 0: no purging; 1: light; 2/3: aggressive [0 for trio; 2 for unzip]\n");
-    fprintf(stderr, "    -s FLOAT    similarity threshold for duplicate haplotigs [%g]\n", 
-                                     asm_opt->purge_simi_rate);
+    fprintf(stderr, "    -s FLOAT    similarity threshold for duplicate haplotigs [%g for -l1/-l2, %g for -l3]\n", 
+                                     asm_opt->purge_simi_rate_l2, asm_opt->purge_simi_rate_l3);
     fprintf(stderr, "    -O INT      min number of overlapped reads for duplicate haplotigs [%d]\n", 
                                      asm_opt->purge_overlap_len);
     fprintf(stderr, "    --purge-cov INT\n");
     fprintf(stderr, "                coverage upper bound of Purge-dups [auto]\n");
-    fprintf(stderr, "    --high-het  enable this mode for high heterozygosity sample [experimental, not stable]\n");
+    ///fprintf(stderr, "    --high-het  enable this mode for high heterozygosity sample [experimental, not stable]\n");
     
     fprintf(stderr, "  Hi-C-partition [experimental, not stable]:\n");
     fprintf(stderr, "    --h1 FILEs   file names of Hi-C R1  [r1_1.fq,r1_2.fq,...]\n");
@@ -149,10 +149,11 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->mid_cnt = 5;
     asm_opt->purge_level_primary = 2;
     asm_opt->purge_level_trio = 0;
-    asm_opt->purge_simi_rate = 0.75;
-    asm_opt->purge_simi_rate_hic = 0.85;
+    asm_opt->purge_simi_rate_l2 = 0.75;
+    asm_opt->purge_simi_rate_l3 = 0.55;
+    ///asm_opt->purge_simi_rate_hic = 0.85;
     asm_opt->purge_overlap_len = 1;
-    asm_opt->purge_overlap_len_hic = 50;
+    ///asm_opt->purge_overlap_len_hic = 50;
     asm_opt->recover_atg_cov_min = -1024;
     asm_opt->recover_atg_cov_max = INT_MAX;
     asm_opt->hom_global_coverage = -1;
@@ -453,6 +454,12 @@ int check_option(hifiasm_opt_t* asm_opt)
         return 0;
     }
 
+    if(asm_opt->purge_simi_thres < 0)
+    {
+        fprintf(stderr, "[ERROR] [-s] must >= 0\n");
+        return 0;
+    }
+
     // fprintf(stderr, "input file num: %d\n", asm_opt->num_reads);
     // fprintf(stderr, "output file: %s\n", asm_opt->output_file_name);
     // fprintf(stderr, "number of threads: %d\n", asm_opt->thread_num);
@@ -470,7 +477,7 @@ int check_option(hifiasm_opt_t* asm_opt)
     // fprintf(stderr, "mid_cnt: %d\n", asm_opt->mid_cnt);
     // fprintf(stderr, "purge_level_primary: %d\n", asm_opt->purge_level_primary);
     // fprintf(stderr, "purge_level_trio: %d\n", asm_opt->purge_level_trio);
-    // fprintf(stderr, "purge_simi_rate: %f\n", asm_opt->purge_simi_rate);
+    // fprintf(stderr, "purge_simi_thres: %f\n", asm_opt->purge_simi_thres);
     // fprintf(stderr, "purge_overlap_len: %d\n", asm_opt->purge_overlap_len);
 
     return 1;
@@ -620,7 +627,7 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
                 asm_opt->recover_atg_cov_min = asm_opt->recover_atg_cov_max = -1;
             }
         }
-        else if (c == 311) asm_opt->flag |= HA_F_HIGH_HET;
+        ///else if (c == 311) asm_opt->flag |= HA_F_HIGH_HET;
         else if (c == 312) asm_opt->bed_inconsist_rate = atoi(opt.arg);
         else if (c == 313) asm_opt->min_hist_kmer_cnt = atoi(opt.arg);
         else if (c == 314) get_hic_enzymes(opt.arg, &(asm_opt->hic_reads[0]), 0);
@@ -633,7 +640,7 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
             asm_opt->purge_level_primary = asm_opt->purge_level_trio = atoi(opt.arg);
         }
-        else if (c == 's') asm_opt->purge_simi_rate = atof(opt.arg);
+        else if (c == 's') asm_opt->purge_simi_rate_l2 = asm_opt->purge_simi_rate_l3 = atof(opt.arg);
         else if (c == 'O') asm_opt->purge_overlap_len = atoll(opt.arg);
         else if (c == ':') 
         {
@@ -646,6 +653,9 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
 			return 1;
 		}
     }
+
+    if(asm_opt->purge_level_primary > 2) asm_opt->purge_simi_thres = asm_opt->purge_simi_rate_l3;
+    else asm_opt->purge_simi_thres = asm_opt->purge_simi_rate_l2;
 
     
     if (argc == opt.ind)

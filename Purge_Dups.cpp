@@ -4197,6 +4197,7 @@ hap_cov_t *cov)
     }
 }
 
+/**
 void collect_reverse_unitig_pair(hc_links* link, ma_ug_t *ug, hap_overlaps* t)
 {
     uint32_t i = 0, k = 0, rId_0, rId_1, pre_0, pre_1, b_0 = t->xUid, b_1 = t->yUid;
@@ -4238,6 +4239,7 @@ void collect_reverse_unitigs_purge(buf_t* b_0, hc_links* link, ma_ug_t *ug, hap_
         collect_reverse_unitig_pair(link, ug, &(all_ovlp->x[b_0->b.a[k]>>1].a.a[index]));
     }
 }
+**/
 
 
 void link_unitigs(asg_t *purge_g, ma_ug_t *ug, hap_overlaps_list* all_ovlp,
