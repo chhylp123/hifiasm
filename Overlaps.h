@@ -1006,7 +1006,7 @@ typedef struct{
 void resolve_tangles(ma_ug_t *src, asg_t *read_g, ma_hit_t_alloc* reverse_sources, long long minLongUntig, 
 long long maxShortUntig, float l_untig_rate, float max_node_threshold, R_to_U* ruIndex, uint32_t trio_flag, 
 float drop_ratio);
-void adjust_utg_advance(asg_t *sg, ma_ug_t *ug, ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex);
+void adjust_utg_advance(asg_t *sg, ma_ug_t *ug, ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, bub_label_t* b_mask_t);
 void rescue_contained_reads_aggressive(ma_ug_t *i_ug, asg_t *r_g, ma_hit_t_alloc* sources, ma_sub_t *coverage_cut,
 R_to_U* ruIndex, int max_hang, int min_ovlp, uint32_t chainLenThres, uint32_t is_bubble_check, 
 uint32_t is_primary_check, kvec_asg_arc_t_warp* new_rtg_edges, kvec_t_u32_warp* new_rtg_nodes, bub_label_t* b_mask_t);
@@ -1051,9 +1051,6 @@ typedef struct{
 typedef struct{
     kvec_t(hc_linkeage) a;
     kvec_t(uint64_t) enzymes;
-	kvec_t(bed_in) bed;
-    ///uint32_t* u_idx;
-	///uint64_t r_num;
 } hc_links;
 
 
@@ -1062,9 +1059,11 @@ typedef struct{
 	kvec_t(uint32_t) iDXs;
 	kvec_t(uint32_t) rescue_hom;
 	uint32_t* u_idx;
-	uint32_t r_num;
+	uint8_t* is_het;
+	uint32_t r_num, u_num;
 	uint32_t chain_num;
 	uint32_t l0_chain, l1_chain;
+	kvec_t(bed_in) bed;
 }trans_chain;
 
 typedef struct {
@@ -1090,7 +1089,7 @@ typedef struct{
     hc_edge *a;
 }hc_edge_warp;
 
-void init_hc_links(hc_links* link, uint64_t ug_num, uint64_t r_num);
+void init_hc_links(hc_links* link, uint64_t ug_num, trans_chain* t_ch);
 void destory_hc_links(hc_links* link);
 uint64_t get_bub_pop_max_dist(asg_t *g, buf_t *b);
 uint64_t get_bub_pop_max_dist_advance(asg_t *g, buf_t *b);
@@ -1102,7 +1101,7 @@ void adjust_utg_by_primary(ma_ug_t **ug, asg_t* read_g, float drop_rate,
 ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, ma_sub_t* coverage_cut, 
 long long tipsLen, float tip_drop_ratio, long long stops_threshold, 
 R_to_U* ruIndex, float chimeric_rate, float drop_ratio, int max_hang, int min_ovlp,
-kvec_asg_arc_t_warp* new_rtg_edges, hc_links* link, bub_label_t* b_mask_t);
+kvec_asg_arc_t_warp* new_rtg_edges, hap_cov_t *i_cov, bub_label_t* b_mask_t);
 ma_ug_t* copy_untig_graph(ma_ug_t *src);
 ma_ug_t* output_trio_unitig_graph(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name, 
 uint8_t flag, ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, 
