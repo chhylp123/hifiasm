@@ -1064,6 +1064,9 @@ typedef struct{
 	uint32_t chain_num;
 	uint32_t l0_chain, l1_chain;
 	kvec_t(bed_in) bed;
+	kvec_t(uint32_t) topo_buf;
+	kvec_t(uint32_t) topo_res;
+	buf_t b_buf;
 }trans_chain;
 
 typedef struct {
@@ -1093,15 +1096,15 @@ void init_hc_links(hc_links* link, uint64_t ug_num, trans_chain* t_ch);
 void destory_hc_links(hc_links* link);
 uint64_t get_bub_pop_max_dist(asg_t *g, buf_t *b);
 uint64_t get_bub_pop_max_dist_advance(asg_t *g, buf_t *b);
-int asg_pop_bubble_primary_trio(ma_ug_t *ug, uint64_t* i_max_dist, uint32_t positive_flag, uint32_t negative_flag, hap_cov_t *cov);
+int asg_pop_bubble_primary_trio(ma_ug_t *ug, uint64_t* i_max_dist, uint32_t positive_flag, uint32_t negative_flag, hap_cov_t *cov, uint32_t is_update_chain);
 uint64_t asg_bub_pop1_primary_trio(asg_t *g, ma_ug_t *utg, uint32_t v0, uint64_t max_dist, buf_t *b, uint32_t positive_flag, 
-uint32_t negative_flag, uint32_t is_pop, uint64_t* path_base_len, uint64_t* path_nodes, hap_cov_t *cov);
+uint32_t negative_flag, uint32_t is_pop, uint64_t* path_base_len, uint64_t* path_nodes, hap_cov_t *cov, uint32_t is_update_chain);
 
 void adjust_utg_by_primary(ma_ug_t **ug, asg_t* read_g, float drop_rate,
 ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, ma_sub_t* coverage_cut, 
 long long tipsLen, float tip_drop_ratio, long long stops_threshold, 
 R_to_U* ruIndex, float chimeric_rate, float drop_ratio, int max_hang, int min_ovlp,
-kvec_asg_arc_t_warp* new_rtg_edges, hap_cov_t *i_cov, bub_label_t* b_mask_t);
+kvec_asg_arc_t_warp* new_rtg_edges, hap_cov_t *i_cov, bub_label_t* b_mask_t, uint32_t collect_p_trans);
 ma_ug_t* copy_untig_graph(ma_ug_t *src);
 ma_ug_t* output_trio_unitig_graph(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name, 
 uint8_t flag, ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, 
@@ -1119,7 +1122,11 @@ inline int inter_interval(int a_s, int a_e, int b_s, int b_e, int* i_s, int* i_e
     return 1;
 }
 
-
+inline uint32_t get_origin_uid(uint32_t v, trans_chain* t_ch)
+{
+    if(t_ch->u_idx[v>>1] == (uint32_t)-1) return (uint32_t)-1;
+    return ((t_ch->u_idx[v>>1]>>1)<<1) + ((t_ch->u_idx[v>>1]^v)&1);
+}
 
 
 #define JUNK_COV 5

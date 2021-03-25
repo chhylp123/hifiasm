@@ -46,6 +46,8 @@ typedef struct {
 #define SELF_EXIST 0
 #define REVE_EXIST 1
 #define DELETE 2
+#define MIXED 3
+#define FLIP 4
 
 typedef struct {
     uint8_t rev;
@@ -108,7 +110,19 @@ typedef struct {
     hap_cov_t *cov;
 }hap_alignment_struct_pip;
 
+typedef struct {
+    uint32_t baseBeg, baseEnd;
+    uint32_t nodeBeg, nodeEnd;
+    uint32_t h_lev_idx;
+    uint32_t b_ug_id;
+}p_node_t;
 
+typedef struct {
+    ma_ug_t *ug;
+    kvec_t(p_node_t) pg_het_node;
+    asg_t *pg_het;
+    asg_t *pg_h_lev;
+}p_g_t;
 
 void print_peak_line(int c, int x, int exceed, int64_t cnt)
 {
@@ -3643,7 +3657,7 @@ int purge_g_arc_del_short_diploid_by_score(asg_t *g, float drop_ratio)
 }
 
 
-void clean_purge_graph(asg_t *purge_g, float drop_ratio)
+void clean_purge_graph(asg_t *purge_g, float drop_ratio, uint32_t is_force_break)
 {
     uint64_t operation = 1;
     while (operation > 0)
@@ -3653,7 +3667,7 @@ void clean_purge_graph(asg_t *purge_g, float drop_ratio)
         operation += purge_g_arc_del_short_diploid_by_score(purge_g, drop_ratio);
     }
     
-    purge_g_arc_del_short_diploid_by_score(purge_g, 1);
+    if(is_force_break) purge_g_arc_del_short_diploid_by_score(purge_g, 1);
 }
 
 
@@ -4613,12 +4627,246 @@ void remove_contained_haplotig(hap_overlaps_list* all_ovlp, ma_ug_t *ug, asg_t* 
     // }
 }
 
+#define HAP1_LABLE 7
+#define HAP2_LABLE 8
+void init_contig_phase(hap_overlaps_list* all_ovlp, asg_t *purge_g, float drop_ratio)
+{
+    
+    uint32_t v, i, n_vtx = purge_g->n_seq * 2, beg, end, uId, yId, need_update;
+    long long nodeLen, baseLen, max_stop_nodeLen, max_stop_baseLen, hap1_weight, hap2_weight;
+    buf_t b_0;
+    memset(&b_0, 0, sizeof(buf_t));
+    clean_purge_graph(purge_g, drop_ratio, 1);
 
+    for (v = 0; v < n_vtx; ++v) 
+    {
+        if(purge_g->seq[v>>1].c == ALTER_LABLE || purge_g->seq[v>>1].del) continue;
+        if(get_real_length(purge_g, v, NULL) != 1) continue;
+        if(get_real_length(purge_g, v^1, NULL) != 0) continue;
+
+        beg = v;
+        b_0.b.n = 0;
+        if(get_unitig(purge_g, NULL, beg, &end, &nodeLen, &baseLen, &max_stop_nodeLen, 
+                    &max_stop_baseLen, 1, &b_0) == LOOP)
+        {
+            continue;
+        }
+
+        for (i = 0; i < b_0.b.n; i++)
+        {
+            uId = b_0.b.a[i];
+            if((i>>1) == 0) purge_g->seq[uId].c = HAP1_LABLE;
+            else purge_g->seq[uId].c = HAP2_LABLE;
+        }
+    }
+    
+    need_update = 1;
+
+    while (need_update)
+    {
+        need_update = 0;
+        for (v = 0; v < all_ovlp->num; v++)
+        {
+            uId = v;
+            if(purge_g->seq[uId].c == HAP1_LABLE || purge_g->seq[uId].c == HAP2_LABLE)
+            {
+                continue;
+            }
+            if(all_ovlp->x[uId].a.n == 0)
+            {
+                purge_g->seq[uId].c = HAP1_LABLE;
+                continue;
+            } 
+            
+
+            hap1_weight = hap2_weight = 0;
+            for (i = 0; i < all_ovlp->x[uId].a.n; i++)
+            {
+                yId = all_ovlp->x[uId].a.a[i].yUid;
+                if(purge_g->seq[yId].c == HAP1_LABLE) hap1_weight += all_ovlp->x[uId].a.a[i].weight;
+                if(purge_g->seq[yId].c == HAP2_LABLE) hap2_weight += all_ovlp->x[uId].a.a[i].weight;
+            }
+
+            if(hap1_weight == 0 && hap2_weight == 0)
+            {
+                need_update = 1;
+                continue;
+            } 
+            
+            if(hap1_weight >= hap2_weight)
+            {
+                purge_g->seq[uId].c = HAP1_LABLE;
+            }
+            else
+            {
+                purge_g->seq[uId].c = HAP2_LABLE;
+            }
+        }
+    }
+    
+    free(b_0.b.a);
+}
+
+void partition_contigs(hap_overlaps_list* all_ovlp, ma_ug_t *ug, asg_t *purge_g, hap_cov_t *cov, double keep_rate,
+int max_hang, int min_ovlp, float drop_ratio)
+{
+    int r, index;
+    long long max_score;
+    uint32_t v, i, uId, xUid, is_contain = 0, m;
+    hap_overlaps *p = NULL;
+    asg_arc_t t, *p_t;
+    for (v = 0; v < all_ovlp->num; v++)
+    {
+        uId = v;
+        for (i = 0; i < all_ovlp->x[uId].a.n; i++)
+        {
+            if(all_ovlp->x[uId].a.a[i].status == DELETE) continue;
+            all_ovlp->x[uId].a.a[i].status = MIXED;
+        }
+    }
+
+    for (v = 0; v < all_ovlp->num; v++)
+    {
+        uId = v; p = NULL; is_contain = 0;
+        if(all_ovlp->x[uId].a.n == 0) continue;
+        for (i = 0; i < all_ovlp->x[uId].a.n; i++)
+        {
+            if(p == NULL || p->score < all_ovlp->x[uId].a.a[i].score)
+            {
+                p = &(all_ovlp->x[uId].a.a[i]);
+            }
+        }
+
+        max_score = p->score;
+        for (i = 0; i < all_ovlp->x[uId].a.n; i++)
+        {
+            if(all_ovlp->x[uId].a.a[i].type == YCX)
+            {
+                if(!filter_secondary_chain(p->score, all_ovlp->x[uId].a.a[i].score, MAX(0.95, keep_rate)))
+                {
+                    continue;
+                } 
+                
+                xUid = all_ovlp->x[uId].a.a[i].xUid;
+                purge_g->seq[xUid].c = ALTER_LABLE;
+                purge_g->seq[xUid].del = 1;
+                ///collect_trans_purge_cov(cov, ug, &(all_ovlp->x[uId].a.a[i]), 0);
+
+                if(is_contain == 0 || all_ovlp->x[uId].a.a[i].score > max_score)
+                {
+                    max_score = all_ovlp->x[uId].a.a[i].score;
+                } 
+                is_contain = 1;
+            }
+        }
+
+        if(is_contain)
+        {
+            for (i = 0; i < all_ovlp->x[uId].a.n; i++)
+            {
+                if(filter_secondary_chain(max_score, all_ovlp->x[uId].a.a[i].score, keep_rate))
+                {
+                    all_ovlp->x[uId].a.a[i].status = FLIP;
+                    index = get_specific_hap_overlap(&(all_ovlp->x[all_ovlp->x[uId].a.a[i].yUid]), 
+                                            all_ovlp->x[uId].a.a[i].yUid, all_ovlp->x[uId].a.a[i].xUid);
+                    if(index == -1) fprintf(stderr, "ERROR 5\n");
+                    all_ovlp->x[all_ovlp->x[uId].a.a[i].yUid].a.a[index].status = FLIP;
+
+                }
+            }
+        }
+    }
+
+    for (v = 0; v < all_ovlp->num; v++)
+    {
+        uId = v;
+        ///has been removed as contained 
+        if(purge_g->seq[uId].del || purge_g->seq[uId].c == ALTER_LABLE) continue;
+        for (i = 0; i < all_ovlp->x[uId].a.n; i++)
+        {
+            if(all_ovlp->x[uId].a.a[i].status == DELETE) continue;
+
+            if(purge_g->seq[all_ovlp->x[uId].a.a[i].xUid].c == ALTER_LABLE||
+                purge_g->seq[all_ovlp->x[uId].a.a[i].xUid].del||
+                purge_g->seq[all_ovlp->x[uId].a.a[i].yUid].c == ALTER_LABLE||
+                purge_g->seq[all_ovlp->x[uId].a.a[i].yUid].del)
+            {
+                continue;
+            }
+
+            
+            ///print_hap_paf(ug, &(all_ovlp.x[uId].a.a[i]));
+            
+            r = get_hap_arch(&(all_ovlp->x[uId].a.a[i]), ug->u.a[all_ovlp->x[uId].a.a[i].xUid].len, 
+            ug->u.a[all_ovlp->x[uId].a.a[i].yUid].len, max_hang, asm_opt.max_hang_rate, min_ovlp, &t);
+                        
+            if(r < 0) continue;
+            p_t = asg_arc_pushp(purge_g);
+            *p_t = t;
+        }
+    }
+
+    asg_cleanup(purge_g);
+    asg_symm(purge_g);
+
+    clean_purge_graph(purge_g, keep_rate, 0);
+
+    asg_arc_t *av = NULL;
+    uint32_t n_vtx = purge_g->n_seq*2, nv, w;
+    for (v = 0; v < n_vtx; ++v)
+    {
+        if(purge_g->seq[v>>1].c == ALTER_LABLE || purge_g->seq[v>>1].del) continue;
+        nv = asg_arc_n(purge_g, v);
+        av = asg_arc_a(purge_g, v);
+        if (nv == 0) continue;
+        for (i = 0; i < nv; ++i)
+        {
+            if (av[i].del) continue;
+            w = av[i].v;
+            index = get_specific_hap_overlap(&(all_ovlp->x[v>>1]), v>>1, w>>1);
+            all_ovlp->x[v>>1].a.a[index].status = FLIP;
+        }
+    }
+
+    p = NULL;
+    for (v = 0; v < all_ovlp->num; v++)
+    {
+        uId = v;
+        for (i = m = 0; i < all_ovlp->x[uId].a.n; i++)
+        {
+            if(all_ovlp->x[uId].a.a[i].status != FLIP) continue;
+            all_ovlp->x[uId].a.a[m] = all_ovlp->x[uId].a.a[i];
+            if(p == NULL || p->score > all_ovlp->x[uId].a.a[m].score)
+            {
+                p = &(all_ovlp->x[uId].a.a[m]);
+            }
+            m++;
+        }
+        all_ovlp->x[uId].a.n = m;
+    }
+
+    max_score = 0;
+    if(p && p->score <= 0)
+    {
+        max_score = ((p->score)*-1) + 1;
+        for (v = 0; v < all_ovlp->num; v++)
+        {
+            uId = v;
+            for (i = 0; i < all_ovlp->x[uId].a.n; i++)
+            {
+                all_ovlp->x[uId].a.a[i].score += max_score; 
+            }
+        }
+    }
+
+    init_contig_phase(all_ovlp, purge_g, drop_ratio);
+
+}
 
 void purge_dups(ma_ug_t *ug, asg_t *read_g, ma_sub_t* coverage_cut, ma_hit_t_alloc* sources, 
 ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, kvec_asg_arc_t_warp* edge, float density, 
 uint32_t purege_minLen, int max_hang, int min_ovlp, float drop_ratio, uint32_t just_contain, 
-uint32_t just_coverage, hap_cov_t *cov)
+uint32_t just_coverage, hap_cov_t *cov, uint32_t collect_p_trans)
 {
     asg_t *purge_g = NULL;
     purge_g = asg_init();
@@ -4750,7 +4998,254 @@ uint32_t just_coverage, hap_cov_t *cov)
         asg_cleanup(purge_g);
 		asg_symm(purge_g);
         ///may need to do transitive reduction
-        clean_purge_graph(purge_g, drop_ratio);
+        clean_purge_graph(purge_g, drop_ratio, 1);
+
+        // if(debug_enable) print_purge_gfa(ug, purge_g);
+        // if(debug_enable) print_all_purge_ovlp(ug, &all_ovlp);
+
+        link_unitigs(purge_g, ug, &all_ovlp, ruIndex, reverse_sources, coverage_cut, read_g, position_index, 
+        &(hap_buf.buf[0].u_buffer), &(hap_buf.buf[0].u_buffer_tailIndex), &(hap_buf.buf[0].u_buffer_prevIndex),
+        max_hang, min_ovlp, edge, hap_buf.buf[0].visit, cov);
+    }
+
+    for (v = 0; v < all_ovlp.num; v++)
+    {
+        uId = v;
+        if(purge_g->seq[uId].c == ALTER_LABLE)
+        {
+            ug->g->seq[uId].c = ALTER_LABLE;
+        }
+    }
+
+    end_coverage:
+
+    uint32_t is_Unitig;
+    for (v = 0; v < ruIndex->len; v++)
+    {
+        get_R_to_U(ruIndex, v, &uId, &is_Unitig);
+        if(is_Unitig == 1) ruIndex->index[v] = (uint32_t)-1;
+    }
+
+    asg_cleanup(nsg);
+    destory_hap_overlaps_list(&all_ovlp);
+    destory_hap_overlaps_list(&back_all_ovlp);
+    asg_destroy(purge_g);
+    if(cov) memset(position_index, -1, sizeof(uint64_t)*read_g->n_seq);
+    else free(position_index);
+    
+    destory_hap_alignment_struct_pip(&hap_buf);
+}
+
+
+p_g_t *init_p_g_t(ma_ug_t *ug, hap_cov_t *cov, asg_t *read_g)
+{
+    uint32_t v, uId, k_uId, l_uid, k, l, offset, l_pos;
+    p_g_t *pg = NULL; CALLOC(pg, 1);
+    pg->ug = ug;
+    asg_t* nsg = pg->ug->g;
+    ma_utg_t *u = NULL;
+    p_node_t *t = NULL, *z = NULL;
+    pg->pg_het = asg_init();
+    pg->pg_h_lev = asg_init();
+    kv_init(pg->pg_het_node);
+
+    for (v = 0; v < nsg->n_seq; v++)
+    {
+        uId = v;
+        if(nsg->seq[uId].del || nsg->seq[uId].c == ALTER_LABLE)
+        {
+            asg_seq_set(pg->pg_h_lev, uId, 0, 1);
+            pg->pg_h_lev->seq[uId].c = ALTER_LABLE;
+            continue;
+        } 
+        
+        asg_seq_set(pg->pg_h_lev, uId, ug->u.a[uId].len, 0);
+        pg->pg_h_lev->seq[uId].c = PRIMARY_LABLE;
+    }
+
+    for (v = 0; v < nsg->n_seq; v++)
+    {
+        uId = v;
+        if(nsg->seq[uId].del || nsg->seq[uId].c == ALTER_LABLE) continue;
+
+        u = &(ug->u.a[uId]);
+        for (k = 1, l = 0, offset = 0, l_pos = 0; k <= u->n; ++k) 
+        {   
+            l_uid = k_uId = (uint32_t)-1;
+            l_uid = get_origin_uid(u->a[l]>>32, cov->t_ch);
+            if(k < u->n) k_uId = get_origin_uid(u->a[k]>>32, cov->t_ch);
+
+            if (k == u->n || k_uId != l_uid)
+            {
+                if(l_uid != (uint32_t)-1)
+                {
+                    kv_pushp(p_node_t, pg->pg_het_node, &t);
+                    t->b_ug_id = l_uid;
+                    t->baseBeg = l_pos;
+                    t->baseEnd = offset + read_g->seq[u->a[k-1]>>33].len - 1;
+                    t->nodeBeg = l;
+                    t->nodeEnd = k - 1;
+                    if(pg->pg_het_node.n > 1)
+                    {
+                        z = &(pg->pg_het_node.a[pg->pg_het_node.n - 2]);
+                        if(t->b_ug_id == z->b_ug_id)
+                        {
+                            z->baseEnd = t->baseEnd;
+                            z->nodeEnd = t->nodeEnd;
+                            t = z;
+                        }
+                        pg->pg_het_node.n--;
+                    }
+                    asg_seq_set(pg->pg_het, pg->pg_het_node.n-1, t->baseEnd+1-t->baseBeg, 0);
+                }
+                l = k;
+                l_pos = offset + (uint32_t)u->a[k-1];
+            }
+            offset += (uint32_t)u->a[k-1];
+        }
+    }
+
+
+
+    return pg;
+}
+
+void purge_dups_advance(ma_ug_t *ug, asg_t *read_g, ma_sub_t* coverage_cut, ma_hit_t_alloc* sources, 
+ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, kvec_asg_arc_t_warp* edge, float density, 
+uint32_t purege_minLen, int max_hang, int min_ovlp, float drop_ratio, uint32_t just_contain, 
+uint32_t just_coverage, hap_cov_t *cov, uint32_t collect_p_trans)
+{
+    asg_t *purge_g = NULL;
+    purge_g = asg_init();
+    asg_t* nsg = ug->g;
+    uint32_t v, rId, uId, i, offset;
+    ma_utg_t* reads = NULL;
+    uint64_t* position_index = NULL;
+    if(cov) position_index = cov->pos_idx;
+    else position_index = (uint64_t*)malloc(sizeof(uint64_t)*read_g->n_seq);
+    memset(position_index, -1, sizeof(uint64_t)*read_g->n_seq);
+    
+    hap_overlaps_list all_ovlp;
+    init_hap_overlaps_list(&all_ovlp, nsg->n_seq);
+    hap_overlaps_list back_all_ovlp;
+    init_hap_overlaps_list(&back_all_ovlp, nsg->n_seq);
+    ///uint32_t junk_cov, hap_cov, dip_cov, junk_occ, repeat_occ, single_cov;
+    asg_arc_t t, *p = NULL;
+    int r;
+    hap_alignment_struct_pip hap_buf;
+    long long k_mer_only, coverage_only;
+
+    if(asm_opt.hom_global_coverage != -1)
+    {
+        hap_buf.cov_threshold = asm_opt.hom_global_coverage;
+    }
+    else
+    {
+        hap_buf.cov_threshold = get_read_coverage_thres(ug, read_g, ruIndex, position_index, 
+        sources, coverage_cut, read_g->n_seq, COV_COUNT, &k_mer_only, &coverage_only);
+    }
+    
+    
+    for (v = 0; v < nsg->n_seq; v++)
+    {
+        uId = v;
+        if(nsg->seq[uId].del || nsg->seq[uId].c == ALTER_LABLE)
+        {
+            asg_seq_set(purge_g, uId, 0, 1);
+            purge_g->seq[uId].c = ALTER_LABLE;
+            continue;
+        } 
+        reads = &(ug->u.a[uId]);
+        for (i = 0, offset = 0; i < reads->n; i++)
+        {
+            rId = reads->a[i]>>33;
+            set_R_to_U(ruIndex, rId, uId, 1, &(read_g->seq[rId].c));
+
+            position_index[rId] = offset;
+            position_index[rId] = position_index[rId] << 32;
+            position_index[rId] = position_index[rId] | (uint64_t)i;
+
+            offset += (uint32_t)reads->a[i];
+        }
+
+        asg_seq_set(purge_g, uId, offset, 0);
+        purge_g->seq[uId].c = PRIMARY_LABLE;
+    }
+
+
+    init_hap_alignment_struct_pip(&hap_buf, asm_opt.thread_num, nsg->n_seq, ug, read_g,  
+    sources, reverse_sources, ruIndex, coverage_cut, position_index, density, max_hang, min_ovlp, 
+    0.1, &all_ovlp, cov);
+    
+    if(hap_buf.cov_threshold < 0)
+    {
+        if(if_ploid_sample(ug, read_g, ruIndex, sources, reverse_sources, coverage_cut, 
+        &hap_buf, &all_ovlp, &back_all_ovlp, purege_minLen, 0.333))
+        {
+            ///if peak is het, coverage peak is more reliable 
+            hap_buf.cov_threshold = coverage_only * HET_PEAK_RATE;
+        }
+        else
+        {
+            ///if peak is homo, k-mer peak is more reliable 
+            hap_buf.cov_threshold = k_mer_only * HOM_PEAK_RATE;
+        }
+    }
+    if(asm_opt.hom_global_coverage == -1) asm_opt.hom_global_coverage = hap_buf.cov_threshold;
+    fprintf(stderr, "[M::%s] purge duplication coverage threshold: %lld\n", __func__, hap_buf.cov_threshold);
+    if(just_coverage) goto end_coverage;
+
+    kt_for(asm_opt.thread_num, hap_alignment_advance_worker, &hap_buf, nsg->n_seq);
+
+    ///if(debug_enable) print_all_purge_ovlp(ug, &all_ovlp);
+    filter_hap_overlaps_by_length(&all_ovlp, purege_minLen);
+
+    ///normalize_hap_overlaps(&all_ovlp, &back_all_ovlp);
+    normalize_hap_overlaps_advance(&all_ovlp, &back_all_ovlp, ug, read_g, reverse_sources, ruIndex);
+    ///debug_hap_overlaps(&all_ovlp, &back_all_ovlp);
+
+    remove_contained_haplotig(&all_ovlp, ug, nsg, purge_g, cov);
+    
+    if(just_contain == 0)
+    {
+        for (v = 0; v < all_ovlp.num; v++)
+        {
+            uId = v;
+            if(purge_g->seq[uId].del || purge_g->seq[uId].c == ALTER_LABLE) continue;
+            for (i = 0; i < all_ovlp.x[uId].a.n; i++)
+            {
+                if(all_ovlp.x[uId].a.a[i].status == DELETE) continue;
+                ///if(all_ovlp.x[uId].a.a[i].type == )
+                if(purge_g->seq[all_ovlp.x[uId].a.a[i].xUid].c == ALTER_LABLE||
+                   purge_g->seq[all_ovlp.x[uId].a.a[i].xUid].del||
+                   purge_g->seq[all_ovlp.x[uId].a.a[i].yUid].c == ALTER_LABLE||
+                   purge_g->seq[all_ovlp.x[uId].a.a[i].yUid].del)
+                {
+                    continue;
+                }
+
+                
+                ///print_hap_paf(ug, &(all_ovlp.x[uId].a.a[i]));
+                
+                r = get_hap_arch(&(all_ovlp.x[uId].a.a[i]), ug->u.a[all_ovlp.x[uId].a.a[i].xUid].len, 
+                ug->u.a[all_ovlp.x[uId].a.a[i].yUid].len, max_hang, asm_opt.max_hang_rate, min_ovlp, &t);
+                
+                // if(all_ovlp.x[uId].a.a[i].xUid == 118 && all_ovlp.x[uId].a.a[i].yUid == 82)
+                // {
+                //     fprintf(stderr, "r: %d\n", r);
+                //     print_hap_paf(ug, &(all_ovlp.x[uId].a.a[i]));
+                // }
+                
+                if(r < 0) continue;
+                p = asg_arc_pushp(purge_g);
+                *p = t;
+            }
+        }
+
+        asg_cleanup(purge_g);
+		asg_symm(purge_g);
+        ///may need to do transitive reduction
+        clean_purge_graph(purge_g, drop_ratio, 1);
 
         // if(debug_enable) print_purge_gfa(ug, purge_g);
         // if(debug_enable) print_all_purge_ovlp(ug, &all_ovlp);
