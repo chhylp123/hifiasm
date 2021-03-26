@@ -2678,17 +2678,17 @@ void identify_bubbles(ma_ug_t* ug, bubble_type* bub, uint8_t *het_flag)
 
         for (i = 0; i < ug->g->n_seq; i++)
         {
-            if((bub->index[i]>>2) == 0)
+            if((bub->index[i]>>2) == 0) 
             {
-                bub->index[i] = (uint32_t)-1; 
+                bub->index[i] = (uint32_t)-1; ///hom
             }
             else
             {
-                if((bub->index[i]>>2) == 1)
+                if((bub->index[i]>>2) == 1) 
                 {
                     bub->index[i] = P_het(*bub); ///potential het
                 }
-                else
+                else 
                 {
                     bub->index[i] = M_het(*bub); ///must het
                 }
@@ -2705,11 +2705,11 @@ void identify_bubbles(ma_ug_t* ug, bubble_type* bub, uint8_t *het_flag)
                 n_occ += ug->u.a[a[v]>>1].n;
             }
 
-            if((pathLen*2) >= ug->g->seq[beg>>1].len && (pathLen*2) >= ug->g->seq[sink>>1].len)
-            {
-                bub->index[(beg>>1)] = (uint32_t)-1;
-                bub->index[(sink>>1)] = (uint32_t)-1;
-            }
+            // if((pathLen*2) >= ug->g->seq[beg>>1].len && (pathLen*2) >= ug->g->seq[sink>>1].len)
+            // {
+            //     bub->index[(beg>>1)] = (uint32_t)-1;
+            //     bub->index[(sink>>1)] = (uint32_t)-1;
+            // }
 
             if(n_occ > 3)
             {
@@ -2749,7 +2749,7 @@ void identify_bubbles(ma_ug_t* ug, bubble_type* bub, uint8_t *het_flag)
             if(bub->index[i] == M_het(*bub)) bub->index[i] = P_het(*bub);
             if(bub->index[i] > P_het(*bub))
             {
-                if(het_flag && het_flag[i] == 1)
+                if(het_flag && het_flag[i])
                 {
                     bub->index[i] = P_het(*bub);
                 }
@@ -2769,6 +2769,7 @@ void identify_bubbles(ma_ug_t* ug, bubble_type* bub, uint8_t *het_flag)
     }
     bub->b_g = NULL;
     bub->b_ug = NULL;
+
     build_bub_graph(ug, bub);
 }
 

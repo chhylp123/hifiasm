@@ -114,14 +114,20 @@ typedef struct {
     uint32_t baseBeg, baseEnd;
     uint32_t nodeBeg, nodeEnd;
     uint32_t h_lev_idx;
-    uint32_t b_ug_id;
+    uint32_t b_ug_id, c_ug_id;
 }p_node_t;
+
+typedef struct {
+    uint32_t beg;
+    uint32_t occ;
+}p_g_in_t;
 
 typedef struct {
     ma_ug_t *ug;
     kvec_t(p_node_t) pg_het_node;
     asg_t *pg_het;
     asg_t *pg_h_lev;
+    kvec_t(p_g_in_t) pg_h_lev_idx;
 }p_g_t;
 
 void print_peak_line(int c, int x, int exceed, int64_t cnt)
@@ -3269,6 +3275,151 @@ ma_ug_t *ug, asg_t *read_g, ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex)
     }
 }
 
+void get_p_nodes(p_g_t *pg, p_node_t **x, uint32_t *x_occ, uint32_t id)
+{
+    if(x) (*x) = pg->pg_het_node.a + pg->pg_h_lev_idx.a[id].beg;
+    if(x_occ) (*x_occ) = pg->pg_h_lev_idx.a[id].occ;
+}
+
+void normalize_hap_overlaps_advance_by_p_g_t(hap_overlaps_list* all_ovlp, hap_overlaps_list* back_all_ovlp,
+ma_ug_t *ug, asg_t *read_g, ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, p_g_t *pg, hap_cov_t *cov, 
+double filter_rate)
+{
+    hap_overlaps *x = NULL, *y = NULL;
+    uint32_t v, i, uId, qn, tn;
+    uint32_t types[4];
+    
+
+    types[X2Y] = Y2X; types[Y2X] = X2Y; types[XCY] = YCX; types[YCX] = XCY;
+    int index;
+    uint32_t k, qs, qe, ts, te, occ, as, ae, ovlp, hetLen, homLen;
+    p_node_t *a = NULL;
+
+    /*******************************for debug************************************/
+    // for (v = 0; v < cov->t_ch->u_num; v++)
+    // {
+    //     fprintf(stderr, "utg%.6ul-is_het=%u\n", v+1, cov->t_ch->is_het[v]);
+    // }
+    /*******************************for debug************************************/
+
+
+
+
+
+
+    for (v = 0; v < all_ovlp->num; v++)
+    {
+        uId = v;
+        for (i = 0; i < all_ovlp->x[uId].a.n; i++)
+        {
+            /*****************qn*****************/
+            qn = all_ovlp->x[uId].a.a[i].xUid;
+            qs = all_ovlp->x[uId].a.a[i].x_beg_pos;
+            qe = all_ovlp->x[uId].a.a[i].x_end_pos - 1;
+            get_p_nodes(pg, &a, &occ, qn);
+            for (k = 0, hetLen = 0, homLen = 0; k < occ; k++)
+            {
+                as = a[k].baseBeg;
+                ae = a[k].baseEnd;
+                ovlp = ((MIN(qe, ae) >= MAX(qs, as))? MIN(qe, ae) - MAX(qs, as) + 1 : 0);
+                if(homLen + hetLen > 0 && ovlp == 0) break;
+                if(ovlp == 0) continue;
+                if(cov->t_ch->is_het[a[k].b_ug_id>>1] == 0)
+                {
+                    homLen += ovlp;
+                } 
+                else
+                {
+                    hetLen += ovlp;
+                }                
+            }
+
+            if(hetLen <= ((hetLen + homLen) * filter_rate))
+            {
+                all_ovlp->x[uId].a.a[i].status = DELETE;
+                continue;
+            }
+            /*****************qn*****************/
+
+
+            /*****************tn*****************/
+            tn = all_ovlp->x[uId].a.a[i].yUid;
+            ts = all_ovlp->x[uId].a.a[i].y_beg_pos;
+            te = all_ovlp->x[uId].a.a[i].y_end_pos - 1;
+            get_p_nodes(pg, &a, &occ, tn);
+            for (k = 0, hetLen = 0, homLen = 0; k < occ; k++)
+            {
+                as = a[k].baseBeg;
+                ae = a[k].baseEnd;
+                ovlp = ((MIN(te, ae) >= MAX(ts, as))? MIN(te, ae) - MAX(ts, as) + 1 : 0);
+                if(homLen + hetLen > 0 && ovlp == 0) break;
+                if(ovlp == 0) continue;
+                if(cov->t_ch->is_het[a[k].b_ug_id>>1] == 0)
+                {
+                    homLen += ovlp;
+                } 
+                else
+                {
+                    hetLen += ovlp;
+                }                
+            }
+
+            if(hetLen <= ((hetLen + homLen) * filter_rate))
+            {
+                all_ovlp->x[uId].a.a[i].status = DELETE;
+                continue;
+            }
+            /*****************tn*****************/
+        }
+    }
+
+    for (v = 0; v < all_ovlp->num; v++)
+    {
+        uId = v;
+        k = 0;
+        for (i = 0; i < all_ovlp->x[uId].a.n; i++)
+        {
+            if(all_ovlp->x[uId].a.a[i].status == DELETE) continue;
+            all_ovlp->x[uId].a.a[k] = all_ovlp->x[uId].a.a[i];
+            k++;
+        }
+        all_ovlp->x[uId].a.n = k;
+    }
+
+
+    for (v = 0; v < all_ovlp->num; v++)
+    {
+        uId = v;
+        for (i = 0; i < all_ovlp->x[uId].a.n; i++)
+        {
+            qn = all_ovlp->x[uId].a.a[i].xUid;
+            tn = all_ovlp->x[uId].a.a[i].yUid;
+            x = &(all_ovlp->x[uId].a.a[i]);
+            index = get_specific_hap_overlap(&(all_ovlp->x[tn]), tn, qn);
+            if(index != -1)
+            {
+                y = &(all_ovlp->x[tn].a.a[index]);
+                if(x->rev == y->rev && types[x->type]==y->type) continue;
+                if(x->score >= y->score)
+                {
+                    kv_push(hap_overlaps, back_all_ovlp->x[tn].a, (*y));
+                    set_reverse_hap_overlap(y, x, types);
+                }
+                else
+                {
+                    kv_push(hap_overlaps, back_all_ovlp->x[qn].a, (*x));
+                    set_reverse_hap_overlap(x, y, types);
+                }
+            }
+            else
+            {
+                kv_pushp(hap_overlaps, all_ovlp->x[tn].a, &y);
+                set_reverse_hap_overlap(y, x, types);
+            }
+        }
+    }
+}
+
 void filter_hap_overlaps_by_length(hap_overlaps_list* all_ovlp, uint32_t minLen)
 {
     if(minLen == 0) return;
@@ -4863,7 +5014,7 @@ int max_hang, int min_ovlp, float drop_ratio)
 
 }
 
-void purge_dups(ma_ug_t *ug, asg_t *read_g, ma_sub_t* coverage_cut, ma_hit_t_alloc* sources, 
+void purge_dups_back(ma_ug_t *ug, asg_t *read_g, ma_sub_t* coverage_cut, ma_hit_t_alloc* sources, 
 ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, kvec_asg_arc_t_warp* edge, float density, 
 uint32_t purege_minLen, int max_hang, int min_ovlp, float drop_ratio, uint32_t just_contain, 
 uint32_t just_coverage, hap_cov_t *cov, uint32_t collect_p_trans)
@@ -5036,18 +5187,82 @@ uint32_t just_coverage, hap_cov_t *cov, uint32_t collect_p_trans)
     destory_hap_alignment_struct_pip(&hap_buf);
 }
 
+void debug_p_g_t(p_g_t* pg, asg_t *read_g)
+{
+    fprintf(stderr, "----------[M::%s]----------\n", __func__);
+    uint32_t i, offset, v, sid, eid, spos, epos, puid, occ;
+    p_node_t *t = NULL;
+    ma_utg_t *u = NULL;
+    p_node_t *a = NULL;
+
+    for (v = 0; v < pg->ug->u.n; v++)
+    {
+        ///fprintf(stderr, "\nu->n: %u, uid: %u\n", (uint32_t)(pg->ug->u.a[v].n), v);
+        get_p_nodes(pg, &a, &occ, v);
+        for (i = 0; i < occ; i++)
+        {
+            if(a[i].c_ug_id != v) fprintf(stderr, "sbsbsbsbsb\n");
+            ///fprintf(stderr, "sid: %u, eid: %u\n", a[i].nodeBeg, a[i].nodeEnd);
+        }
+    }
+    
+
+    for (v = 0, puid = (uint32_t)-1; v < pg->pg_het_node.n; v++)
+    {
+        t = &(pg->pg_het_node.a[v]);
+        sid = t->nodeBeg;
+        eid = t->nodeEnd;
+        spos = t->baseBeg;
+        epos = t->baseEnd;
+        // fprintf(stderr, "sid: %u, eid: %u, spos: %u, epos: %u, t->b_ug_id: %u\n", 
+        //                                                 sid, eid, spos, epos, (uint32_t)t->b_ug_id);
+        // fprintf(stderr, "pg->pg_het_node.n: %u\n", (uint32_t)pg->pg_het_node.n);
+        if(puid == t->b_ug_id) fprintf(stderr, "ERROR-(-1)\n");
+        if(t->b_ug_id == (uint32_t)-1) fprintf(stderr, "ERROR-(-2)\n");
+        puid = t->b_ug_id;
+
+        u = &(pg->ug->u.a[t->c_ug_id]);
+        ///fprintf(stderr, "u->n: %u, sid: %u, eid: %u\n", (uint32_t)u->n, sid, eid);
+        for (i = offset = 0; i < u->n; i++)
+        {
+            if(i == sid)
+            {
+                if(spos != offset)
+                {
+                    fprintf(stderr, "ERROR-1\n");
+                }
+            }
+
+            if(i == eid)
+            {
+                if(epos != (offset+read_g->seq[u->a[i]>>33].len - 1))
+                {
+                    fprintf(stderr, "ERROR-2, real end: %u\n", 
+                                    (uint32_t)(offset+read_g->seq[u->a[i]>>33].len - 1));
+                }
+            }
+            offset += (uint32_t)u->a[i];
+        }
+    }
+    
+    
+}
+
 
 p_g_t *init_p_g_t(ma_ug_t *ug, hap_cov_t *cov, asg_t *read_g)
 {
-    uint32_t v, uId, k_uId, l_uid, k, l, offset, l_pos;
+    uint32_t v, uId, k_uId, l_uid, k, l, offset, l_pos, g_beg_idx, occ, ovlp, tLen, zLen;
     p_g_t *pg = NULL; CALLOC(pg, 1);
     pg->ug = ug;
     asg_t* nsg = pg->ug->g;
     ma_utg_t *u = NULL;
     p_node_t *t = NULL, *z = NULL;
+    asg_arc_t *e = NULL;
+    p_g_in_t *x = NULL;
     pg->pg_het = asg_init();
     pg->pg_h_lev = asg_init();
     kv_init(pg->pg_het_node);
+    kv_init(pg->pg_h_lev_idx);
 
     for (v = 0; v < nsg->n_seq; v++)
     {
@@ -5069,6 +5284,8 @@ p_g_t *init_p_g_t(ma_ug_t *ug, hap_cov_t *cov, asg_t *read_g)
         if(nsg->seq[uId].del || nsg->seq[uId].c == ALTER_LABLE) continue;
 
         u = &(ug->u.a[uId]);
+        g_beg_idx = pg->pg_het_node.n;
+        ///fprintf(stderr, "\n+v: %u, pg->pg_het_node.n: %u\n", v, (uint32_t)pg->pg_het_node.n);
         for (k = 1, l = 0, offset = 0, l_pos = 0; k <= u->n; ++k) 
         {   
             l_uid = k_uId = (uint32_t)-1;
@@ -5077,15 +5294,17 @@ p_g_t *init_p_g_t(ma_ug_t *ug, hap_cov_t *cov, asg_t *read_g)
 
             if (k == u->n || k_uId != l_uid)
             {
+                ///fprintf(stderr, "l: %u, k: %u, u->n: %u, l_uid: %u\n", l, k, (uint32_t)u->n, l_uid);
                 if(l_uid != (uint32_t)-1)
                 {
                     kv_pushp(p_node_t, pg->pg_het_node, &t);
+                    t->c_ug_id = uId;
                     t->b_ug_id = l_uid;
                     t->baseBeg = l_pos;
                     t->baseEnd = offset + read_g->seq[u->a[k-1]>>33].len - 1;
                     t->nodeBeg = l;
                     t->nodeEnd = k - 1;
-                    if(pg->pg_het_node.n > 1)
+                    if(pg->pg_het_node.n > 1 && pg->pg_het_node.n >= (g_beg_idx + 2))
                     {
                         z = &(pg->pg_het_node.a[pg->pg_het_node.n - 2]);
                         if(t->b_ug_id == z->b_ug_id)
@@ -5093,9 +5312,10 @@ p_g_t *init_p_g_t(ma_ug_t *ug, hap_cov_t *cov, asg_t *read_g)
                             z->baseEnd = t->baseEnd;
                             z->nodeEnd = t->nodeEnd;
                             t = z;
+                            pg->pg_het_node.n--;
                         }
-                        pg->pg_het_node.n--;
                     }
+                    ///if(t->b_ug_id == (uint32_t)-1) fprintf(stderr, "xxxx\n");
                     asg_seq_set(pg->pg_het, pg->pg_het_node.n-1, t->baseEnd+1-t->baseBeg, 0);
                 }
                 l = k;
@@ -5103,20 +5323,59 @@ p_g_t *init_p_g_t(ma_ug_t *ug, hap_cov_t *cov, asg_t *read_g)
             }
             offset += (uint32_t)u->a[k-1];
         }
+
+        occ = pg->pg_het_node.n - g_beg_idx;
+        kv_pushp(p_g_in_t, pg->pg_h_lev_idx, &x);
+        x->beg = g_beg_idx; x->occ = occ;
+        ///fprintf(stderr, "-v: %u, pg->pg_het_node.n: %u\n", v, (uint32_t)pg->pg_het_node.n);
+        
+        if(occ > 1)
+        {
+            for (k = g_beg_idx; (k + 1) < pg->pg_het_node.n; ++k) 
+            {
+                t = &(pg->pg_het_node.a[k]); tLen = t->baseEnd + 1 - t->baseBeg;
+                z = &(pg->pg_het_node.a[k+1]); zLen = z->baseEnd + 1 - z->baseBeg;
+
+                ovlp = ((MIN(t->baseEnd, z->baseEnd) >= MAX(t->baseBeg, z->baseBeg))? 
+                                MIN(t->baseEnd, z->baseEnd) - MAX(t->baseBeg, z->baseBeg) + 1 : 0);
+
+                e = asg_arc_pushp(pg->pg_het);
+                e->ol = ovlp;
+                e->ul = (k<<1); e->ul <<= 32; e->ul += (tLen - ovlp);
+                e->v = ((k+1)<<1); e->del = 0; e->el = e->no_l_indel = e->strong = 1;
+
+                e = asg_arc_pushp(pg->pg_het);
+                e->ol = ovlp;
+                e->ul = ((k+1)<<1)+1; e->ul <<= 32; e->ul += (zLen - ovlp);
+                e->v = (k<<1)+1; e->del = 0; e->el = e->no_l_indel = e->strong = 1;
+            }
+        }
     }
-
-
+    asg_cleanup(pg->pg_het);
+    ///debug_p_g_t(pg, read_g);
 
     return pg;
 }
 
-void purge_dups_advance(ma_ug_t *ug, asg_t *read_g, ma_sub_t* coverage_cut, ma_hit_t_alloc* sources, 
+void destory_p_g_t(p_g_t **pg)
+{
+    if(pg && (*pg))
+    {
+        kv_destroy((*pg)->pg_het_node);
+        kv_destroy((*pg)->pg_h_lev_idx);
+        asg_destroy((*pg)->pg_het);
+        asg_destroy((*pg)->pg_h_lev);
+        free((*pg)); 
+        (*pg) = NULL;
+    }
+}
+
+void purge_dups(ma_ug_t *ug, asg_t *read_g, ma_sub_t* coverage_cut, ma_hit_t_alloc* sources, 
 ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, kvec_asg_arc_t_warp* edge, float density, 
 uint32_t purege_minLen, int max_hang, int min_ovlp, float drop_ratio, uint32_t just_contain, 
 uint32_t just_coverage, hap_cov_t *cov, uint32_t collect_p_trans)
 {
-    asg_t *purge_g = NULL;
-    purge_g = asg_init();
+    p_g_t *pg = NULL;
     asg_t* nsg = ug->g;
     uint32_t v, rId, uId, i, offset;
     ma_utg_t* reads = NULL;
@@ -5149,12 +5408,6 @@ uint32_t just_coverage, hap_cov_t *cov, uint32_t collect_p_trans)
     for (v = 0; v < nsg->n_seq; v++)
     {
         uId = v;
-        if(nsg->seq[uId].del || nsg->seq[uId].c == ALTER_LABLE)
-        {
-            asg_seq_set(purge_g, uId, 0, 1);
-            purge_g->seq[uId].c = ALTER_LABLE;
-            continue;
-        } 
         reads = &(ug->u.a[uId]);
         for (i = 0, offset = 0; i < reads->n; i++)
         {
@@ -5167,9 +5420,6 @@ uint32_t just_coverage, hap_cov_t *cov, uint32_t collect_p_trans)
 
             offset += (uint32_t)reads->a[i];
         }
-
-        asg_seq_set(purge_g, uId, offset, 0);
-        purge_g->seq[uId].c = PRIMARY_LABLE;
     }
 
 
@@ -5196,30 +5446,34 @@ uint32_t just_coverage, hap_cov_t *cov, uint32_t collect_p_trans)
     if(just_coverage) goto end_coverage;
 
     kt_for(asm_opt.thread_num, hap_alignment_advance_worker, &hap_buf, nsg->n_seq);
-
+    
     ///if(debug_enable) print_all_purge_ovlp(ug, &all_ovlp);
     filter_hap_overlaps_by_length(&all_ovlp, purege_minLen);
 
+    pg = init_p_g_t(ug, cov, read_g);
     ///normalize_hap_overlaps(&all_ovlp, &back_all_ovlp);
-    normalize_hap_overlaps_advance(&all_ovlp, &back_all_ovlp, ug, read_g, reverse_sources, ruIndex);
+
+    normalize_hap_overlaps_advance_by_p_g_t(&all_ovlp, &back_all_ovlp, ug, read_g, reverse_sources, 
+    ruIndex, pg, cov, 0.8);
+
+    ///normalize_hap_overlaps_advance(&all_ovlp, &back_all_ovlp, ug, read_g, reverse_sources, ruIndex);
     ///debug_hap_overlaps(&all_ovlp, &back_all_ovlp);
 
-    remove_contained_haplotig(&all_ovlp, ug, nsg, purge_g, cov);
+    remove_contained_haplotig(&all_ovlp, ug, nsg, pg->pg_h_lev, cov);
     
     if(just_contain == 0)
     {
         for (v = 0; v < all_ovlp.num; v++)
         {
             uId = v;
-            if(purge_g->seq[uId].del || purge_g->seq[uId].c == ALTER_LABLE) continue;
+            if(pg->pg_h_lev->seq[uId].del || pg->pg_h_lev->seq[uId].c == ALTER_LABLE) continue;
             for (i = 0; i < all_ovlp.x[uId].a.n; i++)
             {
                 if(all_ovlp.x[uId].a.a[i].status == DELETE) continue;
-                ///if(all_ovlp.x[uId].a.a[i].type == )
-                if(purge_g->seq[all_ovlp.x[uId].a.a[i].xUid].c == ALTER_LABLE||
-                   purge_g->seq[all_ovlp.x[uId].a.a[i].xUid].del||
-                   purge_g->seq[all_ovlp.x[uId].a.a[i].yUid].c == ALTER_LABLE||
-                   purge_g->seq[all_ovlp.x[uId].a.a[i].yUid].del)
+                if(pg->pg_h_lev->seq[all_ovlp.x[uId].a.a[i].xUid].c == ALTER_LABLE||
+                   pg->pg_h_lev->seq[all_ovlp.x[uId].a.a[i].xUid].del||
+                   pg->pg_h_lev->seq[all_ovlp.x[uId].a.a[i].yUid].c == ALTER_LABLE||
+                   pg->pg_h_lev->seq[all_ovlp.x[uId].a.a[i].yUid].del)
                 {
                     continue;
                 }
@@ -5237,20 +5491,20 @@ uint32_t just_coverage, hap_cov_t *cov, uint32_t collect_p_trans)
                 // }
                 
                 if(r < 0) continue;
-                p = asg_arc_pushp(purge_g);
+                p = asg_arc_pushp(pg->pg_h_lev);
                 *p = t;
             }
         }
 
-        asg_cleanup(purge_g);
-		asg_symm(purge_g);
+        asg_cleanup(pg->pg_h_lev);
+		asg_symm(pg->pg_h_lev);
         ///may need to do transitive reduction
-        clean_purge_graph(purge_g, drop_ratio, 1);
+        clean_purge_graph(pg->pg_h_lev, drop_ratio, 1);
 
         // if(debug_enable) print_purge_gfa(ug, purge_g);
         // if(debug_enable) print_all_purge_ovlp(ug, &all_ovlp);
 
-        link_unitigs(purge_g, ug, &all_ovlp, ruIndex, reverse_sources, coverage_cut, read_g, position_index, 
+        link_unitigs(pg->pg_h_lev, ug, &all_ovlp, ruIndex, reverse_sources, coverage_cut, read_g, position_index, 
         &(hap_buf.buf[0].u_buffer), &(hap_buf.buf[0].u_buffer_tailIndex), &(hap_buf.buf[0].u_buffer_prevIndex),
         max_hang, min_ovlp, edge, hap_buf.buf[0].visit, cov);
     }
@@ -5258,28 +5512,25 @@ uint32_t just_coverage, hap_cov_t *cov, uint32_t collect_p_trans)
     for (v = 0; v < all_ovlp.num; v++)
     {
         uId = v;
-        if(purge_g->seq[uId].c == ALTER_LABLE)
+        if(pg->pg_h_lev->seq[uId].c == ALTER_LABLE)
         {
             ug->g->seq[uId].c = ALTER_LABLE;
         }
     }
 
     end_coverage:
-
     uint32_t is_Unitig;
     for (v = 0; v < ruIndex->len; v++)
     {
         get_R_to_U(ruIndex, v, &uId, &is_Unitig);
         if(is_Unitig == 1) ruIndex->index[v] = (uint32_t)-1;
     }
-
     asg_cleanup(nsg);
     destory_hap_overlaps_list(&all_ovlp);
     destory_hap_overlaps_list(&back_all_ovlp);
-    asg_destroy(purge_g);
     if(cov) memset(position_index, -1, sizeof(uint64_t)*read_g->n_seq);
     else free(position_index);
     
     destory_hap_alignment_struct_pip(&hap_buf);
+    destory_p_g_t(&pg);
 }
-
