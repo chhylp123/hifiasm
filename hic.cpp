@@ -2564,8 +2564,31 @@ void dfs_bubble(asg_t *g, kvec_t_u32_warp* stack, kvec_t_u32_warp* result, uint3
     }
 }
 
+uint32_t get_unitig_het_arb(ma_utg_t* u, uint8_t *r_het_flag, uint32_t m_het_label, uint32_t p_het_label, uint32_t n_het_label)
+{
+    uint32_t k, rId;
+    uint32_t het_occ, hom_occ;
+    for (k = 0, het_occ = hom_occ = 0; k < u->n; k++)
+    {
+        rId = u->a[k]>>33;
+        if((r_het_flag[rId] & P_HET)) return m_het_label;
+        if((r_het_flag[rId] & C_HET) || (r_het_flag[rId] & P_HET))
+        {
+            het_occ++;
+        }
+        else
+        {
+            hom_occ++;
+        }
+    }
+
+    if((het_occ+hom_occ) == 0) return n_het_label; ///hom
+    if(het_occ > ((het_occ+hom_occ)*0.8)) return m_het_label; ///must het
+    if(het_occ >= hom_occ) return p_het_label; ///potential het
+    return n_het_label; ///hom
+}
 void update_bub_b_s_idx(bubble_type* bub);
-void identify_bubbles(ma_ug_t* ug, bubble_type* bub, uint8_t *het_flag)
+void identify_bubbles(ma_ug_t* ug, bubble_type* bub, uint8_t *r_het_flag)
 {
     asg_cleanup(ug->g);
     if (!ug->g->is_symm) asg_symm(ug->g);
@@ -2586,16 +2609,7 @@ void identify_bubbles(ma_ug_t* ug, bubble_type* bub, uint8_t *het_flag)
         memset(bub->b_s_idx.a, -1, bub->b_s_idx.n * sizeof(uint64_t));
 
         CALLOC(bub->index, n_vtx);
-        for (i = 0; i < ug->g->n_seq; i++)
-        {
-            if(ug->g->seq[i].c > 0)
-            {
-                bub->index[i] = (ug->g->seq[i].c << 2);
-                ug->g->seq[i].c = 0;
-            } 
-        }
-
-        
+        for (i = 0; i < ug->g->n_seq; i++) ug->g->seq[i].c = 0;
 
         for (v = 0; v < n_vtx; ++v) 
         {
@@ -2636,7 +2650,6 @@ void identify_bubbles(ma_ug_t* ug, bubble_type* bub, uint8_t *het_flag)
                         if((result.a.n + 3) != b.b.n && (result.a.n + 2) != b.b.n) break;
                     }
                 }
-                
 
                 if(i == b.b.n)
                 {
@@ -2675,26 +2688,11 @@ void identify_bubbles(ma_ug_t* ug, bubble_type* bub, uint8_t *het_flag)
         kv_push(uint32_t, bub->num, bub->list.n);
         free(b.a); free(b.S.a); free(b.T.a); free(b.b.a); free(b.e.a);
         bub->f_bub = bub->num.n - 1; ///bub->s_bub = bub->num.n - 1;
-
-        for (i = 0; i < ug->g->n_seq; i++)
-        {
-            if((bub->index[i]>>2) == 0) 
-            {
-                bub->index[i] = (uint32_t)-1; ///hom
-            }
-            else
-            {
-                if((bub->index[i]>>2) == 1) 
-                {
-                    bub->index[i] = P_het(*bub); ///potential het
-                }
-                else 
-                {
-                    bub->index[i] = M_het(*bub); ///must het
-                }
-            }         
-        }
-
+        
+       for (i = 0; i < ug->g->n_seq; i++)
+       {
+           bub->index[i] = get_unitig_het_arb(&(ug->u.a[i]), r_het_flag, M_het(*bub), P_het(*bub), (uint32_t)-1);
+       }
 
         for (i = 0; i < bub->f_bub; i++)
         {
@@ -2747,13 +2745,6 @@ void identify_bubbles(ma_ug_t* ug, bubble_type* bub, uint8_t *het_flag)
         for (i = 0; i < ug->g->n_seq; i++)
         {
             if(bub->index[i] == M_het(*bub)) bub->index[i] = P_het(*bub);
-            if(bub->index[i] > P_het(*bub))
-            {
-                if(het_flag && het_flag[i])
-                {
-                    bub->index[i] = P_het(*bub);
-                }
-            }
         }
     }
     else
@@ -13223,7 +13214,7 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx)
     bub.round_id = 0; bub.n_round = 2;
     for (bub.round_id = 0; bub.round_id < bub.n_round; bub.round_id++)
     {
-        identify_bubbles(idx->ug, &bub, idx->cov->t_ch->is_het);
+        identify_bubbles(idx->ug, &bub, idx->cov->t_ch->is_r_het);
         if(bub.round_id == 0)
         {
             collect_hc_links(sl.idx, &sl.hits, &link, &bub, &M);

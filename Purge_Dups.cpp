@@ -114,7 +114,7 @@ typedef struct {
     uint32_t baseBeg, baseEnd;
     uint32_t nodeBeg, nodeEnd;
     uint32_t h_lev_idx;
-    uint32_t b_ug_id, c_ug_id;
+    uint32_t h_status, c_ug_id;
 }p_node_t;
 
 typedef struct {
@@ -3303,10 +3303,6 @@ double filter_rate)
     /*******************************for debug************************************/
 
 
-
-
-
-
     for (v = 0; v < all_ovlp->num; v++)
     {
         uId = v;
@@ -3324,7 +3320,7 @@ double filter_rate)
                 ovlp = ((MIN(qe, ae) >= MAX(qs, as))? MIN(qe, ae) - MAX(qs, as) + 1 : 0);
                 if(homLen + hetLen > 0 && ovlp == 0) break;
                 if(ovlp == 0) continue;
-                if(cov->t_ch->is_het[a[k].b_ug_id>>1] == 0)
+                if(a[k].h_status == N_HET)
                 {
                     homLen += ovlp;
                 } 
@@ -3354,7 +3350,7 @@ double filter_rate)
                 ovlp = ((MIN(te, ae) >= MAX(ts, as))? MIN(te, ae) - MAX(ts, as) + 1 : 0);
                 if(homLen + hetLen > 0 && ovlp == 0) break;
                 if(ovlp == 0) continue;
-                if(cov->t_ch->is_het[a[k].b_ug_id>>1] == 0)
+                if(a[k].h_status == N_HET)
                 {
                     homLen += ovlp;
                 } 
@@ -5187,10 +5183,10 @@ uint32_t just_coverage, hap_cov_t *cov, uint32_t collect_p_trans)
     destory_hap_alignment_struct_pip(&hap_buf);
 }
 
-void debug_p_g_t(p_g_t* pg, asg_t *read_g)
+void debug_p_g_t(p_g_t* pg, hap_cov_t *cov, asg_t *read_g)
 {
     fprintf(stderr, "----------[M::%s]----------\n", __func__);
-    uint32_t i, offset, v, sid, eid, spos, epos, puid, occ;
+    uint32_t i, offset, v, sid, eid, spos, epos, p_status, p_uid, occ;
     p_node_t *t = NULL;
     ma_utg_t *u = NULL;
     p_node_t *a = NULL;
@@ -5207,7 +5203,7 @@ void debug_p_g_t(p_g_t* pg, asg_t *read_g)
     }
     
 
-    for (v = 0, puid = (uint32_t)-1; v < pg->pg_het_node.n; v++)
+    for (v = 0, p_status = (uint32_t)-1, p_uid = (uint32_t)-1; v < pg->pg_het_node.n; v++)
     {
         t = &(pg->pg_het_node.a[v]);
         sid = t->nodeBeg;
@@ -5217,9 +5213,12 @@ void debug_p_g_t(p_g_t* pg, asg_t *read_g)
         // fprintf(stderr, "sid: %u, eid: %u, spos: %u, epos: %u, t->b_ug_id: %u\n", 
         //                                                 sid, eid, spos, epos, (uint32_t)t->b_ug_id);
         // fprintf(stderr, "pg->pg_het_node.n: %u\n", (uint32_t)pg->pg_het_node.n);
-        if(puid == t->b_ug_id) fprintf(stderr, "ERROR-(-1)\n");
-        if(t->b_ug_id == (uint32_t)-1) fprintf(stderr, "ERROR-(-2)\n");
-        puid = t->b_ug_id;
+        if(p_uid == t->c_ug_id && p_status == t->h_status)
+        {
+            fprintf(stderr, "ERROR-(-1)\n");
+        } 
+        p_status = t->h_status;
+        p_uid = t->c_ug_id;
 
         u = &(pg->ug->u.a[t->c_ug_id]);
         ///fprintf(stderr, "u->n: %u, sid: %u, eid: %u\n", (uint32_t)u->n, sid, eid);
@@ -5242,14 +5241,45 @@ void debug_p_g_t(p_g_t* pg, asg_t *read_g)
                 }
             }
             offset += (uint32_t)u->a[i];
+            if(i >= sid && i <= eid)
+            {
+                if((!!cov->t_ch->is_r_het[u->a[i]>>33]) != t->h_status)
+                {
+                    fprintf(stderr, "ERROR-(-3): is_r_het: %u, h_status: %u\n", cov->t_ch->is_r_het[u->a[i]>>33], t->h_status);
+                }
+            }
         }
     }
-    
-    
 }
 
 
-p_g_t *init_p_g_t(ma_ug_t *ug, hap_cov_t *cov, asg_t *read_g)
+void print_p_g_t_interval(p_g_t* pg, hap_cov_t *cov)
+{
+    fprintf(stderr, "----------[M::%s]----------\n", __func__);
+    uint32_t i, v, sid, eid;
+    p_node_t *t = NULL;
+    ma_utg_t *u = NULL;
+
+    for (v = 0; v < pg->pg_het_node.n; v++)
+    {
+        t = &(pg->pg_het_node.a[v]);
+        sid = t->nodeBeg;
+        eid = t->nodeEnd;
+
+        u = &(pg->ug->u.a[t->c_ug_id]);
+        fprintf(stderr, "\nu->n=%u, sid=%u, eid=%u, h_status=%u\n", 
+                                                (uint32_t)u->n, sid, eid, t->h_status);
+        for (i = sid; i <= eid; i++)
+        {
+            fprintf(stderr, "id:i:%u------>utg%.6ul\n", 
+                        (uint32_t)(u->a[i]>>33), (get_origin_uid(u->a[i]>>32, cov->t_ch)>>1)+1);
+        }
+    }
+    fprintf(stderr, "----------[M::%s]----------\n", __func__);
+}
+
+/**
+p_g_t *init_p_g_t_back(ma_ug_t *ug, hap_cov_t *cov, asg_t *read_g)
 {
     uint32_t v, uId, k_uId, l_uid, k, l, offset, l_pos, g_beg_idx, occ, ovlp, tLen, zLen;
     p_g_t *pg = NULL; CALLOC(pg, 1);
@@ -5353,6 +5383,99 @@ p_g_t *init_p_g_t(ma_ug_t *ug, hap_cov_t *cov, asg_t *read_g)
     }
     asg_cleanup(pg->pg_het);
     ///debug_p_g_t(pg, read_g);
+
+    return pg;
+}
+**/
+
+p_g_t *init_p_g_t(ma_ug_t *ug, hap_cov_t *cov, asg_t *read_g)
+{
+    uint32_t v, uId, k, l, offset, l_pos, g_beg_idx, occ, ovlp, tLen, zLen;
+    p_g_t *pg = NULL; CALLOC(pg, 1);
+    pg->ug = ug;
+    asg_t* nsg = pg->ug->g;
+    ma_utg_t *u = NULL;
+    p_node_t *t = NULL, *z = NULL;
+    asg_arc_t *e = NULL;
+    p_g_in_t *x = NULL;
+    pg->pg_het = asg_init();
+    pg->pg_h_lev = asg_init();
+    kv_init(pg->pg_het_node);
+    kv_init(pg->pg_h_lev_idx);
+
+    for (v = 0; v < nsg->n_seq; v++)
+    {
+        uId = v;
+        if(nsg->seq[uId].del || nsg->seq[uId].c == ALTER_LABLE)
+        {
+            asg_seq_set(pg->pg_h_lev, uId, 0, 1);
+            pg->pg_h_lev->seq[uId].c = ALTER_LABLE;
+            continue;
+        } 
+        
+        asg_seq_set(pg->pg_h_lev, uId, ug->u.a[uId].len, 0);
+        pg->pg_h_lev->seq[uId].c = PRIMARY_LABLE;
+    }
+
+    for (v = 0; v < nsg->n_seq; v++)
+    {
+        uId = v;
+        if(nsg->seq[uId].del || nsg->seq[uId].c == ALTER_LABLE) continue;
+
+        u = &(ug->u.a[uId]);
+        g_beg_idx = pg->pg_het_node.n;
+        ///fprintf(stderr, "\n+v: %u, pg->pg_het_node.n: %u\n", v, (uint32_t)pg->pg_het_node.n);
+        for (k = 1, l = 0, offset = 0, l_pos = 0; k <= u->n; ++k) 
+        {   
+            ///if(k < u->n && cov->t_ch->is_r_het[u->a[k]>>33] == 0) fprintf(stderr, "sbsbs-uId=%u\n", uId);
+            if (k == u->n || (!!cov->t_ch->is_r_het[u->a[k]>>33]) != (!!cov->t_ch->is_r_het[u->a[l]>>33]))
+            {
+                kv_pushp(p_node_t, pg->pg_het_node, &t);
+                t->c_ug_id = uId;
+                t->h_status = (!!cov->t_ch->is_r_het[u->a[l]>>33]);
+                t->baseBeg = l_pos;
+                t->baseEnd = offset + read_g->seq[u->a[k-1]>>33].len - 1;
+                t->nodeBeg = l;
+                t->nodeEnd = k - 1;
+                ///if(t->b_ug_id == (uint32_t)-1) fprintf(stderr, "xxxx\n");
+                asg_seq_set(pg->pg_het, pg->pg_het_node.n-1, t->baseEnd+1-t->baseBeg, 0);
+                ///fprintf(stderr, "l: %u, k: %u, u->n: %u, t->h_status: %u\n", l, k, u->n, t->h_status);
+                l = k;
+                l_pos = offset + (uint32_t)u->a[k-1];
+            }
+            offset += (uint32_t)u->a[k-1];
+        }
+
+        occ = pg->pg_het_node.n - g_beg_idx;
+        kv_pushp(p_g_in_t, pg->pg_h_lev_idx, &x);
+        x->beg = g_beg_idx; x->occ = occ;
+        ///fprintf(stderr, "-v: %u, pg->pg_het_node.n: %u\n", v, (uint32_t)pg->pg_het_node.n);
+        
+        if(occ > 1)
+        {
+            for (k = g_beg_idx; (k + 1) < pg->pg_het_node.n; ++k) 
+            {
+                t = &(pg->pg_het_node.a[k]); tLen = t->baseEnd + 1 - t->baseBeg;
+                z = &(pg->pg_het_node.a[k+1]); zLen = z->baseEnd + 1 - z->baseBeg;
+
+                ovlp = ((MIN(t->baseEnd, z->baseEnd) >= MAX(t->baseBeg, z->baseBeg))? 
+                                MIN(t->baseEnd, z->baseEnd) - MAX(t->baseBeg, z->baseBeg) + 1 : 0);
+
+                e = asg_arc_pushp(pg->pg_het);
+                e->ol = ovlp;
+                e->ul = (k<<1); e->ul <<= 32; e->ul += (tLen - ovlp);
+                e->v = ((k+1)<<1); e->del = 0; e->el = e->no_l_indel = e->strong = 1;
+
+                e = asg_arc_pushp(pg->pg_het);
+                e->ol = ovlp;
+                e->ul = ((k+1)<<1)+1; e->ul <<= 32; e->ul += (zLen - ovlp);
+                e->v = (k<<1)+1; e->del = 0; e->el = e->no_l_indel = e->strong = 1;
+            }
+        }
+    }
+    asg_cleanup(pg->pg_het);
+    ///debug_p_g_t(pg, cov, read_g);
+    ///print_p_g_t_interval(pg, cov);
 
     return pg;
 }

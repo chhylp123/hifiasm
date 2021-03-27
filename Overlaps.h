@@ -1053,13 +1053,16 @@ typedef struct{
     kvec_t(uint64_t) enzymes;
 } hc_links;
 
+#define N_HET 0
+#define C_HET 1
+#define P_HET 2
 
 typedef struct{
 	kvec_t(uint32_t) uIDs;
 	kvec_t(uint32_t) iDXs;
 	kvec_t(uint32_t) rescue_hom;
 	uint32_t* u_idx;
-	uint8_t* is_het;
+	uint8_t* is_r_het;
 	uint32_t r_num, u_num;
 	uint32_t chain_num;
 	uint32_t l0_chain, l1_chain;
