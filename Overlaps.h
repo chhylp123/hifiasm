@@ -1013,7 +1013,7 @@ uint32_t is_primary_check, kvec_asg_arc_t_warp* new_rtg_edges, kvec_t_u32_warp* 
 void rescue_missing_overlaps_aggressive(ma_ug_t *i_ug, asg_t *r_g, ma_hit_t_alloc* sources, ma_sub_t *coverage_cut,
 R_to_U* ruIndex, int max_hang, int min_ovlp, uint32_t is_bubble_check, uint32_t is_primary_check, kvec_asg_arc_t_warp* new_rtg_edges, bub_label_t* b_mask_t);
 void all_to_all_deduplicate(ma_ug_t* ug, asg_t* read_g, ma_sub_t* coverage_cut, 
-ma_hit_t_alloc* sources, uint8_t postive_flag, float drop_rate, ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, float double_check_rate);
+ma_hit_t_alloc* sources, uint8_t postive_flag, float drop_rate, ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, float double_check_rate, int non_tig_occ);
 void drop_semi_circle(ma_ug_t *ug, asg_t* nsg, asg_t* read_g, ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex);
 void rescue_wrong_overlaps_to_unitigs(ma_ug_t *i_ug, asg_t *r_g,  ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, 
 ma_sub_t *coverage_cut, R_to_U* ruIndex, int max_hang, int min_ovlp, long long bubble_dist, kvec_asg_arc_t_warp* keep_edges, bub_label_t* b_mask_t);
@@ -1056,6 +1056,7 @@ typedef struct{
 #define N_HET 0
 #define C_HET 1
 #define P_HET 2
+#define S_HET 4
 
 typedef struct{
 	kvec_t(uint32_t) uIDs;

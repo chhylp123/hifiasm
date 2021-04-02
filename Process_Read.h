@@ -101,6 +101,7 @@ typedef struct
 #define MIX_TRIO 3
 #define NON_TRIO 4
 #define DROP 5
+#define SET_TRIO 8
 
 typedef struct
 {

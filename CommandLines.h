@@ -3,7 +3,7 @@
 
 #include <pthread.h>
 
-#define HA_VERSION "0.14.2-r317"
+#define HA_VERSION "0.14.2-r320"
 
 #define VERBOSE 0
 
@@ -18,6 +18,7 @@
 #define HA_F_BAN_POST_JOIN   0x100
 #define HA_F_BAN_ASSEMBLY    0x200
 #define HA_F_HIGH_HET        0x400
+#define HA_F_PARTITION       0x800
 
 #define HA_MIN_OV_DIFF       0.02 // min sequence divergence in an overlap
 
@@ -74,6 +75,7 @@ typedef struct {
     int recover_atg_cov_min;
     int recover_atg_cov_max;
     int hom_global_coverage;
+    int hom_global_coverage_set;
     int bed_inconsist_rate;
     int hic_inconsist_rate;
 
@@ -93,6 +95,8 @@ typedef struct {
 	long long mem_buf;
     long long coverage;
     int hap_occ;
+    int polyploidy;
+    int trio_flag_occ_thres;
     
 } hifiasm_opt_t;
 

@@ -32,6 +32,8 @@ static ko_longopt_t long_options[] = {
     { "b-cov",      ko_required_argument, 317 },
     { "h-cov",      ko_required_argument, 318 },
     { "m-rate",      ko_required_argument, 319 },
+    { "b-partition",      ko_no_argument, 320 },
+    { "t-occ",      ko_required_argument, 321 },
 	{ 0, 0, 0 }
 };
 
@@ -87,6 +89,9 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "    -d INT      upper bound of the binned k-mer's frequency [%d]\n", asm_opt->mid_cnt);
 	fprintf(stderr, "    -3 FILE     list of hap1/paternal read names []\n");
 	fprintf(stderr, "    -4 FILE     list of hap2/maternal read names []\n");
+    fprintf(stderr, "    --t-occ     INT\n");
+    fprintf(stderr, "                force remove unitigs with >INT unexpected haplotype-specific reads;\n");
+    fprintf(stderr, "                ignore graph topology; [%d]\n", asm_opt->trio_flag_occ_thres);
 
     fprintf(stderr, "  Purge-dups:\n");
     fprintf(stderr, "    -l INT      purge level. 0: no purging; 1: light; 2/3: aggressive [0 for trio; 2 for unzip]\n");
@@ -96,6 +101,7 @@ void Print_H(hifiasm_opt_t* asm_opt)
                                      asm_opt->purge_overlap_len);
     fprintf(stderr, "    --purge-cov INT\n");
     fprintf(stderr, "                coverage upper bound of Purge-dups [auto]\n");
+
     ///fprintf(stderr, "    --high-het  enable this mode for high heterozygosity sample [experimental, not stable]\n");
     
     fprintf(stderr, "  Hi-C-partition [experimental, not stable]:\n");
@@ -157,6 +163,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->recover_atg_cov_min = -1024;
     asm_opt->recover_atg_cov_max = INT_MAX;
     asm_opt->hom_global_coverage = -1;
+    asm_opt->hom_global_coverage_set = 0;
     asm_opt->bed_inconsist_rate = 70;
     asm_opt->hic_inconsist_rate = 30;
     ///asm_opt->bub_mer_length = 3;
@@ -165,6 +172,8 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->b_high_cov = -1;
     asm_opt->m_rate = 0.75;
     asm_opt->hap_occ = 1;
+    asm_opt->polyploidy = 2;
+    asm_opt->trio_flag_occ_thres = 60;
 }
 
 void destory_enzyme(enzyme* f)
@@ -616,7 +625,11 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
 		else if (c == 306) asm_opt->max_ov_diff_final = atof(opt.arg);
 		else if (c == 307) asm_opt->extract_list = opt.arg;
 		else if (c == 308) asm_opt->extract_iter = atoi(opt.arg);
-        else if (c == 309) asm_opt->hom_global_coverage = atoi(opt.arg);
+        else if (c == 309)
+        {
+            asm_opt->hom_global_coverage = atoi(opt.arg);
+            asm_opt->hom_global_coverage_set = 1;
+        } 
         else if (c == 310)
         {
             char* s = NULL;
@@ -636,6 +649,8 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         else if (c == 317) asm_opt->b_low_cov = atoi(opt.arg);
         else if (c == 318) asm_opt->b_high_cov = atoi(opt.arg);
         else if (c == 319) asm_opt->m_rate = atof(opt.arg);
+        else if (c == 320) asm_opt->flag |= HA_F_PARTITION;
+        else if (c == 321) asm_opt->trio_flag_occ_thres = atoi(opt.arg);
         else if (c == 'l')
         {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
             asm_opt->purge_level_primary = asm_opt->purge_level_trio = atoi(opt.arg);
