@@ -44,12 +44,6 @@ typedef struct {
     uint64_t i;
 }kvec_hap_candidates;
 
-#define SELF_EXIST 0
-#define REVE_EXIST 1
-#define DELETE 2
-#define MIXED 3
-#define FLIP 4
-
 
 typedef struct {
     uint64_t* vote_counting;
@@ -801,10 +795,7 @@ long long* n_y_beg, long long* n_y_end)
 }
 
 
-#define X2Y 0
-#define Y2X 1
-#define XCY 2
-#define YCX 3
+
 uint32_t classify_hap_overlap(long long xBeg, long long xEnd, long long xLen,
 long long yBeg, long long yEnd, long long yLen, long long* r_xBeg, long long* r_xEnd, 
 long long* r_yBeg, long long* r_yEnd)
@@ -3391,10 +3382,23 @@ double filter_rate)
             }
             else
             {
-                kv_pushp(hap_overlaps, all_ovlp->x[tn].a, &y);
-                set_reverse_hap_overlap(y, x, types);
+                x->status = DELETE;
             }
         }
+    }
+
+
+    for (v = 0; v < all_ovlp->num; v++)
+    {
+        uId = v;
+        k = 0;
+        for (i = 0; i < all_ovlp->x[uId].a.n; i++)
+        {
+            if(all_ovlp->x[uId].a.a[i].status == DELETE) continue;
+            all_ovlp->x[uId].a.a[k] = all_ovlp->x[uId].a.a[i];
+            k++;
+        }
+        all_ovlp->x[uId].a.n = k;
     }
 }
 
@@ -5468,12 +5472,8 @@ uint32_t just_coverage, hap_cov_t *cov, uint32_t collect_p_trans)
     ///if(debug_enable) print_all_purge_ovlp(ug, &all_ovlp);
     filter_hap_overlaps_by_length(&all_ovlp, purege_minLen);
 
-    if(collect_p_trans)
-    {
-        pt_solve(&all_ovlp, cov->t_ch, ug, read_g, 0.8, R_INF.trio_flag);
-        goto end_coverage;
-    } 
-    
+    if(asm_opt.polyploidy <= 2) pt_solve(&all_ovlp, cov->t_ch, ug, read_g, 0.8, R_INF.trio_flag);
+    if(collect_p_trans) goto end_coverage;
 
     pg = init_p_g_t(ug, cov, read_g);
     ///normalize_hap_overlaps(&all_ovlp, &back_all_ovlp);
@@ -5508,12 +5508,6 @@ uint32_t just_coverage, hap_cov_t *cov, uint32_t collect_p_trans)
                 
                 r = get_hap_arch(&(all_ovlp.x[uId].a.a[i]), ug->u.a[all_ovlp.x[uId].a.a[i].xUid].len, 
                 ug->u.a[all_ovlp.x[uId].a.a[i].yUid].len, max_hang, asm_opt.max_hang_rate, min_ovlp, &t);
-                
-                // if(all_ovlp.x[uId].a.a[i].xUid == 118 && all_ovlp.x[uId].a.a[i].yUid == 82)
-                // {
-                //     fprintf(stderr, "r: %d\n", r);
-                //     print_hap_paf(ug, &(all_ovlp.x[uId].a.a[i]));
-                // }
                 
                 if(r < 0) continue;
                 p = asg_arc_pushp(pg->pg_h_lev);

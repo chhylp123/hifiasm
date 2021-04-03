@@ -141,7 +141,8 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->number_of_round = 3;
     asm_opt->adapterLen = 0;
     asm_opt->clean_round = 4;
-    asm_opt->small_pop_bubble_size = 100000;
+    ///asm_opt->small_pop_bubble_size = 100000;
+    asm_opt->small_pop_bubble_size = 0;
     asm_opt->large_pop_bubble_size = 10000000;
     asm_opt->min_drop_rate = 0.2;
     asm_opt->max_drop_rate = 0.8;

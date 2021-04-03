@@ -691,6 +691,78 @@ void set_trio_flag(ma_ug_t *ug, asg_t *read_g, uint32_t uID, uint8_t* trio_flag,
 	// }
 }
 
+void filter_ovlp(ma_ug_t *ug, asg_t *read_g, uint32_t uID, hap_overlaps_list* ha, pt_match_t *ma, 
+int8_t *s)
+{
+	pt_match1_t *o = pt_a(*ma, uID);
+	uint32_t n = pt_n(*ma, uID), k, qn, tn;
+	hap_overlaps *p = NULL;
+	int index;
+
+	for (k = 0; k < n; ++k)
+	{
+		qn = o[k].sid[0]; tn = o[k].sid[1]; p = NULL;
+		if((s[qn]*s[tn])!=-1) continue;
+		index = get_specific_hap_overlap(&(ha->x[qn]), qn, tn);
+		if(index != -1 && ha->x[qn].a.a[index].score == (long long)o[k].w)
+		{
+			p = &(ha->x[qn].a.a[index]);
+		}
+		else
+		{
+			index = get_specific_hap_overlap(&(ha->x[tn]), tn, qn);
+			if(index != -1 && ha->x[tn].a.a[index].score == (long long)o[k].w)
+			{
+				p = &(ha->x[tn].a.a[index]);
+			}
+		}
+		if(!p) fprintf(stderr, "ERROR\n");
+		p->status = FLIP;
+	}
+}
+
+void clean_ovlp(ma_ug_t *ug, asg_t *read_g, hap_overlaps_list* ha, pt_g_t *pg, int8_t* s)
+{
+	uint32_t v, i, k, qn, tn, types[4];
+    types[X2Y] = Y2X; types[Y2X] = X2Y; types[XCY] = YCX; types[YCX] = XCY;
+	int index;
+	hap_overlaps *x = NULL, *y = NULL;
+	for (i = 0; i < pg->e->n_seq; ++i) 
+	{
+		filter_ovlp(ug, read_g, i, ha, pg->e, s);
+	}
+
+	for (v = 0; v < ha->num; v++)
+	{
+		for (i = 0; i < ha->x[v].a.n; i++)
+		{
+			qn = ha->x[v].a.a[i].xUid;
+			tn = ha->x[v].a.a[i].yUid;
+			x = &(ha->x[v].a.a[i]);
+			if(x->status != FLIP) continue;
+			index = get_specific_hap_overlap(&(ha->x[tn]), tn, qn);
+			if(index != -1)
+			{
+				y = &(ha->x[tn].a.a[index]);
+				set_reverse_hap_overlap(y, x, types);
+				y->status = FLIP;
+			}
+			if(index == -1) fprintf(stderr, "ERROR\n");
+		}
+	}
+
+	for (v = 0; v < ha->num; v++)
+    {
+        for (i = k = 0; i < ha->x[v].a.n; i++)
+        {
+            if(ha->x[v].a.a[i].status != FLIP) continue;
+            ha->x[v].a.a[k] = ha->x[v].a.a[i];
+            k++;
+        }
+        ha->x[v].a.n = k;
+    }
+}
+
 void pt_solve(hap_overlaps_list* ovlp, trans_chain* t_ch, ma_ug_t *ug, asg_t *read_g, double f_rate, uint8_t* trio_flag)
 {
 	pt_svopt_t opt;
@@ -725,6 +797,8 @@ void pt_solve(hap_overlaps_list* ovlp, trans_chain* t_ch, ma_ug_t *ug, asg_t *re
 		}
 		pg->info.a[i].m[0] = z[0], pg->info.a[i].m[1] = z[1];
 	}
+
+	clean_ovlp(ug, read_g, ovlp, pg, s);
 
 	free(buf);
 	free(s);

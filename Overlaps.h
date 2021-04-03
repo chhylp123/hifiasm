@@ -289,10 +289,11 @@ static inline asg_arc_t *asg_arc_pushp(asg_t *g)
 // set asg_arc_t::del for v->w
 static inline void asg_arc_del(asg_t *g, uint32_t v, uint32_t w, int del)
 {
-	uint32_t i, nv = asg_arc_n(g, v);
+	uint32_t i, nv = asg_arc_n(g, v)/**, found = 0**/;
 	asg_arc_t *av = asg_arc_a(g, v);
 	for (i = 0; i < nv; ++i)
-		if (av[i].v == w) av[i].del = !!del;
+		if (av[i].v == w) av[i].del = !!del/**, found = 1**/;
+	/**if(found == 0) fprintf(stderr, "ERROR\n");**/
 }
 
 // set asg_arc_t::del and asg_seq_t::del to 1 for sequence s and all its associated arcs
@@ -470,6 +471,7 @@ uint64_t* source_index, long long listLen);
 typedef struct {
 	uint64_t len;
 	uint32_t* index;
+	uint8_t* is_het;
 } R_to_U;
 
 void init_R_to_U(R_to_U* x, uint64_t len);

@@ -13,6 +13,17 @@
 #define REAL_ALTER_THRES 0.1
 #define CHAIN_FILTER_RATE 0.7
 
+#define SELF_EXIST 0
+#define REVE_EXIST 1
+#define DELETE 2
+#define MIXED 3
+#define FLIP 4
+
+#define X2Y 0
+#define Y2X 1
+#define XCY 2
+#define YCX 3
+
 typedef struct {
     uint8_t rev;
     uint8_t type;
@@ -53,5 +64,6 @@ ma_sub_t *coverage_cut, int max_hang, int min_ovlp, uint32_t is_collect_trans);
 void destory_hap_cov_t(hap_cov_t **x);
 void chain_trans_ovlp(hap_cov_t *cov, ma_ug_t *ug, asg_t *read_sg, buf_t* xReads, uint32_t targetBaseLen, uint32_t* xEnd);
 int get_specific_hap_overlap(kvec_hap_overlaps* x, uint32_t qn, uint32_t tn);
+void set_reverse_hap_overlap(hap_overlaps* dest, hap_overlaps* source, uint32_t* types);
 
 #endif
