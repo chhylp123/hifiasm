@@ -65,5 +65,6 @@ void destory_hap_cov_t(hap_cov_t **x);
 void chain_trans_ovlp(hap_cov_t *cov, ma_ug_t *ug, asg_t *read_sg, buf_t* xReads, uint32_t targetBaseLen, uint32_t* xEnd);
 int get_specific_hap_overlap(kvec_hap_overlaps* x, uint32_t qn, uint32_t tn);
 void set_reverse_hap_overlap(hap_overlaps* dest, hap_overlaps* source, uint32_t* types);
+void print_hap_paf(ma_ug_t *ug, hap_overlaps* ovlp);
 
 #endif

@@ -13364,6 +13364,11 @@ const char* aln)
 }
 **/
 
+void reduce_trans_chain(hc_links *link)
+{
+    ;
+}
+
 int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx)
 {
     double index_time = yak_realtime();
@@ -13416,28 +13421,28 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx)
     bub.round_id = 0; bub.n_round = 2;
     for (bub.round_id = 0; bub.round_id < bub.n_round; bub.round_id++)
     {
-        fprintf(stderr, "0********bub.round_id: %u(::%.3f)********\n", bub.round_id, yak_realtime());
+        ///fprintf(stderr, "0********bub.round_id: %u(::%.3f)********\n", bub.round_id, yak_realtime());
         identify_bubbles(idx->ug, &bub, idx->cov->t_ch->is_r_het);
-        fprintf(stderr, "1********bub.round_id: %u(::%.3f)********\n", bub.round_id, yak_realtime());
+        ///fprintf(stderr, "1********bub.round_id: %u(::%.3f)********\n", bub.round_id, yak_realtime());
         if(bub.round_id == 0)
         {
-            fprintf(stderr, "2********bub.round_id: %u(::%.3f)********\n", bub.round_id, yak_realtime());
+            ///fprintf(stderr, "2********bub.round_id: %u(::%.3f)********\n", bub.round_id, yak_realtime());
             collect_hc_links(sl.idx, &sl.hits, &link, &bub, &M);
-            fprintf(stderr, "3********bub.round_id: %u(::%.3f)********\n", bub.round_id, yak_realtime());
+            ///fprintf(stderr, "3********bub.round_id: %u(::%.3f)********\n", bub.round_id, yak_realtime());
             collect_hc_reverse_links(&link, idx->ug, &bub);
-            fprintf(stderr, "4********bub.round_id: %u(::%.3f)********\n", bub.round_id, yak_realtime());
+            ///fprintf(stderr, "4********bub.round_id: %u(::%.3f)********\n", bub.round_id, yak_realtime());
         }
         init_hic_p((ha_ug_index*)sl.idx, &sl.hits, &link, &bub, &back_hc_edge, &M, &hap, 0);
-        fprintf(stderr, "5********bub.round_id: %u(::%.3f)********\n", bub.round_id, yak_realtime());
+        ///fprintf(stderr, "5********bub.round_id: %u(::%.3f)********\n", bub.round_id, yak_realtime());
         ///init_hic_p_new((ha_ug_index*)sl.idx, &sl.hits, idx->link, &bub, &back_hc_edge, &M);
         reset_H_partition(&hap, (bub.round_id == 0? 1 : 0));
-        fprintf(stderr, "6********bub.round_id: %u(::%.3f)********\n", bub.round_id, yak_realtime());
+        ///fprintf(stderr, "6********bub.round_id: %u(::%.3f)********\n", bub.round_id, yak_realtime());
         init_contig_partition(&hap, idx, &bub, &link);
-        fprintf(stderr, "7********bub.round_id: %u(::%.3f)********\n", bub.round_id, yak_realtime());
+        ///fprintf(stderr, "7********bub.round_id: %u(::%.3f)********\n", bub.round_id, yak_realtime());
         phasing_improvement(&hap, &(hap.g_p), idx, &bub, &link);
-        fprintf(stderr, "8********bub.round_id: %u(::%.3f)********\n", bub.round_id, yak_realtime());
+        ///fprintf(stderr, "8********bub.round_id: %u(::%.3f)********\n", bub.round_id, yak_realtime());
         label_unitigs(&(hap.g_p), idx->ug);
-        fprintf(stderr, "9********bub.round_id: %u(::%.3f)********\n", bub.round_id, yak_realtime());
+        ///fprintf(stderr, "9********bub.round_id: %u(::%.3f)********\n", bub.round_id, yak_realtime());
         ///print_hc_links(idx->link, 0, &hap);
     }
 

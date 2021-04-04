@@ -721,6 +721,7 @@ int8_t *s)
 	}
 }
 
+
 void clean_ovlp(ma_ug_t *ug, asg_t *read_g, hap_overlaps_list* ha, pt_g_t *pg, int8_t* s)
 {
 	uint32_t v, i, k, qn, tn, types[4];
@@ -751,11 +752,35 @@ void clean_ovlp(ma_ug_t *ug, asg_t *read_g, hap_overlaps_list* ha, pt_g_t *pg, i
 		}
 	}
 
+
+	// for (v = 0; v < ha->num; v++)
+    // {
+    //     for (i = k = 0; i < ha->x[v].a.n; i++)
+    //     {
+    //         if(ha->x[v].a.a[i].status != FLIP)
+	// 		{
+	// 			if(s[ha->x[v].a.a[i].xUid]*s[ha->x[v].a.a[i].yUid] == -1)
+	// 			{
+	// 				fprintf(stderr, "\ns[0]=%d, s[1]=%d\n", s[ha->x[v].a.a[i].xUid], s[ha->x[v].a.a[i].yUid]);
+	// 				print_hap_paf(ug, &(ha->x[v].a.a[i]));
+	// 			}
+				
+	// 			continue;
+	// 		} 
+			
+			
+    //         ha->x[v].a.a[k] = ha->x[v].a.a[i];
+    //         k++;
+    //     }
+    //     ha->x[v].a.n = k;
+    // }
+
 	for (v = 0; v < ha->num; v++)
     {
         for (i = k = 0; i < ha->x[v].a.n; i++)
         {
             if(ha->x[v].a.a[i].status != FLIP) continue;
+
             ha->x[v].a.a[k] = ha->x[v].a.a[i];
             k++;
         }
@@ -775,28 +800,31 @@ void pt_solve(hap_overlaps_list* ovlp, trans_chain* t_ch, ma_ug_t *ug, asg_t *re
 	pt_cc(pg->e);
 	s = pt_solve_core(&opt, pg->e);
 
+	if(asm_opt.flag & HA_F_PARTITION)
+	{
+		MALLOC(buf, pg->e->ma.n); // FIXME: this is over-allocation for convenience
+		for (i = 0; i < pg->e->n_seq; ++i) {
+			uint64_t z[2];
+			uint32_t o = pg->e->idx.a[i] >> 32;
+			uint32_t n = (uint32_t)pg->e->idx.a[i], j;
 
-	MALLOC(buf, pg->e->ma.n); // FIXME: this is over-allocation for convenience
-	for (i = 0; i < pg->e->n_seq; ++i) {
-		uint64_t z[2];
-		uint32_t o = pg->e->idx.a[i] >> 32;
-		uint32_t n = (uint32_t)pg->e->idx.a[i], j;
+			set_trio_flag(ug, read_g, i, trio_flag, t_ch, ovlp, pg->e, s[i]);
 
-		set_trio_flag(ug, read_g, i, trio_flag, t_ch, ovlp, pg->e, s[i]);
-
-		pg->info.a[i].s = s[i];
-		for (j = 0; j < n; ++j) {
-			const pt_match1_t *m = &pg->e->ma.a[o + j];
-			buf[j] = (uint64_t)((uint32_t)-1 - m->w) << 32 | (o + j);
+			pg->info.a[i].s = s[i];
+			for (j = 0; j < n; ++j) {
+				const pt_match1_t *m = &pg->e->ma.a[o + j];
+				buf[j] = (uint64_t)((uint32_t)-1 - m->w) << 32 | (o + j);
+			}
+			radix_sort_gfa64(buf, buf + n);
+			for (j = 0, z[0] = z[1] = 0; j < n; ++j) {
+				const pt_match1_t *m = &pg->e->ma.a[(uint32_t)buf[j]];
+				if (s[m->sid[1]] > 0) z[0] += m->w;
+				else if (s[m->sid[1]] < 0) z[1] += m->w;
+			}
+			pg->info.a[i].m[0] = z[0], pg->info.a[i].m[1] = z[1];
 		}
-		radix_sort_gfa64(buf, buf + n);
-		for (j = 0, z[0] = z[1] = 0; j < n; ++j) {
-			const pt_match1_t *m = &pg->e->ma.a[(uint32_t)buf[j]];
-			if (s[m->sid[1]] > 0) z[0] += m->w;
-			else if (s[m->sid[1]] < 0) z[1] += m->w;
-		}
-		pg->info.a[i].m[0] = z[0], pg->info.a[i].m[1] = z[1];
 	}
+	
 
 	clean_ovlp(ug, read_g, ovlp, pg, s);
 

@@ -1133,7 +1133,7 @@ inline uint32_t get_origin_uid(uint32_t v, trans_chain* t_ch)
     if(t_ch->u_idx[v>>1] == (uint32_t)-1) return (uint32_t)-1;
     return ((t_ch->u_idx[v>>1]>>1)<<1) + ((t_ch->u_idx[v>>1]^v)&1);
 }
-
+void get_chain_trans(trans_chain* t_ch, uint32_t id, uint32_t** x, uint32_t* x_occ, uint32_t** y, uint32_t* y_occ);
 
 #define JUNK_COV 5
 #define DISCARD_RATE 0.8
