@@ -3796,15 +3796,6 @@ void write_hc_links(hc_links* link, const char *fn)
     
     fwrite(&link->enzymes.n, sizeof(link->enzymes.n), 1, fp);
     fwrite(link->enzymes.a, sizeof(uint64_t), link->enzymes.n, fp);
-    // fwrite(&link->r_num, sizeof(link->r_num), 1, fp);
-    // fwrite(link->u_idx, sizeof(uint32_t), 1, fp);
-    
-    // fwrite(&(link->bed.n), sizeof(link->bed.n), 1, fp);
-    // for (k = 0; k < link->bed.n; k++)
-    // {
-    //     fwrite(&(link->bed.a[k].n), sizeof(link->bed.a[k].n), 1, fp);
-    //     fwrite(link->bed.a[k].a, sizeof(uint64_t)*link->bed.a[k].n, 1, fp);
-    // }
     
     fclose(fp);
     free(buf);
@@ -3844,21 +3835,6 @@ int load_hc_links(hc_links* link, const char *fn)
     flag += fread(&link->enzymes.n, sizeof(link->enzymes.n), 1, fp);
     link->enzymes.m = link->enzymes.n; MALLOC(link->enzymes.a, link->enzymes.n);
     flag += fread(link->enzymes.a, sizeof(uint64_t), link->enzymes.n, fp);
-    // fread(&link->r_num, sizeof(link->r_num), 1, fp);
-    // MALLOC(link->u_idx, link->r_num);
-    // fread(link->u_idx, sizeof(uint32_t), 1, fp);
-
-    // kv_init(link->bed);
-    // flag += fread(&(link->bed.n), sizeof(link->bed.n), 1, fp);
-    // link->bed.m = link->bed.n; CALLOC(link->bed.a, link->bed.n);
-    // for (k = 0; k < link->bed.n; k++)
-    // {
-    //     flag += fread(&(link->bed.a[k].n), sizeof(link->bed.a[k].n), 1, fp);
-    //     link->bed.a[k].m = link->bed.a[k].n; MALLOC(link->bed.a[k].a, link->bed.a[k].n);
-    //     flag += fread(link->bed.a[k].a, sizeof(uint64_t)*link->bed.a[k].n, 1, fp);
-    // }
-
-
 
     fclose(fp);
     free(buf);

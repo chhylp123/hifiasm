@@ -4326,50 +4326,6 @@ hap_cov_t *cov)
     }
 }
 
-/**
-void collect_reverse_unitig_pair(hc_links* link, ma_ug_t *ug, hap_overlaps* t)
-{
-    uint32_t i = 0, k = 0, rId_0, rId_1, pre_0, pre_1, b_0 = t->xUid, b_1 = t->yUid;
-    uint64_t d = RC_2;
-    ma_utg_t* u_b_0 = &(ug->u.a[b_0]);
-    ma_utg_t* u_b_1 = &(ug->u.a[b_1]);
-    if(u_b_0->n == 0) return;
-    if(u_b_1->n == 0) return;
-
-    for (i = t->x_beg_id, pre_0 = (uint32_t)-1; i < t->x_end_id; i++)
-    {
-        rId_0 = u_b_0->a[i]>>33;
-        if(link->u_idx[rId_0] == (uint32_t)-1) continue;
-        if(pre_0 == link->u_idx[rId_0]) continue;
-        pre_0 = link->u_idx[rId_0];
-        
-        for (k = t->y_beg_id, pre_1  = (uint32_t)-1; k < t->y_end_id; k++)
-        {
-            rId_1 = u_b_1->a[k]>>33;
-            if(link->u_idx[rId_1] == (uint32_t)-1) continue;
-            if(pre_1 == link->u_idx[rId_1]) continue;
-            pre_1 = link->u_idx[rId_1];
-            push_hc_edge(&(link->a.a[pre_0]), pre_1, 1, 1, &d);
-            push_hc_edge(&(link->a.a[pre_1]), pre_0, 1, 1, &d);
-        }
-    }
-}
-
-
-void collect_reverse_unitigs_purge(buf_t* b_0, hc_links* link, ma_ug_t *ug, hap_overlaps_list* all_ovlp)
-{
-    if(b_0->b.n <= 1) return;
-    uint32_t k;
-    int index = 0;
-    for (k = 0; k < b_0->b.n - 1; k++)
-    {
-        index = get_specific_hap_overlap(&(all_ovlp->x[b_0->b.a[k]>>1]), b_0->b.a[k]>>1, b_0->b.a[k+1]>>1);
-        if(index == -1) continue;
-        collect_reverse_unitig_pair(link, ug, &(all_ovlp->x[b_0->b.a[k]>>1].a.a[index]));
-    }
-}
-**/
-
 void print_het_ovlp(p_g_t *pg, ma_ug_t *ug, hap_overlaps_list* ha, double filter_rate)
 {
     uint32_t v, i, k, n_vtx = pg->pg_h_lev->n_seq * 2, nv, qn, qs, qe, tn, ts, te, as, ae, occ, ovlp, hetLen, homLen;
@@ -4529,7 +4485,6 @@ void print_het_ovlp(p_g_t *pg, ma_ug_t *ug, hap_overlaps_list* ha, double filter
         }
     }
 }
-
 
 void link_unitigs(asg_t *purge_g, ma_ug_t *ug, hap_overlaps_list* all_ovlp,
 R_to_U* ruIndex, ma_hit_t_alloc* reverse_sources, ma_sub_t *coverage_cut, asg_t *read_g, 
@@ -5543,9 +5498,9 @@ void collect_purge_trans_cov(ma_ug_t *ug, hap_overlaps_list* ha, trans_chain* t_
     {
         for (i = 0; i < ha->x[v].a.n; i++)
         {
-            if(x->yUid < x->xUid) continue;
             x = &(ha->x[v].a.a[i]);
-
+            if(x->yUid < x->xUid) continue;
+            
             q = &(ug->u.a[x->xUid]); s = x->x_beg_id; e = x->x_end_id; o = 0;
             for (k = s, p_uId = (uint32_t)-1; k < e; k++)
             {
@@ -5755,7 +5710,6 @@ uint32_t just_coverage, hap_cov_t *cov, uint32_t collect_p_trans)
     destory_hap_overlaps_list(&back_all_ovlp);
     if(cov) memset(position_index, -1, sizeof(uint64_t)*read_g->n_seq);
     else free(position_index);
-    
     destory_hap_alignment_struct_pip(&hap_buf);
     destory_p_g_t(&pg);
 }

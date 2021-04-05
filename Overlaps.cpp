@@ -12115,31 +12115,23 @@ bub_label_t* b_mask_t)
     ma_ug_t *copy_ug = copy_untig_graph(ug);    
     ///asm_opt.purge_overlap_len = asm_opt.purge_overlap_len_hic;
     ///asm_opt.purge_simi_thres = asm_opt.purge_simi_rate_hic;
-    fprintf(stderr, "sb0sb\n");
     adjust_utg_by_primary(&copy_ug, copy_sg, TRIO_THRES, sources, reverse_sources, coverage_cut, 
     tipsLen, tip_drop_ratio, stops_threshold, ruIndex, chimeric_rate, drop_ratio, 
     max_hang, min_ovlp, &new_rtg_edges, &cov, b_mask_t, 1);
-    fprintf(stderr, "sb1sb\n");
     ma_ug_destroy(copy_ug);
     asg_destroy(copy_sg);
 
-    fprintf(stderr, "sb2sb\n");
     ma_ug_print_bed(ug, sg, &R_INF, coverage_cut, sources, &new_rtg_edges, 
             max_hang, min_ovlp, asm_opt.hic_inconsist_rate, NULL, NULL, cov);
-    fprintf(stderr, "sb3sb\n");
 
 
 
 
-    fprintf(stderr, "sb4sb\n");
     new_rtg_edges.a.n = 0;
     ma_ug_seq(ug, sg, &R_INF, coverage_cut, sources, &new_rtg_edges, max_hang, min_ovlp);
     ///classify_untigs(ug, sg, coverage_cut, sources, reverse_sources, ruIndex, &new_rtg_edges, max_hang, min_ovlp);
-    fprintf(stderr, "sb5sb\n");
     
     hic_analysis(ug, sg, cov);
-
-    fprintf(stderr, "sb6sb\n");
 
     destory_hap_cov_t(&cov);
     ma_ug_destroy(ug);
@@ -28895,11 +28887,6 @@ void flat_bubbles(asg_t *sg, uint8_t* r_het)
                 {
                     asg_bub_pop1_primary_trio(ug->g, NULL, v, tLen, &b, (uint32_t)-1, (uint32_t)-1, 1, NULL, NULL, NULL, 0);
                     n_pop++;
-                    // if(ug->g->seq[2031].c == ALTER_LABLE)
-                    // {
-                    //     fprintf(stderr, "######round: %u, s-utg%.6ul, e-utg%.6ul\n", 
-                    //                             round, (v>>1)+1, (b.S.a[0]>>1)+1);
-                    // }
                 }
             }
         }
