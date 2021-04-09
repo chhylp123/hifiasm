@@ -99,6 +99,30 @@ long long get_specific_overlap(ma_hit_t_alloc* x, uint32_t qn, uint32_t tn);
 
 
 typedef struct {
+	uint32_t qSpre, qEpre, qScur, qEcur, qn;///[qSp, qEp) && [qSn, qEn]
+	uint32_t tSpre, tEpre, tScur, tEcur, tn;
+} u_trans_hit_t;
+
+typedef struct {
+	size_t n, m;
+	u_trans_hit_t* a;
+} kv_u_trans_hit_t;
+
+
+
+typedef struct {
+	uint32_t qs, qe, qn;
+	uint32_t ts, te, tn;
+	uint32_t nw;
+	uint8_t f:7, rev:1;
+} u_trans_t;
+
+typedef struct {
+	size_t n, m;
+	u_trans_t* a;
+} kv_u_trans_t;
+
+typedef struct {
 	uint64_t ul;
 	uint32_t v;
 	uint32_t ol:31, del:1;
@@ -1060,11 +1084,23 @@ typedef struct{
 #define P_HET 2
 #define S_HET 4
 
+typedef struct {
+	uint32_t p_x_p, p_y_p, p_x, p_y;
+	uint32_t c_x_p, c_y_p;
+	uint8_t c_rev;
+} ca_buf_t;
+
+typedef struct {
+	size_t n, m;
+	ca_buf_t* a;
+} kv_ca_buf_t;
+
 typedef struct{
 	kvec_t(uint32_t) uIDs;
 	kvec_t(uint32_t) iDXs;
 	kvec_t(uint32_t) rescue_hom;
-	uint32_t* u_idx;
+	uint32_t* rUidx;
+	uint64_t* rUpos;
 	uint8_t* is_r_het;
 	uint32_t r_num, u_num;
 	uint32_t chain_num;
@@ -1072,7 +1108,11 @@ typedef struct{
 	kvec_t(bed_in) bed;
 	kvec_t(uint32_t) topo_buf;
 	kvec_t(uint32_t) topo_res;
-	buf_t b_buf;
+	buf_t b_buf_0, b_buf_1;
+	uint32_t* uLen;
+	kv_u_trans_t k_trans;
+	kv_u_trans_hit_t k_t_b;
+	kv_ca_buf_t c_buf;
 }trans_chain;
 
 typedef struct {
@@ -1128,10 +1168,12 @@ inline int inter_interval(int a_s, int a_e, int b_s, int b_e, int* i_s, int* i_e
     return 1;
 }
 
-inline uint32_t get_origin_uid(uint32_t v, trans_chain* t_ch)
+inline uint32_t get_origin_uid(uint32_t v, trans_chain* t_ch, uint32_t *off, uint32_t *idx)
 {
-    if(t_ch->u_idx[v>>1] == (uint32_t)-1) return (uint32_t)-1;
-    return ((t_ch->u_idx[v>>1]>>1)<<1) + ((t_ch->u_idx[v>>1]^v)&1);
+	if(off) (*off) = (t_ch->rUpos[v>>1]>>32);
+	if(idx) (*idx) = (uint32_t)(t_ch->rUpos[v>>1]);
+    if(t_ch->rUpos[v>>1] == (uint64_t)-1) return (uint32_t)-1;
+    return (uint32_t)(((t_ch->rUidx[v>>1]>>1)<<1) + ((t_ch->rUidx[v>>1]^v)&1));
 }
 void get_chain_trans(trans_chain* t_ch, uint32_t id, uint32_t** x, uint32_t* x_occ, uint32_t** y, uint32_t* y_occ);
 

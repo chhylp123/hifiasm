@@ -24,6 +24,18 @@
 #define XCY 2
 #define YCX 3
 
+#define Cal_Off(OFF) ((long long)((uint32_t)((OFF)>>32)) - (long long)((uint32_t)((OFF))))
+#define Get_xOff(OFF) ((long long)((uint32_t)((OFF)>>32)))
+#define Get_yOff(OFF) ((long long)((uint32_t)((OFF))))
+#define Get_match(x) ((x).weight)
+#define Get_total(x) ((x).index_beg)
+#define Get_type(x) ((x).index_end)
+#define Get_x_beg(x) ((x).x_beg_pos)
+#define Get_x_end(x) ((x).x_end_pos)
+#define Get_y_beg(x) ((x).y_beg_pos)
+#define Get_y_end(x) ((x).y_end_pos)
+#define Get_rev(x) ((x).rev)
+
 typedef struct {
     uint8_t rev;
     uint8_t type;
@@ -66,5 +78,12 @@ void chain_trans_ovlp(hap_cov_t *cov, ma_ug_t *ug, asg_t *read_sg, buf_t* xReads
 int get_specific_hap_overlap(kvec_hap_overlaps* x, uint32_t qn, uint32_t tn);
 void set_reverse_hap_overlap(hap_overlaps* dest, hap_overlaps* source, uint32_t* types);
 void print_hap_paf(ma_ug_t *ug, hap_overlaps* ovlp);
+uint64_t get_xy_pos_by_pos(asg_t *read_g, asg_arc_t* t, uint32_t v_in_unitig, uint32_t w_in_unitig, 
+uint32_t v_in_pos, uint32_t w_in_pos, uint32_t xUnitigLen, uint32_t yUnitigLen, uint8_t* rev);
+void quick_LIS(asg_arc_t_offset* x, uint32_t n, kvec_t_i32_warp* tailIndex, kvec_t_i32_warp* prevIndex);
+uint32_t classify_hap_overlap(long long xBeg, long long xEnd, long long xLen,
+long long yBeg, long long yEnd, long long yLen, long long* r_xBeg, long long* r_xEnd, 
+long long* r_yBeg, long long* r_yEnd);
+int cmp_hap_alignment_chaining(const void * a, const void * b);
 
 #endif

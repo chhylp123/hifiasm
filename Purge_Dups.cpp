@@ -12,18 +12,6 @@
 
 KDQ_INIT(uint64_t)
 
-#define Cal_Off(OFF) ((long long)((uint32_t)((OFF)>>32)) - (long long)((uint32_t)((OFF))))
-#define Get_xOff(OFF) ((long long)((uint32_t)((OFF)>>32)))
-#define Get_yOff(OFF) ((long long)((uint32_t)((OFF))))
-#define Get_match(x) ((x).weight)
-#define Get_total(x) ((x).index_beg)
-#define Get_type(x) ((x).index_end)
-#define Get_x_beg(x) ((x).x_beg_pos)
-#define Get_x_end(x) ((x).x_end_pos)
-#define Get_y_beg(x) ((x).y_beg_pos)
-#define Get_y_end(x) ((x).y_end_pos)
-#define Get_rev(x) ((x).rev)
-
 uint8_t debug_enable = 0;
 
 typedef struct {
@@ -1644,7 +1632,7 @@ void quick_LIS(asg_arc_t_offset* x, uint32_t n, kvec_t_i32_warp* tailIndex, kvec
     tailIndex->a.n = len;
 }
 
-inline uint64_t get_xy_pos_by_pos(asg_t *read_g, asg_arc_t* t, uint32_t v_in_unitig, uint32_t w_in_unitig, 
+uint64_t get_xy_pos_by_pos(asg_t *read_g, asg_arc_t* t, uint32_t v_in_unitig, uint32_t w_in_unitig, 
 uint32_t v_in_pos, uint32_t w_in_pos, uint32_t xUnitigLen, uint32_t yUnitigLen, uint8_t* rev)
 {
     uint32_t x_pos, y_pos, x_dir = 0, y_dir = 0;
@@ -1720,7 +1708,7 @@ void chain_trans_ovlp(hap_cov_t *cov, ma_ug_t *ug, asg_t *read_sg, buf_t* xReads
     u_buffer->a.n = 0;
     ///(*xEnd) = (uint32_t)-1;
     (*xEnd) = 0;
-    uint32_t u_i, r_i, k, j, m, len, p_v, *a = xReads->b.a, uid, ori, l, aOcc, nv, xOcc = (uint32_t)-1;
+    uint32_t u_i, r_i, k, j, len, p_v, *a = xReads->b.a, uid, ori, l, m, aOcc, nv, xOcc = (uint32_t)-1;
     ma_utg_t* u = NULL;
     asg_arc_t *av  = NULL;
 
@@ -5119,121 +5107,12 @@ void print_p_g_t_interval(p_g_t* pg, hap_cov_t *cov)
         for (i = sid; i <= eid; i++)
         {
             fprintf(stderr, "id:i:%u------>utg%.6ul\n", 
-                        (uint32_t)(u->a[i]>>33), (get_origin_uid(u->a[i]>>32, cov->t_ch)>>1)+1);
+                        (uint32_t)(u->a[i]>>33), (get_origin_uid(u->a[i]>>32, cov->t_ch, NULL, NULL)>>1)+1);
         }
     }
     fprintf(stderr, "----------[M::%s]----------\n", __func__);
 }
 
-/**
-p_g_t *init_p_g_t_back(ma_ug_t *ug, hap_cov_t *cov, asg_t *read_g)
-{
-    uint32_t v, uId, k_uId, l_uid, k, l, offset, l_pos, g_beg_idx, occ, ovlp, tLen, zLen;
-    p_g_t *pg = NULL; CALLOC(pg, 1);
-    pg->ug = ug;
-    asg_t* nsg = pg->ug->g;
-    ma_utg_t *u = NULL;
-    p_node_t *t = NULL, *z = NULL;
-    asg_arc_t *e = NULL;
-    p_g_in_t *x = NULL;
-    pg->pg_het = asg_init();
-    pg->pg_h_lev = asg_init();
-    kv_init(pg->pg_het_node);
-    kv_init(pg->pg_h_lev_idx);
-
-    for (v = 0; v < nsg->n_seq; v++)
-    {
-        uId = v;
-        if(nsg->seq[uId].del || nsg->seq[uId].c == ALTER_LABLE)
-        {
-            asg_seq_set(pg->pg_h_lev, uId, 0, 1);
-            pg->pg_h_lev->seq[uId].c = ALTER_LABLE;
-            continue;
-        } 
-        
-        asg_seq_set(pg->pg_h_lev, uId, ug->u.a[uId].len, 0);
-        pg->pg_h_lev->seq[uId].c = PRIMARY_LABLE;
-    }
-
-    for (v = 0; v < nsg->n_seq; v++)
-    {
-        uId = v;
-        if(nsg->seq[uId].del || nsg->seq[uId].c == ALTER_LABLE) continue;
-
-        u = &(ug->u.a[uId]);
-        g_beg_idx = pg->pg_het_node.n;
-        ///fprintf(stderr, "\n+v: %u, pg->pg_het_node.n: %u\n", v, (uint32_t)pg->pg_het_node.n);
-        for (k = 1, l = 0, offset = 0, l_pos = 0; k <= u->n; ++k) 
-        {   
-            l_uid = k_uId = (uint32_t)-1;
-            l_uid = get_origin_uid(u->a[l]>>32, cov->t_ch);
-            if(k < u->n) k_uId = get_origin_uid(u->a[k]>>32, cov->t_ch);
-
-            if (k == u->n || k_uId != l_uid)
-            {
-                ///fprintf(stderr, "l: %u, k: %u, u->n: %u, l_uid: %u\n", l, k, (uint32_t)u->n, l_uid);
-                if(l_uid != (uint32_t)-1)
-                {
-                    kv_pushp(p_node_t, pg->pg_het_node, &t);
-                    t->c_ug_id = uId;
-                    t->b_ug_id = l_uid;
-                    t->baseBeg = l_pos;
-                    t->baseEnd = offset + read_g->seq[u->a[k-1]>>33].len - 1;
-                    t->nodeBeg = l;
-                    t->nodeEnd = k - 1;
-                    if(pg->pg_het_node.n > 1 && pg->pg_het_node.n >= (g_beg_idx + 2))
-                    {
-                        z = &(pg->pg_het_node.a[pg->pg_het_node.n - 2]);
-                        if(t->b_ug_id == z->b_ug_id)
-                        {
-                            z->baseEnd = t->baseEnd;
-                            z->nodeEnd = t->nodeEnd;
-                            t = z;
-                            pg->pg_het_node.n--;
-                        }
-                    }
-                    ///if(t->b_ug_id == (uint32_t)-1) fprintf(stderr, "xxxx\n");
-                    asg_seq_set(pg->pg_het, pg->pg_het_node.n-1, t->baseEnd+1-t->baseBeg, 0);
-                }
-                l = k;
-                l_pos = offset + (uint32_t)u->a[k-1];
-            }
-            offset += (uint32_t)u->a[k-1];
-        }
-
-        occ = pg->pg_het_node.n - g_beg_idx;
-        kv_pushp(p_g_in_t, pg->pg_h_lev_idx, &x);
-        x->beg = g_beg_idx; x->occ = occ;
-        ///fprintf(stderr, "-v: %u, pg->pg_het_node.n: %u\n", v, (uint32_t)pg->pg_het_node.n);
-        
-        if(occ > 1)
-        {
-            for (k = g_beg_idx; (k + 1) < pg->pg_het_node.n; ++k) 
-            {
-                t = &(pg->pg_het_node.a[k]); tLen = t->baseEnd + 1 - t->baseBeg;
-                z = &(pg->pg_het_node.a[k+1]); zLen = z->baseEnd + 1 - z->baseBeg;
-
-                ovlp = ((MIN(t->baseEnd, z->baseEnd) >= MAX(t->baseBeg, z->baseBeg))? 
-                                MIN(t->baseEnd, z->baseEnd) - MAX(t->baseBeg, z->baseBeg) + 1 : 0);
-
-                e = asg_arc_pushp(pg->pg_het);
-                e->ol = ovlp;
-                e->ul = (k<<1); e->ul <<= 32; e->ul += (tLen - ovlp);
-                e->v = ((k+1)<<1); e->del = 0; e->el = e->no_l_indel = e->strong = 1;
-
-                e = asg_arc_pushp(pg->pg_het);
-                e->ol = ovlp;
-                e->ul = ((k+1)<<1)+1; e->ul <<= 32; e->ul += (zLen - ovlp);
-                e->v = (k<<1)+1; e->del = 0; e->el = e->no_l_indel = e->strong = 1;
-            }
-        }
-    }
-    asg_cleanup(pg->pg_het);
-    ///debug_p_g_t(pg, read_g);
-
-    return pg;
-}
-**/
 
 p_g_t *init_p_g_t(ma_ug_t *ug, hap_cov_t *cov, asg_t *read_g)
 {
@@ -5489,22 +5368,32 @@ int max_hang, int min_ovlp, float drop_ratio, p_g_t *pg)
     
 }
 
-void collect_purge_trans_cov(ma_ug_t *ug, hap_overlaps_list* ha, trans_chain* t_ch)
+void collect_purge_trans_cov(ma_ug_t *ug, hap_overlaps_list* ha, hap_cov_t *cov, uint64_t* position_index)
 {   
     uint32_t v, i, k, e, s, o, c_uId, p_uId, x_occ, y_occ;
     ma_utg_t *q = NULL;
     hap_overlaps *x = NULL;
+    trans_chain* t_ch = cov->t_ch;
     for (v = 0; v < ha->num; v++)
     {
         for (i = 0; i < ha->x[v].a.n; i++)
         {
             x = &(ha->x[v].a.a[i]);
+            /**
+            get_base_boundary_chain(cov->ruIndex, cov->reverse_sources, cov->coverage_cut, 
+            cov->read_g, position_index, cov->max_hang, cov->min_ovlp, &(ug->u.a[x->xUid]),
+            &(ug->u.a[x->yUid]), x->xUid, x->yUid, x->x_beg_id, x->x_end_id-1, 
+            x->y_beg_id, x->y_end_id-1, x->rev, &(cov->u_buffer), &(cov->tailIndex), 
+            &(cov->prevIndex));
+            chain_origin_trans_uid(cov, cov->read_g, RC_2);
+            **/
+
+
             if(x->yUid < x->xUid) continue;
-            
             q = &(ug->u.a[x->xUid]); s = x->x_beg_id; e = x->x_end_id; o = 0;
             for (k = s, p_uId = (uint32_t)-1; k < e; k++)
             {
-                c_uId = get_origin_uid((o == 1?((q->a[e-k-1]^(uint64_t)(0x100000000))>>32):(q->a[k]>>32)), t_ch);
+                c_uId = get_origin_uid((o == 1?((q->a[e-k-1]^(uint64_t)(0x100000000))>>32):(q->a[k]>>32)), t_ch, NULL, NULL);
                 if(c_uId == (uint32_t)-1 || p_uId == c_uId) continue;
                 p_uId = c_uId;
                 kv_push(uint32_t, t_ch->uIDs, c_uId);
@@ -5515,7 +5404,7 @@ void collect_purge_trans_cov(ma_ug_t *ug, hap_overlaps_list* ha, trans_chain* t_
             q = &(ug->u.a[x->yUid]); s = x->y_beg_id; e = x->y_end_id; o = x->rev;
             for (k = s, p_uId = (uint32_t)-1; k < e; k++)
             {
-                c_uId = get_origin_uid((o == 1?((q->a[e-k-1]^(uint64_t)(0x100000000))>>32):(q->a[k]>>32)), t_ch);
+                c_uId = get_origin_uid((o == 1?((q->a[e-k-1]^(uint64_t)(0x100000000))>>32):(q->a[k]>>32)), t_ch, NULL, NULL);
                 if(c_uId == (uint32_t)-1 || p_uId == c_uId) continue;
                 p_uId = c_uId;
                 kv_push(uint32_t, t_ch->uIDs, c_uId);
@@ -5624,7 +5513,7 @@ uint32_t just_coverage, hap_cov_t *cov, uint32_t collect_p_trans)
     if(asm_opt.polyploidy <= 2) pt_solve(&all_ovlp, cov->t_ch, ug, read_g, 0.8, R_INF.trio_flag);
     if(collect_p_trans)
     {
-        collect_purge_trans_cov(ug, &all_ovlp, cov->t_ch);
+        collect_purge_trans_cov(ug, &all_ovlp, cov, position_index);
         goto end_coverage;
     } 
     
