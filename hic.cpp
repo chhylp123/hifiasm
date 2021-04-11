@@ -2616,7 +2616,7 @@ void identify_bubbles(ma_ug_t* ug, bubble_type* bub, uint8_t *r_het_flag)
             if(ug->g->seq[v>>1].del) continue;
             if(asg_arc_n(ug->g, v) < 2) continue;
             if((bub->index[v]&(uint32_t)3) != 0) continue;
-            if(asg_bub_pop1_primary_trio(ug->g, NULL, v, tLen, &b, (uint32_t)-1, (uint32_t)-1, 0, NULL, NULL, NULL, 0))
+            if(asg_bub_pop1_primary_trio(ug->g, NULL, v, tLen, &b, (uint32_t)-1, (uint32_t)-1, 0, NULL, NULL, NULL, 0, 0))
             {
                 //beg is v, end is b.S.a[0]
                 //note b.b include end, does not include beg
@@ -2637,7 +2637,7 @@ void identify_bubbles(ma_ug_t* ug, bubble_type* bub, uint8_t *r_het_flag)
         for (v = 0; v < n_vtx; ++v) 
         {
             if((bub->index[v]&(uint32_t)3) !=2) continue;
-            if(asg_bub_pop1_primary_trio(ug->g, NULL, v, tLen, &b, (uint32_t)-1, (uint32_t)-1, 0, &pathLen, NULL, NULL, 0))
+            if(asg_bub_pop1_primary_trio(ug->g, NULL, v, tLen, &b, (uint32_t)-1, (uint32_t)-1, 0, &pathLen, NULL, NULL, 0, 0))
             {   
                 //note b.b include end, does not include beg
                 i = b.b.n + 1;
@@ -2669,7 +2669,7 @@ void identify_bubbles(ma_ug_t* ug, bubble_type* bub, uint8_t *r_het_flag)
             if((bub->num.a[k]>>31) == 0) bub->s_bub++;
             v = (bub->num.a[k]<<1)>>1;
             bub->num.a[k] = bub->list.n;
-            if(asg_bub_pop1_primary_trio(ug->g, NULL, v, tLen, &b, (uint32_t)-1, (uint32_t)-1, 0, &pathLen, NULL, NULL, 0))
+            if(asg_bub_pop1_primary_trio(ug->g, NULL, v, tLen, &b, (uint32_t)-1, (uint32_t)-1, 0, &pathLen, NULL, NULL, 0, 0))
             {
                 kv_push(uint64_t, bub->pathLen, pathLen);
                 //beg is v, end is b.S.a[0]

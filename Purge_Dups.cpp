@@ -2331,7 +2331,7 @@ ma_hit_t_alloc* reverse_sources, long long xBegPos, long long xEndPos)
     // fprintf(stderr, "tailIndex->a.n: %u, xReads->n: %u, total_match: %lld, hap_match: %lld, inp_match: %lld\n", 
     //                     tailIndex->a.n, xReads->n, (xEndPos - xBegPos + 1), hap_match, inp_match);
     
-    return ((double)(inp_match)*1) - ((double)(hap_match-inp_match)*0.334);
+    return ((double)(inp_match)*CHAIN_MATCH) - ((double)(hap_match-inp_match)*CHAIN_UNMATCH);
 }
 
 
@@ -5368,6 +5368,88 @@ int max_hang, int min_ovlp, float drop_ratio, p_g_t *pg)
     
 }
 
+void chain_origin_trans_uid_by_purge(hap_overlaps *x, ma_ug_t *ug, hap_cov_t *cov, uint64_t* position_index)
+{
+    uint32_t pri_uid, aux_uid, r_x, r_y;
+    hap_candidates hap_for, hap_rev, *hap = NULL;
+    long long x_pos_beg, x_pos_end, y_pos_beg, y_pos_end;
+
+    Get_rev(hap_for) = x->rev;
+    Get_x_beg(hap_for) = x->x_beg_id; Get_x_end(hap_for) = x->x_end_id - 1;
+    Get_y_beg(hap_for) = x->y_beg_id; Get_y_end(hap_for) = x->y_end_id - 1;
+    r_x = determine_hap_overlap_type_advance(&hap_for, &(ug->u.a[x->xUid]), &(ug->u.a[x->yUid]),
+    cov->ruIndex, cov->reverse_sources, cov->coverage_cut, cov->read_g, position_index, 
+    cov->max_hang, cov->min_ovlp, x->xUid, x->yUid, &(cov->u_buffer), &(cov->tailIndex), 
+    &(cov->prevIndex), &x_pos_beg, &x_pos_end, &y_pos_beg, &y_pos_end);
+
+    Get_rev(hap_rev) = x->rev;
+    Get_x_beg(hap_rev) = x->y_beg_id; Get_x_end(hap_rev) = x->y_end_id - 1;
+    Get_y_beg(hap_rev) = x->x_beg_id; Get_y_end(hap_rev) = x->x_end_id - 1;
+    r_y = determine_hap_overlap_type_advance(&hap_rev, &(ug->u.a[x->yUid]), &(ug->u.a[x->xUid]),
+    cov->ruIndex, cov->reverse_sources, cov->coverage_cut, cov->read_g, position_index, 
+    cov->max_hang, cov->min_ovlp, x->yUid, x->xUid, &(cov->u_buffer), &(cov->tailIndex), 
+    &(cov->prevIndex), &x_pos_beg, &x_pos_end, &y_pos_beg, &y_pos_end);
+
+    if(r_x == (uint32_t)-1 && r_y == (uint32_t)-1)
+    {
+        fprintf(stderr, "ERROR\n");
+        return;
+    }
+
+    Get_rev(hap_for) = x->rev;
+    Get_x_beg(hap_for) = x->x_beg_id; Get_x_end(hap_for) = x->x_end_id - 1;
+    Get_y_beg(hap_for) = x->y_beg_id; Get_y_end(hap_for) = x->y_end_id - 1;
+
+    Get_rev(hap_rev) = x->rev;
+    Get_x_beg(hap_rev) = x->y_beg_id; Get_x_end(hap_rev) = x->y_end_id - 1;
+    Get_y_beg(hap_rev) = x->x_beg_id; Get_y_end(hap_rev) = x->x_end_id - 1;
+
+
+    if(r_x != (uint32_t)-1 && r_y == (uint32_t)-1)
+    {
+        pri_uid = x->xUid; aux_uid = x->yUid; hap = &hap_for;
+    }
+    else if(r_x == (uint32_t)-1 && r_y != (uint32_t)-1)
+    {
+        aux_uid = x->xUid; pri_uid = x->yUid; hap = &hap_rev;
+    }
+    else
+    {
+        if(hap_for.score >= hap_rev.score)
+        {
+            pri_uid = x->xUid; aux_uid = x->yUid; hap = &hap_for;
+        }
+        else
+        {
+            aux_uid = x->xUid; pri_uid = x->yUid; hap = &hap_rev;
+        }
+    }
+
+    determine_hap_overlap_type_advance(hap, &(ug->u.a[pri_uid]), &(ug->u.a[aux_uid]),
+    cov->ruIndex, cov->reverse_sources, cov->coverage_cut, cov->read_g, position_index, 
+    cov->max_hang, cov->min_ovlp, pri_uid, aux_uid, &(cov->u_buffer), &(cov->tailIndex), 
+    &(cov->prevIndex), &x_pos_beg, &x_pos_end, &y_pos_beg, &y_pos_end);
+
+    uint64_t pri_len = ug->u.a[pri_uid].len, aux_len = ug->u.a[aux_uid].len;
+    pri_uid <<= 1; aux_uid <<= 1; aux_uid += hap->rev;
+
+    // uint32_t i_n = cov->t_ch->k_trans.n, i;
+
+    chain_origin_trans_uid_by_distance(cov, cov->read_g, &pri_uid, 1, x_pos_beg, &pri_len, 
+                                                    &aux_uid, 1, y_pos_beg, &aux_len, ug, RC_2, hap->score, __func__);
+    
+    // fprintf(stderr, "\nocc: %u\n", (uint32_t)(cov->t_ch->k_trans.n - i_n));
+    // fprintf(stderr, "#s-utg%.6ul\t%u\t%u\td-utg%.6ul\t%u\t%u\trev(%u)\n", 
+    // x->xUid+1, x->x_beg_pos, x->x_end_pos, x->yUid+1, x->y_beg_pos, x->y_end_pos, x->rev);
+    // for (i = i_n; i < cov->t_ch->k_trans.n; i++)
+    // {
+    //     fprintf(stderr, "s-utg%.6ul\t%u\t%u\td-utg%.6ul\t%u\t%u\trev(%u)\n", 
+    //     cov->t_ch->k_trans.a[i].qn+1, cov->t_ch->k_trans.a[i].qs, cov->t_ch->k_trans.a[i].qe, 
+    //     cov->t_ch->k_trans.a[i].tn+1, cov->t_ch->k_trans.a[i].ts, cov->t_ch->k_trans.a[i].te, 
+    //     cov->t_ch->k_trans.a[i].rev);
+    // }
+}
+
 void collect_purge_trans_cov(ma_ug_t *ug, hap_overlaps_list* ha, hap_cov_t *cov, uint64_t* position_index)
 {   
     uint32_t v, i, k, e, s, o, c_uId, p_uId, x_occ, y_occ;
@@ -5379,17 +5461,10 @@ void collect_purge_trans_cov(ma_ug_t *ug, hap_overlaps_list* ha, hap_cov_t *cov,
         for (i = 0; i < ha->x[v].a.n; i++)
         {
             x = &(ha->x[v].a.a[i]);
-            /**
-            get_base_boundary_chain(cov->ruIndex, cov->reverse_sources, cov->coverage_cut, 
-            cov->read_g, position_index, cov->max_hang, cov->min_ovlp, &(ug->u.a[x->xUid]),
-            &(ug->u.a[x->yUid]), x->xUid, x->yUid, x->x_beg_id, x->x_end_id-1, 
-            x->y_beg_id, x->y_end_id-1, x->rev, &(cov->u_buffer), &(cov->tailIndex), 
-            &(cov->prevIndex));
-            chain_origin_trans_uid(cov, cov->read_g, RC_2);
-            **/
-
-
             if(x->yUid < x->xUid) continue;
+
+            chain_origin_trans_uid_by_purge(x, ug, cov, position_index);
+
             q = &(ug->u.a[x->xUid]); s = x->x_beg_id; e = x->x_end_id; o = 0;
             for (k = s, p_uId = (uint32_t)-1; k < e; k++)
             {

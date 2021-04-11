@@ -102,6 +102,8 @@ typedef struct
 #define NON_TRIO 4
 #define DROP 5
 #define SET_TRIO 8
+#define CHAIN_MATCH 1
+#define CHAIN_UNMATCH 0.334
 
 typedef struct
 {
