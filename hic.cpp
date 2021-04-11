@@ -13422,7 +13422,7 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx)
         ///print_hc_links(idx->link, 0, &hap);
     }
 
-    print_hc_links(&link, 0, &hap);
+    ///print_hc_links(&link, 0, &hap);
 
     cluster_contigs(&bub, idx, &sl.hits, &M, &hap, &link);
 

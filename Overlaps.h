@@ -1102,15 +1102,10 @@ typedef struct {
 } kv_ca_buf_t;
 
 typedef struct{
-	kvec_t(uint32_t) uIDs;
-	kvec_t(uint32_t) iDXs;
-	kvec_t(uint32_t) rescue_hom;
 	uint32_t* rUidx;
 	uint64_t* rUpos;
 	uint8_t* is_r_het;
 	uint32_t r_num, u_num;
-	uint32_t chain_num;
-	uint32_t l0_chain, l1_chain;
 	kvec_t(bed_in) bed;
 	kvec_t(uint32_t) topo_buf;
 	kvec_t(uint32_t) topo_res;
@@ -1181,7 +1176,6 @@ inline uint32_t get_origin_uid(uint32_t v, trans_chain* t_ch, uint32_t *off, uin
     if(t_ch->rUpos[v>>1] == (uint64_t)-1) return (uint32_t)-1;
     return (uint32_t)(((t_ch->rUidx[v>>1]>>1)<<1) + ((t_ch->rUidx[v>>1]^v)&1));
 }
-void get_chain_trans(trans_chain* t_ch, uint32_t id, uint32_t** x, uint32_t* x_occ, uint32_t** y, uint32_t* y_occ);
 void chain_origin_trans_uid_by_distance(hap_cov_t *cov, asg_t *read_sg, 
 uint32_t *pri_a, uint32_t pri_n, uint32_t pri_beg, uint64_t *i_pri_len, 
 uint32_t *aux_a, uint32_t aux_n, uint32_t aux_beg, uint64_t *i_aux_len,

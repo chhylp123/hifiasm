@@ -5452,53 +5452,15 @@ void chain_origin_trans_uid_by_purge(hap_overlaps *x, ma_ug_t *ug, hap_cov_t *co
 
 void collect_purge_trans_cov(ma_ug_t *ug, hap_overlaps_list* ha, hap_cov_t *cov, uint64_t* position_index)
 {   
-    uint32_t v, i, k, e, s, o, c_uId, p_uId, x_occ, y_occ;
-    ma_utg_t *q = NULL;
+    uint32_t v, i;
     hap_overlaps *x = NULL;
-    trans_chain* t_ch = cov->t_ch;
     for (v = 0; v < ha->num; v++)
     {
         for (i = 0; i < ha->x[v].a.n; i++)
         {
             x = &(ha->x[v].a.a[i]);
             if(x->yUid < x->xUid) continue;
-
             chain_origin_trans_uid_by_purge(x, ug, cov, position_index);
-
-            q = &(ug->u.a[x->xUid]); s = x->x_beg_id; e = x->x_end_id; o = 0;
-            for (k = s, p_uId = (uint32_t)-1; k < e; k++)
-            {
-                c_uId = get_origin_uid((o == 1?((q->a[e-k-1]^(uint64_t)(0x100000000))>>32):(q->a[k]>>32)), t_ch, NULL, NULL);
-                if(c_uId == (uint32_t)-1 || p_uId == c_uId) continue;
-                p_uId = c_uId;
-                kv_push(uint32_t, t_ch->uIDs, c_uId);
-            }
-            kv_push(uint32_t, t_ch->iDXs, t_ch->uIDs.n);
-
-
-            q = &(ug->u.a[x->yUid]); s = x->y_beg_id; e = x->y_end_id; o = x->rev;
-            for (k = s, p_uId = (uint32_t)-1; k < e; k++)
-            {
-                c_uId = get_origin_uid((o == 1?((q->a[e-k-1]^(uint64_t)(0x100000000))>>32):(q->a[k]>>32)), t_ch, NULL, NULL);
-                if(c_uId == (uint32_t)-1 || p_uId == c_uId) continue;
-                p_uId = c_uId;
-                kv_push(uint32_t, t_ch->uIDs, c_uId);
-            }
-            kv_push(uint32_t, t_ch->iDXs, t_ch->uIDs.n);
-
-
-            x_occ = y_occ = 0;
-            get_chain_trans(t_ch, t_ch->chain_num, NULL, &x_occ, NULL, &y_occ);
-            if(x_occ == 0 || y_occ == 0)
-            {
-                t_ch->uIDs.n -= (x_occ + y_occ);
-                t_ch->iDXs.n -= 2;
-            }
-            else
-            {
-                t_ch->chain_num++;
-                t_ch->l1_chain++;
-            }
         }
     }
 }
