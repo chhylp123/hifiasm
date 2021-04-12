@@ -9261,7 +9261,8 @@ ma_hit_t_alloc* sources, R_to_U* ruIndex, int print_seq, const char* prefix, FIL
             {
                 fprintf(fp, "A\t%s\t%d\t%c\t%.*s\t%d\t%d\tid:i:%d\tHG:A:%c\n", name, l, "+-"[p->a[j]>>32&1],
                 (int)Get_NAME_LENGTH((*RNF), x), Get_NAME((*RNF), x), 
-                coverage_cut[x].s, coverage_cut[x].e, x, "apmaaa"[RNF->trio_flag[x]]);
+                coverage_cut[x].s, coverage_cut[x].e, x, 
+                "apmaaa"[((RNF->trio_flag[x]!=FATHER && RNF->trio_flag[x]!=MOTHER)?AMBIGU:RNF->trio_flag[x])]);
             }
             else
             {
@@ -12355,6 +12356,54 @@ void destory_hc_links(hc_links* link)
     kv_destroy(link->enzymes);
 }
 
+void print_utg(ma_ug_t *ug, asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name, 
+ma_hit_t_alloc* sources, R_to_U* ruIndex, int max_hang, int min_ovlp, kvec_asg_arc_t_warp* new_rtg_edges)
+{
+    if(asm_opt.b_low_cov > 0)
+    {
+        break_ug_contig(&ug, sg, &R_INF, coverage_cut, sources, ruIndex, new_rtg_edges, max_hang, min_ovlp, 
+        &asm_opt.b_low_cov, NULL, asm_opt.m_rate);
+    }
+
+    if(asm_opt.b_high_cov > 0)
+    {
+        break_ug_contig(&ug, sg, &R_INF, coverage_cut, sources, ruIndex, new_rtg_edges, max_hang, min_ovlp, 
+        NULL, &asm_opt.b_high_cov, asm_opt.m_rate);
+    }
+
+    ma_ug_seq(ug, sg, &R_INF, coverage_cut, sources, new_rtg_edges, max_hang, min_ovlp, 0);
+
+    
+    char* gfa_name = (char*)malloc(strlen(output_file_name)+35);
+    sprintf(gfa_name, "%s.p_ctg.gfa", output_file_name);
+    fprintf(stderr, "Writing %s to disk... \n", gfa_name);
+    FILE* output_file = fopen(gfa_name, "w");
+    ma_ug_print(ug, &R_INF, sg, coverage_cut, sources, ruIndex, "ptg", output_file);
+    fclose(output_file);
+
+    sprintf(gfa_name, "%s.p_ctg.noseq.gfa", output_file_name);
+    output_file = fopen(gfa_name, "w");
+    ma_ug_print_simple(ug, &R_INF, sg, coverage_cut, sources, ruIndex, "ptg", output_file);
+    fclose(output_file);
+    if(asm_opt.bed_inconsist_rate != 0)
+    {
+        sprintf(gfa_name, "%s.p_ctg.lowQ.bed", output_file_name);
+        output_file = fopen(gfa_name, "w");
+        ma_ug_print_bed(ug, sg, &R_INF, coverage_cut, sources, new_rtg_edges, 
+        max_hang, min_ovlp, asm_opt.bed_inconsist_rate, "ptg", output_file, NULL);
+        fclose(output_file);
+    }
+    free(gfa_name);
+
+    /*******************************for debug************************************/
+    // uint32_t i;
+    // for (i = 0; i < sg->n_seq; i++)
+    // {
+    //     if(R_INF.trio_flag[i] == FATHER || R_INF.trio_flag[i] == MOTHER) fprintf(stderr, "ERROR\n");
+    // }
+    /*******************************for debug************************************/
+}
+
 void hic_clean(asg_t* read_g)
 {
     uint32_t n_vtx, v, u;
@@ -12479,6 +12528,10 @@ bub_label_t* b_mask_t)
     adjust_utg_by_primary(&copy_ug, copy_sg, TRIO_THRES, sources, reverse_sources, coverage_cut, 
     tipsLen, tip_drop_ratio, stops_threshold, ruIndex, chimeric_rate, drop_ratio, 
     max_hang, min_ovlp, &new_rtg_edges, &cov, b_mask_t, 1);
+
+    print_utg(copy_ug, copy_sg, coverage_cut, output_file_name, sources, ruIndex, max_hang, 
+    min_ovlp, &new_rtg_edges);
+
     ma_ug_destroy(copy_ug);
     asg_destroy(copy_sg);
 
@@ -13166,14 +13219,12 @@ void filter_u_trans_t(kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g, uint32_t thr
 
 void clean_u_trans_t_idx(kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g)
 {
-    
     kt_u_trans_t_idx(ta, ug->g->n_seq);
     kt_u_trans_t_symm(ta, ug);
-    fprintf(stderr, "+cov->t_ch->k_trans.n: %u\n", (uint32_t)ta->n);
     filter_u_trans_t(ta, ug, read_g, 3);
-    fprintf(stderr, "-cov->t_ch->k_trans.n: %u\n", (uint32_t)ta->n);
     debug_u_trans_t(ta);
 }
+
 
 void output_bp_graph(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name, 
 ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, 
@@ -13192,26 +13243,19 @@ bub_label_t* b_mask_t)
     hap_cov_t *cov = NULL;
     asg_t *copy_sg = copy_read_graph(sg);
     ma_ug_t *copy_ug = copy_untig_graph(ug);    
-    ///asm_opt.purge_overlap_len = asm_opt.purge_overlap_len_hic;
-    ///asm_opt.purge_simi_thres = asm_opt.purge_simi_rate_hic;
     adjust_utg_by_primary(&copy_ug, copy_sg, TRIO_THRES, sources, reverse_sources, coverage_cut, 
     tipsLen, tip_drop_ratio, stops_threshold, ruIndex, chimeric_rate, drop_ratio, 
     max_hang, min_ovlp, &new_rtg_edges, &cov, b_mask_t, 1);
 
-    // print_untig_by_read(copy_ug, "m64011_190830_220126/175638789/ccs", 1369536, NULL, NULL, "sa");
-    // print_untig_by_read(copy_ug, "m64012_190921_234837/21039588/ccs", 5097804, NULL, NULL, "sa");
-    // print_untig_by_read(copy_ug, "m64011_190830_220126/88867583/ccs", 603738, NULL, NULL, "sa");
+    print_utg(copy_ug, copy_sg, coverage_cut, output_file_name, sources, ruIndex, max_hang, 
+    min_ovlp, &new_rtg_edges);
 
     ma_ug_destroy(copy_ug);
     asg_destroy(copy_sg);
 
     clean_u_trans_t_idx(&(cov->t_ch->k_trans), ug, sg);
-    // print_untig_by_read(copy_ug, "m64011_190830_220126/175638789/ccs", 1369536, NULL, NULL, "sb");
-    // print_untig_by_read(copy_ug, "m64012_190921_234837/21039588/ccs", 5097804, NULL, NULL, "sb");
     // print_untig_by_read(copy_ug, "m64011_190830_220126/88867583/ccs", 603738, NULL, NULL, "sb");
     
-    // print_r_het(cov, R_INF.trio_flag, "out-0");
-
     set_trio_flag_by_cov(ug, sg, cov);
 
     // print_r_het(cov, R_INF.trio_flag, "out-1");
@@ -23387,7 +23431,6 @@ ma_hit_t_alloc* sources, R_to_U* ruIndex, trans_chain* t_ch)
         }
     }
 
-    ///fprintf(stderr, "keep_atg: %u\n", keep_atg);
     ma_ug_destroy(atg);
 }
 
@@ -23404,10 +23447,7 @@ uint32_t collect_p_trans)
     ma_utg_t* u = NULL;
     hap_cov_t *cov = init_hap_cov_t(*ug, read_g, sources, ruIndex, reverse_sources, 
                             coverage_cut, max_hang, min_ovlp, (asm_opt.purge_level_primary>0||i_cov)?1:0);
-    if(cov->t_ch)
-    {
-        set_r_het_flag(*ug, read_g, coverage_cut, sources, ruIndex, cov->t_ch);
-    } 
+    if(cov->t_ch) set_r_het_flag(*ug, read_g, coverage_cut, sources, ruIndex, cov->t_ch);
     
     adjust_utg_advance(read_g, (*ug), reverse_sources, ruIndex, b_mask_t);
     
@@ -23426,7 +23466,7 @@ uint32_t collect_p_trans)
     delete_useless_nodes(ug);
     renew_utg(ug, read_g, new_rtg_edges);
     
-    if(i_cov) goto skip_purge;
+    if(i_cov && collect_p_trans == 0) goto skip_purge;
 
     if(asm_opt.purge_level_primary > 0)
     {
@@ -23435,7 +23475,7 @@ uint32_t collect_p_trans)
         if(asm_opt.purge_level_primary == 1) just_contain = 1;
         purge_dups(*ug, read_g, coverage_cut, sources, reverse_sources, ruIndex, new_rtg_edges, 
         asm_opt.purge_simi_thres, asm_opt.purge_overlap_len, max_hang, min_ovlp, drop_ratio, 
-        just_contain, 0, cov, 0);
+        just_contain, 0, cov, !!(cov->t_ch&&collect_p_trans));
         delete_useless_nodes(ug);
         renew_utg(ug, read_g, new_rtg_edges);
     }
@@ -23504,13 +23544,6 @@ uint32_t collect_p_trans)
     recover_utg_by_coverage(ug, read_g, coverage_cut, sources, ruIndex, cov->t_ch);
     if(i_cov)
     {
-        if(cov->t_ch && collect_p_trans)
-        {
-            purge_dups(*ug, read_g, coverage_cut, sources, reverse_sources, ruIndex, new_rtg_edges, 
-            asm_opt.purge_simi_thres, asm_opt.purge_overlap_len, max_hang, min_ovlp, drop_ratio, 
-            0, 0, cov, collect_p_trans);  
-        }
-         
         (*i_cov) = cov;
     } 
     else
