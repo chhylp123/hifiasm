@@ -85,5 +85,8 @@ uint32_t classify_hap_overlap(long long xBeg, long long xEnd, long long xLen,
 long long yBeg, long long yEnd, long long yLen, long long* r_xBeg, long long* r_xEnd, 
 long long* r_yBeg, long long* r_yEnd);
 int cmp_hap_alignment_chaining(const void * a, const void * b);
+uint32_t classify_hap_overlap(long long xBeg, long long xEnd, long long xLen,
+long long yBeg, long long yEnd, long long yLen, long long* r_xBeg, long long* r_xEnd, 
+long long* r_yBeg, long long* r_yEnd);
 
 #endif

@@ -7,6 +7,7 @@
 #include "Overlaps.h"
 #include "Hash_Table.h"
 #include "Correct.h"
+#include "Purge_Dups.h"
 #include "khashl.h"
 #include "kthread.h"
 #include "ksort.h"
@@ -3215,10 +3216,9 @@ void get_shortest_path(uint32_t src, pdq* pq, asg_t *sg, uint32_t* pre)
 
 
 
-void all_pair_shortest_path(const ha_ug_index* idx, hc_links* link, MT* M)
+void all_pair_shortest_path(asg_t *sg, hc_links* link, MT* M)
 {
     double index_time = yak_realtime();
-    asg_t *sg = idx->ug->g;
     hc_linkeage* t = NULL;
     pdq pq;
     init_pdq(&pq, sg->n_seq<<1);
@@ -3411,7 +3411,7 @@ uint64_t get_LCA(uint32_t x, uint64_t xLen, uint32_t y, uint64_t yLen, uint8_t* 
 }
 
 typedef struct { // data structure for each step in kt_pipeline()
-    const ha_ug_index* idx; 
+    asg_t *sg;
     hc_links* link; 
     MT* M; 
     bubble_type* bub;
@@ -3422,12 +3422,11 @@ typedef struct { // data structure for each step in kt_pipeline()
 static void worker_for_dis(void *data, long i, int tid) 
 {
     utg_d_t* s = (utg_d_t*)data;
-    const ha_ug_index* idx = s->idx;
     hc_links* link = s->link;
     MT* M = s->M; 
     bubble_type* bub = s->bub;
     uint8_t* dis_buf = s->dis_buf[tid];
-    asg_t *sg = idx->ug->g;
+    asg_t *sg = s->sg;
     hc_linkeage* t = NULL;
     uint32_t n_vtx = sg->n_seq<<1, v, u, k, j;
     uint64_t d[2], db[2], q_u, min, min_i, min_b, rev[2], min_rev;
@@ -3495,28 +3494,27 @@ static void worker_for_dis(void *data, long i, int tid)
                 t->e.a[k].dis = min<<1;
                 t->e.a[k].dis += min_b;
                 t->e.a[k].dis <<=1;
-                t->e.a[k].dis += ((v&1)^min_rev);
+                t->e.a[k].dis += ((v&1)^min_rev);//s-direction
                 t->e.a[k].dis <<=1;
-                t->e.a[k].dis += (min_i^min_rev);
+                t->e.a[k].dis += (min_i^min_rev);//e-direction
             }
         }
     }
-
 }
 
-void fill_utg_distance_multi(const ha_ug_index* idx, hc_links* link, MT* M, bubble_type* bub)
+void fill_utg_distance_multi(asg_t *sg, hc_links* link, MT* M, bubble_type* bub)
 {
     double index_time = yak_realtime();
     uint32_t i;
     utg_d_t s;
-    s.idx = idx; s.link = link; s.M = M; s.bub = bub;
+    s.sg = sg; s.link = link; s.M = M; s.bub = bub;
     s.dis_buf = (uint8_t**)malloc(sizeof(uint8_t*)*asm_opt.thread_num);
     for (i = 0; i < (uint32_t)asm_opt.thread_num; i++)
     {
-        s.dis_buf[i] = (uint8_t*)malloc(sizeof(uint8_t)*(s.idx->ug->g->n_seq<<1));
+        s.dis_buf[i] = (uint8_t*)malloc(sizeof(uint8_t)*(s.sg->n_seq<<1));
     }
     
-    kt_for(asm_opt.thread_num, worker_for_dis, &s, s.idx->ug->g->n_seq);
+    kt_for(asm_opt.thread_num, worker_for_dis, &s, s.sg->n_seq);
 
 
     for (i = 0; i < (uint32_t)asm_opt.thread_num; i++)
@@ -3543,14 +3541,584 @@ void destory_MT(MT* M)
     kv_destroy(M->matrix);
 }
 
-void collect_hc_links_hap(const ha_ug_index* idx, kvec_pe_hit_hap* hits, hc_links* link, bubble_type* bub, MT* M)
+
+int get_trans_ug_arch(uint32_t qn, uint32_t qs, uint32_t qe, uint32_t qLen, 
+uint32_t tn, uint32_t ts, uint32_t te, uint32_t tLen, uint32_t rev, asg_arc_t* t)
+{
+    ma_hit_t h;
+    h.qns = qn;
+    h.qns = h.qns << 32;
+    h.qns = h.qns | qs;
+    h.qe = qe;
+    h.tn = tn;
+    h.ts = ts;
+    h.te = te;
+    h.rev = rev;
+    h.del = 0;
+    h.bl = h.el = h.ml = h.no_l_indel = 0;
+    return ma_hit2arc(&h, qLen, tLen, MAX(qLen, tLen) + 1, 0, 0, t);
+}
+
+void update_ug_by_trans(asg_t *sg, kv_u_trans_t *ta)
+{
+    u_trans_t *a = NULL, *p = NULL;
+    uint32_t i, k, st, occ, n, m;
+    uint32_t qn, tn, qs, qe, ts, te, rev;
+    asg_arc_t t, *e = NULL;
+    long long r_qs, r_qe, r_ts, r_te;
+    int r;
+
+    for (k = occ = 0; k < ta->idx.n; k++)
+    {
+        a = u_trans_a(*ta, k);
+        n = u_trans_n(*ta, k);
+        for (st = 0, i = 1; i <= n; ++i)
+        {
+            if (i == n || a[i].tn != a[st].tn)
+            {
+                for (m = st, p = &(a[st]); m < i; m++)
+                {
+                    if(a[m].nw > p->nw) p = &(a[m]);
+                }
+
+                if(p->f == RC_2)///dis-connected
+                {
+                    rev = p->rev;
+                    qn = p->qn; 
+                    qs = p->qs; 
+                    qe = p->qe - 1;
+                    if(rev)
+                    {
+                        tn = p->tn;
+                        ts = sg->seq[tn].len - (p->te - 1) - 1;
+                        te = sg->seq[tn].len - p->ts - 1;
+                    }
+                    else
+                    {
+                        tn = p->tn; 
+                        ts = p->ts; 
+                        te = p->te - 1;
+                    }
+
+                    classify_hap_overlap(qs, qe, sg->seq[qn].len, ts, te, sg->seq[tn].len, 
+                                                                            &r_qs, &r_qe, &r_ts, &r_te);
+                    
+                    qs = r_qs; qe = r_qe + 1;
+                    if(rev)
+                    {
+                        ts = sg->seq[tn].len - r_te - 1;
+                        te = sg->seq[tn].len - r_ts - 1 + 1;
+                    }
+                    else
+                    {
+                        ts = r_ts; te = r_te + 1;
+                    }
+
+                    r = get_trans_ug_arch(qn, qs, qe, sg->seq[qn].len, 
+                                        tn, ts, te, sg->seq[tn].len, rev, &t);
+                    if(r >= 0)
+                    {
+                        e = asg_arc_pushp(sg);
+                        *e = t;
+                        occ++;
+                    }
+                }
+                st = i;
+            }
+        }
+    }
+
+    if(occ > 0)
+    {
+        free(sg->idx);
+        sg->idx = 0;
+        sg->is_srt = 0;
+        asg_cleanup(sg);
+    }
+    asg_arc_del_trans(sg, asm_opt.gap_fuzz);
+
+}
+
+
+
+void push_LCA_edges(long long d_x, long long d_y, long long xLen, long long yLen, 
+uint32_t v, uint32_t w, uint64_t *e0, uint64_t *e1)
+{
+    long long x_beg, x_end, y_beg, y_end;
+    uint64_t d, rev;
+    x_end = d_x; x_beg = x_end - xLen + 1;
+    y_end = d_y; y_beg = y_end - yLen + 1;
+
+    long long ovlp = ((MIN(x_end, y_end) >= MAX(x_beg, y_beg))? 
+                                    MIN(x_end, y_end) - MAX(x_beg, y_beg) + 1 : 0);
+    if(ovlp != xLen && ovlp != yLen)
+    {
+        d = MAX(x_end, y_end) - MIN(x_beg, y_beg) + 1;
+        if(x_end >= y_end) rev = 1;
+        else rev = 0;
+
+        (*e0) = d;
+        (*e0) <<= 1;
+        (*e0) += 1;
+        (*e0) <<= 1;
+        (*e0) += ((v&1)^rev);//s-direction
+        (*e0) <<= 1;
+        (*e0) += ((w&1)^rev);//e-direction
+
+        rev ^= 1;
+        (*e1) = d;
+        (*e1) <<= 1;
+        (*e1) += 1;
+        (*e1) <<= 1;
+        (*e1) += ((w&1)^rev);//s-direction
+        (*e1) <<= 1;
+        (*e1) += ((v&1)^rev);//e-direction
+    }
+    else
+    {
+        if(xLen >= yLen) d = (x_beg + 1) + (y_end - y_beg + 1);
+        else d = (x_end - x_beg + 1) + (yLen - y_end - 1);
+
+        (*e0) = d;
+        (*e0) <<= 1;
+        (*e0) += 1;
+        (*e0) <<= 1;
+        (*e0) += (v&1);//s-direction
+        (*e0) <<= 1;
+        (*e0) += (w&1);//e-direction
+
+        if(xLen >= yLen) d = (y_end - y_beg + 1) + (xLen - x_end - 1);
+        else d = (y_beg + 1) + (x_end - x_beg + 1);
+        (*e1) = d;
+        (*e1) <<= 1;
+        (*e1) += 1;
+        (*e1) <<= 1;
+        (*e1) += (w&1);//s-direction
+        (*e1) <<= 1;
+        (*e1) += (v&1);//e-direction
+    }
+}
+
+void push_LCA_edges_rev(hc_edge *hx, hc_edge *hy, 
+long long xLen, long long yLen, long long rLen, 
+uint32_t v, uint32_t w, uint64_t *e0, uint64_t *e1)
+{
+    long long x_beg, x_end, y_beg, y_end, dx, dy;
+    uint64_t d, rev;
+    dx = (hx->dis>>3); 
+    if((hx->dis&(uint64_t)2))
+    {
+        x_beg = rLen - dx - 1; x_end = x_beg + xLen - 1;
+    }
+    else
+    {
+        x_end = dx; x_beg = x_end - xLen + 1;
+    } 
+    
+    dy = (hy->dis>>3);
+    if((hy->dis&(uint64_t)2))
+    {
+        y_beg = rLen - dy - 1; y_end = y_beg + yLen - 1;
+    } 
+    else
+    {
+        y_end = dy; y_beg = y_end - yLen + 1;
+    }
+
+    long long ovlp = ((MIN(x_end, y_end) >= MAX(x_beg, y_beg))? 
+                                    MIN(x_end, y_end) - MAX(x_beg, y_beg) + 1 : 0);
+    if(ovlp != xLen && ovlp != yLen)
+    {
+        d = MAX(x_end, y_end) - MIN(x_beg, y_beg) + 1;
+        if(x_end >= y_end) rev = 1;
+        else rev = 0;
+
+        (*e0) = d;
+        (*e0) <<= 1;
+        (*e0) += 1;
+        (*e0) <<= 1;
+        (*e0) += ((v&1)^rev);//s-direction
+        (*e0) <<= 1;
+        (*e0) += ((w&1)^rev);//e-direction
+
+        rev ^= 1;
+        (*e1) = d;
+        (*e1) <<= 1;
+        (*e1) += 1;
+        (*e1) <<= 1;
+        (*e1) += ((w&1)^rev);//s-direction
+        (*e1) <<= 1;
+        (*e1) += ((v&1)^rev);//e-direction
+    }
+    else
+    {
+        if(xLen >= yLen) d = (x_beg + 1) + (y_end - y_beg + 1);
+        else d = (x_end - x_beg + 1) + (yLen - y_end - 1);
+        (*e0) = d;
+        (*e0) <<= 1;
+        (*e0) += 1;
+        (*e0) <<= 1;
+        (*e0) += (v&1);//s-direction
+        (*e0) <<= 1;
+        (*e0) += (w&1);//e-direction
+
+        if(xLen >= yLen) d = (y_end - y_beg + 1) + (xLen - x_end - 1);
+        else d = (y_beg + 1) + (x_end - x_beg + 1);
+        (*e1) = d;
+        (*e1) <<= 1;
+        (*e1) += 1;
+        (*e1) <<= 1;
+        (*e1) += (w&1);//s-direction
+        (*e1) <<= 1;
+        (*e1) += (v&1);//e-direction
+    }
+}
+
+uint32_t up_contain(kv_u_trans_t *ta, hc_links* link, uint8_t *uc_idx, asg_t *sg, kvec_t_u64_warp *buf)
+{
+    hc_edge *he = NULL, *ht = NULL, *hx = NULL;
+    uint64_t t_d = (uint64_t)-1, hd;
+    uint32_t qn, tn, qs, qe, ts, te, rev, is_c;
+    u_trans_t *a = NULL, *p = NULL;
+    asg_arc_t t;
+    uint32_t i, k, st, occ, n, m;
+    long long r_qs, r_qe, r_ts, r_te;
+    int r;
+
+    for (k = 0, buf->a.n = 0; k < ta->idx.n; k++)
+    {
+        if((uc_idx[k]&2)&&(!(uc_idx[k]&1)))///contain others
+        {
+            if(link->a.a[k].e.n == 0)
+            {
+                uc_idx[k] -= 2;
+                continue;
+            }
+            a = u_trans_a(*ta, k);
+            n = u_trans_n(*ta, k);
+            for (st = 0, i = 1; i <= n; ++i)
+            {
+                if (i == n || a[i].tn != a[st].tn)
+                {
+                    for (m = st, p = &(a[st]); m < i; m++)
+                    {
+                        if(a[m].nw > p->nw) p = &(a[m]);
+                    }
+
+                    if(p->f == RC_2)///dis-connected
+                    {
+                        rev = p->rev;
+                        qn = p->qn; 
+                        qs = p->qs; 
+                        qe = p->qe - 1;
+                        if(rev)
+                        {
+                            tn = p->tn;
+                            ts = sg->seq[tn].len - (p->te - 1) - 1;
+                            te = sg->seq[tn].len - p->ts - 1;
+                        }
+                        else
+                        {
+                            tn = p->tn; 
+                            ts = p->ts; 
+                            te = p->te - 1;
+                        }
+
+                        classify_hap_overlap(qs, qe, sg->seq[qn].len, ts, te, sg->seq[tn].len, 
+                                                                                &r_qs, &r_qe, &r_ts, &r_te);
+                        
+                        qs = r_qs; qe = r_qe + 1;
+                        if(rev)
+                        {
+                            ts = sg->seq[tn].len - r_te - 1;
+                            te = sg->seq[tn].len - r_ts - 1 + 1;
+                        }
+                        else
+                        {
+                            ts = r_ts; te = r_te + 1;
+                        }
+
+                        r = get_trans_ug_arch(qn, qs, qe, sg->seq[qn].len, 
+                                            tn, ts, te, sg->seq[tn].len, rev, &t);
+                        if(r == MA_HT_TCONT)//q contains t
+                        {
+                            hd = tn; hd <<= 32; hd |= qn;
+                            kv_push(uint64_t, buf->a, hd);
+                            ///qn->tn
+                            he = get_hc_edge(link, qn, tn, 0);
+                            if(!he)
+                            {
+                                push_hc_edge(&(link->a.a[qn]), tn, 0, 0, &t_d);
+                                he = get_hc_edge(link, qn, tn, 0);
+                            } 
+                            hd = (te - ts) + qs;
+                            if(hd < he->dis)
+                            {
+                                he->dis = hd << 1;
+                                he->dis += 1;
+                                he->dis <<= 1;
+                                he->dis += 0;//s-direction
+                                he->dis <<= 1;
+                                he->dis += rev;//e-direction
+                            }
+
+                            ///tn->qn
+                            he = get_hc_edge(link, tn, qn, 0);
+                            if(!he)
+                            {
+                                push_hc_edge(&(link->a.a[tn]), qn, 0, 0, &t_d);
+                                he = get_hc_edge(link, tn, qn, 0);
+                            } 
+                            hd = (te - ts) + sg->seq[qn].len - qe;
+                            if(hd < he->dis)
+                            {
+                                he->dis = hd << 1;
+                                he->dis += 1;
+                                he->dis <<= 1;
+                                he->dis += 0;//s-direction
+                                he->dis <<= 1;
+                                he->dis += rev;//e-direction
+                            }
+                        }
+                    }
+                    st = i;
+                }
+            }
+            uc_idx[k] -= 2;
+        }
+    }
+    
+    uint64_t e0, e1;
+    for (k = 0; k < buf->a.n; k++)
+    {
+        qn = buf->a.a[k] >> 32;
+        tn = (uint32_t)buf->a.a[k];
+
+        he = get_hc_edge(link, tn, qn, 0); //tn contains qn
+        for (i = 0; i < link->a.a[tn].e.n; i++)
+        {
+            if(link->a.a[tn].e.a[i].del) continue;
+            if(link->a.a[tn].e.a[i].uID == qn) continue;
+            ht = &(link->a.a[tn].e.a[i]);
+            if(ht->dis == (uint64_t)-1) continue;
+
+            if((he->dis&(uint64_t)2) == (ht->dis&(uint64_t)2))///s in same direction
+            {
+                push_LCA_edges(he->dis>>3, ht->dis>>3, sg->seq[he->uID].len, sg->seq[ht->uID].len, 
+                he->dis&1, ht->dis&1, &e0, &e1);
+
+                ///forward
+                hx = get_hc_edge(link, he->uID, ht->uID, 0);
+                if(!hx)
+                {
+                    push_hc_edge(&(link->a.a[he->uID]), ht->uID, 0, 0, &t_d);
+                    hx = get_hc_edge(link, he->uID, ht->uID, 0);
+                }
+                if ((e0>>3) < (hx->dis>>3)) hx->dis = e0;
+
+                ///backward
+                hx = get_hc_edge(link, ht->uID, he->uID, 0);
+                if(!hx)
+                {
+                    push_hc_edge(&(link->a.a[ht->uID]), he->uID, 0, 0, &t_d);
+                    hx = get_hc_edge(link, ht->uID, he->uID, 0);
+                }
+                if ((e1>>3) < (hx->dis>>3)) hx->dis = e1;
+            }
+            else
+            {
+                push_LCA_edges_rev(he, ht, sg->seq[he->uID].len, sg->seq[ht->uID].len, 
+                sg->seq[tn].len, he->dis&1, ht->dis&1, &e0, &e1);
+
+                ///forward
+                hx = get_hc_edge(link, he->uID, ht->uID, 0);
+                if(!hx)
+                {
+                    push_hc_edge(&(link->a.a[he->uID]), ht->uID, 0, 0, &t_d);
+                    hx = get_hc_edge(link, he->uID, ht->uID, 0);
+                }
+                if ((e0>>3) < (hx->dis>>3)) hx->dis = e0;
+
+                ///backward
+                hx = get_hc_edge(link, ht->uID, he->uID, 0);
+                if(!hx)
+                {
+                    push_hc_edge(&(link->a.a[ht->uID]), he->uID, 0, 0, &t_d);
+                    hx = get_hc_edge(link, ht->uID, he->uID, 0);
+                }
+                if ((e1>>3) < (hx->dis>>3)) hx->dis = e1;
+            }
+        }
+    }
+
+
+    for (k = 0, occ = 0; k < ta->idx.n; k++)
+    {
+        if((uc_idx[k]&1) && (uc_idx[k]&2))
+        {
+            is_c = 0;
+            a = u_trans_a(*ta, k);
+            n = u_trans_n(*ta, k);
+            for (st = 0, i = 1; i <= n; ++i)
+            {
+                if (i == n || a[i].tn != a[st].tn)
+                {
+                    for (m = st, p = &(a[st]); m < i; m++)
+                    {
+                        if(a[m].nw > p->nw) p = &(a[m]);
+                    }
+
+                    if(p->f == RC_2)///dis-connected
+                    {
+                        rev = p->rev;
+                        qn = p->qn; 
+                        qs = p->qs; 
+                        qe = p->qe - 1;
+                        if(rev)
+                        {
+                            tn = p->tn;
+                            ts = sg->seq[tn].len - (p->te - 1) - 1;
+                            te = sg->seq[tn].len - p->ts - 1;
+                        }
+                        else
+                        {
+                            tn = p->tn; 
+                            ts = p->ts; 
+                            te = p->te - 1;
+                        }
+
+                        classify_hap_overlap(qs, qe, sg->seq[qn].len, ts, te, sg->seq[tn].len, 
+                                                                                &r_qs, &r_qe, &r_ts, &r_te);
+                        
+                        qs = r_qs; qe = r_qe + 1;
+                        if(rev)
+                        {
+                            ts = sg->seq[tn].len - r_te - 1;
+                            te = sg->seq[tn].len - r_ts - 1 + 1;
+                        }
+                        else
+                        {
+                            ts = r_ts; te = r_te + 1;
+                        }
+
+                        r = get_trans_ug_arch(qn, qs, qe, sg->seq[qn].len, 
+                                            tn, ts, te, sg->seq[tn].len, rev, &t);
+                        if(r == MA_HT_QCONT && (uc_idx[tn]&2))//t contains q
+                        {
+                            is_c = 1;
+                        }
+                    }
+                    st = i;
+                }
+            }
+            if(is_c == 0) uc_idx[k] -= 1;
+        }
+        if(uc_idx[k]&2) occ++;
+    }
+
+    return occ;
+}
+
+void print_u_trans_t(u_trans_t *p)
+{
+    fprintf(stderr, "q-utg%.6ul\tqs(%u)\tqe(%u)\tt-utg%.6ul\tts(%u)\tte(%u)\trev(%u)\tw(%f)\n", p->qn+1, p->qs, p->qe, p->tn+1, p->ts, p->te, p->rev, p->nw);
+}
+
+void update_containment_distance(asg_t *sg, kv_u_trans_t *ta, hc_links* link)
+{
+    uint8_t *uc_idx = NULL;
+    CALLOC(uc_idx, sg->n_seq);
+
+    u_trans_t *a = NULL, *p = NULL;
+    uint32_t i, k, st, n, m;
+    uint32_t qn, tn, qs, qe, ts, te, rev;
+    asg_arc_t t;
+    long long r_qs, r_qe, r_ts, r_te;
+    int r;
+
+    for (k = 0; k < ta->idx.n; k++)
+    {
+        a = u_trans_a(*ta, k);
+        n = u_trans_n(*ta, k);
+        for (st = 0, i = 1; i <= n; ++i)
+        {
+            if (i == n || a[i].tn != a[st].tn)
+            {
+                for (m = st, p = &(a[st]); m < i; m++)
+                {
+                    if(a[m].nw > p->nw) p = &(a[m]);
+                }
+
+                if(p->f == RC_2)///dis-connected
+                {
+                    rev = p->rev;
+                    qn = p->qn; 
+                    qs = p->qs; 
+                    qe = p->qe - 1;
+                    if(rev)
+                    {
+                        tn = p->tn;
+                        ts = sg->seq[tn].len - (p->te - 1) - 1;
+                        te = sg->seq[tn].len - p->ts - 1;
+                    }
+                    else
+                    {
+                        tn = p->tn; 
+                        ts = p->ts; 
+                        te = p->te - 1;
+                    }
+
+                    classify_hap_overlap(qs, qe, sg->seq[qn].len, ts, te, sg->seq[tn].len, 
+                                                                            &r_qs, &r_qe, &r_ts, &r_te);
+                    
+                    qs = r_qs; qe = r_qe + 1;
+                    if(rev)
+                    {
+                        ts = sg->seq[tn].len - r_te - 1;
+                        te = sg->seq[tn].len - r_ts - 1 + 1;
+                    }
+                    else
+                    {
+                        ts = r_ts; te = r_te + 1;
+                    }
+
+                    r = get_trans_ug_arch(qn, qs, qe, sg->seq[qn].len, 
+                                        tn, ts, te, sg->seq[tn].len, rev, &t);
+                    if(r == MA_HT_QCONT) uc_idx[qn] |= 1;
+                    else if(r == MA_HT_TCONT) uc_idx[qn] |= 2;
+
+                    // if(r < 0) print_u_trans_t(p);
+                }
+                st = i;
+            }
+        }
+    }
+
+    kvec_t_u64_warp buf; kv_init(buf.a);
+    while(up_contain(ta, link, uc_idx, sg, &buf))
+    {
+        if(buf.a.n != 0) continue;
+        for (k = 0; k < ta->idx.n; k++)
+        {
+            if((uc_idx[k]&1) && (uc_idx[k]&2))
+            {
+                uc_idx[k] = 2;
+                break;
+            }
+        }
+    }
+
+    kv_destroy(buf.a);
+}
+
+void collect_hc_links(const ha_ug_index* idx, kvec_pe_hit* hits, hc_links* link, bubble_type* bub, MT* M)
 {
     double index_time = yak_realtime();
     uint64_t k, i, shif = 64 - idx->uID_bits, beg, end, t_d;
-    for (k = 0; k < hits->n_u; ++k) 
+    for (k = 0; k < hits->a.n; ++k) 
     {
-        beg = ((get_pe_s(hits->a[k])<<1)>>shif);
-        end = ((get_pe_e(hits->a[k])<<1)>>shif);
+        beg = ((hits->a.a[k].s<<1)>>shif);
+        end = ((hits->a.a[k].e<<1)>>shif);
 
         if(beg == end) continue;
         if(IF_HOM(beg, *bub)) continue;
@@ -3560,9 +4128,14 @@ void collect_hc_links_hap(const ha_ug_index* idx, kvec_pe_hit_hap* hits, hc_link
         push_hc_edge(&(link->a.a[beg]), end, 0, 0, &t_d);
         push_hc_edge(&(link->a.a[end]), beg, 0, 0, &t_d);
     }
+    asg_t *copy_sg = copy_read_graph(idx->ug->g);
 
-    all_pair_shortest_path(idx, link, M);
-    fill_utg_distance_multi(idx, link, M, bub);
+
+    update_ug_by_trans(copy_sg, &(idx->cov->t_ch->k_trans));
+    all_pair_shortest_path(copy_sg, link, M);
+    fill_utg_distance_multi(copy_sg, link, M, bub);
+    update_containment_distance(copy_sg, &(idx->cov->t_ch->k_trans), link);
+    asg_destroy(copy_sg);
 
     fprintf(stderr, "[M::%s::%.3f] ==> Hi-C linkages have been counted\n", __func__, yak_realtime()-index_time);
     return;
@@ -3584,44 +4157,60 @@ void collect_hc_links_hap(const ha_ug_index* idx, kvec_pe_hit_hap* hits, hc_link
     fprintf(stderr, "[M::%s::%.3f] ==> Enzymes have been counted\n", __func__, yak_realtime()-index_time);
 }
 
-void collect_hc_links(const ha_ug_index* idx, kvec_pe_hit* hits, hc_links* link, bubble_type* bub, MT* M)
+
+void measure_distance(const ma_ug_t* ug, kvec_pe_hit* hits, hc_links* link, bubble_type* bub, kv_u_trans_t *ta)
 {
     double index_time = yak_realtime();
-    uint64_t k, i, shif = 64 - idx->uID_bits, beg, end, t_d;
-    for (k = 0; k < hits->a.n; ++k) 
+    MT M;
+    init_MT(&M, ug->g->n_seq<<1);
+    uint64_t uID_bits;
+    for (uID_bits=1; (uint64_t)(1<<uID_bits)<(uint64_t)ug->u.n; uID_bits++);
+    uint64_t k, i, shif = 64 - uID_bits, beg, end, t_d;
+    if(hits)
     {
-        beg = ((hits->a.a[k].s<<1)>>shif);
-        end = ((hits->a.a[k].e<<1)>>shif);
-
-        if(beg == end) continue;
-        if(IF_HOM(beg, *bub)) continue;
-        if(IF_HOM(end, *bub)) continue;
-
-        t_d = (uint64_t)-1;
-        push_hc_edge(&(link->a.a[beg]), end, 0, 0, &t_d);
-        push_hc_edge(&(link->a.a[end]), beg, 0, 0, &t_d);
-    }
-    all_pair_shortest_path(idx, link, M);
-    fill_utg_distance_multi(idx, link, M, bub);
-
-    fprintf(stderr, "[M::%s::%.3f] ==> Hi-C linkages have been counted\n", __func__, yak_realtime()-index_time);
-    return;
-
-
-
-
-
-    index_time = yak_realtime();
-    for (k = 0; k < link->enzymes.n; k++)
-    {
-        link->enzymes.a[k] = 0;
-        for (i = 0; i < (uint64_t)asm_opt.hic_enzymes->n; i++)
+        for (k = 0; k < hits->a.n; ++k) 
         {
-            link->enzymes.a[k] += get_enzyme_occ(idx->ug->u.a[k].s, idx->ug->u.a[k].len, 
-                                                asm_opt.hic_enzymes->a[i], asm_opt.hic_enzymes->l[i]);
+            beg = ((hits->a.a[k].s<<1)>>shif);
+            end = ((hits->a.a[k].e<<1)>>shif);
+
+            if(beg == end) continue;
+            if(IF_HOM(beg, *bub)) continue;
+            if(IF_HOM(end, *bub)) continue;
+
+            t_d = (uint64_t)-1;
+            push_hc_edge(&(link->a.a[beg]), end, 0, 0, &t_d);
+            push_hc_edge(&(link->a.a[end]), beg, 0, 0, &t_d);
         }
     }
-    fprintf(stderr, "[M::%s::%.3f] ==> Enzymes have been counted\n", __func__, yak_realtime()-index_time);
+    else
+    {
+        for (k = 0; k < ug->g->n_seq; ++k)
+        {
+            if(IF_HOM(k, *bub)) continue;
+            for (i = 0; i < ug->g->n_seq; ++i)
+            {
+                if(i == k || IF_HOM(i, *bub)) continue;
+                t_d = (uint64_t)-1;
+                push_hc_edge(&(link->a.a[i]), k, 0, 0, &t_d);
+                push_hc_edge(&(link->a.a[k]), i, 0, 0, &t_d);
+            }
+        }
+
+    }
+    
+    asg_t *copy_sg = copy_read_graph(ug->g);
+
+
+    update_ug_by_trans(copy_sg, ta);
+    all_pair_shortest_path(copy_sg, link, &M);
+    fill_utg_distance_multi(copy_sg, link, &M, bub);
+    update_containment_distance(copy_sg, ta, link);
+    asg_destroy(copy_sg);
+
+
+    destory_MT(&M);
+    fprintf(stderr, "[M::%s::%.3f] ==> Hi-C linkages have been counted\n", __func__, yak_realtime()-index_time);
+    return;
 }
 
 void set_reverse_links(uint32_t* bub, uint32_t n, kvec_t_u32_warp* reach, uint32_t root, hc_links* link)
@@ -4137,7 +4726,6 @@ void print_hc_links(hc_links* link, int dir, H_partition* hap)
             }
         }
     }
-    
 }
 
 void normalize_hc_links(hc_links* link)
@@ -8816,614 +9404,6 @@ void get_forward_distance(uint32_t src, uint32_t dest, asg_t *sg, hc_links* link
 
 
 
-
-int get_trans_rate_function_hap(ha_ug_index* idx, kvec_pe_hit_hap* hits, hc_links* link, bubble_type* bub, MT* M, H_partition* hap, trans_idx* dis)
-{
-    kvec_t(uint64_t) buf, buf_idx;
-    kv_init(buf);
-    kv_init(buf_idx);
-    uint64_t beg, end, cnt[2];
-    uint64_t k, i, t_d, r_idx, f_idx, med = (uint64_t)-1;
-    int beg_status, end_status;
-    for (i = 0; i < link->a.n; i++)
-    {
-        for (k = 0; k < link->a.a[i].e.n; k++)
-        {
-            link->a.a[i].e.a[k].dis = (uint64_t)-1;
-        }
-    }
-    fill_utg_distance_multi(idx, link, M, bub);
-
-
-    buf.n = 0;
-    for (k = 0; k < hits->n_u; ++k) 
-    {
-        beg = ((get_pe_s(hits->a[k])<<1)>>(64 - idx->uID_bits));
-        end = ((get_pe_e(hits->a[k])<<1)>>(64 - idx->uID_bits));
-
-        if(IF_HOM(beg, *bub)) continue;
-        if(IF_HOM(end, *bub)) continue;
-
-
-        t_d = get_hic_distance_hap(&(hits->a[k]), link, idx);
-        if(t_d == (uint64_t)-1) continue;
-        if(beg == end)
-        {
-            t_d = (t_d << 1);
-        }
-        else
-        {
-            beg_status = get_phase_status(hap, beg);
-            if(beg_status != 1 && beg_status != -1) continue;
-            end_status = get_phase_status(hap, end);
-            if(end_status != 1 && end_status != -1) continue;
-            if(beg_status != end_status)
-            {
-                t_d = (t_d << 1) + 1; 
-            }
-            else
-            {
-                t_d = (t_d << 1);
-            }            
-        }
-
-        kv_push(uint64_t, buf, t_d); 
-    }
-
-    ///might have bias, we may not use right linkage larger than trans rc linkage
-    radix_sort_hc64(buf.a, buf.a+buf.n);
-
-    for (k = 0, r_idx = f_idx = (uint64_t)-1; k < buf.n; k++)
-    {
-        if((buf.a[k]&1) == 0) r_idx = k;
-        if((buf.a[k]&1) == 1) f_idx = k;
-    }
-    buf.n = MIN(r_idx, f_idx);
-    for (k = 0; k < buf.n; k++)
-    {
-        if((buf.a[k]&1) == 1)
-        {
-            kv_push(uint64_t, buf_idx, buf.a[k]>>1); 
-        } 
-    }
-    uint64_t cutoff = buf_idx.n * 0.9, t = buf_idx.n * 0.005, pre, step;
-    k = 0;
-    if(cutoff >= t) k = cutoff - t;
-    pre = 0;
-    if(cutoff >= t + 1) pre = buf_idx.a[cutoff - t - 1];
-    for (t_d = i = 0; k < cutoff + t; k++)
-    {
-        t_d += (buf_idx.a[k] - pre);
-        pre = buf_idx.a[k];
-        i++;
-    }
-    if(t_d == 0 || i == 0 || t == 0)
-    {
-        kv_destroy(buf);
-        kv_destroy(buf_idx);
-        return 0;
-    }
-    step = (t_d/i)*20;
-
-    if(step == 0)
-    {
-        kv_destroy(buf);
-        kv_destroy(buf_idx);
-        return 0;
-    }
-    trans_p_t* p = NULL;
-    dis->n = 0;
-    uint64_t step_s = 0, step_e = step;
-    if(buf.n>0) step_s = buf.a[0]>>1, step_e = (buf.a[0]>>1) + step;
-    for (k = cnt[0] = cnt[1] = 0; k < buf.n; k++)
-    {
-        if((buf.a[k]>>1) < step_e && (buf.a[k]>>1) >= step_s)
-        {
-            cnt[buf.a[k]&1]++;
-        }
-
-        if((buf.a[k]>>1) >= step_e)
-        {
-            while (!((buf.a[k]>>1) < step_e && (buf.a[k]>>1) >= step_s))
-            {
-                kv_pushp(trans_p_t, *dis, &p);
-                p->beg = step_s;
-                p->end = step_e;
-                p->cnt_0 = cnt[0];
-                p->cnt_1 = cnt[1];
-                step_s += step;
-                step_e += step;
-                cnt[0] = cnt[1] = 0;
-            }
-        }
-        // fprintf(stderr, "-k: %lu, buf.n: %lu, buf.a[k]: %lu, step_s: %lu, step_e: %lu\n", 
-        // k, (uint64_t)buf.n, (buf.a[k]>>1), step_s, step_e);
-    }
-    if(cnt[0] > 0 || cnt[1] > 0)
-    {
-        kv_pushp(trans_p_t, *dis, &p);
-        p->beg = step_s;
-        p->end = step_e;
-        p->cnt_0 = cnt[0];
-        p->cnt_1 = cnt[1];
-    }
-
-    uint64_t smooth_step = 20, k_i, cnt_0;
-    if(dis->n > 0) med = dis->a[dis->n-1].end;
-    for (k = 0; k+smooth_step < dis->n; k++)
-    {
-        for (k_i = cnt_0 = 0; k_i < smooth_step; k_i++)
-        {
-            if(dis->a[k+k_i].cnt_0 == 0 || dis->a[k+k_i].cnt_1 == 0) cnt_0++;
-        }
-
-        if(cnt_0 >= smooth_step * 0.2)
-        {
-            med = dis->a[k].beg;
-            break;
-        }
-    }
-   
-    long long b_k = 0, b_i = 0, b_j, pass = 0;
-    ///for (b_k = b_i = 0; b_k < (long long)dis->n; b_k++)
-    while(b_k < (long long)dis->n)
-    {
-        pass = 1;
-        beg = dis->a[b_k].beg;
-        end = dis->a[b_k].end;
-        cnt[0] = dis->a[b_k].cnt_0;
-        cnt[1] = dis->a[b_k].cnt_1;
-        if(cnt[0] > 0 && cnt[1] > 0)
-        {
-            dis->a[b_i].beg = beg;
-            dis->a[b_i].end = end;
-            dis->a[b_i].cnt_0 = cnt[0];
-            dis->a[b_i].cnt_1 = cnt[1];
-            b_i++;
-            b_k++;
-            continue;
-        }
-
-        b_k++;
-        for (b_j = b_k; b_j < (long long)dis->n; b_j++, b_k++)
-        {
-            end = dis->a[b_j].end;
-            cnt[0] += dis->a[b_j].cnt_0;
-            cnt[1] += dis->a[b_j].cnt_1;
-            if(cnt[0] > 0 && cnt[1] > 0) break;
-        }
-
-
-        if(b_j < (long long)dis->n)
-        {
-            dis->a[b_i].beg = beg;
-            dis->a[b_i].end = end;
-            dis->a[b_i].cnt_0 = cnt[0];
-            dis->a[b_i].cnt_1 = cnt[1];
-            b_i++;
-            b_k++;
-            continue;
-        }
-
-        for(b_j = b_i-1; b_j >= 0; b_j--)
-        {
-            beg = dis->a[b_j].beg;
-            cnt[0] += dis->a[b_j].cnt_0;
-            cnt[1] += dis->a[b_j].cnt_1;
-            if(cnt[0] > 0 && cnt[1] > 0) break;
-        }
-
-        if(b_j >= 0)
-        {
-            b_i = b_j;
-            dis->a[b_i].beg = beg;
-            dis->a[b_i].end = end;
-            dis->a[b_i].cnt_0 = cnt[0];
-            dis->a[b_i].cnt_1 = cnt[1];
-            b_i++;
-            b_k++;
-            continue;
-        }
-
-        pass = 0;
-        break;
-    }
-    dis->n = b_i;
-    if(dis->n == 0 || pass == 0)
-    {
-        kv_destroy(buf);
-        kv_destroy(buf_idx);
-        return 0;
-    } 
-    
-    // for (i = 0; i < dis->n; i++)
-    // {
-    //     if(i > 0 && dis->a[i].beg != dis->a[i-1].end) fprintf(stderr, "ERROR: dis->a[i].beg: %lu, dis->a[i-1].end: %lu\n", dis->a[i].beg, dis->a[i-1].end);
-    //     fprintf(stderr, "beg: %lu, end: %lu, cnt_0: %lu, cnt_1: %lu, error_rate: %f\n", 
-    //     dis->a[i].beg, dis->a[i].end, dis->a[i].cnt_0, dis->a[i].cnt_1, (double)(dis->a[i].cnt_1)/(double)(dis->a[i].cnt_1 + dis->a[i].cnt_0));
-    // }
-    
-    LeastSquare_advance(dis, idx, med);
-    // fprintf(stderr, "idx->a: %f, idx->b: %f, idx->frac: %f, med: %lu\n", 
-    // (double)idx->a, (double)idx->b, (double)idx->frac, med);
-
-    dis->max = dis->a[dis->n-1].end;
-
-    
-    kv_destroy(buf);
-    kv_destroy(buf_idx);
-    if(idx->a < 0) idx->a = 0;
-    if(idx->a == 0)
-    {
-        idx->b = MAX((((double)(dis->a[dis->n-1].cnt_1))/((double)(dis->a[dis->n-1].cnt_0 + dis->a[dis->n-1].cnt_1))), idx->b);
-    }
-    if(idx->b < 0 && get_trans(idx, dis->max) < 0)
-    {
-        idx->b = ((double)(dis->a[dis->n-1].cnt_1))/((double)(dis->a[dis->n-1].cnt_0 + dis->a[dis->n-1].cnt_1));
-    } 
-
-    // fprintf(stderr, "idx->a: %f, idx->b: %f, idx->frac: %f, med: %lu\n", 
-    // (double)idx->a, (double)idx->b, (double)idx->frac, med);
-
-    return 1;
-}
-
-void init_hic_p_hap(ha_ug_index* idx, kvec_pe_hit_hap* hits, hc_links* link, bubble_type* bub, 
-kvec_hc_edge* back_hc_edge, MT* M, H_partition* hap, uint32_t ignore_dis)
-{
-    uint64_t k, i, m, uID, is_comples_weight = 0;
-    trans_idx dis;
-    kv_init(dis);
-    
-    if(bub->round_id > 0 && ignore_dis == 0)
-    {
-        is_comples_weight = get_trans_rate_function_hap(idx, hits, link, bub, M, hap, &dis);
-    }
-    
-
-    hc_edge *e = NULL;
-    for (i = 0; i < link->a.n; i++)
-    {
-        for (k = 0; k < link->a.a[i].f.n; k++)
-        {
-            if(link->a.a[i].f.a[k].del) continue;
-            if(link->a.a[i].f.a[k].dis == RC_0)
-            {
-                uID = link->a.a[i].f.a[k].uID;
-                e = get_hc_edge(link, i, uID, 0);
-                if(e) 
-                {
-                    if(back_hc_edge) kv_push(hc_edge, back_hc_edge->a, *e);
-                    e->del = 1;
-                }
-
-                e = get_hc_edge(link, uID, i, 0);
-                if(e) 
-                {
-                    if(back_hc_edge) kv_push(hc_edge, back_hc_edge->a, *e);
-                    e->del = 1;
-                }
-            }
-            else if(link->a.a[i].f.a[k].dis == RC_1)
-            {
-                uID = link->a.a[i].f.a[k].uID;
-                get_forward_distance(i, uID, idx->ug->g, link, M);
-                get_forward_distance(uID, i, idx->ug->g, link, M);
-            }
-        }
-    }
-    
-
-    for (i = 0; i < link->a.n; i++)
-    {
-        for (k = 0; k < link->a.a[i].e.n; k++)
-        {
-            if(link->a.a[i].e.a[k].del) continue;
-            if(link->a.a[i].e.a[k].dis == (uint64_t)-1)
-            {
-                e = get_hc_edge(link, link->a.a[i].e.a[k].uID, i, 0);
-                if(back_hc_edge) kv_push(hc_edge, back_hc_edge->a, link->a.a[i].e.a[k]);
-                if(back_hc_edge) kv_push(hc_edge, back_hc_edge->a, *e);
-                e->del = link->a.a[i].e.a[k].del = 1;
-            }
-        }
-    }
-
-    for (i = 0; i < link->a.n; i++)
-    {
-        for (k = m = 0; k < link->a.a[i].e.n; k++)
-        {
-            if(link->a.a[i].e.a[k].del) continue;
-            link->a.a[i].e.a[m] = link->a.a[i].e.a[k];
-            link->a.a[i].e.a[m].weight = 0;
-            link->a.a[i].e.a[m].occ = 0;
-            m++;
-        }
-        link->a.a[i].e.n = m;
-    }
-    weight_edges_advance_hap(idx, hits, link, bub, is_comples_weight == 1? &dis : NULL);
-
-    for (i = 0; i < link->a.n; i++)
-    {
-        for (k = 0; k < link->a.a[i].e.n; k++)
-        {
-            if(link->a.a[i].e.a[k].del) continue;
-            if(link->a.a[i].e.a[k].weight <= 0)
-            {
-                e = get_hc_edge(link, link->a.a[i].e.a[k].uID, i, 0);
-                if(back_hc_edge) kv_push(hc_edge, back_hc_edge->a, link->a.a[i].e.a[k]);
-                if(back_hc_edge) kv_push(hc_edge, back_hc_edge->a, *e);
-                e->del = link->a.a[i].e.a[k].del = 1;
-            }
-        }
-    }
-
-    for (i = 0; i < link->a.n; i++)
-    {
-        for (k = m = 0; k < link->a.a[i].e.n; k++)
-        {
-            if(link->a.a[i].e.a[k].del) continue;
-            link->a.a[i].e.a[m] = link->a.a[i].e.a[k];
-            m++;
-        }
-        link->a.a[i].e.n = m;
-    }
-
-    kv_destroy(dis);
-}
-
-int get_trans_rate_function(ha_ug_index* idx, kvec_pe_hit* hits, hc_links* link, bubble_type* bub, MT* M, H_partition* hap, trans_idx* dis)
-{
-    kvec_t(uint64_t) buf, buf_idx;
-    kv_init(buf);
-    kv_init(buf_idx);
-    uint64_t beg, end, cnt[2];
-    uint64_t k, i, t_d, r_idx, f_idx, med = (uint64_t)-1;
-    int beg_status, end_status;
-    for (i = 0; i < link->a.n; i++)
-    {
-        for (k = 0; k < link->a.a[i].e.n; k++)
-        {
-            link->a.a[i].e.a[k].dis = (uint64_t)-1;
-        }
-    }
-    fill_utg_distance_multi(idx, link, M, bub);
-
-
-    buf.n = 0;
-    for (k = 0; k < hits->a.n; ++k) 
-    {
-        beg = ((hits->a.a[k].s<<1)>>(64 - idx->uID_bits));
-        end = ((hits->a.a[k].e<<1)>>(64 - idx->uID_bits));
-
-        if(IF_HOM(beg, *bub)) continue;
-        if(IF_HOM(end, *bub)) continue;
-
-
-        t_d = get_hic_distance(&(hits->a.a[k]), link, idx);
-        if(t_d == (uint64_t)-1) continue;
-        if(beg == end)
-        {
-            t_d = (t_d << 1);
-        }
-        else
-        {
-            beg_status = get_phase_status(hap, beg);
-            if(beg_status != 1 && beg_status != -1) continue;
-            end_status = get_phase_status(hap, end);
-            if(end_status != 1 && end_status != -1) continue;
-            if(beg_status != end_status)
-            {
-                t_d = (t_d << 1) + 1; 
-            }
-            else
-            {
-                t_d = (t_d << 1);
-            }            
-        }
-
-        kv_push(uint64_t, buf, t_d); 
-    }
-
-    ///might have bias, we may not use right linkage larger than trans rc linkage
-    radix_sort_hc64(buf.a, buf.a+buf.n);
-
-    for (k = 0, r_idx = f_idx = (uint64_t)-1; k < buf.n; k++)
-    {
-        if((buf.a[k]&1) == 0) r_idx = k;
-        if((buf.a[k]&1) == 1) f_idx = k;
-    }
-    buf.n = MIN(r_idx, f_idx);
-    for (k = 0; k < buf.n; k++)
-    {
-        if((buf.a[k]&1) == 1)
-        {
-            kv_push(uint64_t, buf_idx, buf.a[k]>>1); 
-        } 
-    }
-    uint64_t cutoff = buf_idx.n * 0.9, t = buf_idx.n * 0.005, pre, step;
-    k = 0;
-    if(cutoff >= t) k = cutoff - t;
-    pre = 0;
-    if(cutoff >= t + 1) pre = buf_idx.a[cutoff - t - 1];
-    for (t_d = i = 0; k < cutoff + t; k++)
-    {
-        t_d += (buf_idx.a[k] - pre);
-        pre = buf_idx.a[k];
-        i++;
-    }
-    if(t_d == 0 || i == 0 || t == 0)
-    {
-        kv_destroy(buf);
-        kv_destroy(buf_idx);
-        return 0;
-    }
-    step = (t_d/i)*20;
-
-    if(step == 0)
-    {
-        kv_destroy(buf);
-        kv_destroy(buf_idx);
-        return 0;
-    }
-    trans_p_t* p = NULL;
-    dis->n = 0;
-    uint64_t step_s = 0, step_e = step;
-    if(buf.n>0) step_s = buf.a[0]>>1, step_e = (buf.a[0]>>1) + step;
-    for (k = cnt[0] = cnt[1] = 0; k < buf.n; k++)
-    {
-        if((buf.a[k]>>1) < step_e && (buf.a[k]>>1) >= step_s)
-        {
-            cnt[buf.a[k]&1]++;
-        }
-
-        if((buf.a[k]>>1) >= step_e)
-        {
-            while (!((buf.a[k]>>1) < step_e && (buf.a[k]>>1) >= step_s))
-            {
-                kv_pushp(trans_p_t, *dis, &p);
-                p->beg = step_s;
-                p->end = step_e;
-                p->cnt_0 = cnt[0];
-                p->cnt_1 = cnt[1];
-                step_s += step;
-                step_e += step;
-                cnt[0] = cnt[1] = 0;
-            }
-        }
-        // fprintf(stderr, "-k: %lu, buf.n: %lu, buf.a[k]: %lu, step_s: %lu, step_e: %lu\n", 
-        // k, (uint64_t)buf.n, (buf.a[k]>>1), step_s, step_e);
-    }
-    if(cnt[0] > 0 || cnt[1] > 0)
-    {
-        kv_pushp(trans_p_t, *dis, &p);
-        p->beg = step_s;
-        p->end = step_e;
-        p->cnt_0 = cnt[0];
-        p->cnt_1 = cnt[1];
-    }
-
-    uint64_t smooth_step = 20, k_i, cnt_0;
-    if(dis->n > 0) med = dis->a[dis->n-1].end;
-    for (k = 0; k+smooth_step < dis->n; k++)
-    {
-        for (k_i = cnt_0 = 0; k_i < smooth_step; k_i++)
-        {
-            if(dis->a[k+k_i].cnt_0 == 0 || dis->a[k+k_i].cnt_1 == 0) cnt_0++;
-        }
-
-        if(cnt_0 >= smooth_step * 0.2)
-        {
-            med = dis->a[k].beg;
-            break;
-        }
-    }
-   
-    long long b_k = 0, b_i = 0, b_j, pass = 0;
-    ///for (b_k = b_i = 0; b_k < (long long)dis->n; b_k++)
-    while(b_k < (long long)dis->n)
-    {
-        pass = 1;
-        beg = dis->a[b_k].beg;
-        end = dis->a[b_k].end;
-        cnt[0] = dis->a[b_k].cnt_0;
-        cnt[1] = dis->a[b_k].cnt_1;
-        if(cnt[0] > 0 && cnt[1] > 0)
-        {
-            dis->a[b_i].beg = beg;
-            dis->a[b_i].end = end;
-            dis->a[b_i].cnt_0 = cnt[0];
-            dis->a[b_i].cnt_1 = cnt[1];
-            b_i++;
-            b_k++;
-            continue;
-        }
-
-        b_k++;
-        for (b_j = b_k; b_j < (long long)dis->n; b_j++, b_k++)
-        {
-            end = dis->a[b_j].end;
-            cnt[0] += dis->a[b_j].cnt_0;
-            cnt[1] += dis->a[b_j].cnt_1;
-            if(cnt[0] > 0 && cnt[1] > 0) break;
-        }
-
-
-        if(b_j < (long long)dis->n)
-        {
-            dis->a[b_i].beg = beg;
-            dis->a[b_i].end = end;
-            dis->a[b_i].cnt_0 = cnt[0];
-            dis->a[b_i].cnt_1 = cnt[1];
-            b_i++;
-            b_k++;
-            continue;
-        }
-
-        for(b_j = b_i-1; b_j >= 0; b_j--)
-        {
-            beg = dis->a[b_j].beg;
-            cnt[0] += dis->a[b_j].cnt_0;
-            cnt[1] += dis->a[b_j].cnt_1;
-            if(cnt[0] > 0 && cnt[1] > 0) break;
-        }
-
-        if(b_j >= 0)
-        {
-            b_i = b_j;
-            dis->a[b_i].beg = beg;
-            dis->a[b_i].end = end;
-            dis->a[b_i].cnt_0 = cnt[0];
-            dis->a[b_i].cnt_1 = cnt[1];
-            b_i++;
-            b_k++;
-            continue;
-        }
-
-        pass = 0;
-        break;
-    }
-    dis->n = b_i;
-    if(dis->n == 0 || pass == 0)
-    {
-        kv_destroy(buf);
-        kv_destroy(buf_idx);
-        return 0;
-    } 
-    
-    for (i = 0; i < dis->n; i++)
-    {
-        if(i > 0 && dis->a[i].beg != dis->a[i-1].end) fprintf(stderr, "ERROR: dis->a[i].beg: %lu, dis->a[i-1].end: %lu\n", dis->a[i].beg, dis->a[i-1].end);
-        fprintf(stderr, "beg: %lu, end: %lu, cnt_0: %lu, cnt_1: %lu, error_rate: %f\n", 
-        dis->a[i].beg, dis->a[i].end, dis->a[i].cnt_0, dis->a[i].cnt_1, (double)(dis->a[i].cnt_1)/(double)(dis->a[i].cnt_1 + dis->a[i].cnt_0));
-    }
-    
-    LeastSquare_advance(dis, idx, med);
-    // fprintf(stderr, "idx->a: %f, idx->b: %f, idx->frac: %f, med: %lu\n", 
-    // (double)idx->a, (double)idx->b, (double)idx->frac, med);
-
-    dis->max = dis->a[dis->n-1].end;
-
-    
-    kv_destroy(buf);
-    kv_destroy(buf_idx);
-    if(idx->a < 0) idx->a = 0;
-    if(idx->a == 0)
-    {
-        idx->b = MAX((((double)(dis->a[dis->n-1].cnt_1))/((double)(dis->a[dis->n-1].cnt_0 + dis->a[dis->n-1].cnt_1))), idx->b);
-    }
-    if(idx->b < 0 && get_trans(idx, dis->max) < 0)
-    {
-        idx->b = ((double)(dis->a[dis->n-1].cnt_1))/((double)(dis->a[dis->n-1].cnt_0 + dis->a[dis->n-1].cnt_1));
-    } 
-
-    // fprintf(stderr, "idx->a: %f, idx->b: %f, idx->frac: %f, med: %lu\n", 
-    // (double)idx->a, (double)idx->b, (double)idx->frac, med);
-
-    return 1;
-}
-
-
 int get_trans_rate_function_advance(ha_ug_index* idx, kvec_pe_hit* hits, hc_links* link, bubble_type* bub, MT* M, H_partition* hap, trans_idx* dis)
 {
     kvec_t(uint64_t) buf;
@@ -9438,7 +9418,7 @@ int get_trans_rate_function_advance(ha_ug_index* idx, kvec_pe_hit* hits, hc_link
             link->a.a[i].e.a[k].dis = (uint64_t)-1;
         }
     }
-    fill_utg_distance_multi(idx, link, M, bub);
+    fill_utg_distance_multi(idx->ug->g, link, M, bub);
 
 
     buf.n = 0;
@@ -13024,36 +13004,6 @@ void init_contig_H_partition(bubble_type* bub, ha_ug_index* idx, H_partition* ha
     label_unitigs(&(hap->group_g_p), idx->ug);
 }
 
-void cluster_contigs_hap(bubble_type* bub, ha_ug_index* idx, kvec_pe_hit_hap* hits, MT* M, H_partition* hap, hc_links* link)
-{   
-    uint64_t k, i, shif = 64 - idx->uID_bits, beg, end, t_d;
-    for (i = 0; i < link->a.n; i++) link->a.a[i].e.n = 0;
-    for (k = 0; k < hits->n_u; ++k) 
-    {
-        beg = ((get_pe_s(hits->a[k])<<1)>>shif);
-        end = ((get_pe_e(hits->a[k])<<1)>>shif);
-
-        if(beg == end) continue;
-        if(IF_HOM(beg, *bub)) continue;
-        if(IF_HOM(end, *bub)) continue;
-
-        t_d = 1;
-        push_hc_edge(&(link->a.a[beg]), end, 0, 0, &t_d);
-        push_hc_edge(&(link->a.a[end]), beg, 0, 0, &t_d);
-    }
-
-    init_hic_p_hap((ha_ug_index*)idx, hits, link, bub, NULL, M, NULL, 1);
-    
-    init_chain_hic_warp(idx->ug, link, bub, &bub->c_w);
-
-    hap->link = link;
-    hap->n = idx->ug->u.n;
-
-    init_contig_H_partition(bub, idx, hap);
-
-    destory_chain_hic_warp(&bub->c_w);
-}
-
 
 void cluster_contigs(bubble_type* bub, ha_ug_index* idx, kvec_pe_hit* hits, MT* M, H_partition* hap, hc_links* link)
 {   
@@ -13340,10 +13290,37 @@ const char* aln)
 }
 **/
 
-void reduce_trans_chain(hc_links *link)
+void debug_gfa_space(ma_ug_t* ug, hap_cov_t *cov)
 {
-    ;
+    bubble_type bub; 
+    memset(&bub, 0, sizeof(bubble_type));
+    bub.round_id = 0; bub.n_round = 2;
+
+    identify_bubbles(ug, &bub, cov->t_ch->is_r_het);
+
+    hc_links link;
+    init_hc_links(&link, ug->g->n_seq, cov->t_ch);
+
+    measure_distance(ug, NULL, &link, &bub, &(cov->t_ch->k_trans));
+
+    // uint32_t i, k;
+    // for (i = 0; i < link.a.n; ++i) 
+    // {
+    //     for (k = 0; k < link.a.a[i].e.n; k++)
+    //     {
+    //         if(link.a.a[i].e.a[k].del || link.a.a[i].e.a[k].dis == (uint64_t)-1) continue;
+    //         fprintf(stderr, "s-utg%.6dl\td-utg%.6dl\t%lu\n", 
+    //             (int)(i+1), (int)(link.a.a[i].e.a[k].uID+1), 
+    //             link.a.a[i].e.a[k].dis == (uint64_t)-1? (uint64_t)-1 : link.a.a[i].e.a[k].dis>>3);
+    //     }
+    // }
+
+
+
+    destory_bubbles(&bub);
+    destory_hc_links(&link);
 }
+
 
 int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx)
 {

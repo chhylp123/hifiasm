@@ -13222,7 +13222,7 @@ void clean_u_trans_t_idx(kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g)
     kt_u_trans_t_idx(ta, ug->g->n_seq);
     kt_u_trans_t_symm(ta, ug);
     filter_u_trans_t(ta, ug, read_g, 3);
-    debug_u_trans_t(ta);
+    ///debug_u_trans_t(ta);
 }
 
 
@@ -13256,8 +13256,9 @@ bub_label_t* b_mask_t)
     clean_u_trans_t_idx(&(cov->t_ch->k_trans), ug, sg);
     // print_untig_by_read(copy_ug, "m64011_190830_220126/88867583/ccs", 603738, NULL, NULL, "sb");
     
-    set_trio_flag_by_cov(ug, sg, cov);
+    ///debug_gfa_space(ug, cov);
 
+    set_trio_flag_by_cov(ug, sg, cov);
     // print_r_het(cov, R_INF.trio_flag, "out-1");
 
 

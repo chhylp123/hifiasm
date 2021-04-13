@@ -1180,6 +1180,7 @@ void chain_origin_trans_uid_by_distance(hap_cov_t *cov, asg_t *read_sg,
 uint32_t *pri_a, uint32_t pri_n, uint32_t pri_beg, uint64_t *i_pri_len, 
 uint32_t *aux_a, uint32_t aux_n, uint32_t aux_beg, uint64_t *i_aux_len,
 ma_ug_t *ug, uint32_t flag, double overall_score, const char* cmd);
+int asg_arc_del_trans(asg_t *g, int fuzz);
 
 #define JUNK_COV 5
 #define DISCARD_RATE 0.8
