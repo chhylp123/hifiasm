@@ -32,39 +32,49 @@ typedef struct {
 typedef struct {
 	uint64_t x; // RNG
 	uint32_t cc_off, cc_size;
-	///uint32_t n_cc_edge, m_cc_edge;
-	///uint64_t *cc_edge;
 	kvec_t(uint64_t) cc_edge;
-	uint32_t n_sub;
 	uint32_t *cc_node;
 	uint32_t *bfs, *bfs_mark;
 	mc_pairsc_t *z, *z_opt;///keep scores to nodes(1) and nodes(-1)
 	int8_t *s, *s_opt;
+	uint8_t *f;
 } mc_svaux_t;
 
 void mc_opt_init(mc_opt_t *opt)
 {
 	memset(opt, 0, sizeof(mc_opt_t));
-	opt->n_perturb = 5000;
+	///opt->n_perturb = 5000;
+	opt->n_perturb = 100000;
 	opt->f_perturb = 0.1;
 	opt->max_iter = 1000;
 	opt->seed = 11;
 }
 
-mc_g_t *init_mc_g_t(ma_ug_t *ug, asg_t *read_g)
+mc_g_t *init_mc_g_t(ma_ug_t *ug, asg_t *read_g, int8_t *s, uint32_t renew_s)
 {
 	mc_g_t *p = NULL; CALLOC(p, 1);
 	p->ug = ug;
 	p->rg = read_g;
 	kv_init(p->s);
-	CALLOC(p->s.a, ug->g->n_seq);
-	p->s.n = p->s.m = ug->g->n_seq;
+	if(s)
+	{
+		p->s.a = s;
+		p->s.n = ug->g->n_seq;
+		p->s.m = 0;
+		if(renew_s) memset(p->s.a, 0, p->s.n);
+	}
+	else
+	{
+		CALLOC(p->s.a, ug->g->n_seq);
+		p->s.n = p->s.m = ug->g->n_seq;
+	} 
 	return p;
 }
 
 void destory_mc_g_t(mc_g_t **p)
 {
 	if(!p || !(*p)) return;
+	if((*p)->s.m == 0) (*p)->s.a = NULL;
 	kv_destroy((*p)->s);
 	if((*p)->e)
 	{
@@ -258,7 +268,7 @@ trans_chain* t_ch)
     }
 }
 
-void update_mc_edges(mc_g_t *mg, hap_overlaps_list* ha, kv_u_trans_t *ta, trans_chain* t_ch, double f_rate)
+void update_mc_edges(mc_g_t *mg, hap_overlaps_list* ha, kv_u_trans_t *ta, trans_chain* t_ch, double f_rate, uint32_t is_sys)
 {
 	uint32_t v, i, k, qn, tn, qs, qe, ts, te, occ, as, ae, l, offset, l_pos;
 	uint64_t hetLen, homLen, oLen;
@@ -297,7 +307,7 @@ void update_mc_edges(mc_g_t *mg, hap_overlaps_list* ha, kv_u_trans_t *ta, trans_
 			kv_push(uint32_t, p_idx, p.n);
 		}
 
-		debug_mc_interval_t(p.a, p.n, p_idx.a, mg->ug, mg->rg, t_ch);
+		///debug_mc_interval_t(p.a, p.n, p_idx.a, mg->ug, mg->rg, t_ch);
 	}
 
 	if(!mg->e)
@@ -455,17 +465,17 @@ void update_mc_edges(mc_g_t *mg, hap_overlaps_list* ha, kv_u_trans_t *ta, trans_
 
 				if(hetLen <= ((hetLen + homLen)*f_rate)) continue;
 				/*****************tn*****************/
-				kv_pushp(mc_edge_t, mg->e->ma, &ma);
-                ma->x = (uint64_t)ta->a[i].qn << 32 | ta->a[i].tn;
-                ma->w = ta->a[i].nw;
 			}
+			kv_pushp(mc_edge_t, mg->e->ma, &ma);
+			ma->x = (uint64_t)ta->a[i].qn << 32 | ta->a[i].tn;
+			ma->w = w_cast(ta->a[i].nw);
 		}
 	}
 	
 	radix_sort_mce(mg->e->ma.a, mg->e->ma.a + mg->e->ma.n);
 	mc_merge_dup(mg);
 	mc_edges_idx(mg->e);
-	mc_edges_symm(mg->e);
+	if(is_sys) mc_edges_symm(mg->e);
 	kv_destroy(p); kv_destroy(p_idx);
 }
 
@@ -577,6 +587,7 @@ mc_svaux_t *mc_svaux_init(const mc_g_t *mg, uint64_t x)
 	MALLOC(b->bfs_mark, ma->n_seq);
 	CALLOC(b->z, ma->n_seq);
 	CALLOC(b->z_opt, ma->n_seq);
+	CALLOC(b->f, ma->n_seq);
 	return b;
 }
 void mc_svaux_destroy(mc_svaux_t *b)
@@ -586,8 +597,31 @@ void mc_svaux_destroy(mc_svaux_t *b)
 	free(b->s); free(b->s_opt);
 	free(b->z); free(b->z_opt);
 	free(b->bfs); free(b->bfs_mark);
+	free(b->f);
 	free(b);
 }
+
+uint32_t mc_best(const mc_match_t *ma, mc_svaux_t *b)
+{
+	uint32_t i, max_i = (uint32_t)-1;
+	t_w_t w, max_w;
+	for (i = 0, max_w = -1; i < b->cc_size; ++i) {
+		uint32_t k = (uint32_t)ma->cc[b->cc_off + i];///uid
+		if(b->f[k] || b->s[k] == 0) continue;
+		///z += -((t_w_t)(b->s[k])) * (b->z[k].z[0] - b->z[k].z[1]);
+		///-((t_w_t)(b->s[k])) * (b->z[k].z[0] - b->z[k].z[1]) current
+		///((t_w_t)(b->s[k])) * (b->z[k].z[0] - b->z[k].z[1]) flipped
+		w = ((t_w_t)(b->s[k])) * (b->z[k].z[0] - b->z[k].z[1]) * 2;
+		if(w <= 0) continue;
+		if(w > max_w)
+		{
+			w = max_w; max_i = k;
+		}
+	}
+
+	return max_i;
+}
+
 
 t_w_t mc_score(const mc_match_t *ma, mc_svaux_t *b)
 {
@@ -672,14 +706,40 @@ static void mc_set_spin(const mc_match_t *ma, mc_svaux_t *b, uint32_t k, int8_t 
 	b->s[k] = s;
 }
 
-static t_w_t mc_optimize_local(const mc_opt_t *opt, const mc_match_t *ma, mc_svaux_t *b, uint32_t *n_iter)
+t_w_t mc_best_flip(const mc_match_t *ma, mc_svaux_t *b, t_w_t *sc_max)
 {
+	uint32_t idx, k;
+	t_w_t z = 0, w = 0;
+	for (idx = 0; idx < b->cc_size; ++idx) {
+		k = (uint32_t)ma->cc[b->cc_off + idx];
+		b->f[k] = 0;
+		z += -((t_w_t)(b->s[k])) * (b->z[k].z[0] - b->z[k].z[1]);
+		///b->f[(uint32_t)ma->cc[b->cc_off + idx]] = 0;
+        ///uint32_t k = (uint32_t)ma->cc[b->cc_off + idx];///uid
+	}
+	while (1)
+	{
+		idx = mc_best(ma, b);
+		if(idx == (uint32_t)-1) break;
+
+		w = ((t_w_t)(b->s[k])) * (b->z[k].z[0] - b->z[k].z[1]) * 4;
+		if(sc_max && (*sc_max) >= (z + w)) break;
+		z += w;
+
+		mc_set_spin(ma, b, idx, -b->s[idx]);
+		b->f[idx] = 1;
+	}
+	return z;
+}
+
+static t_w_t mc_optimize_local(const mc_opt_t *opt, const mc_match_t *ma, mc_svaux_t *b, uint32_t *n_iter, t_w_t *sc_max)
+{
+	uint32_t i, n_flip = 0;
 	int32_t n_iter_local = 0;
 	while (n_iter_local < opt->max_iter) {
-		uint32_t i, n_flip = 0;
 		++(*n_iter);
 		ks_shuffle_uint32_t(b->cc_size, b->cc_node, &b->x);
-		for (i = 0; i < b->cc_size; ++i) {
+		for (i = n_flip = 0; i < b->cc_size; ++i) {
 			uint32_t k = b->cc_node[i];///uid
 			int8_t s;
 			if (b->z[k].z[0] == b->z[k].z[1]) continue;
@@ -692,6 +752,14 @@ static t_w_t mc_optimize_local(const mc_opt_t *opt, const mc_match_t *ma, mc_sva
 		++n_iter_local;
 		if (n_flip == 0) break;
 	}
+
+	if(n_flip != 0) 
+	{
+		t_w_t z_debug =  mc_best_flip(ma, b, sc_max);
+		if(z_debug != mc_score(ma, b)) fprintf(stderr, "ERROR\n");
+		return z_debug;
+	}
+
 	return mc_score(ma, b);
 }
 
@@ -743,25 +811,37 @@ static void mc_perturb_node(const mc_opt_t *opt, const mc_match_t *ma, mc_svaux_
 uint32_t mc_solve_cc(const mc_opt_t *opt, const mc_g_t *mg, mc_svaux_t *b, uint32_t cc_off, uint32_t cc_size)
 {
 	uint32_t j, k, n_iter = 0;
-	t_w_t /**sc_ori,**/ sc_opt = -(1<<30), sc;///problem-w
+	t_w_t sc_opt = -(1<<30), sc;///problem-w
 
 	b->cc_off = cc_off, b->cc_size = cc_size;
 	if (b->cc_size < 2) return 0;
 
-	// first guess
-	/**sc_ori =**/ mc_init_spin(opt, mg->e, b);
+	sc_opt = mc_init_spin(opt, mg->e, b);
 	if (b->cc_size == 2) return 0;
-
-	// optimize
-	sc_opt = mc_optimize_local(opt, mg->e, b, &n_iter);
 	for (j = 0; j < b->cc_size; ++j) {///backup s and z in s_opt and z_opt
 		b->s_opt[b->cc_node[j]] = b->s[b->cc_node[j]]; ///hap status of each unitig
 		b->z_opt[b->cc_node[j]] = b->z[b->cc_node[j]]; ///z[0]: positive weight; z[1]: positive weight
 	}
+
+	sc = mc_optimize_local(opt, mg->e, b, &n_iter, &sc_opt);
+	if (sc > sc_opt) {
+		for (j = 0; j < b->cc_size; ++j) {
+			b->s_opt[b->cc_node[j]] = b->s[b->cc_node[j]];
+			b->z_opt[b->cc_node[j]] = b->z[b->cc_node[j]];
+		}
+		sc_opt = sc;
+	} else {
+		for (j = 0; j < b->cc_size; ++j) {
+			b->s[b->cc_node[j]] = b->s_opt[b->cc_node[j]];
+			b->z[b->cc_node[j]] = b->z_opt[b->cc_node[j]];
+		}
+	}
+	// fprintf(stderr, "\ncc_size: %u, cc_off: %u\n", b->cc_size, b->cc_off);
 	for (k = 0; k < (uint32_t)opt->n_perturb; ++k) {
 		if (k&1) mc_perturb(opt, mg->e, b);
 		else mc_perturb_node(opt, mg->e, b, 3);
-		sc = mc_optimize_local(opt, mg->e, b, &n_iter);
+		sc = mc_optimize_local(opt, mg->e, b, &n_iter, &sc_opt);
+		// fprintf(stderr, "(%u) sc_opt: %f, sc: %f\n", k, sc_opt, sc);
 		if (sc > sc_opt) {
 			for (j = 0; j < b->cc_size; ++j) {
 				b->s_opt[b->cc_node[j]] = b->s[b->cc_node[j]];
@@ -901,13 +981,13 @@ void p_nodes(mc_g_t *mg, trans_chain* t_ch, uint8_t* trio_flag)
 	}
 }
 
-void mc_solve(hap_overlaps_list* ovlp, trans_chain* t_ch, kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g, double f_rate, uint8_t* trio_flag)
+void mc_solve(hap_overlaps_list* ovlp, trans_chain* t_ch, kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g, double f_rate, uint8_t* trio_flag, uint32_t renew_s, int8_t *s, uint32_t is_sys)
 {
 	mc_opt_t opt;
 	mc_opt_init(&opt);
-	mc_g_t *mg = init_mc_g_t(ug, read_g);
-	update_mc_edges(mg, ovlp, ta, t_ch, f_rate);
-	debug_mc_g_t(mg);
+	mc_g_t *mg = init_mc_g_t(ug, read_g, s, renew_s);
+	update_mc_edges(mg, ovlp, ta, t_ch, f_rate, is_sys);
+	///debug_mc_g_t(mg);
 	mc_solve_core(&opt, mg);
 
 	if((asm_opt.flag & HA_F_PARTITION) && t_ch)
@@ -916,7 +996,6 @@ void mc_solve(hap_overlaps_list* ovlp, trans_chain* t_ch, kv_u_trans_t *ta, ma_u
 	}
 
 	if(ovlp) clean_ovlp_by_mc(mg, ovlp);
-
 
 	destory_mc_g_t(&mg);
 }

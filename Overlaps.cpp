@@ -12235,7 +12235,7 @@ trans_chain* init_trans_chain(ma_ug_t *ug, uint64_t r_num)
     memset(&(x->b_buf_1), 0, sizeof(buf_t));
     kv_init(x->topo_buf);
     kv_init(x->topo_res);
-    MALLOC(x->uLen, x->u_num);
+    ///MALLOC(x->uLen, x->u_num);
     kv_init(x->c_buf);
 
     ma_utg_t *u = NULL;
@@ -12263,7 +12263,7 @@ trans_chain* init_trans_chain(ma_ug_t *ug, uint64_t r_num)
 
             offset += (uint32_t)u->a[k];
         }
-        x->uLen[v] = u->len;
+        ///x->uLen[v] = u->len;
     }
 
     if(is_dup)
@@ -12315,7 +12315,7 @@ void destory_trans_chain(trans_chain **x)
         kv_destroy((*x)->topo_buf);
         kv_destroy((*x)->topo_res);
         kv_destroy((*x)->c_buf);
-        free((*x)->uLen);
+        ///free((*x)->uLen);
         free((*x));
     }
 }
@@ -12502,6 +12502,88 @@ void hic_clean(asg_t* read_g)
     kv_destroy(ax);
 }
 
+void write_trans_chain(trans_chain* t_ch, const char *fn)
+{
+    char *buf = (char*)calloc(strlen(fn) + 25, 1);
+    sprintf(buf, "%s.hic.trans.bin", fn);
+    FILE* fp = fopen(buf, "w");
+
+    fwrite(&t_ch->u_num, sizeof(t_ch->u_num), 1, fp);
+    fwrite(&t_ch->r_num, sizeof(t_ch->r_num), 1, fp);
+
+    fwrite(t_ch->rUidx, sizeof(uint32_t), t_ch->r_num, fp);
+    fwrite(t_ch->rUpos, sizeof(uint64_t), t_ch->r_num, fp);
+    fwrite(t_ch->is_r_het, sizeof(uint8_t), t_ch->r_num, fp);
+
+    uint32_t i;
+    fwrite(&t_ch->bed.n, sizeof(t_ch->bed.n), 1, fp);
+    for (i = 0; i < t_ch->bed.n; i++)
+    {
+        fwrite(&t_ch->bed.a[i].n, sizeof(t_ch->bed.a[i].n), 1, fp);
+        fwrite(t_ch->bed.a[i].a, sizeof(bed_interval), t_ch->bed.a[i].n, fp);
+    }
+
+    fwrite(&t_ch->k_trans.n, sizeof(t_ch->k_trans.n), 1, fp);
+    fwrite(t_ch->k_trans.a, sizeof(u_trans_t), t_ch->k_trans.n, fp);
+
+    fwrite(&t_ch->k_trans.idx.n, sizeof(t_ch->k_trans.idx.n), 1, fp);
+    fwrite(t_ch->k_trans.idx.a, sizeof(uint64_t), t_ch->k_trans.idx.n, fp);
+
+
+    fclose(fp);
+    free(buf);
+}
+
+
+trans_chain* load_hc_hits(const char *fn)
+{
+    uint64_t flag = 0;
+    char *buf = (char*)calloc(strlen(fn) + 25, 1);
+    sprintf(buf, "%s.hic.trans.bin", fn);
+
+    FILE* fp = NULL; 
+    fp = fopen(buf, "r"); 
+    if(!fp) return NULL;
+
+    trans_chain *t_ch = NULL;
+    CALLOC(t_ch, 1);
+
+    flag += fread(&t_ch->u_num, sizeof(t_ch->u_num), 1, fp);
+    flag += fread(&t_ch->r_num, sizeof(t_ch->r_num), 1, fp);
+    MALLOC(t_ch->rUidx, t_ch->r_num);
+    flag += fread(t_ch->rUidx, sizeof(uint32_t), t_ch->r_num, fp);
+    MALLOC(t_ch->rUpos, t_ch->r_num);
+    flag += fread(t_ch->rUpos, sizeof(uint64_t), t_ch->r_num, fp);
+    MALLOC(t_ch->is_r_het, t_ch->r_num);
+    flag += fread(t_ch->is_r_het, sizeof(uint8_t), t_ch->r_num, fp);
+
+    uint32_t i;
+    flag += fread(&t_ch->bed.n, sizeof(t_ch->bed.n), 1, fp);
+    MALLOC(t_ch->bed.a, t_ch->bed.n); t_ch->bed.m = t_ch->bed.n;
+    for (i = 0; i < t_ch->bed.n; i++)
+    {
+        flag += fread(&t_ch->bed.a[i].n, sizeof(t_ch->bed.a[i].n), 1, fp);
+        MALLOC(t_ch->bed.a[i].a, t_ch->bed.a[i].n); t_ch->bed.a[i].m = t_ch->bed.a[i].n;
+        flag += fread(t_ch->bed.a[i].a, sizeof(bed_interval), t_ch->bed.a[i].n, fp);
+    }
+
+    flag += fread(&t_ch->k_trans.n, sizeof(t_ch->k_trans.n), 1, fp);
+    MALLOC(t_ch->k_trans.a, t_ch->k_trans.n); t_ch->k_trans.m = t_ch->k_trans.n;
+    flag += fread(t_ch->k_trans.a, sizeof(u_trans_t), t_ch->k_trans.n, fp);
+
+    flag += fread(&t_ch->k_trans.idx.n, sizeof(t_ch->k_trans.idx.n), 1, fp);
+    MALLOC(t_ch->k_trans.idx.a, t_ch->k_trans.idx.n); t_ch->k_trans.idx.m = t_ch->k_trans.idx.n;
+    flag += fread(t_ch->k_trans.idx.a, sizeof(uint64_t), t_ch->k_trans.idx.n, fp);
+
+
+    fclose(fp);
+    free(buf);
+    fprintf(stderr, "[M::%s::] ==> Hi-C cov have been loaded\n", __func__);
+    return t_ch;
+}
+
+
+
 void clean_u_trans_t_idx(kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g);
 void output_hic_graph(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name, 
 ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, 
@@ -12519,31 +12601,59 @@ bub_label_t* b_mask_t)
     new_rtg_edges.a.n = 0;
     ma_ug_seq(ug, sg, &R_INF, coverage_cut, sources, &new_rtg_edges, max_hang, min_ovlp, &d_edges);///polish
     
-    new_rtg_edges.a.n = 0;
+
     hap_cov_t *cov = NULL;
-    asg_t *copy_sg = copy_read_graph(sg);
-    ma_ug_t *copy_ug = copy_untig_graph(ug);    
-    ///asm_opt.purge_overlap_len = asm_opt.purge_overlap_len_hic;
-    ///asm_opt.purge_simi_thres = asm_opt.purge_simi_rate_hic;
-    adjust_utg_by_primary(&copy_ug, copy_sg, TRIO_THRES, sources, reverse_sources, coverage_cut, 
-    tipsLen, tip_drop_ratio, stops_threshold, ruIndex, chimeric_rate, drop_ratio, 
-    max_hang, min_ovlp, &new_rtg_edges, &cov, b_mask_t, 1);
+    trans_chain* t_ch = load_hc_hits(output_file_name);
+    if(!t_ch)
+    {
+        new_rtg_edges.a.n = 0;
+        asg_t *copy_sg = copy_read_graph(sg);
+        ma_ug_t *copy_ug = copy_untig_graph(ug);    
+        ///asm_opt.purge_overlap_len = asm_opt.purge_overlap_len_hic;
+        ///asm_opt.purge_simi_thres = asm_opt.purge_simi_rate_hic;
+        adjust_utg_by_primary(&copy_ug, copy_sg, TRIO_THRES, sources, reverse_sources, coverage_cut, 
+        tipsLen, tip_drop_ratio, stops_threshold, ruIndex, chimeric_rate, drop_ratio, 
+        max_hang, min_ovlp, &new_rtg_edges, &cov, b_mask_t, 1);
 
-    print_utg(copy_ug, copy_sg, coverage_cut, output_file_name, sources, ruIndex, max_hang, 
-    min_ovlp, &new_rtg_edges);
+        print_utg(copy_ug, copy_sg, coverage_cut, output_file_name, sources, ruIndex, max_hang, 
+        min_ovlp, &new_rtg_edges);
 
-    ma_ug_destroy(copy_ug);
-    asg_destroy(copy_sg);
+        ma_ug_destroy(copy_ug);
+        asg_destroy(copy_sg);
 
-    clean_u_trans_t_idx(&(cov->t_ch->k_trans), ug, sg);
+        clean_u_trans_t_idx(&(cov->t_ch->k_trans), ug, sg);
 
-    new_rtg_edges.a.n = 0;
-    ma_ug_print_bed(ug, sg, &R_INF, coverage_cut, sources, &new_rtg_edges, 
-            max_hang, min_ovlp, asm_opt.hic_inconsist_rate, NULL, NULL, cov);
+        new_rtg_edges.a.n = 0;
+        ma_ug_print_bed(ug, sg, &R_INF, coverage_cut, sources, &new_rtg_edges, 
+                max_hang, min_ovlp, asm_opt.hic_inconsist_rate, NULL, NULL, cov);
+
+        write_trans_chain(cov->t_ch, output_file_name);
+    }
+
     
-    hic_analysis(ug, sg, cov);
+    hic_analysis(ug, sg, cov?cov->t_ch:t_ch);
 
-    destory_hap_cov_t(&cov);
+    fprintf(stderr, "sa-0-sa\n");
+
+
+    char* gfa_name = (char*)malloc(strlen(output_file_name)+25);
+    sprintf(gfa_name, "%s.d_utg.noseq.gfa", output_file_name);
+    FILE* output_file = fopen(gfa_name, "w");
+    ma_ug_print_simple(ug, &R_INF, sg, coverage_cut, sources, ruIndex, "utg", output_file);
+    fclose(output_file);
+    free(gfa_name);
+
+
+    fprintf(stderr, "sa-1-sa\n");
+
+
+
+
+
+    if(cov) destory_hap_cov_t(&cov);
+    if(t_ch) destory_trans_chain(&t_ch);
+
+    fprintf(stderr, "sa-2-sa\n");
     ma_ug_destroy(ug);
     kv_destroy(new_rtg_edges.a); 
     
@@ -12743,7 +12853,8 @@ void kt_u_trans_t_idx(kv_u_trans_t *ta, uint32_t n)
 
 uint32_t get_u_trans_spec(kv_u_trans_t *ta, uint32_t qn, uint32_t tn, u_trans_t **r_a, uint32_t *occ)
 {
-    (*r_a) = NULL; (*occ) = 0;
+    if(r_a) (*r_a) = NULL; 
+    if(occ) (*occ) = 0;
     u_trans_t *a = NULL;
     uint32_t n, st, i;
     a = u_trans_a(*ta, qn);
@@ -12754,8 +12865,8 @@ uint32_t get_u_trans_spec(kv_u_trans_t *ta, uint32_t qn, uint32_t tn, u_trans_t 
         {
             if(a[st].tn == tn)
             {
-                (*r_a) = a + st;
-                (*occ) = i - st;
+                if(r_a) (*r_a) = a + st;
+                if(occ) (*occ) = i - st;
                 return 1;
             }
             st = i;

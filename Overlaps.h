@@ -1110,7 +1110,7 @@ typedef struct{
 	kvec_t(uint32_t) topo_buf;
 	kvec_t(uint32_t) topo_res;
 	buf_t b_buf_0, b_buf_1;
-	uint32_t* uLen;
+	///uint32_t* uLen;
 	kv_u_trans_t k_trans;
 	kv_u_trans_hit_t k_t_b;
 	kv_ca_buf_t c_buf;
@@ -1181,6 +1181,8 @@ uint32_t *pri_a, uint32_t pri_n, uint32_t pri_beg, uint64_t *i_pri_len,
 uint32_t *aux_a, uint32_t aux_n, uint32_t aux_beg, uint64_t *i_aux_len,
 ma_ug_t *ug, uint32_t flag, double overall_score, const char* cmd);
 int asg_arc_del_trans(asg_t *g, int fuzz);
+void kt_u_trans_t_idx(kv_u_trans_t *ta, uint32_t n);
+uint32_t get_u_trans_spec(kv_u_trans_t *ta, uint32_t qn, uint32_t tn, u_trans_t **r_a, uint32_t *occ);
 
 #define JUNK_COV 5
 #define DISCARD_RATE 0.8

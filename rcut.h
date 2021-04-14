@@ -16,8 +16,12 @@ typedef struct {
 #define mc_node_t int8_t
 // #define w_t int32_t
 // #define t_w_t int64_t
+// #define w_cast(x) ((t_w_t)((x) < 0 ? (x) - 0.5 : (x) + 0.5))
+
 #define w_t double
 #define t_w_t double
+#define w_cast(x) ((t_w_t)((x)))
+
 
 typedef struct {
 	uint64_t x; ///(uint64_t)nid1 << 32 | nid2;
@@ -38,5 +42,5 @@ typedef struct {
     mc_match_t* e;
 }mc_g_t;
 
-void mc_solve(hap_overlaps_list* ovlp, trans_chain* t_ch, kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g, double f_rate, uint8_t* trio_flag);
+void mc_solve(hap_overlaps_list* ovlp, trans_chain* t_ch, kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g, double f_rate, uint8_t* trio_flag, uint32_t renew_s, int8_t *s, uint32_t is_sys);
 #endif
