@@ -23,7 +23,6 @@ static ko_longopt_t long_options[] = {
 	{ "ex-iter",       ko_required_argument, 308 },
     { "purge-cov",     ko_required_argument, 309 },
     { "pri-range",     ko_required_argument, 310 },
-    ///{ "high-het",      ko_no_argument, 311 },
     { "lowQ",          ko_required_argument, 312 },
 	{ "min-hist-cnt",  ko_required_argument, 313 },
     { "h1",      ko_required_argument, 314 },
@@ -32,7 +31,7 @@ static ko_longopt_t long_options[] = {
     { "b-cov",      ko_required_argument, 317 },
     { "h-cov",      ko_required_argument, 318 },
     { "m-rate",      ko_required_argument, 319 },
-    { "b-partition",      ko_no_argument, 320 },
+    { "primary",      ko_no_argument, 320 },
     { "t-occ",      ko_required_argument, 321 },
     { "seed",      ko_required_argument, 322 },
     { "n-perturb",      ko_required_argument, 323 },
@@ -82,6 +81,7 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "    --m-rate     FLOAT\n");
     fprintf(stderr, "                 break contigs at positions with <=FLOAT*coverage exact overlaps;\n");
     fprintf(stderr, "                 only work with '--b-cov' or '--h-cov'[%.2f]\n", asm_opt->m_rate);
+    fprintf(stderr, "    --primary    output a primary assembly and an alternate assembly\n");
     
 //	fprintf(stderr, "    --pri-range INT1[,INT2]\n");
 //	fprintf(stderr, "                keep contigs with coverage in this range in p_ctg.gfa; -1 to disable [auto,inf]\n");
@@ -126,7 +126,8 @@ void Print_H(hifiasm_opt_t* asm_opt)
 void init_opt(hifiasm_opt_t* asm_opt)
 {
 	memset(asm_opt, 0, sizeof(hifiasm_opt_t));
-	asm_opt->flag = 0;
+	///asm_opt->flag = 0;
+    asm_opt->flag = HA_F_PARTITION;
     asm_opt->coverage = -1;
     asm_opt->num_reads = 0;
     asm_opt->read_file_names = NULL;
@@ -483,7 +484,7 @@ int check_option(hifiasm_opt_t* asm_opt)
         fprintf(stderr, "[ERROR] [-s] must >= 0\n");
         return 0;
     }
-    
+
     return 1;
 }
 
@@ -644,7 +645,7 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         else if (c == 317) asm_opt->b_low_cov = atoi(opt.arg);
         else if (c == 318) asm_opt->b_high_cov = atoi(opt.arg);
         else if (c == 319) asm_opt->m_rate = atof(opt.arg);
-        else if (c == 320) asm_opt->flag |= HA_F_PARTITION;
+        else if (c == 320) asm_opt->flag -= HA_F_PARTITION;
         else if (c == 321) asm_opt->trio_flag_occ_thres = atoi(opt.arg);
         else if (c == 322) asm_opt->seed = atol(opt.arg);
         else if (c == 323) asm_opt->n_perturb = atoi(opt.arg);

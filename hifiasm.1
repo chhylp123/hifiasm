@@ -235,7 +235,13 @@ Only work with
 and
 .B --h-cov.
 
-
+.TP
+.BI --primary
+Output a primary assembly and an alternate assembly.
+Hifiasm outputs two balanced assemblies and a primary
+assembly in default. Enable this option or 
+.B -l0
+outputs a primary assembly and an alternate assembly.
 
 
 .SS Trio-partition options
@@ -288,7 +294,7 @@ times in the other sample.
 Level of purge-dup. 0 to disable purge-dup, 1 to only purge contained haplotigs, 
 2 to purge all types of haplotigs, 3 to purge all types of haplotigs in most aggressive way 
 for high heterozygosity sample. 
-In default, [2] for non-trio assembly, [0] for trio assembly.
+In default, [3] for non-trio assembly, [0] for trio assembly.
 For trio assembly, only level 0 and level 1 are allowed.
 
 .TP
@@ -304,6 +310,10 @@ Min number of overlapped reads for duplicate haplotigs that should be purged [1]
 Coverage upper bound of Purge-dups, which is inferred automatically in default.
 If the coverage of a contig is higher than this bound, don't apply Purge-dups.
 
+.TP
+.BI   --n-hap \ INT
+Assumption of haplotype number.
+
 
 .SS Debugging options
 
@@ -316,12 +326,25 @@ Write additional files to speed up the debugging of graph cleaning.
 
 .TP
 .BI --h1 \ FILEs 
-File names of input Hi-C R1 [r1_1.fq,r1_2.fq,...]
+File names of input Hi-C R1 [r1_1.fq,r1_2.fq,...].
 
 .TP
 .BI --h2 \ FILEs 
-File names of input Hi-C R2 [r2_1.fq,r2_2.fq,...]
+File names of input Hi-C R2 [r2_1.fq,r2_2.fq,...].
 
+.TP
+.BI --n-perturb \ INT 
+Rounds of perturbation [50000]. Increasing this improves
+phasing results but takes longer time.
+
+.TP
+.BI --f-perturb \ FLOAT 
+Fraction to flip for perturbation [0.1]. Increasing this improves
+phasing results but takes longer time.
+
+.TP
+.BI --seed \ INT 
+RNG seed [11].
 
 .SH OUTPUTS
 

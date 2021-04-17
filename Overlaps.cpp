@@ -12603,7 +12603,9 @@ bub_label_t* b_mask_t)
     
 
     hap_cov_t *cov = NULL;
-    trans_chain* t_ch = load_hc_hits(output_file_name);
+    trans_chain* t_ch = NULL;
+    if((asm_opt.flag & HA_F_VERBOSE_GFA)) t_ch = load_hc_hits(output_file_name);
+    
     if(!t_ch)
     {
         new_rtg_edges.a.n = 0;
@@ -12627,7 +12629,7 @@ bub_label_t* b_mask_t)
         ma_ug_print_bed(ug, sg, &R_INF, coverage_cut, sources, &new_rtg_edges, 
                 max_hang, min_ovlp, asm_opt.hic_inconsist_rate, NULL, NULL, cov);
 
-        write_trans_chain(cov->t_ch, output_file_name);
+        if((asm_opt.flag & HA_F_VERBOSE_GFA)) write_trans_chain(cov->t_ch, output_file_name);
     }
 
     hic_analysis(ug, sg, cov?cov->t_ch:t_ch);
@@ -30000,11 +30002,13 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
 
     if (ha_opt_triobin(&asm_opt) && ha_opt_hic(&asm_opt))
     {
+        if(asm_opt.flag & HA_F_PARTITION) asm_opt.flag -= HA_F_PARTITION;
         benchmark_hic_graph(sg, coverage_cut, o_file, sources, reverse_sources, (asm_opt.max_short_tip*2), 0.15, 3, 
         ruIndex, 0.05, 0.9, max_hang_length, mini_overlap_length, &b_mask_t);
     }
     else if (ha_opt_triobin(&asm_opt))
     {   
+        if(asm_opt.flag & HA_F_PARTITION) asm_opt.flag -= HA_F_PARTITION;
         output_trio_unitig_graph(sg, coverage_cut, o_file, FATHER, sources, 
         reverse_sources, (asm_opt.max_short_tip*2), 0.15, 3, ruIndex, 
         0.05, 0.9, max_hang_length, mini_overlap_length, 0, &b_mask_t);
@@ -30014,16 +30018,18 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
     }
     else if(ha_opt_hic(&asm_opt))
     {
+        if(asm_opt.flag & HA_F_PARTITION) asm_opt.flag -= HA_F_PARTITION;
         output_hic_graph(sg, coverage_cut, o_file, sources, reverse_sources, (asm_opt.max_short_tip*2), 
         0.15, 3, ruIndex, 0.05, 0.9, max_hang_length, mini_overlap_length, &b_mask_t);
     }
-    else if(asm_opt.flag & HA_F_PARTITION)
+    else if((asm_opt.flag & HA_F_PARTITION) && (asm_opt.purge_level_primary > 0))
     {
         output_bp_graph(sg, coverage_cut, o_file, sources, reverse_sources, (asm_opt.max_short_tip*2), 
         0.15, 3, ruIndex, 0.05, 0.9, max_hang_length, mini_overlap_length, &b_mask_t);
     }
     else
     {
+        if(asm_opt.flag & HA_F_PARTITION) asm_opt.flag -= HA_F_PARTITION;
         output_contig_graph_primary(sg, coverage_cut, o_file, sources, reverse_sources, 
         (asm_opt.max_short_tip*2), 0.15, 3, ruIndex, 0.05, 0.9, max_hang_length, mini_overlap_length, &b_mask_t);
 
