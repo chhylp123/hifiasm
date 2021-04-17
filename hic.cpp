@@ -7406,7 +7406,7 @@ void update_bsg(asg_t *bsg, kvec_asg_arc_t_warp* edges)
 
 void resolve_bubble_chain_tangle(ma_ug_t* ug, bubble_type* bub)
 {
-    double index_time = yak_realtime();
+    // double index_time = yak_realtime();
     ma_ug_t *bub_ug = bub->b_ug;
     asg_t *bsg = bub->b_g;
     uint32_t k, i, v, n_vx, new_bub;
@@ -7575,7 +7575,7 @@ void resolve_bubble_chain_tangle(ma_ug_t* ug, bubble_type* bub)
     kv_destroy(res_btg.a); kv_destroy(res_utg.a); kv_destroy(edges.a);
 
     ///print_debug_bubble_graph(bub, ug, asm_opt.output_file_name);
-    fprintf(stderr, "[M::%s::%.3f]\n", __func__, yak_realtime()-index_time);
+    // fprintf(stderr, "[M::%s::%.3f]\n", __func__, yak_realtime()-index_time);
 }
 
 void update_bubble_chain(ma_ug_t* ug, bubble_type* bub, uint32_t is_middle, uint32_t is_end)
@@ -13931,11 +13931,11 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx)
         }
 
         renew_kv_u_trans(&k_trans, &link, &sl.hits, &(idx->t_ch->k_trans), idx, &bub, s->s, 0);
-        // if(bub.round_id == 0) init_phase(idx, &k_trans, &bub, s); 
+        if(bub.round_id == 0) init_phase(idx, &k_trans, &bub, s); 
         update_trans_g(idx, &k_trans, &bub);
         /*******************************for debug************************************/
         mc_solve(NULL, NULL, &k_trans, idx->ug, idx->read_g, 0.8, R_INF.trio_flag, 
-        (bub.round_id == 0? 1 : 0), s->s, 0, /**&bub**/NULL);
+        /**(bub.round_id == 0? 1 : 0)**/0, s->s, 0, /**&bub**/NULL);
         /*******************************for debug************************************/
         label_unitigs_sm(s->s, idx->ug);
         /**

@@ -842,6 +842,7 @@ t_w_t mc_init_spin(const mc_opt_t *opt, const mc_match_t *ma, mc_svaux_t *b)
 	b->cc_edge.n = 0;
 	for (i = 0; i < b->cc_size; ++i) {///how many nodes
 		uint32_t k = (uint32_t)ma->cc[b->cc_off + i];///node id
+		b->cc_node[i] = k;
 		if(b->s[k] == 0) break;
 	}
 	if(i >= b->cc_size)
@@ -1234,10 +1235,8 @@ uint32_t mc_solve_cc(const mc_opt_t *opt, const mc_g_t *mg, mc_svaux_t *b, uint3
 {
 	uint32_t j, k, n_iter = 0;
 	t_w_t sc_opt = -(1<<30), sc;///problem-w
-
 	b->cc_off = cc_off, b->cc_size = cc_size;
 	if (b->cc_size < 2) return 0;
-
 	// print_sc(opt, mg->e, b, sc_opt, (uint32_t)-1);
 	sc_opt = mc_init_spin(opt, mg->e, b);
 	if (b->cc_size == 2) return 0;
@@ -1305,25 +1304,19 @@ void mc_init_spin_all(const mc_opt_t *opt, mc_g_t *mg, mc_svaux_t *b)
 
 void mc_solve_core(const mc_opt_t *opt, mc_g_t *mg, bubble_type* bub)
 {
-	fprintf(stderr, "#######0#######\n");
 	double index_time = yak_realtime();
 	uint32_t st, i;
 	mc_svaux_t *b;
 	mc_bp_t *bp = NULL;
-	fprintf(stderr, "#######1#######\n");
 	mc_g_cc(mg->e);
-	fprintf(stderr, "#######2#######\n");
 	b = mc_svaux_init(mg, opt->seed);
-	fprintf(stderr, "#######3#######\n");
 	if(bub) bp = mc_bp_t_init(mg->e, b, bub, asm_opt.thread_num);
-	fprintf(stderr, "#######4#######\n");
 	/*******************************for debug************************************/
 	if(bp)
 	{
 		mc_init_spin_all(opt, mg, b);
 		mc_solve_bp(bp);
 	} 
-	fprintf(stderr, "#######5#######\n");
 	/*******************************for debug************************************/
 	// fprintf(stderr, "\n\n\n\n\n*************beg-[M::%s::score->%f] ==> Partition\n", __func__, mc_score_all(mg->e, b));
 	for (st = 0, i = 1; i <= mg->e->n_seq; ++i) {
@@ -1333,14 +1326,10 @@ void mc_solve_core(const mc_opt_t *opt, mc_g_t *mg, bubble_type* bub)
 		}
 	}
 	// fprintf(stderr, "##############end-[M::%s::score->%f] ==> Partition\n", __func__, mc_score_all(mg->e, b));
-	fprintf(stderr, "#######6#######\n");
 	if(bp) mc_solve_bp(bp);	
-	fprintf(stderr, "#######7#######\n");
 	///mc_write_info(g, b);
 	mc_svaux_destroy(b);
-	fprintf(stderr, "#######8#######\n");
 	if(bp) destroy_mc_bp_t(&bp);
-	fprintf(stderr, "#######9#######\n");
 	fprintf(stderr, "[M::%s::%.3f] ==> Partition\n", __func__, yak_realtime()-index_time);
 }
 
@@ -1450,16 +1439,11 @@ void p_nodes(mc_g_t *mg, trans_chain* t_ch, uint8_t* trio_flag)
 void mc_solve(hap_overlaps_list* ovlp, trans_chain* t_ch, kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g, double f_rate, uint8_t* trio_flag, uint32_t renew_s, int8_t *s, uint32_t is_sys, bubble_type* bub)
 {
 	mc_opt_t opt;
-	fprintf(stderr, "*****0******\n");
 	mc_opt_init(&opt, asm_opt.n_perturb, asm_opt.f_perturb, asm_opt.seed);
-	fprintf(stderr, "*****1******\n");
 	mc_g_t *mg = init_mc_g_t(ug, read_g, s, renew_s);
-	fprintf(stderr, "*****2******\n");
 	update_mc_edges(mg, ovlp, ta, t_ch, f_rate, is_sys);
-	fprintf(stderr, "*****3******\n");
 	///debug_mc_g_t(mg);
 	mc_solve_core(&opt, mg, bub);
-	fprintf(stderr, "*****4******\n");
 
 	if((asm_opt.flag & HA_F_PARTITION) && t_ch)
 	{

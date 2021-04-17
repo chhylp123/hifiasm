@@ -1,4 +1,4 @@
-.TH hifiasm 1 "20 Mar 2021" "hifiasm-0.14.2 (r315)" "Bioinformatics tools"
+.TH hifiasm 1 "16 April 2021" "hifiasm-0.15 (r327)" "Bioinformatics tools"
 
 .SH NAME
 .PP
@@ -349,11 +349,7 @@ RNG seed [11].
 .SH OUTPUTS
 
 .PP
-Without trio partition options
-.B -1
-and
-.BR -2 ,
-hifiasm generates the following assembly graphs in the GFA format:
+In general, hifiasm generates the following assembly graphs in the GFA format:
 
 .RS 2
 .TP 2
@@ -380,40 +376,106 @@ assembly graph of primary contigs. This graph collapses different haplotypes.
 assembly graph of alternate contigs. This graph consists of all assemblies that
 are discarded in primary contig graph.
 
+.TP
+*
+.IR prefix .hap*.p_ctg.gfa:
+phased contig graph. This graph keeps the phased assembly.
+
 .RE
 
 .PP
-With trio partition, hifiasm outputs the following assembly graphs:
+Hifiasm outputs
+.B *.r_utg.gfa
+and
+.B *.p_utg.gfa
+in any cases.
+Specifically, hifiasm outputs the following assembly graphs
+with trio-binning options:
 
 .RS 2
 .TP 2
 *
-.IR prefix .dip.r_utg.gfa:
-haplotype-resolved raw unitig graph. This graph keeps all haplotype information.
-
-.TP
-*
-.IR prefix .hap1.p_ctg.gfa:
-phased paternal/haplotype1 contig graph. This graph keeps the phased
+.IR prefix .dip.hap1.p_ctg.gfa:
+phased paternal/haplotype1 contig graph keeping the phased
 paternal/haplotype1 assembly.
 
 .TP
 *
-.IR prefix .hap2.p_ctg.gfa:
-phased maternal/haplotype2 contig graph. This graph keeps the phased
+.IR prefix .dip.hap2.p_ctg.gfa:
+phased maternal/haplotype2 contig graph keeping the phased
 maternal/haplotype2 assembly.
 .RE
 
 .PP
-With Hi-C partition, hifiasm outputs the assembly graphs like trio partition,
-but with additional prefix
-.B [hic].
-In this mode, hifiasm keeps Hi-C alignment results and Hi-C index in two bin 
+With Hi-C partition options, hifiasm outputs:
+
+.RS 2
+.TP 2
+*
+.IR prefix .hic.p_ctg.gfa:
+assembly graph of primary contigs. This graph collapses different haplotypes.
+
+.TP
+*
+.IR prefix .hic.hap1.p_ctg.gfa:
+phased contig graph where each contig is fully phased.
+
+.TP
+*
+.IR prefix .hic.hap2.p_ctg.gfa:
+phased contig graph where each contig is fully phased.
+.RE
+
+
+.PP
+Hifiasm keeps Hi-C alignment results and Hi-C index in two bin 
 files: 
 .B *hic.lk.bin
 and 
 .B *hic.tlb.bin.
-Rerunning hifiasm with different Hi-C reads needs to delete these bin files.
+Rerunning hifiasm with different Hi-C reads needs to delete these bin files
+or enable 
+.BR -i .
+.RE
+
+.PP
+Hifiasm generates the following assembly graphs only with HiFi reads:
+
+.RS 2
+.TP 2
+*
+.IR prefix .p_ctg.gfa:
+assembly graph of primary contigs. This graph collapses different haplotypes.
+
+.TP
+*
+.IR prefix .bp.hap1.p_ctg.gfa:
+balanced contig graph where each contig is partially phased.
+
+.TP
+*
+.IR prefix .bp.hap2.p_ctg.gfa:
+balanced contig graph where each contig is partially phased.
+.RE
+
+.PP
+If the option
+.BR -p
+or
+.BR --primary
+is specified, hifiasm outputs:
+
+.RS 2
+.TP 2
+*
+.IR prefix .p_ctg.gfa:
+assembly graph of primary contigs. This graph collapses different haplotypes.
+
+.TP
+*
+.IR prefix .a_ctg.gfa:
+assembly graph of alternate contigs. This graph consists of all assemblies that
+are discarded in primary contig graph.
 .RE
 
 
