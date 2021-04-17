@@ -12282,7 +12282,7 @@ kvec_t_u32_warp* result, uint32_t e_flag, uint32_t ava_flag, kvec_t_u32_warp* re
 
 void clean_bubble_chain_by_hic(ma_ug_t* ug, kv_u_trans_t *ta, bubble_type* bub)
 {   
-    double index_time = yak_realtime();
+    // double index_time = yak_realtime();
     ma_ug_t *bs_ug = bub->b_ug;
     uint32_t v, u, i, m, max_i, nv, rv, n_vx, root, flag_pri = 1, flag_aux = 2, flag_ava = 4, occ;
     double w, cutoff = 2;
@@ -12476,12 +12476,12 @@ void clean_bubble_chain_by_hic(ma_ug_t* ug, kv_u_trans_t *ta, bubble_type* bub)
     free(vis); free(is_vis); free(is_used); free(dedup); free(b.b.a); free(e_w); free(e_occ);
     kv_destroy(stack.a); kv_destroy(result.a); kv_destroy(res_utg.a); kv_destroy(edges.a);
     ma_ug_destroy(back_bs_ug);
-    fprintf(stderr, "[M::%s::%.3f]\n", __func__, yak_realtime()-index_time);
+    // fprintf(stderr, "[M::%s::%.3f]\n", __func__, yak_realtime()-index_time);
 }
 
 void append_boundary_chain_hic(ma_ug_t* ug, kv_u_trans_t *ta, bubble_type* bub)
 {
-    double index_time = yak_realtime();
+    // double index_time = yak_realtime();
     ma_ug_t *bs_ug = bub->b_ug;
     uint32_t v, u, i, k, beg_idx, m, nv, n_vx, flag_pri = 1, flag_aux = 2, flag_ava = 4;
     uint32_t root, rId_0, ori_0, root_0, new_bub;
@@ -12591,7 +12591,7 @@ void append_boundary_chain_hic(ma_ug_t* ug, kv_u_trans_t *ta, bubble_type* bub)
     free(vis); free(is_vis); free(is_used); free(dedup); free(b.b.a);
     kv_destroy(stack.a); kv_destroy(result.a); kv_destroy(res_utg.a);
     kv_destroy(edges.a);
-    fprintf(stderr, "[M::%s::%.3f]\n", __func__, yak_realtime()-index_time);
+    // fprintf(stderr, "[M::%s::%.3f]\n", __func__, yak_realtime()-index_time);
 }
 
 double get_specific_hic_weight_by_chain(uint32_t uid, kv_u_trans_t *ta, uint8_t* vis, uint8_t flag)
@@ -12697,7 +12697,7 @@ uint8_t* vis, uint32_t n_utg, uint32_t chain_id)
 
 void reorder_bubbles(bubble_type* bub, kv_u_trans_t *ta, uint32_t n_utg)
 {
-    double index_time = yak_realtime();
+    // double index_time = yak_realtime();
     uint8_t* vis = NULL; MALLOC(vis, n_utg);
     bub_sort_vec w_stack; kv_init(w_stack);
     uint32_t i;
@@ -12709,19 +12709,15 @@ void reorder_bubbles(bubble_type* bub, kv_u_trans_t *ta, uint32_t n_utg)
     }
 
     free(vis); kv_destroy(w_stack);
-    fprintf(stderr, "[M::%s::%.3f]\n", __func__, yak_realtime()-index_time);
+    // fprintf(stderr, "[M::%s::%.3f]\n", __func__, yak_realtime()-index_time);
 }
 
 void update_trans_g(ha_ug_index* idx, kv_u_trans_t *ta, bubble_type* bub)
 {
-    double index_time = yak_realtime();
+    // double index_time = yak_realtime();
     update_bubble_chain(idx->ug, bub, 0, 1);
 
-    // print_debug_bubble_graph(bub, idx->ug, "bub-0");
-
     resolve_bubble_chain_tangle(idx->ug, bub);
-
-    // print_debug_bubble_graph(bub, idx->ug, "bub-1");
 
     clean_bubble_chain_by_hic(idx->ug, ta, bub);
 
@@ -12730,7 +12726,7 @@ void update_trans_g(ha_ug_index* idx, kv_u_trans_t *ta, bubble_type* bub)
     append_boundary_chain_hic(idx->ug, ta, bub);
 
     reorder_bubbles(bub, ta, idx->ug->g->n_seq);
-    fprintf(stderr, "[M::%s::%.3f]\n", __func__, yak_realtime()-index_time);
+    // fprintf(stderr, "[M::%s::%.3f]\n", __func__, yak_realtime()-index_time);
 }
 
 uint32_t get_max_unitig(H_partition* h, G_partition* g_p, hc_links* link, bubble_type* bub)
@@ -13931,11 +13927,11 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx)
         }
 
         renew_kv_u_trans(&k_trans, &link, &sl.hits, &(idx->t_ch->k_trans), idx, &bub, s->s, 0);
-        if(bub.round_id == 0) init_phase(idx, &k_trans, &bub, s); 
+        // if(bub.round_id == 0) init_phase(idx, &k_trans, &bub, s); 
         update_trans_g(idx, &k_trans, &bub);
         /*******************************for debug************************************/
         mc_solve(NULL, NULL, &k_trans, idx->ug, idx->read_g, 0.8, R_INF.trio_flag, 
-        /**(bub.round_id == 0? 1 : 0)**/0, s->s, 0, /**&bub**/NULL);
+        (bub.round_id == 0? 1 : 0), s->s, 0, /**&bub**/NULL);
         /*******************************for debug************************************/
         label_unitigs_sm(s->s, idx->ug);
         /**

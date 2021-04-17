@@ -1187,13 +1187,13 @@ double mc_solve_bp_cc(mc_bp_t *bp)
 
 void mc_reset_z_all(const mc_match_t *ma, mc_svaux_t *b)
 {
-	t_w_t z[2];
+	// t_w_t z[2];
 	uint32_t k;
 	for (k = 0; k < ma->n_seq; ++k) 
 	{
 		uint32_t o = ma->idx.a[k] >> 32;
         uint32_t j, n = (uint32_t)ma->idx.a[k];
-		z[0] = b->z[k].z[0]; z[1] = b->z[k].z[1];
+		// z[0] = b->z[k].z[0]; z[1] = b->z[k].z[1];
         b->z[k].z[0] = b->z[k].z[1] = 0;
         for (j = 0; j < n; ++j) {
             const mc_edge_t *e = &ma->ma.a[o + j];
@@ -1201,8 +1201,8 @@ void mc_reset_z_all(const mc_match_t *ma, mc_svaux_t *b)
             if (b->s[t] > 0) b->z[k].z[0] += e->w;
             else if (b->s[t] < 0) b->z[k].z[1] += e->w;
         }
-		if(z[0] != b->z[k].z[0]) fprintf(stderr, "ERROR1-all\n");
-        if(z[1] != b->z[k].z[1]) fprintf(stderr, "ERROR2-all\n");
+		// if(z[0] != b->z[k].z[0]) fprintf(stderr, "ERROR1-all\n");
+        // if(z[1] != b->z[k].z[1]) fprintf(stderr, "ERROR2-all\n");
 	}
 }
 
@@ -1227,8 +1227,10 @@ void mc_solve_bp(mc_bp_t *bp)
 
 void print_sc(const mc_opt_t *opt, const mc_match_t *ma, mc_svaux_t *b, t_w_t sc_opt, uint32_t n_iter)
 {
+	t_w_t w = mc_score(ma, b);
+	if(w != sc_opt) fprintf(stderr, "ERROR\n");
 	fprintf(stderr, "# iter: %u, sc_opt: %f, sc-local: %f, sc-global: %f\n", 
-					n_iter, sc_opt, mc_score(ma, b), mc_score_all(ma, b));
+					n_iter, sc_opt, w, mc_score_all(ma, b));
 }
 
 uint32_t mc_solve_cc(const mc_opt_t *opt, const mc_g_t *mg, mc_svaux_t *b, uint32_t cc_off, uint32_t cc_size)
