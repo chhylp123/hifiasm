@@ -49,6 +49,11 @@ typedef struct {
     kvec_t(chain_w_type) chain_weight;
     chain_hic_warp c_w;
 } bubble_type;
+
+typedef struct {
+    int8_t *s;
+    uint64_t xs;
+} ps_t;
 #define P_het(B) ((B).num.n)
 #define M_het(B) ((B).num.n + 1)
 // #define IF_BUB(ID, B) ((B).index[(ID)] < (B).num.n)

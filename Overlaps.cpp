@@ -12578,7 +12578,7 @@ trans_chain* load_hc_hits(const char *fn)
 
     fclose(fp);
     free(buf);
-    fprintf(stderr, "[M::%s::] ==> Hi-C cov have been loaded\n", __func__);
+    // fprintf(stderr, "[M::%s::] ==> Hi-C cov have been loaded\n", __func__);
     return t_ch;
 }
 
@@ -12630,30 +12630,20 @@ bub_label_t* b_mask_t)
         write_trans_chain(cov->t_ch, output_file_name);
     }
 
-    
     hic_analysis(ug, sg, cov?cov->t_ch:t_ch);
 
-    fprintf(stderr, "sa-0-sa\n");
-
-
+    /**
     char* gfa_name = (char*)malloc(strlen(output_file_name)+25);
     sprintf(gfa_name, "%s.d_utg.noseq.gfa", output_file_name);
     FILE* output_file = fopen(gfa_name, "w");
     ma_ug_print_simple(ug, &R_INF, sg, coverage_cut, sources, ruIndex, "utg", output_file);
     fclose(output_file);
     free(gfa_name);
-
-
-    fprintf(stderr, "sa-1-sa\n");
-
-
-
-
+    **/
 
     if(cov) destory_hap_cov_t(&cov);
     if(t_ch) destory_trans_chain(&t_ch);
 
-    fprintf(stderr, "sa-2-sa\n");
     ma_ug_destroy(ug);
     kv_destroy(new_rtg_edges.a); 
     

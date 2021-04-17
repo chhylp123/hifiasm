@@ -2,8 +2,9 @@
 #define __COMMAND_LINE_PARSER__
 
 #include <pthread.h>
+#include <stdint.h>
 
-#define HA_VERSION "0.14.2-r326"
+#define HA_VERSION "0.15-r327"
 
 #define VERBOSE 0
 
@@ -97,7 +98,9 @@ typedef struct {
     int hap_occ;
     int polyploidy;
     int trio_flag_occ_thres;
-    
+    uint64_t seed;
+    int32_t n_perturb;
+    double f_perturb;
 } hifiasm_opt_t;
 
 extern hifiasm_opt_t asm_opt;

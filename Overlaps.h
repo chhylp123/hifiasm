@@ -115,6 +115,7 @@ typedef struct {
 typedef struct {
 	uint32_t qs, qe, qn;
 	uint32_t ts, te, tn;
+	uint32_t occ;
 	double nw;
 	uint8_t f:6, rev:1, del:1;
 } u_trans_t;

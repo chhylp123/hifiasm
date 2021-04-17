@@ -5,6 +5,7 @@
 #include "kvec.h"
 #include "Overlaps.h"
 #include "Purge_Dups.h"
+#include "hic.h"
 
 typedef struct {
     uint32_t bS, bE;
@@ -42,5 +43,20 @@ typedef struct {
     mc_match_t* e;
 }mc_g_t;
 
-void mc_solve(hap_overlaps_list* ovlp, trans_chain* t_ch, kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g, double f_rate, uint8_t* trio_flag, uint32_t renew_s, int8_t *s, uint32_t is_sys);
+static inline uint64_t kr_splitmix64(uint64_t x)
+{
+	uint64_t z = (x += 0x9E3779B97F4A7C15ULL);
+	z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
+	z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
+	return z ^ (z >> 31);
+}
+
+static inline double kr_drand_r(uint64_t *x)
+{
+    union { uint64_t i; double d; } u;
+	*x = kr_splitmix64(*x);
+    u.i = 0x3FFULL << 52 | (*x) >> 12;
+    return u.d - 1.0;
+}
+void mc_solve(hap_overlaps_list* ovlp, trans_chain* t_ch, kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g, double f_rate, uint8_t* trio_flag, uint32_t renew_s, int8_t *s, uint32_t is_sys, bubble_type* bub);
 #endif

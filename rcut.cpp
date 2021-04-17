@@ -6,6 +6,8 @@
 #include "Purge_Dups.h"
 #include "Correct.h"
 #include "ksort.h"
+#include "kthread.h"
+#include "hic.h"
 
 #define mc_edge_key(e) ((e).x)
 KRADIX_SORT_INIT(mce, mc_edge_t, mc_edge_key, member_size(mc_edge_t, x))
@@ -17,6 +19,8 @@ KRADIX_SORT_INIT(mc64, uint64_t, mc_generic_key, 8)
 #define ma_x(z) (((z).x>>32))
 #define ma_y(z) (((uint32_t)((z).x)))
 
+uint8_t bit_filed[8] = {1, 2, 4, 8, 16, 32, 64, 128};
+#define is_bit_set(id, a) ((a)[(id)>>3]&bit_filed[(id)&7])
 
 typedef struct {
 	int32_t max_iter;
@@ -24,6 +28,7 @@ typedef struct {
     double f_perturb;
     uint64_t seed;
 } mc_opt_t;
+
 
 typedef struct {
 	t_w_t z[2];
@@ -40,14 +45,66 @@ typedef struct {
 	uint8_t *f;
 } mc_svaux_t;
 
-void mc_opt_init(mc_opt_t *opt)
+typedef struct{
+	uint64_t chain_id, bid, uid;
+}mc_bp_iter;
+
+typedef struct{
+    uint32_t chain_id;
+    uint32_t f_bid;
+    uint32_t f_uid;
+    uint32_t l_bid; 
+    uint32_t l_uid;
+    uint32_t id;
+    t_w_t w;
+}mc_bp_res;
+
+typedef struct{
+	size_t n, m;
+	uint8_t *a;
+}bits_p;
+
+typedef struct{
+    bubble_type* b_b;
+	uint64_t *idx, idx_n, occ, n_thread;
+	mc_bp_res *res;
+	uint8_t *lock;
+	mc_svaux_t *b_aux;
+	mc_match_t *ma;
+	bits_p *vis;
+}mc_bp_t;
+
+typedef struct {
+	uint64_t x; // RNG
+	uint32_t cc_off, cc_size;
+	kvec_t(uint32_t) cc_node;
+	kvec_t(uint32_t) bfs;
+	///share
+	uint32_t *bfs_mark;
+	mc_pairsc_t *z, *z_opt;///keep scores to nodes(1) and nodes(-1)
+	int8_t *s, *s_opt;
+} mc_svaux_t_s;
+
+typedef struct {
+	kvec_t(mc_svaux_t_s) bs;
+	kvec_t(uint64_t) cc_edge;
+	uint32_t *bfs_mark;
+	mc_pairsc_t *z, *z_opt;///keep scores to nodes(1) and nodes(-1)
+	int8_t *s, *s_opt;
+	uint32_t n_t, n_g;
+} mc_svaux_t_mul;
+
+
+void mc_opt_init(mc_opt_t *opt, int32_t n_perturb, double f_perturb, uint64_t seed)
 {
 	memset(opt, 0, sizeof(mc_opt_t));
-	///opt->n_perturb = 5000;
-	opt->n_perturb = 100000;
-	opt->f_perturb = 0.1;
+	// opt->n_perturb = 50000;
+	opt->n_perturb = n_perturb;
+	// opt->f_perturb = 0.1;
+	opt->f_perturb = f_perturb;
 	opt->max_iter = 1000;
-	opt->seed = 11;
+	// opt->seed = 11;
+	opt->seed = seed;
 }
 
 mc_g_t *init_mc_g_t(ma_ug_t *ug, asg_t *read_g, int8_t *s, uint32_t renew_s)
@@ -86,22 +143,6 @@ void destory_mc_g_t(mc_g_t **p)
 	free((*p));
 }
 
-
-static inline uint64_t kr_splitmix64(uint64_t x)
-{
-	uint64_t z = (x += 0x9E3779B97F4A7C15ULL);
-	z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
-	z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
-	return z ^ (z >> 31);
-}
-
-static inline double kr_drand_r(uint64_t *x)
-{
-    union { uint64_t i; double d; } u;
-	*x = kr_splitmix64(*x);
-    u.i = 0x3FFULL << 52 | (*x) >> 12;
-    return u.d - 1.0;
-}
 
 static void ks_shuffle_uint32_t(size_t n, uint32_t a[], uint64_t *x)
 {
@@ -567,6 +608,57 @@ void mc_g_cc(mc_match_t *ma)
 {
 	ma->cc = mc_g_cc_core(ma);
 }
+mc_bp_t *mc_bp_t_init(mc_match_t *ma, mc_svaux_t *b_aux, bubble_type* bub, uint64_t n_thread)
+{
+	uint32_t i, k, n;
+	mc_bp_t *bp = NULL; 
+	ma_utg_t *u = NULL;
+	CALLOC(bp, 1);
+	bp->b_aux = b_aux;
+	bp->ma = ma;
+	bp->b_b = bub;
+	bp->n_thread = n_thread;
+	CALLOC(bp->lock, bub->ug->g->n_seq);
+	CALLOC(bp->res, n_thread);
+	CALLOC(bp->vis, n_thread);
+	for (i = 0; i < n_thread; i++)
+	{
+		bp->vis[i].m = bp->vis[i].n = bub->ug->g->n_seq;
+		CALLOC(bp->vis[i].a, bp->vis[i].n);
+	}
+	
+
+	MALLOC(bp->idx, bub->chain_weight.n+1);
+	bp->idx_n = bp->occ = 0;
+	for (i = 0; i < bub->chain_weight.n; i++)
+	{
+		bp->idx[i] = bp->occ;
+		bp->idx_n++;
+		if(bub->chain_weight.a[i].del) continue;
+		u = &(bub->b_ug->u.a[bub->chain_weight.a[i].id]);///list of bubbles
+		for (k = 0; k < u->n; k++)
+		{
+			get_bubbles(bub, u->a[k]>>33, NULL, NULL, NULL, &n, NULL);
+			bp->occ += n;
+		}
+	}
+	bp->idx[i] = bp->occ;
+	fprintf(stderr, "# nodes in chains: %lu, # chains: %lu\n", bp->occ, bp->idx_n);
+	return bp;
+}
+
+void destroy_mc_bp_t(mc_bp_t **bp)
+{
+	uint32_t i;
+	for (i = 0; i < (*bp)->n_thread; i++)
+	{
+		free((*bp)->vis[i].a);
+	}
+	free((*bp)->idx);
+	free((*bp)->res);
+	free((*bp)->lock);
+	free((*bp));
+}
 
 mc_svaux_t *mc_svaux_init(const mc_g_t *mg, uint64_t x)
 {
@@ -584,7 +676,10 @@ mc_svaux_t *mc_svaux_init(const mc_g_t *mg, uint64_t x)
 	b->s = mg->s.a;
 	CALLOC(b->s_opt, ma->n_seq);
 	MALLOC(b->bfs, ma->n_seq);
-	MALLOC(b->bfs_mark, ma->n_seq);
+
+	MALLOC(b->bfs_mark, ma->n_seq); 
+	memset(b->bfs_mark, -1, ma->n_seq*sizeof(uint32_t));
+	
 	CALLOC(b->z, ma->n_seq);
 	CALLOC(b->z_opt, ma->n_seq);
 	CALLOC(b->f, ma->n_seq);
@@ -598,6 +693,64 @@ void mc_svaux_destroy(mc_svaux_t *b)
 	free(b->z); free(b->z_opt);
 	free(b->bfs); free(b->bfs_mark);
 	free(b->f);
+	free(b);
+}
+
+
+mc_svaux_t_mul *init_mc_svaux_t_mul(const mc_g_t *mg, uint64_t n_threads)
+{
+	uint32_t st, i;
+	mc_match_t *ma = mg->e;
+	mc_svaux_t_mul *b; CALLOC(b, 1);
+	for (st = 0, i = 1, b->n_t = 0; i <= ma->n_seq; ++i)
+	{
+		if (i == ma->n_seq || ma->cc[st]>>32 != ma->cc[i]>>32)
+		{
+			b->n_t++;
+		}
+	}
+	b->n_g = b->n_t;
+	if(n_threads < b->n_t) b->n_t = n_threads;
+	
+	kv_init(b->cc_edge);
+	MALLOC(b->bfs_mark, ma->n_seq);
+	memset(b->bfs_mark, -1, ma->n_seq*sizeof(uint32_t));
+	CALLOC(b->s_opt, ma->n_seq);
+	CALLOC(b->z, ma->n_seq);
+	CALLOC(b->z_opt, ma->n_seq);
+	b->s = mg->s.a;
+
+	kv_init(b->bs); CALLOC(b->bs.a, b->n_t); 
+	b->bs.n = b->bs.m = b->n_t;
+	for (i = 0; i < b->bs.n; i++)
+	{
+		kv_init(b->bs.a[i].cc_node);
+		kv_init(b->bs.a[i].bfs);
+		b->bs.a[i].bfs_mark = b->bfs_mark;
+		b->bs.a[i].z = b->z;
+		b->bs.a[i].z_opt = b->z_opt;
+		b->bs.a[i].s = b->s;
+		b->bs.a[i].s_opt = b->s_opt;
+	}
+	return b;
+}
+
+
+void destroy_mc_svaux_t_mul(mc_svaux_t_mul *b)
+{
+	uint32_t i;
+	kv_destroy(b->cc_edge);
+	free(b->bfs_mark);
+	free(b->s_opt);
+	free(b->z);
+	free(b->z_opt);
+	b->s = NULL;
+	for (i = 0; i < b->bs.n; i++)
+	{
+		kv_destroy(b->bs.a[i].cc_node);
+		kv_destroy(b->bs.a[i].bfs);
+	}
+	kv_destroy(b->bs);
 	free(b);
 }
 
@@ -634,6 +787,17 @@ t_w_t mc_score(const mc_match_t *ma, mc_svaux_t *b)
 	return z;
 }
 
+t_w_t mc_score_all(const mc_match_t *ma, mc_svaux_t *b)
+{
+	uint32_t k;
+	t_w_t z = 0;
+	for (k = 0; k < ma->n_seq; ++k) 
+	{
+		z += -((t_w_t)(b->s[k])) * (b->z[k].z[0] - b->z[k].z[1]);
+	}
+	return z;
+}
+
 void mc_reset_z(const mc_match_t *ma, mc_svaux_t *b)
 {
 	uint32_t i;
@@ -651,10 +815,42 @@ void mc_reset_z(const mc_match_t *ma, mc_svaux_t *b)
 	}
 }
 
+void mc_reset_z_debug(const mc_match_t *ma, mc_svaux_t *b)
+{
+	uint32_t i;
+	t_w_t z[2];
+	for (i = 0; i < b->cc_size; ++i) {
+		uint32_t k = (uint32_t)ma->cc[b->cc_off + i];///uid
+		uint32_t o = ma->idx.a[k] >> 32;
+		uint32_t j, n = (uint32_t)ma->idx.a[k];
+		z[0] = b->z[k].z[0]; z[1] = b->z[k].z[1];
+		b->z[k].z[0] = b->z[k].z[1] = 0;
+		for (j = 0; j < n; ++j) {
+			const mc_edge_t *e = &ma->ma.a[o + j];
+			uint32_t t = ma_y(*e);
+			if (b->s[t] > 0) b->z[k].z[0] += e->w;
+			else if (b->s[t] < 0) b->z[k].z[1] += e->w;
+		}
+		if(z[0] != b->z[k].z[0]) fprintf(stderr, "ERROR1\n");
+		if(z[1] != b->z[k].z[1]) fprintf(stderr, "ERROR2\n");
+	}
+}
+
 t_w_t mc_init_spin(const mc_opt_t *opt, const mc_match_t *ma, mc_svaux_t *b)
 {
 	uint32_t i;
 	b->cc_edge.n = 0;
+	for (i = 0; i < b->cc_size; ++i) {///how many nodes
+		uint32_t k = (uint32_t)ma->cc[b->cc_off + i];///node id
+		if(b->s[k] == 0) break;
+	}
+	if(i >= b->cc_size)
+	{
+		// fprintf(stderr, "------Set\n");
+		mc_reset_z(ma, b);
+		return mc_score(ma, b);
+	}
+	// fprintf(stderr, "++++++UnSet\n");
 	for (i = 0; i < b->cc_size; ++i) {///how many nodes
 		uint32_t k = (uint32_t)ma->cc[b->cc_off + i];///node id
 		uint32_t o = ma->idx.a[k] >> 32;///cc group id
@@ -664,7 +860,6 @@ t_w_t mc_init_spin(const mc_opt_t *opt, const mc_match_t *ma, mc_svaux_t *b)
 			w_t w = ma->ma.a[o + j].w;
 			w = w > 0? w : -w;
 			kv_push(uint64_t, b->cc_edge, (uint64_t)((uint32_t)-1 - ((uint32_t)w)) << 32 | (o + j));
-			///b->cc_edge[b->n_cc_edge++] = (uint64_t)((uint32_t)-1 - w) << 32 | (o + j);
 		}
 	}
 	radix_sort_mc64(b->cc_edge.a, b->cc_edge.a + b->cc_edge.n);
@@ -706,33 +901,23 @@ static void mc_set_spin(const mc_match_t *ma, mc_svaux_t *b, uint32_t k, int8_t 
 	b->s[k] = s;
 }
 
-t_w_t mc_best_flip(const mc_match_t *ma, mc_svaux_t *b, t_w_t *sc_max)
+void mc_best_flip(const mc_match_t *ma, mc_svaux_t *b)
 {
-	uint32_t idx, k;
-	t_w_t z = 0, w = 0;
+	uint32_t idx;
 	for (idx = 0; idx < b->cc_size; ++idx) {
-		k = (uint32_t)ma->cc[b->cc_off + idx];
-		b->f[k] = 0;
-		z += -((t_w_t)(b->s[k])) * (b->z[k].z[0] - b->z[k].z[1]);
-		///b->f[(uint32_t)ma->cc[b->cc_off + idx]] = 0;
+		b->f[(uint32_t)ma->cc[b->cc_off + idx]] = 0;
         ///uint32_t k = (uint32_t)ma->cc[b->cc_off + idx];///uid
 	}
 	while (1)
 	{
 		idx = mc_best(ma, b);
 		if(idx == (uint32_t)-1) break;
-
-		w = ((t_w_t)(b->s[k])) * (b->z[k].z[0] - b->z[k].z[1]) * 4;
-		if(sc_max && (*sc_max) >= (z + w)) break;
-		z += w;
-
 		mc_set_spin(ma, b, idx, -b->s[idx]);
 		b->f[idx] = 1;
 	}
-	return z;
 }
 
-static t_w_t mc_optimize_local(const mc_opt_t *opt, const mc_match_t *ma, mc_svaux_t *b, uint32_t *n_iter, t_w_t *sc_max)
+static t_w_t mc_optimize_local(const mc_opt_t *opt, const mc_match_t *ma, mc_svaux_t *b, uint32_t *n_iter)
 {
 	uint32_t i, n_flip = 0;
 	int32_t n_iter_local = 0;
@@ -753,13 +938,7 @@ static t_w_t mc_optimize_local(const mc_opt_t *opt, const mc_match_t *ma, mc_sva
 		if (n_flip == 0) break;
 	}
 
-	if(n_flip != 0) 
-	{
-		t_w_t z_debug =  mc_best_flip(ma, b, sc_max);
-		if(z_debug != mc_score(ma, b)) fprintf(stderr, "ERROR\n");
-		return z_debug;
-	}
-
+	// if(n_flip != 0) mc_best_flip(ma, b);
 	return mc_score(ma, b);
 }
 
@@ -808,6 +987,249 @@ static void mc_perturb_node(const mc_opt_t *opt, const mc_match_t *ma, mc_svaux_
 		mc_set_spin(ma, b, b->bfs[i], -b->s[b->bfs[i]]);
 }
 
+void clean_mc_bp_res(mc_bp_res *res)
+{
+	res->chain_id = (uint32_t)-1;
+	res->f_bid = res->f_uid = res->l_bid = res->l_uid = (uint32_t)-1;
+	res->id = (uint32_t)-1; res->w = -1;
+}
+
+void reset_mc_bp_iter(mc_bp_t* bp, mc_bp_iter *x, uint64_t id)
+{
+	ma_utg_t *u = NULL;
+	uint32_t i, n, occ;
+	for (i = 0; i < bp->idx_n; i++)
+	{
+		if(id >= bp->idx[i]) break;
+	}
+
+	id -= bp->idx[i];
+	x->chain_id = bp->b_b->chain_weight.a[i].id;
+	u = &(bp->b_b->b_ug->u.a[x->chain_id]);
+	for (i = occ = 0; i < u->n; i++)
+	{
+		get_bubbles(bp->b_b, u->a[i]>>33, NULL, NULL, NULL, &n, NULL);
+		occ += n;
+		if(id < occ)
+		{
+			x->bid = i;
+			x->uid = id - (occ -n);
+			break;
+		}
+	}
+}
+inline uint32_t next_uid(mc_bp_iter *iter, bubble_type* bub, uint32_t *c_bid, uint32_t *c_uid)
+{
+	ma_utg_t *u = &(bub->b_ug->u.a[iter->chain_id]);
+	uint32_t *a, n, uid;
+	while (1)
+	{
+		if(iter->bid >= u->n) break;
+		get_bubbles(bub, u->a[iter->bid]>>33, NULL, NULL, &a, &n, NULL);
+		while (1)
+		{
+			if(iter->uid >= n) break;
+			uid = a[iter->uid]>>1;
+			if(c_bid) (*c_bid) = iter->bid;
+			if(c_uid) (*c_uid) = iter->uid;
+			iter->uid++;
+			return uid;
+		}
+		iter->bid++, iter->uid = 0;
+	}
+	return (uint32_t)-1;
+}
+
+t_w_t incre_weight(mc_svaux_t *b_aux, mc_match_t *ma, uint8_t* vis, uint32_t uid)
+{
+	mc_edge_t *o = NULL;
+	uint32_t n, i, t;
+	t_w_t w = ((t_w_t)(b_aux->s[uid])) * (b_aux->z[uid].z[0] - b_aux->z[uid].z[1]) * 2;
+	t_w_t w_off = 0;
+	o = pt_a(*ma, uid);
+	n = pt_n(*ma, uid);
+	for (i = 0; i < n; ++i) 
+	{
+		t = ma_y(o[i]);
+		if(vis[t] == 0) continue;
+        if(t == uid) continue;
+		w_off += (b_aux->s[uid]*b_aux->s[t]*o[i].w);
+	}
+	return w - (w_off*4);//2 for self; 4 for both directions
+}
+
+void select_min_bp(bubble_type* bub, mc_match_t *ma, mc_svaux_t *b_aux, mc_bp_t* bp,
+uint8_t *lock, bits_p *vis, uint64_t id, mc_bp_res* r)
+{
+	uint32_t uid, val = 0, max_bid, max_uid, c_bid, c_uid, f_bid, f_uid;
+	t_w_t w = 0, max_w = -1;
+	mc_bp_iter i;
+	reset_mc_bp_iter(bp, &i, id);
+	memset(vis->a, 0, vis->n);
+	max_bid = max_uid = (uint32_t)-1;
+	f_bid = i.bid; f_uid = i.uid;
+
+	while (1)
+	{
+		uid = next_uid(&i, bub, &c_bid, &c_uid);
+		if(uid == (uint32_t)-1) break;
+		if(vis->a[uid]) continue; ///already flip uid
+		///update w
+		w += incre_weight(b_aux, ma, vis->a, uid);
+		vis->a[uid] = 1;
+		if(lock[uid] == 0) val = 1;
+        if(val == 0) continue;
+		///update max_w
+		if(max_w < w)
+		{
+			max_w = w;
+			max_bid = c_bid;
+			max_uid = c_uid;
+		}
+	}
+
+	if(max_w <= 0 || max_bid == (uint32_t)-1 || max_uid == (uint32_t)-1) return;
+	if((max_w > r->w) || (max_w == r->w && id < r->id))
+	{
+		r->w = max_w;
+		r->id = id;
+		r->chain_id = i.chain_id;
+		r->l_bid = max_bid;
+		r->l_uid = max_uid;
+		r->f_bid = f_bid;
+		r->f_uid = f_uid;
+	}
+	///if((res->min_w > i_b->weight) || (res->min_w == i_b->weight && id < res->min_idx))
+}
+
+static void worker_for_min_bp(void *data, long i, int tid) // callback for kt_for()
+{
+    mc_bp_t* bp = (mc_bp_t *)data;
+	select_min_bp(bp->b_b, bp->ma, bp->b_aux, bp, bp->lock, &(bp->vis[tid]), i, &(bp->res[tid]));
+}
+
+uint32_t best_bp(mc_bp_t *bp, mc_bp_res *res)
+{
+	uint32_t i;
+	clean_mc_bp_res(res);
+	for (i = 0; i < bp->n_thread; i++)
+	{
+		clean_mc_bp_res(&(bp->res[i]));
+	} 
+	kt_for(bp->n_thread, worker_for_min_bp, bp, bp->occ);
+	
+	for (i = 0; i < bp->n_thread; i++)
+	{
+		if(bp->res[i].chain_id == (uint32_t)-1) continue;
+		if(bp->res[i].w <= 0) continue;
+		if((bp->res[i].w > res->w) || (bp->res[i].w == res->w && bp->res[i].id < res->id))
+		{
+			(*res) = bp->res[i];
+		}
+	}
+	if(res->chain_id != (uint32_t)-1) return 1;
+	return 0;
+}
+
+void mc_set_bp_spin(bubble_type* bub, mc_match_t *ma, mc_svaux_t *b_aux, mc_bp_t* bp,
+uint8_t *lock, bits_p *vis, mc_bp_res *res)
+{
+	uint32_t uid, val = 0, c_bid, c_uid;
+	mc_bp_iter i;
+	i.chain_id = res->chain_id;
+	i.bid = res->f_bid;
+	i.uid = res->f_uid;
+	memset(vis->a, 0, vis->n);
+	while (1)
+    {
+        uid = next_uid(&i, bub, &c_bid, &c_uid);
+        if(uid == (uint32_t)-1) break;
+		if(lock[uid] == 0)
+		{
+			val = 1;
+			break;
+		}
+        if(c_bid == res->l_bid && c_uid == res->l_uid) break;
+    }
+
+	if(val == 0)
+	{
+		fprintf(stderr, "ERROR-1\n");
+		return;
+	}
+
+	i.bid = res->f_bid;
+	i.uid = res->f_uid;
+	while (1)
+	{
+		uid = next_uid(&i, bub, &c_bid, &c_uid);
+        if(uid == (uint32_t)-1) break;
+        if(vis->a[uid] == 1) continue;
+        lock[uid] = 1;
+        vis->a[uid] = 1;
+		mc_set_spin(ma, b_aux, uid, -b_aux->s[uid]);
+        if(c_bid == res->l_bid && c_uid == res->l_uid) break;
+	}
+}
+
+double mc_solve_bp_cc(mc_bp_t *bp)
+{
+	mc_bp_res res;
+	memset(bp->lock, 0, bp->b_b->ug->g->n_seq);
+	while (best_bp(bp, &res))
+	{
+		mc_set_bp_spin(bp->b_b, bp->ma, bp->b_aux, bp, bp->lock, &(bp->vis[0]), &res);
+	}
+
+	return mc_score_all(bp->ma, bp->b_aux);
+}
+
+void mc_reset_z_all(const mc_match_t *ma, mc_svaux_t *b)
+{
+	t_w_t z[2];
+	uint32_t k;
+	for (k = 0; k < ma->n_seq; ++k) 
+	{
+		uint32_t o = ma->idx.a[k] >> 32;
+        uint32_t j, n = (uint32_t)ma->idx.a[k];
+		z[0] = b->z[k].z[0]; z[1] = b->z[k].z[1];
+        b->z[k].z[0] = b->z[k].z[1] = 0;
+        for (j = 0; j < n; ++j) {
+            const mc_edge_t *e = &ma->ma.a[o + j];
+            uint32_t t = ma_y(*e);
+            if (b->s[t] > 0) b->z[k].z[0] += e->w;
+            else if (b->s[t] < 0) b->z[k].z[1] += e->w;
+        }
+		if(z[0] != b->z[k].z[0]) fprintf(stderr, "ERROR1-all\n");
+        if(z[1] != b->z[k].z[1]) fprintf(stderr, "ERROR2-all\n");
+	}
+}
+
+void mc_solve_bp(mc_bp_t *bp)
+{
+	double index_time = yak_realtime();
+	uint32_t r = 1;
+	double sc_opt, sc;
+	mc_reset_z_all(bp->ma, bp->b_aux);
+	sc_opt = mc_score_all(bp->ma, bp->b_aux);
+
+	while (1)
+	{
+		sc = mc_solve_bp_cc(bp);
+		fprintf(stderr, "[M::%s::# round: %u] sc_opt: %f, sc: %f\n", __func__, r, sc_opt, sc);
+		if(sc <= sc_opt) break;
+		sc_opt = sc;
+		r++;
+	}
+	fprintf(stderr, "[M::%s::%.3f] ==> round %u\n", __func__, yak_realtime()-index_time, r);
+}
+
+void print_sc(const mc_opt_t *opt, const mc_match_t *ma, mc_svaux_t *b, t_w_t sc_opt, uint32_t n_iter)
+{
+	fprintf(stderr, "# iter: %u, sc_opt: %f, sc-local: %f, sc-global: %f\n", 
+					n_iter, sc_opt, mc_score(ma, b), mc_score_all(ma, b));
+}
+
 uint32_t mc_solve_cc(const mc_opt_t *opt, const mc_g_t *mg, mc_svaux_t *b, uint32_t cc_off, uint32_t cc_size)
 {
 	uint32_t j, k, n_iter = 0;
@@ -816,14 +1238,15 @@ uint32_t mc_solve_cc(const mc_opt_t *opt, const mc_g_t *mg, mc_svaux_t *b, uint3
 	b->cc_off = cc_off, b->cc_size = cc_size;
 	if (b->cc_size < 2) return 0;
 
+	// print_sc(opt, mg->e, b, sc_opt, (uint32_t)-1);
 	sc_opt = mc_init_spin(opt, mg->e, b);
 	if (b->cc_size == 2) return 0;
 	for (j = 0; j < b->cc_size; ++j) {///backup s and z in s_opt and z_opt
 		b->s_opt[b->cc_node[j]] = b->s[b->cc_node[j]]; ///hap status of each unitig
 		b->z_opt[b->cc_node[j]] = b->z[b->cc_node[j]]; ///z[0]: positive weight; z[1]: positive weight
 	}
-
-	sc = mc_optimize_local(opt, mg->e, b, &n_iter, &sc_opt);
+	// print_sc(opt, mg->e, b, sc_opt, n_iter);
+	sc = mc_optimize_local(opt, mg->e, b, &n_iter);
 	if (sc > sc_opt) {
 		for (j = 0; j < b->cc_size; ++j) {
 			b->s_opt[b->cc_node[j]] = b->s[b->cc_node[j]];
@@ -836,11 +1259,13 @@ uint32_t mc_solve_cc(const mc_opt_t *opt, const mc_g_t *mg, mc_svaux_t *b, uint3
 			b->z[b->cc_node[j]] = b->z_opt[b->cc_node[j]];
 		}
 	}
+	// mc_reset_z_debug(mg->e, b);
+	// print_sc(opt, mg->e, b, sc_opt, n_iter);
 	// fprintf(stderr, "\ncc_size: %u, cc_off: %u\n", b->cc_size, b->cc_off);
 	for (k = 0; k < (uint32_t)opt->n_perturb; ++k) {
 		if (k&1) mc_perturb(opt, mg->e, b);
 		else mc_perturb_node(opt, mg->e, b, 3);
-		sc = mc_optimize_local(opt, mg->e, b, &n_iter, &sc_opt);
+		sc = mc_optimize_local(opt, mg->e, b, &n_iter);
 		// fprintf(stderr, "(%u) sc_opt: %f, sc: %f\n", k, sc_opt, sc);
 		if (sc > sc_opt) {
 			for (j = 0; j < b->cc_size; ++j) {
@@ -854,27 +1279,60 @@ uint32_t mc_solve_cc(const mc_opt_t *opt, const mc_g_t *mg, mc_svaux_t *b, uint3
 				b->z[b->cc_node[j]] = b->z_opt[b->cc_node[j]];
 			}
 		}
+		// print_sc(opt, mg->e, b, sc_opt, n_iter);
 	}
 	for (j = 0; j < b->cc_size; ++j)
 		b->s[b->cc_node[j]] = b->s_opt[b->cc_node[j]];
 	return n_iter;
 }
 
-void mc_solve_core(const mc_opt_t *opt, mc_g_t *mg)
+void mc_init_spin_all(const mc_opt_t *opt, mc_g_t *mg, mc_svaux_t *b)
+{
+	uint32_t st, i;
+	for (st = 0, i = 1; i <= mg->e->n_seq; ++i) {
+		if (i == mg->e->n_seq || mg->e->cc[st]>>32 != mg->e->cc[i]>>32) {
+			b->cc_off = st, b->cc_size = i - st;
+			if (b->cc_size >= 2)
+			{
+				mc_init_spin(opt, mg->e, b);
+			}
+			st = i;
+		}
+	}
+}
+
+
+
+void mc_solve_core(const mc_opt_t *opt, mc_g_t *mg, bubble_type* bub)
 {
 	double index_time = yak_realtime();
 	uint32_t st, i;
 	mc_svaux_t *b;
+	mc_bp_t *bp = NULL;
 	mc_g_cc(mg->e);
+
 	b = mc_svaux_init(mg, opt->seed);
+	if(bub) bp = mc_bp_t_init(mg->e, b, bub, asm_opt.thread_num);
+	/*******************************for debug************************************/
+	if(bp)
+	{
+		mc_init_spin_all(opt, mg, b);
+		mc_solve_bp(bp);
+	} 
+	/*******************************for debug************************************/
+	// fprintf(stderr, "\n\n\n\n\n*************beg-[M::%s::score->%f] ==> Partition\n", __func__, mc_score_all(mg->e, b));
 	for (st = 0, i = 1; i <= mg->e->n_seq; ++i) {
 		if (i == mg->e->n_seq || mg->e->cc[st]>>32 != mg->e->cc[i]>>32) {
 			mc_solve_cc(opt, mg, b, st, i - st);
 			st = i;
 		}
 	}
+	// fprintf(stderr, "##############end-[M::%s::score->%f] ==> Partition\n", __func__, mc_score_all(mg->e, b));
+
+	if(bp) mc_solve_bp(bp);	
 	///mc_write_info(g, b);
-	mc_svaux_destroy(b);
+	if(bp) mc_svaux_destroy(b);
+	destroy_mc_bp_t(&bp);
 	fprintf(stderr, "[M::%s::%.3f] ==> Partition\n", __func__, yak_realtime()-index_time);
 }
 
@@ -981,14 +1439,14 @@ void p_nodes(mc_g_t *mg, trans_chain* t_ch, uint8_t* trio_flag)
 	}
 }
 
-void mc_solve(hap_overlaps_list* ovlp, trans_chain* t_ch, kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g, double f_rate, uint8_t* trio_flag, uint32_t renew_s, int8_t *s, uint32_t is_sys)
+void mc_solve(hap_overlaps_list* ovlp, trans_chain* t_ch, kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g, double f_rate, uint8_t* trio_flag, uint32_t renew_s, int8_t *s, uint32_t is_sys, bubble_type* bub)
 {
 	mc_opt_t opt;
-	mc_opt_init(&opt);
+	mc_opt_init(&opt, asm_opt.n_perturb, asm_opt.f_perturb, asm_opt.seed);
 	mc_g_t *mg = init_mc_g_t(ug, read_g, s, renew_s);
 	update_mc_edges(mg, ovlp, ta, t_ch, f_rate, is_sys);
 	///debug_mc_g_t(mg);
-	mc_solve_core(&opt, mg);
+	mc_solve_core(&opt, mg, bub);
 
 	if((asm_opt.flag & HA_F_PARTITION) && t_ch)
 	{

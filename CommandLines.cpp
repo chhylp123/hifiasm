@@ -34,6 +34,10 @@ static ko_longopt_t long_options[] = {
     { "m-rate",      ko_required_argument, 319 },
     { "b-partition",      ko_no_argument, 320 },
     { "t-occ",      ko_required_argument, 321 },
+    { "seed",      ko_required_argument, 322 },
+    { "n-perturb",      ko_required_argument, 323 },
+    { "f-perturb",      ko_required_argument, 324 },
+    { "n-hap",      ko_required_argument, 325 },
 	{ 0, 0, 0 }
 };
 
@@ -49,64 +53,71 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "Usage: hifiasm [options] <in_1.fq> <in_2.fq> <...>\n");
     fprintf(stderr, "Options:\n");
 	fprintf(stderr, "  Input/Output:\n");
-    fprintf(stderr, "    -o STR      prefix of output files [%s]\n", asm_opt->output_file_name);
-    fprintf(stderr, "    -i          ignore saved read correction and overlaps\n");
-    fprintf(stderr, "    -t INT      number of threads [%d]\n", asm_opt->thread_num);
-    fprintf(stderr, "    -z INT      length of adapters that should be removed [%d]\n", asm_opt->adapterLen);
-    fprintf(stderr, "    --version   show version number\n");
+    fprintf(stderr, "    -o STR       prefix of output files [%s]\n", asm_opt->output_file_name);
+    fprintf(stderr, "    -i           ignore saved read correction and overlaps\n");
+    fprintf(stderr, "    -t INT       number of threads [%d]\n", asm_opt->thread_num);
+    fprintf(stderr, "    -z INT       length of adapters that should be removed [%d]\n", asm_opt->adapterLen);
+    fprintf(stderr, "    --version    show version number\n");
 	fprintf(stderr, "  Overlap/Error correction:\n");
-    fprintf(stderr, "    -k INT      k-mer length (must be <64) [%d]\n", asm_opt->k_mer_length);
-	fprintf(stderr, "    -w INT      minimizer window size [%d]\n", asm_opt->mz_win);
-	fprintf(stderr, "    -f INT      number of bits for bloom filter; 0 to disable [%d]\n", asm_opt->bf_shift);
-	fprintf(stderr, "    -D FLOAT    drop k-mers occurring >FLOAT*coverage times [%.1f]\n", asm_opt->high_factor);
-	fprintf(stderr, "    -N INT      consider up to max(-D*coverage,-N) overlaps for each oriented read [%d]\n", asm_opt->max_n_chain);
-    fprintf(stderr, "    -r INT      round of correction [%d]\n", asm_opt->number_of_round);
+    fprintf(stderr, "    -k INT       k-mer length (must be <64) [%d]\n", asm_opt->k_mer_length);
+	fprintf(stderr, "    -w INT       minimizer window size [%d]\n", asm_opt->mz_win);
+	fprintf(stderr, "    -f INT       number of bits for bloom filter; 0 to disable [%d]\n", asm_opt->bf_shift);
+	fprintf(stderr, "    -D FLOAT     drop k-mers occurring >FLOAT*coverage times [%.1f]\n", asm_opt->high_factor);
+	fprintf(stderr, "    -N INT       consider up to max(-D*coverage,-N) overlaps for each oriented read [%d]\n", asm_opt->max_n_chain);
+    fprintf(stderr, "    -r INT       round of correction [%d]\n", asm_opt->number_of_round);
     fprintf(stderr, "  Assembly:\n");
-    fprintf(stderr, "    -a INT      round of assembly cleaning [%d]\n", asm_opt->clean_round);
-    fprintf(stderr, "    -m INT      pop bubbles of <INT in size in contig graphs [%lld]\n", asm_opt->large_pop_bubble_size);
-    fprintf(stderr, "    -p INT      pop bubbles of <INT in size in unitig graphs [%lld]\n", asm_opt->small_pop_bubble_size);
-    fprintf(stderr, "    -n INT      remove tip unitigs composed of <=INT reads [%d]\n", asm_opt->max_short_tip);
-    fprintf(stderr, "    -x FLOAT    max overlap drop ratio [%.2g]\n", asm_opt->max_drop_rate);
-    fprintf(stderr, "    -y FLOAT    min overlap drop ratio [%.2g]\n", asm_opt->min_drop_rate);
-    fprintf(stderr, "    -u          disable post join contigs step which may improve N50\n");
-    fprintf(stderr, "    --lowQ      INT\n");
-    fprintf(stderr, "                output contig regions with >=INT%% inconsistency in BED format; 0 to disable [%d]\n", asm_opt->bed_inconsist_rate);
-    fprintf(stderr, "    --b-cov     INT\n");
-    fprintf(stderr, "                break contigs at positions with <INT-fold coverage; work with '--m-rate'; 0 to disable [%d]\n", asm_opt->b_low_cov);
-    fprintf(stderr, "    --h-cov     INT\n");
-    fprintf(stderr, "                break contigs at positions with >INT-fold coverage; work with '--m-rate'; -1 to disable [%d]\n", asm_opt->b_high_cov);
-    fprintf(stderr, "    --m-rate    FLOAT\n");
-    fprintf(stderr, "                break contigs at positions with <=FLOAT*coverage exact overlaps;\n");
-    fprintf(stderr, "                only work with '--b-cov' or '--h-cov'[%.2f]\n", asm_opt->m_rate);
+    fprintf(stderr, "    -a INT       round of assembly cleaning [%d]\n", asm_opt->clean_round);
+    fprintf(stderr, "    -m INT       pop bubbles of <INT in size in contig graphs [%lld]\n", asm_opt->large_pop_bubble_size);
+    fprintf(stderr, "    -p INT       pop bubbles of <INT in size in unitig graphs [%lld]\n", asm_opt->small_pop_bubble_size);
+    fprintf(stderr, "    -n INT       remove tip unitigs composed of <=INT reads [%d]\n", asm_opt->max_short_tip);
+    fprintf(stderr, "    -x FLOAT     max overlap drop ratio [%.2g]\n", asm_opt->max_drop_rate);
+    fprintf(stderr, "    -y FLOAT     min overlap drop ratio [%.2g]\n", asm_opt->min_drop_rate);
+    fprintf(stderr, "    -u           disable post join contigs step which may improve N50\n");
+    fprintf(stderr, "    --lowQ       INT\n");
+    fprintf(stderr, "                 output contig regions with >=INT%% inconsistency in BED format; 0 to disable [%d]\n", asm_opt->bed_inconsist_rate);
+    fprintf(stderr, "    --b-cov      INT\n");
+    fprintf(stderr, "                 break contigs at positions with <INT-fold coverage; work with '--m-rate'; 0 to disable [%d]\n", asm_opt->b_low_cov);
+    fprintf(stderr, "    --h-cov      INT\n");
+    fprintf(stderr, "                 break contigs at positions with >INT-fold coverage; work with '--m-rate'; -1 to disable [%d]\n", asm_opt->b_high_cov);
+    fprintf(stderr, "    --m-rate     FLOAT\n");
+    fprintf(stderr, "                 break contigs at positions with <=FLOAT*coverage exact overlaps;\n");
+    fprintf(stderr, "                 only work with '--b-cov' or '--h-cov'[%.2f]\n", asm_opt->m_rate);
     
 //	fprintf(stderr, "    --pri-range INT1[,INT2]\n");
 //	fprintf(stderr, "                keep contigs with coverage in this range in p_ctg.gfa; -1 to disable [auto,inf]\n");
 
     fprintf(stderr, "  Trio-partition:\n");
-    fprintf(stderr, "    -1 FILE     hap1/paternal k-mer dump generated by \"yak count\" []\n");
-    fprintf(stderr, "    -2 FILE     hap2/maternal k-mer dump generated by \"yak count\" []\n");
-    fprintf(stderr, "    -c INT      lower bound of the binned k-mer's frequency [%d]\n", asm_opt->min_cnt);
-    fprintf(stderr, "    -d INT      upper bound of the binned k-mer's frequency [%d]\n", asm_opt->mid_cnt);
-	fprintf(stderr, "    -3 FILE     list of hap1/paternal read names []\n");
-	fprintf(stderr, "    -4 FILE     list of hap2/maternal read names []\n");
-    fprintf(stderr, "    --t-occ     INT\n");
-    fprintf(stderr, "                force remove unitigs with >INT unexpected haplotype-specific reads;\n");
-    fprintf(stderr, "                ignore graph topology; [%d]\n", asm_opt->trio_flag_occ_thres);
+    fprintf(stderr, "    -1 FILE      hap1/paternal k-mer dump generated by \"yak count\" []\n");
+    fprintf(stderr, "    -2 FILE      hap2/maternal k-mer dump generated by \"yak count\" []\n");
+    fprintf(stderr, "    -c INT       lower bound of the binned k-mer's frequency [%d]\n", asm_opt->min_cnt);
+    fprintf(stderr, "    -d INT       upper bound of the binned k-mer's frequency [%d]\n", asm_opt->mid_cnt);
+	fprintf(stderr, "    -3 FILE      list of hap1/paternal read names []\n");
+	fprintf(stderr, "    -4 FILE      list of hap2/maternal read names []\n");
+    fprintf(stderr, "    --t-occ      INT\n");
+    fprintf(stderr, "                 force remove unitigs with >INT unexpected haplotype-specific reads;\n");
+    fprintf(stderr, "                 ignore graph topology; [%d]\n", asm_opt->trio_flag_occ_thres);
 
     fprintf(stderr, "  Purge-dups:\n");
-    fprintf(stderr, "    -l INT      purge level. 0: no purging; 1: light; 2/3: aggressive [0 for trio; 2 for unzip]\n");
-    fprintf(stderr, "    -s FLOAT    similarity threshold for duplicate haplotigs [%g for -l1/-l2, %g for -l3]\n", 
-                                     asm_opt->purge_simi_rate_l2, asm_opt->purge_simi_rate_l3);
-    fprintf(stderr, "    -O INT      min number of overlapped reads for duplicate haplotigs [%d]\n", 
-                                     asm_opt->purge_overlap_len);
-    fprintf(stderr, "    --purge-cov INT\n");
-    fprintf(stderr, "                coverage upper bound of Purge-dups [auto]\n");
-
-    ///fprintf(stderr, "    --high-het  enable this mode for high heterozygosity sample [experimental, not stable]\n");
+    fprintf(stderr, "    -l INT       purge level. 0: no purging; 1: light; 2/3: aggressive [0 for trio; 3 for unzip]\n");
+    fprintf(stderr, "    -s FLOAT     similarity threshold for duplicate haplotigs [%g for -l1/-l2, %g for -l3]\n", 
+                                      asm_opt->purge_simi_rate_l2, asm_opt->purge_simi_rate_l3);
+    fprintf(stderr, "    -O INT       min number of overlapped reads for duplicate haplotigs [%d]\n", 
+                                      asm_opt->purge_overlap_len);
+    fprintf(stderr, "    --purge-cov  INT\n");
+    fprintf(stderr, "                 coverage upper bound of Purge-dups [auto]\n");
+    fprintf(stderr, "    --n-hap      INT\n");
+    fprintf(stderr, "                 number of haplotypes [%d]\n", asm_opt->polyploidy);
     
-    fprintf(stderr, "  Hi-C-partition [experimental, not stable]:\n");
+    // fprintf(stderr, "  Hi-C-partition [experimental, not stable]:\n");
+    fprintf(stderr, "  Hi-C-partition:\n");
     fprintf(stderr, "    --h1 FILEs   file names of Hi-C R1  [r1_1.fq,r1_2.fq,...]\n");
     fprintf(stderr, "    --h2 FILEs   file names of Hi-C R2  [r2_1.fq,r2_2.fq,...]\n");
+    fprintf(stderr, "    --seed INT   RNG seed [%lu]\n", asm_opt->seed);
+	fprintf(stderr, "    --n-perturb  INT\n");
+    fprintf(stderr, "                 rounds of perturbation [%d]\n", asm_opt->n_perturb);
+    fprintf(stderr, "    --f-perturb  FLOAT\n");
+	fprintf(stderr, "                 fraction to flip for perturbation [%.3g]\n", asm_opt->f_perturb);
+
 
     fprintf(stderr, "Example: ./hifiasm -o NA12878.asm -t 32 NA12878.fq.gz\n");
     fprintf(stderr, "See `man ./hifiasm.1' for detailed description of these command-line options.\n");
@@ -154,7 +165,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->max_short_tip = 3;
     asm_opt->min_cnt = 2;
     asm_opt->mid_cnt = 5;
-    asm_opt->purge_level_primary = 2;
+    asm_opt->purge_level_primary = 3;
     asm_opt->purge_level_trio = 0;
     asm_opt->purge_simi_rate_l2 = 0.75;
     asm_opt->purge_simi_rate_l3 = 0.55;
@@ -175,6 +186,9 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->hap_occ = 1;
     asm_opt->polyploidy = 2;
     asm_opt->trio_flag_occ_thres = 60;
+    asm_opt->seed = 11;
+    asm_opt->n_perturb = 50000;
+    asm_opt->f_perturb = 0.1;
 }
 
 void destory_enzyme(enzyme* f)
@@ -469,27 +483,7 @@ int check_option(hifiasm_opt_t* asm_opt)
         fprintf(stderr, "[ERROR] [-s] must >= 0\n");
         return 0;
     }
-
-    // fprintf(stderr, "input file num: %d\n", asm_opt->num_reads);
-    // fprintf(stderr, "output file: %s\n", asm_opt->output_file_name);
-    // fprintf(stderr, "number of threads: %d\n", asm_opt->thread_num);
-    // fprintf(stderr, "number of rounds for correction: %d\n", asm_opt->number_of_round);
-    // fprintf(stderr, "number of rounds for assembly cleaning: %d\n", asm_opt->clean_round);
-    // fprintf(stderr, "length of removed adapters: %d\n", asm_opt->adapterLen);
-    // fprintf(stderr, "length of k_mer: %d\n", asm_opt->k_mer_length);
-    // fprintf(stderr, "min overlap drop ratio: %.2g\n", asm_opt->min_drop_rate);
-    // fprintf(stderr, "max overlap drop ratio: %.2g\n", asm_opt->max_drop_rate);
-    // fprintf(stderr, "size of popped small bubbles: %lld\n", asm_opt->small_pop_bubble_size);
-    // fprintf(stderr, "size of popped large bubbles: %lld\n", asm_opt->large_pop_bubble_size);
-    // fprintf(stderr, "small removed unitig threshold: %d\n", asm_opt->max_short_tip);
-    // fprintf(stderr, "small removed unitig threshold: %d\n", asm_opt->max_short_tip);
-    // fprintf(stderr, "min_cnt: %d\n", asm_opt->min_cnt);
-    // fprintf(stderr, "mid_cnt: %d\n", asm_opt->mid_cnt);
-    // fprintf(stderr, "purge_level_primary: %d\n", asm_opt->purge_level_primary);
-    // fprintf(stderr, "purge_level_trio: %d\n", asm_opt->purge_level_trio);
-    // fprintf(stderr, "purge_simi_thres: %f\n", asm_opt->purge_simi_thres);
-    // fprintf(stderr, "purge_overlap_len: %d\n", asm_opt->purge_overlap_len);
-
+    
     return 1;
 }
 
@@ -652,6 +646,10 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         else if (c == 319) asm_opt->m_rate = atof(opt.arg);
         else if (c == 320) asm_opt->flag |= HA_F_PARTITION;
         else if (c == 321) asm_opt->trio_flag_occ_thres = atoi(opt.arg);
+        else if (c == 322) asm_opt->seed = atol(opt.arg);
+        else if (c == 323) asm_opt->n_perturb = atoi(opt.arg);
+        else if (c == 324) asm_opt->f_perturb = atof(opt.arg);
+        else if (c == 325) asm_opt->polyploidy = atoi(opt.arg);
         else if (c == 'l')
         {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
             asm_opt->purge_level_primary = asm_opt->purge_level_trio = atoi(opt.arg);
