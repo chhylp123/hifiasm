@@ -12,16 +12,16 @@ awk '/^S/{print ">"$2;print $3}' test.p_ctg.gfa > test.p_ctg.fa  # get primary c
 
 # Assemble inbred/homozygous genomes (-l0 disables duplication purging)
 hifiasm -o CHM13.asm -t32 -l0 CHM13-HiFi.fa.gz 2> CHM13.asm.log
-# Assemble heterozygous with built-in duplication purging
+# Assemble heterozygous genomes with built-in duplication purging
 hifiasm -o HG002.asm -t32 HG002-file1.fq.gz HG002-file2.fq.gz
+
+# Hi-C phasing with paired-end short reads in two FASTQ files
+hifiasm -o HG002.asm --h1 read1.fq.gz --h2 read2.fq.gz HG002-HiFi.fq.gz
 
 # Trio binning assembly (requiring https://github.com/lh3/yak)
 yak count -b37 -t16 -o pat.yak <(cat pat_1.fq.gz pat_2.fq.gz) <(cat pat_1.fq.gz pat_2.fq.gz)
 yak count -b37 -t16 -o mat.yak <(cat mat_1.fq.gz mat_2.fq.gz) <(cat mat_1.fq.gz mat_2.fq.gz)
 hifiasm -o HG002.asm -t32 -1 pat.yak -2 mat.yak HG002-HiFi.fa.gz
-
-# Hi-C phasing with paired-end short reads in two FASTQ files
-hifiasm -o HG002.asm --h1 read1.fq.gz --h2 read2.fq.gz HG002-HiFi.fq.gz
 ```
 
 ## Table of Contents
@@ -91,7 +91,7 @@ At the first run, hifiasm saves corrected reads and
 overlaps to disk as `NA12878.asm.*.bin`. It reuses the saved results to avoid
 the time-consuming all-vs-all overlap calculation next time. You may specify
 `-i` to ignore precomputed overlaps and redo overlapping from raw reads.
-You can also dump error corrected in FASTA and/or overlaps in PAF with
+You can also dump error corrected reads in FASTA and read overlaps in PAF with
 ```sh
 hifiasm -o NA12878.asm -t 32 --write-paf --write-ec /dev/null
 ```
