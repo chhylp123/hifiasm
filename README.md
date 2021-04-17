@@ -119,6 +119,9 @@ challenging. Users should not expect hifiasm to phase entire chromosomes at the
 moment. Also, contigs from different parental chromosomes are randomly mixed as
 it is just not possible to phase across chromosomes with Hi-C.
 
+Hifiasm does not perform scaffolding for now. You need to run a standalone
+scaffolder such as SALSA or 3D-DNA to scaffold phased haplotigs.
+
 ### <a name="trio"></a>Trio binning
 
 When parental short reads are available, hifiasm can also generate a pair of
