@@ -13514,6 +13514,39 @@ void idx_hc_links(kvec_pe_hit* hits, ha_ug_index* idx, bubble_type* bub)
     }
 }
 
+inline uint32_t trans_checking_pass(bubble_type* bub, kv_u_trans_t *ref, uint32_t x, uint32_t y)
+{
+    if(u_trans_n(*ref, x) == 0 || u_trans_n(*ref, y) == 0) return 0;
+    u_trans_t *a = NULL;
+    uint32_t n, i, f[2], qn, tn;
+
+    qn = x; tn = y;
+    a = u_trans_a(*ref, qn); n = u_trans_n(*ref, qn);
+    for (i = 0, f[0] = f[1] = 0; i < n; i++)
+    {
+        if(a[i].del) continue;
+        if(a[i].f == RC_2) continue;
+        if(IF_HOM(a[i].tn, *bub)) continue;
+        f[(a[i].tn == tn && a[i].f != RC_2)]++;
+    }
+    if(f[0] != 0) return 0;
+    if(f[1] == 0) return 0;
+
+    qn = y; tn = x;
+    a = u_trans_a(*ref, qn); n = u_trans_n(*ref, qn);
+    for (i = 0, f[0] = f[1] = 0; i < n; i++)
+    {
+        if(a[i].del) continue;
+        if(IF_HOM(a[i].tn, *bub)) continue;
+        f[(a[i].tn == tn && a[i].f != RC_2)]++;
+    }
+    if(f[0] != 0) return 0;
+    if(f[1] == 0) return 0;
+
+    fprintf(stderr, "M::%s::s-utg%.6ul<----->d-utg%.6ul\n", __func__, x+1, y+1);
+    return 1;
+}
+
 void weight_kv_u_trans(ha_ug_index* idx, kvec_pe_hit* hits, hc_links* link, bubble_type* bub, 
 kv_u_trans_t *ta, trans_idx* dis)
 {
@@ -13653,7 +13686,7 @@ pe_hit *hits, uint32_t occ, uint32_t qid, uint32_t qs, uint32_t qe, uint32_t tid
     return w;
 }
 
-double get_hits_weight(ha_ug_index* idx, kvec_pe_hit* hits, hc_links* link, trans_idx* dis, 
+double get_hits_weight(ha_ug_index* idx, bubble_type* bub, kvec_pe_hit* hits, hc_links* link, trans_idx* dis, 
 u_trans_t *t_a, uint32_t t_n, uint32_t qid, kv_u_trans_t *ta_idx)
 {
     /****************************may have bugs********************************/
@@ -13666,6 +13699,8 @@ u_trans_t *t_a, uint32_t t_n, uint32_t qid, kv_u_trans_t *ta_idx)
     double w, i_w;
     for (k = 0, w = 0; k < t_n; k++)
     {
+        if(IF_HOM(qid, *bub)) continue;
+        if(IF_HOM(t_a[k].tn, *bub)) continue;
         /****************************may have bugs********************************/
         if(qid != t_a[k].tn)
         {
@@ -13705,6 +13740,7 @@ u_trans_t *t_a, uint32_t t_n, uint32_t qid, kv_u_trans_t *ta_idx)
     return w;
 }
 
+
 void adjust_weight_kv_u_trans(ha_ug_index* idx, kvec_pe_hit* hits, hc_links* link, bubble_type* bub, 
 kv_u_trans_t *ta, kv_u_trans_t *ref, trans_idx* dis)
 {
@@ -13723,12 +13759,15 @@ kv_u_trans_t *ta, kv_u_trans_t *ref, trans_idx* dis)
         {
             ta->a[m].nw /= (double)(MIN(hits->occ.a[ta->a[m].qn], hits->occ.a[ta->a[m].tn]));
         }
+        /*******************************for debug************************************/
+        trans_checking_pass(bub, ref, ta->a[i].qn, ta->a[i].tn);
+        // if(trans_checking_pass(bub, ref, ta->a[i].qn, ta->a[i].tn)) ta->a[m].nw = 0;
+        /*******************************for debug************************************/
         
         m++;
     }
     ta->n = m;
     
-    // fprintf(stderr, "+++++ta->n=%u\n", (uint32_t)ta->n);
     for (k = 0; k < ta->idx.n; k++)///all nodes
     {
         if(IF_HOM(k, *bub)) continue;
@@ -13743,10 +13782,10 @@ kv_u_trans_t *ta, kv_u_trans_t *ref, trans_idx* dis)
             if(IF_HOM(a[i].qn, *bub)) continue;
             if(IF_HOM(a[i].tn, *bub)) continue;
             ///(qn, tn^)
-            a[i].nw += get_hits_weight(idx, hits, link, dis, 
+            a[i].nw += get_hits_weight(idx, bub, hits, link, dis, 
                                     u_trans_a(*ref, a[i].tn), u_trans_n(*ref, a[i].tn), a[i].qn, ta);
             ///(qn^1, tn)
-            a[i].nw += get_hits_weight(idx, hits, link, dis, 
+            a[i].nw += get_hits_weight(idx, bub, hits, link, dis, 
                                     u_trans_a(*ref, a[i].qn), u_trans_n(*ref, a[i].qn), a[i].tn, ta);
         }
         
@@ -13759,10 +13798,10 @@ kv_u_trans_t *ta, kv_u_trans_t *ref, trans_idx* dis)
             if(vis[tn]) continue;
             if(qn == tn) continue;
             ///(qn, tn^)
-            w += get_hits_weight(idx, hits, link, dis, 
+            w += get_hits_weight(idx, bub, hits, link, dis, 
                                 u_trans_a(*ref, tn), u_trans_n(*ref, tn), qn, ta);
             ///(qn^1, tn)
-            w += get_hits_weight(idx, hits, link, dis, 
+            w += get_hits_weight(idx, bub, hits, link, dis, 
                                 u_trans_a(*ref, qn), u_trans_n(*ref, qn), tn, ta);
             if(w == 0) continue;
             kv_pushp(u_trans_t, *ta, &p);

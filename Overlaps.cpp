@@ -12578,7 +12578,7 @@ trans_chain* load_hc_hits(const char *fn)
 
     fclose(fp);
     free(buf);
-    // fprintf(stderr, "[M::%s::] ==> Hi-C cov have been loaded\n", __func__);
+    fprintf(stderr, "[M::%s::] ==> Hi-C cov have been loaded\n", __func__);
     return t_ch;
 }
 
@@ -12634,14 +12634,14 @@ bub_label_t* b_mask_t)
 
     hic_analysis(ug, sg, cov?cov->t_ch:t_ch);
 
-    /**
-    char* gfa_name = (char*)malloc(strlen(output_file_name)+25);
-    sprintf(gfa_name, "%s.d_utg.noseq.gfa", output_file_name);
-    FILE* output_file = fopen(gfa_name, "w");
-    ma_ug_print_simple(ug, &R_INF, sg, coverage_cut, sources, ruIndex, "utg", output_file);
-    fclose(output_file);
-    free(gfa_name);
-    **/
+    
+    // char* gfa_name = (char*)malloc(strlen(output_file_name)+25);
+    // sprintf(gfa_name, "%s.d_utg.noseq.gfa", output_file_name);
+    // FILE* output_file = fopen(gfa_name, "w");
+    // ma_ug_print_simple(ug, &R_INF, sg, coverage_cut, sources, ruIndex, "utg", output_file);
+    // fclose(output_file);
+    // free(gfa_name);
+    
 
     if(cov) destory_hap_cov_t(&cov);
     if(t_ch) destory_trans_chain(&t_ch);
@@ -16210,6 +16210,8 @@ void write_all_data_to_disk(ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sou
     fprintf(stderr, "bin files have been written.\n");
 }
 
+int load_debug_graph(asg_t** sg, ma_hit_t_alloc** sources, ma_sub_t** coverage_cut, 
+char* output_file_name, ma_hit_t_alloc** reverse_sources, R_to_U* ruIndex);
 int load_all_data_from_disk(ma_hit_t_alloc **sources, ma_hit_t_alloc **reverse_sources, char* output_file_name)
 {
 	char* gfa_name = (char*)malloc(strlen(output_file_name)+25);
@@ -16218,6 +16220,14 @@ int load_all_data_from_disk(ma_hit_t_alloc **sources, ma_hit_t_alloc **reverse_s
 		free(gfa_name);
 		return 0;
 	}
+    if((asm_opt.flag & HA_F_VERBOSE_GFA) && load_debug_graph(NULL, NULL, NULL, output_file_name, NULL, NULL))
+    {
+        (*sources) = NULL;
+        (*reverse_sources) = NULL;
+        free(gfa_name);
+        return 1;
+    }
+
 	sprintf(gfa_name, "%s.ovlp.source", output_file_name);
 	if (!load_ma_hit_ts(sources, gfa_name)) {
 		free(gfa_name);
@@ -22858,8 +22868,7 @@ int write_ruIndex(R_to_U* ruIndex, char* read_file_name)
     fwrite(&ruIndex->len, sizeof(ruIndex->len), 1, fp);
     fwrite(ruIndex->index, sizeof(ruIndex->index[0]), ruIndex->len, fp);
     fwrite(R_INF.trio_flag, sizeof(R_INF.trio_flag[0]), ruIndex->len, fp);
-    fwrite(ruIndex->is_het, 1, ruIndex->len, fp);
-    
+    // fwrite(ruIndex->is_het, 1, ruIndex->len, fp);
     free(index_name);    
     fflush(fp);
     fclose(fp);
@@ -22884,8 +22893,8 @@ int load_ruIndex(R_to_U* ruIndex, char* read_file_name)
     R_INF.trio_flag = (uint8_t*)malloc(sizeof(uint8_t)*(ruIndex)->len);
     f_flag += fread(R_INF.trio_flag, sizeof(R_INF.trio_flag[0]), (ruIndex)->len, fp);
 
-    CALLOC(ruIndex->is_het, ruIndex->len);
-    f_flag += fread(ruIndex->is_het, 1, ruIndex->len, fp);
+    // CALLOC(ruIndex->is_het, ruIndex->len);
+    // f_flag += fread(ruIndex->is_het, 1, ruIndex->len, fp);
 
     free(index_name);    
     fflush(fp);
@@ -23099,7 +23108,11 @@ char* output_file_name, ma_hit_t_alloc** reverse_sources, R_to_U* ruIndex)
     fp = fopen(gfa_name, "r"); if(!fp) return 0;
     sprintf(gfa_name, "%s.all.debug.asg_t.bin", output_file_name);
     fp = fopen(gfa_name, "r"); if(!fp) return 0;
-
+    if((sg == NULL) || (sources == NULL) || (coverage_cut == NULL) || (reverse_sources == NULL) || 
+        (ruIndex == NULL))
+    {
+        return 1;
+    }
 
     if((*sources)!=NULL)
     {
@@ -29791,7 +29804,7 @@ float min_ovlp_drop_ratio, float max_ovlp_drop_ratio, char* output_file_name,
 long long bubble_dist, int read_graph, R_to_U* ruIndex, asg_t **sg_ptr, 
 ma_sub_t **coverage_cut_ptr, int debug_g)
 {
-    char *o_file = NULL;
+    char *o_file = get_outfile_name(output_file_name);
 	ma_sub_t *coverage_cut = *coverage_cut_ptr;
 	asg_t *sg = *sg_ptr;
     bub_label_t b_mask_t;
@@ -29982,23 +29995,19 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
     ruIndex->is_het = rescue_bubble_by_chain(sg, coverage_cut, sources, reverse_sources, (asm_opt.max_short_tip*2), 0.15, 3, 
     ruIndex, 0.05, 0.9, max_hang_length, mini_overlap_length, 10, gap_fuzz, &b_mask_t);
 
-    if (asm_opt.flag & HA_F_VERBOSE_GFA)
-    {
-        /*******************************for debug***************************************/
-        write_debug_graph(sg, sources, coverage_cut, output_file_name, n_read, reverse_sources, ruIndex);
-        debug_gfa:;
-        /*******************************for debug***************************************/
-        set_hom_global_coverage(&asm_opt, sg, coverage_cut, sources, reverse_sources, ruIndex, 
-        max_hang_length, mini_overlap_length);
-    }
-
-
-    o_file = get_outfile_name(output_file_name);
+    
     output_unitig_graph(sg, coverage_cut, o_file, sources, ruIndex, max_hang_length, mini_overlap_length);
     flat_bubbles(sg, ruIndex->is_het); free(ruIndex->is_het); ruIndex->is_het = NULL;
     
     output_contig_graph_primary_pre(sg, coverage_cut, o_file, sources, reverse_sources, 
         asm_opt.small_pop_bubble_size, asm_opt.max_short_tip, ruIndex, max_hang_length, mini_overlap_length);
+
+    if (asm_opt.flag & HA_F_VERBOSE_GFA)
+    {
+        write_debug_graph(sg, sources, coverage_cut, output_file_name, n_read, reverse_sources, ruIndex);
+        debug_gfa:;
+        set_hom_global_coverage(&asm_opt, sg, coverage_cut, sources, reverse_sources, ruIndex, max_hang_length, mini_overlap_length);
+    }
 
     if (ha_opt_triobin(&asm_opt) && ha_opt_hic(&asm_opt))
     {
