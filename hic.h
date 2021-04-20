@@ -10,7 +10,7 @@
 #define RC_2 2
 
 hc_edge* get_hc_edge(hc_links* link, uint64_t src, uint64_t dest, uint64_t dir);
-void push_hc_edge(hc_linkeage* x, uint64_t uID, double weight, int dir, uint64_t* d);
+hc_edge* push_hc_edge(hc_linkeage* x, uint64_t uID, double weight, int dir, uint64_t* d);
 void hic_analysis(ma_ug_t *ug, asg_t* read_g, trans_chain* t_ch);
 void hic_benchmark(ma_ug_t *ug, asg_t* read_g);
 
@@ -67,13 +67,12 @@ void get_bubbles(bubble_type* bub, uint64_t id, uint32_t* beg, uint32_t* sink, u
 int load_hc_links(hc_links* link, const char *fn);
 void write_hc_links(hc_links* link, const char *fn);
 void destory_bubbles(bubble_type* bub);
-void identify_bubbles(ma_ug_t* ug, bubble_type* bub, uint8_t *r_het_flag);
+void identify_bubbles(ma_ug_t* ug, bubble_type* bub, uint8_t *r_het_flag, kv_u_trans_t *ref);
 void resolve_bubble_chain_tangle(ma_ug_t* ug, bubble_type* bub);
 uint32_t connect_bub_occ(bubble_type* bub, uint32_t root_id, uint32_t check_het);
 void get_bub_id(bubble_type* bub, uint32_t root, uint64_t* id0, uint64_t* id1, uint32_t check_het);
 void update_bubble_chain(ma_ug_t* ug, bubble_type* bub, uint32_t is_middle, uint32_t is_end);
 void set_b_utg_weight_flag(bubble_type* bub, buf_t* b, uint32_t v, uint8_t* vis_flag, uint32_t flag, uint32_t* occ);
-uint32_t get_unitig_het_arb(ma_utg_t* u, uint8_t *r_het_flag, uint32_t m_het_label, uint32_t p_het_label, uint32_t n_het_label);
 void debug_gfa_space(ma_ug_t* ug, hap_cov_t *cov);
 
 #endif

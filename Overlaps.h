@@ -1060,8 +1060,9 @@ void asg_bub_backtrack_primary(asg_t *g, uint32_t v0, buf_t *b);
 
 typedef struct{
     double weight;
-    uint32_t uID:31, del:1;
+    uint32_t uID;
     uint64_t dis;
+	uint8_t is_cc:7, del:1;
 	uint64_t occ;
 	///uint64_t occ:63, scaff:1;
     ///uint32_t enzyme;
@@ -1102,6 +1103,12 @@ typedef struct {
 	ca_buf_t* a;
 } kv_ca_buf_t;
 
+typedef struct {
+	kvec_t(uint32_t) uIDs;
+	kvec_t(uint32_t) iDXs;
+	uint32_t chain_num;
+} sub_tran_t;
+
 typedef struct{
 	uint32_t* rUidx;
 	uint64_t* rUpos;
@@ -1115,6 +1122,7 @@ typedef struct{
 	kv_u_trans_t k_trans;
 	kv_u_trans_hit_t k_t_b;
 	kv_ca_buf_t c_buf;
+	sub_tran_t st;
 }trans_chain;
 
 typedef struct {
