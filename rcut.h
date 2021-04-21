@@ -43,6 +43,35 @@ typedef struct {
     mc_match_t* e;
 }mc_g_t;
 
+typedef struct {
+    uint32_t a[2], occ[2]; 
+    mc_node_t s[2];
+    t_w_t z[4];
+}mb_node_t;
+
+typedef struct {
+    kvec_t(uint32_t) bid;
+    kvec_t(uint32_t) idx;
+    kvec_t(mb_node_t) u;
+}mb_nodes_t;
+
+typedef struct {
+	uint64_t x; ///(uint64_t)nid1 << 32 | nid2;
+	t_w_t w[4];  ///might be negative or positive
+} mb_edge_t;
+
+typedef struct {
+    kvec_t(uint64_t) idx;
+    kvec_t(mb_edge_t) ma;
+    uint64_t* cc;
+    uint32_t n_seq;
+} mb_match_t;
+
+typedef struct {
+    mb_nodes_t* u; 
+    mb_match_t* e;
+}mb_g_t;
+
 static inline uint64_t kr_splitmix64(uint64_t x)
 {
 	uint64_t z = (x += 0x9E3779B97F4A7C15ULL);
@@ -58,5 +87,5 @@ static inline double kr_drand_r(uint64_t *x)
     u.i = 0x3FFULL << 52 | (*x) >> 12;
     return u.d - 1.0;
 }
-void mc_solve(hap_overlaps_list* ovlp, trans_chain* t_ch, kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g, double f_rate, uint8_t* trio_flag, uint32_t renew_s, int8_t *s, uint32_t is_sys, bubble_type* bub);
+void mc_solve(hap_overlaps_list* ovlp, trans_chain* t_ch, kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g, double f_rate, uint8_t* trio_flag, uint32_t renew_s, int8_t *s, uint32_t is_sys, bubble_type* bub, mb_nodes_t* u);
 #endif

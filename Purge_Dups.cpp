@@ -5237,7 +5237,7 @@ uint32_t just_coverage, hap_cov_t *cov, uint32_t collect_p_trans)
 
     if(asm_opt.polyploidy <= 2)
     {
-        mc_solve(&all_ovlp, cov->t_ch, NULL, ug, read_g, 0.8, R_INF.trio_flag, 1, NULL, 1, NULL);
+        mc_solve(&all_ovlp, cov->t_ch, NULL, ug, read_g, 0.8, R_INF.trio_flag, 1, NULL, 1, NULL, NULL);
         ///pt_solve(&all_ovlp, cov->t_ch, ug, read_g, 0.8, R_INF.trio_flag);
     } 
     

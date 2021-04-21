@@ -13885,7 +13885,7 @@ kv_u_trans_t *ta, trans_idx* dis)
         if(IF_HOM(end, *bub)) continue;
         
         t_d = get_hic_distance(&(hits->a.a[k]), link, idx);
-        // if(t_d == (uint64_t)-1) continue;
+        if(t_d == (uint64_t)-1) continue;
 
         get_u_trans_spec(ta, beg, end, &e1, NULL);
         get_u_trans_spec(ta, end, beg, &e2, NULL);
@@ -13955,7 +13955,7 @@ pe_hit *hits, uint32_t occ, uint32_t qid, uint32_t qs, uint32_t qe, uint32_t tid
         if(!(ts <= e_beg && te >= e_end)) continue;
 
         t_d = get_hic_distance(&hits[k], link, idx);
-        // if(t_d == (uint64_t)-1) continue;
+        if(t_d == (uint64_t)-1) continue;
 
         weight = 1;
         if(dis) weight = get_trans_weight_advance(idx, t_d, dis);
@@ -13975,7 +13975,7 @@ pe_hit *hits, uint32_t occ, uint32_t qid, uint32_t qs, uint32_t qe, uint32_t tid
         if(!(ts <= e_beg && te >= e_end)) continue;
 
         t_d = get_hic_distance(&hits[k], link, idx);
-        // if(t_d == (uint64_t)-1) continue;
+        if(t_d == (uint64_t)-1) continue;
 
         weight = 1;
         if(dis) weight = get_trans_weight_advance(idx, t_d, dis);
@@ -14253,7 +14253,7 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx)
         update_trans_g(idx, &k_trans, &bub);
         /*******************************for debug************************************/
         mc_solve(NULL, NULL, &k_trans, idx->ug, idx->read_g, 0.8, R_INF.trio_flag, 
-        (bub.round_id == 0? 1 : 0), s->s, 0, /**&bub**/NULL);
+        (bub.round_id == 0? 1 : 0), s->s, 0, /**&bub**/NULL, NULL);
         /*******************************for debug************************************/
         label_unitigs_sm(s->s, idx->ug);
         /**
