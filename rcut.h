@@ -15,7 +15,7 @@ typedef struct {
 }mc_interval_t;
 
 #define mc_node_t int8_t
-// #define w_t int32_t
+// #define w_t int64_t
 // #define t_w_t int64_t
 // #define w_cast(x) ((t_w_t)((x) < 0 ? (x) - 0.5 : (x) + 0.5))
 
@@ -87,5 +87,6 @@ static inline double kr_drand_r(uint64_t *x)
     u.i = 0x3FFULL << 52 | (*x) >> 12;
     return u.d - 1.0;
 }
-void mc_solve(hap_overlaps_list* ovlp, trans_chain* t_ch, kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g, double f_rate, uint8_t* trio_flag, uint32_t renew_s, int8_t *s, uint32_t is_sys, bubble_type* bub, mb_nodes_t* u);
+
+void mc_solve(hap_overlaps_list* ovlp, trans_chain* t_ch, kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g, double f_rate, uint8_t* trio_flag, uint32_t renew_s, int8_t *s, uint32_t is_sys, bubble_type* bub, kv_u_trans_t *ref);
 #endif

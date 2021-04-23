@@ -14238,6 +14238,8 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx)
     kv_u_trans_t k_trans; 
     kv_init(k_trans); kv_init(k_trans.idx);
     ps_t *s = init_ps_t(11, idx->ug->g->n_seq);
+    mb_nodes_t u; 
+    kv_init(u.bid); kv_init(u.idx); kv_init(u.u);
     memset(&bub, 0, sizeof(bubble_type));
     bub.round_id = 0; bub.n_round = 2;
     for (bub.round_id = 0; bub.round_id < bub.n_round; bub.round_id++)
@@ -14253,7 +14255,7 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx)
         update_trans_g(idx, &k_trans, &bub);
         /*******************************for debug************************************/
         mc_solve(NULL, NULL, &k_trans, idx->ug, idx->read_g, 0.8, R_INF.trio_flag, 
-        (bub.round_id == 0? 1 : 0), s->s, 0, /**&bub**/NULL, NULL);
+        (bub.round_id == 0? 1 : 0), s->s, 1, /**&bub**/NULL, &(idx->t_ch->k_trans));
         /*******************************for debug************************************/
         label_unitigs_sm(s->s, idx->ug);
         /**
@@ -14274,7 +14276,7 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx)
     
 
     ///print_debug_bubble_graph(&bub, idx->ug, asm_opt.output_file_name);
-    print_bubble_chain(&bub);
+    // print_bubble_chain(&bub);
     // destory_contig_partition(&hap);
     kv_destroy(back_hc_edge.a);
     kv_destroy(sl.hits.a);
@@ -14284,6 +14286,7 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx)
     kv_destroy(k_trans); 
     kv_destroy(k_trans.idx);
     destory_ps_t(&s);
+    kv_destroy(u.bid); kv_destroy(u.idx); kv_destroy(u.u);
     return 1;
     
 
