@@ -8,7 +8,6 @@
 #include "kthread.h"
 #include "kdq.h"
 #include "hic.h"
-#include "partig.h"
 #include "rcut.h"
 
 KDQ_INIT(uint64_t)

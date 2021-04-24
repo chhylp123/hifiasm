@@ -6,7 +6,7 @@ CPPFLAGS=
 INCLUDES=
 OBJS=		CommandLines.o Process_Read.o Assembly.o Hash_Table.o \
 			POA.o Correct.o Levenshtein_distance.o Overlaps.o Trio.o kthread.o Purge_Dups.o \
-			htab.o hist.o sketch.o anchor.o extract.o sys.o ksw2_extz2_sse.o hic.o partig.o rcut.o
+			htab.o hist.o sketch.o anchor.o extract.o sys.o ksw2_extz2_sse.o hic.o rcut.o
 EXE=		hifiasm
 LIBS=		-lz -lpthread -lm
 
@@ -72,5 +72,4 @@ main.o: Levenshtein_distance.h htab.h
 sketch.o: kvec.h htab.h Process_Read.h Overlaps.h kdq.h CommandLines.h
 sys.o: htab.h Process_Read.h Overlaps.h kvec.h kdq.h CommandLines.h
 hic.o: hic.h
-partig.o: partig.h
 rcut.o: rcut.h
