@@ -22,7 +22,7 @@ typedef struct {
 #define w_t double
 #define t_w_t double
 #define w_cast(x) ((t_w_t)((x)))
-
+#define MC_NAME "debug_mc.bin"
 
 typedef struct {
 	uint64_t x; ///(uint64_t)nid1 << 32 | nid2;
@@ -89,4 +89,5 @@ static inline double kr_drand_r(uint64_t *x)
 }
 
 void mc_solve(hap_overlaps_list* ovlp, trans_chain* t_ch, kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g, double f_rate, uint8_t* trio_flag, uint32_t renew_s, int8_t *s, uint32_t is_sys, bubble_type* bub, kv_u_trans_t *ref);
+void debug_mc_g_t(const char* name);
 #endif

@@ -66,7 +66,7 @@ typedef struct {
 void purge_dups(ma_ug_t *ug, asg_t *read_g, ma_sub_t* coverage_cut, ma_hit_t_alloc* sources, 
 ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, kvec_asg_arc_t_warp* edge, float density, 
 uint32_t purege_minLen, int max_hang, int min_ovlp, float drop_ratio, uint32_t just_contain, 
-uint32_t just_coverage, hap_cov_t *cov, uint32_t collect_p_trans);
+uint32_t just_coverage, hap_cov_t *cov, uint32_t collect_p_trans, uint32_t collect_p_trans_f);
 void fill_unitig(uint64_t* buffer, uint32_t bufferLen, asg_t* read_g, kvec_asg_arc_t_warp* edge,
 uint32_t is_circle, uint64_t* rLen);
 void get_contig_length(ma_ug_t *ug, asg_t *g, uint64_t* primaryLen, uint64_t* alterLen);

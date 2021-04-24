@@ -2267,7 +2267,7 @@ void dfs_bubble(asg_t *g, kvec_t_u32_warp* stack, kvec_t_u32_warp* result, uint3
 uint32_t get_unitig_het_arb(ma_ug_t* ug, uint32_t uid, uint8_t *r_het_flag, kv_u_trans_t *ref, uint32_t m_het_occ,
 uint32_t m_het_label, uint32_t p_het_label, uint32_t n_het_label)
 {
-    if(u_trans_n(*ref, uid) > 0) return m_het_label;
+    if(ref && u_trans_n(*ref, uid) > 0) return m_het_label;
     ma_utg_t *u = &(ug->u.a[uid]);
     uint32_t k, rId;
     uint32_t het_occ, hom_occ;

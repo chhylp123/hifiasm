@@ -5156,7 +5156,7 @@ void collect_purge_trans_cov(ma_ug_t *ug, hap_overlaps_list* ha, hap_cov_t *cov,
 void purge_dups(ma_ug_t *ug, asg_t *read_g, ma_sub_t* coverage_cut, ma_hit_t_alloc* sources, 
 ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, kvec_asg_arc_t_warp* edge, float density, 
 uint32_t purege_minLen, int max_hang, int min_ovlp, float drop_ratio, uint32_t just_contain, 
-uint32_t just_coverage, hap_cov_t *cov, uint32_t collect_p_trans)
+uint32_t just_coverage, hap_cov_t *cov, uint32_t collect_p_trans, uint32_t collect_p_trans_f)
 {
     p_g_t *pg = NULL;
     asg_t* nsg = ug->g;
@@ -5235,16 +5235,20 @@ uint32_t just_coverage, hap_cov_t *cov, uint32_t collect_p_trans)
 
     normalize_hap_overlaps_advance(&all_ovlp, &back_all_ovlp, ug, read_g, reverse_sources, ruIndex);
 
+    if(collect_p_trans && collect_p_trans_f == 0)
+    {
+        collect_purge_trans_cov(ug, &all_ovlp, cov, position_index);
+    } 
+    
     if(asm_opt.polyploidy <= 2)
     {
         mc_solve(&all_ovlp, cov->t_ch, NULL, ug, read_g, 0.8, R_INF.trio_flag, 1, NULL, 1, NULL, NULL);
         ///pt_solve(&all_ovlp, cov->t_ch, ug, read_g, 0.8, R_INF.trio_flag);
     } 
     
-    if(collect_p_trans)
+    if(collect_p_trans && collect_p_trans_f == 1)
     {
         collect_purge_trans_cov(ug, &all_ovlp, cov, position_index);
-        ///goto end_coverage;
     } 
     
     pg = init_p_g_t(ug, cov, read_g);

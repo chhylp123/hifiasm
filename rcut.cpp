@@ -28,6 +28,8 @@ uint8_t bit_filed[8] = {1, 2, 4, 8, 16, 32, 64, 128};
 typedef struct {
 	int32_t max_iter;
     int32_t n_perturb;
+	int32_t n_b_perturb;
+	int32_t n_s_perturb;
     double f_perturb;
     uint64_t seed;
 } mc_opt_t;
@@ -111,13 +113,12 @@ typedef struct {
 void mc_opt_init(mc_opt_t *opt, int32_t n_perturb, double f_perturb, uint64_t seed)
 {
 	memset(opt, 0, sizeof(mc_opt_t));
-	// opt->n_perturb = 50000;
 	opt->n_perturb = n_perturb;
-	// opt->f_perturb = 0.1;
 	opt->f_perturb = f_perturb;
 	opt->max_iter = 1000;
-	// opt->seed = 11;
 	opt->seed = seed;
+	opt->n_s_perturb = n_perturb;
+	opt->n_b_perturb = n_perturb*0.5;
 }
 
 void mc_merge_dup(mc_g_t *mg) // MUST BE sorted
@@ -1774,6 +1775,7 @@ static void mc_perturb_node(const mc_opt_t *opt, const mc_match_t *ma, mc_svaux_
 {
 	uint32_t i, k, n_bfs = 0;
 	k = (uint32_t)(kr_drand_r(&b->x) * b->cc_size + .499);
+	if(k >= b->cc_size) k = b->cc_size - 1;
 	k = (uint32_t)ma->cc[b->cc_off + k];///node id
 	n_bfs = mc_bfs(ma, b, k, bfs_round, (int32_t)(b->cc_size * opt->f_perturb));
 	for (i = 0; i < n_bfs; ++i)
@@ -1808,6 +1810,7 @@ static void mb_perturb_node(const mc_opt_t *opt, mb_g_t *mbg, mb_svaux_t *b, int
 {
 	uint32_t i, k, n_bfs = 0;
 	k = (uint32_t)(kr_drand_r(&b->x) * b->cc_size + .499);
+	if(k >= b->cc_size) k = b->cc_size - 1;
 	k = (uint32_t)mbg->e->cc[b->cc_off + k];///node id
 	n_bfs = mb_bfs(mbg->e, b, k, bfs_round, (int32_t)(b->cc_size * opt->f_perturb));
 	for (i = 0; i < n_bfs; ++i)
@@ -2052,11 +2055,51 @@ void mc_solve_bp(mc_bp_t *bp)
 	fprintf(stderr, "[M::%s::%.3f] ==> round %u\n", __func__, yak_realtime()-index_time, r);
 }
 
-void print_sc(const mc_opt_t *opt, const mc_match_t *ma, mc_svaux_t *b, t_w_t sc_opt, uint32_t n_iter)
+t_w_t mc_score_all_advance(const mc_match_t *ma, int8_t *s)
 {
-	t_w_t w = mc_score(ma, b);
-	if(w != sc_opt) fprintf(stderr, "ERROR\n");
-	fprintf(stderr, "# iter: %u, sc_opt: %f, sc-local: %f, sc-global: %f\n", n_iter, sc_opt, w, mc_score_all(ma, b));
+	uint32_t k;
+	t_w_t z[2], zt = 0;
+	for (k = 0; k < ma->n_seq; ++k) 
+	{
+		uint32_t o = ma->idx.a[k] >> 32;
+        uint32_t j, n = (uint32_t)ma->idx.a[k];
+		z[0] = z[1] = 0;
+		for (j = 0; j < n; ++j) {
+            const mc_edge_t *e = &ma->ma.a[o + j];
+            uint32_t t = ma_y(*e);
+            if (s[t] > 0) z[0] += e->w;
+            else if (s[t] < 0) z[1] += e->w;
+        }
+		zt += -((t_w_t)(s[k])) * (z[0] - z[1]);
+	}
+	return zt;
+}
+
+t_w_t mb_score_all_advance(const mc_match_t *ma, mb_g_t *mbg)
+{
+	uint32_t k;
+	t_w_t z[2], zt = 0;
+	for (k = 0; k < ma->n_seq; ++k) 
+	{
+		uint32_t o = ma->idx.a[k] >> 32;
+        uint32_t j, n = (uint32_t)ma->idx.a[k];
+		z[0] = z[1] = 0;
+		for (j = 0; j < n; ++j) {
+            const mc_edge_t *e = &ma->ma.a[o + j];
+            uint32_t t = ma_y(*e);
+            if (mbg->u->u.a[mbg->u->idx.a[t]>>1].s[mbg->u->idx.a[t]&1] > 0) z[0] += e->w;
+            else if (mbg->u->u.a[mbg->u->idx.a[t]>>1].s[mbg->u->idx.a[t]&1] < 0) z[1] += e->w;
+        }
+		zt += -((t_w_t)(mbg->u->u.a[mbg->u->idx.a[k]>>1].s[mbg->u->idx.a[k]&1])) * (z[0] - z[1]);
+	}
+	return zt;
+}
+
+void print_sc(const mc_opt_t *opt, const mc_g_t *mg, mc_svaux_t *b, t_w_t sc_opt, uint32_t n_iter)
+{
+	t_w_t w = mc_score(mg->e, b);
+	// if(w != sc_opt) fprintf(stderr, "ERROR\n");
+	fprintf(stderr, "# iter: %u, sc_opt: %f, sc-local: %f, sc-global: %f\n", n_iter, sc_opt, w, mc_score_all_advance(mg->e, mg->s.a));
 }
 
 uint32_t mc_solve_cc(const mc_opt_t *opt, const mc_g_t *mg, mc_svaux_t *b, uint32_t cc_off, uint32_t cc_size)
@@ -2065,8 +2108,8 @@ uint32_t mc_solve_cc(const mc_opt_t *opt, const mc_g_t *mg, mc_svaux_t *b, uint3
 	t_w_t sc_opt = -(1<<30), sc;///problem-w
 	b->cc_off = cc_off, b->cc_size = cc_size;
 	if (b->cc_size < 2) return 0;
-	// print_sc(opt, mg->e, b, sc_opt, (uint32_t)-1);
 	sc_opt = mc_init_spin(mg->e, b);
+	// print_sc(opt, mg, b, sc_opt, n_iter);
 	if (b->cc_size == 2) return 0;
 	for (j = 0; j < b->cc_size; ++j) {///backup s and z in s_opt and z_opt
 		b->s_opt[b->cc_node[j]] = b->s[b->cc_node[j]]; ///hap status of each unitig
@@ -2086,6 +2129,7 @@ uint32_t mc_solve_cc(const mc_opt_t *opt, const mc_g_t *mg, mc_svaux_t *b, uint3
 			b->z[b->cc_node[j]] = b->z_opt[b->cc_node[j]];
 		}
 	}
+	// print_sc(opt, mg, b, sc_opt, n_iter);
 	// mc_reset_z_debug(mg->e, b);
 	// print_sc(opt, mg->e, b, sc_opt, n_iter);
 	// fprintf(stderr, "\ncc_size: %u, cc_off: %u\n", b->cc_size, b->cc_off);
@@ -2100,6 +2144,7 @@ uint32_t mc_solve_cc(const mc_opt_t *opt, const mc_g_t *mg, mc_svaux_t *b, uint3
 				b->z_opt[b->cc_node[j]] = b->z[b->cc_node[j]];
 			}
 			sc_opt = sc;
+			// print_sc(opt, mg, b, sc_opt, n_iter);
 		} else {
 			for (j = 0; j < b->cc_size; ++j) {
 				b->s[b->cc_node[j]] = b->s_opt[b->cc_node[j]];
@@ -2117,11 +2162,14 @@ uint32_t mc_solve_cc(const mc_opt_t *opt, const mc_g_t *mg, mc_svaux_t *b, uint3
 			}
 			sc_opt = sc;
 		}
-		
-		// print_sc(opt, mg->e, b, sc_opt, n_iter);
 	}
+
 	for (j = 0; j < b->cc_size; ++j)
+	{
 		b->s[b->cc_node[j]] = b->s_opt[b->cc_node[j]];
+		b->z[b->cc_node[j]] = b->z_opt[b->cc_node[j]];
+	}
+		
 	return n_iter;
 }
 
@@ -2291,6 +2339,7 @@ void mc_init_spin_all(const mc_opt_t *opt, mc_g_t *mg, mb_g_t *mbg, mc_svaux_t *
 	}
 
 	if(!mbg) return;
+	// memcpy(b->s_opt, b->s, sizeof(int8_t)*mg->e->n_seq);
 
 	///adjust by block
 	kvec_t(uint32_t) s; kv_init(s);
@@ -2385,6 +2434,7 @@ void mc_init_spin_all(const mc_opt_t *opt, mc_g_t *mg, mb_g_t *mbg, mc_svaux_t *
 	/*******************************for debug************************************/
 	// debug_mbg(mbg, mg, b);
 	/*******************************for debug************************************/
+	// memcpy(b->s, b->s_opt, sizeof(int8_t)*mg->e->n_seq);
 }
 
 
@@ -2448,6 +2498,9 @@ void mb_g_cc(mb_g_t *mbg)
 
 void mc_set_by_mbg(mc_g_t *mg, mb_g_t *mbg)
 {
+	// t_w_t z0 = mc_score_all_advance(mg->e, mg->s.a);
+	// t_w_t z1 = mb_score_all_advance(mg->e, mbg);
+	// if(z0 >= z1) return;
 	uint32_t i, k, qn, *a[2], a_n[2];
 	int8_t s[2];
 	for (i = 0; i < mbg->u->u.n; i++)
@@ -2502,27 +2555,9 @@ void print_mb_g_blcok(mb_g_t *mbg)
 	}
 }
 
-t_w_t mc_score_all_advance(const mc_match_t *ma, int8_t *s)
-{
-	uint32_t k;
-	t_w_t z[2], zt = 0;
-	for (k = 0; k < ma->n_seq; ++k) 
-	{
-		uint32_t o = ma->idx.a[k] >> 32;
-        uint32_t j, n = (uint32_t)ma->idx.a[k];
-		z[0] = z[1] = 0;
-		for (j = 0; j < n; ++j) {
-            const mc_edge_t *e = &ma->ma.a[o + j];
-            uint32_t t = ma_y(*e);
-            if (s[t] > 0) z[0] += e->w;
-            else if (s[t] < 0) z[1] += e->w;
-        }
-		zt += -((t_w_t)(s[k])) * (z[0] - z[1]);
-	}
-	return zt;
-}
 
-void mb_solve_core(const mc_opt_t *opt, mc_g_t *mg, kv_u_trans_t *ref, uint32_t is_sys)
+
+void mb_solve_core(mc_opt_t *opt, mc_g_t *mg, kv_u_trans_t *ref, uint32_t is_sys)
 {
 	if(!ref) return;
 	double index_time = yak_realtime();
@@ -2530,11 +2565,11 @@ void mb_solve_core(const mc_opt_t *opt, mc_g_t *mg, kv_u_trans_t *ref, uint32_t 
 	mb_g_t *mbg = init_mb_g_t(mg, ref, is_sys);
 	mb_svaux_t *bb;
 	/**************************init**************************/
+	fprintf(stderr, "\n\n\n\n\n*************beg-[M::%s::score->%f] ==> Partition\n", __func__, mc_score_all_advance(mg->e, mg->s.a));
 	mc_svaux_t *b;
 	mc_g_cc(mg->e);
 	b = mc_svaux_init(mg, opt->seed);
 	mc_init_spin_all(opt, mg, mbg, b);
-	
 	mc_svaux_destroy(b);
 	free(mg->e->cc); 
 	mg->e->cc = NULL;
@@ -2543,18 +2578,21 @@ void mb_solve_core(const mc_opt_t *opt, mc_g_t *mg, kv_u_trans_t *ref, uint32_t 
 	bb = mb_svaux_init(mbg, opt->seed);
 	/*******************************for debug************************************/
 	// print_mb_g_blcok(mbg);
+	fprintf(stderr, "*********before-[M::%s::mc_score->%f] ==> Partition\n", __func__, mc_score_all_advance(mg->e, mg->s.a));
+	fprintf(stderr, "*********before-[M::%s::mb_score->%f] ==> Partition\n", __func__, mb_score_all_advance(mg->e, mbg));
 	/*******************************for debug************************************/
-
-	fprintf(stderr, "\n\n\n\n\n*************beg-[M::%s::score->%f] ==> Partition\n", __func__, mc_score_all_advance(mg->e, mg->s.a));
+	opt->n_perturb = opt->n_b_perturb;
 	for (st = 0, i = 1; i <= mbg->e->n_seq; ++i) {
 		if (i == mbg->e->n_seq || mbg->e->cc[st]>>32 != mbg->e->cc[i]>>32) {
 			mb_solve_cc(opt, mbg, bb, st, i - st);
 			st = i;
 		}
 	}
-	
+	opt->n_perturb = opt->n_s_perturb - opt->n_b_perturb;
 	/*******************************for debug************************************/
 	// debug_mb_solve_core(mbg);
+	fprintf(stderr, "*********after-[M::%s::mc_score->%f] ==> Partition\n", __func__, mc_score_all_advance(mg->e, mg->s.a));
+	fprintf(stderr, "*********after-[M::%s::mb_score->%f] ==> Partition\n", __func__, mb_score_all_advance(mg->e, mbg));
 	/*******************************for debug************************************/
 	mc_set_by_mbg(mg, mbg);
 	fprintf(stderr, "##############end-[M::%s::score->%f] ==> Partition\n", __func__, mc_score_all_advance(mg->e, mg->s.a));
@@ -2583,7 +2621,7 @@ void mc_solve_core(const mc_opt_t *opt, mc_g_t *mg, bubble_type* bub)
 			st = i;
 		}
 	}
-	fprintf(stderr, "##############end-[M::%s::score->%f] ==> Partition\n", __func__, mc_score_all_advance(mg->e, mg->s.a));
+	fprintf(stderr, "##############end-[---M::%s::score->%f] ==> Partition\n", __func__, mc_score_all(mg->e, b));
 	if(bp) mc_solve_bp(bp);	
 	///mc_write_info(g, b);
 	mc_svaux_destroy(b);
@@ -2694,6 +2732,60 @@ void p_nodes(mc_g_t *mg, trans_chain* t_ch, uint8_t* trio_flag)
 	}
 }
 
+void write_mc_g_t(mc_opt_t *opt, mc_g_t *mg, const char *name)
+{
+	FILE* fp = fopen(name, "w");
+
+    fwrite(opt, sizeof(mc_opt_t), 1, fp);
+	fwrite(&(mg->s.n), sizeof(mg->s.n), 1, fp);
+	fwrite(mg->s.a, sizeof(mc_node_t), mg->s.n, fp);
+	fwrite(&(mg->e->n_seq), sizeof(mg->e->n_seq), 1, fp);
+	fwrite(&(mg->e->ma.n), sizeof(mg->e->ma.n), 1, fp);
+	fwrite(mg->e->ma.a, sizeof(mc_edge_t), mg->e->ma.n, fp);
+	fwrite(&(mg->e->idx.n), sizeof(mg->e->idx.n), 1, fp);
+	fwrite(mg->e->idx.a, sizeof(uint64_t), mg->e->idx.n, fp);
+
+    fclose(fp);
+}
+
+mc_g_t* load_mc_g_t(mc_opt_t *opt, const char *name)
+{
+	FILE* fp = NULL; 
+    fp = fopen(name, "r"); 
+    if(!fp) return NULL;
+
+	uint64_t flag = 0;
+	mc_g_t *mg = NULL; CALLOC(mg, 1);
+	kv_init(mg->s); CALLOC(mg->e, 1);
+
+    flag += fread(opt, sizeof(mc_opt_t), 1, fp);
+
+	flag += fread(&(mg->s.n), sizeof(mg->s.n), 1, fp);
+	mg->s.m = mg->s.n; MALLOC(mg->s.a, mg->s.n);
+	flag += fread(mg->s.a, sizeof(mc_node_t), mg->s.n, fp);
+
+	flag += fread(&(mg->e->n_seq), sizeof(mg->e->n_seq), 1, fp);
+
+	flag += fread(&(mg->e->ma.n), sizeof(mg->e->ma.n), 1, fp);
+	mg->e->ma.m = mg->e->ma.n; MALLOC(mg->e->ma.a, mg->e->ma.n);
+	flag += fread(mg->e->ma.a, sizeof(mc_edge_t), mg->e->ma.n, fp);
+
+	flag += fread(&(mg->e->idx.n), sizeof(mg->e->idx.n), 1, fp);
+	mg->e->idx.m = mg->e->idx.n; MALLOC(mg->e->idx.a, mg->e->idx.n);
+	flag += fread(mg->e->idx.a, sizeof(uint64_t), mg->e->idx.n, fp);
+
+    fclose(fp);
+	return mg;
+}
+
+void debug_mc_g_t(const char* name)
+{
+	mc_opt_t opt;
+	mc_g_t *mg = load_mc_g_t(&opt, name);
+	mc_solve_core(&opt, mg, NULL);
+	destory_mc_g_t(&mg);
+	exit(1);
+}
 
 void mc_solve(hap_overlaps_list* ovlp, trans_chain* t_ch, kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g, double f_rate, uint8_t* trio_flag, uint32_t renew_s, int8_t *s, uint32_t is_sys, bubble_type* bub, kv_u_trans_t *ref)
 {
@@ -2704,6 +2796,7 @@ void mc_solve(hap_overlaps_list* ovlp, trans_chain* t_ch, kv_u_trans_t *ta, ma_u
 	
 	mb_solve_core(&opt, mg, ref, is_sys);
 	///debug_mc_g_t(mg);
+	if(renew_s == 0) write_mc_g_t(&opt, mg, MC_NAME);
 	mc_solve_core(&opt, mg, bub);
 
 	if((asm_opt.flag & HA_F_PARTITION) && t_ch)
@@ -2713,6 +2806,5 @@ void mc_solve(hap_overlaps_list* ovlp, trans_chain* t_ch, kv_u_trans_t *ta, ma_u
 
 	if(ovlp) clean_ovlp_by_mc(mg, ovlp);
 
-	destory_mc_g_t(&mg);
-	
+	destory_mc_g_t(&mg);	
 }
