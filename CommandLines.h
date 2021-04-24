@@ -101,6 +101,7 @@ typedef struct {
     uint64_t seed;
     int32_t n_perturb;
     double f_perturb;
+    int32_t n_weight;
 } hifiasm_opt_t;
 
 extern hifiasm_opt_t asm_opt;

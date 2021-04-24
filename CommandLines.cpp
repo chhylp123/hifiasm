@@ -37,6 +37,7 @@ static ko_longopt_t long_options[] = {
     { "n-perturb",      ko_required_argument, 323 },
     { "f-perturb",      ko_required_argument, 324 },
     { "n-hap",      ko_required_argument, 325 },
+    { "n-weight",      ko_required_argument, 326 },
 	{ 0, 0, 0 }
 };
 
@@ -113,6 +114,10 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "    --h1 FILEs   file names of Hi-C R1  [r1_1.fq,r1_2.fq,...]\n");
     fprintf(stderr, "    --h2 FILEs   file names of Hi-C R2  [r2_1.fq,r2_2.fq,...]\n");
     fprintf(stderr, "    --seed INT   RNG seed [%lu]\n", asm_opt->seed);
+
+    
+    fprintf(stderr, "    --n-weight   INT\n");
+    fprintf(stderr, "                 rounds of reweighting Hi-C links [%d]\n", asm_opt->n_weight);
 	fprintf(stderr, "    --n-perturb  INT\n");
     fprintf(stderr, "                 rounds of perturbation [%d]\n", asm_opt->n_perturb);
     fprintf(stderr, "    --f-perturb  FLOAT\n");
@@ -188,8 +193,9 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->polyploidy = 2;
     asm_opt->trio_flag_occ_thres = 60;
     asm_opt->seed = 11;
-    asm_opt->n_perturb = 50000;
+    asm_opt->n_perturb = 10000;
     asm_opt->f_perturb = 0.1;
+    asm_opt->n_weight = 3;
 }
 
 void destory_enzyme(enzyme* f)
@@ -651,6 +657,7 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         else if (c == 323) asm_opt->n_perturb = atoi(opt.arg);
         else if (c == 324) asm_opt->f_perturb = atof(opt.arg);
         else if (c == 325) asm_opt->polyploidy = atoi(opt.arg);
+        else if (c == 326) asm_opt->n_weight = atoi(opt.arg);
         else if (c == 'l')
         {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
             asm_opt->purge_level_primary = asm_opt->purge_level_trio = atoi(opt.arg);
@@ -680,7 +687,6 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
     }
 
     get_queries(argc, argv, &opt, asm_opt);
-
 
 
     return check_option(asm_opt);

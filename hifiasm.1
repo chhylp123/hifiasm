@@ -333,13 +333,18 @@ File names of input Hi-C R1 [r1_1.fq,r1_2.fq,...].
 File names of input Hi-C R2 [r2_1.fq,r2_2.fq,...].
 
 .TP
+.BI --n-weight \ INT 
+Rounds of reweighting Hi-C links [3]. Increasing this may improves
+phasing results but takes longer time.
+
+.TP
 .BI --n-perturb \ INT 
-Rounds of perturbation [50000]. Increasing this improves
+Rounds of perturbation [10000]. Increasing this may improves
 phasing results but takes longer time.
 
 .TP
 .BI --f-perturb \ FLOAT 
-Fraction to flip for perturbation [0.1]. Increasing this improves
+Fraction to flip for perturbation [0.1]. Increasing this may improves
 phasing results but takes longer time.
 
 .TP

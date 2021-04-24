@@ -2284,10 +2284,6 @@ uint32_t m_het_label, uint32_t p_het_label, uint32_t n_het_label)
             hom_occ++;
         }
     }
-    // if(uid == 18759)
-    // {
-    //     fprintf(stderr, "het_occ: %u, hom_occ: %u\n", het_occ, hom_occ);
-    // }
 
     if((het_occ+hom_occ) == 0) return n_het_label; ///hom
     if((het_occ > ((het_occ+hom_occ)*0.8)) && ((het_occ+hom_occ) > m_het_occ)) return m_het_label; ///must het
@@ -9271,7 +9267,7 @@ H_partition* hap, int8_t *s, trans_idx* dis)
         dis->med = ((buf.n&1)?buf.a[buf.n>>1]:((buf.a[buf.n>>1]+buf.a[(buf.n>>1)-1])/2));
     }
 
-    fprintf(stderr, "dis->med: %lu\n", dis->med);
+    // fprintf(stderr, "dis->med: %lu\n", dis->med);
     
     kv_destroy(buf);
     return 1;
@@ -13017,8 +13013,8 @@ void update_trans_g(ha_ug_index* idx, kv_u_trans_t *ta, bubble_type* bub)
 
     // append_boundary_chain_hic(idx->ug, ta, bub);
 
-    fprintf(stderr, "s_bub: %lu, f_bub: %lu, b_bub: %lu, b_end_bub: %lu, tangle_bub: %lu, cross_bub: %lu, mess_bub: %lu\n", 
-    bub->s_bub, bub->f_bub, bub->b_bub, bub->b_end_bub, bub->tangle_bub, bub->cross_bub, bub->mess_bub);
+    // fprintf(stderr, "s_bub: %lu, f_bub: %lu, b_bub: %lu, b_end_bub: %lu, tangle_bub: %lu, cross_bub: %lu, mess_bub: %lu\n", 
+    // bub->s_bub, bub->f_bub, bub->b_bub, bub->b_end_bub, bub->tangle_bub, bub->cross_bub, bub->mess_bub);
 
     ///reorder_bubbles(bub, ta, idx->ug->g->n_seq);
     // fprintf(stderr, "[M::%s::%.3f]\n", __func__, yak_realtime()-index_time);
@@ -14206,6 +14202,18 @@ void destory_ps_t(ps_t **s)
     free((*s));
 }
 
+void verbose_het_stat(bubble_type *bub)
+{
+    uint64_t i, hetBase = 0, homBase = 0;
+    for (i = 0; i < bub->ug->g->n_seq; i++)
+    {
+        if(IF_HOM(i, *bub)) homBase += bub->ug->g->seq[i].len;
+        else hetBase += bub->ug->g->seq[i].len;
+    }
+
+    fprintf(stderr, "[M::stat] # heterozygous bases: %lu; # homozygous bases: %lu\n", hetBase, homBase);
+}
+
 int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx)
 {
     double index_time = yak_realtime();
@@ -14241,7 +14249,7 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx)
     mb_nodes_t u; 
     kv_init(u.bid); kv_init(u.idx); kv_init(u.u);
     memset(&bub, 0, sizeof(bubble_type));
-    bub.round_id = 0; bub.n_round = 2;
+    bub.round_id = 0; bub.n_round = asm_opt.n_weight;
     for (bub.round_id = 0; bub.round_id < bub.n_round; bub.round_id++)
     {
         identify_bubbles(idx->ug, &bub, idx->t_ch->is_r_het, &(idx->t_ch->k_trans));
@@ -14266,6 +14274,8 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx)
         label_unitigs(&(hap.g_p), idx->ug);
         **/
     }
+
+    verbose_het_stat(&bub);
 
     ///print_hc_links(&link, 0, &hap);
     // print_kv_u_trans(&k_trans, &link, s->s);

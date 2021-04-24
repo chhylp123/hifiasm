@@ -9,6 +9,8 @@
 #include "kthread.h"
 #include "hic.h"
 
+#define VERBOSE_CUT 0
+
 #define mc_edge_key(e) ((e).x)
 KRADIX_SORT_INIT(mce, mc_edge_t, mc_edge_key, member_size(mc_edge_t, x))
 #define mb_edge_key(e) ((e).x)
@@ -2565,7 +2567,11 @@ void mb_solve_core(mc_opt_t *opt, mc_g_t *mg, kv_u_trans_t *ref, uint32_t is_sys
 	mb_g_t *mbg = init_mb_g_t(mg, ref, is_sys);
 	mb_svaux_t *bb;
 	/**************************init**************************/
-	fprintf(stderr, "\n\n\n\n\n*************beg-[M::%s::score->%f] ==> Partition\n", __func__, mc_score_all_advance(mg->e, mg->s.a));
+	if(VERBOSE_CUT)
+	{
+		fprintf(stderr, "\n\n\n\n\n*************beg-[M::%s::score->%f] ==> Partition\n", __func__, mc_score_all_advance(mg->e, mg->s.a));
+	} 
+	
 	mc_svaux_t *b;
 	mc_g_cc(mg->e);
 	b = mc_svaux_init(mg, opt->seed);
@@ -2576,11 +2582,17 @@ void mb_solve_core(mc_opt_t *opt, mc_g_t *mg, kv_u_trans_t *ref, uint32_t is_sys
 	/**************************init**************************/
 	mb_g_cc(mbg);
 	bb = mb_svaux_init(mbg, opt->seed);
-	/*******************************for debug************************************/
-	// print_mb_g_blcok(mbg);
-	fprintf(stderr, "*********before-[M::%s::mc_score->%f] ==> Partition\n", __func__, mc_score_all_advance(mg->e, mg->s.a));
-	fprintf(stderr, "*********before-[M::%s::mb_score->%f] ==> Partition\n", __func__, mb_score_all_advance(mg->e, mbg));
-	/*******************************for debug************************************/
+	
+	if(VERBOSE_CUT)
+	{
+		fprintf(stderr, "*********before-[M::%s::mc_score->%f] ==> Partition\n", __func__, mc_score_all_advance(mg->e, mg->s.a));
+		fprintf(stderr, "*********before-[M::%s::mb_score->%f] ==> Partition\n", __func__, mb_score_all_advance(mg->e, mbg));
+		/*******************************for debug************************************/
+		// print_mb_g_blcok(mbg);
+		/*******************************for debug************************************/
+	}
+	
+	
 	opt->n_perturb = opt->n_b_perturb;
 	for (st = 0, i = 1; i <= mbg->e->n_seq; ++i) {
 		if (i == mbg->e->n_seq || mbg->e->cc[st]>>32 != mbg->e->cc[i]>>32) {
@@ -2589,13 +2601,15 @@ void mb_solve_core(mc_opt_t *opt, mc_g_t *mg, kv_u_trans_t *ref, uint32_t is_sys
 		}
 	}
 	opt->n_perturb = opt->n_s_perturb - opt->n_b_perturb;
-	/*******************************for debug************************************/
-	// debug_mb_solve_core(mbg);
-	fprintf(stderr, "*********after-[M::%s::mc_score->%f] ==> Partition\n", __func__, mc_score_all_advance(mg->e, mg->s.a));
-	fprintf(stderr, "*********after-[M::%s::mb_score->%f] ==> Partition\n", __func__, mb_score_all_advance(mg->e, mbg));
-	/*******************************for debug************************************/
+	
 	mc_set_by_mbg(mg, mbg);
-	fprintf(stderr, "##############end-[M::%s::score->%f] ==> Partition\n", __func__, mc_score_all_advance(mg->e, mg->s.a));
+	if(VERBOSE_CUT)
+	{
+		/*******************************for debug************************************/
+		// debug_mb_solve_core(mbg);
+		/*******************************for debug************************************/
+		fprintf(stderr, "##############end-[M::%s::score->%f] ==> Partition\n", __func__, mc_score_all_advance(mg->e, mg->s.a));
+	}
 	destory_mb_g_t(&mbg);
 	mb_svaux_destroy(bb);
 	fprintf(stderr, "[M::%s::%.3f] ==> Partition\n", __func__, yak_realtime()-index_time);
@@ -2614,14 +2628,22 @@ void mc_solve_core(const mc_opt_t *opt, mc_g_t *mg, bubble_type* bub)
 	if(bp) mc_init_spin_all(opt, mg, NULL, b);
 	if(bp) mc_solve_bp(bp);
 	/*******************************for debug************************************/
-	fprintf(stderr, "\n\n\n\n\n*************beg-[M::%s::score->%f] ==> Partition\n", __func__, mc_score_all_advance(mg->e, mg->s.a));
+	if(VERBOSE_CUT)
+	{
+		fprintf(stderr, "\n\n\n\n\n*************beg-[M::%s::score->%f] ==> Partition\n", __func__, mc_score_all_advance(mg->e, mg->s.a));
+	}
+	
 	for (st = 0, i = 1; i <= mg->e->n_seq; ++i) {
 		if (i == mg->e->n_seq || mg->e->cc[st]>>32 != mg->e->cc[i]>>32) {
 			mc_solve_cc(opt, mg, b, st, i - st);
 			st = i;
 		}
 	}
-	fprintf(stderr, "##############end-[---M::%s::score->%f] ==> Partition\n", __func__, mc_score_all(mg->e, b));
+
+	if(VERBOSE_CUT)
+	{
+		fprintf(stderr, "##############end-[---M::%s::score->%f] ==> Partition\n", __func__, mc_score_all(mg->e, b));
+	}
 	if(bp) mc_solve_bp(bp);	
 	///mc_write_info(g, b);
 	mc_svaux_destroy(b);
@@ -2796,7 +2818,7 @@ void mc_solve(hap_overlaps_list* ovlp, trans_chain* t_ch, kv_u_trans_t *ta, ma_u
 	
 	mb_solve_core(&opt, mg, ref, is_sys);
 	///debug_mc_g_t(mg);
-	if(renew_s == 0) write_mc_g_t(&opt, mg, MC_NAME);
+	// if(renew_s == 0) write_mc_g_t(&opt, mg, MC_NAME);
 	mc_solve_core(&opt, mg, bub);
 
 	if((asm_opt.flag & HA_F_PARTITION) && t_ch)
