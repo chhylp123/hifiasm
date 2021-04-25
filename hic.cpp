@@ -35,6 +35,12 @@ const unsigned char b2rc[5] = {'T', 'G', 'C', 'A', 'N'};
 #define hic_ct_hash(a) ((a)>>HIC_COUNTER_BITS)
 KHASHL_MAP_INIT(static klib_unused, hc_pt_t, hc_pt, uint64_t, uint64_t, hic_ct_hash, hic_ct_eq)
 
+#define u_trans_m_key(a) (((uint64_t)((a).qn)<<32) | ((uint64_t)((a).tn)))
+KRADIX_SORT_INIT(u_trans_m, u_trans_t, u_trans_m_key, 8)
+
+#define u_trans_occ_key(a) ((a).occ)
+KRADIX_SORT_INIT(u_trans_occ, u_trans_t, u_trans_occ_key, member_size(u_trans_t, occ))
+
 typedef struct{
     kvec_t(char) name;
     kvec_t(uint64_t) name_Len;
@@ -13897,7 +13903,7 @@ kv_u_trans_t *ta, trans_idx* dis)
 
 void interpr_hit(ha_ug_index* idx, uint64_t x, uint32_t rLen, uint32_t *uid, uint32_t *beg, uint32_t *end)
 {
-    (*uid) = ((x<<1)>>(64 - idx->uID_bits)); 
+    if(uid) (*uid) = ((x<<1)>>(64 - idx->uID_bits)); 
     uint32_t rev = (x>>63);
     long long ref_p = x & idx->pos_mode;
     long long p_beg, p_end;
@@ -13914,8 +13920,8 @@ void interpr_hit(ha_ug_index* idx, uint64_t x, uint32_t rLen, uint32_t *uid, uin
     }
     if(p_beg < 0) p_beg = 0;
     if(p_end < 0) p_end = 0;
-    (*beg) = p_beg; 
-    (*end) = p_end + 1;
+    if(beg) (*beg) = p_beg; 
+    if(end) (*end) = p_end + 1;
 }
 double get_interval_weight(ha_ug_index* idx, hc_links* link, trans_idx* dis, 
 pe_hit *hits, uint32_t occ, uint32_t qid, uint32_t qs, uint32_t qe, uint32_t tid, uint32_t ts, uint32_t te)
@@ -14140,6 +14146,213 @@ kv_u_trans_t *ta, kv_u_trans_t *ref, trans_idx* dis)
     kt_u_trans_t_idx(ta, idx->ug->g->n_seq);
 }
 
+
+inline uint32_t get_trans_interval_weight(ha_ug_index* idx, hc_links* link, bubble_type* bub, 
+trans_idx* dis, pe_hit *hit, uint32_t hit_n, uint32_t qn, uint32_t qs, uint32_t qe, uint32_t tn, 
+uint32_t ts, uint32_t te, double *w_a) 
+{
+    uint32_t i, s_uid, s_beg, s_end, e_uid, e_beg, e_end, found;
+    uint64_t t_d;
+    double weight;
+    (*w_a) = 0; found = 0;
+    for (i = 0; i < hit_n; i++)///all hits already have the same qn and tn
+    {
+        interpr_hit(idx, hit[i].s, hit[i].len>>32, &s_uid, &s_beg, &s_end);
+        if(s_uid != qn) continue;
+        if(!(qs <= s_beg && qe >= s_end)) continue;
+
+        interpr_hit(idx, hit[i].e, (uint32_t)hit[i].len, &e_uid, &e_beg, &e_end);
+        if(e_uid != tn) continue;
+        if(!(ts <= e_beg && te >= e_end)) continue;
+
+        t_d = get_hic_distance(&hit[i], link, idx);
+        if(t_d == (uint64_t)-1) continue;
+
+        weight = 1;
+        if(dis) weight = get_trans_weight_advance(idx, t_d, dis);
+
+        (*w_a) += weight;
+        found = 1;
+    }
+
+    return found;
+} 
+
+
+void append_trans_hits(ha_ug_index* idx, hc_links* link, bubble_type* bub, 
+trans_idx* dis, pe_hit *hit, uint32_t hit_n, uint64_t *hit_occ, kv_u_trans_t *ref,
+kv_u_trans_t *res, uint32_t qn, uint32_t tn)
+{
+    u_trans_t *r_a = NULL, *p = NULL, *q = NULL;
+    uint32_t r_n, i;
+    uint64_t occ_q, occ_t;
+    double w;
+
+    ///qn -> tn^
+    {
+        r_a = u_trans_a(*ref, tn);
+        r_n = u_trans_n(*ref, tn);
+        for (i = 0; i < r_n; i++)
+        {
+            if(IF_HOM(r_a[i].tn, *bub)) continue;
+            if(r_a[i].tn == qn) continue;
+
+            if(!get_trans_interval_weight(idx, link, bub, dis, hit, hit_n, 
+            qn, 0, idx->ug->g->seq[qn].len, tn, r_a[i].qs, r_a[i].qe, &w))
+            {
+                continue;
+            } 
+
+            occ_q = hit_occ[qn];
+            occ_t = (hit_occ[tn] * ((double)(r_a[i].qe - r_a[i].qs)/(double)(idx->ug->g->seq[tn].len))) + 0.5;
+            if(occ_t < 1) occ_t = 1;
+
+            kv_pushp(u_trans_t, *res, &p);
+            memset(p, 0, sizeof(u_trans_t));
+            p->qn = qn; p->tn = r_a[i].tn;
+            p->nw = w; 
+            p->occ = MIN(occ_q, occ_t);
+
+            kv_pushp(u_trans_t, *res, &q);
+            (*q) = (*p); q->qn = p->tn; q->tn = p->qn;
+        }
+    }
+
+    if(qn == tn) return;
+
+   ///tn -> qn^
+    {
+        r_a = u_trans_a(*ref, qn);
+        r_n = u_trans_n(*ref, qn);
+        for (i = 0; i < r_n; i++)
+        {
+            if(IF_HOM(r_a[i].tn, *bub)) continue;
+            if(r_a[i].tn == tn) continue;
+
+            if(!get_trans_interval_weight(idx, link, bub, dis, hit, hit_n, 
+            qn, r_a[i].qs, r_a[i].qe, tn, 0, idx->ug->g->seq[tn].len, &w))
+            {
+                continue;
+            } 
+
+            occ_q = (hit_occ[qn] * ((double)(r_a[i].qe - r_a[i].qs)/(double)(idx->ug->g->seq[qn].len))) + 0.5;
+            occ_t = hit_occ[tn];
+            if(occ_q < 1) occ_q = 1;
+            kv_pushp(u_trans_t, *res, &p);
+            memset(p, 0, sizeof(u_trans_t));
+            p->qn = tn; p->tn = r_a[i].tn;
+            p->nw = w; 
+            p->occ = MIN(occ_q, occ_t);
+
+            kv_pushp(u_trans_t, *res, &q);
+            (*q) = (*p); q->qn = p->tn; q->tn = p->qn;
+        }
+    }
+    
+}
+
+double merge_u_trans_list(u_trans_t* a, uint32_t a_n)
+{
+    radix_sort_u_trans_occ(a, a + a_n);
+    uint32_t k, l, i;
+    double weight, w = 0;
+    for (k = 1, l = 0; k <= a_n; ++k) 
+    {   
+        if (k == a_n || a[k].occ != a[l].occ) 
+        {
+            for (i = l, weight = 0; i < k; i++)
+            {
+                weight += a[i].nw;
+            }
+            
+            w += (weight/(double)(a[l].occ));
+            l = k;
+        }
+    }
+    return w;
+}
+
+void adjust_weight_kv_u_trans_advance(ha_ug_index* idx, kvec_pe_hit* hits, hc_links* link, bubble_type* bub, 
+kv_u_trans_t *ta, kv_u_trans_t *ref, trans_idx* dis)
+{
+    double index_time = yak_realtime();
+    uint32_t k, l, m, h_occ;
+    uint64_t shif = 64 - idx->uID_bits, qn, tn;
+    double w;
+    pe_hit *h_a = NULL;
+
+    for (k = m = 0; k < ta->n; k++)
+    {
+        if(ta->a[k].nw == 0) continue;
+        ta->a[k].occ = MIN(hits->occ.a[ta->a[k].qn], hits->occ.a[ta->a[k].tn]);
+        if(ta->a[k].occ == 0) continue;
+        ta->a[m] = ta->a[k];
+        m++;
+    }
+    ta->n = m;
+
+    for (qn = 0; qn < hits->idx.n; qn++)
+    {
+        if(IF_HOM(qn, *bub)) continue;
+        h_a = hits->a.a + (hits->idx.a[qn]>>32);
+        h_occ = (uint32_t)(hits->idx.a[qn]);
+
+        for (k = 1, l = 0; k <= h_occ; ++k) ///same qn
+        {
+            if (k == h_occ || ((h_a[k].e<<1)>>shif) != ((h_a[l].e<<1)>>shif)) //same qn and tn
+            {
+                tn = ((h_a[l].e<<1)>>shif);
+                if(!IF_HOM(tn, *bub))
+                {
+                    append_trans_hits(idx, link, bub, dis, h_a+l, k-l, hits->occ.a, ref, ta, qn, tn);
+                }
+                l = k;
+            }
+        }
+    }
+    
+    radix_sort_u_trans_m(ta->a, ta->a + ta->n);
+
+    for (k = 1, l = 0, m = 0; k <= ta->n; ++k) 
+    {   
+        if (k == ta->n || (ta->a[k].qn != ta->a[l].qn || ta->a[k].tn != ta->a[l].tn)) 
+        {
+            w = merge_u_trans_list(ta->a + l, k - l);
+            if(w != 0)
+            {
+                ta->a[m] = ta->a[l];
+                ta->a[m].nw = w;
+                ta->a[m].occ = 0;
+                m++;
+            }
+            l = k;
+        }
+    }
+    ta->n = m;
+    
+    kt_u_trans_t_idx(ta, idx->ug->g->n_seq);
+    fprintf(stderr, "[M::%s::%.3f] \n", __func__, yak_realtime()-index_time);
+}
+
+void print_kv_weight(kv_u_trans_t *ta)
+{
+    uint32_t i;
+    u_trans_t *e = NULL;
+    fprintf(stderr, "*********ta->n: %u\n", (uint32_t)ta->n);
+    for (i = 0; i < ta->n; i++)
+    {
+        fprintf(stderr, "+qn(%u)->tn(%u): %f\n", ta->a[i].qn, ta->a[i].tn, ta->a[i].nw);
+        get_u_trans_spec(ta, ta->a[i].tn, ta->a[i].qn, &e, NULL);
+        if(e)
+        {
+            fprintf(stderr, "-tn(%u)->qn(%u): %f\n", e->qn, e->tn, e->nw);
+        }
+        else
+        {
+            fprintf(stderr, "ERROR");
+        }
+    }
+}
 void renew_kv_u_trans(kv_u_trans_t *ta, hc_links *lk, kvec_pe_hit* hits, kv_u_trans_t *ref,
 ha_ug_index* idx, bubble_type* bub, int8_t *s, uint32_t ignore_dis)
 {   
@@ -14167,8 +14380,10 @@ ha_ug_index* idx, bubble_type* bub, int8_t *s, uint32_t ignore_dis)
     if(hits->idx.n == 0) idx_hc_links(hits, idx, bub);
 
     weight_kv_u_trans(idx, hits, lk, bub, ta, is_comples_weight == 1? &dis : NULL);
-    adjust_weight_kv_u_trans(idx, hits, lk, bub, ta, ref, is_comples_weight == 1? &dis : NULL);
+    // adjust_weight_kv_u_trans(idx, hits, lk, bub, ta, ref, is_comples_weight == 1? &dis : NULL);
+    adjust_weight_kv_u_trans_advance(idx, hits, lk, bub, ta, ref, is_comples_weight == 1? &dis : NULL);
     kv_destroy(dis);
+    // print_kv_weight(ta);
 }
 
 void print_kv_u_trans(kv_u_trans_t *ta, hc_links* lk, int8_t *s)
