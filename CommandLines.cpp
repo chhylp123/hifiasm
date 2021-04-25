@@ -196,6 +196,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->n_perturb = 10000;
     asm_opt->f_perturb = 0.1;
     asm_opt->n_weight = 3;
+    asm_opt->is_alt = 0;
 }
 
 void destory_enzyme(enzyme* f)
@@ -651,7 +652,7 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         else if (c == 317) asm_opt->b_low_cov = atoi(opt.arg);
         else if (c == 318) asm_opt->b_high_cov = atoi(opt.arg);
         else if (c == 319) asm_opt->m_rate = atof(opt.arg);
-        else if (c == 320) asm_opt->flag -= HA_F_PARTITION;
+        else if (c == 320) asm_opt->flag -= HA_F_PARTITION, asm_opt->is_alt = 1;
         else if (c == 321) asm_opt->trio_flag_occ_thres = atoi(opt.arg);
         else if (c == 322) asm_opt->seed = atol(opt.arg);
         else if (c == 323) asm_opt->n_perturb = atoi(opt.arg);

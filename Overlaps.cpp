@@ -12703,14 +12703,16 @@ trans_chain* load_hc_hits(const char *fn)
     return t_ch;
 }
 
-
-
+void output_contig_graph_alternative(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name,
+ma_hit_t_alloc* sources, R_to_U* ruIndex, int max_hang, int min_ovlp);
+void reduce_hamming_error(asg_t *sg, ma_hit_t_alloc* sources, ma_sub_t *coverage_cut, 
+int max_hang, int min_ovlp, long long gap_fuzz);
 void clean_u_trans_t_idx(kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g);
 void output_hic_graph(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name, 
 ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, 
 long long tipsLen, float tip_drop_ratio, long long stops_threshold, 
 R_to_U* ruIndex, float chimeric_rate, float drop_ratio, int max_hang, int min_ovlp, 
-bub_label_t* b_mask_t)
+long long gap_fuzz, bub_label_t* b_mask_t)
 { 
     hic_clean(sg);
 
@@ -12740,6 +12742,12 @@ bub_label_t* b_mask_t)
 
         print_utg(copy_ug, copy_sg, coverage_cut, output_file_name, sources, ruIndex, max_hang, 
         min_ovlp, &new_rtg_edges);
+
+        if(asm_opt.is_alt)
+        {
+            output_contig_graph_alternative(copy_sg, coverage_cut, output_file_name, sources, ruIndex, max_hang, 
+            min_ovlp);
+        }
 
         ma_ug_destroy(copy_ug);
         asg_destroy(copy_sg);
@@ -12790,6 +12798,8 @@ bub_label_t* b_mask_t)
     }    
     kv_destroy(d_edges.a);
     asg_cleanup(sg);
+
+    reduce_hamming_error(sg, sources, coverage_cut, max_hang, min_ovlp, gap_fuzz);
 
     output_trio_unitig_graph(sg, coverage_cut, output_file_name, FATHER, sources, reverse_sources, (asm_opt.max_short_tip*2), 0.15, 3, ruIndex, 
     0.05, 0.9, max_hang, min_ovlp, 0, b_mask_t);
@@ -17182,6 +17192,230 @@ pop_reset:
 		t->s = t->c = t->d = t->m = t->nc = t->np = 0;
 	}
 	return n_pop;
+}
+
+
+int bub_complex_hamming(asg_t *sg, ma_ug_t *ug, uint32_t beg_utg, ma_hit_t_alloc* sources, ma_sub_t *coverage_cut, kvec_t_u32_warp* stack, 
+int max_hang, int min_ovlp, uint8_t* trio_flag, uint8_t* vis_flag, kv_asg_arc_t* e, buf_t *b, uint64_t tLen)
+{
+    uint32_t k_i, k_j, k_v, rID;
+    int is_switch_0, is_switch_1;
+    ma_utg_t* nsu = NULL;
+    
+    is_switch_0 = is_switch_1 = 1;
+    asg_bub_pop1_primary_trio_switch_check(ug->g, ug, beg_utg, tLen, b, FATHER, DROP, 0, NULL, NULL, &is_switch_0);
+
+    if(is_switch_0 == 0)
+    {
+        asg_bub_pop1_primary_trio_switch_check(ug->g, ug, beg_utg, tLen, b, MOTHER, DROP, 0, NULL, NULL, &is_switch_1);
+    } 
+    
+
+    for (k_i = 0; k_i < b->b.n; k_i++)
+    {
+        if((b->b.a[k_i]>>1)==(beg_utg>>1) || (b->b.a[k_i]>>1)==(b->S.a[0]>>1)) continue;
+        nsu = &(ug->u.a[b->b.a[k_i]>>1]);
+        for (k_j = 0; k_j < nsu->n; k_j++)
+        {
+            rID = nsu->a[k_j]>>33;
+            if(R_INF.trio_flag[rID] == DROP) R_INF.trio_flag[rID] = AMBIGU;
+        }
+    }
+    
+    if(is_switch_0 == 0 && is_switch_1 == 0) return 0;
+
+
+
+    uint32_t i, sink_utg, begRid, sinkRid;
+    sink_utg = b->S.a[0]^1;
+
+    if(beg_utg&1)
+    {
+        begRid = ug->u.a[beg_utg>>1].start^1;
+    }
+    else
+    {
+        begRid = ug->u.a[beg_utg>>1].end^1;
+    }
+
+    if(sink_utg&1)
+    {
+        sinkRid = ug->u.a[sink_utg>>1].start;
+    }
+    else
+    {
+        sinkRid = ug->u.a[sink_utg>>1].end;
+    }
+
+
+
+
+    asg_arc_t *acur = NULL;
+    uint32_t cur, ncur, v, n_vx = sg->n_seq<<1;
+    stack->a.n = 0; 
+    memset(vis_flag, 0, n_vx);
+
+    kv_push(uint32_t, stack->a, begRid);
+    while (stack->a.n > 0)
+    {
+        stack->a.n--;
+        cur = stack->a.a[stack->a.n];
+        ncur = asg_arc_n(sg, cur);
+        acur = asg_arc_a(sg, cur);
+        vis_flag[cur] = 1;
+        for (i = 0; i < ncur; i++)
+        {
+            if(acur[i].del) continue;
+            if(vis_flag[acur[i].v]) continue;
+            if(acur[i].v == sinkRid) continue;
+            kv_push(uint32_t, stack->a, acur[i].v);
+        }
+    }
+    vis_flag[sinkRid] = 1;
+
+
+    ma_hit_t_alloc* x = NULL;
+    ma_hit_t *h = NULL;
+    ma_sub_t *sq = NULL;
+    ma_sub_t *st = NULL;
+    int32_t r;
+    asg_arc_t t;
+    
+
+    for (k_i = 0; k_i < b->b.n; k_i++)
+    {
+        if((b->b.a[k_i]>>1)==(beg_utg>>1) || (b->b.a[k_i]>>1)==(b->S.a[0]>>1)) continue;
+        // nsu = &(ug->u.a[a[k_i]>>1]);
+        nsu = &(ug->u.a[b->b.a[k_i]>>1]);
+        for (k_j = 0; k_j < nsu->n; k_j++)
+        {
+            rID = nsu->a[k_j]>>33;
+            for (k_v = 0; k_v < 2; k_v++)
+            {
+                v = (rID<<1) + k_v;
+                if(vis_flag[v] == 0) continue;
+                x = &(sources[v>>1]);
+                for (i = 0; i < x->length; i++)
+                {
+                    h = &(x->buffer[i]);
+                    sq = &(coverage_cut[Get_qn(*h)]);
+                    st = &(coverage_cut[Get_tn(*h)]);
+                    if(st->del || sg->seq[Get_tn(*h)].del) continue;
+                    r = ma_hit2arc(h, sq->e - sq->s, st->e - st->s, max_hang, 
+                                        asm_opt.max_hang_rate, min_ovlp, &t);
+                
+                    ///if it is a contained read, skip
+                    if(r < 0) continue;
+                    if((t.ul>>32) != v) continue;
+                    if(vis_flag[t.ul>>32] == 0 || vis_flag[t.v] == 0) continue;
+                    kv_push(asg_arc_t, *e, t);
+                    get_edge_from_source(sources, coverage_cut, NULL, max_hang, min_ovlp, 
+                                (t.v^1), ((t.ul>>32)^1), &t);
+                    kv_push(asg_arc_t, *e, t);
+                }
+
+            }
+        }
+    }
+
+    return 1;
+}
+
+void reduce_hamming_error(asg_t *sg, ma_hit_t_alloc* sources, ma_sub_t *coverage_cut, 
+int max_hang, int min_ovlp, long long gap_fuzz)
+{
+    double index_time = yak_realtime();
+    ma_ug_t *ug = NULL;
+    ug = ma_ug_gen_primary(sg, PRIMARY_LABLE);
+
+    uint8_t* vis_flag = NULL; CALLOC(vis_flag, sg->n_seq*2);
+    uint32_t fix_bub = 0;
+    kvec_t_u32_warp stack; kv_init(stack.a);
+    kv_asg_arc_t e; kv_init(e);
+    asg_t *g = ug->g;
+    uint32_t v, n_vtx = g->n_seq * 2, n_arc, n_arc_0 = sg->n_arc, nv, i;
+    uint64_t n_pop = 0, max_dist;
+    asg_arc_t *av = NULL;
+    buf_t b;
+    memset(&b, 0, sizeof(buf_t));
+    b.a = (binfo_t*)calloc(n_vtx, sizeof(binfo_t));
+    uint8_t* bs_flag = NULL; CALLOC(bs_flag, n_vtx);
+    for (i = 0; i < ug->g->n_seq; i++) ug->g->seq[i].c = 0;
+    max_dist = get_bub_pop_max_dist_advance(g, &b);
+    
+
+    if(max_dist > 0)
+    {
+        for (v = 0; v < n_vtx; ++v) 
+        {
+            if(bs_flag[v] != 0) continue;
+            nv = asg_arc_n(g, v);
+            av = asg_arc_a(g, v);
+            ///some node could be deleted
+            if (nv < 2 || g->seq[v>>1].del || g->seq[v>>1].c == ALTER_LABLE) continue;
+            ///some edges could be deleted
+            for (i = n_arc = 0; i < nv; ++i) // asg_bub_pop1() may delete some edges/arcs
+                if (!av[i].del) ++n_arc;
+            if (n_arc < 2) continue;
+            if(asg_bub_pop1_primary_trio(ug->g, NULL, v, max_dist, &b, (uint32_t)-1, (uint32_t)-1, 0, NULL, NULL, NULL, 0, 0))
+            {
+                //beg is v, end is b.S.a[0]
+                //note b.b include end, does not include beg
+                for (i = 0; i < b.b.n; i++)
+                {
+                    if(b.b.a[i]==v || b.b.a[i]==b.S.a[0]) continue;
+                    bs_flag[b.b.a[i]] = bs_flag[b.b.a[i]^1] = 1;
+                }
+                bs_flag[v] = 2; bs_flag[b.S.a[0]^1] = 3;
+            }
+        }
+
+        //traverse all node with two directions 
+        for (v = 0; v < n_vtx; ++v) {
+            if(bs_flag[v] !=2) continue;
+            nv = asg_arc_n(g, v);
+            av = asg_arc_a(g, v);
+            ///some node could be deleted
+            if (nv < 2 || g->seq[v>>1].del || g->seq[v>>1].c == ALTER_LABLE) continue;
+            ///some edges could be deleted
+            for (i = n_arc = 0; i < nv; ++i) // asg_bub_pop1() may delete some edges/arcs
+                if (!av[i].del) ++n_arc;
+            if (n_arc > 1)
+            {
+                fix_bub += bub_complex_hamming(sg, ug, v, sources, coverage_cut, &stack, 
+                max_hang, min_ovlp, R_INF.trio_flag, vis_flag, &e, &b, max_dist);
+            }
+        }
+    }
+
+    asg_arc_t* p = NULL;
+    for (i = 0; i < e.n; i++)
+    {
+        p = asg_arc_pushp(sg);
+        *p = e.a[i];
+    }
+    if(e.n != 0)
+    {
+        free(sg->idx);
+        sg->idx = 0;
+        sg->is_srt = 0;
+        asg_cleanup(sg);
+        asg_symm(sg);
+        asg_arc_del_trans(sg, gap_fuzz);
+    }
+
+    free(vis_flag);
+    kv_destroy(stack.a);
+    kv_destroy(e);
+    
+    free(b.a); free(b.S.a); free(b.T.a); free(b.b.a); free(b.e.a);
+    if (n_pop) asg_cleanup(g);
+    free(bs_flag);
+    ma_ug_destroy(ug);    
+
+    fprintf(stderr, "[M::%s::%.3f] # inserted edges: %u, # fixed bubbles: %u\n", 
+                        __func__, yak_realtime() - index_time, sg->n_arc - n_arc_0, fix_bub);
+
 }
 
 
@@ -29765,7 +29999,7 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
     {
         if(asm_opt.flag & HA_F_PARTITION) asm_opt.flag -= HA_F_PARTITION;
         output_hic_graph(sg, coverage_cut, o_file, sources, reverse_sources, (asm_opt.max_short_tip*2), 
-        0.15, 3, ruIndex, 0.05, 0.9, max_hang_length, mini_overlap_length, &b_mask_t);
+        0.15, 3, ruIndex, 0.05, 0.9, max_hang_length, mini_overlap_length, gap_fuzz, &b_mask_t);
     }
     else if((asm_opt.flag & HA_F_PARTITION) && (asm_opt.purge_level_primary > 0))
     {
