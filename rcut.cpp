@@ -2814,6 +2814,8 @@ void mc_solve(hap_overlaps_list* ovlp, trans_chain* t_ch, kv_u_trans_t *ta, ma_u
 	mc_opt_init(&opt, asm_opt.n_perturb, asm_opt.f_perturb, asm_opt.seed);
 	mc_g_t *mg = init_mc_g_t(ug, read_g, s, renew_s);
 	update_mc_edges(mg, ovlp, ta, t_ch, f_rate, is_sys);
+
+	fprintf(stderr, "[M::%s:: # edges: %u]\n", __func__, (uint32_t)mg->e->ma.n);
 	
 	mb_solve_core(&opt, mg, ref, is_sys);
 	///debug_mc_g_t(mg);

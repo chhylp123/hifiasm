@@ -4094,8 +4094,218 @@ void update_ug_by_tigs(asg_t *sg, hc_links *link)
     free(flag); kv_destroy(buf.a);
 }
 
+/**
+#define Get_Ovlp(xs, xe, ys, ye) ((a).occ)
+///take care of circle
+void idx_hc_links(kvec_pe_hit* hits, ha_ug_index* idx, bubble_type* bub);
+void measure_disconnected_dis(ha_ug_index* idx, kvec_pe_hit *hits, hc_links *link, bubble_type *bub)
+{
+    uint32_t k, l, i, m, h_occ;
+    uint32_t qs[2], qe[2], ts[2], te[2], len;
+    uint32_t q_beg, q_end, t_beg, t_end, ovlpS[2], ovlpE[2];
+    uint64_t shif = 64 - idx->uID_bits, qn, tn, u_dis;
+    pe_hit *h_a = NULL;
+    hc_linkeage *t = NULL;
+    u_trans_t *p = NULL;
+    kv_u_trans_t k_trans; 
+    kv_init(k_trans);
+    if(hits->idx.n == 0) idx_hc_links(hits, idx, bub);
 
-void measure_distance(const ma_ug_t* ug, kvec_pe_hit* hits, hc_links* link, bubble_type* bub, kv_u_trans_t *ta)
+    for (qn = 0; qn < hits->idx.n; qn++)
+    {
+        if(IF_HOM(qn, *bub)) continue;
+        h_a = hits->a.a + (hits->idx.a[qn]>>32);
+        h_occ = (uint32_t)(hits->idx.a[qn]);
+        len = idx->ug->g->seq[qn].len;
+        qs[0] = 0; 
+        qe[0] = (len&1? ((len>>1) + 1) : (len>>1));
+        qs[1] = (len>>1);
+        qe[1] = len;
+
+        for (k = 1, l = 0; k <= h_occ; ++k) ///same qn
+        {
+            if (k == h_occ || ((h_a[k].e<<1)>>shif) != ((h_a[l].e<<1)>>shif)) //same qn and tn
+            {
+                tn = ((h_a[l].e<<1)>>shif);
+                if(!IF_HOM(tn, *bub) && tn != qn)
+                {
+                    t = &(link->a.a[qn]);
+                    for (i = 0, u_dis = (uint64_t)-1; i < t->e.n; i++)
+                    {
+                        if(t->e.a[i].del || t->e.a[i].uID != tn) continue;
+                        u_dis = (t->e.a[i].dis ==(uint64_t)-1? (uint64_t)-1 : t->e.a[i].dis>>3);
+                        break;
+                    }
+                    
+                    if(u_dis == (uint64_t)-1)
+                    {
+                        len = idx->ug->g->seq[tn].len;
+                        ts[0] = 0; 
+                        te[0] = (len&1? ((len>>1) + 1) : (len>>1));
+                        ts[1] = (len>>1);
+                        te[1] = len;
+
+                        for (i = l; i < k; i++)
+                        {
+                            ovlpS[0] = ovlpS[1] = 0;
+                            ovlpE[0] = ovlpE[1] = 0;
+                            interpr_hit(idx, h_a[i].s, h_a[i].len>>32, NULL, &s_beg, &s_end);
+                            ovlpS[0] = ((MIN(i_tEcur, q->tEcur) > MAX(i_tScur, q->tScur))?
+                                        MIN(i_tEcur, q->tEcur) - MAX(i_tScur, q->tScur):0);
+
+                            ovlp = ((MIN(i_tEcur, q->tEcur) > MAX(i_tScur, q->tScur))?
+                                        MIN(i_tEcur, q->tEcur) - MAX(i_tScur, q->tScur):0);
+
+
+                            interpr_hit(idx, h_a[i].e, (uint32_t)h_a[i].len, NULL, &e_beg, &e_end);
+                        }
+                        
+
+
+
+                        kv_pushp(u_trans_t, k_trans, &p);
+                        p->qn = qn; p->tn = tn; p->occ = (k-l);
+                        kv_pushp(u_trans_t, k_trans, &p);
+                        p->qn = tn; p->tn = qn; p->occ = (k-l);
+                    }
+                }
+                l = k;
+            }
+        }
+    }
+
+
+    radix_sort_u_trans_m(k_trans.a, k_trans.a + k_trans.n);
+
+    for (k = 1, l = 0, m = 0; k <= k_trans.n; ++k)
+    {
+        if (k == k_trans.n || k_trans.a[l].qn != k_trans.a[k].qn || k_trans.a[l].tn != k_trans.a[k].tn) //same qn and tn
+        {
+            for (i = l, h_occ = 0; i < k; i++)
+            {
+                h_occ += k_trans.a[i].occ;
+            }
+
+            k_trans.a[m] = k_trans.a[l];
+            k_trans.a[m].occ = ((uint32_t)-1) - h_occ;
+            m++;
+            l = k;
+        }
+    }
+    k_trans.n = m;
+
+    radix_sort_u_trans_occ(k_trans.a, k_trans.a + k_trans.n);
+    for (i = 0; i < k_trans.n; i++)
+    {
+        qn = k_trans.a[i].qn;
+        tn = k_trans.a[i].tn;
+        fprintf(stderr, "s-utg%.6lul<--->d-utg%.6lul(occ: %u)\n", qn + 1, tn + 1, 
+        ((uint32_t)-1) - k_trans.a[i].occ);
+    }
+
+    fprintf(stderr, "########hits########\n");
+    char dir[2] = {'+', '-'};
+    for (k = 0; k < hits->a.n; ++k) 
+    { 
+        fprintf(stderr, "%c\tutg%.6dl(len-%u)\t%lu\t%c\tutg%.6dl(len-%u)\t%lu\ti:%lu\n", 
+        dir[hits->a.a[k].s>>63], (int)((hits->a.a[k].s<<1)>>shif)+1, 
+        idx->ug->g->seq[((hits->a.a[k].s<<1)>>shif)].len, hits->a.a[k].s&idx->pos_mode,
+        dir[hits->a.a[k].e>>63], (int)((hits->a.a[k].e<<1)>>shif)+1, 
+        idx->ug->g->seq[((hits->a.a[k].e<<1)>>shif)].len, hits->a.a[k].e&idx->pos_mode,
+        hits->a.a[k].id);        
+    }
+    kv_destroy(k_trans);
+}
+**/
+void idx_hc_links(kvec_pe_hit* hits, ha_ug_index* idx, bubble_type* bub);
+void filter_disconnect_edges(ha_ug_index* idx, kvec_pe_hit *hits, hc_links *link, bubble_type *bub, uint32_t thres, double rate)
+{
+    uint32_t k, l, i, m, h_occ, *occ = NULL;
+    uint64_t shif = 64 - idx->uID_bits, qn, tn, u_dis;
+    pe_hit *h_a = NULL;
+    hc_linkeage *t = NULL;
+    u_trans_t *p = NULL;
+    hc_edge *e = NULL;
+    kv_u_trans_t k_trans; 
+    kv_init(k_trans);
+    
+    if(hits->idx.n == 0) idx_hc_links(hits, idx, bub);
+    CALLOC(occ, hits->idx.n);
+    for (qn = 0; qn < hits->idx.n; qn++)
+    {
+        if(IF_HOM(qn, *bub)) continue;
+        h_a = hits->a.a + (hits->idx.a[qn]>>32);
+        h_occ = (uint32_t)(hits->idx.a[qn]);
+
+        for (k = 1, l = 0; k <= h_occ; ++k) ///same qn
+        {
+            if (k == h_occ || ((h_a[k].e<<1)>>shif) != ((h_a[l].e<<1)>>shif)) //same qn and tn
+            {
+                tn = ((h_a[l].e<<1)>>shif);
+                if(!IF_HOM(tn, *bub) && tn != qn)
+                {
+                    t = &(link->a.a[qn]);
+                    for (i = 0, u_dis = (uint64_t)-1; i < t->e.n; i++)
+                    {
+                        if(t->e.a[i].del || t->e.a[i].uID != tn) continue;
+                        u_dis = (t->e.a[i].dis ==(uint64_t)-1? (uint64_t)-1 : t->e.a[i].dis>>3);
+                        break;
+                    }
+                    
+                    if(u_dis == (uint64_t)-1)
+                    {
+                        kv_pushp(u_trans_t, k_trans, &p);
+                        p->qn = qn; p->tn = tn; p->occ = (k-l);
+                        kv_pushp(u_trans_t, k_trans, &p);
+                        p->qn = tn; p->tn = qn; p->occ = (k-l);
+                    }
+                    else
+                    {
+                        occ[qn] += (k-l); occ[tn] += (k-l);
+                    }
+                }
+                l = k;
+            }
+        }
+    }
+
+
+    radix_sort_u_trans_m(k_trans.a, k_trans.a + k_trans.n);
+
+    for (k = 1, l = 0, m = 0; k <= k_trans.n; ++k)
+    {
+        if (k == k_trans.n || k_trans.a[l].qn != k_trans.a[k].qn || k_trans.a[l].tn != k_trans.a[k].tn) //same qn and tn
+        {
+            if(k - l > 2) fprintf(stderr, "ERROR-3\n");
+            for (i = l, h_occ = 0; i < k; i++)
+            {
+                h_occ += k_trans.a[i].occ;
+            }
+
+            k_trans.a[m] = k_trans.a[l];
+            // k_trans.a[m].occ = ((uint32_t)-1) - h_occ;
+            k_trans.a[m].occ = h_occ;
+
+            if(h_occ > thres || h_occ >= (occ[k_trans.a[m].qn]*rate) || h_occ >= (occ[k_trans.a[m].tn]*rate))
+            {
+                e = get_hc_edge(link, k_trans.a[m].qn, k_trans.a[m].tn, 0);
+                if(e->dis != (uint64_t)-1) fprintf(stderr, "ERROR-3-0\n");
+                e->is_cc = 1;
+
+                e = get_hc_edge(link, k_trans.a[m].tn, k_trans.a[m].qn, 0);
+                if(e->dis != (uint64_t)-1) fprintf(stderr, "ERROR-3-0\n");
+                e->is_cc = 1;
+            }
+            m++;
+            l = k;
+        }
+    }
+    k_trans.n = m;
+
+    kv_destroy(k_trans); free(occ);
+}
+
+void measure_distance(ha_ug_index* idx, const ma_ug_t* ug, kvec_pe_hit* hits, hc_links* link, bubble_type* bub, kv_u_trans_t *ta)
 {
     // double index_time = yak_realtime();
     MT M;
@@ -4143,9 +4353,20 @@ void measure_distance(const ma_ug_t* ug, kvec_pe_hit* hits, hc_links* link, bubb
     update_containment_distance(copy_sg, ta, link);
     // update_dis_connected_gfa(copy_sg, link, &M);
     asg_destroy(copy_sg);
-
-
     destory_MT(&M);
+
+    for (i = 0; i < link->a.n; i++)
+    {
+        for (k = 0; k < link->a.a[i].e.n; k++)
+        {
+            link->a.a[i].e.a[k].is_cc = 0;
+            if(link->a.a[i].e.a[k].del) continue;
+            if(link->a.a[i].e.a[k].dis == (uint64_t)-1) continue;
+            link->a.a[i].e.a[k].is_cc = 1;
+        }
+    }
+
+    // filter_disconnect_edges(idx, hits, link, bub, 1, 0.01);
     // fprintf(stderr, "[M::%s::%.3f] ==> Hi-C linkages have been counted\n", __func__, yak_realtime()-index_time);
     return;
 }
@@ -5828,17 +6049,22 @@ G_partition* clean_bubbles(hc_links* link, bubble_type* bub, min_cut_t* m, const
     return x;
 }
 
-uint64_t get_hic_distance(pe_hit* hit, hc_links* link, const ha_ug_index* idx)
+uint64_t get_hic_distance(pe_hit* hit, hc_links* link, const ha_ug_index* idx, uint32_t *is_cc)
 {
     uint64_t s_uid, s_dir, e_uid, e_dir, u_dis, k;
     long long s_pos, e_pos;
     s_uid = ((hit->s<<1)>>(64 - idx->uID_bits)); s_pos = hit->s & idx->pos_mode;
     e_uid = ((hit->e<<1)>>(64 - idx->uID_bits)); e_pos = hit->e & idx->pos_mode;
-    if(s_uid == e_uid) return MAX(s_pos, e_pos) - MIN(s_pos, e_pos);
+    if(s_uid == e_uid)
+    {
+        if(is_cc) (*is_cc) = 1;
+        return MAX(s_pos, e_pos) - MIN(s_pos, e_pos);
+    } 
     hc_linkeage* t = &(link->a.a[s_uid]);
     for (k = 0; k < t->e.n; k++)
     {
         if(t->e.a[k].del || t->e.a[k].uID != e_uid) continue;
+        if(is_cc) (*is_cc) = t->e.a[k].is_cc;
         s_dir = (!!(t->e.a[k].dis&(uint64_t)2));
         e_dir = (!!(t->e.a[k].dis&(uint64_t)1));
         u_dis = (t->e.a[k].dis ==(uint64_t)-1? (uint64_t)-1 : t->e.a[k].dis>>3);
@@ -5890,27 +6116,35 @@ inline double get_trans_weight_advance(const ha_ug_index* idx, uint64_t x, trans
 {
     long double rate = 0;
 
-    if(x == (uint64_t)-1) x = dis->med;
-    if(x < dis->max)
+    ///if(x == (uint64_t)-1) x = dis->med;
+    if(x != (uint64_t)-1)
     {
-        uint64_t i;
-        for (i = 0; i < dis->n; i++)
+        if(x < dis->max)
         {
-            if(x < dis->a[i].end && x >= dis->a[i].beg) break;
-        }
-        if(i < dis->n)
-        {
-            rate = ((double)(dis->a[i].cnt_1))/((double)(dis->a[i].cnt_0 + dis->a[i].cnt_1));
+            uint64_t i;
+            for (i = 0; i < dis->n; i++)
+            {
+                if(x < dis->a[i].end && x >= dis->a[i].beg) break;
+            }
+            if(i < dis->n)
+            {
+                rate = ((double)(dis->a[i].cnt_1))/((double)(dis->a[i].cnt_0 + dis->a[i].cnt_1));
+            }
+            else
+            {
+                rate = get_trans(idx, x);
+            } 
         }
         else
         {
             rate = get_trans(idx, x);
-        } 
+        }
     }
     else
     {
-        rate = get_trans(idx, x);
+        rate = 0.2;
     }
+
     
     if(rate < 0) rate = 0;
     rate += OFFSET_RATE;
@@ -6010,7 +6244,7 @@ void weight_edges_advance(ha_ug_index* idx, kvec_pe_hit* hits, hc_links* link, b
         if(IF_HOM(beg, *bub)) continue;
         if(IF_HOM(end, *bub)) continue;
         
-        t_d = get_hic_distance(&(hits->a.a[k]), link, idx);
+        t_d = get_hic_distance(&(hits->a.a[k]), link, idx, NULL);
         if(t_d == (uint64_t)-1) continue;
 
         e1 = get_hc_edge(link, beg, end, 0);
@@ -9083,7 +9317,7 @@ H_partition* hap, int8_t *s, trans_idx* dis)
         if(IF_HOM(end, *bub)) continue;
 
 
-        t_d = get_hic_distance(&(hits->a.a[k]), link, idx);
+        t_d = get_hic_distance(&(hits->a.a[k]), link, idx, NULL);
         if(t_d == (uint64_t)-1) continue;
         if(beg == end)
         {
@@ -9257,7 +9491,7 @@ H_partition* hap, int8_t *s, trans_idx* dis)
         if(IF_HOM(end, *bub)) continue;
         if(beg == end) continue;
 
-        t_d = get_hic_distance(&(hits->a.a[k]), link, idx);
+        t_d = get_hic_distance(&(hits->a.a[k]), link, idx, NULL);
         if(t_d == (uint64_t)-1) continue;
         kv_push(uint64_t, buf, t_d); 
     }
@@ -13748,7 +13982,7 @@ int alignment_worker_pipeline(sldat_t* sl, const enzyme *fn1, const enzyme *fn2)
     return 1;
 }
 
-void debug_gfa_space(ma_ug_t* ug, trans_chain* t_ch, kv_u_trans_t *ref)
+void debug_gfa_space(ha_ug_index* idx, ma_ug_t* ug, trans_chain* t_ch, kv_u_trans_t *ref)
 {
     bubble_type bub; 
     memset(&bub, 0, sizeof(bubble_type));
@@ -13759,7 +13993,7 @@ void debug_gfa_space(ma_ug_t* ug, trans_chain* t_ch, kv_u_trans_t *ref)
     hc_links link;
     init_hc_links(&link, ug->g->n_seq, t_ch);
 
-    measure_distance(ug, NULL, &link, &bub, &(t_ch->k_trans));
+    measure_distance(idx, ug, NULL, &link, &bub, &(t_ch->k_trans));
 
     // uint32_t i, k;
     // for (i = 0; i < link.a.n; ++i) 
@@ -13858,6 +14092,7 @@ kv_u_trans_t *ta, trans_idx* dis)
     u_trans_t *e1 = NULL, *e2 = NULL;
     long double weight;
     u_trans_t *p = NULL;
+    uint32_t is_cc;
 
     for (i = 0, ta->idx.n = ta->n = 0; i < link->a.n; i++)
     {
@@ -13886,8 +14121,10 @@ kv_u_trans_t *ta, trans_idx* dis)
         if(IF_HOM(beg, *bub)) continue;
         if(IF_HOM(end, *bub)) continue;
         
-        t_d = get_hic_distance(&(hits->a.a[k]), link, idx);
-        if(t_d == (uint64_t)-1) continue;
+        t_d = get_hic_distance(&(hits->a.a[k]), link, idx, &is_cc);
+        // if(t_d == (uint64_t)-1) continue;
+        // if(t_d == (uint64_t)-1 && is_cc == 0) continue;
+        // if(t_d == (uint64_t)-1 && !dis) continue;
 
         get_u_trans_spec(ta, beg, end, &e1, NULL);
         get_u_trans_spec(ta, end, beg, &e2, NULL);
@@ -13956,7 +14193,7 @@ pe_hit *hits, uint32_t occ, uint32_t qid, uint32_t qs, uint32_t qe, uint32_t tid
         if(e_uid != tid) break;
         if(!(ts <= e_beg && te >= e_end)) continue;
 
-        t_d = get_hic_distance(&hits[k], link, idx);
+        t_d = get_hic_distance(&hits[k], link, idx, NULL);
         if(t_d == (uint64_t)-1) continue;
 
         weight = 1;
@@ -13976,7 +14213,7 @@ pe_hit *hits, uint32_t occ, uint32_t qid, uint32_t qs, uint32_t qe, uint32_t tid
         if(e_uid != tid) break;
         if(!(ts <= e_beg && te >= e_end)) continue;
 
-        t_d = get_hic_distance(&hits[k], link, idx);
+        t_d = get_hic_distance(&hits[k], link, idx, NULL);
         if(t_d == (uint64_t)-1) continue;
 
         weight = 1;
@@ -14151,7 +14388,7 @@ inline uint32_t get_trans_interval_weight(ha_ug_index* idx, hc_links* link, bubb
 trans_idx* dis, pe_hit *hit, uint32_t hit_n, uint32_t qn, uint32_t qs, uint32_t qe, uint32_t tn, 
 uint32_t ts, uint32_t te, double *w_a) 
 {
-    uint32_t i, s_uid, s_beg, s_end, e_uid, e_beg, e_end, found;
+    uint32_t i, s_uid, s_beg, s_end, e_uid, e_beg, e_end, found, is_cc;
     uint64_t t_d;
     double weight;
     (*w_a) = 0; found = 0;
@@ -14165,8 +14402,10 @@ uint32_t ts, uint32_t te, double *w_a)
         if(e_uid != tn) continue;
         if(!(ts <= e_beg && te >= e_end)) continue;
 
-        t_d = get_hic_distance(&hit[i], link, idx);
-        if(t_d == (uint64_t)-1) continue;
+        t_d = get_hic_distance(&hit[i], link, idx, &is_cc);
+        // if(t_d == (uint64_t)-1) continue;
+        // if(t_d == (uint64_t)-1 && is_cc == 0) continue;
+        // if(t_d == (uint64_t)-1 && !dis) continue;
 
         weight = 1;
         if(dis) weight = get_trans_weight_advance(idx, t_d, dis);
@@ -14265,7 +14504,10 @@ double merge_u_trans_list(u_trans_t* a, uint32_t a_n)
                 weight += a[i].nw;
             }
             
-            w += (weight/(double)(a[l].occ));
+            /*******************************for debug************************************/
+            // w += (weight/(double)(a[l].occ));
+            w += weight;
+            /*******************************for debug************************************/
             l = k;
         }
     }
@@ -14353,6 +14595,29 @@ void print_kv_weight(kv_u_trans_t *ta)
         }
     }
 }
+
+void print_debug_hc_links(ha_ug_index* idx, bubble_type* bub, hc_links* lk, kv_u_trans_t *ta, kvec_pe_hit* hits)
+{
+    uint64_t k, len = 0, shif = 64 - idx->uID_bits, beg, end;
+    hc_edge *e = NULL;
+    for (k = 0; k < hits->a.n; ++k) 
+    {
+        beg = ((hits->a.a[k].s<<1)>>shif);
+        end = ((hits->a.a[k].e<<1)>>shif);
+        if(beg == end) continue;
+        if(IF_HOM(beg, *bub)) continue;
+        if(IF_HOM(end, *bub)) continue;
+        len += (hits->a.a[k].len>>32) + ((uint32_t)hits->a.a[k].len);
+    }
+
+    fprintf(stderr, "# total Hi-C aligned bases: %lu\n", len);
+    for (k = 0; k < ta->n; k++)
+    {
+        e = get_hc_edge(lk, ta->a[k].qn, ta->a[k].tn, 0);
+        fprintf(stderr, "s-utg%.6ul\td-utg%.6ul\tD:%lu\tW:%f\n", 
+        ta->a[k].qn+1, ta->a[k].tn+1, e->dis == (uint64_t)-1? (uint64_t)-1 : e->dis>>3, ta->a[k].nw);
+    }
+}
 void renew_kv_u_trans(kv_u_trans_t *ta, hc_links *lk, kvec_pe_hit* hits, kv_u_trans_t *ref,
 ha_ug_index* idx, bubble_type* bub, int8_t *s, uint32_t ignore_dis)
 {   
@@ -14380,6 +14645,10 @@ ha_ug_index* idx, bubble_type* bub, int8_t *s, uint32_t ignore_dis)
     if(hits->idx.n == 0) idx_hc_links(hits, idx, bub);
 
     weight_kv_u_trans(idx, hits, lk, bub, ta, is_comples_weight == 1? &dis : NULL);
+    // if(bub->round_id == bub->n_round-1)
+    // {
+    //     print_debug_hc_links(idx, bub, lk, ta, hits);
+    // }
     // adjust_weight_kv_u_trans(idx, hits, lk, bub, ta, ref, is_comples_weight == 1? &dis : NULL);
     adjust_weight_kv_u_trans_advance(idx, hits, lk, bub, ta, ref, is_comples_weight == 1? &dis : NULL);
     kv_destroy(dis);
@@ -14429,6 +14698,94 @@ void verbose_het_stat(bubble_type *bub)
     fprintf(stderr, "[M::stat] # heterozygous bases: %lu; # homozygous bases: %lu\n", hetBase, homBase);
 }
 
+void debug_output_disconnected_hits(ha_ug_index* idx, kvec_pe_hit *hits, hc_links *link, bubble_type *bub)
+{
+    uint32_t k, l, i, m, h_occ;
+    uint64_t shif = 64 - idx->uID_bits, qn, tn, u_dis;
+    pe_hit *h_a = NULL;
+    hc_linkeage *t = NULL;
+    u_trans_t *p = NULL;
+    kv_u_trans_t k_trans; 
+    kv_init(k_trans);
+
+
+    for (qn = 0; qn < hits->idx.n; qn++)
+    {
+        if(IF_HOM(qn, *bub)) continue;
+        h_a = hits->a.a + (hits->idx.a[qn]>>32);
+        h_occ = (uint32_t)(hits->idx.a[qn]);
+
+        for (k = 1, l = 0; k <= h_occ; ++k) ///same qn
+        {
+            if (k == h_occ || ((h_a[k].e<<1)>>shif) != ((h_a[l].e<<1)>>shif)) //same qn and tn
+            {
+                tn = ((h_a[l].e<<1)>>shif);
+                if(!IF_HOM(tn, *bub) && tn != qn)
+                {
+                    t = &(link->a.a[qn]);
+                    for (i = 0, u_dis = (uint64_t)-1; i < t->e.n; i++)
+                    {
+                        if(t->e.a[i].del || t->e.a[i].uID != tn) continue;
+                        u_dis = (t->e.a[i].dis ==(uint64_t)-1? (uint64_t)-1 : t->e.a[i].dis>>3);
+                        break;
+                    }
+                    
+                    if(u_dis == (uint64_t)-1)
+                    {
+                        kv_pushp(u_trans_t, k_trans, &p);
+                        p->qn = qn; p->tn = tn; p->occ = (k-l);
+                        kv_pushp(u_trans_t, k_trans, &p);
+                        p->qn = tn; p->tn = qn; p->occ = (k-l);
+                    }
+                }
+                l = k;
+            }
+        }
+    }
+
+
+    radix_sort_u_trans_m(k_trans.a, k_trans.a + k_trans.n);
+
+    for (k = 1, l = 0, m = 0; k <= k_trans.n; ++k)
+    {
+        if (k == k_trans.n || k_trans.a[l].qn != k_trans.a[k].qn || k_trans.a[l].tn != k_trans.a[k].tn) //same qn and tn
+        {
+            for (i = l, h_occ = 0; i < k; i++)
+            {
+                h_occ += k_trans.a[i].occ;
+            }
+
+            k_trans.a[m] = k_trans.a[l];
+            k_trans.a[m].occ = ((uint32_t)-1) - h_occ;
+            m++;
+            l = k;
+        }
+    }
+    k_trans.n = m;
+
+    radix_sort_u_trans_occ(k_trans.a, k_trans.a + k_trans.n);
+    for (i = 0; i < k_trans.n; i++)
+    {
+        qn = k_trans.a[i].qn;
+        tn = k_trans.a[i].tn;
+        fprintf(stderr, "s-utg%.6lul<--->d-utg%.6lul(occ: %u)\n", qn + 1, tn + 1, 
+        ((uint32_t)-1) - k_trans.a[i].occ);
+    }
+
+    fprintf(stderr, "########hits########\n");
+    char dir[2] = {'+', '-'};
+    for (k = 0; k < hits->a.n; ++k) 
+    { 
+        fprintf(stderr, "%c\tutg%.6dl(len-%u)\t%lu\t%c\tutg%.6dl(len-%u)\t%lu\ti:%lu\n", 
+        dir[hits->a.a[k].s>>63], (int)((hits->a.a[k].s<<1)>>shif)+1, 
+        idx->ug->g->seq[((hits->a.a[k].s<<1)>>shif)].len, hits->a.a[k].s&idx->pos_mode,
+        dir[hits->a.a[k].e>>63], (int)((hits->a.a[k].e<<1)>>shif)+1, 
+        idx->ug->g->seq[((hits->a.a[k].e<<1)>>shif)].len, hits->a.a[k].e&idx->pos_mode,
+        hits->a.a[k].id);        
+    }
+    kv_destroy(k_trans);
+}
+
 int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx)
 {
     double index_time = yak_realtime();
@@ -14470,7 +14827,7 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx)
         identify_bubbles(idx->ug, &bub, idx->t_ch->is_r_het, &(idx->t_ch->k_trans));
         if(bub.round_id == 0) 
         {
-            measure_distance(idx->ug, &sl.hits, &link, &bub, &(idx->t_ch->k_trans));
+            measure_distance(idx, idx->ug, &sl.hits, &link, &bub, &(idx->t_ch->k_trans));
         }
 
         renew_kv_u_trans(&k_trans, &link, &sl.hits, &(idx->t_ch->k_trans), idx, &bub, s->s, 0);
@@ -14481,6 +14838,13 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx)
         (bub.round_id == 0? 1 : 0), s->s, 1, /**&bub**/NULL, &(idx->t_ch->k_trans));
         /*******************************for debug************************************/
         label_unitigs_sm(s->s, idx->ug);
+
+        /*******************************for debug************************************/
+        // if(bub.round_id == bub.n_round - 1)
+        // {
+        //     debug_output_disconnected_hits(idx, &sl.hits, &link, &bub);
+        // }
+        /*******************************for debug************************************/
         /**
         init_hic_advance((ha_ug_index*)sl.idx, &sl.hits, &link, &bub, &hap, 0);
         reset_H_partition(&hap, (bub.round_id == 0? 1 : 0));
