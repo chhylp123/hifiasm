@@ -14598,7 +14598,7 @@ void print_kv_weight(kv_u_trans_t *ta)
 
 void print_debug_hc_links(ha_ug_index* idx, bubble_type* bub, hc_links* lk, kv_u_trans_t *ta, kvec_pe_hit* hits)
 {
-    uint64_t k, len = 0, shif = 64 - idx->uID_bits, beg, end;
+    uint64_t k, len = 0, occ = 0, shif = 64 - idx->uID_bits, beg, end;
     hc_edge *e = NULL;
     for (k = 0; k < hits->a.n; ++k) 
     {
@@ -14608,9 +14608,11 @@ void print_debug_hc_links(ha_ug_index* idx, bubble_type* bub, hc_links* lk, kv_u
         if(IF_HOM(beg, *bub)) continue;
         if(IF_HOM(end, *bub)) continue;
         len += (hits->a.a[k].len>>32) + ((uint32_t)hits->a.a[k].len);
+        occ++;
     }
 
     fprintf(stderr, "# total Hi-C aligned bases: %lu\n", len);
+    fprintf(stderr, "# total Hi-C aligned pairs: %lu\n", occ);
     for (k = 0; k < ta->n; k++)
     {
         e = get_hc_edge(lk, ta->a[k].qn, ta->a[k].tn, 0);

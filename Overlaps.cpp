@@ -11298,8 +11298,9 @@ void refine_u_trans_t(u_trans_hit_t *q, kv_ca_buf_t* cb)
     
 
 
-
-    if(q->tScur >= q->tEcur) fprintf(stderr, "ERROR5\n");
+    ///might be equal
+    if(q->tScur > q->tEcur) fprintf(stderr, "ERROR5\n");
+    // if(q->tScur >= q->tEcur)
     // {
     //     fprintf(stderr, "\n###q->tScur: %u, s: %u, si: %u, q->tEcur: %u, e: %u, ei: %u\n", 
     //     q->tScur, s, si, q->tEcur, e, ei);
@@ -11780,6 +11781,7 @@ ma_ug_t *ug, uint32_t flag, double score, const char* cmd)
         t_ch->c_buf.a[0].c_y_p = t_ch->c_buf.a[1].c_y_p - len;
     }
 
+    ///chain is [s, e)
     if(t_ch->c_buf.a[0].c_x_p != 0 && t_ch->c_buf.a[0].c_y_p != 0) fprintf(stderr, "ERROR1\n");
     if(t_ch->c_buf.a[t_ch->c_buf.n-1].c_x_p!= pri_len && 
                                             t_ch->c_buf.a[t_ch->c_buf.n-1].c_y_p!= aux_len)
@@ -11817,6 +11819,8 @@ ma_ug_t *ug, uint32_t flag, double score, const char* cmd)
     for (i = bn; i < t_ch->k_t_b.n; i++)
     {
         kh = &(t_ch->k_t_b.a[i]);
+        if(kh->qEpre <= kh->qSpre) continue;
+        if(kh->tEpre <= kh->tSpre) continue;
         kv_pushp(u_trans_t, t_ch->k_trans, &kt);
         kt->f = flag; kt->rev = ((kh->qn ^ kh->tn) & 1); kt->del = 0; 
         kt->qn = kh->qn>>1; kt->qs = kh->qSpre; kt->qe = kh->qEpre;
@@ -11831,9 +11835,6 @@ ma_ug_t *ug, uint32_t flag, double score, const char* cmd)
             y_score = ((double)(kt->te-kt->ts)/(double)(t_ch->c_buf.a[t_ch->c_buf.n-1].c_y_p-t_ch->c_buf.a[0].c_y_p))*score;
             kt->nw = MIN(x_score, y_score);
         }
-        
-        // fprintf(stderr, "s-utg%.6ul\t%u\t%u\td-utg%.6ul\t%u\t%u\trev(%u)\n", 
-        // kt->qn+1, kt->qs, kt->qe, kt->tn+1, kt->ts, kt->te, kt->rev);
     }
 
     
