@@ -11,7 +11,7 @@ int main(int argc, char *argv[])
 	int i, ret;
 	yak_reset_realtime();
     init_opt(&asm_opt);
-    if (!CommandLine_process(argc, argv, &asm_opt)) return 1;
+    if (!CommandLine_process(argc, argv, &asm_opt)) return 0;
 	ret = ha_assemble();
     destory_opt(&asm_opt);
 	fprintf(stderr, "[M::%s] Version: %s\n", __func__, HA_VERSION);
