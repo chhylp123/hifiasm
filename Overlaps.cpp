@@ -11200,7 +11200,7 @@ uint32_t only_len)
                         break;
                     }
                 }
-                if(k == nv) fprintf(stderr, "ERROR\n");
+                if(k == nv) fprintf(stderr, "ERROR-set_utg_offset\n");
             }
 
             p_v = v; len += l;
@@ -11272,8 +11272,8 @@ void refine_u_trans_t(u_trans_hit_t *q, kv_ca_buf_t* cb)
         if(si != cb->n && ei != cb->n) break;        
     }
 
-    if(si == 0 || ei == 0) fprintf(stderr, "ERROR\n");
-    if(si >= cb->n || ei >= cb->n) fprintf(stderr, "ERROR\n");
+    if(si == 0 || ei == 0) fprintf(stderr, "ERROR-si-ei-0\n");
+    if(si >= cb->n || ei >= cb->n) fprintf(stderr, "ERROR-si-ei-1\n");
     si--; ei--;
 
     if(s < cb->a[si].c_x_p || ((si + 1) < cb->n && s >= cb->a[si + 1].c_x_p))
@@ -11452,7 +11452,7 @@ uint32_t get_u_trans_hit(u_trans_hit_idx *t, u_trans_hit_t *hit)
                         break;
                     }
                 }
-                if(k == nv) fprintf(stderr, "ERROR\n");
+                if(k == nv) fprintf(stderr, "ERROR-nv\n");
             }
 
             ///[t->cBeg, t->cEnd)
@@ -12762,12 +12762,6 @@ long long gap_fuzz, bub_label_t* b_mask_t)
         if((asm_opt.flag & HA_F_VERBOSE_GFA)) write_trans_chain(cov->t_ch, output_file_name);
     }
 
-    hic_analysis(ug, sg, cov?cov->t_ch:t_ch);
-
-    
-
-
-
     char* gfa_name = (char*)malloc(strlen(output_file_name)+25);
     sprintf(gfa_name, "%s.clean_d_utg.noseq.gfa", output_file_name);
     FILE* output_file = fopen(gfa_name, "w");
@@ -12775,9 +12769,7 @@ long long gap_fuzz, bub_label_t* b_mask_t)
     fclose(output_file);
     free(gfa_name);
 
-
-
-
+    hic_analysis(ug, sg, cov?cov->t_ch:t_ch);
 
     if(cov) destory_hap_cov_t(&cov);
     if(t_ch) destory_trans_chain(&t_ch);
@@ -16593,13 +16585,13 @@ void chain_origin_trans_uid_s_bubble(buf_t *pri, buf_t* aux, uint32_t beg, uint3
     for (i = 0; i < nv; ++i)
     {
         if(av[i].del) continue;
-        if(av[i].v == pri_v) priEnd = pri_len - av[i].ol - 1;
-        if(av[i].v == aux_v) auxEnd = aux_len - av[i].ol - 1;
+        if(av[i].v == pri_v) priEnd = ((pri_len > av[i].ol)? (pri_len - av[i].ol - 1) : 0);
+        if(av[i].v == aux_v) auxEnd = ((aux_len > av[i].ol)? (aux_len - av[i].ol - 1) : 0);
     }
 
     if(priBeg == (uint32_t)-1 || priEnd == (uint32_t)-1 || auxBeg == (uint32_t)-1 || auxEnd == (uint32_t)-1)
     {
-        fprintf(stderr, "ERROR\n");
+        fprintf(stderr, "ERROR-s_bubble\n");
     }
 
     cov->u_buffer.a.n = cov->tailIndex.a.n = 0;
@@ -27629,11 +27621,6 @@ bub_label_t* b_mask_t)
     kv_init(new_rtg_edges.a);
     ma_ug_t *ug = NULL;
     ug = ma_ug_gen_primary(sg, PRIMARY_LABLE);
-
-    // FILE* output_file = fopen("straw-debug.noseq.gfa", "w");
-    // ma_ug_print_simple(ug, &R_INF, sg, coverage_cut, sources, ruIndex, "utg", output_file);
-    // fclose(output_file);
-
 
     hap_cov_t *cov = NULL;
     asg_t *copy_sg = copy_read_graph(sg);

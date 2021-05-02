@@ -175,7 +175,6 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->purge_level_trio = 0;
     asm_opt->purge_simi_rate_l2 = 0.75;
     asm_opt->purge_simi_rate_l3 = 0.55;
-    ///asm_opt->purge_simi_rate_hic = 0.85;
     asm_opt->purge_overlap_len = 1;
     ///asm_opt->purge_overlap_len_hic = 50;
     asm_opt->recover_atg_cov_min = -1024;

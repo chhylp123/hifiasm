@@ -52,6 +52,7 @@ typedef struct {
     uint32_t yUid;
     uint32_t weight;
     long long score;
+    float s;
 }hap_overlaps;
 
 typedef struct {

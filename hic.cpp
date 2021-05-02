@@ -15410,6 +15410,20 @@ void resolve_tangles_hic(ha_ug_index *idx, bubble_type *bub, kvec_pe_hit *hits, 
     ta->idx.n = ta->n = 0;
 }
 
+
+void print_kv_u_trans_t(kv_u_trans_t *ta)
+{
+    uint32_t i;
+    u_trans_t *p = NULL;
+    for (i = 0; i < ta->n; i++)
+    {
+        p = &(ta->a[i]);
+        fprintf(stderr, "q-utg%.6ul\tqs(%u)\tqe(%u)\tt-utg%.6ul\tts(%u)\tte(%u)\trev(%u)\tw(%f)\tf(%u)\n", 
+        p->qn+1, p->qs, p->qe, p->tn+1, p->ts, p->te, p->rev, p->nw, p->f);
+    }
+    fprintf(stderr, "[M::%s::] \n", __func__);
+}
+
 int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx)
 {
     double index_time = yak_realtime();
@@ -15434,6 +15448,7 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx)
     ///debug_hc_hits_v14(&sl.hits, asm_opt.output_file_name, sl.idx);
     ////dedup_hits(&(sl.hits), sl.idx);   
     ///write_hc_hits_v14(&sl.hits, asm_opt.output_file_name);
+    // print_kv_u_trans_t(&(idx->t_ch->k_trans));
 
     hc_links link;
     init_hc_links(&link, idx->ug->g->n_seq, idx->t_ch);

@@ -4,7 +4,7 @@
 #include <pthread.h>
 #include <stdint.h>
 
-#define HA_VERSION "0.15.1-r333"
+#define HA_VERSION "0.15.1-r334"
 
 #define VERBOSE 0
 
@@ -86,6 +86,7 @@ typedef struct {
     float purge_simi_rate_l2;
     float purge_simi_rate_l3;
     float purge_simi_thres;
+
     ///float purge_simi_rate_hic;
 
     long long small_pop_bubble_size;

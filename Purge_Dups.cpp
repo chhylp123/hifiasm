@@ -11,6 +11,7 @@
 #include "rcut.h"
 
 KDQ_INIT(uint64_t)
+KSORT_INIT_GENERIC(uint64_t)
 
 uint8_t debug_enable = 0;
 
@@ -2423,7 +2424,7 @@ uint64_t* position_index, uint32_t xUid, uint32_t yUid, ma_utg_t* xReads, ma_utg
 ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, asg_t *read_g, R_to_U* ruIndex, ma_sub_t *coverage_cut, 
 float Hap_rate, int is_local, int max_hang, int min_ovlp, uint64_t cov_threshold, kvec_asg_arc_t_offset* u_buffer, 
 kvec_t_i32_warp* tailIndex, kvec_t_i32_warp* prevIndex, hap_cov_t *cov, long long* r_x_pos_beg, long long* r_x_pos_end, 
-long long* r_y_pos_beg, long long* r_y_pos_end)
+long long* r_y_pos_beg, long long* r_y_pos_end, float *sim)
 {
     uint32_t max_count = 0, min_count = 0, flag;
     uint32_t xLen = xReads->n, xIndex;
@@ -2537,6 +2538,7 @@ long long* r_y_pos_beg, long long* r_y_pos_end)
 
         get_pair_hap_similarity_by_base(xReads, read_g, yUid, reverse_sources, ruIndex, 
         *r_x_pos_beg, *r_x_pos_end, &xLeftMatch, &xLeftTotal);
+        (*sim) = ((double)xLeftMatch)/((double)xLeftTotal);
         if(xLeftMatch == 0 || xLeftTotal == 0 || xLeftMatch <= xLeftTotal*Hap_rate)
         {
             return NON_PLOID;
@@ -2842,6 +2844,63 @@ int filter_secondary_chain(long long max_score, long long cur_score, double rate
     return 1;
 }
 
+
+void filter_secondary_ovlp(kvec_hap_overlaps *x, kvec_t_u64_warp *a, float sim_flt, float ovlp_flt)
+{
+    if(sim_flt == 0 || ovlp_flt == 0 || x->a.n == 0) return;
+    #define f_ovlp(s_0, e_0, s_1, e_1) ((MIN((e_0), (e_1)) > MAX((s_0), (s_1)))? MIN((e_0), (e_1)) - MAX((s_0), (s_1)):0)
+    uint32_t i, m, k;
+    uint64_t t, ovlp;
+    hap_overlaps *p = NULL;
+    a->a.n = 0;
+    for (i = 0; i < x->a.n; i++)
+    {
+        if(x->a.a[i].s < sim_flt) continue;
+        t = x->a.a[i].x_beg_pos; t<<=32; t |= x->a.a[i].x_end_pos;
+        kv_push(uint64_t, a->a, t);
+    }
+
+    if(a->a.n == 0) return;
+    ks_introsort_uint64_t(a->a.n, a->a.a);
+
+    for (i = m = 1; i < a->a.n; ++i) 
+    {
+        t = a->a.a[m-1];
+        ovlp = f_ovlp(t>>32, (uint32_t)t, a->a.a[i]>>32, (uint32_t)a->a.a[i]);
+        if(ovlp == 0)
+        {
+            a->a.a[m] = a->a.a[i];
+            m++;
+        } 
+        else
+        {
+            t = MIN(a->a.a[m-1]>>32, a->a.a[i]>>32);
+            t<<=32;
+            t |= MAX((uint32_t)a->a.a[m-1], (uint32_t)a->a.a[i]);
+            a->a.a[m-1] = t;
+        }
+    }
+    a->a.n = m;
+
+    for (i = m = 0; i < x->a.n; i++)
+    {
+        p = &(x->a.a[i]);
+        if(p->s < sim_flt)
+        {
+            for (k = ovlp = 0; k < a->a.n; k++)
+            {
+                ovlp += f_ovlp(p->x_beg_pos, p->x_end_pos, a->a.a[k]>>32, (uint32_t)a->a.a[k]);
+                if(ovlp >= ovlp_flt*(p->x_end_pos-p->x_beg_pos)) break;
+            }
+            if(k < a->a.n) continue;
+            if(ovlp >= ovlp_flt*(p->x_end_pos-p->x_beg_pos)) continue;
+        } 
+        x->a.a[m] = x->a.a[i];
+        m++;
+    }
+    x->a.n = m;
+}
+
 static void hap_alignment_advance_worker(void *_data, long eid, int tid)
 {
     hap_alignment_struct_pip* hap_buf = (hap_alignment_struct_pip*)_data;
@@ -2852,7 +2911,7 @@ static void hap_alignment_advance_worker(void *_data, long eid, int tid)
     R_to_U* ruIndex = hap_buf->ruIndex;
     ma_sub_t *coverage_cut = hap_buf->coverage_cut;
     uint64_t* position_index = hap_buf->position_index;
-    float Hap_rate = hap_buf->Hap_rate;
+    float Hap_rate = hap_buf->Hap_rate/**MIN(hap_buf->Hap_rate, 0.2)**/, sim;
     int max_hang = hap_buf->max_hang;
     int min_ovlp = hap_buf->min_ovlp;
     float chain_rate = hap_buf->chain_rate;
@@ -3017,7 +3076,7 @@ static void hap_alignment_advance_worker(void *_data, long eid, int tid)
             if(calculate_pair_hap_similarity_advance(&(u_can->a.a[k]), position_index, xUid, yUid, 
             xReads, yReads, sources, reverse_sources, read_g, ruIndex, coverage_cut, Hap_rate,
             (asm_opt.purge_level_primary<=2? 0:1), max_hang, min_ovlp, cov_threshold, u_buffer, 
-            score_vc, prevIndex_vec, cov, &r_x_pos_beg, &r_x_pos_end, &r_y_pos_beg, &r_y_pos_end)!=PLOID)
+            score_vc, prevIndex_vec, cov, &r_x_pos_beg, &r_x_pos_end, &r_y_pos_beg, &r_y_pos_end, &sim)!=PLOID)
             {
                 continue;
             }
@@ -3050,6 +3109,7 @@ static void hap_alignment_advance_worker(void *_data, long eid, int tid)
             hap_align.xUid = xUid;
             hap_align.yUid = yUid;
             hap_align.status = SELF_EXIST;
+            hap_align.s = sim;
             kv_push(hap_overlaps, all_ovlp->x[hap_align.xUid].a, hap_align);
         }
         /**
@@ -3091,7 +3151,7 @@ static void hap_alignment_advance_worker(void *_data, long eid, int tid)
             all_ovlp->x[xUid].a.n = m + 1;
         }
     }
-
+    // filter_secondary_ovlp(&all_ovlp->x[xUid], u_vecs, hap_buf->Hap_rate, 0.7);
 }
 
 int get_specific_hap_overlap(kvec_hap_overlaps* x, uint32_t qn, uint32_t tn)
@@ -4513,7 +4573,6 @@ void print_all_purge_ovlp(ma_ug_t *ug, hap_overlaps_list* all_ovlp, const char* 
     for (v = 0; v < all_ovlp->num; v++)
     {
         uId = v;
-        ///if(uId != 96 && uId != 272) continue;
         for (i = 0; i < all_ovlp->x[uId].a.n; i++)
         {
             print_hap_paf(ug, &(all_ovlp->x[uId].a.a[i]));
@@ -5242,7 +5301,6 @@ uint32_t just_coverage, hap_cov_t *cov, uint32_t collect_p_trans, uint32_t colle
     if(asm_opt.polyploidy <= 2)
     {
         mc_solve(&all_ovlp, cov->t_ch, NULL, ug, read_g, 0.8, R_INF.trio_flag, 1, NULL, 1, NULL, NULL);
-        ///pt_solve(&all_ovlp, cov->t_ch, ug, read_g, 0.8, R_INF.trio_flag);
     } 
     
     if(collect_p_trans && collect_p_trans_f == 1)
