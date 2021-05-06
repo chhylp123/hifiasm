@@ -74,5 +74,8 @@ void get_bub_id(bubble_type* bub, uint32_t root, uint64_t* id0, uint64_t* id1, u
 void update_bubble_chain(ma_ug_t* ug, bubble_type* bub, uint32_t is_middle, uint32_t is_end);
 void set_b_utg_weight_flag(bubble_type* bub, buf_t* b, uint32_t v, uint8_t* vis_flag, uint32_t flag, uint32_t* occ);
 void debug_gfa_space(ma_ug_t* ug, hap_cov_t *cov);
+void init_ug_idx(ma_ug_t *ug, uint64_t k, uint64_t up_bound, uint64_t low_bound, uint64_t build_idx);
+void des_ug_idx();
+uint64_t count_unique_k_mers(char *r, uint64_t len, uint64_t query, uint64_t target, uint64_t *all, uint64_t *found);
 
 #endif

@@ -153,7 +153,7 @@ typedef struct {
     uint64_t pre;
     uint64_t tot;
     uint64_t tot_pos;
-    uint64_t up_bound;
+    uint64_t up_bound, low_bound;
     hc_pt1_t* idx_buf;
     long double a, b, frac, max_d;
 } ha_ug_index;
@@ -310,7 +310,8 @@ void print_debug_bubble_graph(bubble_type* bub, ma_ug_t* ug, const char *fn);
 
 void build_bub_graph(ma_ug_t* ug, bubble_type* bub);
 
-void init_ha_ug_index_opt(ha_ug_index* idx, ma_ug_t *ug, int k, pldat_t* p)
+void init_ha_ug_index_opt(ha_ug_index* idx, ma_ug_t *ug, int k, pldat_t* p, uint64_t up_occ, 
+uint64_t low_occ, uint64_t thread_num)
 {
     uint64_t i, n;
     for (idx->uID_bits=1; (uint64_t)(1<<idx->uID_bits)<(uint64_t)ug->u.n; idx->uID_bits++);
@@ -324,7 +325,8 @@ void init_ha_ug_index_opt(ha_ug_index* idx, ma_ug_t *ug, int k, pldat_t* p)
     idx->tot = 1 << idx->pre;
     idx->tot_pos = 0;
     ///idx->up_bound = 1;
-    idx->up_bound = asm_opt.hap_occ;
+    idx->up_bound = up_occ;
+    idx->low_bound = low_occ;
     CALLOC(idx->idx_buf, idx->tot);
     for (i = 0; i < idx->tot; i++)
     {
@@ -344,7 +346,7 @@ void init_ha_ug_index_opt(ha_ug_index* idx, ma_ug_t *ug, int k, pldat_t* p)
         kv_init(p->cnt[i].a);
         kv_init(p->buf[i].a);
     }
-    p->n_thread = asm_opt.thread_num;
+    p->n_thread = thread_num;
 }
 
 inline uint64_t get_k_direction(uint64_t x[4])
@@ -463,16 +465,17 @@ void test_unitig_index(ha_ug_index* idx, ma_ug_t *ug)
     fprintf(stderr, "[M::%s::%.3f] ==> Test has been passed\n", __func__, yak_realtime()-index_time);
 }
 
-void hc_pt_t_gen_single(hc_pt1_t* pt, uint64_t* up_bound)
+void hc_pt_t_gen_single(hc_pt1_t* pt, uint64_t* up_bound, uint64_t* low_bound)
 {
     khint_t k;
     uint64_t c;
 
-    if(up_bound)
+    if(up_bound || low_bound)
     {
         for (k = 0; k != kh_end(pt->h); ++k) {
             if (kh_exist(pt->h, k)) {
-                if(kh_val(pt->h, k) > (*up_bound))
+                if((up_bound && kh_val(pt->h, k) > (*up_bound)) || 
+                            (low_bound && kh_val(pt->h, k) < (*low_bound)))
                 {
                     kh_val(pt->h, k) = 0;
                     kh_key(pt->h, k) = (kh_key(pt->h, k)&HIC_KEY_MODE)|
@@ -614,7 +617,7 @@ void hc_pt_t_gen(ha_ug_index* idx, pldat_t* pl)
         uint64_t i;
         for (i = 0; i < idx->tot; i++)
         {
-            hc_pt_t_gen_single(&(idx->idx_buf[i]), &(idx->up_bound));
+            hc_pt_t_gen_single(&(idx->idx_buf[i]), &(idx->up_bound), &(idx->low_bound));
         }
     }
     else
@@ -785,12 +788,12 @@ void parallel_count_hc_pt1(pldat_t* pl)
     }
 }
 
-ha_ug_index* build_unitig_index(ma_ug_t *ug, int k)
+ha_ug_index* build_unitig_index(ma_ug_t *ug, int k, uint64_t up_occ, uint64_t low_occ, uint64_t thread_num)
 {
     ha_ug_index* idx = NULL; CALLOC(idx, 1);
     pldat_t pl; pl.h = idx; pl.is_cnt = 1;
     double index_time = yak_realtime(), beg_time;
-    init_ha_ug_index_opt(idx, ug, k, &pl);
+    init_ha_ug_index_opt(idx, ug, k, &pl, up_occ, low_occ, thread_num);
 
     beg_time = yak_realtime();
     pl.is_cnt = 1;
@@ -15250,7 +15253,7 @@ void verbose_het_stat(bubble_type *bub)
     fprintf(stderr, "[M::stat] # heterozygous bases: %lu; # homozygous bases: %lu\n", hetBase, homBase);
 }
 
-void debug_output_disconnected_hits(ha_ug_index* idx, kvec_pe_hit *hits, hc_links *link, bubble_type *bub)
+void debug_output_disconnected_hits(ha_ug_index* idx, kv_u_trans_t *ta, kvec_pe_hit *hits, hc_links *link, bubble_type *bub, int8_t *s)
 {
     uint32_t k, l, i, m, h_occ;
     uint64_t shif = 64 - idx->uID_bits, qn, tn, u_dis;
@@ -15328,22 +15331,26 @@ void debug_output_disconnected_hits(ha_ug_index* idx, kvec_pe_hit *hits, hc_link
             u_dis = (t->e.a[k].dis ==(uint64_t)-1? (uint64_t)-1 : t->e.a[k].dis>>3);
             break;
         }
+        get_u_trans_spec(ta, qn, tn, &p, NULL);
 
-        fprintf(stderr, "s-utg%.6lul<--->d-utg%.6lul(occ: %u):(dis-%lu)\n", qn + 1, tn + 1, 
-        ((uint32_t)-1) - k_trans.a[i].occ, u_dis);
+        fprintf(stderr, "s-utg%.6lul[hap-%d]<--->d-utg%.6lul[hap-%d](occ: %u, ",
+        qn + 1, s[qn], tn + 1, s[tn], ((uint32_t)-1) - k_trans.a[i].occ);
+        if(p) fprintf(stderr, "weight: %f", p->nw);
+        else fprintf(stderr, "weight: NA");
+        fprintf(stderr, "):(dis-%lu)\n", u_dis);
     }
 
-    fprintf(stderr, "########hits########\n");
-    char dir[2] = {'+', '-'};
-    for (k = 0; k < hits->a.n; ++k) 
-    { 
-        fprintf(stderr, "%c\tutg%.6dl(len-%u)\t%lu\t%c\tutg%.6dl(len-%u)\t%lu\ti:%lu\n", 
-        dir[hits->a.a[k].s>>63], (int)((hits->a.a[k].s<<1)>>shif)+1, 
-        idx->ug->g->seq[((hits->a.a[k].s<<1)>>shif)].len, hits->a.a[k].s&idx->pos_mode,
-        dir[hits->a.a[k].e>>63], (int)((hits->a.a[k].e<<1)>>shif)+1, 
-        idx->ug->g->seq[((hits->a.a[k].e<<1)>>shif)].len, hits->a.a[k].e&idx->pos_mode,
-        hits->a.a[k].id);        
-    }
+    // fprintf(stderr, "########hits########\n");
+    // char dir[2] = {'+', '-'};
+    // for (k = 0; k < hits->a.n; ++k) 
+    // { 
+    //     fprintf(stderr, "%c\tutg%.6dl(len-%u)\t%lu\t%c\tutg%.6dl(len-%u)\t%lu\ti:%lu\n", 
+    //     dir[hits->a.a[k].s>>63], (int)((hits->a.a[k].s<<1)>>shif)+1, 
+    //     idx->ug->g->seq[((hits->a.a[k].s<<1)>>shif)].len, hits->a.a[k].s&idx->pos_mode,
+    //     dir[hits->a.a[k].e>>63], (int)((hits->a.a[k].e<<1)>>shif)+1, 
+    //     idx->ug->g->seq[((hits->a.a[k].e<<1)>>shif)].len, hits->a.a[k].e&idx->pos_mode,
+    //     hits->a.a[k].id);        
+    // }
     kv_destroy(k_trans);
 }
 
@@ -15482,7 +15489,7 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx)
         /*******************************for debug************************************/
         // if(bub.round_id == bub.n_round - 1)
         // {
-        //     debug_output_disconnected_hits(idx, &sl.hits, &link, &bub);
+        //     debug_output_disconnected_hits(idx, &k_trans, &sl.hits, &link, &bub, s->s);
         // }
         /*******************************for debug************************************/
         /**
@@ -15540,7 +15547,7 @@ void hic_analysis(ma_ug_t *ug, asg_t* read_g, trans_chain* t_ch)
     ug_index = NULL;
     int exist = (asm_opt.load_index_from_disk? 
                     load_hc_pt_index(&ug_index, asm_opt.output_file_name) : 0);
-    if(exist == 0) ug_index = build_unitig_index(ug, asm_opt.hic_mer_length);
+    if(exist == 0) ug_index = build_unitig_index(ug, asm_opt.hic_mer_length, asm_opt.hap_occ, 0, asm_opt.thread_num);
     if(exist == 0) write_hc_pt_index(ug_index, asm_opt.output_file_name);
     ug_index->ug = ug;
     ug_index->read_g = read_g;
@@ -15550,6 +15557,64 @@ void hic_analysis(ma_ug_t *ug, asg_t* read_g, trans_chain* t_ch)
     
     destory_hc_pt_index(ug_index);
 }
+
+void init_ug_idx(ma_ug_t *ug, uint64_t k, uint64_t up_bound, uint64_t low_bound, uint64_t build_idx)
+{
+    ug_index = NULL;
+    if(build_idx)
+    {
+        ug_index = build_unitig_index(ug, k, up_bound, low_bound, asm_opt.thread_num);
+    }
+}
+
+void des_ug_idx()
+{
+    destory_hc_pt_index(ug_index);
+}
+
+uint64_t count_unique_k_mers(char *r, uint64_t len, uint64_t query, uint64_t target, uint64_t *all, uint64_t *found)
+{
+    if(!ug_index) return 0;
+    uint64_t i, j, l = 0, skip, *pos_list = NULL, cnt, uID, is_q, k_mer = ug_index->k;
+    uint64_t x[4], mask = (1ULL<<k_mer) - 1, shift = k_mer - 1, hash;
+    (*all) = (*found) = 0;
+    for (i = l = 0, x[0] = x[1] = x[2] = x[3] = 0; i < len; ++i) {
+        int c = seq_nt4_table[(uint8_t)r[i]];
+        ///c = 00, 01, 10, 11
+        if (c < 4) { // not an "N" base
+            ///x[0] & x[1] are the forward k-mer
+            ///x[2] & x[3] are the reverse complementary k-mer
+            x[0] = (x[0] << 1 | (c&1))  & mask;
+            x[1] = (x[1] << 1 | (c>>1)) & mask;
+            x[2] = x[2] >> 1 | (uint64_t)(1 - (c&1))  << shift;
+            x[3] = x[3] >> 1 | (uint64_t)(1 - (c>>1)) << shift;
+            if (++l >= k_mer)
+            {
+                hash = hc_hash_long(x, &skip, k_mer);
+                if(skip == (uint64_t)-1) continue;
+                cnt = get_hc_pt1_count((ha_ug_index*)ug_index, hash, &pos_list);
+                if(cnt <= 0) continue;
+                
+                for (j = 0, is_q = 0; j < cnt; j++)
+                {
+                    uID = (pos_list[j] << 1) >> (64 - ug_index->uID_bits);
+                    if(query == uID) is_q = 1;
+                    if(target == uID) break;
+                }
+
+                if(is_q)
+                {
+                    (*found)++;
+                    if(j < cnt) (*all)++;
+                }
+            }
+            
+        } else l = 0, x[0] = x[1] = x[2] = x[3] = 0; // if there is an "N", restart
+    }
+
+    return 1;
+}
+
 
 typedef struct{
     //[uID_start, uID_end)
@@ -15958,7 +16023,7 @@ void hic_benchmark(ma_ug_t *ug, asg_t* read_g)
 	sprintf(output_file_name, "%s.bench", asm_opt.output_file_name);
     ug_index = NULL;
     int exist = load_hc_pt_index(&ug_index, output_file_name);
-    if(exist == 0) ug_index = build_unitig_index(ug, asm_opt.hic_mer_length);
+    if(exist == 0) ug_index = build_unitig_index(ug, asm_opt.hic_mer_length, asm_opt.hap_occ, 0, asm_opt.thread_num);
     if(exist == 0) write_hc_pt_index(ug_index, output_file_name);
     ug_index->ug = ug;
     ug_index->read_g = read_g;

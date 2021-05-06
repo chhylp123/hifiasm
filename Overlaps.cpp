@@ -8994,8 +8994,8 @@ UC_Read* r_read, UC_Read* q_read, int max_hang, int min_ovlp, kvec_asg_arc_t_war
 
 
 // generate unitig sequences
-int ma_ug_seq(ma_ug_t *g, asg_t *read_g, All_reads *RNF, ma_sub_t *coverage_cut,
-ma_hit_t_alloc* sources, kvec_asg_arc_t_warp* edge, int max_hang, int min_ovlp, kvec_asg_arc_t_warp *E)
+int ma_ug_seq(ma_ug_t *g, asg_t *read_g, ma_sub_t *coverage_cut, ma_hit_t_alloc* sources, 
+kvec_asg_arc_t_warp* edge, int max_hang, int min_ovlp, kvec_asg_arc_t_warp *E, uint32_t is_polish)
 {
     UC_Read g_read;
     init_UC_Read(&g_read);
@@ -9013,8 +9013,12 @@ ma_hit_t_alloc* sources, kvec_asg_arc_t_warp* edge, int max_hang, int min_ovlp, 
 	for (i = 0; i < g->u.n; ++i) {
 		ma_utg_t *u = &g->u.a[i];
         if(u->m == 0) continue;
-        polish_unitig(u, read_g, sources, coverage_cut, edge, max_hang, min_ovlp, E);
-        polish_unitig_advance(u, read_g, RNF, sources, coverage_cut, edge, &g_read, &tmp, max_hang, min_ovlp, E);
+        if(is_polish)
+        {
+            polish_unitig(u, read_g, sources, coverage_cut, edge, max_hang, min_ovlp, E);
+            polish_unitig_advance(u, read_g, &R_INF, sources, coverage_cut, edge, &g_read, &tmp, max_hang, min_ovlp, E);
+        }
+        
         g->g->seq[i].len = u->len;
 
 		uint32_t l = 0;
@@ -9031,12 +9035,12 @@ ma_hit_t_alloc* sources, kvec_asg_arc_t_warp* edge, int max_hang, int min_ovlp, 
             if(eLen == 0) continue;
             if(rId < read_g->r_seq)
             {
-                recover_UC_Read(&g_read, RNF, rId);
+                recover_UC_Read(&g_read, &R_INF, rId);
             }
             else
             {
                 recover_fake_read(&g_read, &tmp, &(read_g->F_seq[rId-read_g->r_seq]),
-                RNF, coverage_cut);
+                &R_INF, coverage_cut);
             }
 
             readS = g_read.seq + coverage_cut[rId].s;
@@ -12153,7 +12157,7 @@ ma_hit_t_alloc* sources, R_to_U* ruIndex, int max_hang, int min_ovlp)
 
     ma_ug_t *ug = NULL;
     ug = ma_ug_gen(sg);
-    ma_ug_seq(ug, sg, &R_INF, coverage_cut, sources, &new_rtg_edges, max_hang, min_ovlp, 0);
+    ma_ug_seq(ug, sg, coverage_cut, sources, &new_rtg_edges, max_hang, min_ovlp, 0, 1);
 
     fprintf(stderr, "Writing raw unitig GFA to disk... \n");
     char* gfa_name = (char*)malloc(strlen(output_file_name)+25);
@@ -12493,7 +12497,7 @@ ma_hit_t_alloc* sources, R_to_U* ruIndex, int max_hang, int min_ovlp, kvec_asg_a
         NULL, &asm_opt.b_high_cov, asm_opt.m_rate);
     }
 
-    ma_ug_seq(ug, sg, &R_INF, coverage_cut, sources, new_rtg_edges, max_hang, min_ovlp, 0);
+    ma_ug_seq(ug, sg, coverage_cut, sources, new_rtg_edges, max_hang, min_ovlp, 0, 1);
 
     
     char* gfa_name = (char*)malloc(strlen(output_file_name)+35);
@@ -12723,7 +12727,7 @@ long long gap_fuzz, bub_label_t* b_mask_t)
     ug = ma_ug_gen_primary(sg, PRIMARY_LABLE);
 
     new_rtg_edges.a.n = 0;
-    ma_ug_seq(ug, sg, &R_INF, coverage_cut, sources, &new_rtg_edges, max_hang, min_ovlp, &d_edges);///polish
+    ma_ug_seq(ug, sg, coverage_cut, sources, &new_rtg_edges, max_hang, min_ovlp, &d_edges, 1);///polish
     
 
     hap_cov_t *cov = NULL;
@@ -12763,7 +12767,7 @@ long long gap_fuzz, bub_label_t* b_mask_t)
     }
 
     char* gfa_name = (char*)malloc(strlen(output_file_name)+25);
-    sprintf(gfa_name, "%s.clean_d_utg.noseq.gfa", output_file_name);
+    sprintf(gfa_name, "%s.pre.clean_d_utg.noseq.gfa", output_file_name);
     FILE* output_file = fopen(gfa_name, "w");
     ma_ug_print_simple(ug, &R_INF, sg, coverage_cut, sources, ruIndex, "utg", output_file);
     fclose(output_file);
@@ -12773,6 +12777,14 @@ long long gap_fuzz, bub_label_t* b_mask_t)
 
     if(cov) destory_hap_cov_t(&cov);
     if(t_ch) destory_trans_chain(&t_ch);
+
+
+    gfa_name = (char*)malloc(strlen(output_file_name)+25);
+    sprintf(gfa_name, "%s.after.clean_d_utg.noseq.gfa", output_file_name);
+    output_file = fopen(gfa_name, "w");
+    ma_ug_print_simple(ug, &R_INF, sg, coverage_cut, sources, ruIndex, "utg", output_file);
+    fclose(output_file);
+    free(gfa_name);
 
     ma_ug_destroy(ug);
     kv_destroy(new_rtg_edges.a); 
@@ -13752,7 +13764,7 @@ ma_hit_t_alloc* sources, R_to_U* ruIndex, int max_hang, int min_ovlp)
         }
     }
 
-    ma_ug_seq(ug, read_g, &R_INF, coverage_cut, sources, &new_rtg_edges, max_hang, min_ovlp, 0);
+    ma_ug_seq(ug, read_g, coverage_cut, sources, &new_rtg_edges, max_hang, min_ovlp, 0, 1);
 
     fprintf(stderr, "Writing raw unitig GFA to disk... \n");
     char* gfa_name = (char*)malloc(strlen(output_file_name)+25);
@@ -16160,7 +16172,7 @@ float chimeric_rate, float drop_ratio, int max_hang, int min_ovlp, int is_bench,
     ///debug_utg_graph(ug, sg, 0, 0);
     ///debug_untig_length(ug, tipsLen, gfa_name);
     ///print_untig_by_read(ug, "m64011_190901_095311/125831121/ccs", 2310925, "end");
-    ma_ug_seq(ug, sg, &R_INF, coverage_cut, sources, &new_rtg_edges, max_hang, min_ovlp, 0);
+    ma_ug_seq(ug, sg, coverage_cut, sources, &new_rtg_edges, max_hang, min_ovlp, 0, 1);
     if(is_bench)
     {
         free(gfa_name);
@@ -18828,24 +18840,6 @@ long long asg_arc_del_simple_circle_untig(ma_hit_t_alloc* sources, ma_sub_t* cov
     }
 
     return n_reduced;
-}
-
-
-
-uint32_t* build_unitig_index(asg_t *sg, ma_ug_t *ug)
-{
-    if(sg == NULL && ug == NULL) return NULL;
-    uint32_t* index = (uint32_t*)calloc(sg->n_seq, sizeof(uint32_t));
-    uint32_t i, j;
-    for (i = 0; i < ug->u.n; ++i) 
-    {
-        ma_utg_t *u = &(ug->u.a[i]);
-        for (j = 0; j < u->n; j++)
-        {
-            index[(u->a[j]>>33)] = i;
-        }
-    }
-    return index;
 }
 
 
@@ -24049,7 +24043,7 @@ R_to_U* ruIndex, int max_hang, int min_ovlp)
     }
     
 
-    ma_ug_seq(ug, sg, &R_INF, coverage_cut, sources, &new_rtg_edges, max_hang, min_ovlp, 0);
+    ma_ug_seq(ug, sg, coverage_cut, sources, &new_rtg_edges, max_hang, min_ovlp, 0, 1);
 
     fprintf(stderr, "Writing processed unitig GFA to disk... \n");
     char* gfa_name = (char*)malloc(strlen(output_file_name)+35);
@@ -24100,7 +24094,7 @@ R_to_U* ruIndex, float chimeric_rate, float drop_ratio, int max_hang, int min_ov
         break_ug_contig(&ug, sg, &R_INF, coverage_cut, sources, ruIndex, &new_rtg_edges, max_hang, min_ovlp, 
         NULL, &asm_opt.b_high_cov, asm_opt.m_rate);
     }
-    ma_ug_seq(ug, sg, &R_INF, coverage_cut, sources, &new_rtg_edges, max_hang, min_ovlp, 0);
+    ma_ug_seq(ug, sg, coverage_cut, sources, &new_rtg_edges, max_hang, min_ovlp, 0, 1);
     
     
     fprintf(stderr, "Writing primary contig GFA to disk... \n");
@@ -24144,7 +24138,7 @@ ma_hit_t_alloc* sources, R_to_U* ruIndex, int max_hang, int min_ovlp)
     //     break_ug_contig(&ug, sg, &R_INF, coverage_cut, sources, ruIndex, &new_rtg_edges, max_hang, min_ovlp, asm_opt.b_low_cov);
     // }
 
-    ma_ug_seq(ug, sg, &R_INF, coverage_cut, sources, &new_rtg_edges, max_hang, min_ovlp, 0);
+    ma_ug_seq(ug, sg, coverage_cut, sources, &new_rtg_edges, max_hang, min_ovlp, 0, 1);
 
     fprintf(stderr, "Writing alternate contig GFA to disk... \n");
     char* gfa_name = (char*)malloc(strlen(output_file_name)+35);

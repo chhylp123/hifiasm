@@ -1192,6 +1192,8 @@ ma_ug_t *ug, uint32_t flag, double overall_score, const char* cmd);
 int asg_arc_del_trans(asg_t *g, int fuzz);
 void kt_u_trans_t_idx(kv_u_trans_t *ta, uint32_t n);
 uint32_t get_u_trans_spec(kv_u_trans_t *ta, uint32_t qn, uint32_t tn, u_trans_t **r_a, uint32_t *occ);
+int ma_ug_seq(ma_ug_t *g, asg_t *read_g, ma_sub_t *coverage_cut, ma_hit_t_alloc* sources, 
+kvec_asg_arc_t_warp* edge, int max_hang, int min_ovlp, kvec_asg_arc_t_warp *E, uint32_t is_polish);
 
 #define JUNK_COV 5
 #define DISCARD_RATE 0.8
