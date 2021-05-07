@@ -2242,10 +2242,10 @@ uint32_t* xBeg, uint32_t* xEnd, uint32_t* yBeg, uint32_t* yEnd)
 KRADIX_SORT_INIT(i32, int32_t, generic_key, sizeof(int32_t))
 
 long long get_chain_score(ma_utg_t *xReads, asg_t *read_g, kvec_asg_arc_t_offset* u_buffer, kvec_t_i32_warp* tailIndex, kvec_t_i32_warp* idx, 
-ma_hit_t_alloc* reverse_sources, long long xBegPos, long long xEndPos, uint32_t xUid, uint32_t yUid)
+ma_hit_t_alloc* reverse_sources, long long xBegPos, long long xEndPos)
 {
     long long offset, r_beg, r_end, inp_beg, inp_end, hap_beg, hap_end, inp_match, hap_match, ovlp;
-    uint64_t i, k, rId, all, found;
+    uint64_t i, k, rId;
     idx->a.n = 0;
     
     for (i = k = 0; i < tailIndex->a.n; i++)
@@ -2331,19 +2331,8 @@ ma_hit_t_alloc* reverse_sources, long long xBegPos, long long xEndPos, uint32_t 
     // if(inp_match > hap_match) fprintf(stderr, "ERROR3\n");
     // fprintf(stderr, "tailIndex->a.n: %u, xReads->n: %u, total_match: %lld, hap_match: %lld, inp_match: %lld\n", 
     //                     tailIndex->a.n, xReads->n, (xEndPos - xBegPos + 1), hap_match, inp_match);
-    double base_w = 0, k_w = 1;
-    base_w = ((double)(inp_match)*CHAIN_MATCH) - ((double)(hap_match-inp_match)*CHAIN_UNMATCH);
-    if(base_w <= 0) return base_w; ///hard filter
 
-    if(!count_unique_k_mers(xReads->s + xBegPos, xEndPos+1-xBegPos, xUid, yUid, &all, &found))
-    {
-        return base_w;
-    }
-
-    if(all > 0) k_w += ((double)(found)/(double)(all));
-
-    return (base_w*k_w)/2;
-    // return ((double)(inp_match)*CHAIN_MATCH) - ((double)(hap_match-inp_match)*CHAIN_UNMATCH);
+    return ((double)(inp_match)*CHAIN_MATCH) - ((double)(hap_match-inp_match)*CHAIN_UNMATCH);
 }
 
 
@@ -2389,7 +2378,7 @@ kvec_t_i32_warp* prevIndex, long long* r_x_pos_beg, long long* r_x_pos_end, long
     hap_can->weight = xLeftMatch;
     hap_can->index_beg = xLeftTotal;
     hap_can->score = get_chain_score(xReads, read_g, u_buffer, tailIndex, prevIndex, reverse_sources, 
-                                                                        (*r_x_pos_beg), (*r_x_pos_end), xUid, yUid);
+                                                                        (*r_x_pos_beg), (*r_x_pos_end));
     if(hap_can->score <= 0) return (uint32_t)-1;
     return hap_can->index_end;
 }
@@ -2429,6 +2418,18 @@ long long* r_x_pos_beg, long long* r_x_pos_end, long long* r_y_pos_beg, long lon
     r_x_pos_beg, r_x_pos_end, r_y_pos_beg, r_y_pos_end);
 }
 
+void adjust_hap_overlaps_score(ma_utg_t* xReads, float *sim, long long *score, 
+long long xUid, long long yUid, long long xBeg, long long xEnd)
+{
+    uint64_t all, found;
+    if(count_unique_k_mers(xReads->s + xBeg, xEnd+1-xBeg, xUid, yUid, &all, &found))
+    {
+        double k_w = 1;
+        if(sim) (*sim) = MAX((*sim), (all == 0?0:(((double)found)/((double)all))));
+        if(all) k_w += ((double)(found)/(double)(all));
+        if(score) (*score) = ((*score)*k_w)/2;
+    }
+}
 
 uint32_t calculate_pair_hap_similarity_advance(hap_candidates* hap_can, 
 uint64_t* position_index, uint32_t xUid, uint32_t yUid, ma_utg_t* xReads, ma_utg_t* yReads,
@@ -2549,17 +2550,13 @@ long long* r_y_pos_beg, long long* r_y_pos_end, float *sim)
 
         get_pair_hap_similarity_by_base(xReads, read_g, yUid, reverse_sources, ruIndex, 
         *r_x_pos_beg, *r_x_pos_end, &xLeftMatch, &xLeftTotal);
-        (*sim) = ((double)xLeftMatch)/((double)xLeftTotal);
-        if(xLeftMatch == 0 || xLeftTotal == 0 || xLeftMatch <= xLeftTotal*Hap_rate)
+        (*sim) = (xLeftTotal== 0? 0:((double)xLeftMatch)/((double)xLeftTotal));
+
+        // adjust_hap_overlaps_score(xReads, sim, &(hap_can->score), xUid, yUid, (*r_x_pos_beg), (*r_x_pos_end));
+
+        if(xLeftMatch == 0 || xLeftTotal == 0 || (*sim) <= Hap_rate)
         {
-            uint64_t all, found;
-            if(!count_unique_k_mers(xReads->s + (*r_x_pos_beg), (*r_x_pos_end)+1-(*r_x_pos_beg), 
-                                                                        xUid, yUid, &all, &found))
-            {
-                return NON_PLOID;
-            }
-            (*sim) = MAX((*sim), (((double)found)/((double)all)));
-            if(found == 0 || all == 0 || found <= all*Hap_rate) return NON_PLOID;
+            return NON_PLOID;
         }
 
         return PLOID;
@@ -5131,7 +5128,6 @@ void destory_p_g_t(p_g_t **pg)
     }
 }
 
-
 void chain_origin_trans_uid_by_purge(hap_overlaps *x, ma_ug_t *ug, hap_cov_t *cov, uint64_t* position_index)
 {
     uint32_t pri_uid, aux_uid, r_x, r_y;
@@ -5146,17 +5142,30 @@ void chain_origin_trans_uid_by_purge(hap_overlaps *x, ma_ug_t *ug, hap_cov_t *co
     cov->max_hang, cov->min_ovlp, x->xUid, x->yUid, &(cov->u_buffer), &(cov->tailIndex), 
     &(cov->prevIndex), &x_pos_beg, &x_pos_end, &y_pos_beg, &y_pos_end);
 
+    // if(r_x != (uint32_t)-1)
+    // {
+    //     adjust_hap_overlaps_score(&(ug->u.a[x->xUid]), NULL, &(hap_for.score), 
+    //     x->xUid, x->yUid, x_pos_beg, x_pos_end);
+    // }   
+    
+
     Get_rev(hap_rev) = x->rev;
     Get_x_beg(hap_rev) = x->y_beg_id; Get_x_end(hap_rev) = x->y_end_id - 1;
     Get_y_beg(hap_rev) = x->x_beg_id; Get_y_end(hap_rev) = x->x_end_id - 1;
     r_y = determine_hap_overlap_type_advance(&hap_rev, &(ug->u.a[x->yUid]), &(ug->u.a[x->xUid]),
     cov->ruIndex, cov->reverse_sources, cov->coverage_cut, cov->read_g, position_index, 
     cov->max_hang, cov->min_ovlp, x->yUid, x->xUid, &(cov->u_buffer), &(cov->tailIndex), 
-    &(cov->prevIndex), &x_pos_beg, &x_pos_end, &y_pos_beg, &y_pos_end);
+    &(cov->prevIndex), &y_pos_beg, &y_pos_end, &x_pos_beg, &x_pos_end);
+
+    // if(r_y != (uint32_t)-1)
+    // {
+    //     adjust_hap_overlaps_score(&(ug->u.a[x->yUid]), NULL, &(hap_rev.score), 
+    //     x->yUid, x->xUid, y_pos_beg, y_pos_end);
+    // }
 
     if(r_x == (uint32_t)-1 && r_y == (uint32_t)-1)
     {
-        fprintf(stderr, "ERROR\n");
+        fprintf(stderr, "ERROR-purge\n");
         return;
     }
 
@@ -5193,6 +5202,9 @@ void chain_origin_trans_uid_by_purge(hap_overlaps *x, ma_ug_t *ug, hap_cov_t *co
     cov->ruIndex, cov->reverse_sources, cov->coverage_cut, cov->read_g, position_index, 
     cov->max_hang, cov->min_ovlp, pri_uid, aux_uid, &(cov->u_buffer), &(cov->tailIndex), 
     &(cov->prevIndex), &x_pos_beg, &x_pos_end, &y_pos_beg, &y_pos_end);
+
+    // adjust_hap_overlaps_score(&(ug->u.a[pri_uid]), NULL, &(hap->score), 
+    // pri_uid, aux_uid, x_pos_beg, x_pos_end);
 
     uint64_t pri_len = ug->u.a[pri_uid].len, aux_len = ug->u.a[aux_uid].len;
     pri_uid <<= 1; aux_uid <<= 1; aux_uid += hap->rev;
@@ -5281,11 +5293,11 @@ uint32_t just_coverage, hap_cov_t *cov, uint32_t collect_p_trans, uint32_t colle
         }
     }
 
-    if(just_coverage == 0)
-    {
-        ma_ug_seq(ug, read_g, coverage_cut, sources, edge, max_hang, min_ovlp, 0, 0);
-    }
-    init_ug_idx(ug, asm_opt.k_mer_length, asm_opt.polyploidy, 2, !just_coverage);
+    // if(just_coverage == 0)
+    // {
+    //     ma_ug_seq(ug, read_g, coverage_cut, sources, edge, max_hang, min_ovlp, 0, 0);
+    // }
+    // init_ug_idx(ug, asm_opt.k_mer_length, asm_opt.polyploidy, 2, !just_coverage);
     
     init_hap_alignment_struct_pip(&hap_buf, asm_opt.thread_num, nsg->n_seq, ug, read_g,  
     sources, reverse_sources, ruIndex, coverage_cut, position_index, density, max_hang, min_ovlp, 
@@ -5415,13 +5427,13 @@ uint32_t just_coverage, hap_cov_t *cov, uint32_t collect_p_trans, uint32_t colle
     else free(position_index);
     destory_hap_alignment_struct_pip(&hap_buf);
     destory_p_g_t(&pg);
-    if(just_coverage == 0)
-    {
-        des_ug_idx();
-        for (i = 0; i < ug->u.n; i++)
-        {
-            free(ug->u.a[i].s);
-            ug->u.a[i].s = NULL;
-        }
-    }
+    // if(just_coverage == 0)
+    // {
+    //     des_ug_idx();
+    //     for (i = 0; i < ug->u.n; i++)
+    //     {
+    //         free(ug->u.a[i].s);
+    //         ug->u.a[i].s = NULL;
+    //     }
+    // }
 }
