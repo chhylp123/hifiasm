@@ -1195,6 +1195,28 @@ uint32_t get_u_trans_spec(kv_u_trans_t *ta, uint32_t qn, uint32_t tn, u_trans_t 
 int ma_ug_seq(ma_ug_t *g, asg_t *read_g, ma_sub_t *coverage_cut, ma_hit_t_alloc* sources, 
 kvec_asg_arc_t_warp* edge, int max_hang, int min_ovlp, kvec_asg_arc_t_warp *E, uint32_t is_polish);
 
+
+typedef struct{
+    ma_sub_t* coverage_cut;
+    ma_hit_t_alloc* sources; 
+    ma_hit_t_alloc* reverse_sources; 
+    long long tipsLen; 
+    float tip_drop_ratio; 
+    long long stops_threshold; 
+    R_to_U* ruIndex; 
+    float chimeric_rate;
+    float drop_ratio; 
+    int max_hang;
+    int min_ovlp;
+    int is_bench;
+    bub_label_t* b_mask_t;
+}ug_opt_t;
+
+void adjust_utg_by_trio(ma_ug_t **ug, asg_t* read_g, uint8_t flag, float drop_rate,
+ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, ma_sub_t* coverage_cut, 
+long long tipsLen, float tip_drop_ratio, long long stops_threshold, 
+R_to_U* ruIndex, float chimeric_rate, float drop_ratio, int max_hang, int min_ovlp,
+kvec_asg_arc_t_warp* new_rtg_edges, bub_label_t* b_mask_t);
 #define JUNK_COV 5
 #define DISCARD_RATE 0.8
 

@@ -11,7 +11,7 @@
 
 hc_edge* get_hc_edge(hc_links* link, uint64_t src, uint64_t dest, uint64_t dir);
 hc_edge* push_hc_edge(hc_linkeage* x, uint64_t uID, double weight, int dir, uint64_t* d);
-void hic_analysis(ma_ug_t *ug, asg_t* read_g, trans_chain* t_ch);
+void hic_analysis(ma_ug_t *ug, asg_t* read_g, trans_chain* t_ch, ug_opt_t *opt);
 void hic_benchmark(ma_ug_t *ug, asg_t* read_g);
 
 typedef struct {
@@ -54,6 +54,19 @@ typedef struct {
     int8_t *s;
     uint64_t xs;
 } ps_t;
+
+typedef struct {
+	uint64_t s, e, id, len;
+} pe_hit;
+
+typedef struct {
+    kvec_t(pe_hit) a;
+    kvec_t(uint64_t) idx;
+    kvec_t(uint64_t) occ;
+    uint64_t uID_bits;
+    uint64_t pos_mode;
+} kvec_pe_hit;
+
 #define P_het(B) ((B).num.n)
 #define M_het(B) ((B).num.n + 1)
 // #define IF_BUB(ID, B) ((B).index[(ID)] < (B).num.n)

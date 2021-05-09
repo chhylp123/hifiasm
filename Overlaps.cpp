@@ -12720,6 +12720,21 @@ R_to_U* ruIndex, float chimeric_rate, float drop_ratio, int max_hang, int min_ov
 long long gap_fuzz, bub_label_t* b_mask_t)
 { 
     hic_clean(sg);
+    ug_opt_t opt; memset(&opt, 0, sizeof(opt));
+    opt.coverage_cut = coverage_cut;
+    opt.sources = sources;
+    opt.reverse_sources = reverse_sources; 
+    opt.tipsLen = (asm_opt.max_short_tip*2);
+    opt.tip_drop_ratio = 0.15;
+    opt.stops_threshold = 3;
+    opt.ruIndex = ruIndex; 
+    opt.chimeric_rate = 0.05;
+    opt.drop_ratio = 0.9;
+    opt.max_hang = max_hang;
+    opt.min_ovlp = min_ovlp;
+    opt.is_bench = 0;
+    opt.b_mask_t = b_mask_t;
+
 
     kvec_asg_arc_t_warp new_rtg_edges, d_edges;
     kv_init(new_rtg_edges.a); kv_init(d_edges.a);
@@ -12773,7 +12788,7 @@ long long gap_fuzz, bub_label_t* b_mask_t)
     fclose(output_file);
     free(gfa_name);
 
-    hic_analysis(ug, sg, cov?cov->t_ch:t_ch);
+    hic_analysis(ug, sg, cov?cov->t_ch:t_ch, &opt);
 
     if(cov) destory_hap_cov_t(&cov);
     if(t_ch) destory_trans_chain(&t_ch);
@@ -13907,6 +13922,7 @@ void renew_utg(ma_ug_t **ug, asg_t* read_g, kvec_asg_arc_t_warp* edge)
         u = &(high_level_ug->u.a[i]);
         if(u->m == 0) continue;
         merge_unitig_content(u, (*ug), read_g, edge);
+        high_level_ug->g->seq[i].len = u->len;
     }
     ma_ug_destroy((*ug));
     (*ug) = high_level_ug;
@@ -16115,6 +16131,8 @@ kvec_asg_arc_t_warp* new_rtg_edges, bub_label_t* b_mask_t)
 
     set_drop_trio_flag(*ug);
     destory_hap_cov_t(&cov);
+
+    renew_utg(ug, read_g, new_rtg_edges);
 }
 
 

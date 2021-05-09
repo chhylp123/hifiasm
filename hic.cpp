@@ -14,6 +14,7 @@
 #include "ksort.h"
 #include "kseq.h" // FASTA/Q parser
 #include "kdq.h"
+#include "horder.h"
 KSEQ_INIT(gzFile, gzread)
 KDQ_INIT(uint64_t)
 
@@ -190,21 +191,9 @@ typedef struct {
     uint64_t n_u;
 } kvec_pe_hit_hap;
 
-
-typedef struct {
-	uint64_t s, e, id, len;
-} pe_hit;
-
-typedef struct {
-    kvec_t(pe_hit) a;
-    kvec_t(uint64_t) idx;
-    kvec_t(uint64_t) occ;
-} kvec_pe_hit;
-
 typedef struct {
     kvec_t(hc_edge) a;
 }kvec_hc_edge;
-
 
 #define pe_hit_an1_key(x) ((x).s)
 KRADIX_SORT_INIT(pe_hit_an1, pe_hit, pe_hit_an1_key, member_size(pe_hit, s))
@@ -286,6 +275,11 @@ KRADIX_SORT_INIT(hc_s_hit_off_cnt, s_hit, hc_s_hit_off_cnt_key, 8)
 KRADIX_SORT_INIT(hc_edge_u, hc_edge, hc_edge_key_u, 4)
 #define hc_edge_key_d(a) ((a).dis)
 KRADIX_SORT_INIT(hc_edge_d, hc_edge, hc_edge_key_d, member_size(hc_edge, dis))
+#define get_hit_suid(x, k) (((x).a.a[(k)].s<<1)>>(64 - (x).uID_bits))
+#define get_hit_spos(x, k) ((x).a.a[(k)].s & (x).pos_mode)
+#define get_hit_euid(x, k) (((x).a.a[(k)].e<<1)>>(64 - (x).uID_bits))
+#define get_hit_epos(x, k) ((x).a.a[(k)].e & (x).pos_mode)
+
 
 typedef struct {
     kvec_t(kvec_t_u64_warp) matrix;
@@ -301,7 +295,6 @@ typedef struct{
     size_t n, m;
     uint64_t max, med;
 } trans_idx;
-
 
 reads_t R1, R2;
 ha_ug_index* ug_index;
@@ -15431,7 +15424,7 @@ void print_kv_u_trans_t(kv_u_trans_t *ta)
     fprintf(stderr, "[M::%s::] \n", __func__);
 }
 
-int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx)
+int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, ug_opt_t *opt)
 {
     double index_time = yak_realtime();
     sldat_t sl;
@@ -15503,6 +15496,8 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx)
 
     verbose_het_stat(&bub);
 
+    horder_t *ho = init_horder_t(&sl.hits, idx->uID_bits, idx->pos_mode, idx->read_g, idx->ug, &bub, opt);
+
     ///print_hc_links(&link, 0, &hap);
     // print_kv_u_trans(&k_trans, &link, s->s);
 
@@ -15514,6 +15509,7 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx)
     ///print_debug_bubble_graph(&bub, idx->ug, asm_opt.output_file_name);
     // print_bubble_chain(&bub);
     // destory_contig_partition(&hap);
+    destory_horder_t(&ho);
     kv_destroy(back_hc_edge.a);
     kv_destroy(sl.hits.a);
     kv_destroy(sl.hits.idx);
@@ -15542,7 +15538,7 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx)
 }
 
 
-void hic_analysis(ma_ug_t *ug, asg_t* read_g, trans_chain* t_ch)
+void hic_analysis(ma_ug_t *ug, asg_t* read_g, trans_chain* t_ch, ug_opt_t *opt)
 {
     ug_index = NULL;
     int exist = (asm_opt.load_index_from_disk? 
@@ -15553,7 +15549,7 @@ void hic_analysis(ma_ug_t *ug, asg_t* read_g, trans_chain* t_ch)
     ug_index->read_g = read_g;
     ug_index->t_ch = t_ch;
     ///test_unitig_index(ug_index, ug);
-    hic_short_align(asm_opt.hic_reads[0], asm_opt.hic_reads[1], ug_index);
+    hic_short_align(asm_opt.hic_reads[0], asm_opt.hic_reads[1], ug_index, opt);
     
     destory_hc_pt_index(ug_index);
 }
