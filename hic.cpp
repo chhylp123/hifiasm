@@ -15151,6 +15151,7 @@ ps_t* init_ps_t(uint64_t seed, uint64_t n)
     ps_t *s = NULL; CALLOC(s, 1);
     s->xs = seed;
     CALLOC(s->s, n);
+    s->n = n;
     return s;
 }
 
@@ -15424,6 +15425,39 @@ void print_kv_u_trans_t(kv_u_trans_t *ta)
     fprintf(stderr, "[M::%s::] \n", __func__);
 }
 
+void write_ps_t(ps_t *s, const char *fn)
+{
+    char *buf = (char*)calloc(strlen(fn) + 25, 1);
+    sprintf(buf, "%s.hic.pst.bin", fn);
+    FILE* fp = fopen(buf, "w");
+
+    fwrite(&(s->xs), sizeof(s->xs), 1, fp);
+    fwrite(&(s->n), sizeof(s->n), 1, fp);
+    fwrite(s->s, sizeof(int8_t), s->n, fp);
+
+    fclose(fp);
+    free(buf);
+}
+
+int load_ps_t(ps_t **s, const char *fn)
+{
+    uint64_t flag = 0;
+    char *buf = (char*)calloc(strlen(fn) + 25, 1);
+    sprintf(buf, "%s.hic.pst.bin", fn);
+    FILE* fp = NULL; 
+    fp = fopen(buf, "r"); 
+    if(!fp) return 0;
+    CALLOC(*s, 1);
+    flag += fread(&((*s)->xs), sizeof((*s)->xs), 1, fp);
+    flag += fread(&((*s)->n), sizeof((*s)->n), 1, fp);
+    MALLOC((*s)->s, (*s)->n);
+    flag += fread((*s)->s, sizeof(int8_t), (*s)->n, fp);
+
+    fclose(fp);
+    free(buf);
+    return 1;
+}
+
 int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, ug_opt_t *opt)
 {
     double index_time = yak_realtime();
@@ -15456,20 +15490,24 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, ug_o
     bubble_type bub; 
     kv_u_trans_t k_trans; 
     kv_init(k_trans); kv_init(k_trans.idx);
-    ps_t *s = init_ps_t(11, idx->ug->g->n_seq);
+    ps_t *s = NULL;
     mb_nodes_t u; 
     kv_init(u.bid); kv_init(u.idx); kv_init(u.u);
     memset(&bub, 0, sizeof(bubble_type));
     bub.round_id = 0; bub.n_round = asm_opt.n_weight;
+
+    resolve_tangles_hic(idx, &bub, &sl.hits, &k_trans);
+    measure_distance(idx, idx->ug, &sl.hits, &link, &bub, &(idx->t_ch->k_trans));
+    if((asm_opt.flag & HA_F_VERBOSE_GFA) && load_ps_t(&s, asm_opt.output_file_name))
+    {
+        bub.round_id = bub.n_round;
+        label_unitigs_sm(s->s, idx->ug);
+        goto skip_flipping;
+    }
+    s = init_ps_t(11, idx->ug->g->n_seq);
     for (bub.round_id = 0; bub.round_id < bub.n_round; bub.round_id++)
     {
         // identify_bubbles(idx->ug, &bub, idx->t_ch->is_r_het, &(idx->t_ch->k_trans));
-        if(bub.round_id == 0) 
-        {
-            resolve_tangles_hic(idx, &bub, &sl.hits, &k_trans);
-            measure_distance(idx, idx->ug, &sl.hits, &link, &bub, &(idx->t_ch->k_trans));
-        }
-
         renew_kv_u_trans(&k_trans, &link, &sl.hits, &(idx->t_ch->k_trans), idx, &bub, s->s, 0);
         // if(bub.round_id == 0) init_phase(idx, &k_trans, &bub, s); 
         // update_trans_g(idx, &k_trans, &bub);
@@ -15493,7 +15531,9 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, ug_o
         label_unitigs(&(hap.g_p), idx->ug);
         **/
     }
+    write_ps_t(s, asm_opt.output_file_name);
 
+    skip_flipping:
     verbose_het_stat(&bub);
 
     horder_t *ho = init_horder_t(&sl.hits, idx->uID_bits, idx->pos_mode, idx->read_g, idx->ug, &bub, opt);

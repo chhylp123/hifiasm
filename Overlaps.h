@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include "kvec.h"
 #include "kdq.h"
+#include "ksort.h"
 
 ///#define MIN_OVERLAP_LEN 2000
 ///#define MIN_OVERLAP_LEN 500
@@ -320,11 +321,10 @@ static inline asg_arc_t *asg_arc_pushp(asg_t *g)
 // set asg_arc_t::del for v->w
 static inline void asg_arc_del(asg_t *g, uint32_t v, uint32_t w, int del)
 {
-	uint32_t i, nv = asg_arc_n(g, v)/**, found = 0**/;
+	uint32_t i, nv = asg_arc_n(g, v);
 	asg_arc_t *av = asg_arc_a(g, v);
 	for (i = 0; i < nv; ++i)
-		if (av[i].v == w) av[i].del = !!del/**, found = 1**/;
-	/**if(found == 0) fprintf(stderr, "ERROR\n");**/
+		if (av[i].v == w) av[i].del = !!del;
 }
 
 // set asg_arc_t::del and asg_seq_t::del to 1 for sequence s and all its associated arcs
@@ -1217,6 +1217,7 @@ ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, ma_sub_t* coverage_cut
 long long tipsLen, float tip_drop_ratio, long long stops_threshold, 
 R_to_U* ruIndex, float chimeric_rate, float drop_ratio, int max_hang, int min_ovlp,
 kvec_asg_arc_t_warp* new_rtg_edges, bub_label_t* b_mask_t);
+uint32_t cmp_untig_graph(ma_ug_t *src, ma_ug_t *dest);
 #define JUNK_COV 5
 #define DISCARD_RATE 0.8
 

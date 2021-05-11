@@ -53,6 +53,7 @@ typedef struct {
 typedef struct {
     int8_t *s;
     uint64_t xs;
+    uint64_t n;
 } ps_t;
 
 typedef struct {

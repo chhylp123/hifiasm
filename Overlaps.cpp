@@ -29580,8 +29580,7 @@ void clean_sg_by_utg(asg_t *sg, ma_ug_t *ug)
             }
         }         
     }
-
-
+    asg_cleanup(sg);
 
 
     /*******************************for debug************************************/
