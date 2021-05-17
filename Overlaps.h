@@ -27,6 +27,7 @@
 #define DOUBLE_CHECK_THRES 0.1
 #define FINAL_DOUBLE_CHECK_THRES 0.2
 #define CHIMERIC_TRIM_THRES 4
+#define GAP_LEN 100
 // #define PRIMARY_LABLE 1
 // #define ALTER_LABLE 2
 // #define HAP_LABLE 4
@@ -1209,6 +1210,7 @@ typedef struct{
     int max_hang;
     int min_ovlp;
     int is_bench;
+	long long gap_fuzz;
     bub_label_t* b_mask_t;
 }ug_opt_t;
 
@@ -1218,6 +1220,14 @@ long long tipsLen, float tip_drop_ratio, long long stops_threshold,
 R_to_U* ruIndex, float chimeric_rate, float drop_ratio, int max_hang, int min_ovlp,
 kvec_asg_arc_t_warp* new_rtg_edges, bub_label_t* b_mask_t);
 uint32_t cmp_untig_graph(ma_ug_t *src, ma_ug_t *dest);
+void reduce_hamming_error(asg_t *sg, ma_hit_t_alloc* sources, ma_sub_t *coverage_cut, 
+int max_hang, int min_ovlp, long long gap_fuzz);
+int ma_ug_seq_scaffold(ma_ug_t *g, asg_t *read_g, ma_sub_t *coverage_cut, ma_hit_t_alloc* sources, 
+kvec_asg_arc_t_warp* edge, int max_hang, int min_ovlp, kvec_asg_arc_t_warp *E, uint32_t is_polish);
+void ma_ug_print(const ma_ug_t *ug, asg_t* read_g, const ma_sub_t *coverage_cut, 
+ma_hit_t_alloc* sources, R_to_U* ruIndex, const char* prefix, FILE *fp);
+void ma_ug_print_simple(const ma_ug_t *ug, asg_t* read_g, const ma_sub_t *coverage_cut, 
+ma_hit_t_alloc* sources, R_to_U* ruIndex, const char* prefix, FILE *fp);
 #define JUNK_COV 5
 #define DISCARD_RATE 0.8
 

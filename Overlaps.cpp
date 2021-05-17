@@ -9103,6 +9103,183 @@ kvec_asg_arc_t_warp* edge, int max_hang, int min_ovlp, kvec_asg_arc_t_warp *E, u
 }
 
 
+void polish_unitig_scaffold(uint32_t uid, ma_utg_t* collection, asg_t* read_g, All_reads *RNF, 
+ma_hit_t_alloc* sources, ma_sub_t *coverage_cut, kvec_asg_arc_t_warp* edge, 
+UC_Read* r_read, UC_Read* q_read, int max_hang, int min_ovlp, kvec_asg_arc_t_warp* newE)
+{
+    uint32_t i, k, m, len, p_idx;
+    ma_utg_t qu;
+    for (i = p_idx = m = len = 0; i < collection->n; i++)
+    {
+        if(collection->a[i] == (uint64_t)-1)
+        {
+            qu.a = collection->a + p_idx;
+            qu.circ = 0;
+            qu.m = qu.n = i - p_idx;
+            for (k = qu.len = 0; k < qu.n; k++)
+            {
+                qu.len += (uint32_t)qu.a[k];
+            }
+
+            polish_unitig(&qu, read_g, sources, coverage_cut, edge, max_hang, min_ovlp, newE);
+            polish_unitig_advance(&qu, read_g, &R_INF, sources, coverage_cut, edge, r_read, q_read, max_hang, min_ovlp, newE);
+            
+            for (k = 0; k < qu.n; k++)
+            {
+                collection->a[m] = qu.a[k];
+                m++;
+            }
+            len += qu.len;
+
+            collection->a[m] = (uint64_t)-1;
+            m++;
+            len += GAP_LEN;
+            p_idx = i + 1;
+        }
+    }
+
+    if(i - p_idx > 0)
+    {
+        qu.a = collection->a + p_idx;
+        qu.circ = collection->circ;
+        qu.m = qu.n = i - p_idx;
+        for (k = qu.len = 0; k < qu.n; k++)
+        {
+            qu.len += (uint32_t)qu.a[k];
+        }
+    
+        polish_unitig(&qu, read_g, sources, coverage_cut, edge, max_hang, min_ovlp, newE);
+        polish_unitig_advance(&qu, read_g, &R_INF, sources, coverage_cut, edge, r_read, q_read, max_hang, min_ovlp, newE);
+        
+        for (k = 0; k < qu.n; k++)
+        {
+            collection->a[m] = qu.a[k];
+            m++;
+        }
+        len += qu.len;
+    }
+    collection->n = m;
+    collection->len = len;
+}
+
+int ma_ug_seq_scaffold(ma_ug_t *g, asg_t *read_g, ma_sub_t *coverage_cut, ma_hit_t_alloc* sources, 
+kvec_asg_arc_t_warp* edge, int max_hang, int min_ovlp, kvec_asg_arc_t_warp *E, uint32_t is_polish)
+{
+    UC_Read g_read;
+    init_UC_Read(&g_read);
+    UC_Read tmp;
+    init_UC_Read(&tmp);
+	///utg_intv_t *tmp;
+	uint32_t i, j, k;
+    uint32_t rId, /**uId,**/ori, start, eLen, readLen;
+    char* readS = NULL;
+    if(!(g->g))
+    {
+        g->g = asg_init();
+        for (i = 0; i < g->u.n; ++i) 
+        {
+            asg_seq_set(g->g, i, g->u.a[i].len, 0);
+        }
+        asg_cleanup(g->g);
+        g->g->r_seq = g->g->n_seq;
+    }
+    
+    ///why we need n_read here? it is just beacuse one read can only be included in one untig
+    ///but it is not true
+	///tmp = (utg_intv_t*)calloc(n_read, sizeof(utg_intv_t));
+	///number of unitigs
+	for (i = 0; i < g->u.n; ++i) {
+		ma_utg_t *u = &g->u.a[i];
+        if(u->m == 0) continue;
+        if(is_polish) polish_unitig_scaffold(i, u, read_g, &R_INF, sources, coverage_cut, edge, &g_read, &tmp, max_hang, min_ovlp, E);
+        g->g->seq[i].len = u->len;
+
+		uint32_t l = 0;
+		u->s = (char*)calloc(1, u->len + 1);
+		memset(u->s, 'N', u->len);
+		for (j = 0; j < u->n; ++j) {
+            // fprintf(stderr, "j=%u, u->a[j]: %lu\n", j, u->a[j]);
+            if(u->a[j] == (uint64_t)-1)
+            {
+                l += GAP_LEN;
+                continue;
+            }
+            rId = u->a[j]>>33;
+            ///uId = i;
+            ori = u->a[j]>>32&1;
+            start = l;
+            eLen = (uint32_t)u->a[j];
+			l += eLen;
+
+            if(eLen == 0) continue;
+            if(rId < read_g->r_seq)
+            {
+                recover_UC_Read(&g_read, &R_INF, rId);
+            }
+            else
+            {
+                recover_fake_read(&g_read, &tmp, &(read_g->F_seq[rId-read_g->r_seq]),
+                &R_INF, coverage_cut);
+            }
+
+            readS = g_read.seq + coverage_cut[rId].s;
+            readLen = coverage_cut[rId].e - coverage_cut[rId].s;
+            
+            if (!ori) // forward strand
+            {
+                for (k = 0; k < eLen; k++)
+                {
+                    u->s[start + k] = readS[k];
+                }
+            }
+            else
+            {
+                for (k = 0; k < eLen; k++)
+                {
+                    uint8_t c = (uint8_t)readS[readLen - 1 - k];
+                    u->s[start + k] = c >= 128? 'N' : comp_tab[c];
+                }
+            }
+		}
+	}
+
+    destory_UC_Read(&g_read);
+    destory_UC_Read(&tmp);
+
+
+    uint32_t n_vtx = g->g->n_seq * 2, v, nv;
+    uint32_t vLen = 0;
+    asg_arc_t* av = NULL;
+    for (v = 0; v < n_vtx; ++v) 
+    {
+        if (g->g->seq[v>>1].del) continue;
+        av = asg_arc_a(g->g, v);
+        nv = asg_arc_n(g->g, v);
+        for (i = 0; i < nv; i++)
+        {
+            if(av[i].del) continue;
+            vLen = g->g->seq[(av[i].ul>>33)].len - av[i].ol;
+            av[i].ul = (av[i].ul>>32)<<32;
+            av[i].ul = av[i].ul | vLen;
+        }
+    }
+
+    if(E && E->a.n > 0)
+    {
+        asg_arc_t* p = NULL;
+        for (k = 0; k < E->a.n; k++)
+        {
+            p = asg_arc_pushp(read_g);
+            *p = E->a.a[k];
+        }
+
+        free(read_g->idx);
+        read_g->idx = 0;
+        read_g->is_srt = 0;
+        asg_cleanup(read_g);
+    }
+	return 0;
+}
 uint32_t get_ug_coverage(ma_utg_t* u, asg_t* read_g, const ma_sub_t* coverage_cut, 
 ma_hit_t_alloc* sources, R_to_U* ruIndex, uint8_t* r_flag)
 {
@@ -9113,12 +9290,14 @@ ma_hit_t_alloc* sources, R_to_U* ruIndex, uint8_t* r_flag)
 
     for (k = 0; k < u->n; k++)
     {
+        if(u->a[k] == (uint64_t)-1) continue;
         rId = u->a[k]>>33;
         r_flag[rId] = 1;
     }
 
     for (k = 0; k < u->n; k++)
     {
+        if(u->a[k] == (uint64_t)-1) continue;
         rId = u->a[k]>>33;
         R_bases += (coverage_cut[rId].e - coverage_cut[rId].s);
         for (j = 0; j < (uint64_t)(sources[rId].length); j++)
@@ -9141,6 +9320,7 @@ ma_hit_t_alloc* sources, R_to_U* ruIndex, uint8_t* r_flag)
 
     for (k = 0; k < u->n; k++)
     {
+        if(u->a[k] == (uint64_t)-1) continue;
         rId = u->a[k]>>33;
         r_flag[rId] = 0;
     }
@@ -9259,22 +9439,28 @@ ma_hit_t_alloc* sources, R_to_U* ruIndex, int print_seq, const char* prefix, FIL
         // if (print_seq) fprintf(fp, "S\t%s\t%s\tLN:i:%d\n", name, p->s? p->s : "*", p->len);
 		// else fprintf(fp, "S\t%s\t*\tLN:i:%d\n", name, p->len);
         
-		for (j = l = 0; j < p->n; l += (uint32_t)p->a[j++]) {
-			uint32_t x = p->a[j]>>33;
-			if(x<RNF->total_reads)
+		for (j = l = 0; j < p->n; j++) {
+            if(p->a[j] != (uint64_t)-1)
             {
-                fprintf(fp, "A\t%s\t%d\t%c\t%.*s\t%d\t%d\tid:i:%d\tHG:A:%c\n", name, l, "+-"[p->a[j]>>32&1],
-                (int)Get_NAME_LENGTH((*RNF), x), Get_NAME((*RNF), x), 
-                coverage_cut[x].s, coverage_cut[x].e, x, 
-                "apmaaa"[((RNF->trio_flag[x]!=FATHER && RNF->trio_flag[x]!=MOTHER)?AMBIGU:RNF->trio_flag[x])]);
+                uint32_t x = p->a[j]>>33;
+                if(x<RNF->total_reads)
+                {
+                    fprintf(fp, "A\t%s\t%d\t%c\t%.*s\t%d\t%d\tid:i:%d\tHG:A:%c\n", name, l, "+-"[p->a[j]>>32&1],
+                    (int)Get_NAME_LENGTH((*RNF), x), Get_NAME((*RNF), x), 
+                    coverage_cut[x].s, coverage_cut[x].e, x, 
+                    "apmaaa"[((RNF->trio_flag[x]!=FATHER && RNF->trio_flag[x]!=MOTHER)?AMBIGU:RNF->trio_flag[x])]);
+                }
+                else
+                {
+                    fprintf(fp, "A\t%s\t%d\t%c\t%s\t%d\t%d\tid:i:%d\tHG:A:%c\n", name, l, "+-"[p->a[j]>>32&1],
+                        "FAKE", coverage_cut[x].s, coverage_cut[x].e, x, '*');
+                }
             }
             else
             {
-                fprintf(fp, "A\t%s\t%d\t%c\t%s\t%d\t%d\tid:i:%d\tHG:A:%c\n", name, l, "+-"[p->a[j]>>32&1],
-					"FAKE", coverage_cut[x].s, coverage_cut[x].e, x, '*');
+                fprintf(fp, "A\t%s\t%d\t*\t*\t*\t*\tid:i:*\tHG:A:*\n", name, l);
             }
-            
-            
+            l += (uint32_t)p->a[j];
         }
 	}
 	// for (i = 0; i < ug->g->n_arc; ++i) { // the Link lines in GFA
@@ -9283,49 +9469,52 @@ ma_hit_t_alloc* sources, R_to_U* ruIndex, int print_seq, const char* prefix, FIL
     //     prefix, (u>>1)+1, "lc"[ug->u.a[u>>1].circ], "+-"[u&1],
 	// 	prefix,	(v>>1)+1, "lc"[ug->u.a[v>>1].circ], "+-"[v&1], ug->g->arc[i].ol, asg_arc_len(ug->g->arc[i]));
 	// }
-    asg_arc_t* au = NULL;
-    uint32_t nu, u, v;
-    for (i = 0; i < ug->u.n; ++i) {
-        if(ug->u.a[i].m == 0) continue;
-        if(ug->u.a[i].circ)
-        {
-            fprintf(fp, "L\t%s%.6dc\t+\t%s%.6dc\t+\t%dM\tL1:i:%d\n", 
-            prefix, i+1, prefix, i+1, 0, ug->u.a[i].len);
-            fprintf(fp, "L\t%s%.6dc\t-\t%s%.6dc\t-\t%dM\tL1:i:%d\n", 
-            prefix, i+1, prefix, i+1, 0, ug->u.a[i].len);
-        } 
-        u = i<<1;
-        au = asg_arc_a(ug->g, u);
-        nu = asg_arc_n(ug->g, u);
-        for (j = 0; j < nu; j++)
-        {
-            if(au[j].del) continue;
-            v = au[j].v;
-            fprintf(fp, "L\t%s%.6d%c\t%c\t%s%.6d%c\t%c\t%dM\tL1:i:%d\n", 
-            prefix, (u>>1)+1, "lc"[ug->u.a[u>>1].circ], "+-"[u&1],
-            prefix,	(v>>1)+1, "lc"[ug->u.a[v>>1].circ], "+-"[v&1], au[j].ol, asg_arc_len(au[j]));
-        }
+    if(ug->g)
+    {
+        asg_arc_t* au = NULL;
+        uint32_t nu, u, v;
+        for (i = 0; i < ug->u.n; ++i) {
+            if(ug->u.a[i].m == 0) continue;
+            if(ug->u.a[i].circ)
+            {
+                fprintf(fp, "L\t%s%.6dc\t+\t%s%.6dc\t+\t%dM\tL1:i:%d\n", 
+                prefix, i+1, prefix, i+1, 0, ug->u.a[i].len);
+                fprintf(fp, "L\t%s%.6dc\t-\t%s%.6dc\t-\t%dM\tL1:i:%d\n", 
+                prefix, i+1, prefix, i+1, 0, ug->u.a[i].len);
+            } 
+            u = i<<1;
+            au = asg_arc_a(ug->g, u);
+            nu = asg_arc_n(ug->g, u);
+            for (j = 0; j < nu; j++)
+            {
+                if(au[j].del) continue;
+                v = au[j].v;
+                fprintf(fp, "L\t%s%.6d%c\t%c\t%s%.6d%c\t%c\t%dM\tL1:i:%d\n", 
+                prefix, (u>>1)+1, "lc"[ug->u.a[u>>1].circ], "+-"[u&1],
+                prefix,	(v>>1)+1, "lc"[ug->u.a[v>>1].circ], "+-"[v&1], au[j].ol, asg_arc_len(au[j]));
+            }
 
 
-        u = (i<<1) + 1;
-        au = asg_arc_a(ug->g, u);
-        nu = asg_arc_n(ug->g, u);
-        for (j = 0; j < nu; j++)
-        {
-            if(au[j].del) continue;
-            v = au[j].v;
-            fprintf(fp, "L\t%s%.6d%c\t%c\t%s%.6d%c\t%c\t%dM\tL1:i:%d\n", 
-            prefix, (u>>1)+1, "lc"[ug->u.a[u>>1].circ], "+-"[u&1],
-            prefix,	(v>>1)+1, "lc"[ug->u.a[v>>1].circ], "+-"[v&1], au[j].ol, asg_arc_len(au[j]));
+            u = (i<<1) + 1;
+            au = asg_arc_a(ug->g, u);
+            nu = asg_arc_n(ug->g, u);
+            for (j = 0; j < nu; j++)
+            {
+                if(au[j].del) continue;
+                v = au[j].v;
+                fprintf(fp, "L\t%s%.6d%c\t%c\t%s%.6d%c\t%c\t%dM\tL1:i:%d\n", 
+                prefix, (u>>1)+1, "lc"[ug->u.a[u>>1].circ], "+-"[u&1],
+                prefix,	(v>>1)+1, "lc"[ug->u.a[v>>1].circ], "+-"[v&1], au[j].ol, asg_arc_len(au[j]));
+            }
         }
     }
     free(primary_flag);    
 }
 
-void ma_ug_print(const ma_ug_t *ug, All_reads *RNF, asg_t* read_g, const ma_sub_t *coverage_cut, 
+void ma_ug_print(const ma_ug_t *ug, asg_t* read_g, const ma_sub_t *coverage_cut, 
 ma_hit_t_alloc* sources, R_to_U* ruIndex, const char* prefix, FILE *fp)
 {
-	ma_ug_print2(ug, RNF, read_g, coverage_cut, sources, ruIndex, 1, prefix, fp);
+	ma_ug_print2(ug, &R_INF, read_g, coverage_cut, sources, ruIndex, 1, prefix, fp);
 }
 
 int asg_cut_internal(asg_t *g, int max_ext)
@@ -9543,10 +9732,10 @@ void ma_sg_print(const asg_t *g, const All_reads *RNF, const ma_sub_t *sub, FILE
 }
 
 
-void ma_ug_print_simple(const ma_ug_t *ug, All_reads *RNF, asg_t* read_g, const ma_sub_t *coverage_cut, 
+void ma_ug_print_simple(const ma_ug_t *ug, asg_t* read_g, const ma_sub_t *coverage_cut, 
 ma_hit_t_alloc* sources, R_to_U* ruIndex, const char* prefix, FILE *fp)
 {
-	ma_ug_print2(ug, RNF, read_g, coverage_cut, sources, ruIndex, 0, prefix, fp);
+	ma_ug_print2(ug, &R_INF, read_g, coverage_cut, sources, ruIndex, 0, prefix, fp);
 }
 
 void ma_ug_print_bed(const ma_ug_t *g, asg_t *read_g, All_reads *RNF, ma_sub_t *coverage_cut,
@@ -12163,11 +12352,11 @@ ma_hit_t_alloc* sources, R_to_U* ruIndex, int max_hang, int min_ovlp)
     char* gfa_name = (char*)malloc(strlen(output_file_name)+25);
     sprintf(gfa_name, "%s.r_utg.gfa", output_file_name);
     FILE* output_file = fopen(gfa_name, "w");
-    ma_ug_print(ug, &R_INF, sg, coverage_cut, sources, ruIndex, "utg", output_file);
+    ma_ug_print(ug, sg, coverage_cut, sources, ruIndex, "utg", output_file);
     fclose(output_file);
     sprintf(gfa_name, "%s.r_utg.noseq.gfa", output_file_name);
     output_file = fopen(gfa_name, "w");
-    ma_ug_print_simple(ug, &R_INF, sg, coverage_cut, sources, ruIndex, "utg", output_file);
+    ma_ug_print_simple(ug, sg, coverage_cut, sources, ruIndex, "utg", output_file);
     fclose(output_file);
     if(asm_opt.bed_inconsist_rate != 0)
     {
@@ -12504,12 +12693,12 @@ ma_hit_t_alloc* sources, R_to_U* ruIndex, int max_hang, int min_ovlp, kvec_asg_a
     sprintf(gfa_name, "%s.p_ctg.gfa", output_file_name);
     fprintf(stderr, "Writing %s to disk... \n", gfa_name);
     FILE* output_file = fopen(gfa_name, "w");
-    ma_ug_print(ug, &R_INF, sg, coverage_cut, sources, ruIndex, "ptg", output_file);
+    ma_ug_print(ug, sg, coverage_cut, sources, ruIndex, "ptg", output_file);
     fclose(output_file);
 
     sprintf(gfa_name, "%s.p_ctg.noseq.gfa", output_file_name);
     output_file = fopen(gfa_name, "w");
-    ma_ug_print_simple(ug, &R_INF, sg, coverage_cut, sources, ruIndex, "ptg", output_file);
+    ma_ug_print_simple(ug, sg, coverage_cut, sources, ruIndex, "ptg", output_file);
     fclose(output_file);
     if(asm_opt.bed_inconsist_rate != 0)
     {
@@ -12710,8 +12899,6 @@ trans_chain* load_hc_hits(const char *fn)
 
 void output_contig_graph_alternative(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name,
 ma_hit_t_alloc* sources, R_to_U* ruIndex, int max_hang, int min_ovlp);
-void reduce_hamming_error(asg_t *sg, ma_hit_t_alloc* sources, ma_sub_t *coverage_cut, 
-int max_hang, int min_ovlp, long long gap_fuzz);
 void clean_u_trans_t_idx(kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g);
 void output_hic_graph(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name, 
 ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, 
@@ -12734,6 +12921,7 @@ long long gap_fuzz, bub_label_t* b_mask_t)
     opt.min_ovlp = min_ovlp;
     opt.is_bench = 0;
     opt.b_mask_t = b_mask_t;
+    opt.gap_fuzz = gap_fuzz;
 
 
     kvec_asg_arc_t_warp new_rtg_edges, d_edges;
@@ -12781,12 +12969,13 @@ long long gap_fuzz, bub_label_t* b_mask_t)
         if((asm_opt.flag & HA_F_VERBOSE_GFA)) write_trans_chain(cov->t_ch, output_file_name);
     }
 
-    char* gfa_name = (char*)malloc(strlen(output_file_name)+25);
-    sprintf(gfa_name, "%s.pre.clean_d_utg.noseq.gfa", output_file_name);
-    FILE* output_file = fopen(gfa_name, "w");
-    ma_ug_print_simple(ug, &R_INF, sg, coverage_cut, sources, ruIndex, "utg", output_file);
-    fclose(output_file);
-    free(gfa_name);
+    // char* gfa_name = (char*)malloc(strlen(output_file_name)+50);
+    // FILE* output_file = NULL;
+    // sprintf(gfa_name, "%s.pre.clean_d_utg.noseq.gfa", output_file_name);
+    // FILE* output_file = fopen(gfa_name, "w");
+    // ma_ug_print_simple(ug, sg, coverage_cut, sources, ruIndex, "utg", output_file);
+    // fclose(output_file);
+    // free(gfa_name);
 
     hic_analysis(ug, sg, cov?cov->t_ch:t_ch, &opt);
 
@@ -12794,12 +12983,12 @@ long long gap_fuzz, bub_label_t* b_mask_t)
     if(t_ch) destory_trans_chain(&t_ch);
 
 
-    gfa_name = (char*)malloc(strlen(output_file_name)+25);
-    sprintf(gfa_name, "%s.after.clean_d_utg.noseq.gfa", output_file_name);
-    output_file = fopen(gfa_name, "w");
-    ma_ug_print_simple(ug, &R_INF, sg, coverage_cut, sources, ruIndex, "utg", output_file);
-    fclose(output_file);
-    free(gfa_name);
+    // gfa_name = (char*)malloc(strlen(output_file_name)+25);
+    // sprintf(gfa_name, "%s.after.clean_d_utg.noseq.gfa", output_file_name);
+    // output_file = fopen(gfa_name, "w");
+    // ma_ug_print_simple(ug, sg, coverage_cut, sources, ruIndex, "utg", output_file);
+    // fclose(output_file);
+    // free(gfa_name);
 
     ma_ug_destroy(ug);
     kv_destroy(new_rtg_edges.a); 
@@ -13785,7 +13974,7 @@ ma_hit_t_alloc* sources, R_to_U* ruIndex, int max_hang, int min_ovlp)
     char* gfa_name = (char*)malloc(strlen(output_file_name)+25);
     sprintf(gfa_name, "%s.r_utg.noseq.gfa", output_file_name);
     FILE* output_file = fopen(gfa_name, "w");
-    ma_ug_print_simple(ug, &R_INF, read_g, coverage_cut, sources, ruIndex, "utg", output_file);
+    ma_ug_print_simple(ug, read_g, coverage_cut, sources, ruIndex, "utg", output_file);
     fclose(output_file);
 
     free(gfa_name);
@@ -16197,12 +16386,12 @@ float chimeric_rate, float drop_ratio, int max_hang, int min_ovlp, int is_bench,
         kv_destroy(new_rtg_edges.a);
         return ug;
     }
-    ma_ug_print(ug, &R_INF, sg, coverage_cut, sources, ruIndex, (flag==FATHER?"h1tg":"h2tg"), output_file);
+    ma_ug_print(ug, sg, coverage_cut, sources, ruIndex, (flag==FATHER?"h1tg":"h2tg"), output_file);
     fclose(output_file);
 
     sprintf(gfa_name, "%s.%s.p_ctg.noseq.gfa", output_file_name, (flag==FATHER?"hap1":"hap2"));
     output_file = fopen(gfa_name, "w");
-    ma_ug_print_simple(ug, &R_INF, sg, coverage_cut, sources, ruIndex, (flag==FATHER?"h1tg":"h2tg"), output_file);
+    ma_ug_print_simple(ug, sg, coverage_cut, sources, ruIndex, (flag==FATHER?"h1tg":"h2tg"), output_file);
     fclose(output_file);
     if(asm_opt.bed_inconsist_rate != 0)
     {
@@ -24067,12 +24256,12 @@ R_to_U* ruIndex, int max_hang, int min_ovlp)
     char* gfa_name = (char*)malloc(strlen(output_file_name)+35);
     sprintf(gfa_name, "%s.p_utg.gfa", output_file_name);
     FILE* output_file = fopen(gfa_name, "w");
-    ma_ug_print(ug, &R_INF, sg, coverage_cut, sources, ruIndex, "utg", output_file);
+    ma_ug_print(ug, sg, coverage_cut, sources, ruIndex, "utg", output_file);
     fclose(output_file);
     
     sprintf(gfa_name, "%s.p_utg.noseq.gfa", output_file_name);
     output_file = fopen(gfa_name, "w");
-    ma_ug_print_simple(ug, &R_INF, sg, coverage_cut, sources, ruIndex, "utg", output_file);
+    ma_ug_print_simple(ug, sg, coverage_cut, sources, ruIndex, "utg", output_file);
     fclose(output_file);
     if(asm_opt.bed_inconsist_rate != 0)
     {
@@ -24119,12 +24308,12 @@ R_to_U* ruIndex, float chimeric_rate, float drop_ratio, int max_hang, int min_ov
     char* gfa_name = (char*)malloc(strlen(output_file_name)+35);
     sprintf(gfa_name, "%s.p_ctg.gfa", output_file_name);
     FILE* output_file = fopen(gfa_name, "w");
-    ma_ug_print(ug, &R_INF, sg, coverage_cut, sources, ruIndex, "ptg", output_file);
+    ma_ug_print(ug, sg, coverage_cut, sources, ruIndex, "ptg", output_file);
     fclose(output_file);
 
     sprintf(gfa_name, "%s.p_ctg.noseq.gfa", output_file_name);
     output_file = fopen(gfa_name, "w");
-    ma_ug_print_simple(ug, &R_INF, sg, coverage_cut, sources, ruIndex, "ptg", output_file);
+    ma_ug_print_simple(ug, sg, coverage_cut, sources, ruIndex, "ptg", output_file);
     fclose(output_file);
     if(asm_opt.bed_inconsist_rate != 0)
     {
@@ -24162,12 +24351,12 @@ ma_hit_t_alloc* sources, R_to_U* ruIndex, int max_hang, int min_ovlp)
     char* gfa_name = (char*)malloc(strlen(output_file_name)+35);
     sprintf(gfa_name, "%s.a_ctg.gfa", output_file_name);
     FILE* output_file = fopen(gfa_name, "w");
-    ma_ug_print(ug, &R_INF, sg, coverage_cut, sources, ruIndex, "atg", output_file);
+    ma_ug_print(ug, sg, coverage_cut, sources, ruIndex, "atg", output_file);
     fclose(output_file);
     
     sprintf(gfa_name, "%s.a_ctg.noseq.gfa", output_file_name);
     output_file = fopen(gfa_name, "w");
-    ma_ug_print_simple(ug, &R_INF, sg, coverage_cut, sources, ruIndex, "atg", output_file);
+    ma_ug_print_simple(ug, sg, coverage_cut, sources, ruIndex, "atg", output_file);
     fclose(output_file);
     if(asm_opt.bed_inconsist_rate != 0)
     {

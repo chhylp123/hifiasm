@@ -29,6 +29,7 @@ typedef struct {
     osg_t *g;
 }scg_t;
 typedef struct {
+	kvec_t(uint64_t) avoid;
     kvec_pe_hit r_hits, u_hits;
     ma_ug_t *ug;
     asg_t *r_g;
@@ -36,6 +37,6 @@ typedef struct {
 }horder_t;
 
 horder_t *init_horder_t(kvec_pe_hit *i_hits, uint64_t i_hits_uid_bits, uint64_t i_hits_pos_mode, 
-asg_t *i_rg, ma_ug_t* i_ug, bubble_type* bub, ug_opt_t *opt);
+asg_t *i_rg, ma_ug_t* i_ug, bubble_type* bub, ug_opt_t *opt, uint32_t round);
 void destory_horder_t(horder_t **h);
 #endif
