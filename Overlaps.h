@@ -1228,6 +1228,21 @@ void ma_ug_print(const ma_ug_t *ug, asg_t* read_g, const ma_sub_t *coverage_cut,
 ma_hit_t_alloc* sources, R_to_U* ruIndex, const char* prefix, FILE *fp);
 void ma_ug_print_simple(const ma_ug_t *ug, asg_t* read_g, const ma_sub_t *coverage_cut, 
 ma_hit_t_alloc* sources, R_to_U* ruIndex, const char* prefix, FILE *fp);
+trans_chain* init_trans_chain(ma_ug_t *ug, uint64_t r_num);
+void destory_trans_chain(trans_chain **x);
+
+typedef struct {///[cBeg, cEnd)
+	uint32_t u_i, r_i, len, s_pos_cur, s_pre_v, s_pre_w, p_v, p_idx, p_uId, cBeg, cEnd;
+    ///buf_t* x;
+    uint32_t *a, an;
+    ma_ug_t *ug;
+    asg_t *read_sg;
+    trans_chain* t_ch;
+} u_trans_hit_idx;
+void reset_u_trans_hit_idx(u_trans_hit_idx *t, uint32_t* i_x_a, uint32_t i_x_n, ma_ug_t *i_ug, 
+asg_t *i_read_sg, trans_chain* i_t_ch, uint32_t i_cBeg, uint32_t i_cEnd);
+uint32_t get_u_trans_hit(u_trans_hit_idx *t, u_trans_hit_t *hit);
+
 #define JUNK_COV 5
 #define DISCARD_RATE 0.8
 

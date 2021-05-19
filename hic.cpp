@@ -15536,7 +15536,7 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, ug_o
     skip_flipping:
     verbose_het_stat(&bub);
 
-    horder_t *ho = init_horder_t(&sl.hits, idx->uID_bits, idx->pos_mode, idx->read_g, idx->ug, &bub, opt, 3);
+    // horder_t *ho = init_horder_t(&sl.hits, idx->uID_bits, idx->pos_mode, idx->read_g, idx->ug, &bub, &(idx->t_ch->k_trans), opt, 3);
 
     ///print_hc_links(&link, 0, &hap);
     // print_kv_u_trans(&k_trans, &link, s->s);
@@ -15549,7 +15549,7 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, ug_o
     ///print_debug_bubble_graph(&bub, idx->ug, asm_opt.output_file_name);
     // print_bubble_chain(&bub);
     // destory_contig_partition(&hap);
-    destory_horder_t(&ho);
+    // destory_horder_t(&ho);
     kv_destroy(back_hc_edge.a);
     kv_destroy(sl.hits.a);
     kv_destroy(sl.hits.idx);
