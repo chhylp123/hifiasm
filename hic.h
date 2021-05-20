@@ -68,6 +68,14 @@ typedef struct {
     uint64_t pos_mode;
 } kvec_pe_hit;
 
+typedef struct{
+    kvec_t(uint8_t) vis;
+    kvec_t(uint64_t) x;
+    kvec_t(uint64_t) dis;
+    uint64_t uID_mode, uID_shift, tmp_v, tmp_d;
+}pdq;
+
+
 #define P_het(B) ((B).num.n)
 #define M_het(B) ((B).num.n + 1)
 // #define IF_BUB(ID, B) ((B).index[(ID)] < (B).num.n)
@@ -91,5 +99,9 @@ void debug_gfa_space(ma_ug_t* ug, hap_cov_t *cov);
 void init_ug_idx(ma_ug_t *ug, uint64_t k, uint64_t up_bound, uint64_t low_bound, uint64_t build_idx);
 void des_ug_idx();
 uint64_t count_unique_k_mers(char *r, uint64_t len, uint64_t query, uint64_t target, uint64_t *all, uint64_t *found);
+void init_pdq(pdq* q, uint64_t utg_num);
+void destory_pdq(pdq* q);
+uint32_t check_trans_relation_by_path(uint32_t v, uint32_t w, pdq* pqv, pdq* pqw, 
+asg_t *sg, uint8_t *dest, uint8_t df, uint32_t df_occ, uint32_t* pre, double rate);
 
 #endif

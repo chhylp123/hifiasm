@@ -52,12 +52,6 @@ typedef struct{
     uint64_t idx;
 } reads_t;
 
-typedef struct{
-    kvec_t(uint8_t) vis;
-    kvec_t(uint64_t) x;
-    kvec_t(uint64_t) dis;
-    uint64_t uID_mode, uID_shift, tmp_v, tmp_d;
-}pdq;
 
 typedef struct{
     kvec_t(hc_edge_warp) rGraph;
@@ -2937,6 +2931,104 @@ void all_pair_shortest_path(asg_t *sg, hc_links* link, MT* M)
     }
     
     destory_pdq(&pq);
+}
+
+typedef struct{
+    pdq* pq;
+    uint32_t src;
+    asg_t *sg;
+    uint8_t *dest, flag;
+    uint64_t occ, df_occ, v;
+    uint32_t* pre;
+}pdq_spec;
+
+uint32_t get_specific_shortest_path(pdq_spec *p)
+{
+    uint64_t u, i, nv, w;
+    asg_arc_t *av = NULL;
+    if(p->v == (uint64_t)-1)
+    {
+        reset_pdq(p->pq);
+        p->pq->dis.a[p->src] = 0;
+        if(p->pre) p->pre[p->src] = (uint32_t)-1;
+        push_pdq(p->pq, p->src, 0);
+        p->occ = 0;
+    }
+    if(p->occ >= p->df_occ) return 0;
+    
+    while (pdq_cnt(*(p->pq)) > 0)
+    {
+        pop_pdq(p->pq, &(p->v), &w);
+        p->pq->vis.a[p->v] = 1;
+        if(p->dest[p->v] == p->flag) p->occ++;
+        if(p->occ > p->df_occ) return 0;
+
+        av = asg_arc_a(p->sg, p->v);
+        nv = asg_arc_n(p->sg, p->v);
+
+        for (i = 0; i < nv; i++)
+        {
+            if(av[i].del) continue;
+            u = av[i].v;
+            w = (uint32_t)av[i].ul;
+
+            if(p->pq->vis.a[u] == 0 && p->pq->dis.a[u] > p->pq->dis.a[p->v] + w)
+            {
+                p->pq->dis.a[u] = p->pq->dis.a[p->v] + w;
+                push_pdq(p->pq, u, p->pq->dis.a[u]);
+                if(p->pre) p->pre[u] = p->v;
+            }
+        }
+        if(p->dest[p->v] == p->flag) return 1;
+    }
+
+    return 0;
+}
+
+uint32_t check_trans_relation_by_path(uint32_t v, uint32_t w, pdq* pqv, pdq* pqw, 
+asg_t *sg, uint8_t *dest, uint8_t df, uint32_t df_occ, uint32_t* pre, double rate)
+{
+    uint64_t r1, r2, d1, d2;
+    pdq_spec p1, p2, *p = NULL;
+    p1.v = (uint64_t)-1; p1.src = v; p1.pq = pqv; p1.sg = sg; p1.df_occ = df_occ;
+    p1.occ = df_occ; p1.flag = df; p1.dest = dest; p1.pre = pre;
+
+    p2.v = (uint64_t)-1; p2.src = w; p2.pq = pqw; p2.sg = sg; p2.df_occ = df_occ;
+    p2.occ = df_occ; p2.flag = df; p2.dest = dest; p2.pre = pre;
+
+    while (1)
+    {
+        p = &p1;
+        r1 = get_specific_shortest_path(p);
+        if(r1 && p1.pq->vis.a[p->v] && p2.pq->vis.a[p->v])
+        {
+            d1 = p1.pq->dis.a[p->v]; d2 = p2.pq->dis.a[p->v];
+            if(d1 != (uint64_t)-1 && d2 != (uint64_t)-1)
+            {
+                if(d2 <= d1*(1+rate) && d2 >= d1*(1-rate))
+                {
+                    return 1;
+                }
+            }
+        }
+        
+        p = &p2;
+        r2 = get_specific_shortest_path(p);
+        if(r2 && p1.pq->vis.a[p->v] && p2.pq->vis.a[p->v])
+        {
+            d1 = p1.pq->dis.a[p->v]; d2 = p2.pq->dis.a[p->v];
+            if(d1 != (uint64_t)-1 && d2 != (uint64_t)-1)
+            {
+                if(d2 <= d1*(1+rate) && d2 >= d1*(1-rate))
+                {
+                    return 1;
+                }
+            }
+        }
+
+        if(!r1 && !r2) return 0;
+    }
+    
 }
 
 uint64_t LCA_distance(long long d_x, long long d_y, long long xLen, long long yLen, uint8_t* rev)
