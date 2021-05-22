@@ -142,6 +142,434 @@ void sort_kvec_t_u64_warp(kvec_t_u64_warp* u_vecs, uint32_t is_descend)
     }
 } 
 
+///if ug == NULL, nsg should be equal to read_sg
+inline uint32_t check_different_haps(asg_t *nsg, ma_ug_t *ug, asg_t *read_sg, 
+uint32_t v_0, uint32_t v_1, ma_hit_t_alloc* reverse_sources, buf_t* b_0, buf_t* b_1, 
+R_to_U* ruIndex, uint32_t min_edge_length, uint32_t stops_threshold)
+{
+	uint32_t vEnd, qn, tn, j, is_Unitig, uId;
+	long long ELen_0, ELen_1, tmp, max_stop_nodeLen, max_stop_baseLen;
+
+	b_0->b.n = b_1->b.n = 0;
+	if(get_unitig(nsg, ug, v_0, &vEnd, &ELen_0, &tmp, &max_stop_nodeLen, &max_stop_baseLen, 
+	stops_threshold, b_0) == LOOP)
+	{
+		return UNAVAILABLE;
+	}
+	if(get_unitig(nsg, ug, v_1, &vEnd, &ELen_1, &tmp, &max_stop_nodeLen, &max_stop_baseLen, 
+	stops_threshold, b_1) == LOOP)
+	{
+		return UNAVAILABLE;
+	}
+	if(ELen_0<=min_edge_length || ELen_1<=min_edge_length) return UNAVAILABLE;
+
+	rIdContig b_max, b_min;
+	b_max.b_0 = b_min.b_0 = NULL;
+	b_max.offset = b_max.readI = b_max.untigI = 0;
+	b_min.offset = b_min.readI = b_min.untigI = 0;
+
+	if(ELen_0<=ELen_1)
+	{
+        b_min.b_0 = b_0;
+        b_max.b_0 = b_1;
+    }
+    else
+    {
+        b_min.b_0 = b_1;
+        b_max.b_0 = b_0;
+    }
+
+	uint32_t max_count = 0, min_count = 0;
+	ma_utg_t *node_min = NULL, *node_max = NULL;
+	if(ug != NULL)
+	{
+		/*****************************label all unitigs****************************************/
+		for (b_max.untigI = 0; b_max.untigI < b_max.b_0->b.n; b_max.untigI++)
+		{
+			node_max = &(ug->u.a[b_max.b_0->b.a[b_max.untigI]>>1]);
+			///each read
+			for (b_max.readI = 0; b_max.readI < node_max->n; b_max.readI++)
+			{
+				qn = (node_max->a[b_max.readI]>>33);
+				set_R_to_U(ruIndex, qn, (b_max.b_0->b.a[b_max.untigI]>>1), 1, &(read_sg->seq[qn].c));
+			}
+		}
+		/*****************************label all unitigs****************************************/
+
+		///each unitig
+		for (b_min.untigI = 0; b_min.untigI < b_min.b_0->b.n; b_min.untigI++)
+		{
+			
+			node_min = &(ug->u.a[(b_min.b_0->b.a[b_min.untigI]>>1)]);
+
+			///each read
+			for (b_min.readI = 0; b_min.readI < node_min->n; b_min.readI++)
+        	{
+				qn = node_min->a[b_min.readI]>>33;
+
+				/************************BUG: don't forget****************************/
+				if(reverse_sources[qn].length > 0) min_count++;
+				///if(reverse_sources[qn].length >= 0) min_count++;
+				/************************BUG: don't forget****************************/
+				for (j = 0; j < (long long)reverse_sources[qn].length; j++)
+				{
+					tn = Get_tn(reverse_sources[qn].buffer[j]);
+					if(read_sg->seq[tn].del == 1)
+					{
+						get_R_to_U(ruIndex, tn, &tn, &is_Unitig);
+						if(tn == (uint32_t)-1 || is_Unitig == 1 || read_sg->seq[tn].del == 1) continue;
+					}
+
+					get_R_to_U(ruIndex, tn, &uId, &is_Unitig);
+					if(uId!=(uint32_t)-1 && is_Unitig == 1)
+					{
+                        // if(v_0==510 && v_1==67) fprintf(stderr, "###untigI-%u, readI-%um, un-%u\n", b_min.untigI, b_min.readI, (uint32_t)node_min->n);
+						max_count++;
+						break;
+					}
+				}
+			}
+		}
+		/*****************************label all unitigs****************************************/
+		for (b_max.untigI = 0; b_max.untigI < b_max.b_0->b.n; b_max.untigI++)
+		{
+			node_max = &(ug->u.a[b_max.b_0->b.a[b_max.untigI]>>1]);
+			///each read
+			for (b_max.readI = 0; b_max.readI < node_max->n; b_max.readI++)
+			{
+				qn = (node_max->a[b_max.readI]>>33);
+				ruIndex->index[qn] = (uint32_t)-1;
+			}
+		}
+		/*****************************label all unitigs****************************************/
+	}
+	else
+	{
+		/*****************************label all reads****************************************/
+		for (b_max.untigI = 0; b_max.untigI < b_max.b_0->b.n; b_max.untigI++)
+		{
+			qn = (b_max.b_0->b.a[b_max.untigI]>>1);
+			set_R_to_U(ruIndex, qn, 1, 1, &(read_sg->seq[qn].c));
+		}
+		/*****************************label all reads****************************************/
+
+		///each read
+		for (b_min.untigI = 0; b_min.untigI < b_min.b_0->b.n; b_min.untigI++)
+		{
+			qn = (b_min.b_0->b.a[b_min.untigI]>>1);
+
+			/************************BUG: don't forget****************************/
+			if(reverse_sources[qn].length > 0) min_count++;
+			///if(reverse_sources[qn].length >= 0) min_count++;
+			/************************BUG: don't forget****************************/
+
+			for (j = 0; j < (long long)reverse_sources[qn].length; j++)
+        	{
+            	tn = Get_tn(reverse_sources[qn].buffer[j]);
+				if(nsg->seq[tn].del == 1)
+				{
+					get_R_to_U(ruIndex, tn, &tn, &is_Unitig);
+					if(tn == (uint32_t)-1 || is_Unitig == 1 || nsg->seq[tn].del == 1) continue;
+				}
+
+
+				get_R_to_U(ruIndex, tn, &uId, &is_Unitig);
+				if(uId!=(uint32_t)-1 && is_Unitig == 1)
+				{
+					max_count++;
+					break;
+				}
+			}
+		}
+
+		/*****************************label all reads****************************************/
+		for (b_max.untigI = 0; b_max.untigI < b_max.b_0->b.n; b_max.untigI++)
+		{
+			qn = (b_max.b_0->b.a[b_max.untigI]>>1);
+			ruIndex->index[qn] = (uint32_t)-1;
+		}
+		/*****************************label all reads****************************************/
+	}
+
+	if(min_count == 0) return UNAVAILABLE;
+	if(max_count > min_count*asm_opt.purge_simi_thres/**DIFF_HAP_RATE**/) return PLOID;
+	return NON_PLOID;
+}
+
+inline void calculate_match_cover(uint32_t *b, uint32_t b_n, asg_t *nsg, ma_ug_t *ug, asg_t *read_sg,
+ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, uint32_t *min_count, uint32_t *max_count)
+{
+    ma_utg_t *u = NULL;
+    uint32_t ui, ri, ori, qn, tn, v, w, k, nv, j, is_Unitig, uId;
+    asg_arc_t *av  = NULL;
+    long long offset, r_beg, r_end, inp_beg, inp_end, hap_beg, hap_end, ovlp, hap_match, inp_match, l;
+    (*min_count) = (*max_count) = 0;
+    inp_beg = -1; inp_end = -2;
+    hap_beg = -1; hap_end = -2;
+    inp_match = hap_match = 0;
+    if(ug)
+    {
+        for (ui = 0, offset = 0; ui < b_n; ui++)
+        {
+            u = &(ug->u.a[(b[ui]>>1)]);
+            ori = b[ui]&1;
+            ///each read
+            for (ri = 0; ri < u->n; ri++)
+            {
+                qn = (ori==1?((uint64_t)((u->a[u->n-ri-1])))>>33:((uint64_t)(u->a[ri]))>>33);
+                r_beg = offset; r_end = offset + (long long)(read_sg->seq[qn].len) - 1;
+                offset += (ori==1?(uint32_t)(u->a[u->n-ri-1]):(uint32_t)(u->a[ri]));
+                if(ori==1) offset -= (long long)(read_sg->seq[qn].len);
+
+                if(reverse_sources[qn].length > 0)
+                {
+                    // min_count++;
+                    if(r_beg <= hap_end)
+                    {
+                        hap_end = MAX(hap_end, r_end);
+                    } 
+                    else
+                    {
+                        ovlp = hap_end - hap_beg + 1;
+                        hap_match += (ovlp >= 0? ovlp : 0);
+                        hap_beg = r_beg; hap_end = r_end;
+                    }
+                }
+                
+                for (j = 0; j < reverse_sources[qn].length; j++)
+                {
+                    tn = Get_tn(reverse_sources[qn].buffer[j]);
+                    if(read_sg->seq[tn].del == 1)
+                    {
+                        get_R_to_U(ruIndex, tn, &tn, &is_Unitig);
+                        if(tn == (uint32_t)-1 || is_Unitig == 1 || read_sg->seq[tn].del == 1) continue;
+                    }
+
+                    get_R_to_U(ruIndex, tn, &uId, &is_Unitig);
+                    if(uId!=(uint32_t)-1 && is_Unitig == 1)
+                    {
+                        ///max_count++;
+                        break;
+                    }
+                }
+
+                if(j < reverse_sources[qn].length)
+                {
+                    if(r_beg <= inp_end)
+                    {
+                        inp_end = MAX(inp_end, r_end);
+                    } 
+                    else
+                    {
+                        ovlp = inp_end - inp_beg + 1;
+                        inp_match += (ovlp >= 0? ovlp : 0);
+                        inp_beg = r_beg; inp_end = r_end;
+                    }
+                }
+            }
+
+            if(ui+1 < b_n)
+            {
+                v = b[ui]; w = b[ui+1];
+                av = asg_arc_a(nsg, v);
+                nv = asg_arc_n(nsg, v);
+                for (k = 0; k < nv; k++)
+                {
+                    if(av[k].del) continue;
+                    if(av[k].v == w) 
+                    {
+                        offset -= av[k].ol;
+                        break;
+                    }
+                }
+                if(k >= nv) fprintf(stderr, "ERROR-mc\n");
+            }
+        }
+    }
+    else
+    {
+        for (ui = 0, offset = 0; ui < b_n; ui++)
+        {
+            qn = b[ui]>>1;
+            r_beg = offset; r_end = offset + (long long)(read_sg->seq[qn].len) - 1;
+            l = read_sg->seq[qn].len;
+            if(ui+1 < b_n)
+            {
+                v = b[ui]; w = b[ui+1];
+                av = asg_arc_a(read_sg, v);
+                nv = asg_arc_n(read_sg, v);
+                for (k = 0; k < nv; k++)
+                {
+                    if(av[k].del) continue;
+                    if(av[k].v == w) 
+                    {
+                        l = asg_arc_len(av[k]);
+                        break;
+                    }
+                }
+                if(k >= nv) fprintf(stderr, "ERROR-mc\n");
+            }
+            offset += l;
+
+            if(reverse_sources[qn].length > 0)
+            {
+                // min_count++;
+                if(r_beg <= hap_end)
+                {
+                    hap_end = MAX(hap_end, r_end);
+                } 
+                else
+                {
+                    ovlp = hap_end - hap_beg + 1;
+                    hap_match += (ovlp >= 0? ovlp : 0);
+                    hap_beg = r_beg; hap_end = r_end;
+                }
+            }
+            
+            for (j = 0; j < reverse_sources[qn].length; j++)
+            {
+                tn = Get_tn(reverse_sources[qn].buffer[j]);
+                if(read_sg->seq[tn].del == 1)
+                {
+                    get_R_to_U(ruIndex, tn, &tn, &is_Unitig);
+                    if(tn == (uint32_t)-1 || is_Unitig == 1 || read_sg->seq[tn].del == 1) continue;
+                }
+
+                get_R_to_U(ruIndex, tn, &uId, &is_Unitig);
+                if(uId!=(uint32_t)-1 && is_Unitig == 1)
+                {
+                    ///max_count++;
+                    break;
+                }
+            }
+
+            if(j < reverse_sources[qn].length)
+            {
+                if(r_beg <= inp_end)
+                {
+                    inp_end = MAX(inp_end, r_end);
+                } 
+                else
+                {
+                    ovlp = inp_end - inp_beg + 1;
+                    inp_match += (ovlp >= 0? ovlp : 0);
+                    inp_beg = r_beg; inp_end = r_end;
+                }
+            }
+        }
+    }   
+
+    ovlp = inp_end - inp_beg + 1;
+    inp_match += (ovlp >= 0? ovlp : 0);
+    
+    ovlp = hap_end - hap_beg + 1;
+    hap_match += (ovlp >= 0? ovlp : 0);
+
+    (*max_count) = inp_match;
+    (*min_count) = hap_match;
+}
+inline uint32_t check_different_haps_base(asg_t *nsg, ma_ug_t *ug, asg_t *read_sg, 
+uint32_t v_0, uint32_t v_1, ma_hit_t_alloc* reverse_sources, buf_t* b_0, buf_t* b_1, 
+R_to_U* ruIndex, uint32_t min_edge_length, uint32_t stops_threshold)
+{
+	uint32_t vEnd, qn;
+	long long ELen_0, ELen_1, tmp, max_stop_nodeLen, max_stop_baseLen;
+
+	b_0->b.n = b_1->b.n = 0;
+	if(get_unitig(nsg, ug, v_0, &vEnd, &tmp, &ELen_0, &max_stop_nodeLen, &max_stop_baseLen, 
+	stops_threshold, b_0) == LOOP)
+	{
+		return UNAVAILABLE;
+	}
+	if(get_unitig(nsg, ug, v_1, &vEnd, &tmp, &ELen_1, &max_stop_nodeLen, &max_stop_baseLen, 
+	stops_threshold, b_1) == LOOP)
+	{
+		return UNAVAILABLE;
+	}
+	if(ELen_0<=min_edge_length || ELen_1<=min_edge_length) return UNAVAILABLE;
+
+	rIdContig b_max, b_min;
+	b_max.b_0 = b_min.b_0 = NULL;
+	b_max.offset = b_max.readI = b_max.untigI = 0;
+	b_min.offset = b_min.readI = b_min.untigI = 0;
+
+	if(ELen_0<=ELen_1)
+	{
+        b_min.b_0 = b_0;
+        b_max.b_0 = b_1;
+    }
+    else
+    {
+        b_min.b_0 = b_1;
+        b_max.b_0 = b_0;
+    }
+
+	uint32_t max_count = 0, min_count = 0;
+	ma_utg_t *node_max = NULL;
+	if(ug != NULL)
+	{
+		/*****************************label all unitigs****************************************/
+		for (b_max.untigI = 0; b_max.untigI < b_max.b_0->b.n; b_max.untigI++)
+		{
+			node_max = &(ug->u.a[b_max.b_0->b.a[b_max.untigI]>>1]);
+			///each read
+			for (b_max.readI = 0; b_max.readI < node_max->n; b_max.readI++)
+			{
+				qn = (node_max->a[b_max.readI]>>33);
+				set_R_to_U(ruIndex, qn, (b_max.b_0->b.a[b_max.untigI]>>1), 1, &(read_sg->seq[qn].c));
+			}
+		}
+		/*****************************label all unitigs****************************************/
+
+        calculate_match_cover(b_min.b_0->b.a, b_min.b_0->b.n, nsg, ug, read_sg,
+        reverse_sources, ruIndex, &min_count, &max_count);
+
+		/*****************************label all unitigs****************************************/
+		for (b_max.untigI = 0; b_max.untigI < b_max.b_0->b.n; b_max.untigI++)
+		{
+			node_max = &(ug->u.a[b_max.b_0->b.a[b_max.untigI]>>1]);
+			///each read
+			for (b_max.readI = 0; b_max.readI < node_max->n; b_max.readI++)
+			{
+				qn = (node_max->a[b_max.readI]>>33);
+				ruIndex->index[qn] = (uint32_t)-1;
+			}
+		}
+		/*****************************label all unitigs****************************************/
+	}
+	else
+	{
+		/*****************************label all reads****************************************/
+		for (b_max.untigI = 0; b_max.untigI < b_max.b_0->b.n; b_max.untigI++)
+		{
+			qn = (b_max.b_0->b.a[b_max.untigI]>>1);
+			set_R_to_U(ruIndex, qn, 1, 1, &(read_sg->seq[qn].c));
+		}
+		/*****************************label all reads****************************************/
+
+		calculate_match_cover(b_min.b_0->b.a, b_min.b_0->b.n, nsg, NULL, read_sg,
+        reverse_sources, ruIndex, &min_count, &max_count);
+
+		/*****************************label all reads****************************************/
+		for (b_max.untigI = 0; b_max.untigI < b_max.b_0->b.n; b_max.untigI++)
+		{
+			qn = (b_max.b_0->b.a[b_max.untigI]>>1);
+			ruIndex->index[qn] = (uint32_t)-1;
+		}
+		/*****************************label all reads****************************************/
+	}
+
+    // if(v_0 == 67 && v_1 == 510)
+    // {
+    //     fprintf(stderr, "v_0-%u, v_1-%u, min_count-%u, max_count-%u\n", v_0, v_1, min_count, max_count);
+    // }
+
+	if(min_count == 0) return UNAVAILABLE;
+	if(max_count > min_count*asm_opt.purge_simi_thres/**DIFF_HAP_RATE**/) return PLOID;
+	return NON_PLOID;
+}
+
+
 asg_t *asg_init(void)
 {
 	return (asg_t*)calloc(1, sizeof(asg_t));
@@ -14229,7 +14657,7 @@ asg_t *read_sg, ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, uint32_t min_e
                 if(operation == CUT) break;
                 if(aw[i].del) continue;
                 if(aw[i].v == (b.b.a[b.b.n-1]^1)) continue;
-                inner_flag = check_different_haps(g, ug, read_sg, b.b.a[b.b.n-1]^1, aw[i].v,
+                inner_flag = check_different_haps_base(g, ug, read_sg, b.b.a[b.b.n-1]^1, aw[i].v,
                 reverse_sources, &b_0, &b_1, ruIndex, min_edge_length, 1);
                 if(inner_flag == NON_PLOID) operation = CUT;
             }
@@ -14448,7 +14876,7 @@ R_to_U* ruIndex, uint32_t min_edge_length, float drop_ratio, hap_cov_t *cov)
             {
                 n_reduced++;
                 operation = TRIM;
-                flag = check_different_haps(g, ug, read_sg, a_convex[convex_i].v, a_convex[i].v,
+                flag = check_different_haps_base(g, ug, read_sg, a_convex[convex_i].v, a_convex[i].v,
                 reverse_sources, &b_0, &b_1, ruIndex, min_edge_length, stops_threshold);
                 // #define UNAVAILABLE (uint32_t)-1
                 // #define PLOID 0
@@ -14572,30 +15000,19 @@ R_to_U* ruIndex, hap_cov_t *cov)
         get_real_length(g, v, &s);
         if(get_real_length(g, s^1, NULL) < 2) continue;
         return_flag = get_unitig(g, ug, v^1, &convex, &ll, &tmp, &max_stop_nodeLen,&max_stop_baseLen, 1, NULL);
-        if(return_flag != MUL_INPUT) continue;
+        if(return_flag == LOOP) continue;
         get_real_length(g, convex, &convex);
         if(get_real_length(g, convex^1, NULL) < 2) continue;
         tt.a.n = 0; s^=1; sv = v^1;
         dfs_set(g, sv, s>>1, &stack, &tt, vis, fp);
         p_n = tt.a.n;
         as = asg_arc_a(g, s); ns = asg_arc_n(g, s); found = 0;
-
-        if((sv>>1)==3983)
-        {
-            fprintf(stderr, "\nsv-utg%.6ul, s-utg%.6ul, p_n-%u\n",(sv>>1)+1, (s>>1)+1, p_n);
-            // for (i = 0; i < (g->n_seq<<1); i++)
-            // {
-            //     if(vis[i] == fp) fprintf(stderr, "i-utg%.6ul\n", (i>>1)+1);   
-            //     if(vis[i] && vis[i] != fp) fprintf(stderr,"ERROR\n");
-            // }
-        }   
-        
-
+ 
         for (i = 0; i < ns; i++)
         {
             if(as[i].del || as[i].v == sv) continue;
             nc = dfs_set(g, as[i].v, s>>1, &stack, &tt, vis, fa);
-            if((sv>>1)==3983) fprintf(stderr, "as[i].v-%u, nc-%u\n", as[i].v, nc);
+            // if((s>>1)==9882) fprintf(stderr, "s-%u, as[i].v-%u, sv-%u, nc-%u\n", s, as[i].v, sv, nc);
             if(nc && check_trans_relation_by_path(sv, as[i].v, &pq_p, &pq_a, g, 
             vis, fp+fa, nc, NULL, 0.45))
             {
@@ -14623,7 +15040,7 @@ R_to_U* ruIndex, hap_cov_t *cov)
                 asg_seq_drop(g, b.b.a[k]>>1);
             }
 
-            fprintf(stderr, "++++++++utg%.6ul\n", (sv>>1)+1);
+            // fprintf(stderr, "++++++++utg%.6ul\n", (sv>>1)+1);
         }
         a_a = tt.a.a; a_n = p_n;
         for (k = 0; k < a_n; k++) vis[a_a[k]] = 0;
@@ -14714,7 +15131,7 @@ R_to_U* ruIndex, uint32_t min_edge_length, float drop_ratio, hap_cov_t *cov)
                 n_reduced++;
 
                 operation = TRIM;
-                flag = check_different_haps(g, ug, read_sg, av[v_maxLen_i].v, av[i].v,
+                flag = check_different_haps_base(g, ug, read_sg, av[v_maxLen_i].v, av[i].v,
                 reverse_sources, &b_0, &b_1, ruIndex, min_edge_length, 1);
                 // #define UNAVAILABLE (uint32_t)-1
                 // #define PLOID 0
@@ -14816,7 +15233,7 @@ R_to_U* ruIndex, uint32_t min_edge_length, float drop_ratio, uint32_t stops_thre
             {
                 n_reduced++;
                 operation = TRIM;
-                flag = check_different_haps(g, ug, read_sg, a_convex[convex_i].v, a_convex[i].v,
+                flag = check_different_haps_base(g, ug, read_sg, a_convex[convex_i].v, a_convex[i].v,
                 reverse_sources, &b_0, &b_1, ruIndex, min_edge_length, stops_threshold);
                 // #define UNAVAILABLE (uint32_t)-1
                 // #define PLOID 0
@@ -15004,8 +15421,15 @@ hap_cov_t *cov)
 
             if(return_flag != END_TIPS) continue;
 
-            flag = check_different_haps(g, ug, read_sg, av[base_maxLen_i].v, av[i].v,
+            flag = check_different_haps_base(g, ug, read_sg, av[base_maxLen_i].v, av[i].v,
             reverse_sources, &b_0, &b_1, ruIndex, miniedgeLen, 1);
+
+            // if((av[i].v>>1) == 255 && (av[base_maxLen_i].v>>1) == 33)
+            // if((av[i].v>>1) == 1852 && (av[base_maxLen_i].v>>1) == 2441)
+            // {
+            //     fprintf(stderr, "max-utg%.6ul (%u), p-utg%.6ul (%u)\n", 
+            //     (av[base_maxLen_i].v>>1)+1, av[base_maxLen_i].v, (av[i].v>>1)+1, av[i].v);
+            // }
 
             // #define UNAVAILABLE (uint32_t)-1
             // #define PLOID 0
@@ -15296,6 +15720,10 @@ ma_hit_t_alloc* reverse_sources, long long miniedgeLen, R_to_U* ruIndex, uint32_
         }
         convex_i = i;
         ///if(convex_i == n_convex) fprintf(stderr, "ERROR1\n");
+        // if((v>>1) == 304 && (convex>>1) == 12875)
+        // {
+        //     fprintf(stderr, "\n++v-%u, convex-%u, n_convex-%u\n", v, convex, n_convex);
+        // }
 
         for (i = 0; i < n_convex; i++)
         {
@@ -15305,11 +15733,16 @@ ma_hit_t_alloc* reverse_sources, long long miniedgeLen, R_to_U* ruIndex, uint32_
             return_flag = get_unitig(g, ug, a_convex[i].v, &convex, &tmp, &ll, &max_stop_nodeLen, 
             &max_stop_baseLen, stops_threshold, NULL);
 
+            // if((v>>1) == 304 && n_convex == 2)
+            // {
+            //     fprintf(stderr, "---v-%u (len: %u), convex-%u, a_convex[i].v-%u (len: %lld), max_stop_baseLen: %lld\n", 
+            //     v, convexLen, convex, a_convex[i].v, ll, max_stop_baseLen);
+            // }
+
             if(ll>convexLen  && max_stop_baseLen>=ll*MAX_STOP_RATE)
             {
-                flag = check_different_haps(g, ug, read_sg, a_convex[convex_i].v, a_convex[i].v,
+                flag = check_different_haps_base(g, ug, read_sg, a_convex[convex_i].v, a_convex[i].v,
                 reverse_sources, &b_0, &b_1, ruIndex, miniedgeLen, stops_threshold);
-
                 // #define UNAVAILABLE (uint32_t)-1
                 // #define PLOID 0
                 // #define NON_PLOID 1
@@ -15447,7 +15880,7 @@ R_to_U* ruIndex)
             }
             if(k != b_0.b.n) break;
             
-            if(check_different_haps(g, ug, read_sg, wv, aw[i].v, reverse_sources, &b_0, &b_1, 
+            if(check_different_haps_base(g, ug, read_sg, wv, aw[i].v, reverse_sources, &b_0, &b_1, 
             ruIndex, miniedgeLen, stops_threshold)==PLOID)
             {
                 break;
@@ -15493,7 +15926,7 @@ R_to_U* ruIndex)
             }
             if(k != b_0.b.n) break;
 
-            if(check_different_haps(g, ug, read_sg, wv, aw[i].v, reverse_sources, &b_0, &b_1, 
+            if(check_different_haps_base(g, ug, read_sg, wv, aw[i].v, reverse_sources, &b_0, &b_1, 
             ruIndex, miniedgeLen, stops_threshold)==PLOID)
             {
                 break;
@@ -15817,6 +16250,7 @@ int just_bubble_pop, float drop_ratio, hap_cov_t *cov)
     {
         cut_trio_tip_primary(g, ug, tipsLen, (uint32_t)-1, 0, read_g, reverse_sources, ruIndex, 2);
     }
+    // print_debug_gfa(read_g, ug, coverage_cut, "debug_init", sources, ruIndex, asm_opt.max_hang_Len, asm_opt.min_overlap_Len);
     long long pre_cons = get_graph_statistic(g);
     long long cur_cons = 0;
     while(pre_cons != cur_cons)
@@ -15854,6 +16288,66 @@ int just_bubble_pop, float drop_ratio, hap_cov_t *cov)
     print_debug_gfa(read_g, ug, coverage_cut, "debug_clean_end", sources, ruIndex, asm_opt.max_hang_Len, asm_opt.min_overlap_Len);
     unitig_arc_del_short_diploid_by_length_topo(g, ug, drop_ratio, asm_opt.max_short_tip, reverse_sources, 0, 1);    
     ///print_graph_statistic(g, "end");
+    if(round > 0)
+    {
+        if(round != T_ROUND)
+        {
+            unitig_arc_del_short_diploid_by_length(ug->g, drop_ratio);        
+        }
+        round--;
+        goto redo;
+    }    
+}
+
+
+void topo_ovlp_collect(ma_ug_t *ug, asg_t *read_g, ma_hit_t_alloc* sources, 
+ma_hit_t_alloc* reverse_sources, ma_sub_t* coverage_cut, long long tipsLen, float tip_drop_ratio, 
+long long stops_threshold, R_to_U* ruIndex, float chimeric_rate, float drop_ratio, hap_cov_t *cov)
+{
+    // kv_u_trans_t *k_trans
+    #define T_ROUND 2
+    asg_t *g = ug->g;
+    int round = T_ROUND;
+
+    redo:
+    asg_pop_bubble_primary_trio(ug, NULL, (uint32_t)-1, DROP, cov, 1);
+    cut_trio_tip_primary(g, ug, tipsLen, (uint32_t)-1, 0, read_g, reverse_sources, ruIndex, 2);
+
+    long long pre_cons = get_graph_statistic(g);
+    long long cur_cons = 0;
+    while(pre_cons != cur_cons)
+    {    
+        pre_cons = get_graph_statistic(g);
+        asg_pop_bubble_primary_trio(ug, NULL, (uint32_t)-1, DROP, cov, 1);
+        
+        ///need consider tangles  
+        asg_arc_cut_trio_long_tip_primary(g, ug, read_g, reverse_sources, ruIndex, 2, tip_drop_ratio, cov);              
+        asg_arc_cut_trio_long_equal_tips_assembly(g, ug, read_g, reverse_sources, 2, ruIndex, (uint32_t)-1, cov);   
+        asg_arc_cut_trio_long_tip_primary_complex(g, ug, read_g, reverse_sources, ruIndex, 2, tip_drop_ratio, stops_threshold, cov);   
+        asg_arc_cut_trio_long_equal_tips_assembly_complex(g, ug, read_g, reverse_sources, 2, ruIndex, stops_threshold, cov);
+        detect_chimeric_by_topo(g, ug, read_g, reverse_sources, 2, stops_threshold, chimeric_rate, ruIndex);    
+        
+        if(asm_opt.polyploidy > 2)
+        {
+            asg_arc_decompress(g, ug, read_g, reverse_sources, ruIndex, cov);
+        }
+        if(round != T_ROUND)
+        {
+            unitig_arc_del_short_diploid_by_length_topo(g, ug, drop_ratio, asm_opt.max_short_tip, 
+            reverse_sources, 0, 1);
+        }
+        
+        cur_cons = get_graph_statistic(g);
+    }    
+    
+    cut_trio_tip_primary(g, ug, tipsLen, (uint32_t)-1, 0, read_g, reverse_sources, ruIndex, 
+    2);
+    
+    resolve_tangles(ug, read_g, reverse_sources, 20, 100, 0.05, 0.2, ruIndex, (uint32_t)-1, drop_ratio); 
+    drop_semi_circle(ug, g, read_g, reverse_sources, ruIndex); 
+    print_debug_gfa(read_g, ug, coverage_cut, "debug_clean_end", sources, ruIndex, asm_opt.max_hang_Len, asm_opt.min_overlap_Len);
+    unitig_arc_del_short_diploid_by_length_topo(g, ug, drop_ratio, asm_opt.max_short_tip, reverse_sources, 0, 1);    
+    
     if(round > 0)
     {
         if(round != T_ROUND)
@@ -16066,7 +16560,7 @@ R_to_U* ruIndex)
     }
     
     if(min_count == 0) return UNAVAILABLE;
-	if(max_count > min_count*DIFF_HAP_RATE) return PLOID;
+	if(max_count > min_count*asm_opt.purge_simi_thres/**DIFF_HAP_RATE**/) return PLOID;
 	return NON_PLOID;
 }
 
@@ -16372,7 +16866,7 @@ void drop_semi_circle(ma_ug_t *ug, asg_t* nsg, asg_t* read_g, ma_hit_t_alloc* re
             }
             get_real_length(nsg, convex_f, &convex_f);
             if(convex_f != convex_b) continue;
-            if(check_different_haps(nsg, ug, read_g, v^1, av[i].v, 
+            if(check_different_haps_base(nsg, ug, read_g, v^1, av[i].v, 
             reverse_sources, &b_0, &b_1, ruIndex, 2, 1) == PLOID)
             {
                 av[i].del = 1;
@@ -19917,7 +20411,7 @@ uint32_t* r_next_uID, R_to_U* ruIndex)
     {
         return 0;
     }
-    if(get_real_length(nsg, beg^1, NULL) == 1)
+    if(get_real_length(nsg, beg^1, NULL) == 1)///check if beg is the tig end
     {
         get_real_length(nsg, beg^1, &end);
         if(get_real_length(nsg, end^1, NULL) == 1)
@@ -19935,7 +20429,7 @@ uint32_t* r_next_uID, R_to_U* ruIndex)
     } 
     primaryLen = nodeLen;
     
-    if(get_real_length(nsg, end, NULL) <= 0)
+    if(get_real_length(nsg, end, NULL) <= 0)///if it is already a simple contig
     {
         return 0;
     }
@@ -20000,7 +20494,7 @@ uint32_t* r_next_uID, R_to_U* ruIndex)
             // #define UNAVAILABLE (uint32_t)-1
             // #define PLOID 0
             // #define NON_PLOID 1
-            if(returnFlag == 1 && check_different_haps(nsg, ug, read_g, beg, next_uID, 
+            if(returnFlag == 1 && check_different_haps_base(nsg, ug, read_g, beg, next_uID, 
                 reverse_sources, b_0, b_1, ruIndex, minLongUntig-1, 1) == PLOID)
             {
                 ///output_tangles(beg, next_uID, u_vecs->a.a, u_vecs->a.n, (char*)("???"));
@@ -22393,25 +22887,6 @@ float drop_ratio)
     kvec_t_u64_warp e_vecs;
     kv_init(e_vecs.a);
 
-
-    
-    ///note: we must reset start for each unitig
-    n_vtx = src->g->n_seq;
-    for (v = 0; v < n_vtx; ++v) 
-    {
-        if(src->g->seq[v].del) continue;
-        if(src->u.a[v].m==0) continue;
-        if(!(src->u.a[v].circ))
-        {
-            src->u.a[v].start = src->u.a[v].a[0]>>32;
-        }
-        else
-        {
-            src->u.a[v].start = UINT32_MAX;
-        }
-    }
-
-    ///adjust_utg_advance(read_g, src, reverse_sources, ruIndex);
     ///note: we must reset start for each unitig
     n_vtx = src->g->n_seq;
     for (v = 0; v < n_vtx; ++v) 
@@ -22420,10 +22895,6 @@ float drop_ratio)
         if(src->u.a[v].m==0) continue;
         EvaluateLen(src->u, v) = src->u.a[v].n;
     }
-    
-
-
-
 
     ma_ug_t *ug = NULL;
     ug = copy_untig_graph(src);
@@ -22530,10 +23001,6 @@ float drop_ratio)
         if(IsMerge(ug->u, w>>1) != 0) continue;
         end = w;
 
-
-        
-        
-
         ///we have three types of merged nodes
         ///1) CONVEX_M: one direction has two out-nodes, another direction has one out-node
         ///2) UNROLL_E: one direction has one out-node, another direction doesn't has out-node
@@ -22541,87 +23008,6 @@ float drop_ratio)
         ///here we just need UNROLL_M
         ///beg and end must be unchanged in src
         unroll_tangle(src, ug, nsu->a, nsu->n, beg, end, &e_vecs, trio_flag, &b_0, visit, drop_ratio);
-
-        /**
-        v = v<<1;
-        if(get_real_length(nsg, v, NULL) != 1)
-        {
-            fprintf(stderr, "\nERROR 1, v>>1: %u, get_real_length(nsg, v, NULL): %u\n", 
-            v>>1, get_real_length(nsg, v, NULL));
-            for (m = 0; m < nsu->n; m++)
-            {
-                fprintf(stderr, "uId: %lu, ", nsu->a[m]);
-            }
-            fprintf(stderr, "\n");
-            continue;
-        } 
-        get_real_length(nsg, v, &w);
-        if(get_real_length(nsg, w^1, NULL) != 1)
-        {
-            fprintf(stderr, "\nERROR 2, v>>1: %u, v&1: %u, get_real_length(nsg, w^1, NULL): %u\n", 
-            v>>1, v&1, get_real_length(nsg, w^1, NULL));
-            for (m = 0; m < nsu->n; m++)
-            {
-                fprintf(stderr, "uId: %lu, ", nsu->a[m]);
-            }
-            fprintf(stderr, "\n");
-            continue;
-        } 
-        if(IsMerge(ug->u, w>>1) != 0)
-        {
-            fprintf(stderr, "\nERROR 3, v>>1: %u, v&1: %u, IsMerge(ug->u, w>>1): %u\n", v>>1, v&1, 
-            IsMerge(ug->u, w>>1));
-            for (m = 0; m < nsu->n; m++)
-            {
-                fprintf(stderr, "uId: %lu, ", nsu->a[m]);
-            }
-            fprintf(stderr, "\n");
-            continue;
-        } 
-        beg = w^1;
-
-
-        v = v^1;
-        if(get_real_length(nsg, v, NULL) != 1)
-        {
-            fprintf(stderr, "\nERROR 4, v>>1: %u, v&1: %u, get_real_length(nsg, v, NULL): %u\n", 
-            v>>1, v&1, get_real_length(nsg, v, NULL));
-            for (m = 0; m < nsu->n; m++)
-            {
-                fprintf(stderr, "uId: %lu, ", nsu->a[m]);
-            }
-            fprintf(stderr, "\n");
-            continue;
-        } 
-        get_real_length(nsg, v, &w);
-        if(get_real_length(nsg, w^1, NULL) != 1)
-        {
-            fprintf(stderr, "\nERROR 5, v>>1: %u, v&1: %u, get_real_length(nsg, w^1, NULL): %u\n", 
-            v>>1, v&1, get_real_length(nsg, w^1, NULL));
-            for (m = 0; m < nsu->n; m++)
-            {
-                fprintf(stderr, "uId: %lu, ", nsu->a[m]);
-            }
-            fprintf(stderr, "\n");
-            continue;
-        } 
-        if(IsMerge(ug->u, w>>1) != 0)
-        {
-            fprintf(stderr, "\nERROR 6, v>>1: %u, v&1: %u, IsMerge(ug->u, w>>1): %u\n", v>>1, v&1, 
-            IsMerge(ug->u, w>>1));
-            for (m = 0; m < nsu->n; m++)
-            {
-                fprintf(stderr, "uId: %lu, ", nsu->a[m]);
-            }
-            fprintf(stderr, "\n");
-            continue;
-        } 
-        end = w;
-
-        
-        fprintf(stderr, "\n***\nbeg>>1: %u, beg&1: %u\n", beg>>1, beg&1);
-        fprintf(stderr, "end>>1: %u, end&1: %u\n", end>>1, end&1);
-        **/
     }
 
 
@@ -22639,22 +23025,7 @@ float drop_ratio)
     free(b_0.b.a);
     free(b_1.b.a);
 
-    ///note: we must reset start for each unitig
-    n_vtx = src->g->n_seq;
-    for (v = 0; v < n_vtx; ++v) 
-    {
-        if(src->g->seq[v].del) continue;
-        if(src->u.a[v].m==0) continue;
-        if(!(src->u.a[v].circ))
-        {
-            src->u.a[v].start = src->u.a[v].a[0]>>32;
-        }
-        else
-        {
-            src->u.a[v].start = UINT32_MAX;
-        }
-    }
-    ///adjust_utg_advance(read_g, src, reverse_sources, ruIndex);
+
     ///note: we must reset start for each unitig
     n_vtx = src->g->n_seq;
     for (v = 0; v < n_vtx; ++v) 
@@ -23332,6 +23703,7 @@ void unroll_simple_case_advance(ma_ug_t *ug, asg_t* read_g, ma_hit_t_alloc* reve
                 u_vecs.a.n = 0;
                 kv_push(uint64_t, u_vecs.a, beg^1);
 
+
                 b_0.b.n = 0;
                 get_unitig(nsg, NULL, w_left, &convex, &ll, &tmp, &max_stop_nodeLen, 
                             &max_stop_baseLen, 1, &b_0);
@@ -23396,11 +23768,12 @@ void unroll_simple_case_advance(ma_ug_t *ug, asg_t* read_g, ma_hit_t_alloc* reve
                     continue;
                 }
 
-                if(check_different_haps(nsg, ug, read_g, beg, end, reverse_sources, &b_0, &b_1,
+                if(check_different_haps_base(nsg, ug, read_g, beg, end, reverse_sources, &b_0, &b_1,
                     ruIndex, 2, 1) == PLOID)
                 {
                     continue;
                 }
+
 
                 w_term = convex^1;
                 u_vecs.a.n = 0;
@@ -24477,6 +24850,119 @@ uint32_t collect_p_trans, uint32_t collect_p_trans_f)
     }     
 }
 
+
+void get_utg_ovlp(ma_ug_t **ug, asg_t* read_g, float drop_rate,
+ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, ma_sub_t* coverage_cut, 
+long long tipsLen, float tip_drop_ratio, long long stops_threshold, 
+R_to_U* ruIndex, float chimeric_rate, float drop_ratio, int max_hang, int min_ovlp,
+kvec_asg_arc_t_warp* new_rtg_edges, hap_cov_t **i_cov, bub_label_t* b_mask_t, 
+uint32_t collect_p_trans, uint32_t collect_p_trans_f)
+{
+    asg_t* nsg = (*ug)->g;
+    uint32_t v, n_vtx = nsg->n_seq, k, rId, just_contain;
+    ma_utg_t* u = NULL;
+    hap_cov_t *cov = init_hap_cov_t(*ug, read_g, sources, ruIndex, reverse_sources, 
+                            coverage_cut, max_hang, min_ovlp, (asm_opt.purge_level_primary>0||i_cov)?1:0);
+    if(cov->t_ch) set_r_het_flag(*ug, read_g, coverage_cut, sources, ruIndex, cov->t_ch);
+    adjust_utg_advance(read_g, (*ug), reverse_sources, ruIndex, b_mask_t);
+
+    nsg = (*ug)->g;
+    n_vtx = nsg->n_seq;
+    for (v = 0; v < n_vtx; ++v) 
+    {
+        if(nsg->seq[v].del) continue;
+        nsg->seq[v].c = PRIMARY_LABLE;
+        EvaluateLen((*ug)->u, v) = (*ug)->u.a[v].n;
+    }
+
+    topo_ovlp_collect(*ug, read_g, sources, reverse_sources, coverage_cut, tipsLen, tip_drop_ratio, 
+    stops_threshold, ruIndex, chimeric_rate, drop_ratio, cov);
+    delete_useless_nodes(ug);
+    renew_utg(ug, read_g, new_rtg_edges);
+    if(i_cov && collect_p_trans == 0) goto skip_purge;
+    if(asm_opt.purge_level_primary > 0)
+    {
+        // print_debug_gfa(read_g, *ug, coverage_cut, "debug_purge", sources, ruIndex, asm_opt.max_hang_Len, asm_opt.min_overlap_Len);
+        just_contain = 0;
+        if(asm_opt.purge_level_primary == 1) just_contain = 1;
+        purge_dups(*ug, read_g, coverage_cut, sources, reverse_sources, ruIndex, new_rtg_edges, 
+        asm_opt.purge_simi_thres, asm_opt.purge_overlap_len, max_hang, min_ovlp, drop_ratio, 
+        just_contain, 0, cov, !!(cov->t_ch&&collect_p_trans), collect_p_trans_f);
+        delete_useless_nodes(ug);
+        renew_utg(ug, read_g, new_rtg_edges);
+    }
+
+    if (!(asm_opt.flag & HA_F_BAN_POST_JOIN))
+    {
+        rescue_missing_overlaps_aggressive(*ug, read_g, sources, coverage_cut, ruIndex, max_hang,
+        min_ovlp, 0, 1, NULL, b_mask_t);
+        renew_utg(ug, read_g, new_rtg_edges);
+        rescue_contained_reads_aggressive(*ug, read_g, sources, coverage_cut, ruIndex, max_hang, 
+        min_ovlp, 10, 0, 1, NULL, NULL, b_mask_t);
+        renew_utg(ug, read_g, new_rtg_edges);
+    }
+
+
+    n_vtx = read_g->n_seq;
+    for (v = 0; v < n_vtx; v++)
+    {
+        read_g->seq[v].c = ALTER_LABLE;
+    }
+    
+    
+    nsg = (*ug)->g;
+    n_vtx = nsg->n_seq;
+    for (v = 0; v < n_vtx; ++v) 
+    {
+        if(nsg->seq[v].del) continue;
+        if(nsg->seq[v].c == ALTER_LABLE) continue;
+        u = &((*ug)->u.a[v]);
+        if(u->m == 0) continue;
+        for (k = 0; k < u->n; k++)
+        {
+            rId = u->a[k]>>33;
+            read_g->seq[rId].c = nsg->seq[v].c;
+        }
+    }
+
+    n_vtx = read_g->n_seq;
+    for (v = 0; v < n_vtx; v++)
+    {
+        if(read_g->seq[v].c == ALTER_LABLE)
+        {
+            asg_seq_drop(read_g, v);
+        }
+    }
+
+    if(asm_opt.recover_atg_cov_min == -1024)
+    {
+        asm_opt.recover_atg_cov_max = asm_opt.hom_global_coverage/HOM_PEAK_RATE;
+        asm_opt.recover_atg_cov_min = asm_opt.recover_atg_cov_max * 0.85;
+        asm_opt.recover_atg_cov_max = INT32_MAX;
+    }
+
+    if(asm_opt.recover_atg_cov_max != INT32_MAX)
+    {
+        fprintf(stderr, "[M::%s] primary contig coverage range: [%d, %d]\n", 
+        __func__, asm_opt.recover_atg_cov_min, asm_opt.recover_atg_cov_max);
+    }
+    else
+    {
+        fprintf(stderr, "[M::%s] primary contig coverage range: [%d, infinity]\n", 
+        __func__, asm_opt.recover_atg_cov_min);
+    }
+    
+    skip_purge:
+    recover_utg_by_coverage(ug, read_g, coverage_cut, sources, ruIndex, cov->t_ch);
+    if(i_cov)
+    {
+        (*i_cov) = cov;
+    } 
+    else
+    {
+        destory_hap_cov_t(&cov);
+    }     
+}
 
 void output_contig_graph_primary_pre(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name, 
 ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, uint64_t bubble_dist, long long tipsLen, 
