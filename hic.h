@@ -101,7 +101,8 @@ void des_ug_idx();
 uint64_t count_unique_k_mers(char *r, uint64_t len, uint64_t query, uint64_t target, uint64_t *all, uint64_t *found);
 void init_pdq(pdq* q, uint64_t utg_num);
 void destory_pdq(pdq* q);
-uint32_t check_trans_relation_by_path(uint32_t v, uint32_t w, pdq* pqv, pdq* pqw, 
-asg_t *sg, uint8_t *dest, uint8_t df, uint32_t df_occ, uint32_t* pre, double rate);
+uint32_t check_trans_relation_by_path(uint32_t v, uint32_t w, pdq* pqv, uint32_t* path_v, buf_t *resv,
+pdq* pqw, uint32_t* path_w, buf_t *resw, asg_t *sg, uint8_t *dest, uint8_t df, uint32_t df_occ, double rate,
+long long *dis);
 
 #endif

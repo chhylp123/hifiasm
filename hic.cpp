@@ -2317,7 +2317,7 @@ void identify_bubbles(ma_ug_t* ug, bubble_type* bub, uint8_t *r_het_flag, kv_u_t
             if(ug->g->seq[v>>1].del) continue;
             if(asg_arc_n(ug->g, v) < 2) continue;
             if((bub->index[v]&(uint32_t)3) != 0) continue;
-            if(asg_bub_pop1_primary_trio(ug->g, NULL, v, tLen, &b, (uint32_t)-1, (uint32_t)-1, 0, NULL, NULL, NULL, 0, 0))
+            if(asg_bub_pop1_primary_trio(ug->g, NULL, v, tLen, &b, (uint32_t)-1, (uint32_t)-1, 0, NULL, NULL, NULL, 0, 0, NULL))
             {
                 //beg is v, end is b.S.a[0]
                 //note b.b include end, does not include beg
@@ -2338,7 +2338,7 @@ void identify_bubbles(ma_ug_t* ug, bubble_type* bub, uint8_t *r_het_flag, kv_u_t
         for (v = 0; v < n_vtx; ++v) 
         {
             if((bub->index[v]&(uint32_t)3) !=2) continue;
-            if(asg_bub_pop1_primary_trio(ug->g, ug, v, tLen, &b, (uint32_t)-1, (uint32_t)-1, 0, &pathLen, NULL, NULL, 0, 0))
+            if(asg_bub_pop1_primary_trio(ug->g, ug, v, tLen, &b, (uint32_t)-1, (uint32_t)-1, 0, &pathLen, NULL, NULL, 0, 0, NULL))
             {   
                 //note b.b include end, does not include beg
                 i = b.b.n + 1;
@@ -2370,7 +2370,7 @@ void identify_bubbles(ma_ug_t* ug, bubble_type* bub, uint8_t *r_het_flag, kv_u_t
             if((bub->num.a[k]>>31) == 0) bub->s_bub++;
             v = (bub->num.a[k]<<1)>>1;
             bub->num.a[k] = bub->list.n;
-            if(asg_bub_pop1_primary_trio(ug->g, ug, v, tLen, &b, (uint32_t)-1, (uint32_t)-1, 0, &pathLen, NULL, NULL, 0, 0))
+            if(asg_bub_pop1_primary_trio(ug->g, ug, v, tLen, &b, (uint32_t)-1, (uint32_t)-1, 0, &pathLen, NULL, NULL, 0, 0, NULL))
             {
                 kv_push(uint64_t, bub->pathLen, pathLen);
                 //beg is v, end is b.S.a[0]
@@ -2948,7 +2948,7 @@ uint32_t get_specific_shortest_path(pdq_spec *p)
     asg_arc_t *av = NULL;
     if(p->v == (uint64_t)-1)
     {
-        reset_pdq(p->pq);
+        // reset_pdq(p->pq);
         p->pq->dis.a[p->src] = 0;
         if(p->pre) p->pre[p->src] = (uint32_t)-1;
         push_pdq(p->pq, p->src, 0);
@@ -2984,17 +2984,40 @@ uint32_t get_specific_shortest_path(pdq_spec *p)
 
     return 0;
 }
-
-uint32_t check_trans_relation_by_path(uint32_t v, uint32_t w, pdq* pqv, pdq* pqw, 
-asg_t *sg, uint8_t *dest, uint8_t df, uint32_t df_occ, uint32_t* pre, double rate)
+void get_utg_path(uint64_t s, uint64_t e, uint32_t *path, buf_t *res)
+{
+    uint64_t p = path[e], i;
+    res->b.n = 0;
+    kv_push(uint32_t, res->b, e);
+    while (p != s)
+    {
+        kv_push(uint32_t, res->b, p);
+        p = path[p];
+    }
+    kv_push(uint32_t, res->b, s);
+    for (i = 0; i < (res->b.n>>1); i++)
+    {
+        p = res->b.a[i]; 
+        res->b.a[i] = res->b.a[res->b.n-i-1];
+        res->b.a[res->b.n-i-1] = p;
+    }
+    res->b.n--;
+}
+uint32_t check_trans_relation_by_path(uint32_t v, uint32_t w, pdq* pqv, uint32_t* path_v, buf_t *resv,
+pdq* pqw, uint32_t* path_w, buf_t *resw, asg_t *sg, uint8_t *dest, uint8_t df, uint32_t df_occ, 
+double rate, long long *dis)
 {
     uint64_t r1, r2, d1, d2;
     pdq_spec p1, p2, *p = NULL;
     p1.v = (uint64_t)-1; p1.src = v; p1.pq = pqv; p1.sg = sg; p1.df_occ = df_occ;
-    p1.occ = df_occ; p1.flag = df; p1.dest = dest; p1.pre = pre;
+    p1.occ = df_occ; p1.flag = df; p1.dest = dest; p1.pre = path_v; if(resv) resv->b.n = 0;
+    reset_pdq(p1.pq);
 
     p2.v = (uint64_t)-1; p2.src = w; p2.pq = pqw; p2.sg = sg; p2.df_occ = df_occ;
-    p2.occ = df_occ; p2.flag = df; p2.dest = dest; p2.pre = pre;
+    p2.occ = df_occ; p2.flag = df; p2.dest = dest; p2.pre = path_w; if(resw) resw->b.n = 0;
+    reset_pdq(p2.pq);
+
+    if(dis) (*dis) = 0;
 
     while (1)
     {
@@ -3007,11 +3030,22 @@ asg_t *sg, uint8_t *dest, uint8_t df, uint32_t df_occ, uint32_t* pre, double rat
             {
                 if(d2 <= d1*(1+rate) && d2 >= d1*(1-rate))
                 {
+                    if(resv) get_utg_path(p1.src, p->v, p1.pre, resv);
+                    if(resw) get_utg_path(p2.src, p->v, p2.pre, resw);
+                    if(dis)
+                    {
+                        (*dis) = d1 + d2;
+                        (*dis) -= (sg->seq[p1.src>>1].len + sg->seq[p2.src>>1].len);
+                    }
+                    
+                    // fprintf(stderr, "p-utg%.6ul(d1-%lu), a-utg%.6ul(d2-%lu), conver-utg%.6lul\n", 
+                    // (v>>1) + 1, d1, (w>>1) + 1, d2, (p->v>>1) + 1);
+
+
                     return 1;
                 }
             }
         }
-        
         p = &p2;
         r2 = get_specific_shortest_path(p);
         if(r2 && p1.pq->vis.a[p->v] && p2.pq->vis.a[p->v])
@@ -3021,11 +3055,19 @@ asg_t *sg, uint8_t *dest, uint8_t df, uint32_t df_occ, uint32_t* pre, double rat
             {
                 if(d2 <= d1*(1+rate) && d2 >= d1*(1-rate))
                 {
+                    if(resv) get_utg_path(p1.src, p->v, p1.pre, resv);
+                    if(resw) get_utg_path(p2.src, p->v, p2.pre, resw);
+                    if(dis)
+                    {
+                        (*dis) = d1 + d2;
+                        (*dis) -= (sg->seq[p1.src>>1].len + sg->seq[p2.src>>1].len);
+                    }
+                    // fprintf(stderr, "p-utg%.6ul(d1-%lu), a-utg%.6ul(d2-%lu), conver-utg%.6lul\n", 
+                    // (v>>1) + 1, d1, (w>>1) + 1, d2, (p->v>>1) + 1);
                     return 1;
                 }
             }
         }
-
         if(!r1 && !r2) return 0;
     }
     

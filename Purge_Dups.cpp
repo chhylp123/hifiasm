@@ -9,6 +9,7 @@
 #include "kdq.h"
 #include "hic.h"
 #include "rcut.h"
+#include "tovlp.h"
 
 KDQ_INIT(uint64_t)
 KSORT_INIT_GENERIC(uint64_t)
@@ -1689,15 +1690,16 @@ uint32_t v_in_pos, uint32_t w_in_pos, uint32_t xUnitigLen, uint32_t yUnitigLen, 
     return tmp;
 }
 
-void chain_trans_ovlp(hap_cov_t *cov, ma_ug_t *ug, asg_t *read_sg, buf_t* xReads, uint32_t targetBaseLen, uint32_t* xEnd)
+void chain_trans_ovlp(hap_cov_t *cover, utg_trans_t *o, ma_ug_t *ug, asg_t *read_sg, buf_t* xReads, uint32_t targetBaseLen, uint32_t* xEnd)
 {
-    ma_hit_t_alloc* reverse_sources = cov->reverse_sources;
-    ma_sub_t *coverage_cut = cov->coverage_cut;
-    int max_hang = cov->max_hang;
-    int min_ovlp = cov->min_ovlp;
-    kvec_asg_arc_t_offset* u_buffer = &(cov->u_buffer);
-    kvec_t_i32_warp* tailIndex = &(cov->tailIndex);
-    kvec_t_i32_warp* prevIndex = &(cov->prevIndex);
+    ma_hit_t_alloc* reverse_sources = (o? o->reverse_sources:cover->reverse_sources);
+    ma_sub_t *coverage_cut = (o? o->coverage_cut:cover->coverage_cut);
+    int max_hang = (o? o->max_hang:cover->max_hang);
+    int min_ovlp = (o? o->min_ovlp:cover->min_ovlp);
+    kvec_asg_arc_t_offset* u_buffer = (o? &(o->u_buffer):&(cover->u_buffer));
+    kvec_t_i32_warp* tailIndex = (o? &(o->tailIndex):&(cover->tailIndex));
+    kvec_t_i32_warp* prevIndex = (o? &(o->prevIndex):&(cover->prevIndex));
+    uint64_t *pos_idx = (o? o->pos_idx:cover->pos_idx);
     ma_hit_t_alloc *xR = NULL;
     ma_hit_t *h = NULL;
     ma_sub_t *sq = NULL, *st = NULL;
@@ -1804,11 +1806,11 @@ void chain_trans_ovlp(hap_cov_t *cov, ma_ug_t *ug, asg_t *read_sg, buf_t* xReads
 
                 rId = t.v>>1;
                 if(read_sg->seq[rId].del == 1) continue;
-                if(cov->pos_idx[rId] == (uint64_t)-1) continue;
-                w = (uint32_t)(cov->pos_idx[rId]);
+                if(pos_idx[rId] == (uint64_t)-1) continue;
+                w = (uint32_t)(pos_idx[rId]);
                 if(rId != (w>>1)) continue;
 
-                tmp = get_xy_pos_by_pos(read_sg, &t, v, w, len, cov->pos_idx[w>>1]>>32,
+                tmp = get_xy_pos_by_pos(read_sg, &t, v, w, len, pos_idx[w>>1]>>32,
                                                     (uint32_t)-1, targetBaseLen, &(t.el));
                 if(((tmp>>32) == (uint32_t)-1) || (((uint32_t)tmp) == (uint32_t)-1)) continue;
                 if(t.el) continue; ///must
@@ -1905,11 +1907,11 @@ void chain_trans_ovlp(hap_cov_t *cov, ma_ug_t *ug, asg_t *read_sg, buf_t* xReads
 
                     rId = t.v>>1;
                     if(read_sg->seq[rId].del == 1) continue;
-                    if(cov->pos_idx[rId] == (uint64_t)-1) continue;
-                    w = (uint32_t)(cov->pos_idx[rId]);
+                    if(pos_idx[rId] == (uint64_t)-1) continue;
+                    w = (uint32_t)(pos_idx[rId]);
                     if(rId != (w>>1)) continue;
 
-                    tmp = get_xy_pos_by_pos(read_sg, &t, v, w, len, cov->pos_idx[w>>1]>>32,
+                    tmp = get_xy_pos_by_pos(read_sg, &t, v, w, len, pos_idx[w>>1]>>32,
                                                         (uint32_t)-1, targetBaseLen, &(t.el));
                     if(((tmp>>32) == (uint32_t)-1) || (((uint32_t)tmp) == (uint32_t)-1)) continue;
                     if(t.el) continue; ///must

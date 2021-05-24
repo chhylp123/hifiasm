@@ -120,6 +120,7 @@ typedef struct {
 	uint32_t occ;
 	double nw;
 	uint8_t f:6, rev:1, del:1;
+	uint8_t qo:4, to:4;
 } u_trans_t;
 
 typedef struct {
@@ -400,7 +401,6 @@ typedef struct {
 	kvec_t(uint32_t) b; // visited vertices
 	kvec_t(uint32_t) e; // visited edges/arcs
 } buf_t;
-
 
 typedef struct {
 	kvec_t(uint64_t) Nodes; 
@@ -858,13 +858,44 @@ typedef struct{
     hc_edge *a;
 }hc_edge_warp;
 
+typedef struct {
+	uint32_t qs, qe, qn, qus, que;
+	uint32_t ts, te, tn, tus, tue;
+} utg_thit_t;
+
+typedef struct {
+	size_t n, m;
+	utg_thit_t* a;
+} kv_utg_thit_t_t;
+
+typedef struct {
+	ma_hit_t_alloc* reverse_sources;
+    ma_sub_t *coverage_cut;
+    R_to_U* ruIndex;
+    asg_t *read_g;	
+	kvec_asg_arc_t_offset u_buffer; 
+    kvec_t_i32_warp tailIndex;
+    kvec_t_i32_warp prevIndex;
+	kv_utg_thit_t_t k_t_b;
+	kv_ca_buf_t c_buf;
+	kv_u_trans_t k_trans;
+	uint64_t *pos_idx, rn;
+	kvec_t(uint32_t) topo_res;
+	ma_ug_t *cug;
+	int max_hang;
+	int min_ovlp;
+
+	ma_utg_v u;
+	kv_u_trans_t t;
+	buf_t b0, b1;
+} utg_trans_t;
+
 void init_hc_links(hc_links* link, uint64_t ug_num, trans_chain* t_ch);
 void destory_hc_links(hc_links* link);
 uint64_t get_bub_pop_max_dist(asg_t *g, buf_t *b);
 uint64_t get_bub_pop_max_dist_advance(asg_t *g, buf_t *b);
-int asg_pop_bubble_primary_trio(ma_ug_t *ug, uint64_t* i_max_dist, uint32_t positive_flag, uint32_t negative_flag, hap_cov_t *cov, uint32_t is_update_chain);
 uint64_t asg_bub_pop1_primary_trio(asg_t *g, ma_ug_t *utg, uint32_t v0, uint64_t max_dist, buf_t *b, uint32_t positive_flag, 
-uint32_t negative_flag, uint32_t is_pop, uint64_t* path_base_len, uint64_t* path_nodes, hap_cov_t *cov, uint32_t is_update_chain, uint32_t keep_d);
+uint32_t negative_flag, uint32_t is_pop, uint64_t* path_base_len, uint64_t* path_nodes, hap_cov_t *cov, uint32_t is_update_chain, uint32_t keep_d, utg_trans_t *o);
 
 void adjust_utg_by_primary(ma_ug_t **ug, asg_t* read_g, float drop_rate,
 ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, ma_sub_t* coverage_cut, 
@@ -951,6 +982,13 @@ typedef struct {///[cBeg, cEnd)
 void reset_u_trans_hit_idx(u_trans_hit_idx *t, uint32_t* i_x_a, uint32_t i_x_n, ma_ug_t *i_ug, 
 asg_t *i_read_sg, trans_chain* i_t_ch, uint32_t i_cBeg, uint32_t i_cEnd);
 uint32_t get_u_trans_hit(u_trans_hit_idx *t, u_trans_hit_t *hit);
+inline uint32_t get_offset_adjust(uint32_t offset, uint32_t offsetLen, uint32_t targetLen)
+{
+    return ((double)(offset)/(double)(offsetLen))*targetLen;
+}
+
+uint32_t set_utg_offset(uint32_t *a, uint32_t a_n, ma_ug_t *ug, asg_t *read_sg, uint64_t* pos_idx, uint32_t is_clear,
+uint32_t only_len);
 
 #define JUNK_COV 5
 #define DISCARD_RATE 0.8
