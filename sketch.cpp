@@ -5,26 +5,6 @@
 #include "kvec.h"
 #include "htab.h"
 
-typedef struct { // a simplified version of kdq
-	int front, count;
-	int a[64];
-} tiny_queue_t;
-
-static inline void tq_push(tiny_queue_t *q, int x)
-{
-	q->a[((q->count++) + q->front) & 0x3f] = x;
-}
-
-static inline int tq_shift(tiny_queue_t *q)
-{
-	int x;
-	if (q->count == 0) return -1;
-	x = q->a[q->front++];
-	q->front &= 0x3f;
-	--q->count;
-	return x;
-}
-
 /**
  * Find symmetric (w,k)-minimizers on a DNA sequence
  *
@@ -159,7 +139,6 @@ kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct)
 		k_flag->a.n = len; 
 		memset(k_flag->a.a, 0, k_flag->a.n);
 	} 
-
 
 	assert(len > 0 && len < 1<<27 && rid < 1<<28 && (w > 0 && w < 256) && (k > 0 && k <= 63));
 	///sizeof(ha_mz1_t) = 16

@@ -187,6 +187,7 @@ void init_window_list_alloc(window_list_alloc* x);
 void clear_window_list_alloc(window_list_alloc* x);
 void destory_window_list_alloc(window_list_alloc* x);
 void resize_window_list_alloc(window_list_alloc* x, long long size);
-void chain_DP(k_mer_hit* a, long long a_n, Chain_Data* dp, overlap_region* result, double band_width_threshold, int max_skip, int x_readLen, int y_readLen);
-
+long long chain_DP(k_mer_hit* a, long long a_n, Chain_Data* dp, overlap_region* result, double band_width_threshold, int max_skip, int x_readLen, int y_readLen);
+int append_utg_inexact_overlap_region_alloc(overlap_region_alloc* list, overlap_region* tmp, 
+                                        ma_utg_v *ua, int add_beg_end);
 #endif

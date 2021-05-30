@@ -18,6 +18,41 @@ typedef struct {
 
 typedef struct { uint32_t n, m; ha_mz1_t *a; } ha_mz1_v;
 
+typedef struct {
+	uint64_t x; ///x is the hash key
+	///rid is the read id, pos is the end pos of this minimizer, rev is the direction
+	///span is the length of this k-mer. For non-HPC k-mer, span may not be equal to k
+	uint64_t rid:30, pos:34;
+	uint16_t rev:1, span:15;
+} ha_mzl_t;
+
+typedef struct {
+	uint64_t rid:30, pos:34;
+	uint16_t rev:1, span:15;
+} ha_mzl_idxpos_t;
+
+typedef struct { uint32_t n, m; ha_mzl_t *a; } ha_mzl_v;
+
+typedef struct { // a simplified version of kdq
+	int front, count;
+	int a[64];
+} tiny_queue_t;
+
+static inline void tq_push(tiny_queue_t *q, int x)
+{
+	q->a[((q->count++) + q->front) & 0x3f] = x;
+}
+
+static inline int tq_shift(tiny_queue_t *q)
+{
+	int x;
+	if (q->count == 0) return -1;
+	x = q->a[q->front++];
+	q->front &= 0x3f;
+	--q->count;
+	return x;
+}
+
 struct ha_pt_s;
 typedef struct ha_pt_s ha_pt_t;
 
@@ -31,11 +66,12 @@ extern void *ha_flt_tab_hp;
 extern ha_pt_t *ha_idx_hp;
 extern void *ha_ct_table;
 
-
+void *ha_ft_ug_gen(const hifiasm_opt_t *asm_opt, ma_utg_v *us, int hap_n);
 void *ha_ft_gen(const hifiasm_opt_t *asm_opt, All_reads *rs, int *hom_cov, int is_hp_mode);
 int ha_ft_isflt(const void *hh, uint64_t y);
 void ha_ft_destroy(void *h);
 
+ha_pt_t *ha_pt_ug_gen(const hifiasm_opt_t *asm_opt, const void *flt_tab, ma_utg_v *us, int hap_n);
 ha_pt_t *ha_pt_gen(const hifiasm_opt_t *asm_opt, const void *flt_tab, int read_from_store, int is_hp_mode, All_reads *rs, int *hom_cov, int *het_cov);
 void ha_pt_destroy(ha_pt_t *h);
 const ha_idxpos_t *ha_pt_get(const ha_pt_t *h, uint64_t hash, int *n);
@@ -62,6 +98,7 @@ void ha_triobin(const hifiasm_opt_t *opt);
 void ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mz1_v *p, const void *hf);
 void ha_sketch_query(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mz1_v *p, const void *hf, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct);
 int ha_analyze_count(int n_cnt, int start_cnt, const int64_t *cnt, int *peak_het);
+void print_hist_lines(int n_cnt, int start_cnt, const int64_t *cnt);
 void debug_adapter(const hifiasm_opt_t *asm_opt, All_reads *rs);
 
 static inline uint64_t yak_hash64(uint64_t key, uint64_t mask) // invertible integer hash function

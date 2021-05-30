@@ -241,6 +241,168 @@ int append_inexact_overlap_region_alloc(overlap_region_alloc* list, overlap_regi
     return 1;
 }
 
+
+int append_utg_inexact_overlap_region_alloc(overlap_region_alloc* list, overlap_region* tmp, 
+                                        ma_utg_v *ua, int add_beg_end)
+{
+   
+    if (list->length + 1 > list->size)
+    {
+        list->size = list->size * 2;
+        list->list = (overlap_region*)realloc(list->list, sizeof(overlap_region)*list->size);
+        /// need to set new space to be 0
+        memset(list->list + (list->size/2), 0, sizeof(overlap_region)*(list->size/2));
+    }
+
+    if (list->length!=0 && list->list[list->length - 1].y_id==tmp->y_id)
+    {    
+        ///if(list->list[list->length - 1].shared_seed >= tmp->shared_seed)
+        if((list->list[list->length - 1].shared_seed > tmp->shared_seed)
+           ||
+           ((list->list[list->length - 1].shared_seed == tmp->shared_seed) && 
+           (list->list[list->length - 1].overlapLen <= tmp->overlapLen)))
+        {
+            return 0;
+        }
+        else
+        {
+            list->length--;
+        }
+    }
+
+    if(tmp->x_pos_s <= tmp->y_pos_s)
+    {
+        tmp->y_pos_s = tmp->y_pos_s - tmp->x_pos_s;
+        tmp->x_pos_s = 0;
+    }
+    else
+    {
+        tmp->x_pos_s = tmp->x_pos_s - tmp->y_pos_s;
+        tmp->y_pos_s = 0;
+    }
+
+
+    long long x_right_length = ua->a[tmp->x_id].len - tmp->x_pos_e - 1;
+    long long y_right_length = ua->a[tmp->y_id].len - tmp->y_pos_e - 1;
+
+    if(x_right_length <= y_right_length)
+    {
+        tmp->x_pos_e = ua->a[tmp->x_id].len - 1;
+        tmp->y_pos_e = tmp->y_pos_e + x_right_length;        
+    }
+    else
+    {
+        tmp->x_pos_e = tmp->x_pos_e + y_right_length;
+        tmp->y_pos_e = ua->a[tmp->y_id].len - 1;
+    }
+    
+    if (tmp->x_pos_strand == 1)
+    {
+        list->list[list->length].x_id = tmp->x_id;
+        list->list[list->length].x_pos_e = ua->a[tmp->x_id].len - tmp->x_pos_s - 1;
+        list->list[list->length].x_pos_s = ua->a[tmp->x_id].len - tmp->x_pos_e - 1;
+        list->list[list->length].x_pos_strand = 0;
+
+        list->list[list->length].y_id = tmp->y_id;
+        list->list[list->length].y_pos_e = ua->a[tmp->y_id].len - tmp->y_pos_s - 1;
+        list->list[list->length].y_pos_s = ua->a[tmp->y_id].len - tmp->y_pos_e - 1;
+        list->list[list->length].y_pos_strand = 1;
+
+        resize_fake_cigar(&(list->list[list->length].f_cigar), (tmp->f_cigar.length + 2));
+        if(add_beg_end == 1)
+        {
+            add_fake_cigar(&(list->list[list->length].f_cigar), list->list[list->length].x_pos_s, 0);
+        }
+        
+        long long distance_gap;
+        /****************************may have bugs********************************/
+        ///long long pre_distance_gap = 0;
+        long long pre_distance_gap = 0xfffffffffffffff;
+        /****************************may have bugs********************************/
+        long long i = 0;
+        for (i = 0; i < (long long)tmp->f_cigar.length; i++)
+        {
+            distance_gap = get_fake_gap_shift(&(tmp->f_cigar), i);
+            if(distance_gap != pre_distance_gap)
+            {
+                pre_distance_gap = distance_gap;
+                add_fake_cigar(&(list->list[list->length].f_cigar), 
+                ua->a[tmp->x_id].len - get_fake_gap_pos(&(tmp->f_cigar), i) - 1, 
+                pre_distance_gap);
+            }
+        }
+
+        if(add_beg_end == 1 && get_fake_gap_pos(&(list->list[list->length].f_cigar), 
+            list->list[list->length].f_cigar.length - 1) != (long long)list->list[list->length].x_pos_e)
+        {
+            add_fake_cigar(&(list->list[list->length].f_cigar), 
+            list->list[list->length].x_pos_e, 
+            get_fake_gap_shift(&(list->list[list->length].f_cigar), 
+            list->list[list->length].f_cigar.length - 1));
+        }
+    }
+    else
+    {
+        list->list[list->length].x_id = tmp->x_id;
+        list->list[list->length].x_pos_e = tmp->x_pos_e;
+        list->list[list->length].x_pos_s = tmp->x_pos_s;
+        list->list[list->length].x_pos_strand = tmp->x_pos_strand;
+
+        list->list[list->length].y_id = tmp->y_id;
+        list->list[list->length].y_pos_e = tmp->y_pos_e;
+        list->list[list->length].y_pos_s = tmp->y_pos_s;
+        list->list[list->length].y_pos_strand = tmp->y_pos_strand;
+
+
+
+        resize_fake_cigar(&(list->list[list->length].f_cigar), (tmp->f_cigar.length + 2));
+        if(add_beg_end == 1)
+        {
+            add_fake_cigar(&(list->list[list->length].f_cigar), list->list[list->length].x_pos_s, 0);
+        }
+        
+        long long distance_self_pos = tmp->x_pos_e - tmp->x_pos_s;
+        long long distance_pos = tmp->y_pos_e - tmp->y_pos_s;
+        long long init_distance_gap = distance_pos - distance_self_pos;
+        /****************************may have bugs********************************/
+        ///long long pre_distance_gap = init_distance_gap;
+        long long pre_distance_gap = 0xfffffffffffffff;
+        /****************************may have bugs********************************/
+        long long distance_gap;
+        long long i = 0;
+        for (i = tmp->f_cigar.length - 1; i >= 0; i--)
+        {
+            distance_gap = get_fake_gap_shift(&(tmp->f_cigar), i);
+            if(distance_gap != pre_distance_gap)
+            {
+                pre_distance_gap = distance_gap;
+
+                add_fake_cigar(&(list->list[list->length].f_cigar), 
+                get_fake_gap_pos(&(tmp->f_cigar), i), init_distance_gap - pre_distance_gap);
+            }
+        }
+
+        if(add_beg_end == 1 && get_fake_gap_pos(&(list->list[list->length].f_cigar), 
+        list->list[list->length].f_cigar.length - 1) != (long long)list->list[list->length].x_pos_e)
+        {
+            add_fake_cigar(&(list->list[list->length].f_cigar), 
+            list->list[list->length].x_pos_e, 
+            get_fake_gap_shift(&(list->list[list->length].f_cigar), 
+            list->list[list->length].f_cigar.length - 1));
+        } 
+    }
+
+    list->list[list->length].shared_seed = tmp->shared_seed;
+    list->list[list->length].align_length = 0;
+    list->list[list->length].is_match = 0;
+    list->list[list->length].non_homopolymer_errors = 0;
+    list->list[list->length].strong = 0;
+
+    list->length++;
+
+    return 1;
+}
+
 void append_overlap_region_alloc_debug(overlap_region_alloc* list, overlap_region* tmp)
 {
    
@@ -422,7 +584,7 @@ int32_t ha_chain_check(k_mer_hit *a, int32_t n_a, Chain_Data *dp, int32_t min_sc
 }
 
 ///double band_width_threshold = 0.05;
-void chain_DP(k_mer_hit* a, long long a_n, Chain_Data* dp, overlap_region* result, 
+long long chain_DP(k_mer_hit* a, long long a_n, Chain_Data* dp, overlap_region* result, 
               double band_width_threshold, int max_skip, int x_readLen, int y_readLen)
 {
     long long i, j;
@@ -613,6 +775,7 @@ skip_dp:
             i = dp->pre[i];
         }
     }
+    return chainLen;
 }
 
 void calculate_overlap_region_by_chaining_back(Candidates_list* candidates, overlap_region_alloc* overlap_list, 

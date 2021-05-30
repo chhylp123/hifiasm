@@ -12,6 +12,37 @@ static void ha_hist_line(int c, int x, int exceed, int64_t cnt)
 	fprintf(stderr, " %lld\n", (long long)cnt);
 }
 
+void print_hist_lines(int n_cnt, int start_cnt, const int64_t *cnt)
+{
+	const int hist_max = 100;
+	int i, start, low_i, max_i, max;
+	// determine the start point
+	assert(n_cnt > start_cnt);
+	start = cnt[1] > 0? 1 : 2;
+
+	// find the low point from the left
+	low_i = start > start_cnt? start : start_cnt;
+	for (i = low_i; i < n_cnt; ++i)
+		if (cnt[i] > cnt[i-1]) break;
+	low_i = i - 1;
+	fprintf(stderr, "[M::%s] lowest: count[%d] = %ld\n", __func__, low_i, (long)cnt[low_i]);
+
+	// find the highest peak
+	max_i = start > start_cnt? start : start_cnt, max = cnt[max_i];
+	for (i = max_i; i < n_cnt; ++i)
+		if (cnt[i] > max)
+			max = cnt[i], max_i = i;
+	fprintf(stderr, "[M::%s] highest: count[%d] = %ld\n", __func__, max_i, (long)cnt[max_i]);
+
+	for (i = start; i < n_cnt; ++i) {
+		int x, exceed = 0;
+		x = (int)((double)hist_max * cnt[i] / cnt[max_i] + .499);
+		if (x > hist_max) exceed = 1, x = hist_max; // may happen if cnt[2] is higher
+		if (i > max_i && x == 0) break;
+		ha_hist_line(i, x, exceed, cnt[i]);
+	}
+}
+
 int ha_analyze_count(int n_cnt, int start_cnt, const int64_t *cnt, int *peak_het)
 {
 	const int hist_max = 100;

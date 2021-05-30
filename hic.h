@@ -11,7 +11,7 @@
 
 hc_edge* get_hc_edge(hc_links* link, uint64_t src, uint64_t dest, uint64_t dir);
 hc_edge* push_hc_edge(hc_linkeage* x, uint64_t uID, double weight, int dir, uint64_t* d);
-void hic_analysis(ma_ug_t *ug, asg_t* read_g, trans_chain* t_ch, ug_opt_t *opt);
+void hic_analysis(ma_ug_t *ug, asg_t* read_g, trans_chain* t_ch, ug_opt_t *opt, uint32_t is_poy);
 void hic_benchmark(ma_ug_t *ug, asg_t* read_g);
 
 typedef struct {
@@ -104,5 +104,6 @@ void destory_pdq(pdq* q);
 uint32_t check_trans_relation_by_path(uint32_t v, uint32_t w, pdq* pqv, uint32_t* path_v, buf_t *resv,
 pdq* pqw, uint32_t* path_w, buf_t *resw, asg_t *sg, uint8_t *dest, uint8_t df, uint32_t df_occ, double rate,
 long long *dis);
+void set_utg_by_dis(uint32_t v, pdq* pq, asg_t *g, kvec_t_u32_warp *res, uint32_t dis);
 
 #endif

@@ -44,6 +44,11 @@ KRADIX_SORT_INIT(u_trans_occ, u_trans_t, u_trans_occ_key, member_size(u_trans_t,
 
 #define is_hom_hit(a) ((a).id == (uint64_t)-1)
 
+typedef struct {
+    kv_gg_status sg;
+    uint64_t xs;
+} psg_t;
+
 typedef struct{
     kvec_t(char) name;
     kvec_t(uint64_t) name_Len;
@@ -780,7 +785,9 @@ ha_ug_index* build_unitig_index(ma_ug_t *ug, int k, uint64_t up_occ, uint64_t lo
     ha_ug_index* idx = NULL; CALLOC(idx, 1);
     pldat_t pl; pl.h = idx; pl.is_cnt = 1;
     double index_time = yak_realtime(), beg_time;
+    fprintf(stderr, "sa-0\n");
     init_ha_ug_index_opt(idx, ug, k, &pl, up_occ, low_occ, thread_num);
+    fprintf(stderr, "sa-1\n");
 
     beg_time = yak_realtime();
     pl.is_cnt = 1;
@@ -2960,7 +2967,7 @@ uint32_t get_specific_shortest_path(pdq_spec *p)
     {
         pop_pdq(p->pq, &(p->v), &w);
         p->pq->vis.a[p->v] = 1;
-        if(p->dest[p->v] == p->flag) p->occ++;
+        if(p->dest && p->dest[p->v] == p->flag) p->occ++;
         if(p->occ > p->df_occ) return 0;
 
         av = asg_arc_a(p->sg, p->v);
@@ -2979,7 +2986,8 @@ uint32_t get_specific_shortest_path(pdq_spec *p)
                 if(p->pre) p->pre[u] = p->v;
             }
         }
-        if(p->dest[p->v] == p->flag) return 1;
+        if(p->dest && p->dest[p->v] == p->flag) return 1;
+        if(!p->dest) return 1;
     }
 
     return 0;
@@ -3071,6 +3079,22 @@ double rate, long long *dis)
         if(!r1 && !r2) return 0;
     }
     
+}
+
+void set_utg_by_dis(uint32_t v, pdq* pq, asg_t *g, kvec_t_u32_warp *res, uint32_t dis)
+{
+    uint64_t r;
+    pdq_spec a;
+    a.v = (uint64_t)-1; a.src = v; a.pq = pq; a.sg = g; a.df_occ = (uint64_t)-1;
+    a.occ = 0; a.flag = (uint8_t)-1; a.dest = NULL; a.pre = NULL;
+    reset_pdq(a.pq);
+    while (1)
+    {
+        r = get_specific_shortest_path(&a);
+        if(!r) return;
+        if(a.pq->dis.a[a.v] <= dis) kv_push(uint32_t, res->a, a.v);
+        else return;
+    }
 }
 
 uint64_t LCA_distance(long long d_x, long long d_y, long long xLen, long long yLen, uint8_t* rev)
@@ -9307,14 +9331,37 @@ void get_forward_distance(uint32_t src, uint32_t dest, asg_t *sg, hc_links* link
     //                                             ((e->dis>>2)&1)?"back":"forw", e->dis>>3);
 }
 
+uint32_t is_same_phase(uint64_t bid, uint64_t eid, H_partition* hap, int8_t *s, mc_gg_status *sa)
+{
+    if(bid == eid) return 1;
+    if(hap || s)
+    {
+        int beg_status, end_status;
+        beg_status = (hap? get_phase_status(hap, bid):s[bid]);
+        if(beg_status != 1 && beg_status != -1) return (uint32_t)-1;
+        end_status = (hap? get_phase_status(hap, eid):s[eid]);
+        if(end_status != 1 && end_status != -1) return (uint32_t)-1;
+        if(beg_status == end_status) return 1;
+        return 0;
+    }
+
+    if(sa)
+    {
+        if(sa[bid].s == 0 || sa[eid].s == 0) return (uint32_t)-1;
+        return !!(sa[bid].s&sa[eid].s);
+    }
+    return (uint32_t)-1;
+}
+
 int get_trans_rate_function_advance(ha_ug_index* idx, kvec_pe_hit* hits, hc_links* link, bubble_type* bub, 
-H_partition* hap, int8_t *s, trans_idx* dis)
+H_partition* hap, int8_t *s, mc_gg_status *sa, trans_idx* dis)
 {
     kvec_t(uint64_t) buf;
     kv_init(buf);
     uint64_t beg, end, cnt[2];
     uint64_t k, i, t_d, r_idx, f_idx, med = (uint64_t)-1;
-    int beg_status, end_status;
+    uint32_t is_s;
+    // int beg_status, end_status;
 
     buf.n = 0;
     for (k = 0; k < hits->a.n; ++k) 
@@ -9329,25 +9376,28 @@ H_partition* hap, int8_t *s, trans_idx* dis)
 
         t_d = get_hic_distance(&(hits->a.a[k]), link, idx, NULL);
         if(t_d == (uint64_t)-1) continue;
-        if(beg == end)
-        {
-            t_d = (t_d << 1);
-        }
-        else
-        {
-            beg_status = (hap? get_phase_status(hap, beg):s[beg]);
-            if(beg_status != 1 && beg_status != -1) continue;
-            end_status = (hap? get_phase_status(hap, end):s[end]);
-            if(end_status != 1 && end_status != -1) continue;
-            if(beg_status != end_status)
-            {
-                t_d = (t_d << 1) + 1; 
-            }
-            else
-            {
-                t_d = (t_d << 1);
-            }            
-        }
+        // if(beg == end)
+        // {
+        //     t_d = (t_d << 1);
+        // }
+        // else
+        // {
+        //     beg_status = (hap? get_phase_status(hap, beg):s[beg]);
+        //     if(beg_status != 1 && beg_status != -1) continue;
+        //     end_status = (hap? get_phase_status(hap, end):s[end]);
+        //     if(end_status != 1 && end_status != -1) continue;
+        //     if(beg_status != end_status)
+        //     {
+        //         t_d = (t_d << 1) + 1; 
+        //     }
+        //     else
+        //     {
+        //         t_d = (t_d << 1);
+        //     }            
+        // }
+        is_s = is_same_phase(beg, end, hap, s, sa);
+        if(is_s == (uint32_t)-1) continue;
+        t_d = (t_d << 1) + 1 - is_s;
 
         kv_push(uint64_t, buf, t_d); 
     }
@@ -9532,7 +9582,7 @@ void init_hic_advance(ha_ug_index* idx, kvec_pe_hit* hits, hc_links* link, bubbl
     
     if(bub->round_id > 0 && ignore_dis == 0)
     {
-        is_comples_weight = get_trans_rate_function_advance(idx, hits, link, bub, hap, NULL, &dis);
+        is_comples_weight = get_trans_rate_function_advance(idx, hits, link, bub, hap, NULL, NULL, &dis);
     }
     
 
@@ -14265,7 +14315,7 @@ void label_unitigs(G_partition* g_p, ma_ug_t* ug)
     ///fprintf(stderr, "# Mother reads: %lu\n", occ);
 }
 
-void label_unitigs_sm(int8_t *s, ma_ug_t* ug)
+void label_unitigs_sm(int8_t *s, mc_gg_status *sa, ma_ug_t* ug)
 {
     memset(R_INF.trio_flag, AMBIGU, R_INF.total_reads * sizeof(uint8_t));
     uint32_t i, k, flag = AMBIGU;
@@ -14273,8 +14323,20 @@ void label_unitigs_sm(int8_t *s, ma_ug_t* ug)
 
     for (i = 0; i < ug->g->n_seq; i++)
     {
-        if(ug->g->seq[i].del || s[i] == 0) continue;
-        flag = (s[i] > 0? FATHER:MOTHER);
+        if(ug->g->seq[i].del) continue;
+        flag = 0;
+        if(s)
+        {
+            if(s[i] == 0) continue;
+            flag = (s[i] > 0? FATHER:MOTHER);
+        }
+
+        if(sa)
+        {
+            if(sa[i].s != 1 && sa[i].s != 2) continue;
+            flag = sa[i].s;
+        }
+        
         u = &ug->u.a[i];
         if(u->m == 0) continue;
         for (k = 0; k < u->n; k++)
@@ -15186,6 +15248,7 @@ void print_kv_weight(kv_u_trans_t *ta)
 {
     uint32_t i;
     u_trans_t *e = NULL;
+    fprintf(stderr, "\n[M::%s]\n", __func__);
     fprintf(stderr, "*********ta->n: %u\n", (uint32_t)ta->n);
     for (i = 0; i < ta->n; i++)
     {
@@ -15227,14 +15290,14 @@ void print_debug_hc_links(ha_ug_index* idx, bubble_type* bub, hc_links* lk, kv_u
     }
 }
 void renew_kv_u_trans(kv_u_trans_t *ta, hc_links *lk, kvec_pe_hit* hits, kv_u_trans_t *ref,
-ha_ug_index* idx, bubble_type* bub, int8_t *s, uint32_t ignore_dis)
+ha_ug_index* idx, bubble_type* bub, int8_t *s, mc_gg_status *sa, uint32_t ignore_dis)
 {   
     uint64_t k, i, m, is_comples_weight = 0;
     trans_idx dis;
     kv_init(dis);
     if(bub->round_id > 0 && ignore_dis == 0)
     {
-        is_comples_weight = get_trans_rate_function_advance(idx, hits, lk, bub, NULL, s, &dis);
+        is_comples_weight = get_trans_rate_function_advance(idx, hits, lk, bub, NULL, s, sa, &dis);
     }
 
     for (i = 0; i < lk->a.n; i++)
@@ -15635,21 +15698,21 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, ug_o
     if((asm_opt.flag & HA_F_VERBOSE_GFA) && load_ps_t(&s, asm_opt.output_file_name))
     {
         bub.round_id = bub.n_round;
-        label_unitigs_sm(s->s, idx->ug);
+        label_unitigs_sm(s->s, NULL, idx->ug);
         goto skip_flipping;
     }
     s = init_ps_t(11, idx->ug->g->n_seq);
     for (bub.round_id = 0; bub.round_id < bub.n_round; bub.round_id++)
     {
         // identify_bubbles(idx->ug, &bub, idx->t_ch->is_r_het, &(idx->t_ch->k_trans));
-        renew_kv_u_trans(&k_trans, &link, &sl.hits, &(idx->t_ch->k_trans), idx, &bub, s->s, 0);
+        renew_kv_u_trans(&k_trans, &link, &sl.hits, &(idx->t_ch->k_trans), idx, &bub, s->s, NULL, 0);
         // if(bub.round_id == 0) init_phase(idx, &k_trans, &bub, s); 
         // update_trans_g(idx, &k_trans, &bub);
         /*******************************for debug************************************/
         mc_solve(NULL, NULL, &k_trans, idx->ug, idx->read_g, 0.8, R_INF.trio_flag, 
         (bub.round_id == 0? 1 : 0), s->s, 1, /**&bub**/NULL, &(idx->t_ch->k_trans));
         /*******************************for debug************************************/
-        label_unitigs_sm(s->s, idx->ug);
+        label_unitigs_sm(s->s, NULL, idx->ug);
 
         /*******************************for debug************************************/
         // if(bub.round_id == bub.n_round - 1)
@@ -15669,6 +15732,8 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, ug_o
 
     skip_flipping:
     verbose_het_stat(&bub);
+
+    print_kv_weight(&k_trans);
 
     // horder_t *ho = init_horder_t(&sl.hits, idx->uID_bits, idx->pos_mode, idx->read_g, idx->ug, &bub, &(idx->t_ch->k_trans), opt, 3);
 
@@ -15711,8 +15776,156 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, ug_o
     return 1;
 }
 
+int load_psg_t(psg_t **sg, const char *fn)
+{
+    uint64_t flag = 0;
+    char *buf = (char*)calloc(strlen(fn) + 25, 1);
+    sprintf(buf, "%s.hic.pst.bin", fn);
+    FILE* fp = NULL; 
+    fp = fopen(buf, "r"); 
+    if(!fp) return 0;
+    CALLOC(*sg, 1);
+    flag += fread(&((*sg)->xs), sizeof((*sg)->xs), 1, fp);
+    flag += fread(&((*sg)->sg.n), sizeof((*sg)->sg.n), 1, fp);
+    (*sg)->sg.m = (*sg)->sg.n;
+    MALLOC((*sg)->sg.a, (*sg)->sg.n);
+    flag += fread((*sg)->sg.a, sizeof(mc_gg_status), (*sg)->sg.n, fp);
 
-void hic_analysis(ma_ug_t *ug, asg_t* read_g, trans_chain* t_ch, ug_opt_t *opt)
+    fclose(fp);
+    free(buf);
+    return 1;
+}
+
+void write_psg_t(psg_t *sg, const char *fn)
+{
+    char *buf = (char*)calloc(strlen(fn) + 25, 1);
+    sprintf(buf, "%s.hic.pst.bin", fn);
+    FILE* fp = fopen(buf, "w");
+
+    fwrite(&(sg->xs), sizeof(sg->xs), 1, fp);
+    fwrite(&(sg->sg.n), sizeof(sg->sg.n), 1, fp);
+    fwrite(sg->sg.a, sizeof(mc_gg_status), sg->sg.n, fp);
+
+    fclose(fp);
+    free(buf);
+}
+
+psg_t* init_psg_t(uint64_t seed, ma_ug_t* ug, asg_t* rg, ug_opt_t *opt)
+{
+    psg_t *s = NULL; CALLOC(s, 1);
+    s->xs = seed;
+    
+    kv_gg_status *sa = init_mc_gg_status(ug, rg, opt->coverage_cut, opt->sources, opt->ruIndex, 
+    asm_opt.hom_global_coverage_set?asm_opt.hom_global_coverage:((double)asm_opt.hom_global_coverage)/((double)HOM_PEAK_RATE), 
+    asm_opt.polyploidy);
+
+    s->sg = *sa;
+    free(sa);
+    return s;
+}
+
+void destory_psg_t(psg_t **s)
+{
+    free((*s)->sg.a);
+    free((*s));
+}
+
+int hic_short_align_poy(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, ug_opt_t *opt)
+{
+    double index_time = yak_realtime();
+    sldat_t sl;
+    kvec_hc_edge back_hc_edge;
+    kv_init(back_hc_edge.a);
+    sl.idx = idx;
+    sl.t_ch = idx->t_ch;
+    sl.chunk_size = 20000000;
+    sl.n_thread = asm_opt.thread_num;
+    sl.total_base = sl.total_pair = 0;
+    idx->hap_cnt = asm_opt.hap_occ;
+    kv_init(sl.hits.a); kv_init(sl.hits.idx); kv_init(sl.hits.occ);
+
+    
+    if(!load_hc_hits(&sl.hits, asm_opt.output_file_name))
+    {
+        alignment_worker_pipeline(&sl, fn1, fn2);
+        write_hc_hits(&sl.hits, asm_opt.output_file_name);
+    }
+
+    hc_links link;
+    init_hc_links(&link, idx->ug->g->n_seq, idx->t_ch);
+    ///H_partition hap;
+    bubble_type bub; 
+    kv_u_trans_t k_trans; 
+    kv_init(k_trans); kv_init(k_trans.idx);
+    psg_t *s = NULL;
+    mb_nodes_t u; 
+    kv_init(u.bid); kv_init(u.idx); kv_init(u.u);
+    memset(&bub, 0, sizeof(bubble_type));
+    bub.round_id = 0; bub.n_round = asm_opt.n_weight;
+
+    resolve_tangles_hic(idx, &bub, &sl.hits, &k_trans);
+    measure_distance(idx, idx->ug, &sl.hits, &link, &bub, &(idx->t_ch->k_trans));
+    // if((asm_opt.flag & HA_F_VERBOSE_GFA) && load_psg_t(&s, asm_opt.output_file_name))
+    // {
+    //     bub.round_id = bub.n_round;
+    //     goto skip_flipping;
+    // }
+    s = init_psg_t(11, idx->ug, idx->read_g, opt);
+    for (bub.round_id = 0; bub.round_id < bub.n_round; bub.round_id++)
+    {
+        // identify_bubbles(idx->ug, &bub, idx->t_ch->is_r_het, &(idx->t_ch->k_trans));
+        renew_kv_u_trans(&k_trans, &link, &sl.hits, &(idx->t_ch->k_trans), idx, &bub, NULL, s->sg.a, 0);
+        // if(bub.round_id == 0) init_phase(idx, &k_trans, &bub, s); 
+        // update_trans_g(idx, &k_trans, &bub);
+        /*******************************for debug************************************/
+        mc_solve_general(&k_trans, idx->ug->u.n, &(s->sg), asm_opt.polyploidy, 0, 1);
+        /*******************************for debug************************************/
+
+        /*******************************for debug************************************/
+        // if(bub.round_id == bub.n_round - 1)
+        // {
+        //     debug_output_disconnected_hits(idx, &k_trans, &sl.hits, &link, &bub, s->s);
+        // }
+        /*******************************for debug************************************/
+    }
+    // write_psg_t(s, asm_opt.output_file_name);
+
+    skip_flipping:
+    verbose_het_stat(&bub);
+    
+    if(asm_opt.polyploidy == 2) label_unitigs_sm(NULL, s->sg.a, idx->ug);
+
+    // print_kv_weight(&k_trans);
+
+    // horder_t *ho = init_horder_t(&sl.hits, idx->uID_bits, idx->pos_mode, idx->read_g, idx->ug, &bub, &(idx->t_ch->k_trans), opt, 3);
+
+    ///print_hc_links(&link, 0, &hap);
+    // print_kv_u_trans(&k_trans, &link, s->s);
+
+
+    ///print_bubbles(idx->ug, &bub, sl.hits.a.n?&sl.hits:NULL, idx->link, idx);
+    ///print_hits(idx, &sl.hits, fn1);
+    
+
+    ///print_debug_bubble_graph(&bub, idx->ug, asm_opt.output_file_name);
+    // print_bubble_chain(&bub);
+    // destory_contig_partition(&hap);
+    // destory_horder_t(&ho);
+    kv_destroy(back_hc_edge.a);
+    kv_destroy(sl.hits.a);
+    kv_destroy(sl.hits.idx);
+    kv_destroy(sl.hits.occ);
+    destory_hc_links(&link);
+    kv_destroy(k_trans); 
+    kv_destroy(k_trans.idx);
+    destory_psg_t(&s);
+    kv_destroy(u.bid); kv_destroy(u.idx); kv_destroy(u.u);
+    fprintf(stderr, "[M::%s::%.3f] processed %lu pairs; %lu bases\n", __func__, yak_realtime()-index_time, sl.total_pair, sl.total_base);
+    return 1;
+}
+
+
+void hic_analysis(ma_ug_t *ug, asg_t* read_g, trans_chain* t_ch, ug_opt_t *opt, uint32_t is_poy)
 {
     ug_index = NULL;
     int exist = (asm_opt.load_index_from_disk? 
@@ -15723,10 +15936,13 @@ void hic_analysis(ma_ug_t *ug, asg_t* read_g, trans_chain* t_ch, ug_opt_t *opt)
     ug_index->read_g = read_g;
     ug_index->t_ch = t_ch;
     ///test_unitig_index(ug_index, ug);
-    hic_short_align(asm_opt.hic_reads[0], asm_opt.hic_reads[1], ug_index, opt);
+    if(!is_poy) hic_short_align(asm_opt.hic_reads[0], asm_opt.hic_reads[1], ug_index, opt);
+    else hic_short_align_poy(asm_opt.hic_reads[0], asm_opt.hic_reads[1], ug_index, opt);
+    
     
     destory_hc_pt_index(ug_index);
 }
+
 
 void init_ug_idx(ma_ug_t *ug, uint64_t k, uint64_t up_bound, uint64_t low_bound, uint64_t build_idx)
 {

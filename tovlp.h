@@ -12,4 +12,6 @@ int asg_arc_decompress(asg_t *g, ma_ug_t *ug, asg_t *read_sg, ma_hit_t_alloc* re
 R_to_U* ruIndex, utg_trans_t *o);
 int asg_arc_decompress_mul(asg_t *g, ma_ug_t *ug, asg_t *read_sg, uint32_t positive_flag, uint32_t negative_flag,
 ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, utg_trans_t *o);
+kv_u_trans_t *pt_pdist(ma_ug_t *ug, asg_t *read_g, ma_sub_t *coverage_cut, ma_hit_t_alloc* sources, 
+kvec_asg_arc_t_warp* edge, int max_hang, int min_ovlp, uint32_t min_chain_cnt);
 #endif

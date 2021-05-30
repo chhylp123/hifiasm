@@ -14,6 +14,8 @@
 
 void ha_get_candidates_interface(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_region_alloc *overlap_list, overlap_region_alloc *overlap_list_hp, Candidates_list *cl, double bw_thres, 
 int max_n_chain, int keep_whole_chain, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* chain_idx, ma_hit_t_alloc* paf, ma_hit_t_alloc* rev_paf, overlap_region* f_cigar, kvec_t_u64_warp* dbg_ct);
+void ha_get_ug_candidates(ha_abuf_t *ab, int64_t rid, ma_utg_t *u, ma_utg_v *ua, overlap_region_alloc *overlap_list, Candidates_list *cl, double bw_thres, int max_n_chain, int keep_whole_chain, kvec_t_u8_warp* k_flag,
+kvec_t_u64_warp* chain_idx, void *ha_flt_tab, ha_pt_t *ha_idx, overlap_region* f_cigar, kvec_t_u64_warp* dbg_ct, double chain_match_rate);
 void ha_sort_list_by_anchor(overlap_region_alloc *overlap_list);
 
 All_reads R_INF;
@@ -435,6 +437,7 @@ typedef struct {
     kvec_t_u64_warp r_buf;
     kvec_t_u8_warp k_flag;
     overlap_region tmp_region;
+    ma_utg_v *ua;
 } ha_ovec_buf_t;
 
 ha_ovec_buf_t *ha_ovec_init(int is_final, int save_ov)
@@ -1602,11 +1605,62 @@ void ha_overlap_final(void)
     asm_opt.het_cov = het_cov;
 }
 
+static void worker_ov_utg(void *data, long i, int tid)
+{
+	ha_ovec_buf_t *b = ((ha_ovec_buf_t**)data)[tid];
+    if(b->ua->a[i].len == 0) return;
 
+    ha_get_ug_candidates(b->ab, i, &(b->ua->a[i]), b->ua, &b->olist, &b->clist, 
+    0.3, asm_opt.polyploidy*5, 0, &(b->k_flag), &b->r_buf, ha_flt_tab, ha_idx,
+    &(b->tmp_region), NULL, /**0.3**/0);
+    
+	overlap_region_sort_y_id(b->olist.list, b->olist.length);
+	ma_hit_sort_tn(R_INF.paf[i].buffer, R_INF.paf[i].length);
+	ma_hit_sort_tn(R_INF.reverse_paf[i].buffer, R_INF.reverse_paf[i].length);
+
+	update_overlaps(&b->olist, &(R_INF.paf[i]), &b->self_read, &b->ovlp_read, 1, 1);
+	update_overlaps(&b->olist, &(R_INF.reverse_paf[i]), &b->self_read, &b->ovlp_read, 2, 0);
+	///recover missing exact overlaps
+	update_exact_overlaps(&b->olist, &b->self_read, &b->ovlp_read);
+
+	///Final_phasing(&overlap_list, &cigarline, &g_read, &overlap_read, c2n);
+	push_final_overlaps(&(R_INF.paf[i]), R_INF.reverse_paf, &b->olist, 1);
+	push_final_overlaps(&(R_INF.reverse_paf[i]), R_INF.reverse_paf, &b->olist, 2);
+}
+
+
+void ug_idx_build(ma_ug_t *ug, int hap_n)
+{
+    int flag = asm_opt.flag&HA_F_NO_HPC, i;
+    asm_opt.flag -= flag;
+    ha_flt_tab = ha_ft_ug_gen(&asm_opt, &(ug->u), hap_n);
+    ha_idx = ha_pt_ug_gen(&asm_opt, ha_flt_tab, &(ug->u), hap_n);
+
+    ha_ovec_buf_t **b = NULL;
+    // overlap and correct reads
+    CALLOC(b, asm_opt.thread_num);
+    for (i = 0; i < asm_opt.thread_num; ++i)
+    {
+        b[i] = ha_ovec_init(1, 1);
+        b[i]->ua = &(ug->u);
+    }
+            
+    kt_for(asm_opt.thread_num, worker_ov_utg, b, R_INF.total_reads);
+
+    for (i = 0; i < asm_opt.thread_num; ++i)
+        ha_ovec_destroy(b[i]);
+    free(b);
+
+    ha_ft_destroy(ha_flt_tab); 
+    ha_pt_destroy(ha_idx);
+    asm_opt.flag += flag;
+    exit(1);
+}
 
 int ha_assemble(void)
 {
     // debug_mc_g_t(MC_NAME);
+    debug_mc_gg_t(MC_NAME, 0, 0);
 	extern void ha_extract_print_list(const All_reads *rs, int n_rounds, const char *o);
 	int r, hom_cov = -1, ovlp_loaded = 0;
 	if (asm_opt.load_index_from_disk && load_all_data_from_disk(&R_INF.paf, &R_INF.reverse_paf, asm_opt.output_file_name)) {

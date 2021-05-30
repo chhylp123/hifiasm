@@ -178,6 +178,187 @@ kvec_t_u64_warp* chain_idx, void *ha_flt_tab, ha_pt_t *ha_idx, overlap_region* f
 }
 
 
+void calculate_ug_chaining(Candidates_list* candidates, overlap_region_alloc* overlap_list, kvec_t_u64_warp* chain_idx,
+                                          uint64_t readID, ma_utg_v *ua, double band_width_threshold, int add_beg_end, overlap_region* f_cigar, long long mz_occ, double mz_rate)
+{
+    long long i = 0;
+    uint64_t current_ID;
+    uint64_t current_stand;
+
+    if (candidates->length == 0)
+    {
+        return;
+    }
+
+    long long sub_region_beg;
+    long long sub_region_end;
+	long long chain_len;
+
+    clear_fake_cigar(&((*f_cigar).f_cigar));
+
+    i = 0;
+    while (i < candidates->length)
+    {
+        chain_idx->a.n = 0;
+        current_ID = candidates->list[i].readID;
+        current_stand = candidates->list[i].strand;
+
+        ///reference read
+        (*f_cigar).x_id = readID;
+        (*f_cigar).x_pos_strand = current_stand;
+        ///query read
+        (*f_cigar).y_id = current_ID;
+        ///here the strand of query is always 0
+        (*f_cigar).y_pos_strand = 0;  
+
+        sub_region_beg = i;
+        sub_region_end = i;
+        i++;
+
+        while (i < candidates->length 
+        && 
+        current_ID == candidates->list[i].readID
+        &&
+        current_stand == candidates->list[i].strand)
+        {
+            sub_region_end = i;
+            i++;
+        }
+
+        if ((*f_cigar).x_id == (*f_cigar).y_id)
+        {
+            continue;
+        }
+
+		chain_len = chain_DP(candidates->list + sub_region_beg,
+				sub_region_end - sub_region_beg + 1, &(candidates->chainDP), f_cigar, band_width_threshold,
+				50, ua->a[(*f_cigar).x_id].len, ua->a[(*f_cigar).y_id].len);
+		
+		
+		// if ((*f_cigar).x_id != (*f_cigar).y_id)
+		if ((*f_cigar).x_id != (*f_cigar).y_id && chain_len > mz_occ*mz_rate)
+        {
+			append_utg_inexact_overlap_region_alloc(overlap_list, f_cigar, ua, add_beg_end);
+        }
+    }
+}
+
+void ha_get_ug_candidates(ha_abuf_t *ab, int64_t rid, ma_utg_t *u, ma_utg_v *ua, overlap_region_alloc *overlap_list, Candidates_list *cl, double bw_thres, int max_n_chain, int keep_whole_chain, kvec_t_u8_warp* k_flag,
+kvec_t_u64_warp* chain_idx, void *ha_flt_tab, ha_pt_t *ha_idx, overlap_region* f_cigar, kvec_t_u64_warp* dbg_ct, double chain_match_rate)
+{
+	uint32_t i;
+	uint64_t k, l;
+
+	// prepare
+    clear_Candidates_list(cl);
+    clear_overlap_region_alloc(overlap_list);
+	ab->mz.n = 0, ab->n_a = 0;
+
+	// get the list of anchors
+	ha_sketch_query(u->s, u->len, asm_opt.mz_win, asm_opt.k_mer_length, 0, !(asm_opt.flag & HA_F_NO_HPC), &ab->mz, ha_flt_tab, k_flag, dbg_ct);
+	// minimizer of queried read
+	if (ab->mz.m > ab->old_mz_m) {
+		ab->old_mz_m = ab->mz.m;
+		REALLOC(ab->seed, ab->old_mz_m);
+	}
+	for (i = 0, ab->n_a = 0; i < ab->mz.n; ++i) {
+		int n;
+		ab->seed[i].a = ha_pt_get(ha_idx, ab->mz.a[i].x, &n);
+		ab->seed[i].n = n;
+		ab->seed[i].good = 0;
+		ab->n_a += n;
+	}
+	if (ab->n_a > ab->m_a) {
+		ab->m_a = ab->n_a;
+		kroundup64(ab->m_a);
+		REALLOC(ab->a, ab->m_a);
+	}
+	for (i = 0, k = 0; i < ab->mz.n; ++i) {
+		int j;
+		///z is one of the minimizer
+		ha_mz1_t *z = &ab->mz.a[i];
+		seed1_t *s = &ab->seed[i];
+		for (j = 0; j < s->n; ++j) {
+			const ha_idxpos_t *y = &s->a[j];
+			anchor1_t *an = &ab->a[k++];
+			uint8_t rev = z->rev == y->rev? 0 : 1;
+			an->other_off = y->pos;
+			an->self_off = rev? u->len - 1 - (z->pos + 1 - z->span) : z->pos;
+			an->good = s->good;
+			an->srt = (uint64_t)y->rid<<33 | (uint64_t)rev<<32 | an->other_off;
+		}
+	}
+
+	// sort anchors
+	radix_sort_ha_an1(ab->a, ab->a + ab->n_a);
+	for (k = 1, l = 0; k <= ab->n_a; ++k) {
+		if (k == ab->n_a || ab->a[k].srt != ab->a[l].srt) {
+			if (k - l > 1)
+				radix_sort_ha_an2(ab->a + l, ab->a + k);
+			l = k;
+		}
+	}
+
+
+	// copy over to _cl_
+	if (ab->m_a >= (uint64_t)cl->size) {
+		cl->size = ab->m_a;
+		REALLOC(cl->list, cl->size);
+	}
+	for (k = 0; k < ab->n_a; ++k) {
+		k_mer_hit *p = &cl->list[k];
+		p->readID = ab->a[k].srt >> 33;
+		p->strand = ab->a[k].srt >> 32 & 1;
+		p->offset = ab->a[k].other_off;
+		p->self_offset = ab->a[k].self_off;
+		p->good = ab->a[k].good;
+	}
+	cl->length = ab->n_a;
+
+	calculate_ug_chaining(cl, overlap_list, chain_idx, rid, ua, bw_thres, keep_whole_chain, f_cigar, ab->mz.n, chain_match_rate);
+
+	#if 0
+	if (overlap_list->length > 0) {
+		fprintf(stderr, "B\t%ld\t%ld\t%d\n", (long)rid, (long)overlap_list->length, rlen);
+		for (int i = 0; i < (int)overlap_list->length; ++i) {
+			overlap_region *r = &overlap_list->list[i];
+			fprintf(stderr, "C\t%d\t%d\t%d\t%c\t%d\t%ld\t%d\t%d\t%c\t%d\t%d\n", (int)r->x_id, (int)r->x_pos_s, (int)r->x_pos_e, "+-"[r->x_pos_strand],
+					(int)r->y_id, (long)Get_READ_LENGTH(R_INF, r->y_id), (int)r->y_pos_s, (int)r->y_pos_e, "+-"[r->y_pos_strand], (int)r->shared_seed, ha_ov_type(r, rlen));
+		}
+	}
+	#endif
+
+	if ((int)overlap_list->length > max_n_chain) {
+		int32_t w, n[4], s[4];
+		n[0] = n[1] = n[2] = n[3] = 0, s[0] = s[1] = s[2] = s[3] = 0;
+		ks_introsort_or_ss(overlap_list->length, overlap_list->list);
+		for (i = 0; i < (uint32_t)overlap_list->length; ++i) {
+			const overlap_region *r = &overlap_list->list[i];
+			w = ha_ov_type(r, u->len);
+			++n[w];
+			if ((int)n[w] == max_n_chain) s[w] = r->shared_seed;
+		}
+		if (s[0] > 0 || s[1] > 0 || s[2] > 0 || s[3] > 0) {
+			for (i = 0, k = 0; i < (uint32_t)overlap_list->length; ++i) {
+				overlap_region *r = &overlap_list->list[i];
+				w = ha_ov_type(r, u->len);
+				if (r->shared_seed >= s[w]) {
+					if ((uint32_t)k != i) {
+						overlap_region t;
+						t = overlap_list->list[k];
+						overlap_list->list[k] = overlap_list->list[i];
+						overlap_list->list[i] = t;
+					}
+					++k;
+				}
+			}
+			overlap_list->length = k;
+		}
+	}
+
+	///ks_introsort_or_xs(overlap_list->length, overlap_list->list);
+}
+
 void lable_matched_ovlp(overlap_region_alloc* overlap_list, ma_hit_t_alloc* paf)
 {
 	uint64_t j = 0, inner_j = 0;

@@ -193,10 +193,8 @@ static int ha_ct_insert_list(ha_ct_t *h, int create_new, int n, const uint64_t *
 		khint_t k;
 		if ((a[j]&mask) != (a[0]&mask)) continue;
 		if (create_new) {
-			///for 0-th counting, g->b = NULL
 			if (g->b)
 				ins = (yak_bf_insert(g->b, x) == h->n_hash);
-			///for 0-th counting, g->b = NULL
 			///x = the high 52 bits of a[j] + low 12 bits 0
 			///the low 12 bits are used for counting
 			if (ins) {
@@ -515,6 +513,7 @@ KSEQ_INIT(gzFile, gzread)
 #define HAF_RS_READ      0x10
 #define HAF_CREATE_NEW   0x20
 #define HAF_SKIP_READ    0x40
+#define HAF_UG_READ      0x80
 
 typedef struct { // global data structure for kt_pipeline()
 	const yak_copt_t *opt;
@@ -527,6 +526,7 @@ typedef struct { // global data structure for kt_pipeline()
 	ha_pt_t *pt;
 	const All_reads *rs_in;
 	All_reads *rs_out;
+	const ma_utg_v *us_in;
 } pl_data_t;
 
 typedef struct { // data structure for each step in kt_pipeline()
@@ -594,6 +594,24 @@ static void *worker_count(void *data, int step, void *in) // callback for kt_pip
 				++p->n_seq;
 				s->sum_len += l;
 				s->nk += l >= p->opt->k? l - p->opt->k + 1 : 0;
+				if (s->sum_len >= p->opt->chunk_size)
+					break;
+			}
+		} else if(p->us_in) {
+			ma_utg_t *u;
+			while (p->n_seq < p->us_in->n) {
+				u = &(p->us_in->a[p->n_seq]);
+				if (s->n_seq == s->m_seq) {
+					s->m_seq = s->m_seq < 16? 16 : s->m_seq + (s->m_seq>>1);
+					REALLOC(s->len, s->m_seq);
+					REALLOC(s->seq, s->m_seq);
+				}
+				MALLOC(s->seq[s->n_seq], u->len);
+				memcpy(s->seq[s->n_seq], u->s, u->len);
+				s->len[s->n_seq++] = u->len;
+				++p->n_seq;
+				s->sum_len += u->len;
+				s->nk += u->len >= p->opt->k? u->len - p->opt->k + 1 : 0;
 				if (s->sum_len >= p->opt->chunk_size)
 					break;
 			}
@@ -765,15 +783,18 @@ void debug_adapter(const hifiasm_opt_t *asm_opt, All_reads *rs)
 	exit(1);
 }
 
-static ha_ct_t *yak_count(const yak_copt_t *opt, const char *fn, int flag, ha_pt_t *p0, ha_ct_t *c0, const void *flt_tab, All_reads *rs, int64_t *n_seq)
+static ha_ct_t *yak_count(const yak_copt_t *opt, const char *fn, int flag, ha_pt_t *p0, ha_ct_t *c0, const void *flt_tab, All_reads *rs, ma_utg_v *us, int64_t *n_seq)
 {
 	///for 0-th counting, flag = HAF_COUNT_ALL|HAF_RS_WRITE_LEN|HAF_CREATE_NEW
 	int read_rs = (rs && (flag & HAF_RS_READ));
+	int ug_rs = (us && (flag & HAF_UG_READ));
 	pl_data_t pl;
 	gzFile fp = 0;
 	memset(&pl, 0, sizeof(pl_data_t));
 	pl.n_seq = *n_seq;
-	if (read_rs) {
+	if(ug_rs) {
+		pl.us_in = us;
+	} else if (read_rs) {
 		pl.rs_in = rs;
 		init_UC_Read(&pl.ucr);
 	} else {///for 0-th counting, go into here
@@ -804,7 +825,7 @@ static ha_ct_t *yak_count(const yak_copt_t *opt, const char *fn, int flag, ha_pt
 	kt_pipeline(3, worker_count, &pl, 3);
 	if (read_rs) {
 		destory_UC_Read(&pl.ucr);
-	} else {
+	} else if(!read_rs && !ug_rs) {
 		kseq_destroy(pl.ks);
 		gzclose(fp);
 	}
@@ -812,7 +833,7 @@ static ha_ct_t *yak_count(const yak_copt_t *opt, const char *fn, int flag, ha_pt
 	return pl.ct;
 }
 
-ha_ct_t *ha_count(const hifiasm_opt_t *asm_opt, int flag, ha_pt_t *p0, const void *flt_tab, All_reads *rs)
+ha_ct_t *ha_count(const hifiasm_opt_t *asm_opt, int flag, ha_pt_t *p0, const void *flt_tab, All_reads *rs, ma_utg_v *us, int keep_adapter)
 {
 	int i;
 	int64_t n_seq = 0;
@@ -836,10 +857,10 @@ ha_ct_t *ha_count(const hifiasm_opt_t *asm_opt, int flag, ha_pt_t *p0, const voi
 	///for ha_pt_gen, shoud be 0
 	opt.bf_shift = flag & HAF_COUNT_EXACT? 0 : asm_opt->bf_shift;
 	opt.n_thread = asm_opt->thread_num;
-	opt.adaLen = asm_opt->adapterLen;
+	opt.adaLen = (keep_adapter? asm_opt->adapterLen : 0);
 	///asm_opt->num_reads is the number of fastq files
 	for (i = 0; i < asm_opt->num_reads; ++i)
-		h = yak_count(&opt, asm_opt->read_file_names[i], flag|HAF_CREATE_NEW, p0, h, flt_tab, rs, &n_seq);
+		h = yak_count(&opt, asm_opt->read_file_names[i], flag|HAF_CREATE_NEW, p0, h, flt_tab, rs, us, &n_seq);
 	if (h && opt.bf_shift > 0)
 		ha_ct_destroy_bf(h);
 	return h;
@@ -914,6 +935,59 @@ void debug_ct_index(void* q_ct_idx, void* r_ct_idx)
  * High-level interfaces *
  *************************/
 
+void *ha_ft_ug_gen(const hifiasm_opt_t *asm_opt, ma_utg_v *us, int hap_n)
+{
+	yak_ft_t *flt_tab;
+	int64_t cnt[YAK_N_COUNTS];
+	int cutoff = hap_n + 1;
+	ha_ct_t *h;
+	h = ha_count(asm_opt, HAF_COUNT_ALL|HAF_UG_READ|HAF_COUNT_EXACT, NULL, NULL, NULL, us, 0);
+
+	ha_ct_hist(h, cnt, asm_opt->thread_num);
+	print_hist_lines(YAK_N_COUNTS, 1, cnt);
+	
+	ha_ct_shrink(h, cutoff, YAK_MAX_COUNT, asm_opt->thread_num);
+	flt_tab = gen_hh(h);
+	ha_ct_destroy(h);
+	fprintf(stderr, "[M::%s::%.3f*%.2f@%.3fGB] ==> filtered out %ld k-mers occurring %d or more times\n", __func__,
+			yak_realtime(), yak_cpu_usage(), yak_peakrss_in_gb(), (long)kh_size(flt_tab), cutoff);
+	return (void*)flt_tab;
+}
+
+
+ha_pt_t *ha_pt_ug_gen(const hifiasm_opt_t *asm_opt, const void *flt_tab, ma_utg_v *us, int hap_n)
+{
+	int64_t cnt[YAK_N_COUNTS], tot_cnt;
+	int i;
+	ha_ct_t *ct;
+	ha_pt_t *pt;
+	///HAF_COUNT_EXACT: no bf
+	ct = ha_count(asm_opt, HAF_COUNT_EXACT|HAF_UG_READ, NULL, flt_tab, NULL, us, 0);
+	fprintf(stderr, "[M::%s::%.3f*%.2f] ==> counted %ld distinct minimizer k-mers\n", __func__,
+			yak_realtime(), yak_cpu_usage(), (long)ct->tot);
+
+	ha_ct_hist(ct, cnt, asm_opt->thread_num);
+	print_hist_lines(YAK_N_COUNTS, 1, cnt);
+	
+	///here ha_ct_shrink is mostly used to remove k-mer appearing only 1 time
+	if (flt_tab == 0) {
+		ha_ct_shrink(ct, 2, hap_n, asm_opt->thread_num);
+		for (i = 2, tot_cnt = 0; i <= hap_n; ++i) tot_cnt += cnt[i] * i;
+	} else {
+		///Note: here is just to remove minimizer appearing YAK_MAX_COUNT times
+		///minimizer with YAK_MAX_COUNT occ may apper > YAK_MAX_COUNT times, so it may lead to overflow at ha_pt_gen
+		ha_ct_shrink(ct, 2, YAK_MAX_COUNT - 1, asm_opt->thread_num);
+		for (i = 2, tot_cnt = 0; i <= YAK_MAX_COUNT - 1; ++i) tot_cnt += cnt[i] * i;
+	}
+	pt = ha_pt_gen(ct, asm_opt->thread_num);
+	ha_count(asm_opt, HAF_COUNT_EXACT|HAF_UG_READ, pt, flt_tab, NULL, us, 0);
+	assert((uint64_t)tot_cnt == pt->tot_pos);
+	//ha_pt_sort(pt, asm_opt->thread_num);
+	fprintf(stderr, "[M::%s::%.3f*%.2f] ==> indexed %ld positions\n", __func__,
+			yak_realtime(), yak_cpu_usage(), (long)pt->tot_pos);
+	return pt;
+}
+
 void *ha_ft_gen(const hifiasm_opt_t *asm_opt, All_reads *rs, int *hom_cov, int is_hp_mode)
 {
 	yak_ft_t *flt_tab;
@@ -921,7 +995,7 @@ void *ha_ft_gen(const hifiasm_opt_t *asm_opt, All_reads *rs, int *hom_cov, int i
 	int peak_hom, peak_het, cutoff = YAK_MAX_COUNT - 1, ex_flag = 0;
 	if(is_hp_mode) ex_flag = HAF_RS_READ|HAF_SKIP_READ;
 	ha_ct_t *h;
-	h = ha_count(asm_opt, HAF_COUNT_ALL|HAF_RS_WRITE_LEN|ex_flag, NULL, NULL, rs);
+	h = ha_count(asm_opt, HAF_COUNT_ALL|HAF_RS_WRITE_LEN|ex_flag, NULL, NULL, rs, NULL, 1);
 	if((asm_opt->flag & HA_F_VERBOSE_GFA))
 	{
 		write_ct_index((void*)h, asm_opt->output_file_name);
@@ -966,7 +1040,7 @@ ha_pt_t *ha_pt_gen(const hifiasm_opt_t *asm_opt, const void *flt_tab, int read_f
 	}
 	if(is_hp_mode) extra_flag1 |= HAF_SKIP_READ, extra_flag2 |= HAF_SKIP_READ;
 
-	ct = ha_count(asm_opt, HAF_COUNT_EXACT|extra_flag1, NULL, flt_tab, rs);
+	ct = ha_count(asm_opt, HAF_COUNT_EXACT|extra_flag1, NULL, flt_tab, rs, NULL, 1);
 	fprintf(stderr, "[M::%s::%.3f*%.2f] ==> counted %ld distinct minimizer k-mers\n", __func__,
 			yak_realtime(), yak_cpu_usage(), (long)ct->tot);
 	ha_ct_hist(ct, cnt, asm_opt->thread_num);
@@ -989,7 +1063,7 @@ ha_pt_t *ha_pt_gen(const hifiasm_opt_t *asm_opt, const void *flt_tab, int read_f
 		for (i = 2, tot_cnt = 0; i <= YAK_MAX_COUNT - 1; ++i) tot_cnt += cnt[i] * i;
 	}
 	pt = ha_pt_gen(ct, asm_opt->thread_num);
-	ha_count(asm_opt, HAF_COUNT_EXACT|extra_flag2, pt, flt_tab, rs);
+	ha_count(asm_opt, HAF_COUNT_EXACT|extra_flag2, pt, flt_tab, rs, NULL, 1);
 	assert((uint64_t)tot_cnt == pt->tot_pos);
 	//ha_pt_sort(pt, asm_opt->thread_num);
 	fprintf(stderr, "[M::%s::%.3f*%.2f] ==> indexed %ld positions\n", __func__,

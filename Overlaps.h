@@ -120,7 +120,7 @@ typedef struct {
 	uint32_t occ;
 	double nw;
 	uint8_t f:6, rev:1, del:1;
-	uint8_t qo:4, to:4;
+	///uint8_t qo:4, to:4;
 } u_trans_t;
 
 typedef struct {
@@ -932,6 +932,7 @@ uint32_t *aux_a, uint32_t aux_n, uint32_t aux_beg, uint64_t *i_aux_len,
 ma_ug_t *ug, uint32_t flag, double overall_score, const char* cmd);
 int asg_arc_del_trans(asg_t *g, int fuzz);
 void kt_u_trans_t_idx(kv_u_trans_t *ta, uint32_t n);
+void kt_u_trans_t_simple_symm(kv_u_trans_t *ta, uint32_t un, uint32_t symm_add);
 uint32_t get_u_trans_spec(kv_u_trans_t *ta, uint32_t qn, uint32_t tn, u_trans_t **r_a, uint32_t *occ);
 int ma_ug_seq(ma_ug_t *g, asg_t *read_g, ma_sub_t *coverage_cut, ma_hit_t_alloc* sources, 
 kvec_asg_arc_t_warp* edge, int max_hang, int min_ovlp, kvec_asg_arc_t_warp *E, uint32_t is_polish);
@@ -989,6 +990,8 @@ inline uint32_t get_offset_adjust(uint32_t offset, uint32_t offsetLen, uint32_t 
 
 uint32_t set_utg_offset(uint32_t *a, uint32_t a_n, ma_ug_t *ug, asg_t *read_sg, uint64_t* pos_idx, uint32_t is_clear,
 uint32_t only_len);
+uint64_t get_utg_cov(ma_ug_t *ug, uint32_t uID, asg_t* read_g, 
+const ma_sub_t* coverage_cut, ma_hit_t_alloc* sources, R_to_U* ruIndex, uint8_t* r_flag);
 
 #define JUNK_COV 5
 #define DISCARD_RATE 0.8
