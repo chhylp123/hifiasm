@@ -785,9 +785,7 @@ ha_ug_index* build_unitig_index(ma_ug_t *ug, int k, uint64_t up_occ, uint64_t lo
     ha_ug_index* idx = NULL; CALLOC(idx, 1);
     pldat_t pl; pl.h = idx; pl.is_cnt = 1;
     double index_time = yak_realtime(), beg_time;
-    fprintf(stderr, "sa-0\n");
     init_ha_ug_index_opt(idx, ug, k, &pl, up_occ, low_occ, thread_num);
-    fprintf(stderr, "sa-1\n");
 
     beg_time = yak_realtime();
     pl.is_cnt = 1;
@@ -15733,7 +15731,7 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, ug_o
     skip_flipping:
     verbose_het_stat(&bub);
 
-    print_kv_weight(&k_trans);
+    // print_kv_weight(&k_trans);
 
     // horder_t *ho = init_horder_t(&sl.hits, idx->uID_bits, idx->pos_mode, idx->read_g, idx->ug, &bub, &(idx->t_ch->k_trans), opt, 3);
 
@@ -15865,11 +15863,11 @@ int hic_short_align_poy(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, 
 
     resolve_tangles_hic(idx, &bub, &sl.hits, &k_trans);
     measure_distance(idx, idx->ug, &sl.hits, &link, &bub, &(idx->t_ch->k_trans));
-    // if((asm_opt.flag & HA_F_VERBOSE_GFA) && load_psg_t(&s, asm_opt.output_file_name))
-    // {
-    //     bub.round_id = bub.n_round;
-    //     goto skip_flipping;
-    // }
+    if((asm_opt.flag & HA_F_VERBOSE_GFA) && load_psg_t(&s, asm_opt.output_file_name))
+    {
+        bub.round_id = bub.n_round;
+        goto skip_flipping;
+    }
     s = init_psg_t(11, idx->ug, idx->read_g, opt);
     for (bub.round_id = 0; bub.round_id < bub.n_round; bub.round_id++)
     {

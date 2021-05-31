@@ -992,6 +992,8 @@ uint32_t set_utg_offset(uint32_t *a, uint32_t a_n, ma_ug_t *ug, asg_t *read_sg, 
 uint32_t only_len);
 uint64_t get_utg_cov(ma_ug_t *ug, uint32_t uID, asg_t* read_g, 
 const ma_sub_t* coverage_cut, ma_hit_t_alloc* sources, R_to_U* ruIndex, uint8_t* r_flag);
+trans_chain* load_hc_trans(const char *fn);
+char *get_outfile_name(char* output_file_name);
 
 #define JUNK_COV 5
 #define DISCARD_RATE 0.8

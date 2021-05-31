@@ -611,13 +611,13 @@ mb_nodes_t *update_mb_nodes_t(kv_u_trans_t *ref, mc_match_t* ma, uint32_t occ)
 	return x;
 }
 
-mb_g_t *init_mb_g_t(mc_g_t *mg, kv_u_trans_t *ref, uint32_t is_sys)
+mb_g_t *init_mb_g_t(mc_match_t* e, kv_u_trans_t *ref, uint32_t is_sys)
 {
 	mc_edge_t *o = NULL;
 	uint32_t i, k, m, n, a_n[2], *a[2], qn, tn, qb, tb;
 	mb_edge_t *t = NULL;
 	mb_g_t *p = NULL; CALLOC(p, 1);
-	p->u = update_mb_nodes_t(ref, mg->e, mg->ug->g->n_seq);
+	p->u = update_mb_nodes_t(ref, e, e->n_seq);
 	p->e = NULL; CALLOC(p->e, 1);
 	p->e->n_seq = p->u->u.n;
 	kv_init(p->e->ma); kv_init(p->e->idx);
@@ -629,8 +629,8 @@ mb_g_t *init_mb_g_t(mc_g_t *mg, kv_u_trans_t *ref, uint32_t is_sys)
 		for (k = 0; k < a_n[0]; k++)
 		{
 			qn = a[0][k];
-			o = pt_a(*(mg->e), qn);
-    		n = pt_n(*(mg->e), qn);
+			o = pt_a(*e, qn);
+    		n = pt_n(*e, qn);
 			for (m = 0; m < n; m++)
 			{
 				tn = ma_y(o[m]);
@@ -650,8 +650,8 @@ mb_g_t *init_mb_g_t(mc_g_t *mg, kv_u_trans_t *ref, uint32_t is_sys)
 		for (k = 0; k < a_n[1]; k++)
 		{
 			qn = a[1][k];
-			o = pt_a(*(mg->e), qn);
-    		n = pt_n(*(mg->e), qn);
+			o = pt_a(*e, qn);
+    		n = pt_n(*e, qn);
 			for (m = 0; m < n; m++)
 			{
 				tn = ma_y(o[m]);
@@ -2152,10 +2152,7 @@ uint32_t mc_solve_cc(const mc_opt_t *opt, const mc_g_t *mg, mc_svaux_t *b, uint3
 		}
 	}
 
-	fprintf(stderr, "\nBeg-[M::%s::score->%f]\n", __func__, mc_score(mg->e, b));
-    print_mc_node(mg->e, b, 3838);
-    print_mc_node(mg->e, b, 36880);
-
+    // print_mc_node(mg->e, b, 36880);
 	// print_sc(opt, mg, b, sc_opt, n_iter);
 	// mc_reset_z_debug(mg->e, b);
 	// print_sc(opt, mg->e, b, sc_opt, n_iter);
@@ -2189,10 +2186,6 @@ uint32_t mc_solve_cc(const mc_opt_t *opt, const mc_g_t *mg, mc_svaux_t *b, uint3
 			}
 			sc_opt = sc;
 		}
-
-		fprintf(stderr, "\n");
-		print_mc_node(mg->e, b, 3838);
-    	print_mc_node(mg->e, b, 36880);
 	}
 
 	for (j = 0; j < b->cc_size; ++j)
@@ -2200,8 +2193,7 @@ uint32_t mc_solve_cc(const mc_opt_t *opt, const mc_g_t *mg, mc_svaux_t *b, uint3
 		b->s[b->cc_node[j]] = b->s_opt[b->cc_node[j]];
 		b->z[b->cc_node[j]] = b->z_opt[b->cc_node[j]];
 	}
-	
-	fprintf(stderr, "End-[M::%s::score->%f]\n", __func__, mc_score(mg->e, b));
+		
 	return n_iter;
 }
 
@@ -2594,7 +2586,7 @@ void mb_solve_core(mc_opt_t *opt, mc_g_t *mg, kv_u_trans_t *ref, uint32_t is_sys
 	if(!ref) return;
 	double index_time = yak_realtime();
 	uint32_t st, i;
-	mb_g_t *mbg = init_mb_g_t(mg, ref, is_sys);
+	mb_g_t *mbg = init_mb_g_t(mg->e, ref, is_sys);
 	mb_svaux_t *bb;
 	/**************************init**************************/
 	if(VERBOSE_CUT)
@@ -2859,7 +2851,7 @@ void mc_solve(hap_overlaps_list* ovlp, trans_chain* t_ch, kv_u_trans_t *ta, ma_u
 	mc_g_t *mg = init_mc_g_t(ug, read_g, s, renew_s);
 	update_mc_edges(mg, ovlp, ta, t_ch, f_rate, is_sys);
 
-	fprintf(stderr, "[M::%s:: # edges: %u]\n", __func__, (uint32_t)mg->e->ma.n);
+	// fprintf(stderr, "[M::%s:: # edges: %u]\n", __func__, (uint32_t)mg->e->ma.n);
 	
 	mb_solve_core(&opt, mg, ref, is_sys);
 	///debug_mc_g_t(mg);
@@ -2873,7 +2865,7 @@ void mc_solve(hap_overlaps_list* ovlp, trans_chain* t_ch, kv_u_trans_t *ta, ma_u
 
 	if(ovlp) clean_ovlp_by_mc(mg, ovlp);
 
-	print_hap_s(s, ug->u.n);
+	// print_hap_s(s, ug->u.n);
 
 	destory_mc_g_t(&mg);	
 }
@@ -3237,19 +3229,19 @@ t_w_t mcgg_init_spin(const mc_match_t *ma, mcgg_svaux_t *b)
 		uint32_t n1 = ma_x(*e), n2 = ma_y(*e);
 		if (b->s[n1].s == 0 && b->s[n2].s == 0) {
 			b->s[n1].s = kr_drand_node(n1, b, &(b->s[n1].hc));
-			debug_hapM(&(b->s[n1]), "s0");
+			// debug_hapM(&(b->s[n1]), "s0");
 			b->s[n2].s = kr_drand_node_ref(n2, b, &(b->s[n2].hc), b->s[n1].s, e->w>0?1:0);
-			debug_hapM(&(b->s[n2]), "s1");
+			// debug_hapM(&(b->s[n2]), "s1");
 		}
 		else if(b->s[n1].s == 0)
 		{
 			b->s[n1].s = kr_drand_node_ref(n1, b, &(b->s[n1].hc), b->s[n2].s, e->w>0?1:0);	
-			debug_hapM(&(b->s[n1]), "s2");	
+			// debug_hapM(&(b->s[n1]), "s2");	
 		}
 		else if(b->s[n2].s == 0)
 		{
 			b->s[n2].s = kr_drand_node_ref(n2, b, &(b->s[n2].hc), b->s[n1].s, e->w>0?1:0);
-			debug_hapM(&(b->s[n2]), "s3");
+			// debug_hapM(&(b->s[n2]), "s3");
 		}
 	}
 
@@ -3354,17 +3346,38 @@ void inline back_status(mcgg_svaux_t *b, uint32_t id, uint32_t to_opt)
 	}
 	
 }
-
+/**
 static inline mcg_node_t kr_drand_node_new(uint64_t id, mcgg_svaux_t *b)
 {
+	if(id == 10070) fprintf(stderr, "id-%lu, h[0]-%u, h[1]-%u\n", id, b->s[id].h[0], b->s[id].h[1]);
 	uint32_t hn = b->s[id].h[0]-1, is_old = 1, k;
 	if((b->s[id].h[1] != (uint16_t)-1) && (kr_drand_r(&b->x) > b->s[id].hw[0]))
 	{
 		hn = b->s[id].h[1]-1; is_old = 0;
 	}
+	if(id == 10070) fprintf(stderr, "id-%lu, hn-%u, b->m[hn].n-%u, is_old-%u\n", id, hn, b->m[hn].n, is_old);
 	b->x = kr_splitmix64(b->x);
 	k = b->x%(b->m[hn].n-is_old);
+	if(id == 10070) fprintf(stderr, "id-%lu, hn-%u, k-%u\n", id, hn, k);
 	if(b->m[hn].a[k] == b->s[id].s) k = b->m[hn].n-1;
+	return b->m[hn].a[k];
+}
+**/
+
+static inline mcg_node_t kr_drand_node_new(uint64_t id, mcgg_svaux_t *b)
+{
+	uint32_t hn = b->s[id].h[0]-1, k;
+	if((b->s[id].h[1] != (uint16_t)-1) && (kr_drand_r(&b->x) > b->s[id].hw[0]))
+	{
+		hn = b->s[id].h[1]-1;
+	}
+	b->x = kr_splitmix64(b->x);
+	k = b->x%(b->m[hn].n);
+	if(b->m[hn].a[k] == b->s[id].s && b->m[hn].n > 1)
+	{
+		k = b->x%(b->m[hn].n-1);
+		if(b->m[hn].a[k] == b->s[id].s) k = b->m[hn].n-1;
+	} 
 	return b->m[hn].a[k];
 }
 
@@ -3448,8 +3461,8 @@ uint32_t mcgg_solve_cc(const mc_opt_t *opt, const mc_gg_t *mg, mcgg_svaux_t *b, 
 		for (j = 0; j < b->cc_size; ++j) back_status(b, b->cc_node[j], 0);
 	}
 	fprintf(stderr, "\nBeg-[M::%s::score->%f]\n", __func__, mcgg_score(mg->e, b));
-	print_mcgg_node(mg->e, b, 3838);
-	print_mcgg_node(mg->e, b, 36880);
+	// print_mcgg_node(mg->e, b, 3838);
+	// print_mcgg_node(mg->e, b, 36880);
 
 	// tt0 = tt1 = 0;
 	for (k = 0; k < (uint32_t)opt->n_perturb; ++k) {
@@ -3458,7 +3471,6 @@ uint32_t mcgg_solve_cc(const mc_opt_t *opt, const mc_gg_t *mg, mcgg_svaux_t *b, 
         else mcgg_perturb_node(opt, mg->e, b, 3);
 		// tt0 += yak_realtime()-t0;
 
-		// fprintf(stderr, "\n++(%u) sc_pre: %f\n", k, mcgg_score(mg->e, b));
 		// t1 = yak_realtime();
         sc = mcgg_optimize_local(opt, mg->e, b, &n_iter);
 		// tt1 += yak_realtime()-t1;
@@ -3479,9 +3491,9 @@ uint32_t mcgg_solve_cc(const mc_opt_t *opt, const mc_gg_t *mg, mcgg_svaux_t *b, 
             for (j = 0; j < b->cc_size; ++j) back_status(b, b->cc_node[j], 1);
 			sc_opt = sc;
         }
-		fprintf(stderr, "\n");
-		print_mcgg_node(mg->e, b, 3838);
-		print_mcgg_node(mg->e, b, 36880);
+		// fprintf(stderr, "\n");
+		// print_mcgg_node(mg->e, b, 3838);
+		// print_mcgg_node(mg->e, b, 36880);
 		// if((k&31)==0)fprintf(stderr, "+++(%u) sc: %f, sc_opt: %f, tt0: %.3f, tt1: %.3f\n", k, sc, sc_opt, tt0, tt1);
     }
 
@@ -3680,6 +3692,9 @@ void debug_mc_gg_t(const char* fn, uint32_t update_ta, uint32_t convert_mc_g_t)
 			mc_opt_init(&opt, asm_opt.n_perturb, asm_opt.f_perturb, asm_opt.seed);
 			mc_g_t *mg = NULL;
 			mg = to_mc_g_t(ta, s, un);
+			char *o_file = get_outfile_name(asm_opt.output_file_name);
+			trans_chain* t_ch = load_hc_trans(o_file);
+			mb_solve_core(&opt, mg, &(t_ch->k_trans), 1);
 			mc_solve_core(&opt, mg, NULL);
 		}
 		else
@@ -3699,6 +3714,8 @@ void clean_solve_general_ovlp(kv_u_trans_t *ta, uint32_t un, kv_gg_status *s)
 
 void mc_solve_general(kv_u_trans_t *ta, uint32_t un, kv_gg_status *s, uint16_t hapN, uint16_t update_ta, uint16_t write_dump)
 {
+	print_hap_p(s);
+	exit(1);
 	mc_opt_t opt;
 	mc_opt_init(&opt, asm_opt.n_perturb, asm_opt.f_perturb, asm_opt.seed);
 	mc_gg_t *mg = init_mc_gg_t(un, s, hapN);

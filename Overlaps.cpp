@@ -12837,7 +12837,7 @@ void set_r_het_flag(ma_ug_t *ug, asg_t *sg, ma_sub_t* coverage_cut, ma_hit_t_all
     // dip_thre_max *= 0.75;
     dip_thre_max = (double)(dip_thre_max) - (((double)(dip_thre_max)*0.5)/asm_opt.polyploidy);
 
-    fprintf(stderr, "dip_thre_max: %lu\n", dip_thre_max);
+    // fprintf(stderr, "dip_thre_max: %lu\n", dip_thre_max);
             
     for (m = 0; m < ug->g->n_seq; m++)
     {
@@ -13069,7 +13069,7 @@ void write_trans_chain(trans_chain* t_ch, const char *fn)
 }
 
 
-trans_chain* load_hc_hits(const char *fn)
+trans_chain* load_hc_trans(const char *fn)
 {
     uint64_t flag = 0;
     char *buf = (char*)calloc(strlen(fn) + 25, 1);
@@ -13148,7 +13148,7 @@ long long gap_fuzz, bub_label_t* b_mask_t)
 
     hap_cov_t *cov = NULL;
     trans_chain* t_ch = NULL;
-    if((asm_opt.flag & HA_F_VERBOSE_GFA)) t_ch = load_hc_hits(output_file_name);
+    if((asm_opt.flag & HA_F_VERBOSE_GFA)) t_ch = load_hc_trans(output_file_name);
     
     if(!t_ch)
     {
@@ -13308,7 +13308,7 @@ long long gap_fuzz, bub_label_t* b_mask_t)
     fclose(output_file);
     free(gfa_name);
 
-    if((asm_opt.flag & HA_F_VERBOSE_GFA)) t_ch = load_hc_hits(output_file_name);
+    if((asm_opt.flag & HA_F_VERBOSE_GFA)) t_ch = load_hc_trans(output_file_name);
     if(!t_ch)
     {
         t_ch = get_hic_polyploid_trans_chain(ug, sg, coverage_cut, sources, reverse_sources, max_hang, min_ovlp, ruIndex, b_mask_t);
@@ -13317,7 +13317,7 @@ long long gap_fuzz, bub_label_t* b_mask_t)
         if((asm_opt.flag & HA_F_VERBOSE_GFA)) write_trans_chain(t_ch, output_file_name);
     } 
 
-    hic_analysis(ug, sg, t_ch, &opt, 1);
+    hic_analysis(ug, sg, t_ch, &opt, 0);
     destory_trans_chain(&t_ch); 
     ma_ug_destroy(ug);
     asg_cleanup(sg);
@@ -14101,7 +14101,6 @@ long long tipsLen, float tip_drop_ratio, long long stops_threshold,
 R_to_U* ruIndex, float chimeric_rate, float drop_ratio, int max_hang, int min_ovlp, 
 bub_label_t* b_mask_t)
 { 
-    fprintf(stderr, "******0******\n");
     kvec_asg_arc_t_warp new_rtg_edges;
     kv_init(new_rtg_edges.a);
     ma_ug_t *ug = NULL;
@@ -14112,13 +14111,13 @@ bub_label_t* b_mask_t)
     asg_t *copy_sg = copy_read_graph(sg);
     ma_ug_t *copy_ug = copy_untig_graph(ug);
     /*******************************for debug************************************/
-    // adjust_utg_by_primary(&copy_ug, copy_sg, TRIO_THRES, sources, reverse_sources, coverage_cut, 
-    // tipsLen, tip_drop_ratio, stops_threshold, ruIndex, chimeric_rate, drop_ratio, 
-    // max_hang, min_ovlp, &new_rtg_edges, &cov, b_mask_t, 1, 1);
-    adjust_utg_advance(copy_sg, copy_ug, reverse_sources, ruIndex, b_mask_t);
-    get_utg_ovlp(&copy_ug, copy_sg, sources, reverse_sources, coverage_cut, 
-    ruIndex, max_hang, min_ovlp, &new_rtg_edges, b_mask_t, NULL);
-    exit(1);
+    adjust_utg_by_primary(&copy_ug, copy_sg, TRIO_THRES, sources, reverse_sources, coverage_cut, 
+    tipsLen, tip_drop_ratio, stops_threshold, ruIndex, chimeric_rate, drop_ratio, 
+    max_hang, min_ovlp, &new_rtg_edges, &cov, b_mask_t, 1, 1);
+    // adjust_utg_advance(copy_sg, copy_ug, reverse_sources, ruIndex, b_mask_t);
+    // get_utg_ovlp(&copy_ug, copy_sg, sources, reverse_sources, coverage_cut, 
+    // ruIndex, max_hang, min_ovlp, &new_rtg_edges, b_mask_t, NULL);
+    // exit(1);
     /*******************************for debug************************************/
     print_utg(copy_ug, copy_sg, coverage_cut, output_file_name, sources, ruIndex, max_hang, 
     min_ovlp, &new_rtg_edges);
@@ -30816,10 +30815,10 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
     else if(ha_opt_hic(&asm_opt))
     {
         if(asm_opt.flag & HA_F_PARTITION) asm_opt.flag -= HA_F_PARTITION;
-        // output_hic_graph(sg, coverage_cut, o_file, sources, reverse_sources, (asm_opt.max_short_tip*2), 
-        // 0.15, 3, ruIndex, 0.05, 0.9, max_hang_length, mini_overlap_length, gap_fuzz, &b_mask_t);
-        output_hic_graph_polyploid(sg, coverage_cut, o_file, sources, reverse_sources, (asm_opt.max_short_tip*2), 
+        output_hic_graph(sg, coverage_cut, o_file, sources, reverse_sources, (asm_opt.max_short_tip*2), 
         0.15, 3, ruIndex, 0.05, 0.9, max_hang_length, mini_overlap_length, gap_fuzz, &b_mask_t);
+        // output_hic_graph_polyploid(sg, coverage_cut, o_file, sources, reverse_sources, (asm_opt.max_short_tip*2), 
+        // 0.15, 3, ruIndex, 0.05, 0.9, max_hang_length, mini_overlap_length, gap_fuzz, &b_mask_t);
     }
     else if((asm_opt.flag & HA_F_PARTITION) && (asm_opt.purge_level_primary > 0))
     {
