@@ -13295,9 +13295,9 @@ long long gap_fuzz, bub_label_t* b_mask_t)
     if(t_ch) destory_trans_chain(&t_ch);
 
 
-    // gfa_name = (char*)malloc(strlen(output_file_name)+25);
+    // char* gfa_name = (char*)malloc(strlen(output_file_name)+50);
     // sprintf(gfa_name, "%s.after.clean_d_utg.noseq.gfa", output_file_name);
-    // output_file = fopen(gfa_name, "w");
+    // FILE* output_file = fopen(gfa_name, "w");
     // ma_ug_print_simple(ug, sg, coverage_cut, sources, ruIndex, "utg", output_file);
     // fclose(output_file);
     // free(gfa_name);
@@ -16308,7 +16308,7 @@ uint8_t is_final_check, float double_check_rate, uint8_t flag, float drop_rate)
  
             if(is_final_check)
             {
-                if(non_flag_occ < u->n*double_check_rate) continue;
+                /**if(non_flag_occ < u->n*double_check_rate) continues**/;
             }
             else
             {
@@ -16360,6 +16360,88 @@ uint8_t is_final_check, float double_check_rate, uint8_t flag, float drop_rate)
     free(primary_flag);
 }
 
+
+void force_trio_clean(ma_ug_t* ug, asg_t* read_g, ma_sub_t* coverage_cut, 
+ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, 
+uint8_t flag, float self_drop_rate, float contig_drop_rate, uint32_t min_occ)
+{
+    asg_t* nsg = ug->g;
+    uint32_t beg, end, n_vtx = nsg->n_seq<<1, k, i, rId, tf_occ, tnf_occ, flag_occ, non_flag_occ, n_reduce = 1;
+    long long nodeLen, baseLen, max_stop_nodeLen, max_stop_baseLen;
+    buf_t b; memset(&b, 0, sizeof(buf_t));
+    ma_utg_t *u = NULL;
+    uint8_t* primary_flag = (uint8_t*)calloc(read_g->n_seq, sizeof(uint8_t));
+
+    while (n_reduce)
+    {
+        n_reduce = 0;
+        n_vtx = nsg->n_seq;
+        for (beg = 0; beg < n_vtx; ++beg) 
+        {
+            if(nsg->seq[beg>>1].del || asg_arc_n(nsg, beg) <= 0 || get_real_length(nsg, beg, NULL)<=0)
+            {
+                continue;
+            }
+            if(get_real_length(nsg, beg^1, NULL) == 1)///check if beg is the tig end
+            {
+                get_real_length(nsg, beg^1, &end);
+                if(get_real_length(nsg, end^1, NULL) == 1) continue;
+            }
+            b.b.n = 0; tf_occ = tnf_occ = 0;
+            get_unitig(nsg, ug, beg, &end, &nodeLen, &baseLen, &max_stop_nodeLen, &max_stop_baseLen, 1, &b);
+
+            for (i = 0; i < b.b.n; i++)
+            {
+                u = &((ug)->u.a[b.b.a[i]>>1]);
+                for (k = 0; k < u->n; k++)
+                {
+                    rId = u->a[k]>>33;
+                    if(R_INF.trio_flag[rId] == AMBIGU) continue;
+                    if(R_INF.trio_flag[rId] == DROP) continue;
+                    if(R_INF.trio_flag[rId] == flag) tf_occ++;
+                    if(R_INF.trio_flag[rId] != flag) tnf_occ++;
+                }
+            }
+            if(tnf_occ <= ((tnf_occ+tf_occ)*contig_drop_rate)) continue;
+
+            for (i = 0; i < b.b.n; i++)
+            {
+                flag_occ = non_flag_occ = 0;
+                u = &((ug)->u.a[b.b.a[i]>>1]);
+                for (k = 0; k < u->n; k++)
+                {
+                    rId = u->a[k]>>33;
+                    if(R_INF.trio_flag[rId] == AMBIGU) continue;
+                    if(R_INF.trio_flag[rId] == DROP) continue;
+                    if(R_INF.trio_flag[rId] == flag) flag_occ++;
+                    if(R_INF.trio_flag[rId] != flag) non_flag_occ++;
+                }
+
+                if(non_flag_occ <= min_occ) continue;
+                if(non_flag_occ <= ((non_flag_occ+flag_occ)*self_drop_rate)) continue;
+                if(non_flag_occ <= ((tf_occ+tnf_occ)*contig_drop_rate)) continue;
+                if(if_primary_unitig(u, read_g, coverage_cut, sources, ruIndex, primary_flag))
+                {
+                    continue;
+                }
+
+                if(u->m != 0)
+                {
+                    u->circ = u->end = u->len = u->m = u->n = u->start = 0;
+                    free(u->a);
+                    u->a = NULL;
+                }
+                asg_seq_del(nsg, b.b.a[i]>>1);
+                n_reduce++;
+            }
+            
+        }
+    }
+
+    free(b.b.a);
+    asg_cleanup(nsg);
+    free(primary_flag);
+}
 
 void get_candidate_uids(asg_t* nsg, ma_utg_t* nsu, kvec_t_u64_warp* u_vecs, 
 ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex)
@@ -16942,6 +17024,8 @@ kvec_asg_arc_t_warp* new_rtg_edges, bub_label_t* b_mask_t)
 
     update_unitig_graph((*ug), read_g, coverage_cut, sources, reverse_sources, ruIndex, 0, 
     DOUBLE_CHECK_THRES, flag, drop_rate);
+
+    force_trio_clean((*ug), read_g, coverage_cut, sources, reverse_sources, ruIndex, flag, 0.55, 0.01, 5);
 
     ///if(flag == MOTHER) print_debug_gfa(read_g, *ug, coverage_cut, "debug_trio_1", sources, ruIndex, asm_opt.max_hang_Len, asm_opt.min_overlap_Len);
 

@@ -6173,7 +6173,8 @@ inline double get_trans_weight_advance(const ha_ug_index* idx, uint64_t x, trans
     }
     else
     {
-        rate = 0.2;
+        // rate = 0.2;
+        rate = 0.4;
     }
 
     
@@ -13633,11 +13634,11 @@ void resolve_bubble_chain_by_hic(ha_ug_index *idx, kv_u_trans_t *ta, bubble_type
     //     }
     // }
 
-    for (i = 0; i < edges.a.n; i++)
-    {
-        fprintf(stderr, "s-utg%.6lul<------>d-utg%.6ul\n", (edges.a.a[i].ul>>33) + 1, (edges.a.a[i].v>>1) + 1);
+    // for (i = 0; i < edges.a.n; i++)
+    // {
+    //     fprintf(stderr, "s-utg%.6lul<------>d-utg%.6ul\n", (edges.a.a[i].ul>>33) + 1, (edges.a.a[i].v>>1) + 1);
         
-    }
+    // }
     /*******************************for debug************************************/
     if(edges.a.n > 0)
     {
@@ -15250,11 +15251,11 @@ void print_kv_weight(kv_u_trans_t *ta)
     fprintf(stderr, "*********ta->n: %u\n", (uint32_t)ta->n);
     for (i = 0; i < ta->n; i++)
     {
-        fprintf(stderr, "+qn(%u)->tn(%u): %f\n", ta->a[i].qn, ta->a[i].tn, ta->a[i].nw);
+        fprintf(stderr, "+s-utg%.6ul->d-utg%.6ul: %f\n", ta->a[i].qn+1, ta->a[i].tn+1, ta->a[i].nw);
         get_u_trans_spec(ta, ta->a[i].tn, ta->a[i].qn, &e, NULL);
         if(e)
         {
-            fprintf(stderr, "-tn(%u)->qn(%u): %f\n", e->qn, e->tn, e->nw);
+            fprintf(stderr, "-d-utg%.6ul->s-utg%.6ul: %f\n", e->qn+1, e->tn+1, e->nw);
         }
         else
         {
@@ -15693,12 +15694,12 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, ug_o
 
     resolve_tangles_hic(idx, &bub, &sl.hits, &k_trans);
     measure_distance(idx, idx->ug, &sl.hits, &link, &bub, &(idx->t_ch->k_trans));
-    if((asm_opt.flag & HA_F_VERBOSE_GFA) && load_ps_t(&s, asm_opt.output_file_name))
-    {
-        bub.round_id = bub.n_round;
-        label_unitigs_sm(s->s, NULL, idx->ug);
-        goto skip_flipping;
-    }
+    // if((asm_opt.flag & HA_F_VERBOSE_GFA) && load_ps_t(&s, asm_opt.output_file_name))
+    // {
+    //     bub.round_id = bub.n_round;
+    //     label_unitigs_sm(s->s, NULL, idx->ug);
+    //     goto skip_flipping;
+    // }
     s = init_ps_t(11, idx->ug->g->n_seq);
     for (bub.round_id = 0; bub.round_id < bub.n_round; bub.round_id++)
     {
@@ -15726,9 +15727,9 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, ug_o
         label_unitigs(&(hap.g_p), idx->ug);
         **/
     }
-    write_ps_t(s, asm_opt.output_file_name);
+    // write_ps_t(s, asm_opt.output_file_name);
 
-    skip_flipping:
+    // skip_flipping:
     verbose_het_stat(&bub);
 
     // print_kv_weight(&k_trans);
@@ -15886,7 +15887,7 @@ int hic_short_align_poy(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, 
         // }
         /*******************************for debug************************************/
     }
-    // write_psg_t(s, asm_opt.output_file_name);
+    write_psg_t(s, asm_opt.output_file_name);
 
     skip_flipping:
     verbose_het_stat(&bub);
