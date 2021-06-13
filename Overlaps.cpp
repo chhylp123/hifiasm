@@ -13295,12 +13295,12 @@ long long gap_fuzz, bub_label_t* b_mask_t)
     if(t_ch) destory_trans_chain(&t_ch);
 
 
-    // char* gfa_name = (char*)malloc(strlen(output_file_name)+50);
-    // sprintf(gfa_name, "%s.after.clean_d_utg.noseq.gfa", output_file_name);
-    // FILE* output_file = fopen(gfa_name, "w");
-    // ma_ug_print_simple(ug, sg, coverage_cut, sources, ruIndex, "utg", output_file);
-    // fclose(output_file);
-    // free(gfa_name);
+    char* gfa_name = (char*)malloc(strlen(output_file_name)+50);
+    sprintf(gfa_name, "%s.after.clean_d_utg.noseq.gfa", output_file_name);
+    FILE* output_file = fopen(gfa_name, "w");
+    ma_ug_print_simple(ug, sg, coverage_cut, sources, ruIndex, "utg", output_file);
+    fclose(output_file);
+    free(gfa_name);
 
     ma_ug_destroy(ug);
     kv_destroy(new_rtg_edges.a); 

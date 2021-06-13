@@ -15243,15 +15243,17 @@ kv_u_trans_t *ta, kv_u_trans_t *ref, trans_idx* dis)
     fprintf(stderr, "[M::%s::%.3f] \n", __func__, yak_realtime()-index_time);
 }
 
-void print_kv_weight(kv_u_trans_t *ta)
+void print_kv_weight(kv_u_trans_t *ta, int8_t *s)
 {
     uint32_t i;
-    u_trans_t *e = NULL;
+    // u_trans_t *e = NULL;
     fprintf(stderr, "\n[M::%s]\n", __func__);
     fprintf(stderr, "*********ta->n: %u\n", (uint32_t)ta->n);
     for (i = 0; i < ta->n; i++)
     {
-        fprintf(stderr, "+s-utg%.6ul->d-utg%.6ul: %f\n", ta->a[i].qn+1, ta->a[i].tn+1, ta->a[i].nw);
+        fprintf(stderr, "+s-utg%.6ul(s:%d)\td-utg%.6ul(s:%d)\tw-%f\n", 
+                        ta->a[i].qn+1, s[ta->a[i].qn], ta->a[i].tn+1, s[ta->a[i].tn], ta->a[i].nw);
+        /**
         get_u_trans_spec(ta, ta->a[i].tn, ta->a[i].qn, &e, NULL);
         if(e)
         {
@@ -15261,6 +15263,7 @@ void print_kv_weight(kv_u_trans_t *ta)
         {
             fprintf(stderr, "ERROR");
         }
+        **/
     }
 }
 
@@ -15654,6 +15657,129 @@ int load_ps_t(ps_t **s, const char *fn)
     return 1;
 }
 
+int cmp_kv_u_weight(const void * a, const void * b)
+{
+    if((*(u_trans_t*)a).nw == (*(u_trans_t*)b).nw) return 0;
+    return ((*(u_trans_t*)a).nw) > ((*(u_trans_t*)b).nw)?-1:1;
+}
+
+typedef struct{
+    uint64_t s, e;
+} f_chain_t;
+
+typedef struct{
+    f_chain_t* a;
+    size_t n, m;
+    kvec_t(uint64_t) b;
+    double tw;
+    uint64_t tov;
+} kv_f_chain;
+
+void insert_dip_chain(kv_f_chain *x, u_trans_t *p, double LenRate)
+{
+    uint32_t i;
+    uint64_t ovlp = 0, tLen = MIN(x->tov, p->qe-p->qs), qs, qe;
+    int64_t dp, old_dp, start = 0;
+    f_chain_t *t = NULL;
+    double r;
+    for (i = 0; i < x->n; i++)
+    {
+        ovlp += ((MIN(x->a[i].e, p->qe) > MAX(x->a[i].s, p->qs))?
+                                        (MIN(x->a[i].e, p->qe) - MAX(x->a[i].s, p->qs)):0);
+    }
+    if(tLen > 0 && ovlp > tLen*LenRate)
+    {
+        r = ((double)ovlp)/((double)tLen);
+        if(r >= 0.75)
+        {
+            if(p->nw <= x->tw*0.75) p->del = 1;
+        } 
+        else
+        {
+            if(p->nw <= x->tw*0.5) p->del = 1;
+        }
+    }
+
+    if(!p->del)
+    {
+        x->tw += p->nw - (((double)ovlp)/((double)(p->qe-p->qs)))*p->nw;   
+
+        kv_push(uint64_t, x->b, p->qs<<1);
+        kv_push(uint64_t, x->b, p->qe<<1|1);
+        if(x->b.n > 2 && x->b.a[x->b.n-2] < x->b.a[x->b.n-3])
+        {
+            radix_sort_hc64(x->b.a, x->b.a + x->b.n);
+        }
+        x->n = 0; x->tov = 0;
+        for (i = 0, dp = 0, start = 0; i < x->b.n; ++i) 
+        {
+            old_dp = dp;
+            ///if a[j] is qe
+            if (x->b.a[i]&1) 
+            {
+                --dp;
+            }
+            else
+            {
+                ++dp;
+            } 
+
+
+            if (old_dp < 1 && dp >= 1) ///old_dp < dp, b.a[j] is qs
+            { 
+                ///case 2, a[j] is qs
+                start = x->b.a[i]>>1;
+            } 
+            else if (old_dp >= 1 && dp < 1) ///old_dp > min_dp, b.a[j] is qe
+            {
+                kv_pushp(f_chain_t, *x, &t);
+                t->s = start; t->e = x->b.a[i]>>1;
+                x->tov += t->e - t->s;
+            }
+        }
+    }
+}
+
+void filter_kv_u_trans_t(kv_u_trans_t *ta, ma_ug_t* ug)
+{
+    kv_f_chain x; 
+    memset(&x, 0, sizeof(kv_f_chain)); x.tw = 0;
+    uint32_t k, i, n;
+    u_trans_t *a = NULL;
+    for (k = 0; k < ta->idx.n; k++)
+    {
+        a = u_trans_a(*ta, k);
+        n = u_trans_n(*ta, k);
+        if(n == 0) continue;
+        qsort(a, n, sizeof(u_trans_t), cmp_kv_u_weight);
+        x.n = 0; x.tov = 0; x.tw = 0; x.b.n = 0;
+        for (i = 0; i < n; i++)
+        {
+            if(a[i].del) continue;
+            insert_dip_chain(&x, &(a[i]), 0.5);
+            //if(a[i].del) is_clean = 1;
+        }
+        // if(is_clean)
+        // {
+        //     fprintf(stderr, "\n***utg%.6ul, w: %f, cov: %lu, len: %u\n", a[0].qn+1, x.tw, x.tov, ug->g->seq[a[0].qn].len);
+        //     for (i = 0; i < x.n; i++)
+        //     {
+        //         fprintf(stderr, "s: %lu, e: %lu\n", x.a[i].s, x.a[i].e);
+        //     }
+        //     u_trans_t *p = NULL;
+        //     for (i = 0; i < n; i++)
+        //     {
+        //         p = &(a[i]);
+        //         fprintf(stderr, "qs(%u)\tqe(%u)\tt-utg%.6ul(len:%u)\tts(%u)\tte(%u)\trev(%u)\tw(%f)\tdel(%u)\n", 
+        //         p->qs, p->qe, p->tn+1, ug->g->seq[p->tn].len, p->ts, p->te, p->rev, p->nw, p->del);
+        //     }
+        // }
+    }
+    free(x.a); free(x.b.a);
+    kt_u_trans_t_idx(ta, ug->g->n_seq);
+    kt_u_trans_t_simple_symm(ta, ug->g->n_seq, 0);
+}
+
 int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, ug_opt_t *opt)
 {
     double index_time = yak_realtime();
@@ -15674,6 +15800,7 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, ug_o
         alignment_worker_pipeline(&sl, fn1, fn2);
         write_hc_hits(&sl.hits, asm_opt.output_file_name);
     }
+    filter_kv_u_trans_t(&(idx->t_ch->k_trans), idx->ug);
     // update_hits(idx, &sl.hits, idx->t_ch->is_r_het);
     ///debug_hc_hits_v14(&sl.hits, asm_opt.output_file_name, sl.idx);
     ////dedup_hits(&(sl.hits), sl.idx);   
@@ -15732,7 +15859,7 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, ug_o
     // skip_flipping:
     verbose_het_stat(&bub);
 
-    // print_kv_weight(&k_trans);
+    // print_kv_weight(&k_trans, s->s);
 
     // horder_t *ho = init_horder_t(&sl.hits, idx->uID_bits, idx->pos_mode, idx->read_g, idx->ug, &bub, &(idx->t_ch->k_trans), opt, 3);
 
