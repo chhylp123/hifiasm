@@ -3,6 +3,24 @@
 #include <stdint.h>
 #include "hic.h"
 
+#define get_hit_srev(x, k) ((x).a.a[(k)].s>>63)
+#define get_hit_slen(x, k) ((x).a.a[(k)].len>>32)
+#define get_hit_suid(x, k) (((x).a.a[(k)].s<<1)>>(64 - (x).uID_bits))
+#define get_hit_spos(x, k) ((x).a.a[(k)].s & (x).pos_mode)
+#define get_hit_spos_e(x, k) (get_hit_srev((x),(k))?\
+        ((get_hit_spos((x),(k))+1>=get_hit_slen((x),(k)))?\
+            (get_hit_spos((x),(k))+1-get_hit_slen((x),(k))):0)\
+                    :(get_hit_spos((x),(k))+get_hit_slen((x),(k))-1))
+
+#define get_hit_erev(x, k) ((x).a.a[(k)].e>>63)
+#define get_hit_elen(x, k) ((uint32_t)((x).a.a[(k)].len))
+#define get_hit_euid(x, k) (((x).a.a[(k)].e<<1)>>(64 - (x).uID_bits))
+#define get_hit_epos(x, k) ((x).a.a[(k)].e & (x).pos_mode)
+#define get_hit_epos_e(x, k) (get_hit_erev((x),(k))?\
+        ((get_hit_epos((x),(k))+1>=get_hit_elen((x),(k)))?\
+            (get_hit_epos((x),(k))+1-get_hit_elen((x),(k))):0)\
+                    :(get_hit_epos((x),(k))+get_hit_elen((x),(k))-1))
+
 typedef struct {
 	uint32_t v;
     uint32_t u;
@@ -40,4 +58,5 @@ horder_t *init_horder_t(kvec_pe_hit *i_hits, uint64_t i_hits_uid_bits, uint64_t 
 asg_t *i_rg, ma_ug_t* i_ug, bubble_type* bub, kv_u_trans_t *ref, ug_opt_t *opt, uint32_t round);
 void destory_horder_t(horder_t **h);
 void horder_clean_sg_by_utg(asg_t *sg, ma_ug_t *ug);
+kvec_pe_hit *get_r_hits_for_trio(kvec_pe_hit *u_hits, asg_t* r_g, ma_ug_t* ug, bubble_type* bub, uint64_t uID_bits, uint64_t pos_mode);
 #endif

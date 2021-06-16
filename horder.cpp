@@ -26,24 +26,6 @@ KRADIX_SORT_INIT(ho64, uint64_t, generic_key, 8)
 #define osg_arc_key(a) ((a).u)
 KRADIX_SORT_INIT(osg, osg_arc_t, osg_arc_key, member_size(osg_arc_t, u))
 
-
-#define get_hit_srev(x, k) ((x).a.a[(k)].s>>63)
-#define get_hit_slen(x, k) ((x).a.a[(k)].len>>32)
-#define get_hit_suid(x, k) (((x).a.a[(k)].s<<1)>>(64 - (x).uID_bits))
-#define get_hit_spos(x, k) ((x).a.a[(k)].s & (x).pos_mode)
-#define get_hit_spos_e(x, k) (get_hit_srev((x),(k))?\
-        ((get_hit_spos((x),(k))+1>=get_hit_slen((x),(k)))?\
-            (get_hit_spos((x),(k))+1-get_hit_slen((x),(k))):0)\
-                    :(get_hit_spos((x),(k))+get_hit_slen((x),(k))-1))
-
-#define get_hit_erev(x, k) ((x).a.a[(k)].e>>63)
-#define get_hit_elen(x, k) ((uint32_t)((x).a.a[(k)].len))
-#define get_hit_euid(x, k) (((x).a.a[(k)].e<<1)>>(64 - (x).uID_bits))
-#define get_hit_epos(x, k) ((x).a.a[(k)].e & (x).pos_mode)
-#define get_hit_epos_e(x, k) (get_hit_erev((x),(k))?\
-        ((get_hit_epos((x),(k))+1>=get_hit_elen((x),(k)))?\
-            (get_hit_epos((x),(k))+1-get_hit_elen((x),(k))):0)\
-                    :(get_hit_epos((x),(k))+get_hit_elen((x),(k))-1))
 #define OVL(s_0, e_0, s_1, e_1) ((MIN((e_0), (e_1)) > MAX((s_0), (s_1)))? MIN((e_0), (e_1)) - MAX((s_0), (s_1)):0)
 #define BREAK_THRES 5000000
 #define BREAK_CUTOFF 0.1
@@ -221,6 +203,145 @@ void destory_trans_col(trans_col_t **p)
     free(*p);
 }
 
+void resolve_hit(uint64_t x, uint32_t rLen, uint64_t uID_bits, uint64_t pos_mode, uint64_t *uid, uint64_t *beg, uint64_t *end)
+{
+    if(uid) (*uid) = ((x<<1)>>(64 - uID_bits)); 
+    uint32_t rev = (x>>63);
+    long long ref_p = x & pos_mode;
+    long long p_beg, p_end;
+
+    if(rev)
+    {
+        p_end = ref_p;
+        p_beg = p_end + 1 - rLen;
+    }
+    else
+    {
+        p_beg = ref_p; 
+        p_end = p_beg + rLen - 1;
+    }
+    if(p_beg < 0) p_beg = 0;
+    if(p_end < 0) p_end = 0;
+    if(beg) (*beg) = p_beg; 
+    if(end) (*end) = p_end + 1;
+}
+
+kvec_pe_hit *get_r_hits_for_trio(kvec_pe_hit *u_hits, asg_t* r_g, ma_ug_t* ug, bubble_type* bub, uint64_t uID_bits, uint64_t pos_mode)
+{
+    kvec_pe_hit *r_hits = NULL;
+    CALLOC(r_hits, 1);
+    uint64_t k, l, i, r_i, offset, rid, rev, rBeg, rEnd, ubits, p_mode, upos, rpos, update, ubeg, uend, suid, euid;
+    ma_utg_t *u = NULL;
+    memset(r_hits, 0, sizeof(*r_hits));
+    r_hits->uID_bits = uID_bits;
+    r_hits->pos_mode = pos_mode;
+    //reset for reads
+    for (ubits=1; (uint64_t)(1<<ubits)<(uint64_t)r_g->n_seq; ubits++);
+    p_mode = ((uint64_t)-1) >> (ubits + 1);
+
+    u_hits->uID_bits = uID_bits; u_hits->pos_mode = pos_mode;
+    for (i = r_i = 0; i < u_hits->a.n; i++)
+    {
+        suid = get_hit_suid(*u_hits, i);
+        euid = get_hit_euid(*u_hits, i);
+        if(IF_HOM(suid, *bub)) continue;
+        if(IF_HOM(euid, *bub)) continue;
+        if(suid == euid) continue;
+        kv_push(pe_hit, r_hits->a, u_hits->a.a[i]);
+
+        resolve_hit(r_hits->a.a[r_i].s, r_hits->a.a[r_i].len>>32, r_hits->uID_bits, 
+                                                                r_hits->pos_mode, NULL, &ubeg, &uend);
+        upos = (ubeg+uend-1)>>1;
+        r_hits->a.a[r_i].s -= get_hit_spos(*r_hits, r_i);
+        r_hits->a.a[r_i].s += upos;
+
+
+        resolve_hit(r_hits->a.a[r_i].e, (uint32_t)r_hits->a.a[r_i].len, r_hits->uID_bits, 
+                                                                r_hits->pos_mode, NULL, &ubeg, &uend);
+        upos = (ubeg+uend-1)>>1;
+        r_hits->a.a[r_i].e -= get_hit_epos(*r_hits, r_i);///pos at unitig
+        r_hits->a.a[r_i].e += upos;
+        
+        r_hits->a.a[r_i].id = (suid<<32)|euid;
+        r_i++;
+    }
+
+    radix_sort_pe_hit_idx_hn1(r_hits->a.a, r_hits->a.a + r_hits->a.n);
+    for (k = 1, l = 0; k <= r_hits->a.n; ++k) 
+    {   
+        if (k == r_hits->a.n || get_hit_suid(*r_hits, k) != get_hit_suid(*r_hits, l))//same suid
+        {
+            ///already sort by spos
+            u = &(ug->u.a[get_hit_suid(*r_hits, l)]);
+            update = 0;
+            for (i = offset = 0, r_i = l; i < u->n; i++)
+            {
+                rid = u->a[i]>>33; 
+                rBeg = offset;
+                rEnd = rBeg + r_g->seq[rid].len - 1;
+                for (; r_i < k; r_i++)
+                {
+                    upos = get_hit_spos(*r_hits, r_i);///pos at unitig
+                    
+                    if(upos > rEnd) break;
+                    if(upos >= rBeg && upos <= rEnd)
+                    {
+                        rpos = (((u->a[i]>>32)&1)? rEnd - upos : upos - rBeg);///pos at read
+                        rev = ((u->a[i]>>32)&1) ^ (r_hits->a.a[r_i].s>>63);
+                        r_hits->a.a[r_i].s = (rev<<63) | ((rid << (64-ubits))>>1) | (rpos & p_mode);
+                        
+                        update++;
+                    }
+                }
+                offset += (uint32_t)u->a[i];
+            }
+
+            if(r_i != k || update != k - l) fprintf(stderr, "ERROR-r_i\n");
+            l = k;
+        }
+    }
+
+    radix_sort_pe_hit_idx_hn2(r_hits->a.a, r_hits->a.a + r_hits->a.n);
+    for (k = 1, l = 0; k <= r_hits->a.n; ++k) 
+    {
+        if (k == r_hits->a.n || get_hit_euid(*r_hits, k) != get_hit_euid(*r_hits, l))//same euid
+        {
+            ///already sort by epos
+            u = &(ug->u.a[get_hit_euid(*r_hits, l)]);
+            update = 0;
+            for (i = offset = 0, r_i = l; i < u->n; i++)
+            {
+                rid = u->a[i]>>33; 
+                rBeg = offset;
+                rEnd = rBeg + r_g->seq[rid].len - 1;
+                for (; r_i < k; r_i++)
+                {
+                    upos = get_hit_epos(*r_hits, r_i);///pos at unitig
+
+                    if(upos > rEnd) break;
+                    if(upos >= rBeg && upos <= rEnd)
+                    {
+                        rpos = (((u->a[i]>>32)&1)? rEnd - upos : upos - rBeg);///pos at read
+                        rev = ((u->a[i]>>32)&1) ^ (r_hits->a.a[r_i].e>>63);
+                        r_hits->a.a[r_i].e = (rev<<63) | ((rid << (64-ubits))>>1) | (rpos & p_mode);
+                        
+                        update++;
+                    }
+                }
+                offset += (uint32_t)u->a[i];
+            }
+
+            if(r_i != k || update != k - l) fprintf(stderr, "ERROR-r_i\n");
+            l = k;
+        }
+    }
+
+
+    r_hits->uID_bits = ubits;
+    r_hits->pos_mode = p_mode;
+    return r_hits;
+}
+
 void get_r_hits(kvec_pe_hit *u_hits, kvec_pe_hit *r_hits, asg_t* r_g, ma_ug_t* ug, bubble_type* bub, uint64_t uID_bits, uint64_t pos_mode)
 {
     uint64_t k, l, i, r_i, offset, rid, rev, rBeg, rEnd, ubits, p_mode, upos, rpos, update;
@@ -250,6 +371,7 @@ void get_r_hits(kvec_pe_hit *u_hits, kvec_pe_hit *r_hits, asg_t* r_g, ma_ug_t* u
                 for (; r_i < k; r_i++)
                 {
                     upos = get_hit_spos(*r_hits, r_i);///pos at unitig
+                    
                     if(upos > rEnd) break;
                     if(upos >= rBeg && upos <= rEnd)
                     {
@@ -293,6 +415,7 @@ void get_r_hits(kvec_pe_hit *u_hits, kvec_pe_hit *r_hits, asg_t* r_g, ma_ug_t* u
                 for (; r_i < k; r_i++)
                 {
                     upos = get_hit_epos(*r_hits, r_i);///pos at unitig
+
                     if(upos > rEnd) break;
                     if(upos >= rBeg && upos <= rEnd)
                     {
