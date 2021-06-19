@@ -994,6 +994,12 @@ uint64_t get_utg_cov(ma_ug_t *ug, uint32_t uID, asg_t* read_g,
 const ma_sub_t* coverage_cut, ma_hit_t_alloc* sources, R_to_U* ruIndex, uint8_t* r_flag);
 trans_chain* load_hc_trans(const char *fn);
 char *get_outfile_name(char* output_file_name);
+void reset_u_trans_hit_idx(u_trans_hit_idx *t, uint32_t* i_x_a, uint32_t i_x_n, ma_ug_t *i_ug, 
+asg_t *i_read_sg, trans_chain* i_t_ch, uint32_t i_cBeg, uint32_t i_cEnd);
+void extract_sub_overlaps(uint32_t i_tScur, uint32_t i_tEcur, uint32_t i_tSpre, uint32_t i_tEpre,
+uint32_t tn, kv_u_trans_hit_t* ktb, uint32_t bn);
+void clean_u_trans_t_idx(kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g);
+
 
 #define JUNK_COV 5
 #define DISCARD_RATE 0.8

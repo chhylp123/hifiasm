@@ -15,6 +15,7 @@
 #include "ksort.h"
 #include "kseq.h" // FASTA/Q parser
 #include "kdq.h"
+#include "tovlp.h"
 KSEQ_INIT(gzFile, gzread)
 KDQ_INIT(uint64_t)
 #define pe_hit_an1_idx_key(x) ((x).s<<1)
@@ -107,6 +108,8 @@ typedef struct {
 KRADIX_SORT_INIT(h_cov_s, h_cov_t, h_cov_s_key, member_size(h_cov_t, s))
 #define h_cov_e_key(x) ((x).e)
 KRADIX_SORT_INIT(h_cov_e, h_cov_t, h_cov_e_key, member_size(h_cov_t, e))
+#define h_cov_dp_key(x) ((x).dp)
+KRADIX_SORT_INIT(h_cov_dp, h_cov_t, h_cov_dp_key, member_size(h_cov_t, dp))
 #define hit_aux_ruid_key(x) ((x).ruid)
 KRADIX_SORT_INIT(hit_aux_ruid, hit_aux_t, hit_aux_ruid_key, member_size(hit_aux_t, ruid))
 
@@ -121,6 +124,231 @@ typedef struct {
 
 #define u_hit_t_key(x) ((x).uPre)
 KRADIX_SORT_INIT(u_hit, u_hit_t, u_hit_t_key, member_size(u_hit_t, uPre))
+
+typedef struct {
+    ma_ug_t *ug; 
+    kvec_pe_hit hits;
+    kv_u_trans_t k_trans;
+    h_covs *b_points;
+} debug_phasing_t;
+
+debug_phasing_t *init_debug_phasing(ma_ug_t *ug, kvec_pe_hit *hits, kv_u_trans_t *k_trans, h_covs *b_points)
+{
+    debug_phasing_t *p = NULL; CALLOC(p, 1);
+    p->ug = copy_untig_graph(ug);
+    p->b_points = b_points;
+
+    p->hits.pos_mode = hits->pos_mode; p->hits.uID_bits = hits->pos_mode;
+    p->hits.a.n = p->hits.a.m = hits->a.n = hits->a.m;
+    MALLOC(p->hits.a.a, p->hits.a.n); 
+    memcpy(p->hits.a.a, hits->a.a, p->hits.a.n*sizeof(pe_hit));
+    
+    p->k_trans.n = p->k_trans.m = k_trans->n;
+    MALLOC(p->k_trans.a, p->k_trans.n); 
+    memcpy(p->k_trans.a, k_trans->a, p->k_trans.n*sizeof(u_trans_t));
+
+    p->k_trans.idx.n = p->k_trans.idx.m = k_trans->idx.n;
+    MALLOC(p->k_trans.idx.a, p->k_trans.idx.n); 
+    memcpy(p->k_trans.idx.a, k_trans->idx.a, p->k_trans.idx.n*sizeof(uint64_t));
+
+    return p;
+}
+
+void destory_debug_phasing_t(debug_phasing_t **x)
+{
+    ma_ug_destroy((*x)->ug);
+    free((*x)->hits.a.a); free((*x)->hits.idx.a); free((*x)->hits.occ.a);
+    free((*x)->k_trans.a); free((*x)->k_trans.idx.a);
+    free(*x);
+}
+
+uint64_t new_node(uint64_t v, h_covs *join, uint64_t *idx, uint64_t is_ul)
+{
+    if(v&1) return (((uint32_t)join->a[(idx[v>>1]>>32)+(is_ul?0:(((uint32_t)idx[v>>1])-1))].dp)<<1)+1;
+    else return (((uint32_t)join->a[(idx[v>>1]>>32)+(is_ul?(((uint32_t)idx[v>>1])-1):0)].dp)<<1);
+}
+
+uint32_t iter_rid(buf_t *b, uint64_t *ui, uint64_t *ri, ma_ug_t *ug)
+{
+    ma_utg_t *u = NULL;
+    while ((*ui) < b->b.n)
+    {
+        u =  &(ug->u.a[b->b.a[(*ui)]>>1]);
+        while ((*ri) < u->n) return u->a[(*ri)++]>>32;
+        (*ui)++; (*ri) = 0;
+    }
+
+    return (uint32_t)-1;
+}
+
+void debug_debug_phasing_t(debug_phasing_t *x, ma_ug_t *cug, kvec_pe_hit *chits, kv_u_trans_t *ck_trans, 
+h_covs *join, uint64_t *idx)
+{
+    uint64_t i, k, m, pv, cv, pui, pri, cui, cri, e;
+    uint32_t p_cvx, c_cvx, pr, cr, occ;
+    long long p_nodeLen, p_baseLen, t1, t2;
+    long long c_nodeLen, c_baseLen;
+    asg_arc_t *ap, *ac;
+    u_trans_t *pk, *ck, *p;
+    buf_t pb, cb;
+    memset(&pb, 0, sizeof(buf_t));
+    memset(&cb, 0, sizeof(buf_t));
+
+    uint32_t *cnt = NULL; CALLOC(cnt, cug->g->n_seq<<1);
+    for (cv = 0; cv < (uint64_t)(cug->g->n_seq<<1); ++cv) {
+        ///out-nodes of v
+        ac = asg_arc_a(cug->g, cv);
+        ///if v just have one out-node, there is no muti-edge
+        if (asg_arc_n(cug->g, cv) < 2) continue;
+        for (i = 0; i < asg_arc_n(cug->g, cv); ++i) ++cnt[ac[i].v];
+        for (i = 0; i < asg_arc_n(cug->g, cv); ++i)
+            if (--cnt[ac[i].v] != 0) fprintf(stderr, "ERROR-9\n");
+    }
+    free(cnt);
+
+    for (e = 0; e < cug->g->n_arc; ++e) {
+        uint32_t v = cug->g->arc[e].v^1, u = cug->g->arc[e].ul>>32^1;
+        asg_arc_t *av = asg_arc_a(cug->g, v);
+        for (i = 0; i < asg_arc_n(cug->g, v); ++i)
+            if (av[i].v == u) break;
+        if (i == asg_arc_n(cug->g, v)) fprintf(stderr, "ERROR-10\n");
+    }
+
+
+    for (i = 0; i < x->ug->g->n_seq; i++)
+    {
+        pv = (i<<1);
+        cv = new_node(pv, join, idx, 1);
+        if(asg_arc_n(x->ug->g, pv) != asg_arc_n(cug->g, cv)) fprintf(stderr, "ERROR-1\n");
+        ap = asg_arc_a(x->ug->g, pv); ac = asg_arc_a(cug->g, cv);
+        for (k = 0; k < asg_arc_n(x->ug->g, pv); k++)
+        {
+            for (m = 0; m < asg_arc_n(cug->g, cv); m++)
+            {
+                if(new_node(ap[k].v, join, idx, 0) == ac[m].v) break;
+            }
+            if(m >= asg_arc_n(cug->g, cv))
+            {
+                fprintf(stderr, "\n+ERROR-2\n");
+                fprintf(stderr, "+putg%.6lul (%lu), cutg%.6lul (%lu)\n", (pv>>1) + 1, pv&1, (cv>>1) + 1, cv&1);
+                fprintf(stderr, "+p-occ: %u, c-occ: %u\n", asg_arc_n(x->ug->g, pv), asg_arc_n(cug->g, cv));
+                fprintf(stderr, "+ap[k]-utg%.6ul (%u), new-utg%.6lul (%lu)\n", (ap[k].v>>1)+1, ap[k].v&1, 
+                                (new_node(ap[k].v, join, idx, 0)>>1)+1, new_node(ap[k].v, join, idx, 0)&1);
+                for (m = 0; m < asg_arc_n(cug->g, cv); m++)
+                {
+                    fprintf(stderr, "+ac[%lu]-utg%.6ul (%u)\n", m, (ac[m].v>>1) + 1, ac[m].v&1);
+                }
+            }
+        }
+        
+
+
+        pv = (i<<1) + 1;
+        cv = new_node(pv, join, idx, 1);
+        if(asg_arc_n(x->ug->g, pv) != asg_arc_n(cug->g, cv)) fprintf(stderr, "ERROR-1\n");
+        ap = asg_arc_a(x->ug->g, pv); ac = asg_arc_a(cug->g, cv);
+        for (k = 0; k < asg_arc_n(x->ug->g, pv); k++)
+        {
+            for (m = 0; m < asg_arc_n(cug->g, cv); m++)
+            {
+                if(new_node(ap[k].v, join, idx, 0) == ac[m].v) break;
+            }
+            if(m >= asg_arc_n(cug->g, cv))
+            {
+                fprintf(stderr, "\n-ERROR-2\n");
+                fprintf(stderr, "-putg%.6lul (%lu), cutg%.6lul (%lu)\n", (pv>>1) + 1, pv&1, (cv>>1) + 1, cv&1);
+                fprintf(stderr, "-p-occ: %u, c-occ: %u\n", asg_arc_n(x->ug->g, pv), asg_arc_n(cug->g, cv));
+                fprintf(stderr, "-ap[k]-utg%.6ul (%u), new-utg%.6lul (%lu)\n", (ap[k].v>>1)+1, ap[k].v&1, 
+                                (new_node(ap[k].v, join, idx, 0)>>1)+1, new_node(ap[k].v, join, idx, 0)&1);
+                for (m = 0; m < asg_arc_n(cug->g, cv); m++)
+                {
+                    fprintf(stderr, "-ac[%lu]-utg%.6ul (%u)\n", m, (ac[m].v>>1) + 1, ac[m].v&1);
+                }
+            }
+        }
+
+        pb.b.n = cb.b.n = 0;
+        if(get_unitig(x->ug->g, NULL, i<<1, &p_cvx, &p_nodeLen, &p_baseLen, &t1, &t2, 1, &pb) !=
+           get_unitig(cug->g, NULL, new_node((i<<1)+1, join, idx, 1)^1, &c_cvx, &c_nodeLen, &c_baseLen, &t1, &t2, 1, &cb))
+        {
+            fprintf(stderr, "ERROR-3\n");
+        }
+        if(new_node(p_cvx, join, idx, 1) != c_cvx) fprintf(stderr, "ERROR-4\n");
+        if(p_baseLen != c_baseLen)
+        {
+            fprintf(stderr, "ERROR-6\n");
+            fprintf(stderr, "-putg%.6lul, pb.b.n: %u, p_nodeLen: %lld, p_baseLen: %lld, cb.b.n: %u, c_nodeLen: %lld, c_baseLen: %lld\n", 
+            i+1, (uint32_t)pb.b.n, p_nodeLen, p_baseLen, (uint32_t)cb.b.n, c_nodeLen, c_baseLen);
+        } 
+        
+        
+
+        pui = pri = cui = cri = 0;
+        while(1)
+        {
+            pr = iter_rid(&pb, &pui, &pri, x->ug);
+            cr = iter_rid(&cb, &cui, &cri, cug);
+            if(pr != cr) fprintf(stderr, "ERROR-7\n");
+            if(pr == (uint32_t)-1 || cr == (uint32_t)-1) break;
+        }
+    }
+
+    for (i = 0; i < x->k_trans.n; i++)
+    {
+        pk = &(x->k_trans.a[i]);
+        if(((uint32_t)idx[pk->qn]) <= 1 && ((uint32_t)idx[pk->tn]) <= 1)
+        {
+            get_u_trans_spec(ck_trans, ((uint32_t)join->a[idx[pk->qn]>>32].dp), 
+            ((uint32_t)join->a[idx[pk->tn]>>32].dp), &ck, &occ);
+            if(occ != 1 || !ck) fprintf(stderr, "ERROR-8\n");
+
+            if(pk->qs != ck->qs || pk->qe != ck->qe || pk->ts != ck->ts || pk->te != ck->te ||
+               pk->f != ck->f || pk->rev != ck->rev || pk->del != ck->del)
+            {
+                fprintf(stderr, "ERROR-9\n");
+            }
+        }
+        else
+        {
+            p = pk;
+            fprintf(stderr, "\n+q-utg%.6ul\tqs(%u)\tqe(%u)\tt-utg%.6ul\tts(%u)\tte(%u)\trev(%u)\tw(%f)\tf(%u)\n", 
+            p->qn+1, p->qs, p->qe, p->tn+1, p->ts, p->te, p->rev, p->nw, p->f);
+
+            uint64_t qi, ti, qid = p->qn, tid = p->tn;
+            for (qi = 0; qi < (uint32_t)idx[qid]; qi++)
+            {                
+                for (ti = 0; ti < (uint32_t)idx[tid]; ti++)
+                {
+                    get_u_trans_spec(ck_trans, (uint32_t)(join->a[(idx[qid]>>32)+qi].dp),
+                    (uint32_t)(join->a[(idx[tid]>>32)+ti].dp), &ck, &occ);
+                    // fprintf(stderr, "s-utg%.6ul\td-utg%.6ul\tocc:%u\n", 
+                    // (uint32_t)(join->a[(idx[qid]>>32)+qi].dp)+1,
+                    // (uint32_t)(join->a[(idx[tid]>>32)+ti].dp)+1,
+                    // occ);
+                    for (k = 0; k < occ; k++)
+                    {
+                        p = &(ck[k]);
+                        fprintf(stderr, "-q-utg%.6ul\tqs(%u)\tqe(%u)\tt-utg%.6ul\tts(%u)\tte(%u)\trev(%u)\tw(%f)\tf(%u)\n", 
+                        p->qn+1, p->qs, p->qe, p->tn+1, p->ts, p->te, p->rev, p->nw, p->f);
+                    }
+                }
+                
+            }
+            
+            
+            // get_u_trans_spec(ck_trans, ((uint32_t)join->a[idx[pk->qn]>>32].dp), 
+            // ((uint32_t)join->a[idx[pk->tn]>>32].dp), &ck, &occ);
+            // for (k = 0; k < occ; k++)
+            // {
+            //     p = &(ck[k]);
+            //     fprintf(stderr, "-q-utg%.6ul\tqs(%u)\tqe(%u)\tt-utg%.6ul\tts(%u)\tte(%u)\trev(%u)\tw(%f)\tf(%u)\n", 
+            //     p->qn+1, p->qs, p->qe, p->tn+1, p->ts, p->te, p->rev, p->nw, p->f);
+            // }
+        }
+    }
+
+    free(pb.b.a); free(cb.b.a);
+}
 
 void print_N50(ma_ug_t* ug)
 {
@@ -1010,24 +1238,25 @@ uint64_t rid, uint64_t i_cnt)
     fprintf(stderr, "******cnt-%lu, i_cnt-%lu\n", cnt, i_cnt);
 }
 
-int append_sub_utg(horder_t *h, uint64_t uid, uint64_t sidx, uint64_t eidx)
+int append_sub_utg(ma_ug_t *ug, asg_t *rg, uint64_t uid, uint64_t sidx, uint64_t eidx, uint64_t *rsidx, uint64_t *reidx)
 {
     if(eidx <= sidx) return 0;
     uint64_t i, offset;
-    ma_ug_t *ug = h->ug;
     ma_utg_t *u = &(ug->u.a[uid]), *p = NULL;
     if(u->a[sidx] == (uint64_t)-1) sidx++;
     if(u->a[eidx-1] == (uint64_t)-1) eidx--;
     if(eidx <= sidx) return 0 ;
     kv_pushp(ma_utg_t, ug->u, &p);
     memset(p, 0, sizeof(*p));
+    if(rsidx) (*rsidx) = sidx;
+    if(reidx) (*reidx) = eidx;
     p->m = p->n = eidx - sidx;
     MALLOC(p->a, p->m);
     memcpy(p->a, u->a + sidx, p->n*sizeof(uint64_t));
     p->start = p->a[0]>>32;
     p->end = (p->a[p->n-1]>>32)^1;
     p->a[p->n-1] >>= 32; p->a[p->n-1] <<= 32; 
-    p->a[p->n-1] += h->r_g->seq[(p->a[p->n-1]>>33)].len;
+    p->a[p->n-1] += rg->seq[(p->a[p->n-1]>>33)].len;
 
     p->circ = 0;
     for (i = offset = 0; i < p->n; i++)
@@ -1069,7 +1298,7 @@ void break_utg_horder(horder_t *h, h_covs *b_points)
                 idx = b_points->a[i].e + 1;
                 if(idx > pidx && idx - pidx < u_n)
                 {
-                    if(append_sub_utg(h, b_points->a[l].s, pidx, idx))
+                    if(append_sub_utg(h->ug, h->r_g, b_points->a[l].s, pidx, idx, NULL, NULL))
                     {
                         de_u++;
                         kv_push(uint64_t, join, (b_points->a[l].s<<32)|(ug->u.n-1));
@@ -1081,7 +1310,7 @@ void break_utg_horder(horder_t *h, h_covs *b_points)
             idx = u_n;
             if(idx > pidx && idx - pidx < u_n)
             {
-                if(append_sub_utg(h, b_points->a[l].s, pidx, idx))
+                if(append_sub_utg(h->ug, h->r_g, b_points->a[l].s, pidx, idx, NULL, NULL))
                 {
                     de_u++;
                     kv_push(uint64_t, join, (b_points->a[l].s<<32)|(ug->u.n-1));
@@ -1185,6 +1414,25 @@ void break_utg_horder(horder_t *h, h_covs *b_points)
     kv_destroy(join);
 }
 
+
+void update_nus(ma_utg_t *u, ma_ug_t *ug, h_cov_t *a, uint64_t a_n)
+{
+    uint64_t i, k, offset;
+    for (i = offset = 0; i < u->n; i++)
+    {   
+        for (k = 0; k < a_n; k++)
+        {
+            if(a[k].s == i)
+            {
+                a[k].s = offset; a[k].e += offset;
+                if(k + 1 == a_n) return;
+            } 
+            
+        }
+        offset += (u->a[i] != (uint64_t)-1? (uint32_t)u->a[i]:GAP_LEN);
+    }
+}
+
 void break_contig(horder_t *h, uint64_t cutoff_s, uint64_t cutoff_e)
 {
     uint64_t k, l, i, p0s, p0e, p1s, p1e, ulen, cov_hic, cov_utg, cov_ava, span_s, span_e, cutoff, bs, be, dp;
@@ -1278,6 +1526,533 @@ void break_contig(horder_t *h, uint64_t cutoff_s, uint64_t cutoff_e)
     }
 
     break_utg_horder(h, &b_points);
+
+    kv_destroy(b);
+    kv_destroy(cov_buf);
+    kv_destroy(res);
+    kv_destroy(b_points);
+}
+
+asg_arc_t *get_r_edge(asg_t *rg, uint64_t v, uint64_t w, uint64_t *id)
+{
+    asg_arc_t *av = asg_arc_a(rg, v);
+    uint64_t nv = asg_arc_n(rg, v), k;
+    if(id) (*id) = (uint64_t)-1;
+    for (k = 0; k < nv; k++)
+    {
+        if(av[k].del) continue;
+        if(av[k].v == w) 
+        {
+            if(id) (*id) = (rg->idx[v]>>32) + k;
+            return &(av[k]);
+        }
+    }
+    return NULL;
+}
+
+void update_unitig_ends(asg_t *g, asg_arc_t *arc, uint64_t puid, uint64_t nuid_0, uint64_t nuid_1)
+{
+    uint64_t nv, k, v, idx, ridx;
+    
+
+    v = puid<<1;
+    idx = g->idx[v]>>32; nv = asg_arc_n(g, v);
+    for (k = 0; k < nv; k++)
+    {
+        arc[idx+k].ul = ((uint32_t)arc[idx+k].ul) + (nuid_0<<32);
+        get_r_edge(g, g->arc[idx+k].v^1, v^1, &ridx);
+        arc[ridx].v = nuid_0^1;
+    }
+
+
+    v = (puid<<1)+1;
+    idx = g->idx[v]>>32; nv = asg_arc_n(g, v);
+    for (k = 0; k < nv; k++)
+    {
+        arc[idx+k].ul = ((uint32_t)arc[idx+k].ul) + (nuid_1<<32);
+        get_r_edge(g, g->arc[idx+k].v^1, v^1, &ridx);
+        arc[ridx].v = nuid_1^1;
+    }
+}
+
+
+
+int get_switch_ovlp_hits(uint64_t *i, uint64_t pid, uint64_t ls, uint64_t le, u_trans_hit_t *hit, 
+h_covs *join, uint64_t *idx)
+{
+    uint64_t os, oe;
+    hit->qSpre = hit->qEpre = hit->qScur = hit->qEcur = hit->qn = (uint32_t)-1;
+    hit->tSpre = hit->tEpre = hit->tScur = hit->tEcur = hit->tn = (uint32_t)-1;
+
+    while ((*i) < ((uint32_t)idx[pid]))
+    {
+        os = join->a[(idx[pid]>>32)+(*i)].s;
+        oe = join->a[(idx[pid]>>32)+(*i)].e;
+        if(OVL(os, oe, ls, le) == 0)
+        {
+            (*i)++;
+            continue;
+        }
+        
+        hit->qn = (uint32_t)(join->a[(idx[pid]>>32)+(*i)].dp);
+        hit->qScur = MAX(os, ls); hit->qEcur = MIN(oe, le);
+        hit->qSpre = hit->qScur - os; hit->qEpre = hit->qEcur - os;
+        (*i)++;
+        return 1;
+    }
+
+    return 0;
+}
+
+///[ts, te)
+void extract_switch_sub(uint32_t i_tScur, uint32_t i_tEcur, uint32_t i_tSpre, uint32_t i_tEpre,
+uint32_t tn, kv_u_trans_hit_t* ktb, uint32_t bn, uint32_t rev)
+{
+    uint32_t i, ovlp, found, beg, end, offS, offE;
+    u_trans_hit_t *q = NULL, x;
+    for (i = found = 0; i < bn; i++)
+    {
+        q = &(ktb->a[i]);///for q, already know [qScur, qEcur), [qSpre, qEpre), [tScur, tEcur)
+
+        ovlp = ((MIN(i_tEcur, q->tEcur) > MAX(i_tScur, q->tScur))?
+                                        MIN(i_tEcur, q->tEcur) - MAX(i_tScur, q->tScur):0);
+        if(found == 1 && ovlp == 0) break;
+        if(ovlp > 0) found = 1;
+        if(ovlp == 0) continue;
+
+        
+        beg = MAX(i_tScur, q->tScur); end = MIN(i_tEcur, q->tEcur);
+        offS = beg - q->tScur; offE = q->tEcur - end;
+        x.tScur = q->tScur + offS; //beg
+        x.tEcur = q->tEcur - offE; //end
+        
+        
+        x.qn = q->qn;
+        offS = beg - q->tScur; offE = q->tEcur - end;
+        if(rev == 0)
+        {
+            // x.qSpre = q->qSpre + offS; 
+            x.qSpre = q->qSpre + get_offset_adjust(offS, q->tEcur-q->tScur, q->qEpre-q->qSpre);  
+            // x.qEpre = q->qEpre - offE;
+            x.qEpre = q->qEpre - get_offset_adjust(offE, q->tEcur-q->tScur, q->qEpre-q->qSpre);
+        }
+        else
+        {
+            // x.qSpre = q->qSpre + offE; 
+            x.qSpre = q->qSpre + get_offset_adjust(offE, q->tEcur-q->tScur, q->qEpre-q->qSpre);
+            // x.qEpre = q->qEpre - offS;
+            x.qEpre = q->qEpre - get_offset_adjust(offS, q->tEcur-q->tScur, q->qEpre-q->qSpre);
+        }
+
+        x.tn = tn; 
+        offS = beg - i_tScur; offE = i_tEcur - end;
+        // x.tSpre = i_tSpre + offS; 
+        x.tSpre = i_tSpre +  get_offset_adjust(offS, i_tEcur-i_tScur, i_tEpre-i_tSpre); 
+        // x.tEpre = i_tEpre - offE;
+        x.tEpre = i_tEpre - get_offset_adjust(offE, i_tEcur-i_tScur, i_tEpre-i_tSpre); 
+        
+        kv_push(u_trans_hit_t, *ktb, x);
+
+        // if(x.tSpre >= x.tEpre || x.qSpre >= x.qEpre)
+        // {
+        //     fprintf(stderr, "\n*********x.qn: %u, x.tn: %u\n", x.qn, x.tn);
+        //     fprintf(stderr, "x.qSpre: %u, x.qEpre: %u, x.tSpre: %u, x.tEpre: %u\n", 
+        //     x.qSpre, x.qEpre, x.tSpre, x.tEpre);
+        //     fprintf(stderr, "q->qScur: %u, q->qEcur: %u, q->qSpre: %u, q->qEpre: %u\n", 
+        //     q->qScur, q->qEcur, q->qSpre, q->qEpre);
+        //     fprintf(stderr, "q->tScur: %u, q->tEcur: %u, q->tSpre: %u, q->tEpre: %u\n", 
+        //     q->tScur, q->tEcur, q->tSpre, q->tEpre);
+        //     fprintf(stderr, "i_tScur: %u, i_tEcur: %u, i_tSpre: %u, i_tEpre: %u\n", 
+        //     i_tScur, i_tEcur, i_tSpre, i_tEpre);
+        // }
+    }
+}
+
+
+void extract_novlp(u_trans_t *e, h_covs *join, uint64_t *idx, kv_u_trans_hit_t *kv, kv_u_trans_t *n_trans)
+{
+    uint64_t i, bn; 
+    u_trans_hit_t hit, *kh = NULL;
+    u_trans_t *kt = NULL;
+    kv->n = 0;
+
+    i = 0;
+    while (get_switch_ovlp_hits(&i, e->qn, e->qs, e->qe, &hit, join, idx)) //get [qScur, qEcur), [qSpre, qEpre)
+    {
+        if(e->rev == 0)
+        {
+            hit.tScur = e->ts + get_offset_adjust(hit.qScur-e->qs, e->qe-e->qs, e->te-e->ts);  
+            hit.tEcur = e->te - get_offset_adjust(e->qe-hit.qEcur, e->qe-e->qs, e->te-e->ts); 
+        }
+        else
+        {
+            hit.tScur = e->ts + get_offset_adjust(e->qe-hit.qEcur, e->qe-e->qs, e->te-e->ts); 
+            hit.tEcur = e->te - get_offset_adjust(hit.qScur-e->qs, e->qe-e->qs, e->te-e->ts);  
+        }
+        
+        kv_push(u_trans_hit_t, *kv, hit);
+    }
+    bn = kv->n;
+
+    i = 0;
+    while (get_switch_ovlp_hits(&i, e->tn, e->ts, e->te, &hit, join, idx))
+    {
+        extract_switch_sub(hit.qScur, hit.qEcur, hit.qSpre, hit.qEpre, hit.qn, kv, bn, e->rev);
+    }
+    
+    double x_score, y_score;
+    for (i = bn; i < kv->n; i++)
+    {
+        kh = &(kv->a[i]);
+        if(kh->qEpre <= kh->qSpre) continue;
+        if(kh->tEpre <= kh->tSpre) continue;
+        kv_pushp(u_trans_t, *n_trans, &kt);
+
+        kt->f = e->f; kt->rev = e->rev; kt->del = 0; 
+        kt->qn = kh->qn; kt->qs = kh->qSpre; kt->qe = kh->qEpre;
+        kt->tn = kh->tn; kt->ts = kh->tSpre; kt->te = kh->tEpre;
+
+        x_score = ((double)(kt->qe-kt->qs)/(double)(e->qe-e->qs))*e->nw;
+        y_score = ((double)(kt->te-kt->ts)/(double)(e->te-e->ts))*e->nw;
+        kt->nw = MIN(x_score, y_score);
+        kt->occ = 0;
+
+        // if(kv->n - bn > 1)
+        // {
+        //     fprintf(stderr, "-kt-utg%.6ul\tqs(%u)\tqe(%u)\tt-utg%.6ul\tts(%u)\tte(%u)\trev(%u)\tw(%f)\tf(%u)\n", 
+        //         kt->qn+1, kt->qs, kt->qe, kt->tn+1, kt->ts, kt->te, kt->rev, kt->nw, kt->f);
+        // }
+        
+    }
+}
+
+int get_new_offset(kvec_pe_hit *hits, uint64_t id, uint64_t *index, h_covs *join, uint64_t new_uID_bits)
+{
+    uint64_t suid, sbeg, send, k, uid, os, oe, ls, le, occ, nuid, noff;
+    uint64_t euid, ebeg, eend;
+    resolve_hit(hits->a.a[id].s, hits->a.a[id].len>>32, hits->uID_bits, 
+                                                                hits->pos_mode, &suid, &sbeg, &send);
+    uid = suid; ls = sbeg; le = send; occ = 0; nuid = noff = (uint64_t)-1; 
+    for (k = 0; k < ((uint32_t)index[uid]); k++)
+    {
+        os = join->a[(index[uid]>>32)+k].s;
+        oe = join->a[(index[uid]>>32)+k].e;
+        if(ls >= os && le <= oe)
+        {
+            occ++;
+            nuid = (uint32_t)join->a[(index[uid]>>32)+k].dp;
+            noff = os;
+        }
+    }
+    if(occ != 1) return 0;
+    noff = get_hit_spos(*hits, id) - noff;
+    nuid <<= (64 - new_uID_bits - 1);
+    hits->a.a[id].s >>= 63; hits->a.a[id].s <<= 63; 
+    hits->a.a[id].s += nuid + noff;
+
+    
+    resolve_hit(hits->a.a[id].e, (uint32_t)hits->a.a[id].len, hits->uID_bits, 
+                                                                hits->pos_mode, &euid, &ebeg, &eend);
+    uid = euid; ls = ebeg; le = eend; occ = 0; nuid = noff = (uint64_t)-1;
+    for (k = 0; k < ((uint32_t)index[uid]); k++)
+    {
+        os = join->a[(index[uid]>>32)+k].s;
+        oe = join->a[(index[uid]>>32)+k].e;
+        if(ls >= os && le <= oe)
+        {
+            occ++;
+            nuid = (uint32_t)join->a[(index[uid]>>32)+k].dp;
+            noff = os;
+        }
+    }
+    if(occ != 1) return 0;
+    noff = get_hit_epos(*hits, id) - noff;
+    nuid <<= (64 - new_uID_bits - 1);
+    hits->a.a[id].e >>= 63; hits->a.a[id].e <<= 63; 
+    hits->a.a[id].e += nuid + noff;
+    return 1;
+}
+
+void break_phasing_utg(ma_ug_t *ug, asg_t *rg, kvec_pe_hit *hits, kv_u_trans_t *k_trans, h_covs *b_points)
+{
+    if(b_points->n == 0) return;
+    kv_u_trans_hit_t kv; kv_init(kv);
+    asg_arc_t *rt = NULL, *ut = NULL;
+    asg_t *utg = NULL;
+    h_cov_t *p = NULL;
+    h_covs join; kv_init(join);
+    uint64_t k, l, i, idx, m, pidx, de_u, u_n, oug_n = ug->u.n, dug_n = 0, puid, pn, rsi, prid, nrid, x, y, *index = NULL;
+    kv_u_trans_t *n_trans = NULL; CALLOC(n_trans, 1);
+    /*******************************for debug************************************/
+    // debug_phasing_t *dbp = init_debug_phasing(ug, hits, k_trans, b_points);
+    /*******************************for debug************************************/
+    radix_sort_h_cov_s(b_points->a, b_points->a+b_points->n);
+    for (k = 1, l = 0; k <= b_points->n; ++k) 
+    {
+        if (k == b_points->n || b_points->a[k].s != b_points->a[l].s)
+        {
+            de_u = 0; pn = join.n;
+            radix_sort_h_cov_e(b_points->a+l, b_points->a+k);
+            u_n = ug->u.a[b_points->a[l].s].n;
+            for (i = l, pidx = 0; i < k; i++)
+            {
+                idx = b_points->a[i].e + 1;
+                if(idx > pidx && idx - pidx < u_n)
+                {
+                    // fprintf(stderr, "sa-utg%.6lul, pidx: %lu, idx: %lu\n", b_points->a[l].s+1, pidx, idx);
+                    if(append_sub_utg(ug, rg, b_points->a[l].s, pidx, idx, &rsi, NULL))
+                    {
+                        de_u++;
+                        kv_pushp(h_cov_t, join, &p);
+                        p->dp = (b_points->a[l].s<<32)|(ug->u.n-1);
+                        p->s = rsi; p->e = ug->u.a[ug->u.n-1].len;
+                    }
+                }
+                pidx = idx;
+            }
+
+            idx = u_n;
+            if(idx > pidx && idx - pidx < u_n)
+            {
+                // fprintf(stderr, "sa-utg%.6lul, pidx: %lu, idx: %lu\n", b_points->a[l].s+1, pidx, idx);
+                if(append_sub_utg(ug, rg, b_points->a[l].s, pidx, idx, &rsi, NULL))
+                {
+                    de_u++;
+                    kv_pushp(h_cov_t, join, &p);
+                    p->dp = (b_points->a[l].s<<32)|(ug->u.n-1);
+                    p->s = rsi; p->e = ug->u.a[ug->u.n-1].len;
+                }
+            }
+
+            if(de_u)
+            {
+                update_nus(&(ug->u.a[b_points->a[l].s]), ug, join.a + pn, join.n - pn);
+                free(ug->u.a[b_points->a[l].s].a); free(ug->u.a[b_points->a[l].s].s);
+                memset(&(ug->u.a[b_points->a[l].s]), 0, sizeof(ug->u.a[b_points->a[l].s]));
+                dug_n++;
+            }
+
+            l = k;
+        }
+    }
+    // fprintf(stderr, "oug_n-%lu, dug_n-%lu\n", oug_n, dug_n);
+    // for (i = 0; i < join.n; i++)
+    // {
+    //     fprintf(stderr, "+p-utg%.6lul, n-utg%.6ul\n", (join.a[i].dp>>32)+1, ((uint32_t)join.a[i].dp)+1);
+    // }
+
+    for (i = 0; i < join.n; i++)
+    {
+        join.a[i].dp -= dug_n;
+    }
+    for (i = m = 0; i < ug->u.n; i++)
+    {
+        if(!ug->u.a[i].a) continue;
+        if(i < oug_n)
+        {
+            kv_pushp(h_cov_t, join, &p);
+            p->dp = (i<<32)|(m);
+            p->s = 0; p->e = ug->u.a[i].len;
+        }
+
+        ug->u.a[m] = ug->u.a[i];
+        m++;
+    }
+    if(m < ug->u.n)
+    {
+        for (i = m; i < ug->u.n; i++)
+        {
+            memset(&(ug->u.a[i]), 0, sizeof(ug->u.a[i]));
+        }
+        ug->u.n = m;
+    }
+    radix_sort_h_cov_dp(join.a, join.a+join.n);
+    CALLOC(index, ug->u.n);
+    // for (i = 0; i < join.n; i++)
+    // {
+    //     fprintf(stderr, "+p-utg%.6lul (len: %u), n-utg%.6ul, s-%lu, e-%lu\n", 
+    //             (join.a[i].dp>>32)+1, ug->g->seq[(join.a[i].dp>>32)].len, ((uint32_t)join.a[i].dp)+1, join.a[i].s, join.a[i].e);
+    // }
+    utg = asg_init();
+    utg->n_arc = utg->m_arc = ug->g->n_arc;
+    MALLOC(utg->arc, utg->n_arc);
+    memcpy(utg->arc, ug->g->arc, utg->n_arc*sizeof(asg_arc_t));
+    for (k = 1, l = 0; k <= join.n; ++k) 
+    {
+        if (k == join.n || ((join.a[k].dp>>32) != (join.a[l].dp>>32))) 
+        {
+            puid = (join.a[l].dp>>32);
+            index[puid] = (l<<32) | (k-l);
+
+            for (i = l; i < k; i++)
+            {
+                asg_seq_set(utg, (uint32_t)join.a[i].dp, ug->u.a[(uint32_t)join.a[i].dp].len, 0);
+                utg->seq[(uint32_t)join.a[i].dp].c = ug->g->seq[puid].c;
+
+                if(i + 1 >= k) continue;
+                prid = ug->u.a[(uint32_t)join.a[i].dp].a[ug->u.a[(uint32_t)join.a[i].dp].n-1]>>32;
+                nrid = ug->u.a[(uint32_t)join.a[i+1].dp].a[0]>>32;
+
+                rt = get_r_edge(rg, prid, nrid, NULL);
+                ut = asg_arc_pushp(utg); 
+                x = (uint32_t)join.a[i].dp; x <<= 1;
+                y = (uint32_t)join.a[i+1].dp; y <<= 1;
+			    ut->ol = rt->ol, ut->del = 0;
+			    ut->ul = (uint64_t)x<<32 | (ug->u.a[x>>1].len - ut->ol);
+			    ut->v = y;
+
+                rt = get_r_edge(rg, nrid^1, prid^1, NULL);
+                ut = asg_arc_pushp(utg); 
+                x = (uint32_t)join.a[i+1].dp; x <<= 1; x++;
+                y = (uint32_t)join.a[i].dp; y <<= 1; y++;
+                ut->ol = rt->ol, ut->del = 0;
+                ut->ul = (uint64_t)x<<32 | (ug->u.a[x>>1].len - ut->ol);
+			    ut->v = y;
+            }
+            update_unitig_ends(ug->g, utg->arc, puid, ((uint32_t)join.a[k-1].dp)<<1, (((uint32_t)join.a[l].dp)<<1)+1);
+            l = k;
+        }
+    }
+    asg_cleanup(utg);
+    asg_destroy(ug->g);
+    ug->g = utg;
+
+    for (k = 0; k < k_trans->n; k++)
+    {
+        extract_novlp(&(k_trans->a[k]), &join, index, &kv, n_trans);
+    }
+    free(k_trans->a); free(k_trans->idx.a); memset(k_trans, 0, sizeof(*k_trans));
+    k_trans->a = n_trans->a; k_trans->n = n_trans->n; k_trans->m = n_trans->m; 
+    free(n_trans);
+    clean_u_trans_t_idx(k_trans, ug, rg);
+    uint64_t uID_bits, pos_mode;
+    for (uID_bits=1; (uint64_t)(1<<uID_bits)<(uint64_t)ug->u.n; uID_bits++);
+    pos_mode = ((uint64_t)-1)>>(uID_bits+1);
+    
+    for (k = m = 0; k < hits->a.n; k++)
+    {
+        if(get_new_offset(hits, k, index, &join, uID_bits))
+        {
+            hits->a.a[m] = hits->a.a[k];
+            m++;
+        }
+    }
+    // fprintf(stderr, "hits->a.n: %u, m: %lu\n", (uint32_t)hits->a.n, m);
+    hits->a.n = m;  
+
+    dedup_hits(hits, 0); 
+    hits->uID_bits = uID_bits; hits->pos_mode = pos_mode;
+    free(hits->idx.a); hits->idx.a = NULL; hits->idx.n = hits->idx.m = 0;
+    free(hits->occ.a); hits->occ.a = NULL; hits->occ.n = hits->occ.m = 0;
+
+    /*******************************for debug************************************/
+    // debug_debug_phasing_t(dbp, ug, hits, k_trans, &join, index);
+    // destory_debug_phasing_t(&dbp);
+    /*******************************for debug************************************/
+
+    kv_destroy(join); kv_destroy(kv); free(index);
+}
+
+///min_ulen = BREAK_THRES
+///boundaryRate = BREAK_BOUNDARY
+void update_switch_unitig(ma_ug_t *ug, asg_t *rg, kvec_pe_hit *hits, kv_u_trans_t *k_trans, uint64_t cutoff_s, uint64_t cutoff_e,
+uint64_t min_ulen, double boundaryRate)
+{
+    uint64_t k, l, i, p0s, p0e, p1s, p1e, ulen, cov_hic, cov_utg, cov_ava, span_s, span_e, cutoff, bs, be, dp;
+    kvec_t(uint64_t) b; kv_init(b);
+    h_covs cov_buf; kv_init(cov_buf);
+    h_covs res; kv_init(res);
+    h_covs b_points; kv_init(b_points);
+    h_cov_t *p = NULL;
+    radix_sort_pe_hit_idx_hn1(hits->a.a, hits->a.a + hits->a.n);
+    b_points.n = 0;
+    for (k = 1, l = 0; k <= hits->a.n; ++k) 
+    {   
+        if (k == hits->a.n || (get_hit_suid(*hits, k) != get_hit_suid(*hits, l))) 
+        {
+            ulen = ug->u.a[get_hit_suid(*hits, l)].len;
+            b.n = 0; cov_hic = cov_utg = 0;
+            if(ulen >= min_ulen)
+            {
+                for (i = l; i < k; i++)
+                {
+                    if(get_hit_suid(*hits, i) != get_hit_euid(*hits, i)) continue;
+                    p0s = get_hit_spos(*hits, i);
+                    p0e = get_hit_spos_e(*hits, i);
+                    p1s = get_hit_epos(*hits, i);
+                    p1e = get_hit_epos_e(*hits, i);
+
+                    span_s = MIN(MIN(p0s, p0e), MIN(p1s, p1e));
+                    span_s = MIN(span_s, ulen-1);
+                    span_e = MAX(MAX(p0s, p0e), MAX(p1s, p1e));
+                    span_e = MIN(span_e, ulen-1) + 1;
+                    //if(span_e - span_s <= ulen*BREAK_CUTOFF)//need it or not?
+                    {
+                        kv_push(uint64_t, b, (span_s<<1));
+                        kv_push(uint64_t, b, (span_e<<1)|1);
+                        cov_hic += (span_e - span_s);
+                    }
+                }
+
+                radix_sort_ho64(b.a, b.a+b.n);
+                cov_utg = get_hic_cov_interval(b.a, b.n, 1, NULL, NULL, NULL);
+                cov_ava = (cov_utg? cov_hic/cov_utg:0);
+                ///if cov_ava == 0, do nothing or break?
+
+                /*******************************for debug************************************/
+                // fprintf(stderr, "\n[M::%s::] utg%.6lul, ulen: %lu, # hic hits: %lu, map cov: %lu, utg cov: %lu, average: %lu\n", 
+                // __func__, get_hit_suid(*hits, l)+1, ulen, (uint64_t)(b.n>>1), cov_hic, cov_utg, cov_ava);
+                /*******************************for debug************************************/
+
+                res.n = 0;
+                for (i = cutoff_s; i <= cutoff_e; i++)
+                {
+                    if(i == 0) continue;
+                    cutoff = cov_ava/i;
+                    if(cutoff == 0) continue;
+                    get_hic_breakpoint(b.a, b.n, cutoff, &cov_buf, ulen*boundaryRate, ulen - ulen*boundaryRate, &bs, &be);
+                    if(bs != (uint64_t)-1 && be != (uint64_t)-1)
+                    {
+                        kv_pushp(h_cov_t, res, &p);
+                        p->s = bs; p->e = be; p->dp = cutoff;
+                        /*******************************for debug************************************/
+                        // fprintf(stderr, "cutoff: %lu, bs: %lu, be: %lu\n", cutoff, bs, be);
+                        /*******************************for debug************************************/
+                    }
+                }
+
+                if(res.n > 0)
+                {
+                    get_consensus_break(&res, &cov_buf);
+                    /*******************************for debug************************************/
+                    // for (i = 0; i < cov_buf.n; i++)
+                    // {
+                    //     fprintf(stderr, "consensus_break-s: %lu, e: %lu\n", cov_buf.a[i].s, cov_buf.a[i].e);
+                    // }
+                    /*******************************for debug************************************/
+                    get_read_breaks(&(ug->u.a[get_hit_suid(*hits, l)]), rg, &cov_buf, 
+                    &res, hits, l, k, ulen, &bs, &dp);
+                    if(bs == (uint64_t)-1) fprintf(stderr, "ERROR-read\n");
+                    
+                    if(bs > 0 && bs < ug->u.a[get_hit_suid(*hits, l)].n)
+                    {
+                        kv_pushp(h_cov_t, b_points, &p);
+                        p->s = get_hit_suid(*hits, l); p->e = bs; p->dp = dp;
+                        /*******************************for debug************************************/
+                        // fprintf(stderr, "\n[M::%s::] utg%.6lul, consensus_break-rid: %lu, cov: %lu, un: %u\n", 
+                        // __func__, get_hit_suid(*hits, l)+1, bs, dp, ug->u.a[get_hit_suid(*hits, l)].n);
+                        // debug_sub_cov(hits, l, k, ulen, &(ug->u.a[get_hit_suid(*hits, l)]), h->r_g, bs, dp);
+                        /*******************************for debug************************************/
+                    }
+                    
+                }
+                
+            }  
+            l = k;
+        }
+    }
+    // break_utg_horder(h, &b_points);
+    break_phasing_utg(ug, rg, hits, k_trans, &b_points);
 
     kv_destroy(b);
     kv_destroy(cov_buf);

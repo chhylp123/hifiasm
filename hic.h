@@ -105,5 +105,6 @@ uint32_t check_trans_relation_by_path(uint32_t v, uint32_t w, pdq* pqv, uint32_t
 pdq* pqw, uint32_t* path_w, buf_t *resw, asg_t *sg, uint8_t *dest, uint8_t df, uint32_t df_occ, double rate,
 long long *dis);
 void set_utg_by_dis(uint32_t v, pdq* pq, asg_t *g, kvec_t_u32_warp *res, uint32_t dis);
+void dedup_hits(kvec_pe_hit* hits, uint64_t is_dup);
 
 #endif

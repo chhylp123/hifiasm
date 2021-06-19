@@ -269,12 +269,6 @@ uint32_t tn, kv_utg_thit_t_t* ktb, uint32_t bn)
         // }
     }
 }
-typedef struct {///[cBeg, cEnd)
-	uint32_t ui, len, cBeg, cEnd;
-    uint32_t *a, an;
-    ma_ug_t *ug;
-    utg_trans_t *o;
-} utg_trans_hit_idx;
 
 uint32_t get_utg_trans_hit(utg_trans_hit_idx *t, utg_thit_t *hit)
 {

@@ -2100,13 +2100,26 @@ void print_hits(ha_ug_index* idx, kvec_pe_hit* hits, const enzyme *fn1, const en
     destory_reads(&r1);
 }
 
+void print_hits_simp(ha_ug_index* idx, kvec_pe_hit* hits)
+{
+    uint64_t k, shif = 64 - idx->uID_bits;
+    char dir[2] = {'+', '-'};
+    for (k = 0; k < hits->a.n; ++k) 
+    { 
+        fprintf(stderr, "r-%lu-th\t%c\trs-utg%.6dl\t%lu\t%c\tre-utg%.6dl\t%lu\n", 
+        hits->a.a[k].id,
+        dir[hits->a.a[k].s>>63], (int)((hits->a.a[k].s<<1)>>shif)+1, hits->a.a[k].s&idx->pos_mode,
+        dir[hits->a.a[k].e>>63], (int)((hits->a.a[k].e<<1)>>shif)+1, hits->a.a[k].e&idx->pos_mode);        
+    }
+}
+
 inline void swap_pe_hit_hap(pe_hit_hap* x, pe_hit_hap* y)
 {
     pe_hit_hap tmp;
     tmp = (*x); (*x) = (*y); (*y) = tmp;
 }
 
-void dedup_hits(kvec_pe_hit* hits)
+void dedup_hits(kvec_pe_hit* hits, uint64_t is_dup)
 {
     double index_time = yak_realtime();
     uint64_t k, l, m = 0, cur;
@@ -2116,20 +2129,23 @@ void dedup_hits(kvec_pe_hit* hits)
         if (k == hits->a.n || hits->a.a[k].s != hits->a.a[l].s) 
         {
             if (k - l > 1) radix_sort_pe_hit_an2(hits->a.a + l, hits->a.a + k);
-            cur = (uint64_t)-1;
-            while (l < k)
+            if(is_dup)
             {
-                if(hits->a.a[l].e != cur)
+                cur = (uint64_t)-1;
+                while (l < k)
                 {
-                    cur = hits->a.a[l].e;
-                    hits->a.a[m++] = hits->a.a[l];
+                    if(hits->a.a[l].e != cur)
+                    {
+                        cur = hits->a.a[l].e;
+                        hits->a.a[m++] = hits->a.a[l];
+                    }
+                    l++;
                 }
-                l++;
             }
             l = k;
         }
     }
-    hits->a.n = m;
+    if(is_dup) hits->a.n = m;
     fprintf(stderr, "[M::%s::%.3f] ==> Dedup\n", __func__, yak_realtime()-index_time);
 }
 
@@ -14647,7 +14663,7 @@ int alignment_worker_pipeline(sldat_t* sl, const enzyme *fn1, const enzyme *fn2)
     }
     fprintf(stderr, "[M::%s::%.3f] ==> Qualification\n", __func__, yak_realtime()-index_time);
 
-    dedup_hits(&(sl->hits));    
+    dedup_hits(&(sl->hits), 1);    
     return 1;
 }
 
@@ -16053,6 +16069,15 @@ void tag_reads(ha_ug_index* idx, kvec_pe_hit *u_hits, bubble_type* bub, int8_t *
     fprintf(stderr, "[M::%s::] # consistent reads: %lu, # inconsistent reads: %lu\n", __func__, cons, incons);
 }
 
+void renew_idx_para(ha_ug_index* idx, ma_ug_t* ug)
+{
+    for (idx->uID_bits=1; (uint64_t)(1<<idx->uID_bits)<(uint64_t)ug->u.n; idx->uID_bits++);
+    idx->pos_bits = 64 - idx->uID_bits - 1;
+    idx->uID_mode = (((uint64_t)-1) << (64-idx->uID_bits))>>1;
+    idx->pos_mode = ((uint64_t)-1) >> (64-idx->pos_bits);
+    idx->rev_mode = ((uint64_t)1) << 63;
+}
+
 int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, ug_opt_t *opt)
 {
     double index_time = yak_realtime();
@@ -16079,6 +16104,12 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, ug_o
     ///debug_hc_hits_v14(&sl.hits, asm_opt.output_file_name, sl.idx);
     ////dedup_hits(&(sl.hits), sl.idx);   
     ///write_hc_hits_v14(&sl.hits, asm_opt.output_file_name);
+    
+
+    sl.hits.uID_bits = idx->uID_bits; sl.hits.pos_mode = idx->pos_mode;
+    update_switch_unitig(idx->ug, idx->read_g, &(sl.hits), &(idx->t_ch->k_trans), 10, 20, asm_opt.misjoin_len, 0.15);
+    renew_idx_para(idx, idx->ug);
+    // print_hits_simp(idx, &sl.hits);
     // print_kv_u_trans_t(&(idx->t_ch->k_trans));
 
     hc_links link;

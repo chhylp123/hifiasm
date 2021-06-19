@@ -38,6 +38,7 @@ static ko_longopt_t long_options[] = {
     { "f-perturb",      ko_required_argument, 324 },
     { "n-hap",      ko_required_argument, 325 },
     { "n-weight",      ko_required_argument, 326 },
+    { "l-msjoin",      ko_required_argument, 327 },
 	{ 0, 0, 0 }
 };
 
@@ -122,7 +123,8 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "                 rounds of perturbation [%d]\n", asm_opt->n_perturb);
     fprintf(stderr, "    --f-perturb  FLOAT\n");
 	fprintf(stderr, "                 fraction to flip for perturbation [%.3g]\n", asm_opt->f_perturb);
-
+    fprintf(stderr, "    --l-msjoin   INT\n");
+    fprintf(stderr, "                 detect misjoined unitigs of >=INT in size; 0 to disable [%lu]\n", asm_opt->misjoin_len);
 
     fprintf(stderr, "Example: ./hifiasm -o NA12878.asm -t 32 NA12878.fq.gz\n");
     fprintf(stderr, "See `man ./hifiasm.1' for detailed description of these command-line options.\n");
@@ -196,6 +198,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->f_perturb = 0.1;
     asm_opt->n_weight = 3;
     asm_opt->is_alt = 0;
+    asm_opt->misjoin_len = 500000;
 }
 
 void destory_enzyme(enzyme* f)
@@ -658,6 +661,7 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         else if (c == 324) asm_opt->f_perturb = atof(opt.arg);
         else if (c == 325) asm_opt->polyploidy = atoi(opt.arg);
         else if (c == 326) asm_opt->n_weight = atoi(opt.arg);
+        else if (c == 327) asm_opt->misjoin_len = atol(opt.arg);
         else if (c == 'l')
         {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
             asm_opt->purge_level_primary = asm_opt->purge_level_trio = atoi(opt.arg);

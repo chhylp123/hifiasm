@@ -59,4 +59,6 @@ asg_t *i_rg, ma_ug_t* i_ug, bubble_type* bub, kv_u_trans_t *ref, ug_opt_t *opt, 
 void destory_horder_t(horder_t **h);
 void horder_clean_sg_by_utg(asg_t *sg, ma_ug_t *ug);
 kvec_pe_hit *get_r_hits_for_trio(kvec_pe_hit *u_hits, asg_t* r_g, ma_ug_t* ug, bubble_type* bub, uint64_t uID_bits, uint64_t pos_mode);
+void update_switch_unitig(ma_ug_t *ug, asg_t *rg, kvec_pe_hit *hits, kv_u_trans_t *k_trans, uint64_t cutoff_s, uint64_t cutoff_e,
+uint64_t min_ulen, double boundaryRate);
 #endif
