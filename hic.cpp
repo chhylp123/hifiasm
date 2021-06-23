@@ -16107,8 +16107,11 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, ug_o
     
 
     sl.hits.uID_bits = idx->uID_bits; sl.hits.pos_mode = idx->pos_mode;
-    update_switch_unitig(idx->ug, idx->read_g, &(sl.hits), &(idx->t_ch->k_trans), 10, 20, asm_opt.misjoin_len, 0.15);
-    renew_idx_para(idx, idx->ug);
+    if(asm_opt.misjoin_len > 0)
+    {
+        update_switch_unitig(idx->ug, idx->read_g, &(sl.hits), &(idx->t_ch->k_trans), 10, 20, asm_opt.misjoin_len, 0.15);
+        renew_idx_para(idx, idx->ug);
+    }
     // print_hits_simp(idx, &sl.hits);
     // print_kv_u_trans_t(&(idx->t_ch->k_trans));
 

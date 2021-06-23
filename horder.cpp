@@ -1773,6 +1773,40 @@ int get_new_offset(kvec_pe_hit *hits, uint64_t id, uint64_t *index, h_covs *join
     return 1;
 }
 
+void verbose_misjoin(uint64_t *a, uint64_t a_n)
+{
+    radix_sort_ho64(a, a + a_n);
+    uint64_t k, l, i, len, s, C[2], N[2];
+    C[0] = C[1] = N[0] = N[1] = 0;
+    for (k = 1, l = 0; k <= a_n; ++k) 
+    {   
+        if (k == a_n || (a[k]>>63) != (a[l]>>63))
+        {
+            for (i = l, s = 0; i < k; i++) s += ((a[i]<<1)>>1);
+            len = s;
+
+            i = k; s = 0;
+            while (i > l)
+            {
+                i--;
+                s += ((a[i]<<1)>>1);
+                if(s >= (len>>1))
+                {
+                    N[a[l]>>63] = ((a[i]<<1)>>1);
+                    C[a[l]>>63] = k - l;
+                    // fprintf(stderr, "[M::%s::] N50: %lu\n", __func__, b.a[i]);
+                    break;
+                }
+            }
+            
+            l = k;
+        }
+    }
+
+    fprintf(stderr, "[M::stat] # misjoined unitigs: %lu (N50: %lu); # corrected unitigs: %lu (N50: %lu)\n", 
+    C[0], N[0], C[1], N[1]);
+}
+
 void break_phasing_utg(ma_ug_t *ug, asg_t *rg, kvec_pe_hit *hits, kv_u_trans_t *k_trans, h_covs *b_points)
 {
     if(b_points->n == 0) return;
@@ -1783,6 +1817,7 @@ void break_phasing_utg(ma_ug_t *ug, asg_t *rg, kvec_pe_hit *hits, kv_u_trans_t *
     h_covs join; kv_init(join);
     uint64_t k, l, i, idx, m, pidx, de_u, u_n, oug_n = ug->u.n, dug_n = 0, puid, pn, rsi, prid, nrid, x, y, *index = NULL;
     kv_u_trans_t *n_trans = NULL; CALLOC(n_trans, 1);
+    kvec_t(uint64_t) dbg_N50; kv_init(dbg_N50);
     /*******************************for debug************************************/
     // debug_phasing_t *dbp = init_debug_phasing(ug, hits, k_trans, b_points);
     /*******************************for debug************************************/
@@ -1806,6 +1841,7 @@ void break_phasing_utg(ma_ug_t *ug, asg_t *rg, kvec_pe_hit *hits, kv_u_trans_t *
                         kv_pushp(h_cov_t, join, &p);
                         p->dp = (b_points->a[l].s<<32)|(ug->u.n-1);
                         p->s = rsi; p->e = ug->u.a[ug->u.n-1].len;
+                        kv_push(uint64_t, dbg_N50, (uint64_t)(ug->u.a[ug->u.n-1].len)+((uint64_t)(1)<<63));
                     }
                 }
                 pidx = idx;
@@ -1821,11 +1857,13 @@ void break_phasing_utg(ma_ug_t *ug, asg_t *rg, kvec_pe_hit *hits, kv_u_trans_t *
                     kv_pushp(h_cov_t, join, &p);
                     p->dp = (b_points->a[l].s<<32)|(ug->u.n-1);
                     p->s = rsi; p->e = ug->u.a[ug->u.n-1].len;
+                    kv_push(uint64_t, dbg_N50, (uint64_t)(ug->u.a[ug->u.n-1].len)+((uint64_t)(1)<<63));
                 }
             }
 
             if(de_u)
             {
+                kv_push(uint64_t, dbg_N50, ug->u.a[b_points->a[l].s].len);
                 update_nus(&(ug->u.a[b_points->a[l].s]), ug, join.a + pn, join.n - pn);
                 free(ug->u.a[b_points->a[l].s].a); free(ug->u.a[b_points->a[l].s].s);
                 memset(&(ug->u.a[b_points->a[l].s]), 0, sizeof(ug->u.a[b_points->a[l].s]));
@@ -1949,8 +1987,8 @@ void break_phasing_utg(ma_ug_t *ug, asg_t *rg, kvec_pe_hit *hits, kv_u_trans_t *
     // debug_debug_phasing_t(dbp, ug, hits, k_trans, &join, index);
     // destory_debug_phasing_t(&dbp);
     /*******************************for debug************************************/
-
-    kv_destroy(join); kv_destroy(kv); free(index);
+    verbose_misjoin(dbg_N50.a, dbg_N50.n);
+    kv_destroy(join); kv_destroy(kv); free(index); kv_destroy(dbg_N50);
 }
 
 ///min_ulen = BREAK_THRES
