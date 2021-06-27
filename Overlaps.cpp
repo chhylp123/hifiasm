@@ -16009,8 +16009,9 @@ asg_t* copy_read_graph(asg_t *src)
 
     dest->is_srt = src->is_srt;
     dest->is_symm = src->is_symm;
-    dest->idx = (uint64_t*)malloc(dest->n_seq*2*8);
-    memcpy(dest->idx, src->idx, dest->n_seq*2*8); 
+    dest->idx = NULL;
+    // dest->idx = (uint64_t*)malloc(dest->n_seq*2*8);
+    // memcpy(dest->idx, src->idx, dest->n_seq*2*8); 
     asg_cleanup(dest);
 
     if(src->seq_vis)
@@ -30961,7 +30962,7 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
     // rescue_no_coverage_aggressive(sg, sources, reverse_sources, &coverage_cut, ruIndex, max_hang_length, 
     // mini_overlap_length, bubble_dist, 10);
 
-
+    
     set_hom_global_coverage(&asm_opt, sg, coverage_cut, sources, reverse_sources, ruIndex, 
     max_hang_length, mini_overlap_length);
 
@@ -30971,7 +30972,7 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
     output_unitig_graph(sg, coverage_cut, o_file, sources, ruIndex, max_hang_length, mini_overlap_length);
     // flat_bubbles(sg, ruIndex->is_het); free(ruIndex->is_het); ruIndex->is_het = NULL;
     flat_soma_v(sg, sources, ruIndex); free(ruIndex->is_het); ruIndex->is_het = NULL;
-    
+
     output_contig_graph_primary_pre(sg, coverage_cut, o_file, sources, reverse_sources, 
         asm_opt.small_pop_bubble_size, asm_opt.max_short_tip, ruIndex, max_hang_length, mini_overlap_length);
 
@@ -30981,7 +30982,7 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
         debug_gfa:;
         set_hom_global_coverage(&asm_opt, sg, coverage_cut, sources, reverse_sources, ruIndex, max_hang_length, mini_overlap_length);
     }
-
+    
     if (ha_opt_triobin(&asm_opt) && ha_opt_hic(&asm_opt))
     {
         if(asm_opt.flag & HA_F_PARTITION) asm_opt.flag -= HA_F_PARTITION;
