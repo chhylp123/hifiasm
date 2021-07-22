@@ -23,6 +23,7 @@ yak count -b37 -t16 -o pat.yak <(cat pat_1.fq.gz pat_2.fq.gz) <(cat pat_1.fq.gz 
 yak count -b37 -t16 -o mat.yak <(cat mat_1.fq.gz mat_2.fq.gz) <(cat mat_1.fq.gz mat_2.fq.gz)
 hifiasm -o HG002.asm -t32 -1 pat.yak -2 mat.yak HG002-HiFi.fa.gz
 ```
+See [tutorial][tutorial] for more details. 
 
 ## Table of Contents
 
@@ -224,10 +225,11 @@ non-human ones are available [here][zenodo-nonh].
 [gfa]: https://github.com/pmelsted/GFA-spec/blob/master/GFA-spec.md
 [paf]: https://github.com/lh3/miniasm/blob/master/PAF.md
 [yak]: https://github.com/lh3/yak
+[tutorial]: https://hifiasm.readthedocs.io/en/latest/index.html
 
 ## <a name="help"></a>Getting Help
 
-For detailed description of options, please see `man ./hifiasm.1`. The `-h`
+For detailed description of options, please see [tutorial][tutorial] or `man ./hifiasm.1`. The `-h`
 option of hifiasm also provides brief description of options. If you have
 further questions, please raise an issue at the [issue
 page](https://github.com/chhylp123/hifiasm/issues).
