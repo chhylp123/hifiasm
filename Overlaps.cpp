@@ -13220,6 +13220,8 @@ long long gap_fuzz, bub_label_t* b_mask_t)
 { 
     hic_clean(sg);
     ug_opt_t opt; memset(&opt, 0, sizeof(opt));
+    kvec_pe_hit *rhits = NULL;
+    ma_ug_t *ug_fa = NULL, *ug_mo = NULL;
     opt.coverage_cut = coverage_cut;
     opt.sources = sources;
     opt.reverse_sources = reverse_sources; 
@@ -13289,18 +13291,18 @@ long long gap_fuzz, bub_label_t* b_mask_t)
     // fclose(output_file);
     // free(gfa_name);
 
-    hic_analysis(ug, sg, cov?cov->t_ch:t_ch, &opt, 0);
+    hic_analysis(ug, sg, cov?cov->t_ch:t_ch, &opt, 0, asm_opt.scffold?&rhits:NULL);
 
-    if(cov) destory_hap_cov_t(&cov);
-    if(t_ch) destory_trans_chain(&t_ch);
+    if(!rhits && cov) destory_hap_cov_t(&cov);
+    if(!rhits && t_ch) destory_trans_chain(&t_ch);
 
 
-    char* gfa_name = (char*)malloc(strlen(output_file_name)+50);
-    sprintf(gfa_name, "%s.after.clean_d_utg.noseq.gfa", output_file_name);
-    FILE* output_file = fopen(gfa_name, "w");
-    ma_ug_print_simple(ug, sg, coverage_cut, sources, ruIndex, "utg", output_file);
-    fclose(output_file);
-    free(gfa_name);
+    // char* gfa_name = (char*)malloc(strlen(output_file_name)+50);
+    // sprintf(gfa_name, "%s.after.clean_d_utg.noseq.gfa", output_file_name);
+    // FILE* output_file = fopen(gfa_name, "w");
+    // ma_ug_print_simple(ug, sg, coverage_cut, sources, ruIndex, "utg", output_file);
+    // fclose(output_file);
+    // free(gfa_name);
 
     ma_ug_destroy(ug);
     kv_destroy(new_rtg_edges.a); 
@@ -13329,10 +13331,18 @@ long long gap_fuzz, bub_label_t* b_mask_t)
 
     reduce_hamming_error(sg, sources, coverage_cut, max_hang, min_ovlp, gap_fuzz);
 
-    output_trio_unitig_graph(sg, coverage_cut, output_file_name, FATHER, sources, reverse_sources, (asm_opt.max_short_tip*2), 0.15, 3, ruIndex, 
-    0.05, 0.9, max_hang, min_ovlp, 0, b_mask_t);
-    output_trio_unitig_graph(sg, coverage_cut, output_file_name, MOTHER, sources, reverse_sources, (asm_opt.max_short_tip*2), 0.15, 3, ruIndex, 
-    0.05, 0.9, max_hang, min_ovlp, 0, b_mask_t);
+    ug_fa = output_trio_unitig_graph(sg, coverage_cut, output_file_name, FATHER, sources, reverse_sources, (asm_opt.max_short_tip*2), 0.15, 3, ruIndex, 
+    0.05, 0.9, max_hang, min_ovlp, rhits?1:0, b_mask_t);
+    ug_mo = output_trio_unitig_graph(sg, coverage_cut, output_file_name, MOTHER, sources, reverse_sources, (asm_opt.max_short_tip*2), 0.15, 3, ruIndex, 
+    0.05, 0.9, max_hang, min_ovlp, rhits?1:0, b_mask_t);
+    if(rhits)
+    {
+        ha_aware_order(rhits, sg, ug_fa, ug_mo, cov?&(cov->t_ch->k_trans):&(t_ch->k_trans), &opt, 3);
+        kv_destroy(rhits->a); kv_destroy(rhits->idx); kv_destroy(rhits->occ); free(rhits);
+        if(cov) destory_hap_cov_t(&cov);
+        if(t_ch) destory_trans_chain(&t_ch);
+        ma_ug_destroy(ug_fa); ma_ug_destroy(ug_mo);
+    } 
 }
 
 ma_ug_t *get_poly_ug(asg_t *sg, ma_sub_t* coverage_cut, ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, 
@@ -13416,7 +13426,7 @@ long long gap_fuzz, bub_label_t* b_mask_t)
         if((asm_opt.flag & HA_F_VERBOSE_GFA)) write_trans_chain(t_ch, output_file_name);
     } 
 
-    hic_analysis(ug, sg, t_ch, &opt, 0);
+    hic_analysis(ug, sg, t_ch, &opt, 0, NULL);
     destory_trans_chain(&t_ch); 
     ma_ug_destroy(ug);
     asg_cleanup(sg);
@@ -17102,7 +17112,6 @@ float chimeric_rate, float drop_ratio, int max_hang, int min_ovlp, int is_bench,
 {
     char* gfa_name = (char*)malloc(strlen(output_file_name)+100);
     sprintf(gfa_name, "%s.%s.p_ctg.gfa", output_file_name, (flag==FATHER?"hap1":"hap2"));
-    fprintf(stderr, "Writing %s to disk... \n", gfa_name);
     FILE* output_file = NULL;
     if(is_bench == 0) output_file = fopen(gfa_name, "w");
 
@@ -17128,16 +17137,18 @@ float chimeric_rate, float drop_ratio, int max_hang, int min_ovlp, int is_bench,
         NULL, &asm_opt.b_high_cov, asm_opt.m_rate);
     }
 
-    ///debug_utg_graph(ug, sg, 0, 0);
-    ///debug_untig_length(ug, tipsLen, gfa_name);
-    ///print_untig_by_read(ug, "m64011_190901_095311/125831121/ccs", 2310925, "end");
-    ma_ug_seq(ug, sg, coverage_cut, sources, &new_rtg_edges, max_hang, min_ovlp, 0, 1);
     if(is_bench)
     {
         free(gfa_name);
         kv_destroy(new_rtg_edges.a);
         return ug;
     }
+    fprintf(stderr, "Writing %s to disk... \n", gfa_name);
+    ///debug_utg_graph(ug, sg, 0, 0);
+    ///debug_untig_length(ug, tipsLen, gfa_name);
+    ///print_untig_by_read(ug, "m64011_190901_095311/125831121/ccs", 2310925, "end");
+    ma_ug_seq(ug, sg, coverage_cut, sources, &new_rtg_edges, max_hang, min_ovlp, 0, 1);
+    
     ma_ug_print(ug, sg, coverage_cut, sources, ruIndex, (flag==FATHER?"h1tg":"h2tg"), output_file);
     fclose(output_file);
 

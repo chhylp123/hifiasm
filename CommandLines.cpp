@@ -199,6 +199,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->n_weight = 3;
     asm_opt->is_alt = 0;
     asm_opt->misjoin_len = 500000;
+    asm_opt->scffold = 0;
 }
 
 void destory_enzyme(enzyme* f)

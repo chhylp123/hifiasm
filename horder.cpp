@@ -454,6 +454,26 @@ void resolve_hit(uint64_t x, uint32_t rLen, uint64_t uID_bits, uint64_t pos_mode
     if(end) (*end) = p_end + 1;
 }
 
+void idx_hits(kvec_pe_hit* hits, uint64_t n)
+{
+    uint64_t k, l;
+    kv_resize(uint64_t, hits->idx, n);
+    hits->idx.n = n;
+    memset(hits->idx.a, 0, hits->idx.n*sizeof(uint64_t));
+
+    radix_sort_pe_hit_idx_hn1(hits->a.a, hits->a.a + hits->a.n);
+    for (k = 1, l = 0; k <= hits->a.n; ++k) 
+    {   
+        if (k == hits->a.n || (get_hit_suid(*hits, k) != get_hit_suid(*hits, l))) 
+        {
+            if (k - l > 1) radix_sort_pe_hit_idx_hn2(hits->a.a + l, hits->a.a + k);
+            
+            hits->idx.a[get_hit_suid(*hits, l)] = (uint64_t)l << 32 | (k - l);            
+            l = k;
+        }
+    }
+}
+
 kvec_pe_hit *get_r_hits_for_trio(kvec_pe_hit *u_hits, asg_t* r_g, ma_ug_t* ug, bubble_type* bub, uint64_t uID_bits, uint64_t pos_mode)
 {
     kvec_pe_hit *r_hits = NULL;
@@ -674,6 +694,7 @@ void get_r_hits(kvec_pe_hit *u_hits, kvec_pe_hit *r_hits, asg_t* r_g, ma_ug_t* u
 
     r_hits->uID_bits = ubits;
     r_hits->pos_mode = p_mode;
+    idx_hits(r_hits, r_g->n_seq);
 }
 
 uint64_t get_corresp_usite(uint64_t rid, uint64_t rpos, uint64_t rev, uint64_t rlen, u_hits_t *x, uint64_t ubits, uint64_t p_mode, kvec_t_u64_warp *buf)
@@ -692,26 +713,6 @@ uint64_t get_corresp_usite(uint64_t rid, uint64_t rpos, uint64_t rev, uint64_t r
     }
 
     return a_n;
-}
-
-void idx_hits(kvec_pe_hit* hits, uint64_t n)
-{
-    uint64_t k, l;
-    kv_resize(uint64_t, hits->idx, n);
-    hits->idx.n = n;
-    memset(hits->idx.a, 0, hits->idx.n*sizeof(uint64_t));
-
-    radix_sort_pe_hit_idx_hn1(hits->a.a, hits->a.a + hits->a.n);
-    for (k = 1, l = 0; k <= hits->a.n; ++k) 
-    {   
-        if (k == hits->a.n || (get_hit_suid(*hits, k) != get_hit_suid(*hits, l))) 
-        {
-            if (k - l > 1) radix_sort_pe_hit_idx_hn2(hits->a.a + l, hits->a.a + k);
-            
-            hits->idx.a[get_hit_suid(*hits, l)] = (uint64_t)l << 32 | (k - l);            
-            l = k;
-        }
-    }
 }
 
 void update_u_hits(kvec_pe_hit *u_hits, kvec_pe_hit *r_hits, ma_ug_t* ug, asg_t* r_g)
@@ -744,7 +745,7 @@ void update_u_hits(kvec_pe_hit *u_hits, kvec_pe_hit *r_hits, ma_ug_t* ug, asg_t*
     }
 
     radix_sort_hit_aux_ruid(x.a, x.a + x.n);
-    x.idx.n = x.idx.m = (x.n?(x.a[x.n-1].ruid>>33)+1:0);
+    x.idx.n = x.idx.m = (x.n?(x.a[x.n-1].ruid>>33)+1:0);///how many unitigs
     CALLOC(x.idx.a, x.idx.n);
     for (k = 1, l = 0; k <= x.n; ++k) 
     {   
@@ -2329,6 +2330,9 @@ void generate_haplotypes(horder_t *h, ug_opt_t *opt)
 
     ug_1 = get_trio_unitig_graph(h->r_g, FATHER, opt);
     ug_2 = get_trio_unitig_graph(h->r_g, MOTHER, opt);
+    // kv_push(uint64_t, h->occ, ug_1->u.n);
+    // kv_push(uint64_t, h->occ, ug_2->u.n);
+
     h->ug = ug_1; 
     
     ///update unitigs
@@ -2345,6 +2349,9 @@ void generate_haplotypes(horder_t *h, ug_opt_t *opt)
     ma_ug_destroy(ug_2);
     asg_destroy(h->ug->g);
     h->ug->g = NULL;
+
+    // MALLOC(h->hf.a, h->ug->u.n); h->hf.n = h->hf.m = h->ug->u.n;
+    // for (i = 0; i < h->ug->u.n; i++) h->hf.a[i] = (i < h->occ.a[0]? 0 : 1);
 }
 
 osg_t *osg_init(void)
@@ -2726,7 +2733,7 @@ void update_scg(horder_t *h, trans_col_t *t_idx)
     
     for (i = 0, e.n = 0; i < hits->a.n; i++)
     {
-        if(!hits->a.a[i].id) continue;
+        if(!hits->a.a[i].id) continue;//hom hits
         suid = get_hit_suid(*hits, i);
         euid = get_hit_euid(*hits, i);
         if(suid == euid) continue;
@@ -3773,6 +3780,8 @@ void scaffold_hap(horder_t *h, ug_opt_t *opt, trans_col_t *t_idx, uint32_t round
     h->ug = get_trio_unitig_graph(h->r_g, flag, opt);
     asg_destroy(h->ug->g);
     h->ug->g = NULL;
+    // kv_push(uint64_t, h->occ, h->ug->u.n);
+    // CALLOC(h->hf.a, h->ug->u.n); h->hf.n = h->hf.m = h->ug->u.n;
 
     print_N50(h->ug);
 
@@ -3782,6 +3791,51 @@ void scaffold_hap(horder_t *h, ug_opt_t *opt, trans_col_t *t_idx, uint32_t round
         update_scg(h, t_idx);
         layout_scg(h, 1.001, 19);
         renew_scaffold(h);
+    }
+    
+    char* gfa_name = (char*)malloc(strlen(output_file_name)+100);
+    sprintf(gfa_name, "%s.%s", output_file_name, (flag==FATHER?"hap1":"hap2"));
+
+    print_scaffold(h->ug, h->r_g, opt->coverage_cut, gfa_name, 
+    opt->sources, opt->reverse_sources, opt->tipsLen, opt->tip_drop_ratio, 
+    opt->stops_threshold, opt->ruIndex, opt->chimeric_rate, opt->drop_ratio, 
+    opt->max_hang, opt->min_ovlp);
+
+    free(gfa_name);
+}
+
+void scaffold_ug(horder_t *h, ma_ug_t *ug, ug_opt_t *opt, uint32_t round, char *output_file_name, uint8_t flag)
+{
+    uint32_t i;
+    kv_destroy(h->u_hits.a);
+    kv_destroy(h->u_hits.idx);
+    kv_destroy(h->u_hits.occ);
+    memset(&(h->u_hits), 0, sizeof(h->u_hits));
+    kv_destroy(h->avoid);
+    h->avoid.m = h->avoid.n = 0;
+    h->avoid.a = NULL;
+    osg_destroy(h->sg.g);
+    h->sg.g = NULL;
+
+    h->ug = ug;
+    asg_destroy(h->ug->g);
+    h->ug->g = NULL;
+    // kv_push(uint64_t, h->occ, h->ug->u.n);
+    // CALLOC(h->hf.a, h->ug->u.n); h->hf.n = h->hf.m = h->ug->u.n;
+
+    print_N50(h->ug);
+    fprintf(stderr, "[M::%s::]***0***\n", __func__);
+    for (i = 0; i < round; i++)
+    {
+        fprintf(stderr, "[M::%s::]*i->%u*\n", __func__, i);
+        update_u_hits(&(h->u_hits), &(h->r_hits), h->ug, h->r_g);
+        fprintf(stderr, "[M::%s::]**i->%u**\n", __func__, i);
+        update_scg(h, NULL);
+        fprintf(stderr, "[M::%s::]***i->%u***\n", __func__, i);
+        layout_scg(h, 1.001, 19);
+        fprintf(stderr, "[M::%s::]****i->%u****\n", __func__, i);
+        renew_scaffold(h);
+        fprintf(stderr, "[M::%s::]*****i->%u*****\n", __func__, i);
     }
     
     char* gfa_name = (char*)malloc(strlen(output_file_name)+100);
@@ -3817,13 +3871,13 @@ asg_t *i_rg, ma_ug_t* i_ug, bubble_type* bub, kv_u_trans_t *ref, ug_opt_t *opt, 
     t_idx = init_trans_col(i_ug, h->r_g->n_seq, ref);
     // output_hic_rtg(i_ug, h->r_g, opt, asm_opt.output_file_name);
 
-    // reduce_hamming_error(h->r_g, opt->sources, opt->coverage_cut, opt->max_hang, opt->min_ovlp, opt->gap_fuzz);
+    reduce_hamming_error(h->r_g, opt->sources, opt->coverage_cut, opt->max_hang, opt->min_ovlp, opt->gap_fuzz);
     /**
     scaffold_hap(h, t_idx, opt, round, asm_opt.output_file_name, FATHER);
     scaffold_hap(h, t_idx, opt, round, asm_opt.output_file_name, MOTHER);
     **/
     
-
+    
     generate_haplotypes(h, opt);
     print_N50(h->ug);
     
@@ -3848,6 +3902,18 @@ asg_t *i_rg, ma_ug_t* i_ug, bubble_type* bub, kv_u_trans_t *ref, ug_opt_t *opt, 
     return h;
 }
 
+
+
+void ha_aware_order(kvec_pe_hit *r_hits, asg_t *rg, ma_ug_t *ug_fa, ma_ug_t *ug_mo, kv_u_trans_t *ref, 
+ug_opt_t *opt, uint32_t round)
+{
+    horder_t *h = NULL; CALLOC(h, 1);
+    h->r_hits = *r_hits;
+    h->r_g = rg;
+    scaffold_ug(h, ug_fa, opt, round, asm_opt.output_file_name, FATHER);
+    scaffold_ug(h, ug_mo, opt, round, asm_opt.output_file_name, MOTHER);
+}
+
 void destory_horder_t(horder_t **h)
 {
     kv_destroy((*h)->r_hits.a);
@@ -3865,4 +3931,12 @@ void destory_horder_t(horder_t **h)
     ma_ug_destroy((*h)->ug);
     asg_destroy((*h)->r_g);
     free((*h));
+}
+
+kvec_pe_hit *get_r_hits_order(kvec_pe_hit *uhits, uint64_t hits_uid_bits, uint64_t hits_pos_mode, 
+asg_t *rg, ma_ug_t* ug, bubble_type* bub)
+{
+    kvec_pe_hit *r_hits = NULL; CALLOC(r_hits, 1);
+    get_r_hits(uhits, r_hits, rg, ug, bub, hits_uid_bits, hits_pos_mode);
+    return r_hits;
 }

@@ -493,6 +493,59 @@ void hc_pt_t_gen_single(hc_pt1_t* pt, uint64_t* up_bound, uint64_t* low_bound)
     CALLOC(pt->a, pt->n);
 }
 
+void write_dbug(ma_ug_t* ug, FILE* fp)
+{
+    ma_utg_t *u = NULL;
+    uint32_t t, i;
+    fwrite(&(ug->u.n), sizeof(ug->u.n), 1, fp);
+    for (i = 0; i < ug->u.n; i++)
+    {
+        u = &(ug->u.a[i]);
+        t = u->len;
+        fwrite(&t, sizeof(t), 1, fp);
+        t = u->circ;
+        fwrite(&t, sizeof(t), 1, fp);
+        fwrite(&(u->start), sizeof(u->start), 1, fp);
+        fwrite(&(u->end), sizeof(u->end), 1, fp);
+        fwrite(&(u->n), sizeof(u->n), 1, fp);
+        fwrite(u->a, sizeof(uint64_t), u->n, fp);
+    }
+}
+
+uint32_t test_dbug(ma_ug_t* ug, FILE* fp)
+{
+    uint32_t f_flag = 0, t, i, r_flag = 0;
+    size_t tt;
+    ma_utg_t ua, *ub = NULL; memset(&ua, 0, sizeof(ua));
+    f_flag = fread(&tt, sizeof(tt), 1, fp);
+    if(f_flag == 0 || tt != ug->u.n) goto DES;
+    for (i = 0; i < tt; i++)
+    {
+        ub = &(ug->u.a[i]);
+        f_flag = fread(&t, sizeof(t), 1, fp);
+        if(f_flag == 0 || t != ub->len) goto DES;
+        f_flag = fread(&t, sizeof(t), 1, fp);
+        if(f_flag == 0 || t != ub->circ) goto DES;
+        f_flag = fread(&(ua.start), sizeof(ua.start), 1, fp);
+        if(f_flag == 0 || ua.start != ub->start) goto DES;
+        f_flag = fread(&(ua.end), sizeof(ua.end), 1, fp);
+        if(f_flag == 0 || ua.end != ub->end) goto DES;
+        f_flag = fread(&(ua.n), sizeof(ua.n), 1, fp);
+        if(f_flag == 0 || ua.n != ub->n) goto DES;
+        t = ua.n;
+        ua.n = 0;
+        kv_resize(uint64_t, ua, t);
+        ua.n = t;
+        f_flag = fread(ua.a, sizeof(uint64_t), ua.n, fp);
+        if(f_flag == 0 || memcmp(ua.a, ub->a, ua.n)) goto DES;
+    }
+    r_flag = 1;
+
+    DES:
+    free(ua.a);
+    return r_flag;
+}
+
 int write_hc_pt_index(ha_ug_index* idx, char* file_name)
 {
     char* gfa_name = (char*)malloc(strlen(file_name)+25);
@@ -522,13 +575,16 @@ int write_hc_pt_index(ha_ug_index* idx, char* file_name)
         hc_pt_save(idx->idx_buf[i].h, fp);
     }
 
+    write_dbug(idx->ug, fp);
+
     fprintf(stderr, "[M::%s] Index has been written.\n", __func__);
     free(gfa_name);
     fclose(fp);
     return 1;
 }
 
-int load_hc_pt_index(ha_ug_index** r_idx, char* file_name)
+void destory_hc_pt_index(ha_ug_index* idx);
+int load_hc_pt_index(ha_ug_index** r_idx, ma_ug_t *ug, char* file_name)
 {
     uint64_t flag = 0;
     // double index_time = yak_realtime();
@@ -565,6 +621,16 @@ int load_hc_pt_index(ha_ug_index** r_idx, char* file_name)
     (*r_idx) = idx;
 
     free(gfa_name);
+    if(!test_dbug(ug, fp))
+    {
+        destory_hc_pt_index(idx);
+        free(idx);
+        (*r_idx) = NULL;
+        fclose(fp);
+        fprintf(stderr, "[M::%s::] ==> Renew Hi-C index\n", __func__);
+        return 0;
+    }
+
     fclose(fp);
     // fprintf(stderr, "[M::%s::%.3f] ==> HiC index has been loaded\n", __func__, yak_realtime()-index_time);
     return 1;
@@ -4640,7 +4706,7 @@ int load_hc_links(hc_links* link, const char *fn)
     return 1;
 }
 
-void write_hc_hits(kvec_pe_hit* hits, const char *fn)
+void write_hc_hits(kvec_pe_hit* hits, ma_ug_t* ug, const char *fn)
 {
     char *buf = (char*)calloc(strlen(fn) + 25, 1);
     sprintf(buf, "%s.hic.lk.bin", fn);
@@ -4648,6 +4714,7 @@ void write_hc_hits(kvec_pe_hit* hits, const char *fn)
 
     fwrite(&hits->a.n, sizeof(hits->a.n), 1, fp);
     fwrite(hits->a.a, sizeof(pe_hit), hits->a.n, fp);
+    write_dbug(ug, fp);
 
     fclose(fp);
     free(buf);
@@ -4802,7 +4869,7 @@ void debug_hc_hits_v14(kvec_pe_hit_hap* i_hits, const char *fn, const ha_ug_inde
     exit(1);
 }
 
-int load_hc_hits(kvec_pe_hit* hits, const char *fn)
+int load_hc_hits(kvec_pe_hit* hits, ma_ug_t* ug, const char *fn)
 {
     uint64_t flag = 0;
     char *buf = (char*)calloc(strlen(fn) + 25, 1);
@@ -4816,9 +4883,18 @@ int load_hc_hits(kvec_pe_hit* hits, const char *fn)
     flag += fread(&hits->a.n, sizeof(hits->a.n), 1, fp);
     hits->a.m = hits->a.n; MALLOC(hits->a.a, hits->a.n);
     flag += fread(hits->a.a, sizeof(pe_hit), hits->a.n, fp);
+    free(buf);
+
+    if(!test_dbug(ug, fp))
+    {
+        free(hits->a.a);
+        kv_init(hits->a);
+        fclose(fp);
+        fprintf(stderr, "[M::%s::] ==> Renew Hi-C linkages\n", __func__);
+        return 0;
+    }
 
     fclose(fp);
-    free(buf);
     // fprintf(stderr, "[M::%s::] ==> Hi-C linkages have been loaded\n", __func__);
     return 1;
 }
@@ -16078,12 +16154,10 @@ void renew_idx_para(ha_ug_index* idx, ma_ug_t* ug)
     idx->rev_mode = ((uint64_t)1) << 63;
 }
 
-int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, ug_opt_t *opt)
+int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, ug_opt_t *opt, kvec_pe_hit **rhits)
 {
     double index_time = yak_realtime();
     sldat_t sl;
-    kvec_hc_edge back_hc_edge;
-    kv_init(back_hc_edge.a);
     sl.idx = idx;
     sl.t_ch = idx->t_ch;
     sl.chunk_size = 20000000;
@@ -16093,10 +16167,10 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, ug_o
     kv_init(sl.hits.a); kv_init(sl.hits.idx); kv_init(sl.hits.occ);
 
     
-    if(!load_hc_hits(&sl.hits, asm_opt.output_file_name))
+    if(!load_hc_hits(&sl.hits, idx->ug, asm_opt.output_file_name))
     {
         alignment_worker_pipeline(&sl, fn1, fn2);
-        write_hc_hits(&sl.hits, asm_opt.output_file_name);
+        write_hc_hits(&sl.hits, idx->ug, asm_opt.output_file_name);
     }
     filter_kv_u_trans_t(&(idx->t_ch->k_trans), idx->ug, 0.5);
     // flter_by_cov(idx, &sl.hits, 2);
@@ -16166,6 +16240,8 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, ug_o
     // skip_flipping:
     verbose_het_stat(&bub);
 
+    if(rhits) (*rhits) = get_r_hits_order(&sl.hits, idx->uID_bits, idx->pos_mode, idx->read_g, idx->ug, &bub);
+
     // tag_reads(idx, &sl.hits, &bub, s->s, opt->sources);
 
     // print_kv_weight(&k_trans, s->s);
@@ -16184,15 +16260,12 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, ug_o
     // print_bubble_chain(&bub);
     // destory_contig_partition(&hap);
     // destory_horder_t(&ho);
-    kv_destroy(back_hc_edge.a);
-    kv_destroy(sl.hits.a);
-    kv_destroy(sl.hits.idx);
-    kv_destroy(sl.hits.occ);
+    kv_destroy(sl.hits.a); kv_destroy(sl.hits.idx); kv_destroy(sl.hits.occ);
     destory_hc_links(&link);
-    kv_destroy(k_trans); 
-    kv_destroy(k_trans.idx);
+    kv_destroy(k_trans); kv_destroy(k_trans.idx);
     destory_ps_t(&s);
     kv_destroy(u.bid); kv_destroy(u.idx); kv_destroy(u.u);
+    destory_bubbles(&bub);
     return 1;
     
 
@@ -16280,10 +16353,10 @@ int hic_short_align_poy(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, 
     kv_init(sl.hits.a); kv_init(sl.hits.idx); kv_init(sl.hits.occ);
 
     
-    if(!load_hc_hits(&sl.hits, asm_opt.output_file_name))
+    if(!load_hc_hits(&sl.hits, idx->ug, asm_opt.output_file_name))
     {
         alignment_worker_pipeline(&sl, fn1, fn2);
-        write_hc_hits(&sl.hits, asm_opt.output_file_name);
+        write_hc_hits(&sl.hits, idx->ug, asm_opt.output_file_name);
     }
 
     hc_links link;
@@ -16360,18 +16433,18 @@ int hic_short_align_poy(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, 
 }
 
 
-void hic_analysis(ma_ug_t *ug, asg_t* read_g, trans_chain* t_ch, ug_opt_t *opt, uint32_t is_poy)
+void hic_analysis(ma_ug_t *ug, asg_t* read_g, trans_chain* t_ch, ug_opt_t *opt, uint32_t is_poy, kvec_pe_hit **rhits)
 {
     ug_index = NULL;
     int exist = (asm_opt.load_index_from_disk? 
-                    load_hc_pt_index(&ug_index, asm_opt.output_file_name) : 0);
+                    load_hc_pt_index(&ug_index, ug, asm_opt.output_file_name) : 0);
     if(exist == 0) ug_index = build_unitig_index(ug, asm_opt.hic_mer_length, asm_opt.hap_occ, 0, asm_opt.thread_num);
     if(exist == 0) write_hc_pt_index(ug_index, asm_opt.output_file_name);
     ug_index->ug = ug;
     ug_index->read_g = read_g;
     ug_index->t_ch = t_ch;
     ///test_unitig_index(ug_index, ug);
-    if(!is_poy) hic_short_align(asm_opt.hic_reads[0], asm_opt.hic_reads[1], ug_index, opt);
+    if(!is_poy) hic_short_align(asm_opt.hic_reads[0], asm_opt.hic_reads[1], ug_index, opt, rhits);
     else hic_short_align_poy(asm_opt.hic_reads[0], asm_opt.hic_reads[1], ug_index, opt);
     
     
@@ -16820,12 +16893,12 @@ int hic_short_align_bench(const enzyme *fn1, const enzyme *fn2, const char *outp
     kv_init(sl.hits.a);
     fprintf(stderr, "u.n: %d, uID_bits: %lu, pos_bits: %lu\n", (uint32_t)idx->ug->u.n, idx->uID_bits, idx->pos_bits);
     
-    if(!load_hc_hits(&sl.hits, output_file_name))
+    if(!load_hc_hits(&sl.hits, idx->ug, output_file_name))
     {
         // kt_pipeline(3, worker_pipeline, &sl, 3);
         // dedup_hits(&sl.hits);
         alignment_worker_pipeline(&sl, fn1, fn2);
-        write_hc_hits(&sl.hits, output_file_name);
+        write_hc_hits(&sl.hits, idx->ug, output_file_name);
     }
     bench_idx bench;
     init_bench_idx(&bench, idx->read_g, idx->ug);
@@ -16843,7 +16916,7 @@ void hic_benchmark(ma_ug_t *ug, asg_t* read_g)
     char *output_file_name = (char*)calloc(strlen(asm_opt.output_file_name) + 25, 1);
 	sprintf(output_file_name, "%s.bench", asm_opt.output_file_name);
     ug_index = NULL;
-    int exist = load_hc_pt_index(&ug_index, output_file_name);
+    int exist = load_hc_pt_index(&ug_index, ug, output_file_name);
     if(exist == 0) ug_index = build_unitig_index(ug, asm_opt.hic_mer_length, asm_opt.hap_occ, 0, asm_opt.thread_num);
     if(exist == 0) write_hc_pt_index(ug_index, output_file_name);
     ug_index->ug = ug;

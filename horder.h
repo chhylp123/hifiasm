@@ -48,6 +48,8 @@ typedef struct {
 }scg_t;
 typedef struct {
 	kvec_t(uint64_t) avoid;
+    // kvec_t(uint64_t) occ;
+    // kvec_t(uint8_t) hf;
     kvec_pe_hit r_hits, u_hits;
     ma_ug_t *ug;
     asg_t *r_g;
@@ -61,4 +63,8 @@ void horder_clean_sg_by_utg(asg_t *sg, ma_ug_t *ug);
 kvec_pe_hit *get_r_hits_for_trio(kvec_pe_hit *u_hits, asg_t* r_g, ma_ug_t* ug, bubble_type* bub, uint64_t uID_bits, uint64_t pos_mode);
 void update_switch_unitig(ma_ug_t *ug, asg_t *rg, kvec_pe_hit *hits, kv_u_trans_t *k_trans, uint64_t cutoff_s, uint64_t cutoff_e,
 uint64_t min_ulen, double boundaryRate);
+kvec_pe_hit *get_r_hits_order(kvec_pe_hit *uhits, uint64_t hits_uid_bits, uint64_t hits_pos_mode, 
+asg_t *rg, ma_ug_t* ug, bubble_type* bub);
+void ha_aware_order(kvec_pe_hit *r_hits, asg_t *rg, ma_ug_t *ug_fa, ma_ug_t *ug_mo, kv_u_trans_t *ref, 
+ug_opt_t *opt, uint32_t round);
 #endif
