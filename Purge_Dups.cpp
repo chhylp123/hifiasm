@@ -5267,9 +5267,14 @@ uint32_t just_coverage, hap_cov_t *cov, uint32_t collect_p_trans, uint32_t colle
     hap_alignment_struct_pip hap_buf;
     long long k_mer_only, coverage_only;
 
-    if(asm_opt.hom_global_coverage != -1)
+    if(asm_opt.pur_global_coverage != -1)
     {
-        hap_buf.cov_threshold = asm_opt.hom_global_coverage;
+        hap_buf.cov_threshold = asm_opt.pur_global_coverage;
+    }
+    else if(asm_opt.hom_global_coverage != -1)
+    {
+        hap_buf.cov_threshold = (asm_opt.hom_global_coverage_set?
+                (((double)asm_opt.hom_global_coverage)*((double)HOM_PEAK_RATE)):(asm_opt.hom_global_coverage));
     }
     else
     {

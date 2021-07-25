@@ -43,6 +43,7 @@ KRADIX_SORT_INIT(u_trans_m, u_trans_t, u_trans_m_key, 8)
 KRADIX_SORT_INIT(u_trans_occ, u_trans_t, u_trans_occ_key, member_size(u_trans_t, occ))
 
 #define is_hom_hit(a) ((a).id == (uint64_t)-1)
+#define HC_PT_MA 65
 
 typedef struct {
     kv_gg_status sg;
@@ -555,7 +556,9 @@ int write_hc_pt_index(ha_ug_index* idx, char* file_name)
         free(gfa_name);
         return 0;
     }
+    uint64_t i = HC_PT_MA;
 
+    fwrite(&i, sizeof(i), 1, fp);
     fwrite(&idx->uID_bits, sizeof(idx->uID_bits), 1, fp);
     fwrite(&idx->uID_mode, sizeof(idx->uID_mode), 1, fp);
     fwrite(&idx->pos_bits, sizeof(idx->pos_bits), 1, fp);
@@ -566,7 +569,6 @@ int write_hc_pt_index(ha_ug_index* idx, char* file_name)
     fwrite(&idx->tot, sizeof(idx->tot), 1, fp);
     fwrite(&idx->tot_pos, sizeof(idx->tot_pos), 1, fp);
 
-    uint64_t i = 0;
     for (i = 0; i < idx->tot; i++)
     {
         fwrite(&idx->idx_buf[i].n, sizeof(idx->idx_buf[i].n), 1, fp);
@@ -596,7 +598,19 @@ int load_hc_pt_index(ha_ug_index** r_idx, ma_ug_t *ug, char* file_name)
         return 0;
     }
     ha_ug_index* idx = NULL; CALLOC(idx, 1);
+    uint64_t i;
 
+    flag += fread(&i, sizeof(i), 1, fp);
+    if(i != HC_PT_MA)
+    {
+        free(gfa_name);
+        destory_hc_pt_index(idx);
+        free(idx);
+        (*r_idx) = NULL;
+        fclose(fp);
+        fprintf(stderr, "[M::%s::] ==> Renew Hi-C index\n", __func__);
+        return 0;
+    }
     flag += fread(&idx->uID_bits, sizeof(idx->uID_bits), 1, fp);
     flag += fread(&idx->uID_mode, sizeof(idx->uID_mode), 1, fp);
     flag += fread(&idx->pos_bits, sizeof(idx->pos_bits), 1, fp);
@@ -607,7 +621,7 @@ int load_hc_pt_index(ha_ug_index** r_idx, ma_ug_t *ug, char* file_name)
     flag += fread(&idx->tot, sizeof(idx->tot), 1, fp);
     flag += fread(&idx->tot_pos, sizeof(idx->tot_pos), 1, fp);
     MALLOC(idx->idx_buf, idx->tot);
-    uint64_t i = 0;
+
     for (i = 0; i < idx->tot; i++)
     {
         flag += fread(&idx->idx_buf[i].n, sizeof(idx->idx_buf[i].n), 1, fp);
@@ -876,6 +890,14 @@ ha_ug_index* build_unitig_index(ma_ug_t *ug, int k, uint64_t up_occ, uint64_t lo
     fprintf(stderr, "[M::%s::%.3f] ==> Sorting pos\n", __func__, yak_realtime()-beg_time);
 
     fprintf(stderr, "[M::%s::%.3f] ==> HiC index has been built\n", __func__, yak_realtime()-index_time);
+    
+    uint64_t i;
+    for (i = 0; i < idx->tot; i++)
+    {
+        kv_destroy(pl.cnt[i].a);
+        kv_destroy(pl.buf[i].a);
+    }
+    free(pl.cnt); free(pl.buf);
 
     return idx;
 }
@@ -4043,6 +4065,7 @@ void update_containment_distance(asg_t *sg, kv_u_trans_t *ta, hc_links* link)
     }
 
     kv_destroy(buf.a);
+    free(uc_idx);
 }
 
 
@@ -4877,7 +4900,12 @@ int load_hc_hits(kvec_pe_hit* hits, ma_ug_t* ug, const char *fn)
 
     FILE* fp = NULL; 
     fp = fopen(buf, "r"); 
-    if(!fp) return 0;
+    if(!fp) 
+    {
+        free(buf);
+        return 0;
+    }
+    
 
     kv_init(hits->a);
     flag += fread(&hits->a.n, sizeof(hits->a.n), 1, fp);
@@ -9506,11 +9534,20 @@ H_partition* hap, int8_t *s, mc_gg_status *sa, trans_idx* dis)
         if((buf.a[k]&1) == 1) f_idx = k;
     }
     buf.n = MIN(r_idx, f_idx);
-    
+
     
     trans_p_t* p = NULL;
     dis->n = 0;
     uint64_t bin_size = MIN(2250, buf.n>>8), m;
+    if(bin_size == 0)
+    {
+        for (i = 8; i > 0; i--)
+        {
+            bin_size = buf.n>>i;
+            if(bin_size > 0) break;
+        }
+        if(bin_size == 0) bin_size = buf.n;
+    }
     i = 0;
     while (i < buf.n)
     {
@@ -9603,7 +9640,7 @@ H_partition* hap, int8_t *s, mc_gg_status *sa, trans_idx* dis)
         dis->a[i].end += ((dis->a[i+1].beg - dis->a[i].end)/2);
         dis->a[i+1].beg = dis->a[i].end;
     }
-    
+
     // for (i = 0; i < dis->n; i++)
     // {
     //     if(i > 0 && dis->a[i].beg != dis->a[i-1].end) fprintf(stderr, "ERROR: dis->a[i].beg: %lu, dis->a[i-1].end: %lu\n", dis->a[i].beg, dis->a[i-1].end);
@@ -9617,7 +9654,7 @@ H_partition* hap, int8_t *s, mc_gg_status *sa, trans_idx* dis)
 
     dis->max = dis->a[dis->n-1].end;
 
-    
+
     
     if(idx->a < 0) idx->a = 0;
     if(idx->a == 0)
@@ -16166,7 +16203,7 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, ug_o
     idx->hap_cnt = asm_opt.hap_occ;
     kv_init(sl.hits.a); kv_init(sl.hits.idx); kv_init(sl.hits.occ);
 
-    
+
     if(!load_hc_hits(&sl.hits, idx->ug, asm_opt.output_file_name))
     {
         alignment_worker_pipeline(&sl, fn1, fn2);
@@ -16448,7 +16485,7 @@ void hic_analysis(ma_ug_t *ug, asg_t* read_g, trans_chain* t_ch, ug_opt_t *opt, 
     else hic_short_align_poy(asm_opt.hic_reads[0], asm_opt.hic_reads[1], ug_index, opt);
     
     
-    destory_hc_pt_index(ug_index);
+    destory_hc_pt_index(ug_index);free(ug_index);
 }
 
 

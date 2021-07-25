@@ -4,7 +4,7 @@
 #include <pthread.h>
 #include <stdint.h>
 
-#define HA_VERSION "0.15.4-r348"
+#define HA_VERSION "0.15.4-r349"
 
 #define VERBOSE 0
 
@@ -77,6 +77,7 @@ typedef struct {
     int recover_atg_cov_max;
     int hom_global_coverage;
     int hom_global_coverage_set;
+    int pur_global_coverage;
     int bed_inconsist_rate;
     int hic_inconsist_rate;
 

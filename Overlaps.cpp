@@ -16995,7 +16995,8 @@ kvec_asg_arc_t_warp* new_rtg_edges, bub_label_t* b_mask_t)
 
     if(asm_opt.recover_atg_cov_min == -1024)
     {
-        asm_opt.recover_atg_cov_max = asm_opt.hom_global_coverage/HOM_PEAK_RATE;
+        asm_opt.recover_atg_cov_max = (asm_opt.hom_global_coverage_set?
+            (asm_opt.hom_global_coverage):(((double)asm_opt.hom_global_coverage)/((double)HOM_PEAK_RATE)));         
         asm_opt.recover_atg_cov_min = asm_opt.recover_atg_cov_max * 0.85;
         asm_opt.recover_atg_cov_max = INT32_MAX;
     }
@@ -24806,7 +24807,8 @@ uint32_t collect_p_trans, uint32_t collect_p_trans_f)
 
     if(asm_opt.recover_atg_cov_min == -1024)
     {
-        asm_opt.recover_atg_cov_max = asm_opt.hom_global_coverage/HOM_PEAK_RATE;
+        asm_opt.recover_atg_cov_max = (asm_opt.hom_global_coverage_set?
+            (asm_opt.hom_global_coverage):(((double)asm_opt.hom_global_coverage)/((double)HOM_PEAK_RATE)));
         asm_opt.recover_atg_cov_min = asm_opt.recover_atg_cov_max * 0.85;
         asm_opt.recover_atg_cov_max = INT32_MAX;
     }

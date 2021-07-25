@@ -136,25 +136,33 @@ static kh_inline khint_t __kh_h2b(khint_t hash, khint_t bits) { return hash * 26
 #define __KHASHL_IMPL_S_L(SCOPE, HType, prefix, khkey_t) \
 	SCOPE khint_t prefix##_save(HType *h, FILE* fp) { \
 		if (!h) return 0; \
+		uint8_t ff; \
 		khint_t n_buckets = (h->keys? 1U<<h->bits : 0U); \
 		fwrite(&n_buckets, sizeof(n_buckets), 1, fp); \
 		fwrite(&h->bits, sizeof(h->bits), 1, fp); \
 		fwrite(&h->count, sizeof(h->count), 1, fp); \
-		fwrite(h->used, sizeof(khint32_t), __kh_fsize(n_buckets), fp); \
-		fwrite(h->keys, sizeof(khkey_t), n_buckets, fp); \
+		ff = h->used? 1:0; fwrite(&ff, sizeof(ff), 1, fp); \
+		if(ff) fwrite(h->used, sizeof(khint32_t), __kh_fsize(n_buckets), fp); \
+		ff = h->keys? 1:0; fwrite(&ff, sizeof(ff), 1, fp); \
+		if(ff) fwrite(h->keys, sizeof(khkey_t), n_buckets, fp); \
 		return 1; \
 	} \
 	SCOPE khint_t prefix##_load(HType **h, FILE* fp) { \
 		(*h) = prefix##_init(); \
 		khint_t n_buckets; \
 		uint64_t flag = 0;\
+		uint8_t ff; \
 		flag += fread(&n_buckets, sizeof(n_buckets), 1, fp); \
 		flag += fread(&(*h)->bits, sizeof((*h)->bits), 1, fp); \
 		flag += fread(&(*h)->count, sizeof((*h)->count), 1, fp); \
+		flag += fread(&ff, sizeof(ff), 1, fp); \
+		if(ff) {\
 		(*h)->used = (khint32_t*)kmalloc(__kh_fsize(n_buckets) * sizeof(khint32_t)); \
+		flag += fread((*h)->used, sizeof(khint32_t), __kh_fsize(n_buckets), fp); }\
+		flag += fread(&ff, sizeof(ff), 1, fp); \
+		if(ff) {\
 		(*h)->keys = (khkey_t*)kmalloc(n_buckets * sizeof(khkey_t)); \
-		flag += fread((*h)->used, sizeof(khint32_t), __kh_fsize(n_buckets), fp); \
-		flag += fread((*h)->keys, sizeof(khkey_t), n_buckets, fp); \
+		flag += fread((*h)->keys, sizeof(khkey_t), n_buckets, fp); }\
 		return 1; \
 	} \
 

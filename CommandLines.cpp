@@ -21,7 +21,7 @@ static ko_longopt_t long_options[] = {
 	{ "max-od-final",  ko_no_argument, 306 },
 	{ "ex-list",       ko_required_argument, 307 },
 	{ "ex-iter",       ko_required_argument, 308 },
-    { "purge-cov",     ko_required_argument, 309 },
+    { "hom-cov",     ko_required_argument, 309 },
     { "pri-range",     ko_required_argument, 310 },
     { "lowQ",          ko_required_argument, 312 },
 	{ "min-hist-cnt",  ko_required_argument, 313 },
@@ -39,6 +39,7 @@ static ko_longopt_t long_options[] = {
     { "n-hap",      ko_required_argument, 325 },
     { "n-weight",      ko_required_argument, 326 },
     { "l-msjoin",      ko_required_argument, 327 },
+    { "purge-max",     ko_required_argument, 328 },
 	{ 0, 0, 0 }
 };
 
@@ -55,9 +56,8 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "Options:\n");
 	fprintf(stderr, "  Input/Output:\n");
     fprintf(stderr, "    -o STR       prefix of output files [%s]\n", asm_opt->output_file_name);
-    fprintf(stderr, "    -i           ignore saved read correction and overlaps\n");
     fprintf(stderr, "    -t INT       number of threads [%d]\n", asm_opt->thread_num);
-    fprintf(stderr, "    -z INT       length of adapters that should be removed [%d]\n", asm_opt->adapterLen);
+    fprintf(stderr, "    -h           show help information\n");
     fprintf(stderr, "    --version    show version number\n");
 	fprintf(stderr, "  Overlap/Error correction:\n");
     fprintf(stderr, "    -k INT       k-mer length (must be <64) [%d]\n", asm_opt->k_mer_length);
@@ -68,12 +68,16 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "    -r INT       round of correction [%d]\n", asm_opt->number_of_round);
     fprintf(stderr, "  Assembly:\n");
     fprintf(stderr, "    -a INT       round of assembly cleaning [%d]\n", asm_opt->clean_round);
+    fprintf(stderr, "    -z INT       length of adapters that should be removed [%d]\n", asm_opt->adapterLen);
     fprintf(stderr, "    -m INT       pop bubbles of <INT in size in contig graphs [%lld]\n", asm_opt->large_pop_bubble_size);
     fprintf(stderr, "    -p INT       pop bubbles of <INT in size in unitig graphs [%lld]\n", asm_opt->small_pop_bubble_size);
     fprintf(stderr, "    -n INT       remove tip unitigs composed of <=INT reads [%d]\n", asm_opt->max_short_tip);
     fprintf(stderr, "    -x FLOAT     max overlap drop ratio [%.2g]\n", asm_opt->max_drop_rate);
     fprintf(stderr, "    -y FLOAT     min overlap drop ratio [%.2g]\n", asm_opt->min_drop_rate);
+    fprintf(stderr, "    -i           ignore saved read correction and overlaps\n");
     fprintf(stderr, "    -u           disable post join contigs step which may improve N50\n");
+    fprintf(stderr, "    --hom-cov    INT\n");
+    fprintf(stderr, "                 homozygous read coverage [auto]\n");
     fprintf(stderr, "    --lowQ       INT\n");
     fprintf(stderr, "                 output contig regions with >=INT%% inconsistency in BED format; 0 to disable [%d]\n", asm_opt->bed_inconsist_rate);
     fprintf(stderr, "    --b-cov      INT\n");
@@ -105,7 +109,7 @@ void Print_H(hifiasm_opt_t* asm_opt)
                                       asm_opt->purge_simi_rate_l2, asm_opt->purge_simi_rate_l3);
     fprintf(stderr, "    -O INT       min number of overlapped reads for duplicate haplotigs [%d]\n", 
                                       asm_opt->purge_overlap_len);
-    fprintf(stderr, "    --purge-cov  INT\n");
+    fprintf(stderr, "    --purge-max  INT\n");
     fprintf(stderr, "                 coverage upper bound of Purge-dups [auto]\n");
     fprintf(stderr, "    --n-hap      INT\n");
     fprintf(stderr, "                 number of haplotypes [%d]\n", asm_opt->polyploidy);
@@ -183,6 +187,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->recover_atg_cov_max = INT_MAX;
     asm_opt->hom_global_coverage = -1;
     asm_opt->hom_global_coverage_set = 0;
+    asm_opt->pur_global_coverage = -1;
     asm_opt->bed_inconsist_rate = 70;
     asm_opt->hic_inconsist_rate = 30;
     ///asm_opt->bub_mer_length = 3;
@@ -410,7 +415,13 @@ int check_option(hifiasm_opt_t* asm_opt)
 
     if(asm_opt->hom_global_coverage < 0 && asm_opt->hom_global_coverage != -1)
     {
-        fprintf(stderr, "[ERROR] purge duplication coverage threshold should be >= 0 (--purge-cov)\n");
+        fprintf(stderr, "[ERROR] homozygous read coverage should be >= 0 (--hom-cov)\n");
+        return 0;
+    }
+
+    if(asm_opt->pur_global_coverage < 0 && asm_opt->pur_global_coverage != -1)
+    {
+        fprintf(stderr, "[ERROR] purge duplication coverage threshold should be >= 0 (--purge-max)\n");
         return 0;
     }
 
@@ -663,6 +674,7 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         else if (c == 325) asm_opt->polyploidy = atoi(opt.arg);
         else if (c == 326) asm_opt->n_weight = atoi(opt.arg);
         else if (c == 327) asm_opt->misjoin_len = atol(opt.arg);
+        else if (c == 328) asm_opt->pur_global_coverage = atoi(opt.arg);
         else if (c == 'l')
         {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
             asm_opt->purge_level_primary = asm_opt->purge_level_trio = atoi(opt.arg);
