@@ -77,7 +77,7 @@ How can I tweak parameters to improve Hi-C integrated assembly?
 
 Why the size of primary assembly or partially phased assembly is much larger than the estimated genome size? 
 ---------------------------------------------------------------------------------------------------------------
-    It could be because the estimated genome size is incorrect. Another possibility is that hifiasm does not perform enough purging. Setting smaller value for ``-s`` (default: 0.55) or turning ``--purge-cov`` should be helpful. See :ref:`loginter` for more details.
+    It could be because the estimated genome size is incorrect. Another possibility is that hifiasm does not perform enough purging. Setting smaller value for ``-s`` (default: 0.55) or turning ``--hom-cov`` should be helpful. See :ref:`loginter` for more details.
 
 
 .. _p-hamming:
