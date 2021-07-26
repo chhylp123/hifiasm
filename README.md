@@ -8,7 +8,7 @@ cd hifiasm && make
 # Run on test data (use -f0 for small datasets)
 wget https://github.com/chhylp123/hifiasm/releases/download/v0.7/chr11-2M.fa.gz
 ./hifiasm -o test -t4 -f0 chr11-2M.fa.gz 2> test.log
-awk '/^S/{print ">"$2;print $3}' test.p_ctg.gfa > test.p_ctg.fa  # get primary contigs in FASTA
+awk '/^S/{print ">"$2;print $3}' test.bp.p_ctg.gfa > test.p_ctg.fa  # get primary contigs in FASTA
 
 # Assemble inbred/homozygous genomes (-l0 disables duplication purging)
 hifiasm -o CHM13.asm -t32 -l0 CHM13-HiFi.fa.gz 2> CHM13.asm.log
@@ -81,8 +81,8 @@ hifiasm -o NA12878.asm -t 32 NA12878.fq.gz
 ```
 where `NA12878.fq.gz` provides the input reads, `-t` sets the number of CPUs in
 use and `-o` specifies the prefix of output files. For this example, the
-primary contigs are written to `NA12878.asm.bp.p_ctg.gfa` and alternate contigs to
-`NA12878.asm.bp.a_ctg.gfa`. Since v0.15, hifiasm also produces two sets of
+primary contigs are written to `NA12878.asm.bp.p_ctg.gfa`. 
+Since v0.15, hifiasm also produces two sets of
 partially phased contigs at `NA12878.asm.bp.hap?.p_ctg.gfa`. This pair of files
 can be thought to represent the two haplotypes in a diploid genome, though with
 occasional switch errors. The frequency of switches is determined by the
@@ -116,8 +116,8 @@ In this mode, each contig is supposed to be a haplotig, which by definition
 comes from one parental haplotype only. Hifiasm often puts all contigs from the
 same parental chromosome in one assembly. It has cleanly separated chrX and
 chrY for a human male dataset. Nonetheless, phasing across centromeres is
-challenging. Users should not expect hifiasm to phase entire chromosomes at the
-moment. Also, contigs from different parental chromosomes are randomly mixed as
+challenging. Hifiasm is often able to phase entire chromosomes but it may fail 
+in rare cases. Also, contigs from different parental chromosomes are randomly mixed as
 it is just not possible to phase across chromosomes with Hi-C.
 
 Hifiasm does not perform scaffolding for now. You need to run a standalone
@@ -133,7 +133,7 @@ yak count -k31 -b37 -t16 -o pat.yak paternal.fq.gz
 yak count -k31 -b37 -t16 -o mat.yak maternal.fq.gz
 hifiasm -o NA12878.asm -t 32 -1 pat.yak -2 mat.yak NA12878.fq.gz
 ```
-Here `NA12878.asm.hap1.p_ctg.gfa` and `NA12878.asm.hap2.p_ctg.gfa` give the two
+Here `NA12878.asm.dip.hap1.p_ctg.gfa` and `NA12878.asm.dip.hap2.p_ctg.gfa` give the two
 haplotype assemblies. In the binning mode, hifiasm does not purge haplotig
 duplicates by default. Because hifiasm reuses saved overlaps, you can
 generate both primary/alternate assemblies and trio binning assemblies with
@@ -145,32 +145,10 @@ The second command line will run much faster than the first.
 
 ### <a name="output"></a>Output files
 
-For non-trio assembly, hifiasm generates the following files:
-
-1. Haplotype-resolved raw [unitig][unitig] graph in [GFA][gfa] format
-   (*prefix*.r\_utg.gfa). This graph keeps all haplotype information, including
-   somatic mutations and recurrent sequencing errors.
-2. Haplotype-resolved processed unitig graph without small bubbles
-   (*prefix*.p\_utg.gfa). Small bubbles might be caused by somatic mutations or noise in data, 
-   which are not the real haplotype information.
-3. Primary assembly [contig][unitig] graph (*prefix*.p\_ctg.gfa). This graph collapses different
-   haplotypes.
-4. Alternate assembly contig graph (*prefix*.a\_ctg.gfa). This graph consists of all assemblies that
-   are discarded in primary contig graph.
-
-For trio assembly, hifiasm generates the following files:
-
-1. Haplotype-resolved raw [unitig][unitig] graph in [GFA][gfa] format
-   (*prefix*.r\_utg.gfa). This graph keeps all haplotype information. 
-
-2. Phased paternal/haplotype1 contig graph (*prefix*.hap1.p\_ctg.gfa). This graph keeps the phased
-   paternal/haplotype1 assembly.
-
-3. Phased maternal/haplotype2 contig graph (*prefix*.hap2.p\_ctg.gfa). This graph keeps the phased
-   maternal/haplotype2 assembly.
-
-Hifiasm writes error corrected reads to the *prefix*.ec.bin binary file and
+Hifiasm generates different types of assemblies based on the input data. 
+It also writes error corrected reads to the *prefix*.ec.bin binary file and
 writes overlaps to *prefix*.ovlp.source.bin and *prefix*.ovlp.reverse.bin.
+For more details, please see the complete [documentation][tutorial_output].
 
 ## <a name="results"></a>Results
 
@@ -226,6 +204,8 @@ non-human ones are available [here][zenodo-nonh].
 [paf]: https://github.com/lh3/miniasm/blob/master/PAF.md
 [yak]: https://github.com/lh3/yak
 [tutorial]: https://hifiasm.readthedocs.io/en/latest/index.html
+[tutorial_output]: https://hifiasm.readthedocs.io/en/latest/interpreting-output.html#interpreting-output
+
 
 ## <a name="help"></a>Getting Help
 

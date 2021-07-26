@@ -24,8 +24,6 @@ The W-line and H-line reported by ``yak trioeval`` indicate switch error rate an
  W       26714   3029448 0.008818
  H       24315   3029885 0.008025
 
-For this example, the switch error rate is 0.8818% and the hamming error rate is 0.8025%.
+For this example, the switch error rate is 0.8818% and the hamming error rate is 0.8025%. If the hamming error rate or the swith error rate of trio-binning assembly is very high, it might be caused by hifiasm or the incorrect parental data. To fix it, see :ref:`p-hamming` for more details.
 
-In rare cases, a potential issue is that a few contigs may misjoin two haplotypes. For example, half of a contig come from mother while another half come from father. Such misjoined contigs can be fixed by 
-manually breaking. The coordinates of problematic regions can be found by A-lines in GFA file or ``yak trioeval -e``. However, if there are many misjoined contigs or the switch/hamming error rate reported by ``yak trioeval`` is very high, users should check if the parental data is correct (see `example <https://github.com/chhylp123/hifiasm/issues/130#issuecomment-862347943>`_ for more details).
 

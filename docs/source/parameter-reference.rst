@@ -75,17 +75,34 @@ Error correction options
 .. _fopt:
 
 **\-f <INT=37>**    
-  Number  of  bits for bloom filter; 0 to disable. This bloom filter is used to filter out singleton k-mers when counting all k-mers. It takes 2\ :sup:`(INT-3)` bytes of memory. A proper setting saves memory. For small genomes, use ``-f0`` to disable the initial bloom filter which takes 16GB memory at the beginning. For genomes much larger than human, applying ``-f38`` or even ``-f39`` is preferred to save memory on k-mer counting.
+  Number  of  bits for bloom filter; 0 to disable. This bloom filter is used to filter out singleton k-mers when counting all k-mers. It takes 2\ :sup:`(INT-3)` bytes of memory. A proper setting saves memory. ``-f37`` is recommended for human assembly. For small genomes, use ``-f0`` to disable the initial bloom filter which takes 16GB memory at the beginning. For genomes much larger than human, applying ``-f38`` or even ``-f39`` is preferred to save memory on k-mer counting.
+
+.. _Dopt:
+
+**\-D <FLOAT=5.0>**    
+  Drop k-mers occurring ``>FLOAT*coverage`` times. Hifiasm discards these high-frequency k-mers during error correction to reduce running time. The ``coverage`` is determined automatically by hifiasm based on k-mer plot, representing homozygous read coverage. Raising this option may improve the resolution of repetitive regions but takes longer time.
+
+.. _NEopt:
+
+**\-N <INT=100>**
+  Consider up to ``max(-D*coverage,-N)`` overlaps for each oriented read. The ``coverage`` is determined automatically by hifiasm based on k-mer plot, representing homozygous read coverage. Raising this option may improve the resolution of repetitive regions but takes longer time.
 
 .. _ropt:
 
 **\-r <INT=3>**
   Rounds of haplotype-aware error correction. This option affects all outputs of hifiasm. Odd rounds of correction are preferred in practice.
 
+
+.. _zopt:
+
+**\-z <INT=0>**
+  Length  of  adapters that should be removed. This option remove ``INT`` bases from both ends of each read.  Some old HiFi reads may consist of short adapters (e.g. 20bp adapter at one end). For such data, trimming short adapters would significantly improve the assembly quality.
+
+
 .. _min-hist-cnt-opt:
 
 **\-\-min-hist-cnt <INT=5>**
-  When analyzing the k-mer spectrum, ignore counts below ``INT``. See `issue 45 <https://github.com/chhylp123/hifiasm/issues/49>`_ for example.
+  When analyzing the k-mer spectrum, ignore counts below ``INT``. For very low coverage of HiFi data, set smaller value for this option. See `issue 45 <https://github.com/chhylp123/hifiasm/issues/49>`_ for example.
 
 
 
@@ -97,10 +114,6 @@ Assembly options
 **\-a <INT=4>**
   Rounds of assembly graph cleaning. This option is used with ``-x`` and ``-y``. Note that unlike -r, this option does not affect error corrected reads and all-to-all overlaps.
 
-.. _zopt:
-
-**\-z <INT=0>**
-  Length  of  adapters that should be removed. This option remove ``INT`` bases from both ends of each read.  Some old HiFi reads may consist of short adapters (e.g. 20bp adapter at one end). For such data, trimming short adapters would significantly improve the assembly quality.
 
 .. _mopt:
 
@@ -110,7 +123,7 @@ Assembly options
 .. _popt:
 
 **\-p <INT=0>**
-  Maximal probing distance for bubble popping when generating haplotype-resolved processed unitig graph without small bubbles. Bubbles longer than ``INT`` bases will not be popped. Small bubbles might be caused by somatic mutations or noise in data. Please note that hifiasm automatically pops small bubbles based on coverage, which can be tweaked by ``--purge-cov``.
+  Maximal probing distance for bubble popping when generating haplotype-resolved processed unitig graph without small bubbles. Bubbles longer than ``INT`` bases will not be popped. Small bubbles might be caused by somatic mutations or noise in data. Please note that hifiasm automatically pops small bubbles based on coverage, which can be tweaked by ``--hom-cov``.
 
 .. _nopt:
 
@@ -120,12 +133,23 @@ Assembly options
 .. _xyopt:
 
 **\-x <FLOAT1=0.8>, \-y <FLOAT2=0.2>**
-  Max and min overlap drop ratio. This option is used with ``-a``. Given a node N in the assembly graph, let max(N) be the length of the largest overlap of N. Hifiasm iteratively drops overlaps of N if their length/max(N) is below a threshold controlled by ``-x`` and ``-y``. Hifiasm applies ``-a`` rounds of short overlap removal with an increasing threshold between ``FLOAT1`` and ``FLOAT2``.
+  Max and min overlap drop ratio. This option is used with ``-a``. Given a node N in the assembly graph, let max(N) be the length of the longest overlap of N. Hifiasm iteratively drops overlaps of N if their length/max(N) is below a threshold controlled by ``-x`` and ``-y``. Hifiasm applies ``-a`` rounds of short overlap removal with an increasing threshold between ``FLOAT1`` and ``FLOAT2``.
 
 .. _iopt:
 
 **\-i**
   Ignore all bin files so that hifiasm will start again from scratch.
+
+.. _uopt:
+
+**\-u**
+  Disable post-join step for contigs which may improve N50. The post-join step of hifiasm improves contig N50 but may introduce misassemblies. 
+
+
+.. _hom-cov-opt:
+
+**\-\-hom-cov <INT>**
+  Homozygous read coverage inferred automatically in default. This option affects different types of outputs, including Hi-C phased assembly and HiFi-only assembly. For more details, see :ref:`hic-iss`, :ref:`p-large` and :ref:`loginter`.
 
 .. _pri-range-opt:
 
@@ -186,6 +210,13 @@ Trio-binning options
 **\-c <INT1=2>, -d <INT2=5>**
   Lower bound and upper bound of the binned k-mer's frequency. When doing trio binning, a k-mer is said to be differentiating if it occurs >= ``INT2`` times in one sample but occurs < ``INT1`` times in the other sample.
 
+
+.. _t-occ-opt:
+
+**\-\-t-occ <INT=60>**
+  Forcedly remove unitig including ``>INT`` unexpected haplotype-specific reads without considering graph topology. For more details, see :ref:`p-hamming`.
+
+
 Purge duplication options
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -206,13 +237,13 @@ Purge duplication options
 
 .. _purgeopt:
 
-**\-\-purge-cov <INT>**
-  Coverage upper bound of purge duplication, which is inferred automatically in default. If the coverage of a contig is higher than this bound, don't apply purge duplication. Moreover, this option also affects Hi-C phased assembly. For more details, see :ref:`hic-iss`, :ref:`p-large` and :ref:`loginter`.
+**\-\-purge-max <INT>**
+  Coverage upper bound of purge duplication, which is inferred automatically in default. If the coverage of a contig is higher than this bound, don't apply purge duplication. Larger value makes assembly more contiguous but may collapse repeats or segmental duplications.
 
 .. _nhapopt:
 
 **\-\-n\-hap <INT=2>**
-  Assumption of haplotype number.
+  Assumption of haplotype number. If it is set to >2, the quality of primary assembly for polyploid genomes might be improved.
 
 
 
@@ -248,3 +279,9 @@ Hi-C integration options
 
 **\-\-seed <INT=11>**
   RNG seed.
+
+
+.. _l-msjoin:
+
+**\-\-l-msjoin <INT=500000>**
+  Detect misjoined unitigs of ``>=INT`` in size; 0 to disable.

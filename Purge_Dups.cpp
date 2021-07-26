@@ -5267,11 +5267,7 @@ uint32_t just_coverage, hap_cov_t *cov, uint32_t collect_p_trans, uint32_t colle
     hap_alignment_struct_pip hap_buf;
     long long k_mer_only, coverage_only;
 
-    if(asm_opt.pur_global_coverage != -1)
-    {
-        hap_buf.cov_threshold = asm_opt.pur_global_coverage;
-    }
-    else if(asm_opt.hom_global_coverage != -1)
+    if(asm_opt.hom_global_coverage != -1)
     {
         hap_buf.cov_threshold = (asm_opt.hom_global_coverage_set?
                 (((double)asm_opt.hom_global_coverage)*((double)HOM_PEAK_RATE)):(asm_opt.hom_global_coverage));
@@ -5325,6 +5321,9 @@ uint32_t just_coverage, hap_cov_t *cov, uint32_t collect_p_trans, uint32_t colle
         }
     }
     if(asm_opt.hom_global_coverage == -1) asm_opt.hom_global_coverage = hap_buf.cov_threshold;
+    if(asm_opt.pur_global_coverage != -1) hap_buf.cov_threshold = asm_opt.pur_global_coverage;
+    fprintf(stderr, "[M::%s] homozygous read coverage threshold: %d\n", __func__, asm_opt.hom_global_coverage_set?
+                            asm_opt.hom_global_coverage:(int)(((double)asm_opt.hom_global_coverage)/((double)HOM_PEAK_RATE)));
     fprintf(stderr, "[M::%s] purge duplication coverage threshold: %lld\n", __func__, hap_buf.cov_threshold);
     if(just_coverage) goto end_coverage;
 

@@ -38,7 +38,7 @@ copyright = u'2021, Haoyu Cheng, Heng Li'
 # built documents.
 #
 # The short X.Y version.
-version = '0.15.5-r348'
+version = '0.15.5-r350'
 # The full version, including alpha/beta/rc tags.
 release = '0.15.5'
 

@@ -32,7 +32,7 @@ In this example, the partially phased contigs are written to ``NA12878.asm.bp.ha
 This pair of files can be thought to represent the two haplotypes in a diploid genome, though with occasional switch errors. The frequency of switches is determined by the heterozygosity of the input sample. Hifiasm also writes the primary contigs to ``NA12878.asm.bp.p_ctg.gfa``. 
 
 For samples with high heterozygosity rate, a common issue is that one set of partially phased contigs is much larger than another set. To fix this issue, please set smaller value for ``-s`` (default: 0.55). Another possibility is that hifiasm misidentifies coverage threshold for homozygous reads. 
-In this case, please set ``--purge-cov`` to homozygous coverage. See :ref:`p-large` for more details.
+In this case, please set ``--hom-cov`` to homozygous coverage. See :ref:`p-large` for more details.
 
 
 Produce primary/alternate assemblies
@@ -42,6 +42,6 @@ To get primary/alternate assemblies, the option ``--primary`` should be set::
 
  hifiasm -o NA12878.asm --primary -t 32 NA12878.fq.gz
 
-The primary contigs and the alternate contigs are written to ``NA12878.asm.p_ctg.gfa`` and ``NA12878.asm.a_ctg.gfa``, respectively. For inbred or homozygous genomes, the primary/alternate assemblies can be also produced by ``-l0``. Similarly, turning ``-s`` or ``--purge-cov`` should 
+The primary contigs and the alternate contigs are written to ``NA12878.asm.p_ctg.gfa`` and ``NA12878.asm.a_ctg.gfa``, respectively. For inbred or homozygous genomes, the primary/alternate assemblies can be also produced by ``-l0``. Similarly, turning ``-s`` or ``--hom-cov`` should 
 be helpful if the primary assembly is too large. See :ref:`p-large` for more details.
 

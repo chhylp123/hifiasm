@@ -1,4 +1,4 @@
-.TH hifiasm 1 "16 April 2021" "hifiasm-0.15 (r327)" "Bioinformatics tools"
+.TH hifiasm 1 "25 July 2021" "hifiasm-0.15.5 (r350)" "Bioinformatics tools"
 
 .SH NAME
 .PP
@@ -62,7 +62,7 @@ Hifiasm is an ultrafast haplotype-resolved de novo assembler for PacBio
 Hifi reads. Unlike most existing assemblers, hifiasm starts from uncollapsed
 genome. Thus, it is able to keep the haplotype information as much as possible.
 The input of hifiasm is the PacBio Hifi reads in fasta/fastq format, and its
-outputs consist of multiple types of assembly graph in GFA format.
+outputs consist of multiple types of assembly graphs in GFA format.
 
 
 .SH OPTIONS
@@ -104,17 +104,69 @@ Minimizer window size [51].
 Number of bits for bloom filter; 0 to disable [37]. This bloom filter is used
 to filter out singleton k-mers when counting all k-mers. It takes
 .RI 2^( INT -3)
-bytes of memory. A proper setting saves memory. 37 is recommended for human
-assembly.
+bytes of memory. A proper setting saves memory. 
+.BR -f37 
+is recommended for human
+assembly. For small genomes, use 
+.BR -f0 
+to disable the initial bloom filter 
+which takes 16GB memory at the beginning. For genomes much larger 
+than human, applying 
+.BR -f38 
+or even 
+.BR -f39 
+is preferred to save memory on k-mer counting.
+
+.TP
+.BI -D \ INT
+Drop k-mers occurring 
+.I >FLOAT*coverage 
+times [5.0]. 
+Hifiasm discards these high-frequency k-mers 
+during error correction to reduce running time. 
+The 
+.I coverage 
+is determined automatically 
+by hifiasm based on k-mer plot, representing 
+homozygous read coverage. Raising this option 
+may improve the resolution of repetitive regions 
+but takes longer time.
+
+.TP
+.BI -N \ INT
+Consider up to 
+.I max(-D*coverage,-N) 
+overlaps for each oriented read [100]. 
+The 
+.I coverage 
+is determined automatically 
+by hifiasm based on k-mer plot, representing 
+homozygous read coverage. Raising this option may 
+improve the resolution of repetitive regions but 
+takes longer time.
+
 
 .TP
 .BI -r \ INT
-Rounds of haplotype-aware error corrections [3]. This option affects all outputs of hifiasm.
+Rounds of haplotype-aware error corrections [3]. 
+This option affects all outputs of hifiasm. 
+Odd rounds of correction are preferred in practice.
+
+.TP
+.BI -z \ INT
+Length of adapters that should be removed [0]. This option remove
+.I INT
+bases from both ends of each read.
+Some old Hifi reads may consist of
+short adapters (e.g., 20bp adapter at one end). For such data, trimming short adapters would 
+significantly improve the assembly quality.
 
 .TP
 .BI --min-hist-cnt \ INT
 When analyzing the k-mer spectrum, ignore counts below
-.IR INT .
+.IR INT 
+[5]. For very low coverage of HiFi data, set smaller 
+value for this option.
 
 .SS Assembly options
 
@@ -128,14 +180,6 @@ Note that unlike
 .BR -r ,
 this option does not affect error corrected reads and all-to-all overlaps.
 
-.TP
-.BI -z \ INT
-Length of adapters that should be removed [0]. This option remove
-.I INT
-bases from both ends of each read.
-Some old Hifi reads may consist of
-short adapters (e.g., 20bp adapter at one end). For such data, trimming short adapters would 
-significantly improve the assembly quality.
 
 .TP
 .BI -m \ INT
@@ -149,10 +193,13 @@ section of this man-page.
 .TP
 .BI -p \ INT
 Maximal probing distance for bubble popping when generating haplotype-resolved processed unitig graph
-without small bubbles [100000]. Bubbles longer than
+without small bubbles [0]. Bubbles longer than
 .I INT
-bases will not be popped. Small bubbles might be caused by somatic mutations or noise in data, which
-are not the real haplotype information. For detailed description of this graph, please see the
+bases will not be popped. Small bubbles might be caused by somatic mutations or noise in data. 
+Please note that hifiasm automatically pops small bubbles based on coverage, 
+which can be tweaked by 
+.BR --hom-cov .
+For detailed description of this graph, please see the
 .B OUTPUTS
 section of this man-page. 
 
@@ -163,13 +210,13 @@ A unitig is considered small if it is composed of less than
 reads [3]. Hifiasm may try to remove small unitigs at various steps.
 
 .TP
-.BI -x \ FLOAT, -y \ FLOAT
+.BI -x \ FLOAT1, -y \ FLOAT2
 Max and min overlap drop ratio [0.8, 0.2]. This option is used with
-.BR -r .
+.BR -a .
 Given a node
 .I N
 in the assembly graph, let max(N)
-be the length of the largest overlap of
+be the length of the longest overlap of
 .I N.
 Hifiasm iteratively drops overlaps of
 .I N
@@ -179,17 +226,17 @@ are below a threshold controlled by
 and
 .BR -y .
 Hifiasm applies
-.B -r
+.B -a
 rounds of short overlap removal with an increasing threshold between
-.B -x
+.I FLOAT1
 and
-.BR -y .
+.I FLOAT2.
 
 .TP
 .BI -i
 Ignore error corrected reads and overlaps saved in
 .IR prefix .*.bin
-files.
+files so that hifiasm will start again from scratch.
 Apart from assembly graphs, hifiasm also outputs three binary files
 that save all overlap information during assembly step.
 With these files, hifiasm can avoid the time-consuming all-to-all overlap calculation step,
@@ -198,11 +245,23 @@ This might be helpful when users want to get an optimized assembly by multiple r
 with different parameters.
 
 .TP
+.BI -u
+Disable post-join step for contigs which may improve N50. 
+The post-join step of hifiasm improves contig N50 but may introduce misassemblies.
+
+.TP
+.BI --hom-cov \ INT
+Homozygous read coverage inferred automatically in default. This option affects different types of outputs, 
+including Hi-C phased assembly and HiFi-only assembly. 
+
+.TP
 .BI --pri-range \ INT1[,INT2]
 Min and max coverage cutoff of primary contigs.
 Keep contigs with coverage in this range at p_ctg.gfa. 
 Inferred automatically in default.
-If INT2 is not specified, it is set to infinity. 
+If 
+.I INT2 
+is not specified, it is set to infinity. 
 Set -1 to disable.
 
 .TP
@@ -286,40 +345,45 @@ but occurs <
 .B -c
 times in the other sample.
 
+.TP
+.BI --t-occ \ INT
+Forcedly remove unitig including >
+.I INT 
+unexpected haplotype-specific reads 
+without considering graph topology [60].
+
 
 .SS Purge-dups options
 
 .TP 10
 .BI -l \ INT
 Level of purge-dup. 0 to disable purge-dup, 1 to only purge contained haplotigs, 
-2 to purge all types of haplotigs, 3 to purge all types of haplotigs in most aggressive way 
-for high heterozygosity sample. 
+2 to purge all types of haplotigs, 3 to purge all types of haplotigs in most aggressive way. 
 In default, [3] for non-trio assembly, [0] for trio assembly.
 For trio assembly, only level 0 and level 1 are allowed.
 
 .TP
 .BI -s \ FLOAT
-Similarity threshold for duplicate haplotigs that should be purged [0.75 for -l1/-l2, 0.55 for -l3].
+Similarity threshold for duplicate haplotigs that should be purged [0.75 for 
+.BR -l1/-l2 , 
+0.55 for 
+.BR -l3 ].
 
 .TP
 .BI -O \ FLOAT
 Min number of overlapped reads for duplicate haplotigs that should be purged [1].
 
 .TP
-.BI --purge-cov \ INT
+.BI --purge-max \ INT
 Coverage upper bound of Purge-dups, which is inferred automatically in default.
-If the coverage of a contig is higher than this bound, don't apply Purge-dups.
+If the coverage of a contig is higher than this bound, don't apply Purge-dups. 
+Larger value makes assembly more contiguous but may collapse repeats or segmental duplications.
 
 .TP
 .BI   --n-hap \ INT
-Assumption of haplotype number.
+Assumption of haplotype number. If it is set to >2, the quality of 
+primary assembly for polyploid genomes might be improved.
 
-
-.SS Debugging options
-
-.TP 10
-.B --dbg-gfa
-Write additional files to speed up the debugging of graph cleaning.
 
 
 .SS Hi-C-partition options [experimental, not stable]
@@ -348,6 +412,12 @@ Fraction to flip for perturbation [0.1]. Increasing this may improves
 phasing results but takes longer time.
 
 .TP
+.BI --l-msjoin \ INT 
+Detect misjoined unitigs of >=
+.I INT 
+in size; 0 to disable [500000].
+
+.TP
 .BI --seed \ INT 
 RNG seed [11].
 
@@ -367,23 +437,29 @@ haplotype-resolved raw unitig graph. This graph keeps all haplotype information.
 .IR prefix .p_utg.gfa:
 haplotype-resolved processed unitig graph without small bubbles.  Small bubbles
 might be caused by somatic mutations or noise in data, which are not the real
-haplotype information.  The size of popped small bubbles should be specified by
-.BR -p .
+haplotype information. Hifiasm automatically pops such small bubbles based on coverage. 
+The option 
+.BR --hom-cov 
+affects the result.
+In addition, the option 
+.BR -p 
+forcedly pops bubbles.
 
 .TP
 *
 .IR prefix .p_ctg.gfa:
-assembly graph of primary contigs. This graph collapses different haplotypes.
+assembly graph of primary contigs. This graph includes a complete assembly with 
+long stretches of phased blocks.
 
 .TP
 *
 .IR prefix .a_ctg.gfa:
-assembly graph of alternate contigs. This graph consists of all assemblies that
+assembly graph of alternate contigs. This graph consists of all contigs that
 are discarded in primary contig graph.
 
 .TP
 *
-.IR prefix .hap*.p_ctg.gfa:
+.IR prefix .*hap*.p_ctg.gfa:
 phased contig graph. This graph keeps the phased assembly.
 
 .RE
@@ -401,13 +477,13 @@ with trio-binning options:
 .TP 2
 *
 .IR prefix .dip.hap1.p_ctg.gfa:
-phased paternal/haplotype1 contig graph keeping the phased
+fully phased paternal/haplotype1 contig graph keeping the phased
 paternal/haplotype1 assembly.
 
 .TP
 *
 .IR prefix .dip.hap2.p_ctg.gfa:
-phased maternal/haplotype2 contig graph keeping the phased
+fully phased maternal/haplotype2 contig graph keeping the phased
 maternal/haplotype2 assembly.
 .RE
 
@@ -418,17 +494,25 @@ With Hi-C partition options, hifiasm outputs:
 .TP 2
 *
 .IR prefix .hic.p_ctg.gfa:
-assembly graph of primary contigs. This graph collapses different haplotypes.
+assembly graph of primary contigs.
 
 .TP
 *
 .IR prefix .hic.hap1.p_ctg.gfa:
-phased contig graph where each contig is fully phased.
+fully phased contig graph where each contig is fully phased.
 
 .TP
 *
 .IR prefix .hic.hap2.p_ctg.gfa:
-phased contig graph where each contig is fully phased.
+fully phased contig graph where each contig is fully phased.
+
+.TP
+*
+.IR prefix .hic.a_ctg.gfa 
+(optional with 
+.BR --primary): 
+assembly graph of alternate contigs.
+
 .RE
 
 
@@ -439,7 +523,7 @@ files:
 and 
 .B *hic.tlb.bin.
 Rerunning hifiasm with different Hi-C reads needs to delete these bin files
-or enable 
+or use 
 .BR -i .
 .RE
 
@@ -449,23 +533,23 @@ Hifiasm generates the following assembly graphs only with HiFi reads:
 .RS 2
 .TP 2
 *
-.IR prefix .p_ctg.gfa:
-assembly graph of primary contigs. This graph collapses different haplotypes.
+.IR prefix .bp.p_ctg.gfa:
+assembly graph of primary contigs. 
 
 .TP
 *
 .IR prefix .bp.hap1.p_ctg.gfa:
-balanced contig graph where each contig is partially phased.
+partially phased contig graph of haplotype1.
 
 .TP
 *
 .IR prefix .bp.hap2.p_ctg.gfa:
-balanced contig graph where each contig is partially phased.
+partially phased contig graph of haplotype2.
 .RE
 
 .PP
 If the option
-.BR -p
+.BR -l0
 or
 .BR --primary
 is specified, hifiasm outputs:
@@ -474,13 +558,12 @@ is specified, hifiasm outputs:
 .TP 2
 *
 .IR prefix .p_ctg.gfa:
-assembly graph of primary contigs. This graph collapses different haplotypes.
+assembly graph of primary contigs.
 
 .TP
 *
 .IR prefix .a_ctg.gfa:
-assembly graph of alternate contigs. This graph consists of all assemblies that
-are discarded in primary contig graph.
+assembly graph of alternate contigs.
 .RE
 
 
