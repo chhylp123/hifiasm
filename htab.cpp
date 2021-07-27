@@ -1,4 +1,3 @@
-#include <stdint.h>
 #include <zlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -191,7 +190,7 @@ static int ha_ct_insert_list(ha_ct_t *h, int create_new, int n, const uint64_t *
 		///so low 12 bits are not useful
 		uint64_t x = a[j] >> h->pre;
 		khint_t k;
-		if ((a[j]&mask) != (a[0]&mask)) continue;
+		assert((a[j]&mask) == (a[0]&mask));
 		if (create_new) {
 			if (g->b)
 				ins = (yak_bf_insert(g->b, x) == h->n_hash);
@@ -365,9 +364,9 @@ int ha_pt_insert_list(ha_pt_t *h, int n, const ha_mz1_t *a)
 		khint_t k;
 		int n;
 		ha_idxpos_t *p;
-		if ((a[j].x&mask) != (a[0].x&mask)) continue;
+		assert((a[j].x&mask) == (a[0].x&mask));
 		k = yak_pt_get(g->h, x<<YAK_COUNTER_BITS);
-		if (k == kh_end(g->h)) continue;
+		if (k == kh_end(g->h)) continue; // TODO: understand why we sometimes come here
 		n = kh_key(g->h, k) & YAK_MAX_COUNT;
 		assert(n < YAK_MAX_COUNT);
 		p = &g->a[kh_val(g->h, k) + n];
@@ -519,7 +518,7 @@ typedef struct { // global data structure for kt_pipeline()
 	const yak_copt_t *opt;
 	const void *flt_tab;
 	int flag, create_new, is_store;
-	uint64_t n_seq; ///number of total reads
+	uint64_t n_mz, n_seq; ///number of total reads
 	kseq_t *ks;
 	UC_Read ucr;
 	ha_ct_t *ct;
@@ -558,7 +557,7 @@ static void worker_for_mz(void *data, long i, int tid)
 	ha_mz1_v *b = &s->mz_buf[tid];
 	s->mz_buf[tid].n = 0;
 	///s->p->opt->w = 51, s->p->opt->k
-	ha_sketch(s->seq[i], s->len[i], s->p->opt->w, s->p->opt->k, s->n_seq0 + i, s->p->opt->is_HPC, b, s->p->flt_tab);
+	ha_sketch(s->seq[i], s->len[i], s->p->opt->w, s->p->opt->k, s->n_seq0 + i, s->p->opt->is_HPC, b, s->p->flt_tab, asm_opt.mz_sample_dist, 0, 0);
 	s->mz[i].n = s->mz[i].m = b->n;
 	MALLOC(s->mz[i].a, b->n);
 	memcpy(s->mz[i].a, b->a, b->n * sizeof(ha_mz1_t));
@@ -575,8 +574,7 @@ static void *worker_count(void *data, int step, void *in) // callback for kt_pip
 		s->n_seq0 = p->n_seq;
 		if (p->rs_in && (p->flag & HAF_RS_READ)) {
 			while (p->n_seq < p->rs_in->total_reads) {
-				if((p->flag & HAF_SKIP_READ) && p->rs_in->trio_flag[p->n_seq] != AMBIGU)
-				{
+				if ((p->flag & HAF_SKIP_READ) && p->rs_in->trio_flag[p->n_seq] != AMBIGU) {
 					++p->n_seq;
 					continue;
 				}
@@ -707,6 +705,7 @@ static void *worker_count(void *data, int step, void *in) // callback for kt_pip
 						ct_insert_buf(s->buf, p->opt->pre, s->mz[i].a[j].x);
 			}
 			for (i = 0; i < s->n_seq; ++i) {
+				p->n_mz += s->mz[i].n;
 				free(s->mz[i].a);
 				if (!p->is_store) free(s->seq[i]);
 			}
@@ -830,6 +829,7 @@ static ha_ct_t *yak_count(const yak_copt_t *opt, const char *fn, int flag, ha_pt
 		gzclose(fp);
 	}
 	*n_seq = pl.n_seq;
+	if (pl.opt->w > 1) fprintf(stderr, "[M::%s] collected %ld minimizers\n", __func__, (long)pl.n_mz);
 	return pl.ct;
 }
 
@@ -870,34 +870,41 @@ ha_ct_t *ha_count(const hifiasm_opt_t *asm_opt, int flag, ha_pt_t *p0, const voi
  * High count filter table *
  ***************************/
 
-KHASHL_SET_INIT(static klib_unused, yak_ft_t, yak_ft, uint64_t, kh_hash_dummy, kh_eq_generic)
+// Warning: the max count is 32767
+KHASHL_MAP_INIT(static klib_unused, yak_ft_t, yak_ft, uint64_t, int16_t, kh_hash_dummy, kh_eq_generic)
 
-static yak_ft_t *gen_hh(const ha_ct_t *h)
+static yak_ft_t *gen_hh(const ha_ct_t *h, int max_cnt)
 {
 	int i;
 	yak_ft_t *hh;
+	if (max_cnt > YAK_MAX_COUNT - 1) max_cnt = YAK_MAX_COUNT - 1;
+	if (max_cnt > INT16_MAX - 1) max_cnt = INT16_MAX - 1;
 	hh = yak_ft_init();
 	yak_ft_resize(hh, h->tot * 2);
 	for (i = 0; i < 1<<h->pre; ++i) {
 		yak_ct_t *ht = h->h[i].h;
-		khint_t k;
+		khint_t k, l;
 		for (k = 0; k < kh_end(ht); ++k) {
 			if (kh_exist(ht, k)) {
 				uint64_t y = kh_key(ht, k) >> h->pre << YAK_COUNTER_BITS | i;
 				int absent;
-				yak_ft_put(hh, y, &absent);
+				l = yak_ft_put(hh, y, &absent);
+				if (absent) {
+					int cnt = kh_key(ht, k) & YAK_MAX_COUNT;
+					kh_val(hh, l) = cnt > max_cnt? INT16_MAX : cnt;
+				}
 			}
 		}
 	}
 	return hh;
 }
 
-int ha_ft_isflt(const void *hh, uint64_t y)
+int32_t ha_ft_cnt(const void *hh, uint64_t y)
 {
 	yak_ft_t *h = (yak_ft_t*)hh;
 	khint_t k;
 	k = yak_ft_get(h, y);
-	return k == kh_end(h)? 0 : 1;
+	return k == kh_end(h)? 0 : kh_val(h, k) == INT16_MAX? INT32_MAX : kh_val(h, k);
 }
 
 void ha_ft_destroy(void *h)
@@ -1016,7 +1023,7 @@ void *ha_ft_gen(const hifiasm_opt_t *asm_opt, All_reads *rs, int *hom_cov, int i
 		if (cutoff > YAK_MAX_COUNT - 1) cutoff = YAK_MAX_COUNT - 1;
 	}
 	ha_ct_shrink(h, cutoff, YAK_MAX_COUNT, asm_opt->thread_num);
-	flt_tab = gen_hh(h);
+	flt_tab = gen_hh(h, asm_opt->max_kmer_cnt);
 	ha_ct_destroy(h);
 	fprintf(stderr, "[M::%s::%.3f*%.2f@%.3fGB] ==> filtered out %ld k-mers occurring %d or more times\n", __func__,
 			yak_realtime(), yak_cpu_usage(), yak_peakrss_in_gb(), (long)kh_size(flt_tab), cutoff);
@@ -1079,7 +1086,6 @@ int query_ct_index(void* ct_idx, uint64_t hash)
 	if (k == kh_end(g->h)) return 0;
 	return kh_key(g->h, k)&YAK_MAX_COUNT;
 }
-
 
 int write_ct_index(void *i_ct_idx, char* file_name)
 {
@@ -1213,7 +1219,7 @@ int load_pt_index(void **r_flt_tab, ha_pt_t **r_ha_idx, All_reads* r, hifiasm_op
 
 	ha_pt_t *ha_idx = NULL;
 	char mode = 0;
-	int f_flag, absent, i;
+	int f_flag = 0, absent, i;
 	double index_time, index_s_time, pos_time, pos_s_time;
 
 	

@@ -68,7 +68,7 @@ extern void *ha_ct_table;
 
 void *ha_ft_ug_gen(const hifiasm_opt_t *asm_opt, ma_utg_v *us, int hap_n);
 void *ha_ft_gen(const hifiasm_opt_t *asm_opt, All_reads *rs, int *hom_cov, int is_hp_mode);
-int ha_ft_isflt(const void *hh, uint64_t y);
+int32_t ha_ft_cnt(const void *hh, uint64_t y);
 void ha_ft_destroy(void *h);
 
 ha_pt_t *ha_pt_ug_gen(const hifiasm_opt_t *asm_opt, const void *flt_tab, ma_utg_v *us, int hap_n);
@@ -95,8 +95,7 @@ double yak_cpu_usage(void);
 
 void ha_triobin(const hifiasm_opt_t *opt);
 
-void ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mz1_v *p, const void *hf);
-void ha_sketch_query(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mz1_v *p, const void *hf, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct);
+void ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mz1_v *p, const void *hf, int sample_dist, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct);
 int ha_analyze_count(int n_cnt, int start_cnt, const int64_t *cnt, int *peak_het);
 void print_hist_lines(int n_cnt, int start_cnt, const int64_t *cnt);
 void debug_adapter(const hifiasm_opt_t *asm_opt, All_reads *rs);
