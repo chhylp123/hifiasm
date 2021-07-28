@@ -255,7 +255,8 @@ kvec_t_u64_warp* chain_idx, void *ha_flt_tab, ha_pt_t *ha_idx, overlap_region* f
 	ab->mz.n = 0, ab->n_a = 0;
 
 	// get the list of anchors
-	ha_sketch_query(u->s, u->len, asm_opt.mz_win, asm_opt.k_mer_length, 0, !(asm_opt.flag & HA_F_NO_HPC), &ab->mz, ha_flt_tab, k_flag, dbg_ct);
+	//should use the new version...
+	///ha_sketch_query(u->s, u->len, asm_opt.mz_win, asm_opt.k_mer_length, 0, !(asm_opt.flag & HA_F_NO_HPC), &ab->mz, ha_flt_tab, k_flag, dbg_ct);
 	// minimizer of queried read
 	if (ab->mz.m > ab->old_mz_m) {
 		ab->old_mz_m = ab->mz.m;

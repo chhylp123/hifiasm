@@ -9,25 +9,6 @@
 #define MAX_HIGH_OCC     8   // TODO: don't hard code if we need to tune this parameter
 #define MAX_MAX_HIGH_OCC 16
 
-typedef struct { // a simplified version of kdq
-	int front, count;
-	int a[64];
-} tiny_queue_t;
-
-static inline void tq_push(tiny_queue_t *q, int x)
-{
-	q->a[((q->count++) + q->front) & 0x3f] = x;
-}
-
-static inline int tq_shift(tiny_queue_t *q)
-{
-	int x;
-	if (q->count == 0) return -1;
-	x = q->a[q->front++];
-	q->front &= 0x3f;
-	--q->count;
-	return x;
-}
 
 static inline int mzcmp(const ha_mz1_t *a, const ha_mz1_t *b)
 {

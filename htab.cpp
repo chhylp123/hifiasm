@@ -954,7 +954,7 @@ void *ha_ft_ug_gen(const hifiasm_opt_t *asm_opt, ma_utg_v *us, int hap_n)
 	print_hist_lines(YAK_N_COUNTS, 1, cnt);
 	
 	ha_ct_shrink(h, cutoff, YAK_MAX_COUNT, asm_opt->thread_num);
-	flt_tab = gen_hh(h);
+	flt_tab = gen_hh(h, asm_opt->max_kmer_cnt);
 	ha_ct_destroy(h);
 	fprintf(stderr, "[M::%s::%.3f*%.2f@%.3fGB] ==> filtered out %ld k-mers occurring %d or more times\n", __func__,
 			yak_realtime(), yak_cpu_usage(), yak_peakrss_in_gb(), (long)kh_size(flt_tab), cutoff);
