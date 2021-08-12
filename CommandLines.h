@@ -4,7 +4,7 @@
 #include <pthread.h>
 #include <stdint.h>
 
-#define HA_VERSION "0.15.5-r352"
+#define HA_VERSION "0.15.5-r358"
 
 #define VERBOSE 0
 
@@ -20,6 +20,7 @@
 #define HA_F_BAN_ASSEMBLY    0x200
 #define HA_F_HIGH_HET        0x400
 #define HA_F_PARTITION       0x800
+#define HA_F_FAST            0x1000
 
 #define HA_MIN_OV_DIFF       0.02 // min sequence divergence in an overlap
 
@@ -109,6 +110,8 @@ typedef struct {
     uint32_t is_alt;
     uint64_t misjoin_len;
     uint64_t scffold;
+    int32_t dp_min_len;
+    float dp_e;
 } hifiasm_opt_t;
 
 extern hifiasm_opt_t asm_opt;

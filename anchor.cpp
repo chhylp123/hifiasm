@@ -73,7 +73,7 @@ void ha_get_new_candidates(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_reg
 	rlen = Get_READ_LENGTH(R_INF, rid); // read length
 
 	// get the list of anchors
-	ha_sketch(ucr->seq, ucr->length, asm_opt.mz_win, asm_opt.k_mer_length, 0, !(asm_opt.flag & HA_F_NO_HPC), &ab->mz, ha_flt_tab, asm_opt.mz_sample_dist, k_flag, dbg_ct);
+	ha_sketch(ucr->seq, ucr->length, asm_opt.mz_win, asm_opt.k_mer_length, 0, !(asm_opt.flag & HA_F_NO_HPC), &ab->mz, ha_flt_tab, asm_opt.mz_sample_dist, k_flag, dbg_ct, NULL, -1, asm_opt.dp_min_len, -1, NULL);
 	// minimizer of queried read
 	if (ab->mz.m > ab->old_mz_m) {
 		ab->old_mz_m = ab->mz.m;
@@ -145,7 +145,7 @@ void ha_get_new_candidates(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_reg
 		}
 	}
 	#endif
-
+	
 	if ((int)overlap_list->length > max_n_chain) {
 		int32_t w, n[4], s[4];
 		n[0] = n[1] = n[2] = n[3] = 0, s[0] = s[1] = s[2] = s[3] = 0;
@@ -157,9 +157,12 @@ void ha_get_new_candidates(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_reg
 			if ((int)n[w] == max_n_chain) s[w] = r->shared_seed;
 		}
 		if (s[0] > 0 || s[1] > 0 || s[2] > 0 || s[3] > 0) {
+			// n[0] = n[1] = n[2] = n[3] = 0;
 			for (i = 0, k = 0; i < (uint32_t)overlap_list->length; ++i) {
 				overlap_region *r = &overlap_list->list[i];
 				w = ha_ov_type(r, rlen);
+				// ++n[w];
+				// if (((int)n[w] <= max_n_chain) || (r->shared_seed >= s[w] && s[w] >= (asm_opt.k_mer_length<<1))) {
 				if (r->shared_seed >= s[w]) {
 					if ((uint32_t)k != i) {
 						overlap_region t;

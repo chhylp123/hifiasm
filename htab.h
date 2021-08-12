@@ -6,6 +6,11 @@
 #include "CommandLines.h"
 
 typedef struct {
+	int n, m;
+	uint64_t *a;
+} st_mt_t;
+
+typedef struct {
 	uint64_t x; ///x is the hash key
 	///rid is the read id, pos is the end pos of this minimizer, rev is the direction
 	///span is the length of this k-mer. For non-HPC k-mer, span may not be equal to k
@@ -75,6 +80,7 @@ ha_pt_t *ha_pt_ug_gen(const hifiasm_opt_t *asm_opt, const void *flt_tab, ma_utg_
 ha_pt_t *ha_pt_gen(const hifiasm_opt_t *asm_opt, const void *flt_tab, int read_from_store, int is_hp_mode, All_reads *rs, int *hom_cov, int *het_cov);
 void ha_pt_destroy(ha_pt_t *h);
 const ha_idxpos_t *ha_pt_get(const ha_pt_t *h, uint64_t hash, int *n);
+const int ha_pt_cnt(const ha_pt_t *h, uint64_t hash);
 
 int write_pt_index(void *flt_tab, ha_pt_t *ha_idx, All_reads* r, hifiasm_opt_t* opt, char* file_name);
 int load_pt_index(void **r_flt_tab, ha_pt_t **r_ha_idx, All_reads* r, hifiasm_opt_t* opt, char* file_name);
@@ -95,10 +101,19 @@ double yak_cpu_usage(void);
 
 void ha_triobin(const hifiasm_opt_t *opt);
 
-void ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mz1_v *p, const void *hf, int sample_dist, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct);
+void ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mz1_v *p, const void *hf, int sample_dist, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct, ha_pt_t *pt, int min_freq, int32_t dp_min_len, float dp_e, st_mt_t *mt);
 int ha_analyze_count(int n_cnt, int start_cnt, const int64_t *cnt, int *peak_het);
 void print_hist_lines(int n_cnt, int start_cnt, const int64_t *cnt);
 void debug_adapter(const hifiasm_opt_t *asm_opt, All_reads *rs);
+
+inline int mz_low_b(int peak_hom, int peak_het)
+{
+	int low_freq = 2;
+	if(peak_het > 0) low_freq = peak_het/2;
+	else if(peak_hom > 0) low_freq = peak_hom/4;
+	if(low_freq < 2) low_freq = 2;
+	return low_freq;
+}
 
 static inline uint64_t yak_hash64(uint64_t key, uint64_t mask) // invertible integer hash function
 {

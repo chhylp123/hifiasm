@@ -40,6 +40,9 @@ static ko_longopt_t long_options[] = {
     { "n-weight",      ko_required_argument, 326 },
     { "l-msjoin",      ko_required_argument, 327 },
     { "purge-max",     ko_required_argument, 328 },
+    { "fast",     ko_no_argument, 329 },
+    { "dp-er",     ko_required_argument, 330},
+    { "max-kocc",     ko_required_argument, 331},
 	{ 0, 0, 0 }
 };
 
@@ -207,6 +210,8 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->is_alt = 0;
     asm_opt->misjoin_len = 500000;
     asm_opt->scffold = 0;
+    asm_opt->dp_min_len = 2000;
+    asm_opt->dp_e = 0.0025;
 }
 
 void destory_enzyme(enzyme* f)
@@ -677,6 +682,9 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         else if (c == 326) asm_opt->n_weight = atoi(opt.arg);
         else if (c == 327) asm_opt->misjoin_len = atol(opt.arg);
         else if (c == 328) asm_opt->pur_global_coverage = atoi(opt.arg);
+        else if (c == 329) asm_opt->flag |= HA_F_FAST;
+        else if (c == 330) asm_opt->dp_e = atof(opt.arg);
+        else if (c == 331) asm_opt->max_kmer_cnt = atol(opt.arg);
         else if (c == 'l')
         {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
             asm_opt->purge_level_primary = asm_opt->purge_level_trio = atoi(opt.arg);

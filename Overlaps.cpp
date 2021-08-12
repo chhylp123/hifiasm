@@ -16473,7 +16473,7 @@ ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex)
             ///need this line
             if(nsg->seq[uId].c == ALTER_LABLE) continue;
             pre = uId; 
-            pre = pre | (0x100000000);
+            pre = pre | (uint64_t)(0x100000000);
             kv_push(uint64_t, u_vecs->a, pre);
         }
     }
@@ -16483,7 +16483,7 @@ ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex)
     {
         if(u_vecs->a.a[k] == u_vecs->a.a[k-1])
         {
-            u_vecs->a.a[m] += (0x100000000);
+            u_vecs->a.a[m] += (uint64_t)(0x100000000);
         }
         else
         {
