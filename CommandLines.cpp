@@ -154,6 +154,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->k_mer_length = 51;
     asm_opt->hic_mer_length = 31;
 	asm_opt->mz_win = 51;
+    asm_opt->mz_rewin = 1000;
 	asm_opt->mz_sample_dist = 500;
 	asm_opt->bf_shift = 37;
 	asm_opt->max_kmer_cnt = 2000;

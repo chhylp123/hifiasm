@@ -9,6 +9,8 @@ pthread_mutex_t output_mutex;
 #define overlap_region_key(a) ((a).y_id)
 KRADIX_SORT_INIT(overlap_region_sort, overlap_region, overlap_region_key, member_size(overlap_region, y_id))
 
+#define normal_w(x, y) ((x)>=(y)?(x)/(y):1)
+
 void overlap_region_sort_y_id(overlap_region *a, long long n)
 {
 	radix_sort_overlap_region_sort(a, a + n);
@@ -467,7 +469,46 @@ void debug_chain(k_mer_hit* a, long long a_n, Chain_Data* dp)
     }
 }
 
+void print_chain(k_mer_hit* a, long long a_n, Chain_Data* dp, long long topN)
+{
+    fprintf(stderr, "topN: %lld\n", topN);
+    long long max_score = -1, max_i = -1, max_n = 0;;
+    long long ss, i, j, current_j;
+    kvec_t(long long) si; kv_init(si);
+    for (ss = 0; ss < topN && ss < a_n; ss++){
+        for (i = 0, max_i = -1, max_score = -1; i < a_n; ++i) {
+            for (j = 0; j < (long long)si.n; j++){
+                if(i == si.a[j]) break;
+            }
+            if(j < (long long)si.n) continue;
+            if(dp->score[i] > max_score) max_score = dp->score[i], max_i = i;
+        }
+        if(max_i < 0) continue;
+        j = max_i; max_n = 0;
+        while (j >= 0)
+        {
+            current_j = j;
+            if(current_j == -1) continue;
+            j = dp->pre[j];
+            max_n++;
+        }
 
+        fprintf(stderr, "\nmax_i: %lld, max_score: %lld, max_n: %lld\n", max_i, max_score, max_n);
+        
+        j = max_i; 
+        while (j >= 0)
+        {
+            current_j = j;
+            if(current_j == -1) continue;
+
+            kv_push(long long, si, current_j);
+            j = dp->pre[j];
+            fprintf(stderr, "self_offset: %u, offset: %u, cnt: %u, score: %d\n", 
+            a[current_j].self_offset, a[current_j].offset, a[current_j].cnt, dp->score[current_j]);
+        }
+    }
+    kv_destroy(si);
+}
 
 
 long long get_chainLen(long long x_beg, long long x_end, long long xLen, 
@@ -556,7 +597,8 @@ int32_t ha_chain_check(k_mer_hit *a, int32_t n_a, Chain_Data *dp, int32_t min_sc
 			break;
 	if (i < n_a) return -1;
 	bw_pen = 1.0 / bw_thres;
-	dp->score[0] = a[0].good? min_sc : min_sc>>1;
+	// dp->score[0] = a[0].good? min_sc : min_sc>>1;
+    dp->score[0] = normal_w(min_sc, (int64_t)a[0].cnt);
 	dp->pre[0] = -1, dp->indels[0] = 0, dp->self_length[0] = 0, dp->occ[0] = 1;
 	for (i = 1; i < n_a; ++i) {
 		int32_t score, dg;
@@ -570,7 +612,7 @@ int32_t ha_chain_check(k_mer_hit *a, int32_t n_a, Chain_Data *dp, int32_t min_sc
 		dg = dx < dy? dx : dy;
 		if (dd > THRESHOLD_MAX_SIZE && dd > dg * bw_thres) break;
 		score = dg < min_sc? dg : min_sc;
-		if (!a[i].good) score >>= 1;
+        score = normal_w(score, (int64_t)a[i].cnt);
 		gap_rate = (double)tot_indel / tot_len;
 		score -= (int)(gap_rate * score * bw_pen);
 		dp->score[i] = dp->score[i-1] + score;
@@ -601,7 +643,6 @@ long long chain_DP(k_mer_hit* a, long long a_n, Chain_Data* dp, overlap_region* 
     resize_Chain_Data(dp, a_n);
 
 	ret = ha_chain_check(a, a_n, dp, min_score, band_width_threshold);
-
 	if (ret > 0) {
 		a_n = ret;
 		goto skip_dp;
@@ -617,7 +658,7 @@ long long chain_DP(k_mer_hit* a, long long a_n, Chain_Data* dp, overlap_region* 
         pos = a[i].offset;
         self_pos = a[i].self_offset;
         max_j = -1;
-        max_score = a[i].good? min_score : min_score>>1;
+        max_score = normal_w(min_score, (int64_t)a[i].cnt);
         max_indels = 0;
         max_self_length = 0;
 
@@ -648,7 +689,7 @@ long long chain_DP(k_mer_hit* a, long long a_n, Chain_Data* dp, overlap_region* 
             score = distance_min < min_score? distance_min : min_score;
             ///need to be fixed in r305
 			///if (!a[j].good) score = (score >> 1) + (score & 1);
-            if (!a[j].good) score >>= 1;
+            score = normal_w(score, (int64_t)a[j].cnt);
 
             gap_rate = (double)((double)(total_indels)/(double)(total_self_length));
             ///if the gap rate > 0.06, score will be negative
@@ -684,6 +725,7 @@ long long chain_DP(k_mer_hit* a, long long a_n, Chain_Data* dp, overlap_region* 
     }
 
     ///debug_chain(a, a_n, dp);
+    // if((*result).x_id == 2162668 && (*result).y_id == 182804) print_chain(a, a_n, dp, 10);
     
 skip_dp:
 

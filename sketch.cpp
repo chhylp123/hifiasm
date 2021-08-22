@@ -229,7 +229,7 @@ inline void hf_select(ha_mz1_v *p, int32_t si, int32_t ei, int32_t n, int32_t le
 			p->a[b[j].pos].rid = 0;
 }
 
-static void select_mz(ha_mz1_v *p, int len, int sample_dist, int32_t dp_min_len)
+void select_mz(ha_mz1_v *p, int len, int sample_dist, int32_t dp_min_len)
 { // for high-occ minimizers, choose up to max_high_occ in each high-occ streak
 	int32_t i, last0 = -1, n = (int32_t)p->n, m = 0, nw[2], min_len;
 	ha_mz1_t b[MAX_MAX_HIGH_OCC]; // this is to avoid a heap allocation
@@ -289,6 +289,288 @@ static void select_mz(ha_mz1_v *p, int len, int sample_dist, int32_t dp_min_len)
 	p->n = n;
 }
 
+static inline int mzcmp_l(const ha_mz1_v *p, int32_t ai, int32_t bi)
+{
+	if(ai >= 0 && bi >= 0){
+		ha_mz1_t *a = &(p->a[ai]), *b = &(p->a[bi]);
+		if(a->rid > 0 && b->rid > 0) return mzcmp(a, b);
+		return (a->rid == 0) - (b->rid == 0);
+	}
+	return (ai < 0) - (bi < 0);
+}
+
+#define GL(x, i) ((int64_t)((uint32_t)((x).a[(i)])))
+#define A_M(p, i) ((i) >= 0 && (p).a[(i)].rid > 0)
+int32_t qfw(ha_mz1_v *p, st_mt_t *mt, int32_t n, int32_t tot_l, int32_t ws, int32_t i, int32_t *mi)
+{
+	int32_t m, si;
+	for (si = i, (*mi) = -1; i < n; i++){
+		if(GL(*mt, i) >= ws || (i+1 < n && GL(*mt, i) < ws && GL(*mt, i+1) > ws) || 
+				(i+1 == n && tot_l >= ws && GL(*mt, i) < ws)){
+			for (m = si; m <= i; m++){
+				if(!A_M(*p, m)) continue;
+				if(mzcmp_l(p, *mi, m) >= 0) (*mi) = m;
+			}
+			if((*mi) >= 0 && A_M(*p, *mi)){
+				for (m = si; m <= i; m++){
+					if(!A_M(*p, m)) continue;
+					if(mzcmp_l(p, *mi, m) == 0) mt->a[m] |= 0x100000000;
+				}
+			}
+			break;
+		}
+	}
+	return i;
+}
+
+void dbg_boundary(ha_mz1_v *p, st_mt_t *mt, int32_t w, int32_t k, int32_t tot_l)
+{
+	if(tot_l < w + k -1) return;
+	int32_t i, m, n = p->n, s, a;
+	for (i = 0; i < n; i++){
+		if(GL(*mt, i) >= w+k-1){
+			for (m = s = a = 0; m <= i; m++){
+				if(!A_M(*p, m)) continue;
+				if(GL(*mt, m) <= w+k-1){
+					a++;
+					if(mt->a[m]&0x100000000) s++;
+				}
+			}
+			if(a > 0 && s == 0){
+				fprintf(stderr, "\nERROR1, s: %d, n: %d, tot_l: %d, end_l: %ld\n", s, n, tot_l, GL(*mt, i));
+				for (m = s = a = 0; m <= i; m++){
+					if(!A_M(*p, m)) continue;
+					if(GL(*mt, m) <= w+k-1){
+						fprintf(stderr, "lp: %ld\n", GL(*mt, m));
+						a++;
+						if(mt->a[m]&0x100000000) s++;
+					}
+				}
+				
+			} 
+			
+			break;
+		}
+	}
+	if(i == n){
+		for (m = s = a = 0; m < n; m++){
+			if(!A_M(*p, m)) continue;
+			if(GL(*mt, m) <= w+k-1){
+				a++;
+				if(mt->a[m]&0x100000000) s++;
+			}
+		}
+		if(a > 0 && s == 0) fprintf(stderr, "ERROR2\n");
+	}
+
+	for (i = n-1; i >= 0; i--)
+	{
+		if (GL(*mt, i) + w <= tot_l + 1) {
+			for (m = i, s = a = 0; m < n; m++){
+				if(!A_M(*p, m)) continue;
+				if(GL(*mt, m) + w >= tot_l + 1){
+					a++;
+					if(mt->a[m]&0x100000000) s++;
+				} 				
+			}
+			if(a > 0 && s == 0) {
+				fprintf(stderr, "\nERROR3, s: %d, n: %d, tot_l: %d, end_l: %ld\n", s, n, tot_l, GL(*mt, i));
+				for (m = i, s = a = 0; m < n; m++){
+					if(!A_M(*p, m)) continue;
+					if(GL(*mt, m) + w >= tot_l + 1){
+						fprintf(stderr, "lp: %ld\n", GL(*mt, m));
+						a++;
+						if(mt->a[m]&0x100000000) s++;
+					} 				
+				}
+			}
+			
+			break;
+		}
+	}
+	
+	if(i < 0){
+		for (m = s = a = 0; m < n; m++){
+			if(!A_M(*p, m)) continue;
+			if(GL(*mt, m) + w >= tot_l + 1){
+				a++;
+				if(mt->a[m]&0x100000000) s++;
+			} 				
+		}
+		if(a > 0 && s == 0) fprintf(stderr, "ERROR4\n");
+	}
+}
+
+static void select_mz_h(ha_mz1_v *p, st_mt_t *mt, int len, int sample_dist, int32_t w, int32_t k, int32_t tot_l)
+{ // for high-occ minimizers, choose up to max_high_occ in each high-occ streak
+	int32_t i, mi = -1, si, last0 = -1, n = (int32_t)p->n, m = 0, ws = w + k - 1;
+
+	if (n == 0) return;
+	assert(n < 1<<27); // 27 is the number of bits for ha_mz1_t::pos; this should be safe as there are more bases than minimizers
+
+	for (i = m = 0, last0 = -1; i <= n; ++i) {
+		if (i == n || p->a[i].rid == 0) {
+			if (i - last0 > 1) {
+				int32_t ps = last0 < 0? 0 : p->a[last0].pos;
+				int32_t pe = i == n? len : p->a[i].pos;
+				if(((int32_t)((double)(pe - ps) / sample_dist + .499)) > 0){
+					last0 = -2;
+					m++;
+					break;
+				}
+			}
+			last0 = i;
+		}
+	}
+	if (m == 0) return; // no high-frequency k-mers; do nothing
+	if(last0 >= -1) goto ff;
+	i = 0;
+	i = qfw(p, mt, n, tot_l, ws, i, &mi);
+	if(i == n) goto ff;
+	
+	for (si = 0, i++; i < n; i++){
+		for (; si < i; si++){
+			if(GL(*mt, si) + w > GL(*mt, i)) break;
+		}
+
+		// a new minimum; then write the old min
+		if(mzcmp_l(p, i, mi) <= 0) {
+			if(A_M(*p, mi)) mt->a[mi] |= 0x100000000;
+			mi = i;
+		}// old min has moved outside the window
+		else if(si > mi){
+			if(A_M(*p, mi)) mt->a[mi] |= 0x100000000;
+			for (m = si, mi = -1; m <= i; m++){
+				if(mzcmp_l(p, mi, m) >= 0) mi = m;
+            }
+			if(A_M(*p, mi)){
+				for (m = si; m <= i; m++){
+					if(!A_M(*p, m)) continue;
+					if(mzcmp_l(p, mi, m) == 0) mt->a[m] |= 0x100000000;
+				}
+			}
+		}
+	}	
+
+	if(A_M(*p, mi)) mt->a[mi] |= 0x100000000;
+
+	for (i = n - 1; si < n && GL(*mt, si) + w <= tot_l + 1; si++){
+		if(si > mi){
+			if(A_M(*p, mi)) mt->a[mi] |= 0x100000000;
+			for (m = si, mi = -1; m <= i; m++){
+				if(mzcmp_l(p, mi, m) >= 0) mi = m;
+            }
+			if(A_M(*p, mi)){
+				for (m = si; m <= i; m++){
+					if(!A_M(*p, m)) continue;
+					if(mzcmp_l(p, mi, m) == 0) mt->a[m] |= 0x100000000;
+				}
+			}
+		}
+	}
+	
+	/**
+	dbg_boundary(p, mt, w, k, tot_l);
+	fprintf(stderr, "\n");
+	for (i = 0; i < (int32_t)p->n; ++i){
+		if(p->a[i].rid == 0) continue;
+		fprintf(stderr, "%cl: %u, pos: %lu, cnt: %lu, key: %lu, i: %d\n", "+-"[!!(mt->a[i]&0x100000000)], 
+													(uint32_t)mt->a[i], p->a[i].pos, p->a[i].rid, p->a[i].x, i);
+		// if (mt->a[i]&0x100000000){
+		// 	fprintf(stderr, "+l: %u, pos: %lu, cnt: %lu\n", (uint32_t)mt->a[i], p->a[i].pos, p->a[i].rid);
+		// }
+	}
+	**/
+	ha_mz1_t b[MAX_MAX_HIGH_OCC];
+	for (i = 0, last0 = -1; i <= n; ++i) {
+		if (i == n || p->a[i].rid == 0) {
+			if (i - last0 > 1) {
+				int32_t ps = last0 < 0? 0 : p->a[last0].pos;
+				int32_t pe = i == n? len : p->a[i].pos;
+				if(((int32_t)((double)(pe - ps) / sample_dist + .499)) > 0){
+					for (m = last0 + 1, mi = 0; m < i; ++m){
+						if(mt->a[m]&0x100000000) p->a[m].rid = 0, mi++;
+					}
+					if(mi == 0) hf_select(p, last0, i, n, len, sample_dist, b, 0);
+				} 
+			}
+			last0 = i;
+		}
+	}
+
+	ff:
+	for (i = n = 0; i < (int32_t)p->n; ++i) // squeeze out filtered minimizers
+		if (p->a[i].rid == 0)
+			p->a[n++] = p->a[i];
+	p->n = n;
+}
+
+void debug_pl(const char *str, int len, int w, int k, int is_hpc, ha_mz1_v *p, const void *hf, st_mt_t *mt)
+{
+	int i, l, dbi, dbcnt = 0, kmer_span = 0;
+	tiny_queue_t tq;
+	memset(&tq, 0, sizeof(tiny_queue_t));
+	uint64_t shift1 = k - 1, mask = (1ULL<<k) - 1, kmer[4] = {0,0,0,0};
+	
+    for (i = l = dbi = 0; i < len; ++i) {
+        int c = seq_nt4_table[(uint8_t)str[i]];
+        if (c < 4) { // not an ambiguous base
+            int z;
+            if (is_hpc) {
+                int skip_len = 1;
+                if (i + 1 < len && seq_nt4_table[(uint8_t)str[i + 1]] == c) {
+                    for (skip_len = 2; i + skip_len < len; ++skip_len)
+                        if (seq_nt4_table[(uint8_t)str[i + skip_len]] != c)
+                            break;
+                    i += skip_len - 1; // put $i at the end of the current homopolymer run
+                }
+                tq_push(&tq, skip_len);
+                kmer_span += skip_len;
+                ///how many bases that are covered by this HPC k-mer
+                ///kmer_span includes at most k HPC elements
+                if (tq.count > k) kmer_span -= tq_shift(&tq);
+            } else kmer_span = l + 1 < k? l + 1 : k; 
+            ///kmer_span should be used for HPC k-mer
+            ///non-HPC k-mer, kmer_span should be k
+            ///kmer_span is used to calculate anchor pos on reverse complementary strand
+
+            kmer[0] = (kmer[0] << 1 | (c&1))  & mask;                  // forward k-mer
+            kmer[1] = (kmer[1] << 1 | (c>>1)) & mask;
+            kmer[2] = kmer[2] >> 1 | (uint64_t)(1 - (c&1))  << shift1; // reverse k-mer
+            kmer[3] = kmer[3] >> 1 | (uint64_t)(1 - (c>>1)) << shift1;
+            if (kmer[1] == kmer[3]) continue; // skip "symmetric k-mers" as we don't know it strand
+            z = kmer[1] < kmer[3]? 0 : 1; // strand
+            ++l;
+
+            if (l >= k && kmer_span < 256) {
+                uint64_t y;
+                int32_t cnt;
+                y = yak_hash64_64(kmer[z<<1|0]) + yak_hash64_64(kmer[z<<1|1]);
+                cnt = hf? ha_ft_cnt(hf, y) : 0;
+
+				for (dbi = 0; dbi < mt->n; dbi++)
+				{
+					if(p->a[dbi].x == y && p->a[dbi].rid == cnt && p->a[dbi].pos == i && p->a[dbi].rev == z && p->a[dbi].span == kmer_span)
+					{
+						if(l != (int)mt->a[dbi]) fprintf(stderr, "ERROR\n");
+						dbcnt++;
+					}
+				}
+            }
+        } else l = 0, tq.count = tq.front = 0, kmer_span = 0;
+	}
+
+	if(dbcnt != mt->n) fprintf(stderr, "ERROR\n");
+	if(mt->n != (int)p->n) fprintf(stderr, "ERROR\n");
+	for (dbi = 1; dbi < mt->n; dbi++)
+	{
+		if(p->a[dbi].pos <= p->a[dbi-1].pos || (int)mt->a[dbi] <= (int)mt->a[dbi-1])
+		{
+			fprintf(stderr, "ERROR\n");
+		}
+	}
+}
+
 /**
  * Find symmetric (w,k)-minimizers on a DNA sequence
  *
@@ -300,123 +582,140 @@ static void select_mz(ha_mz1_v *p, int len, int sample_dist, int32_t dp_min_len)
  * @param is_hpc homopolymer-compressed or not
  * @param p      minimizers
  */
-void ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mz1_v *p, const void *hf, int sample_dist, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct, ha_pt_t *pt, int min_freq, int32_t dp_min_len, float dp_e, st_mt_t *mt)
-{	///in default, w = 51, k = 51, is_hpc = 1
-	/**
-	 uint64_t x;
-	 uint64_t rid:28, pos:27, rev:1, span:8;
-	 **/
-	extern void *ha_ct_table;
-	static const ha_mz1_t dummy = { UINT64_MAX, (1<<28) - 1, 0, 0 };
-	uint64_t shift1 = k - 1, mask = (1ULL<<k) - 1, kmer[4] = {0,0,0,0};
-	int i, j, l, buf_pos, min_pos, kmer_span = 0;
-	ha_mz1_t buf[256], min = dummy;
-	tiny_queue_t tq;
+void ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mz1_v *p, const void *hf, int sample_dist, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct, ha_pt_t *pt, int min_freq, int32_t dp_min_len, float dp_e, st_mt_t *mt, int32_t ws)
+{   ///in default, w = 51, k = 51, is_hpc = 1
+    /**
+     uint64_t x;
+     uint64_t rid:28, pos:27, rev:1, span:8;
+     **/
+    extern void *ha_ct_table;
+    static const ha_mz1_t dummy = { UINT64_MAX, (1<<28) - 1, 0, 0, 0};
+    uint64_t shift1 = k - 1, mask = (1ULL<<k) - 1, kmer[4] = {0,0,0,0};
+    int i, j, l, tl = 0, buf_pos, min_pos, kmer_span = 0;
+    ha_mz1_t buf[256], min = dummy;
+    uint32_t buf_p[256], min_s = (uint32_t)-1;
+    tiny_queue_t tq;
 
-	assert(len > 0 && len < 1<<27 && rid < 1<<28 && (w > 0 && w < 256) && (k > 0 && k <= 63));
-	if (dbg_ct != NULL) dbg_ct->a.n = 0;
-	if (k_flag != NULL) {
-		kv_resize(uint8_t, k_flag->a, (uint64_t)len);
-		k_flag->a.n = len; 
-		memset(k_flag->a.a, 0, k_flag->a.n);
-	} 
+    assert(len > 0 && len < 1<<27 && rid < 1<<28 && (w > 0 && w < 256) && (k > 0 && k <= 63));
+    if (dbg_ct != NULL) dbg_ct->a.n = 0;
+    if (k_flag != NULL) {
+        kv_resize(uint8_t, k_flag->a, (uint64_t)len);
+        k_flag->a.n = len; 
+        memset(k_flag->a.a, 0, k_flag->a.n);
+    } 
 
-	memset(buf, 0xff, w * sizeof(ha_mz1_t));
-	memset(&tq, 0, sizeof(tiny_queue_t));
-	///len/w is the evaluated minimizer numbers
-	kv_resize(ha_mz1_t, *p, p->n + len/w);
+    memset(buf, 0xff, w * sizeof(ha_mz1_t));
+    memset(&tq, 0, sizeof(tiny_queue_t));
+    ///len/w is the evaluated minimizer numbers
+    kv_resize(ha_mz1_t, *p, p->n + len/w);
+    kv_resize(uint64_t, *mt, (int64_t)p->m); mt->n = p->n;
 
-	for (i = l = buf_pos = min_pos = 0; i < len; ++i) {
-		int c = seq_nt4_table[(uint8_t)str[i]];
-		ha_mz1_t info = dummy;
-		if (c < 4) { // not an ambiguous base
-			int z;
-			if (is_hpc) {
-				int skip_len = 1;
-				if (i + 1 < len && seq_nt4_table[(uint8_t)str[i + 1]] == c) {
-					for (skip_len = 2; i + skip_len < len; ++skip_len)
-						if (seq_nt4_table[(uint8_t)str[i + skip_len]] != c)
-							break;
-					i += skip_len - 1; // put $i at the end of the current homopolymer run
-				}
-				tq_push(&tq, skip_len);
-				kmer_span += skip_len;
-				///how many bases that are covered by this HPC k-mer
-				///kmer_span includes at most k HPC elements
-				if (tq.count > k) kmer_span -= tq_shift(&tq);
-			} else kmer_span = l + 1 < k? l + 1 : k; 
-			///kmer_span should be used for HPC k-mer
-			///non-HPC k-mer, kmer_span should be k
-			///kmer_span is used to calculate anchor pos on reverse complementary strand
+    for (i = l = tl = buf_pos = min_pos = 0; i < len; ++i) {
+        int c = seq_nt4_table[(uint8_t)str[i]];
+        ha_mz1_t info = dummy;
+        if (c < 4) { // not an ambiguous base
+            int z;
+            if (is_hpc) {
+                int skip_len = 1;
+                if (i + 1 < len && seq_nt4_table[(uint8_t)str[i + 1]] == c) {
+                    for (skip_len = 2; i + skip_len < len; ++skip_len)
+                        if (seq_nt4_table[(uint8_t)str[i + skip_len]] != c)
+                            break;
+                    i += skip_len - 1; // put $i at the end of the current homopolymer run
+                }
+                tq_push(&tq, skip_len);
+                kmer_span += skip_len;
+                ///how many bases that are covered by this HPC k-mer
+                ///kmer_span includes at most k HPC elements
+                if (tq.count > k) kmer_span -= tq_shift(&tq);
+            } else kmer_span = l + 1 < k? l + 1 : k; 
+            ///kmer_span should be used for HPC k-mer
+            ///non-HPC k-mer, kmer_span should be k
+            ///kmer_span is used to calculate anchor pos on reverse complementary strand
 
-			if (k_flag != NULL) k_flag->a.a[i] = 1;///lable all useful base, which are not ignored by HPC
+            if (k_flag != NULL) k_flag->a.a[i] = 1;///lable all useful base, which are not ignored by HPC
 
-			kmer[0] = (kmer[0] << 1 | (c&1))  & mask;                  // forward k-mer
-			kmer[1] = (kmer[1] << 1 | (c>>1)) & mask;
-			kmer[2] = kmer[2] >> 1 | (uint64_t)(1 - (c&1))  << shift1; // reverse k-mer
-			kmer[3] = kmer[3] >> 1 | (uint64_t)(1 - (c>>1)) << shift1;
-			if (kmer[1] == kmer[3]) continue; // skip "symmetric k-mers" as we don't know it strand
-			z = kmer[1] < kmer[3]? 0 : 1; // strand
-			++l;
-			if (l >= k && kmer_span < 256) {
-				uint64_t y;
-				int32_t cnt, filtered;
-				y = yak_hash64_64(kmer[z<<1|0]) + yak_hash64_64(kmer[z<<1|1]);
-				cnt = hf? ha_ft_cnt(hf, y) : 0;
-				filtered = (cnt >= 1<<28);
-				if (dbg_ct != NULL) kv_push(uint64_t, dbg_ct->a, ((((uint64_t)(query_ct_index(ha_ct_table, y))<<1)|filtered)<<32)|(uint64_t)(i));
-				if (!filtered) info.x = y, info.rid = cnt, info.pos = i, info.rev = z, info.span = kmer_span; // initially ha_mz1_t::rid keeps the k-mer count
-				if (k_flag != NULL) k_flag->a.a[i]++;
-				if (k_flag != NULL && filtered > 0) k_flag->a.a[i]++;
-			}
-		} else l = 0, tq.count = tq.front = 0, kmer_span = 0;
+            kmer[0] = (kmer[0] << 1 | (c&1))  & mask;                  // forward k-mer
+            kmer[1] = (kmer[1] << 1 | (c>>1)) & mask;
+            kmer[2] = kmer[2] >> 1 | (uint64_t)(1 - (c&1))  << shift1; // reverse k-mer
+            kmer[3] = kmer[3] >> 1 | (uint64_t)(1 - (c>>1)) << shift1;
+            if (kmer[1] == kmer[3]) continue; // skip "symmetric k-mers" as we don't know it strand
+            z = kmer[1] < kmer[3]? 0 : 1; // strand
+            ++l; tl++;
+            if (l >= k && kmer_span < 256) {
+                uint64_t y;
+                int32_t cnt, filtered;
+                y = yak_hash64_64(kmer[z<<1|0]) + yak_hash64_64(kmer[z<<1|1]);
+                cnt = hf? ha_ft_cnt(hf, y) : 0;
+                filtered = (cnt >= 1<<28);
+                if (dbg_ct != NULL) kv_push(uint64_t, dbg_ct->a, ((((uint64_t)(query_ct_index(ha_ct_table, y))<<1)|filtered)<<32)|(uint64_t)(i));
+                if (!filtered) info.x = y, info.rid = cnt, info.pos = i, info.rev = z, info.span = kmer_span; // initially ha_mz1_t::rid keeps the k-mer count
+                if (k_flag != NULL) k_flag->a.a[i]++;
+                if (k_flag != NULL && filtered > 0) k_flag->a.a[i]++;
+            }
+        } else l = 0, tq.count = tq.front = 0, kmer_span = 0;
 
-		//for non-HPC k-mer, l = i; but for HPC k-mer, l is always less than i
-		//i is the real base iterator, while l is the HPC base iterator
-		//only if l >= k, info is a useful minimizer (ha_mz1_t.x != UINT64_MAX)
-		//but even if l < k, infor is still stored into buf
-		buf[buf_pos] = info; // need to do this here as appropriate buf_pos and buf[buf_pos] are needed below
-		if (l == w + k - 1 && min.x != UINT64_MAX) { // special case for the first window - because identical k-mers are not stored yet
-			for (j = buf_pos + 1; j < w; ++j)
-				if (mzcmp(&min, &buf[j]) == 0 && buf[j].pos != min.pos) kv_push(ha_mz1_t, *p, buf[j]);
-			for (j = 0; j < buf_pos; ++j)
-				if (mzcmp(&min, &buf[j]) == 0 && buf[j].pos != min.pos) kv_push(ha_mz1_t, *p, buf[j]);
-		}
-		/**
-		 * There are three cases:
-		 * 1. info.x <= min.x, means info is a new minimizer
-		 * 2. info.x > min.x, info is not a new minimizer
-		 *    (1) buf_pos != min_pos, do nothing
-		 *    (2) buf_pos == min_pos, means current minimizer has moved outside the window
-		 * **/
-		///three cases: 1. 
-		if (info.x <= min.x) { // a new minimum; then write the old min
-			if (l >= w + k && min.x != UINT64_MAX) kv_push(ha_mz1_t, *p, min);
-			min = info, min_pos = buf_pos;
-		} else if (buf_pos == min_pos) { // old min has moved outside the window
-			if (l >= w + k - 1 && min.x != UINT64_MAX) kv_push(ha_mz1_t, *p, min);
-			///buf_pos == min_pos, means current minimizer has moved outside the window
-			///so for now we need to find a new minimizer at the current window (w k-mers)
-			for (j = buf_pos + 1, min.x = UINT64_MAX; j < w; ++j) // the two loops are necessary when there are identical k-mers
-				if (mzcmp(&min, &buf[j]) >= 0) min = buf[j], min_pos = j; // >= is important s.t. min is always the closest k-mer
-			for (j = 0; j <= buf_pos; ++j)
-				if (mzcmp(&min, &buf[j]) >= 0) min = buf[j], min_pos = j;
+        buf[buf_pos] = info; // need to do this here as appropriate buf_pos and buf[buf_pos] are needed below
+        buf_p[buf_pos] = l;
+        if (l == w + k - 1 && min.x != UINT64_MAX) { // special case for the first window - because identical k-mers are not stored yet
+			for (j = buf_pos + 1; j < w; ++j){
+                if (mzcmp(&min, &buf[j]) == 0 && buf[j].pos != min.pos){
+                    kv_push(ha_mz1_t, *p, buf[j]); kv_push(uint64_t, *mt, buf_p[j]);
+                }
+            }
+            for (j = 0; j < buf_pos; ++j){
+                if (mzcmp(&min, &buf[j]) == 0 && buf[j].pos != min.pos){
+                    kv_push(ha_mz1_t, *p, buf[j]); kv_push(uint64_t, *mt, buf_p[j]);
+                } 
+            }
+        }
 
-			if (l >= w + k - 1 && min.x != UINT64_MAX) { // write identical k-mers
-				for (j = buf_pos + 1; j < w; ++j) // these two loops make sure the output is sorted
-					if (mzcmp(&min, &buf[j]) == 0 && min.pos != buf[j].pos) kv_push(ha_mz1_t, *p, buf[j]);
-				for (j = 0; j <= buf_pos; ++j)
-					if (mzcmp(&min, &buf[j]) == 0 && min.pos != buf[j].pos) kv_push(ha_mz1_t, *p, buf[j]);
-			}
-		}
-		if (++buf_pos == w) buf_pos = 0;
-	}
-	if (min.x != UINT64_MAX)
-		kv_push(ha_mz1_t, *p, min);
-	if (sample_dist > w) select_mz(p, len, MAX_HIGH_OCC, dp_min_len);
-	if (dp_min_len > 0 && pt && mt) refine_sketch(p, pt, len, dp_min_len, dp_e, min_freq, mt);
-	for (i = 0; i < (int)p->n; ++i) // populate .rid as this was keeping counts
-		p->a[i].rid = rid;
+        /**
+         * There are three cases:
+         * 1. info.x <= min.x, means info is a new minimizer
+         * 2. info.x > min.x, info is not a new minimizer
+         *    (1) buf_pos != min_pos, do nothing
+         *    (2) buf_pos == min_pos, means current minimizer has moved outside the window
+         * **/
+        ///three cases: 1. 
+        if (mzcmp(&min, &info) >= 0) { // a new minimum; then write the old min
+            if (l >= w + k && min.x != UINT64_MAX){
+                kv_push(ha_mz1_t, *p, min); kv_push(uint64_t, *mt, min_s);
+            } 
+            min = info, min_pos = buf_pos, min_s = buf_p[buf_pos];
+        } else if (buf_pos == min_pos) { // old min has moved outside the window
+            if (l >= w + k - 1 && min.x != UINT64_MAX){
+                kv_push(ha_mz1_t, *p, min); kv_push(uint64_t, *mt, min_s);
+            } 
+            ///buf_pos == min_pos, means current minimizer has moved outside the window
+            ///so for now we need to find a new minimizer at the current window (w k-mers)
+            for (j = buf_pos + 1, min = dummy; j < w; ++j) // the two loops are necessary when there are identical k-mers
+                if (mzcmp(&min, &buf[j]) >= 0) min = buf[j], min_pos = j, min_s = buf_p[j]; // >= is important s.t. min is always the closest k-mer
+            for (j = 0; j <= buf_pos; ++j)
+                if (mzcmp(&min, &buf[j]) >= 0) min = buf[j], min_pos = j, min_s = buf_p[j];
+
+            if (l >= w + k - 1 && min.x != UINT64_MAX) { // write identical k-mers
+                for (j = buf_pos + 1; j < w; ++j) // these two loops make sure the output is sorted
+                    if (mzcmp(&min, &buf[j]) == 0 && min.pos != buf[j].pos){
+                        kv_push(ha_mz1_t, *p, buf[j]); kv_push(uint64_t, *mt, buf_p[j]);
+                    }
+                for (j = 0; j <= buf_pos; ++j)
+                    if (mzcmp(&min, &buf[j]) == 0 && min.pos != buf[j].pos){
+                        kv_push(ha_mz1_t, *p, buf[j]); kv_push(uint64_t, *mt, buf_p[j]);
+                    } 
+            }
+        }
+        if (++buf_pos == w) buf_pos = 0;
+    }
+    if (min.x != UINT64_MAX){
+        kv_push(ha_mz1_t, *p, min); kv_push(uint64_t, *mt, min_s); 
+    }
+	// debug_pl(str, len, w, k, is_hpc, p, hf, mt);
+    // if (sample_dist > w) select_mz(p, len, MAX_HIGH_OCC, dp_min_len);
+    select_mz_h(p, mt, len, sample_dist, ws, k, tl);
+    if (dp_min_len > 0 && pt && mt) refine_sketch(p, pt, len, dp_min_len, dp_e, min_freq, mt);
+    for (i = 0; i < (int)p->n; ++i) // populate .rid as this was keeping counts
+        p->a[i].rid = rid;
 }
 
 void ha_sketch_worse(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mz1_v *p, const void *hf, int sample_dist, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct, ha_pt_t *pt, int min_freq, int32_t dp_min_len, float dp_e, st_mt_t *mt)

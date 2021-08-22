@@ -14786,7 +14786,7 @@ void debug_gfa_space(ha_ug_index* idx, ma_ug_t* ug, trans_chain* t_ch, kv_u_tran
     memset(&bub, 0, sizeof(bubble_type));
     bub.round_id = 0; bub.n_round = 2;
 
-    identify_bubbles(ug, &bub, t_ch->is_r_het, ref);
+    identify_bubbles(ug, &bub, t_ch->ir_het, ref);
 
     hc_links link;
     init_hc_links(&link, ug->g->n_seq, t_ch);
@@ -15687,7 +15687,7 @@ void resolve_tangles_hic(ha_ug_index *idx, bubble_type *bub, kvec_pe_hit *hits, 
     pe_hit *h_a = NULL;
     u_trans_t *p = NULL;
 
-    identify_bubbles(idx->ug, bub, idx->t_ch->is_r_het, &(idx->t_ch->k_trans));
+    identify_bubbles(idx->ug, bub, idx->t_ch->ir_het, &(idx->t_ch->k_trans));
 
     ta->idx.n = ta->n = 0;
     if(hits->idx.n == 0) idx_hc_links(hits, idx, NULL);

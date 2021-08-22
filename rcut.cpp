@@ -889,9 +889,9 @@ trans_chain* t_ch)
             offset += (uint32_t)u->a[i];
             if(i >= sid && i <= eid)
             {
-                if(t_ch->is_r_het[u->a[i]>>33] != t->hs)
+                if(t_ch->ir_het[u->a[i]>>33] != t->hs)
                 {
-                    fprintf(stderr, "ERROR-d: is_r_het: %u, h_status: %u\n", t_ch->is_r_het[u->a[i]>>33], t->hs);
+                    fprintf(stderr, "ERROR-d: is_r_het: %u, h_status: %u\n", t_ch->ir_het[u->a[i]>>33], t->hs);
                 }
             }
         }
@@ -939,11 +939,11 @@ void update_mc_edges(mc_g_t *mg, hap_overlaps_list* ha, kv_u_trans_t *ta, trans_
 			u = &(mg->ug->u.a[v]);
 			for (k = 1, l = 0, offset = 0, l_pos = 0; k <= u->n; ++k) 
 			{   
-				if (k == u->n || t_ch->is_r_het[u->a[k]>>33] != t_ch->is_r_het[u->a[l]>>33])
+				if (k == u->n || t_ch->ir_het[u->a[k]>>33] != t_ch->ir_het[u->a[l]>>33])
 				{
 					kv_pushp(mc_interval_t, p, &t);
 					t->uID = v;
-					t->hs = t_ch->is_r_het[u->a[l]>>33];
+					t->hs = t_ch->ir_het[u->a[l]>>33];
 
 					t->bS = l_pos;
 					t->bE = offset + mg->rg->seq[u->a[k-1]>>33].len - 1;
@@ -2680,10 +2680,10 @@ void set_p_flag(mc_g_t *mg, uint32_t uID, uint8_t* trio_flag, trans_chain* t_ch,
 	for (i = 0; i < u->n; i++)
 	{
 		trio_flag[u->a[i]>>33] |= SET_TRIO;
-		if(t_ch->is_r_het[u->a[i]>>33] == N_HET) continue;
+		if(t_ch->ir_het[u->a[i]>>33] == N_HET) continue;
 		if(s == 0)
 		{
-			if(t_ch->is_r_het[u->a[i]>>33]&P_HET)//special case
+			if(t_ch->ir_het[u->a[i]>>33]&P_HET)//special case
 			{
 				trio_flag[u->a[i]>>33] |= FATHER;
 			}

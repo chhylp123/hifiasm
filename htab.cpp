@@ -675,7 +675,7 @@ static void worker_for_mz(void *data, long i, int tid)
 	ha_mz1_v *b = &s->mz_buf[tid];
 	s->mz_buf[tid].n = 0;
 	ha_sketch(s->seq[i], s->len[i], s->p->opt->w, s->p->opt->k, s->n_seq0 + i, s->p->opt->is_HPC, b, s->p->flt_tab, asm_opt.mz_sample_dist, 0, 0, 
-	(s->p->pt&&(s->p->flag&HAF_COUNT_REFINE))?s->p->pt:NULL, s->p->opt->min_rcnt, asm_opt.dp_min_len, asm_opt.dp_e, s->mt?&(s->mt[tid]):NULL);
+	(s->p->pt&&(s->p->flag&HAF_COUNT_REFINE))?s->p->pt:NULL, s->p->opt->min_rcnt, asm_opt.dp_min_len, asm_opt.dp_e, &(s->mt[tid]), asm_opt.mz_rewin);
 	s->mz[i].n = s->mz[i].m = b->n;
 	MALLOC(s->mz[i].a, b->n);
 	memcpy(s->mz[i].a, b->a, b->n * sizeof(ha_mz1_t));
@@ -807,17 +807,16 @@ static void *worker_count(void *data, int step, void *in) // callback for kt_pip
 			// s->mz && s->mz_buf are lists of minimzer vectors
 			CALLOC(s->mz, s->n_seq);
 			CALLOC(s->mz_buf, p->opt->n_thread);
-			s->mt = NULL;
-			if(s->p->pt&&(s->p->flag&HAF_COUNT_REFINE)) CALLOC(s->mt, p->opt->n_thread);						
+			CALLOC(s->mt, p->opt->n_thread);						
 			///calculate minimzers for each read, each read corresponds to one thread
 			kt_for(p->opt->n_thread, worker_for_mz, s, s->n_seq);
 
 			for (i = 0; i < p->opt->n_thread; ++i)
 			{
-				if(s->mt) free(s->mt[i].a);
+				free(s->mt[i].a);
 				free(s->mz_buf[i].a);
 			}
-			if(s->mt) free(s->mt);
+			free(s->mt);
 			free(s->mz_buf);
 			// insert minimizers
 			if (p->pt && !(p->flag&HAF_COUNT_REFINE)) {///insert whole minimizer

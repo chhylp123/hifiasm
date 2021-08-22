@@ -715,6 +715,7 @@ uint32_t stops_threshold, buf_t* b)
 #define TRIO_DROP_LENGTH_THRES 0.8
 #define MAX_STOP_RATE 0.6
 #define TANGLE_MISSED_THRES 0.6
+#define HET_HOM_RATE 0.7
 
 typedef struct {
 	uint32_t father_occ;
@@ -747,17 +748,17 @@ typedef struct{
 } bub_label_t;
 
 void resolve_tangles(ma_ug_t *src, asg_t *read_g, ma_hit_t_alloc* reverse_sources, long long minLongUntig, 
-long long maxShortUntig, float l_untig_rate, float max_node_threshold, R_to_U* ruIndex, uint32_t trio_flag, 
-float drop_ratio);
-void adjust_utg_advance(asg_t *sg, ma_ug_t *ug, ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, bub_label_t* b_mask_t);
+long long maxShortUntig, float l_untig_rate, float max_node_threshold, R_to_U* ruIndex, uint8_t* is_r_het, 
+uint32_t trio_flag, float drop_ratio);
+void adjust_utg_advance(asg_t *sg, ma_ug_t *ug, ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, bub_label_t* b_mask_t, uint8_t* is_r_het);
 void rescue_contained_reads_aggressive(ma_ug_t *i_ug, asg_t *r_g, ma_hit_t_alloc* sources, ma_sub_t *coverage_cut,
 R_to_U* ruIndex, int max_hang, int min_ovlp, uint32_t chainLenThres, uint32_t is_bubble_check, 
 uint32_t is_primary_check, kvec_asg_arc_t_warp* new_rtg_edges, kvec_t_u32_warp* new_rtg_nodes, bub_label_t* b_mask_t);
 void rescue_missing_overlaps_aggressive(ma_ug_t *i_ug, asg_t *r_g, ma_hit_t_alloc* sources, ma_sub_t *coverage_cut,
 R_to_U* ruIndex, int max_hang, int min_ovlp, uint32_t is_bubble_check, uint32_t is_primary_check, kvec_asg_arc_t_warp* new_rtg_edges, bub_label_t* b_mask_t);
 void all_to_all_deduplicate(ma_ug_t* ug, asg_t* read_g, ma_sub_t* coverage_cut, 
-ma_hit_t_alloc* sources, uint8_t postive_flag, float drop_rate, ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, float double_check_rate, int non_tig_occ);
-void drop_semi_circle(ma_ug_t *ug, asg_t* nsg, asg_t* read_g, ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex);
+ma_hit_t_alloc* sources, uint8_t postive_flag, float drop_rate, ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, uint8_t* is_r_het, float double_check_rate, int non_tig_occ);
+void drop_semi_circle(ma_ug_t *ug, asg_t* nsg, asg_t* read_g, ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, uint8_t* is_r_het);
 void rescue_wrong_overlaps_to_unitigs(ma_ug_t *i_ug, asg_t *r_g,  ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, 
 ma_sub_t *coverage_cut, R_to_U* ruIndex, int max_hang, int min_ovlp, long long bubble_dist, kvec_asg_arc_t_warp* keep_edges, bub_label_t* b_mask_t);
 void get_unitig_trio_flag(ma_utg_t* nsu, uint32_t flag, uint32_t* require, uint32_t* non_require, uint32_t* ambigious);
@@ -822,7 +823,7 @@ typedef struct {
 typedef struct{
 	uint32_t* rUidx;
 	uint64_t* rUpos;
-	uint8_t* is_r_het;
+	uint8_t* ir_het;
 	uint32_t r_num, u_num;
 	kvec_t(bed_in) bed;
 	kvec_t(uint32_t) topo_buf;
@@ -848,7 +849,7 @@ typedef struct {
     kvec_asg_arc_t_offset u_buffer; 
     kvec_t_i32_warp tailIndex;
     kvec_t_i32_warp prevIndex;
-	///hc_links* link;
+	uint8_t* is_r_het;
 	trans_chain* t_ch;
 }hap_cov_t;
 

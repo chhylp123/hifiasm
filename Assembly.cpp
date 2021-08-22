@@ -13,7 +13,7 @@
 #include "rcut.h"
 
 void ha_get_candidates_interface(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_region_alloc *overlap_list, overlap_region_alloc *overlap_list_hp, Candidates_list *cl, double bw_thres, 
-int max_n_chain, int keep_whole_chain, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* chain_idx, ma_hit_t_alloc* paf, ma_hit_t_alloc* rev_paf, overlap_region* f_cigar, kvec_t_u64_warp* dbg_ct);
+int max_n_chain, int keep_whole_chain, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* chain_idx, ma_hit_t_alloc* paf, ma_hit_t_alloc* rev_paf, overlap_region* f_cigar, kvec_t_u64_warp* dbg_ct, st_mt_t *sp);
 void ha_get_ug_candidates(ha_abuf_t *ab, int64_t rid, ma_utg_t *u, ma_utg_v *ua, overlap_region_alloc *overlap_list, Candidates_list *cl, double bw_thres, int max_n_chain, int keep_whole_chain, kvec_t_u8_warp* k_flag,
 kvec_t_u64_warp* chain_idx, void *ha_flt_tab, ha_pt_t *ha_idx, overlap_region* f_cigar, kvec_t_u64_warp* dbg_ct, double chain_match_rate);
 void ha_sort_list_by_anchor(overlap_region_alloc *overlap_list);
@@ -438,6 +438,7 @@ typedef struct {
     kvec_t_u8_warp k_flag;
     overlap_region tmp_region;
     ma_utg_v *ua;
+    st_mt_t sp;
 } ha_ovec_buf_t;
 
 ha_ovec_buf_t *ha_ovec_init(int is_final, int save_ov)
@@ -454,6 +455,7 @@ ha_ovec_buf_t *ha_ovec_init(int is_final, int save_ov)
     kv_init(b->b_buf.a);
     kv_init(b->r_buf.a);
     kv_init(b->k_flag.a);
+    kv_init(b->sp);
 	b->ab = ha_abuf_init();
 	if (!b->is_final) {
 		init_Cigar_record(&b->cigar1);
@@ -478,6 +480,7 @@ void ha_ovec_destroy(ha_ovec_buf_t *b)
     kv_destroy(b->b_buf.a);
     kv_destroy(b->r_buf.a);
     kv_destroy(b->k_flag.a);
+    kv_destroy(b->sp);
 	if (!b->is_final) {
 		destory_Cigar_record(&b->cigar1);
 		destory_Graph(&b->POA_Graph);
@@ -541,7 +544,7 @@ static void worker_ovec(void *data, long i, int tid)
 	int fully_cov, abnormal;
 
     ha_get_candidates_interface(b->ab, i, &b->self_read, &b->olist, &b->olist_hp, &b->clist, 
-    0.02, asm_opt.max_n_chain, 1, &(b->k_flag), &b->r_buf, &(R_INF.paf[i]), &(R_INF.reverse_paf[i]), &(b->tmp_region), NULL);
+    0.02, asm_opt.max_n_chain, 1, &(b->k_flag), &b->r_buf, &(R_INF.paf[i]), &(R_INF.reverse_paf[i]), &(b->tmp_region), NULL, &(b->sp));
 
 	clear_Cigar_record(&b->cigar1);
 	clear_Round2_alignment(&b->round2);
@@ -599,7 +602,7 @@ static void worker_ovec_related_reads(void *data, long i, int tid)
         int fully_cov, abnormal, q_idx = k;
 
         ha_get_candidates_interface(b->ab, i, &b->self_read, &b->olist, &b->olist_hp, &b->clist, 
-        0.02, asm_opt.max_n_chain, 1, &(b->k_flag), &b->r_buf, &(R_INF.paf[i]), &(R_INF.reverse_paf[i]), &(b->tmp_region), &(R_INF_FLAG.candidate_count[q_idx]));
+        0.02, asm_opt.max_n_chain, 1, &(b->k_flag), &b->r_buf, &(R_INF.paf[i]), &(R_INF.reverse_paf[i]), &(b->tmp_region), &(R_INF_FLAG.candidate_count[q_idx]), &(b->sp));
 
         clear_Cigar_record(&b->cigar1);
         clear_Round2_alignment(&b->round2);
@@ -625,7 +628,7 @@ static void worker_ovec_related_reads(void *data, long i, int tid)
 
         pthread_mutex_lock(&R_INF_FLAG.OutputMutex);
 
-        fprintf(R_INF_FLAG.fp, "\n>%.*s\n", (int)Get_NAME_LENGTH((R_INF), i), Get_NAME((R_INF), i));
+        fprintf(R_INF_FLAG.fp, "\n>%.*s, rid: %ld\n", (int)Get_NAME_LENGTH((R_INF), i), Get_NAME((R_INF), i), i);
         fprintf(R_INF_FLAG.fp, "%d-th round, len: %lu, hom_cov: %d, max_n_chain: %d\n", 
             asm_opt.number_of_round, Get_READ_LENGTH(R_INF, i), asm_opt.hom_cov, asm_opt.max_n_chain);
 
@@ -1291,7 +1294,7 @@ static void worker_ov_final(void *data, long i, int tid)
 
 	//get_new_candidates(i, &g_read, &overlap_list, &array_list, &l, 0.001, 0);
     ha_get_candidates_interface(b->ab, i, &b->self_read, &b->olist, &b->olist_hp, &b->clist, 0.001, 
-    asm_opt.max_n_chain, 0, &(b->k_flag), &b->r_buf, &(R_INF.paf[i]), &(R_INF.reverse_paf[i]), &(b->tmp_region), NULL);
+    asm_opt.max_n_chain, 0, &(b->k_flag), &b->r_buf, &(R_INF.paf[i]), &(R_INF.reverse_paf[i]), &(b->tmp_region), NULL, &(b->sp));
 
 	overlap_region_sort_y_id(b->olist.list, b->olist.length);
 	ma_hit_sort_tn(R_INF.paf[i].buffer, R_INF.paf[i].length);
@@ -1357,7 +1360,7 @@ static void worker_ov_final_high_het(void *data, long i, int tid)
     ha_ovec_buf_t *b = ((ha_ovec_buf_t**)data)[tid];
 
     ha_get_candidates_interface(b->ab, i, &b->self_read, &b->olist, &b->olist_hp, &b->clist, HIGH_HET_ERROR_RATE, 
-    asm_opt.max_n_chain, 1, &(b->k_flag), &b->r_buf, &(R_INF.paf[i]), &(R_INF.reverse_paf[i]), &(b->tmp_region), NULL);
+    asm_opt.max_n_chain, 1, &(b->k_flag), &b->r_buf, &(R_INF.paf[i]), &(R_INF.reverse_paf[i]), &(b->tmp_region), NULL, &(b->sp));
 
     overlap_region_sort_y_id(b->olist.list, b->olist.length);
     ma_hit_sort_tn(R_INF.paf[i].buffer, R_INF.paf[i].length);

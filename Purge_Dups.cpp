@@ -176,6 +176,7 @@ long long* hom_peak, long long* het_peak, long long* k_mer_only, long long* cove
 		///if the second peak is not significant
 		if(max2 < max * 0.05 || min > max2 * 0.95) max2 = max2_i = -1;
 	}
+    if(max2 < max*0.0075) max2 = max2_i = -1;
 		
 
     // look for smaller peak on the high end
@@ -205,7 +206,7 @@ long long* hom_peak, long long* het_peak, long long* k_mer_only, long long* cove
 			
 		if (max3 < max * 0.05 || min > max3 * 0.95 || max3_i > max_i * 3) max3 = max3_i = -1;
 	}
-
+    if (max3 < max*0.0075) max3 = max3_i = -1;
 
     
 
@@ -216,6 +217,13 @@ long long* hom_peak, long long* het_peak, long long* k_mer_only, long long* cove
         topo_peak = cov_buf[topo_peak_i];
         if (topo_peak <= max * 0.05) topo_peak_i = topo_peak = -1;
     }
+
+    if(asm_opt.purge_level_primary == 0) 
+    {
+        (*hom_peak) = max_i;
+        return;
+    }
+    
     
     long long k_mer_het, k_mer_hom, coverage_het, coverage_hom, alter_peak;
     k_mer_het = k_mer_hom = coverage_het = coverage_hom = alter_peak = -1;
@@ -345,12 +353,6 @@ ma_hit_t_alloc* sources, ma_sub_t* coverage_cut, long long cov_buf_length)
             }
         }
 
-        // if(qn == 1893151 || qn == 1929038)
-        // {
-        //     fprintf(stderr, "qn: %lu, C_bases_primary: %lld, C_bases_alter: %lld, C_bases: %lld\n",
-        //     qn, C_bases_primary, C_bases_alter, C_bases);
-        // }
-
         C_bases = C_bases_primary + C_bases_alter;
         if(C_bases_alter < C_bases * ALTER_COV_THRES) continue;
 
@@ -369,8 +371,6 @@ ma_hit_t_alloc* sources, ma_sub_t* coverage_cut, long long cov_buf_length)
         }
     }
 
-    ///fprintf(stderr, "alter max_i: %lld, max: %lld\n", max_i, max);
-    ///if(max_i < 5) max_i = max = -1;
     if(alter_bases < primary_bases * REAL_ALTER_THRES) max_i = max = -1;
 
     free(cov_buf);
@@ -4981,9 +4981,9 @@ void debug_p_g_t(p_g_t* pg, hap_cov_t *cov, asg_t *read_g)
             offset += (uint32_t)u->a[i];
             if(i >= sid && i <= eid)
             {
-                if(cov->t_ch->is_r_het[u->a[i]>>33] != t->h_status)
+                if(cov->t_ch->ir_het[u->a[i]>>33] != t->h_status)
                 {
-                    fprintf(stderr, "ERROR-(-3): is_r_het: %u, h_status: %u\n", cov->t_ch->is_r_het[u->a[i]>>33], t->h_status);
+                    fprintf(stderr, "ERROR-(-3): is_r_het: %u, h_status: %u\n", cov->t_ch->ir_het[u->a[i]>>33], t->h_status);
                 }
             }
         }
@@ -5065,11 +5065,11 @@ p_g_t *init_p_g_t(ma_ug_t *ug, hap_cov_t *cov, asg_t *read_g)
         for (k = 1, l = 0, offset = 0, l_pos = 0; k <= u->n; ++k) 
         {   
             ///if (k == u->n || (!!cov->t_ch->is_r_het[u->a[k]>>33]) != (!!cov->t_ch->is_r_het[u->a[l]>>33]))
-            if (k == u->n || cov->t_ch->is_r_het[u->a[k]>>33] != cov->t_ch->is_r_het[u->a[l]>>33])
+            if (k == u->n || cov->t_ch->ir_het[u->a[k]>>33] != cov->t_ch->ir_het[u->a[l]>>33])
             {
                 kv_pushp(p_node_t, pg->pg_het_node, &t);
                 t->c_ug_id = uId;
-                t->h_status = cov->t_ch->is_r_het[u->a[l]>>33];
+                t->h_status = cov->t_ch->ir_het[u->a[l]>>33];
                 t->baseBeg = l_pos;
                 t->baseEnd = offset + read_g->seq[u->a[k-1]>>33].len - 1;
                 t->nodeBeg = l;
@@ -5261,7 +5261,6 @@ uint32_t just_coverage, hap_cov_t *cov, uint32_t collect_p_trans, uint32_t colle
     init_hap_overlaps_list(&all_ovlp, nsg->n_seq);
     hap_overlaps_list back_all_ovlp;
     init_hap_overlaps_list(&back_all_ovlp, nsg->n_seq);
-    ///uint32_t junk_cov, hap_cov, dip_cov, junk_occ, repeat_occ, single_cov;
     asg_arc_t t, *p = NULL;
     int r;
     hap_alignment_struct_pip hap_buf;
@@ -5381,12 +5380,6 @@ uint32_t just_coverage, hap_cov_t *cov, uint32_t collect_p_trans, uint32_t colle
                 
                 r = get_hap_arch(&(all_ovlp.x[uId].a.a[i]), ug->u.a[all_ovlp.x[uId].a.a[i].xUid].len, 
                 ug->u.a[all_ovlp.x[uId].a.a[i].yUid].len, max_hang, asm_opt.max_hang_rate, min_ovlp, &t);
-                
-                // if(all_ovlp.x[uId].a.a[i].xUid == 118 && all_ovlp.x[uId].a.a[i].yUid == 82)
-                // {
-                //     fprintf(stderr, "r: %d\n", r);
-                //     print_hap_paf(ug, &(all_ovlp.x[uId].a.a[i]));
-                // }
                 
                 if(r < 0) continue;
                 p = asg_arc_pushp(pg->pg_h_lev);

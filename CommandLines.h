@@ -4,7 +4,7 @@
 #include <pthread.h>
 #include <stdint.h>
 
-#define HA_VERSION "0.15.5-r358"
+#define HA_VERSION "0.15.5-r366"
 
 #define VERBOSE 0
 
@@ -46,6 +46,7 @@ typedef struct {
     int hic_mer_length;
     int bub_mer_length;
 	int mz_win;
+    int mz_rewin;
 	int mz_sample_dist;
 	int bf_shift;
 	int max_kmer_cnt;

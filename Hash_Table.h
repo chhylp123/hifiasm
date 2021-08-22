@@ -110,8 +110,8 @@ typedef struct
 
 typedef struct
 {
-	uint32_t readID:30, strand:1, good:1;
-	uint32_t offset, self_offset;
+	uint32_t readID:31, strand:1;
+	uint32_t offset, self_offset, cnt;
 } k_mer_hit;
 
 typedef struct {
