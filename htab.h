@@ -102,7 +102,8 @@ double yak_cpu_usage(void);
 void ha_triobin(const hifiasm_opt_t *opt);
 
 void ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mz1_v *p, const void *hf, int sample_dist, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct, ha_pt_t *pt, int min_freq, int32_t dp_min_len, float dp_e, st_mt_t *mt, int32_t ws);
-int ha_analyze_count(int n_cnt, int start_cnt, const int64_t *cnt, int *peak_het);
+int ha_analyze_count(int n_cnt, int start_cnt, int m_peak_hom, const int64_t *cnt, int *peak_het);
+int adj_m_peak_hom(int m_peak_hom, int max_i, int max2_i, int max3_i, int *peak_het);
 void print_hist_lines(int n_cnt, int start_cnt, const int64_t *cnt);
 void debug_adapter(const hifiasm_opt_t *asm_opt, All_reads *rs);
 

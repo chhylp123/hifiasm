@@ -44,7 +44,7 @@ Why one Hi-C integrated assembly is larger than another one?
     Another possibility is that hifiasm misidentifies coverage threshold for homozygous reads. For instance, hifiasm prints the following information during assembly: 
     ::
 
-        [M::purge_dups] purge duplication coverage threshold: 36
+        [M::purge_dups] homozygous read coverage threshold: 36
 
     In this example, hifiasm identifies the coverage threshold for homozygous reads as ``36``. If it is significantly smaller than the homozygous coverage peak, hifiasm will generate two unbalanced assemblies. In this case, please set ``--hom-cov`` to homozygous coverage peak. Please note that tuning ``--hom-cov`` may affect ``*p_utg*gfa`` so that ``*hic*.bin`` should be deleted. Since v0.15.5, hifiasm can detect such changes and renew Hi-C bin files automatically.
 
@@ -60,7 +60,7 @@ For Hi-C integrated assembly, why the assembly size of both haplotypes are much 
     If most bases of a diploid sample are homozygous, the coverage threshold is wrongly determined by hifiasm. For instance, hifiasm prints the following information during assembly: 
     ::
 
-        [M::purge_dups] purge duplication coverage threshold: 36
+        [M::purge_dups] homozygous read coverage threshold: 36
 
     In this example, hifiasm identifies the coverage threshold for homozygous reads as ``36``. If it is much smaller than homozygous coverage peak, hifiasm thinks most reads are homozygous and assign them to both assemblies, making both of them much larger than the estimated haploid genome size. In this case, please set ``--hom-cov`` to homozygous coverage peak. Please note that tuning ``--hom-cov`` may affect ``*p_utg*gfa`` so that ``*hic*.bin`` should be deleted. Since v0.15.5, hifiasm can detect such changes and renew Hi-C bin files automatically.
 

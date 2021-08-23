@@ -122,8 +122,8 @@ void print_peak(long long* cov_buf, long long cov_buf_length, long long max_i)
 }
 
 
-void get_read_peak(long long* cov_buf, long long cov_buf_length, long long* topo_peak_cov, 
-long long* hom_peak, long long* het_peak, long long* k_mer_only, long long* coverage_only)
+void get_read_peak(asg_t *read_g, long long* cov_buf, long long cov_buf_length, long long* topo_peak_cov, 
+long long* hom_peak, long long* het_peak, long long* k_mer_only, long long* coverage_only, long long g_size)
 {
     long long i, start, err_i, max_i, max2_i, max3_i, topo_peak_i, max, max2, max3, topo_peak, min;
 
@@ -240,6 +240,18 @@ long long* hom_peak, long long* het_peak, long long* k_mer_only, long long* cove
     {
         coverage_het = max2_i;
         coverage_hom = max_i;
+    }
+
+    if(g_size > 0) {
+        long long n_bs, m_peak_hom = -1;
+        int p_ht = -1;
+        for (i = n_bs = 0; i < read_g->n_seq; i++) n_bs += read_g->seq[i].len;
+        m_peak_hom = n_bs/g_size;
+        if(m_peak_hom > 0) {
+            p_ht = -1;
+            coverage_hom = adj_m_peak_hom(m_peak_hom, max_i, max2_i, max3_i, &p_ht);
+            coverage_het = p_ht;
+        }   
     }
 
     if(k_mer_het != -1)
@@ -410,8 +422,8 @@ long long* k_mer_only, long long* coverage_only)
         cov_buf_length);
     }
     
-    get_read_peak(cov_buf, cov_buf_length, alter_peak == -1? NULL: &alter_peak, &hom_peak, &het_peak,
-    k_mer_only, coverage_only);
+    get_read_peak(read_g, cov_buf, cov_buf_length, alter_peak == -1? NULL: &alter_peak, &hom_peak, &het_peak,
+    k_mer_only, coverage_only, asm_opt.hg_size);
 
     free(cov_buf);
 

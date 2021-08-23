@@ -1,4 +1,4 @@
-.TH hifiasm 1 "25 July 2021" "hifiasm-0.15.5 (r350)" "Bioinformatics tools"
+.TH hifiasm 1 "22 August 2021" "hifiasm-0.16.0 (r369)" "Bioinformatics tools"
 
 .SH NAME
 .PP
@@ -160,6 +160,19 @@ bases from both ends of each read.
 Some old Hifi reads may consist of
 short adapters (e.g., 20bp adapter at one end). For such data, trimming short adapters would 
 significantly improve the assembly quality.
+
+.TP
+.BI --max-kocc \ INT
+Employ k-mers occurring < 
+.IR INT 
+times to rescue repetitive overlaps [2000]. 
+This option may improve the resolution of repeats.
+
+.TP
+.BI --hg-size \ INT (k/m/g)
+Estimated haploid genome size used for inferring read coverage [auto]. 
+This option is used to get accurate homozygous read coverage during 
+error correction. Common suffices are required, for example, 100m or 3g.
 
 .TP
 .BI --min-hist-cnt \ INT

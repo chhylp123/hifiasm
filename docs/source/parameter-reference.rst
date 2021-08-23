@@ -98,6 +98,17 @@ Error correction options
 **\-z <INT=0>**
   Length  of  adapters that should be removed. This option remove ``INT`` bases from both ends of each read.  Some old HiFi reads may consist of short adapters (e.g. 20bp adapter at one end). For such data, trimming short adapters would significantly improve the assembly quality.
 
+.. _max-kocc-opt:
+
+**\-\-max-kocc <INT=2000>**
+  Employ k-mers occurring < ``INT`` times to rescue repetitive overlaps. This option may improve the resolution of repeats.
+
+
+.. _hg-size-opt:
+
+**\-\-hg-size <INT(k/m/g)>**
+  Estimated haploid genome size used for inferring read coverage. This option is used to get accurate homozygous read coverage during error correction. Common suffices are required, for example, 100m or 3g.
+
 
 .. _min-hist-cnt-opt:
 

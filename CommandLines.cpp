@@ -43,6 +43,7 @@ static ko_longopt_t long_options[] = {
     { "fast",     ko_no_argument, 329 },
     { "dp-er",     ko_required_argument, 330},
     { "max-kocc",     ko_required_argument, 331},
+    { "hg-size",     ko_required_argument, 332},
 	{ 0, 0, 0 }
 };
 
@@ -70,6 +71,10 @@ void Print_H(hifiasm_opt_t* asm_opt)
 	fprintf(stderr, "    -N INT       consider up to max(-D*coverage,-N) overlaps for each oriented read [%d]\n", asm_opt->max_n_chain);
     fprintf(stderr, "    -r INT       round of correction [%d]\n", asm_opt->number_of_round);
     fprintf(stderr, "    -z INT       length of adapters that should be removed [%d]\n", asm_opt->adapterLen);
+    fprintf(stderr, "    --max-kocc   INT\n");
+    fprintf(stderr, "                 employ k-mers occurring <INT times to rescue repetitive overlaps [%d]\n", asm_opt->max_kmer_cnt);
+    fprintf(stderr, "    --hg-size    INT(k, m or g)\n");
+    fprintf(stderr, "                 estimated haploid genome size used for inferring read coverage [auto]\n");
     fprintf(stderr, "  Assembly:\n");
     fprintf(stderr, "    -a INT       round of assembly cleaning [%d]\n", asm_opt->clean_round);
     fprintf(stderr, "    -m INT       pop bubbles of <INT in size in contig graphs [%lld]\n", asm_opt->large_pop_bubble_size);
@@ -213,6 +218,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->scffold = 0;
     asm_opt->dp_min_len = 2000;
     asm_opt->dp_e = 0.0025;
+    asm_opt->hg_size = -1;
 }
 
 void destory_enzyme(enzyme* f)
@@ -514,6 +520,18 @@ int check_option(hifiasm_opt_t* asm_opt)
         return 0;
     }
 
+    if(asm_opt->max_kmer_cnt < 0)
+    {
+        fprintf(stderr, "[ERROR] [--max-kocc] must >= 0\n");
+        return 0;
+    }
+
+    if(asm_opt->hg_size < -1)
+    {
+        fprintf(stderr, "[ERROR] [--hg-size] wrong genome size\n");
+        return 0;
+    }
+
     return 1;
 }
 
@@ -597,6 +615,23 @@ void get_hic_enzymes(char *argv, enzyme** x, int check_name)
     (*x)->a[k] = (char*)malloc(sizeof(char)*((*x)->l[k]+1));
     memcpy((*x)->a[k], argv + pre_i, (*x)->l[k]);
     (*x)->a[k][(*x)->l[k]] = '\0';
+}
+
+int64_t inter_gsize(char *argv)
+{
+    int64_t len = strlen(argv);
+    double s;
+    if(len <= 1) return -2;
+    char t = argv[len-1];
+    if(t != 'k' && t != 'K' && t != 'm' && t != 'M' && t != 'g' && t != 'G') return -2;
+    char *ss=(char*)malloc(len);
+    memcpy(ss, argv, len-1); ss[len-1] = '\0';
+    s = atof(ss);
+    free(ss);
+    if(t == 'k' || t == 'K') return s*1000;
+    if(t == 'm' || t == 'M') return s*1000000;
+    if(t == 'g' || t == 'G') return s*1000000000;
+    return s;
 }
 
 int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
@@ -686,6 +721,7 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         else if (c == 329) asm_opt->flag |= HA_F_FAST;
         else if (c == 330) asm_opt->dp_e = atof(opt.arg);
         else if (c == 331) asm_opt->max_kmer_cnt = atol(opt.arg);
+        else if (c == 332) asm_opt->hg_size = inter_gsize(opt.arg);      
         else if (c == 'l')
         {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
             asm_opt->purge_level_primary = asm_opt->purge_level_trio = atoi(opt.arg);
@@ -715,7 +751,6 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
     }
 
     get_queries(argc, argv, &opt, asm_opt);
-
 
     return check_option(asm_opt);
 }
