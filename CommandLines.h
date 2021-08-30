@@ -44,9 +44,12 @@ typedef struct {
     int thread_num;
     int k_mer_length;
     int hic_mer_length;
+    int ul_mer_length;
     int bub_mer_length;
 	int mz_win;
+    int ul_mz_win;
     int mz_rewin;
+    int ul_mz_rewin;
 	int mz_sample_dist;
 	int bf_shift;
 	int max_kmer_cnt;

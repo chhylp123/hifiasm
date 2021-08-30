@@ -38,6 +38,75 @@ void *ha_flt_tab_hp;
 ha_pt_t *ha_idx_hp;
 void *ha_ct_table;
 
+#define MZ_FUNC_INIT(sf, HType) \
+static inline void sf##_init_kuf(pl_data_t *p, st_data_t *s){\
+	int i, n_pre = 1<<p->opt->pre, m;\
+	/**allocate the k-mer buffer**/\
+	CALLOC(s->buf, n_pre);\
+	m = (int)(s->nk * 1.2 / n_pre) + 1;\
+	/**pre-allocate memory for each of 4096 buffer**/\
+	for (i = 0; i < n_pre; ++i) {\
+		s->buf[i].m = m;\
+		/**for 0-th counting, p->pt = NULL**/\
+		if (p->pt && !(p->flag&HAF_COUNT_REFINE)) MALLOC(s->buf[i].b_##sf, m);\
+		else MALLOC(s->buf[i].a, m);\
+	}\
+}\
+static inline void sf##_destory_kuf(pl_data_t *p, st_data_t *s, int n){\
+	int i;\
+	uint64_t n_ins = 0;\
+	/**n_ins is number of distinct k-mers**/\
+	for (i = 0; i < n; ++i) {\
+		n_ins += s->buf[i].n_ins;\
+		if (p->pt && !(p->flag&HAF_COUNT_REFINE)) free(s->buf[i].b_##sf);\
+		else free(s->buf[i].a);\
+	}\
+	if (p->ct) p->ct->tot += n_ins, p->ct->bs += s->sum_len;\
+	if (p->pt) p->pt->tot_pos += n_ins;\
+	free(s->buf);\
+	/**#if 0\
+	fprintf(stderr, "[M::%s::%.3f*%.2f] processed %ld sequences; %ld %s in the hash table\n", __func__,\
+			yak_realtime(), yak_cpu_usage(), (long)s->n_seq0 + s->n_seq,\
+			(long)(p->pt? p->pt->tot_pos : p->ct->tot), p->pt? "positions" : "distinct k-mers");\
+	#endif**/\
+	free(s);\
+}\
+static inline void sf##_pt_insert_buf(ch_buf_t *buf, int p, const HType *y){\
+	/**assign minimizer to one of 4096 bins by low 12 bits**/\
+	int pre = y->x & ((1<<p) - 1);\
+	ch_buf_t *b = &buf[pre];\
+	if (b->n == b->m) {\
+		b->m = b->m < 8? 8 : b->m + (b->m>>1);\
+		REALLOC(b->b_##sf, b->m);\
+	}\
+	b->b_##sf[b->n++] = *y;\
+}\
+static inline void sf##_mselect(pl_data_t *p, st_data_t *s){\
+	int i; uint32_t j;\
+	/**s->n_seq is how many reads at this buffer**/\
+	/**s->mz && s->mz_buf are lists of minimzer vectors**/\
+	CALLOC(s->sf, s->n_seq), CALLOC(s->sf##_buf, p->opt->n_thread), CALLOC(s->mt, p->opt->n_thread);\
+	/**calculate minimzers for each read, each read corresponds to one thread**/\
+	kt_for(p->opt->n_thread, worker_for_mz, s, s->n_seq);\
+	for (i = 0; i < p->opt->n_thread; ++i) free(s->mt[i].a), free(s->sf##_buf[i].a);\
+	free(s->mt), free(s->sf##_buf);\
+	/**insert minimizers**/\
+	if (p->pt && !(p->flag&HAF_COUNT_REFINE)) {/**insert whole minimizer**/\
+		for (i = 0; i < s->n_seq; ++i)\
+			for (j = 0; j < s->sf[i].n; ++j)\
+				sf##_pt_insert_buf(s->buf, p->opt->pre, &s->sf[i].a[j]);\
+	} else {/**just insert the hash key of minimizer**/\
+		for (i = 0; i < s->n_seq; ++i)\
+			for (j = 0; j < s->sf[i].n; ++j)\
+				ct_insert_buf(s->buf, p->opt->pre, s->sf[i].a[j].x);\
+	}\
+	for (i = 0; i < s->n_seq; ++i) {\
+		p->n_mz += s->sf[i].n;\
+		free(s->sf[i].a);\
+		if (!p->is_store) free(s->seq[i]);\
+	}\
+	free(s->sf);}
+
 /***************************
  * Yak specific parameters *
  ***************************/
@@ -303,6 +372,7 @@ typedef struct {
 	yak_pt_t *h;
 	uint64_t n;
 	ha_idxpos_t *a;
+	ha_idxposl_t *al;
 } ha_pt1_t;
 
 struct ha_pt_s {
@@ -314,6 +384,7 @@ struct ha_pt_s {
 typedef struct {
 	const ha_ct_t *ct;
 	ha_pt_t *pt;
+	int is_l;
 } pt_gen_aux_t;
 
 
@@ -370,10 +441,11 @@ static void worker_pt_gen(void *data, long i, int tid) // callback for kt_for()
 	}
 	yak_ct_destroy(g);
 	a->ct->h[i].h = 0;
-	CALLOC(b->a, b->n);
+	if(a->is_l) CALLOC(b->al, b->n);
+	else CALLOC(b->a, b->n);
 }
 
-ha_pt_t *ha_pt_gen(ha_ct_t *ct, int n_thread)
+ha_pt_t *ha_pt_gen(ha_ct_t *ct, int n_thread, int is_l)
 {
 	pt_gen_aux_t a;
 	int i;
@@ -386,7 +458,7 @@ ha_pt_t *ha_pt_gen(ha_ct_t *ct, int n_thread)
 		pt->h[i].h = yak_pt_init();
 		yak_pt_resize(pt->h[i].h, kh_size(ct->h[i].h));
 	}
-	a.ct = ct, a.pt = pt;
+	a.ct = ct, a.pt = pt, a.is_l = is_l;
 	kt_for(n_thread, worker_pt_gen, &a, 1<<pt->pre);
 	free(ct->h); free(ct);
 	return pt;
@@ -534,7 +606,8 @@ typedef struct {
 	int n, m;
 	uint64_t n_ins;
 	uint64_t *a;
-	ha_mz1_t *b;
+	ha_mz1_t *b_mz;
+	ha_mzl_t *b_mzl;
 } ch_buf_t;
 
 ///p = 12
@@ -550,18 +623,6 @@ static inline void ct_insert_buf(ch_buf_t *buf, int p, uint64_t y) // insert a k
 		REALLOC(b->a, b->m);
 	}
 	b->a[b->n++] = y;
-}
-
-static inline void pt_insert_buf(ch_buf_t *buf, int p, const ha_mz1_t *y)
-{
-	///assign minimizer to one of 4096 bins by low 12 bits
-	int pre = y->x & ((1<<p) - 1);
-	ch_buf_t *b = &buf[pre];
-	if (b->n == b->m) {
-		b->m = b->m < 8? 8 : b->m + (b->m>>1);
-		REALLOC(b->b, b->m);
-	}
-	b->b[b->n++] = *y;
 }
 
 ///buf is the read block, k is the k-mer length, p = 12, len is the read length, seq is the read
@@ -639,11 +700,13 @@ typedef struct { // data structure for each step in kt_pipeline()
 	pl_data_t *p;
 	uint64_t n_seq0;  ///the start index of current buffer block at R_INF
 	///sum_len = total bases, nk = number of k-mers
-	int n_seq, m_seq, sum_len, nk;
+	int n_seq, m_seq, sum_len, nk, uq;
 	int *len;
 	char **seq;
 	ha_mz1_v *mz_buf;
 	ha_mz1_v *mz;
+	ha_mzl_v *mzl_buf;
+	ha_mzl_v *mzl;
 	ch_buf_t *buf;
 	st_mt_t *mt;
 } st_data_t;
@@ -654,14 +717,8 @@ static void worker_for_insert(void *data, long i, int tid) // callback for kt_fo
 	ch_buf_t *b = &s->buf[i];
 	if (s->p->pt)
 	{
-		if(s->p->flag&HAF_COUNT_REFINE)
-		{
-			b->n_ins += ha_pt_cnt_insert_list(s->p->pt, b->n, b->a);
-		}
-		else
-		{
-			b->n_ins += ha_pt_insert_list(s->p->pt, b->n, b->b);
-		}
+		if(s->p->flag&HAF_COUNT_REFINE) b->n_ins += ha_pt_cnt_insert_list(s->p->pt, b->n, b->a);
+		else b->n_ins += ha_pt_insert_list(s->p->pt, b->n, b->b_mz);
 	}
 	else///for 0-th count, go into here
 	{
@@ -676,12 +733,14 @@ static void worker_for_mz(void *data, long i, int tid)
 	ha_mz1_v *b = &s->mz_buf[tid];
 	s->mz_buf[tid].n = 0;
 	ha_sketch(s->seq[i], s->len[i], s->p->opt->w, s->p->opt->k, s->n_seq0 + i, s->p->opt->is_HPC, b, s->p->flt_tab, asm_opt.mz_sample_dist, 0, 0, 
-	(s->p->pt&&(s->p->flag&HAF_COUNT_REFINE))?s->p->pt:NULL, s->p->opt->min_rcnt, asm_opt.dp_min_len, asm_opt.dp_e, &(s->mt[tid]), asm_opt.mz_rewin);
+	(s->p->pt&&(s->p->flag&HAF_COUNT_REFINE))?s->p->pt:NULL, s->p->opt->min_rcnt, asm_opt.dp_min_len, asm_opt.dp_e, &(s->mt[tid]), asm_opt.mz_rewin, s->uq);
 	s->mz[i].n = s->mz[i].m = b->n;
 	MALLOC(s->mz[i].a, b->n);
 	memcpy(s->mz[i].a, b->a, b->n * sizeof(ha_mz1_t));
 }
 
+MZ_FUNC_INIT(mz, ha_mz1_t)
+MZ_FUNC_INIT(mzl, ha_mzl_t)
 static void *worker_count(void *data, int step, void *in) // callback for kt_pipeline()
 {
 	pl_data_t *p = (pl_data_t*)data;
@@ -715,7 +774,7 @@ static void *worker_count(void *data, int step, void *in) // callback for kt_pip
 					break;
 			}
 		} else if(p->us_in) {
-			ma_utg_t *u;
+			ma_utg_t *u; s->uq = 1;
 			while (p->n_seq < p->us_in->n) {
 				u = &(p->us_in->a[p->n_seq]);
 				if (s->n_seq == s->m_seq) {
@@ -778,22 +837,13 @@ static void *worker_count(void *data, int step, void *in) // callback for kt_pip
 	} else if (step == 1) { // step 2: extract k-mers
 		///s is the block of reads
 		st_data_t *s = (st_data_t*)in;
-		///for 0-th counting, n_pre = 4096
-		int i, n_pre = 1<<p->opt->pre, m;
-		// allocate the k-mer buffer
-		CALLOC(s->buf, n_pre);
-		m = (int)(s->nk * 1.2 / n_pre) + 1;
-		//pre-allocate memory for each of 4096 buffer
-		for (i = 0; i < n_pre; ++i) {
-			s->buf[i].m = m;
-			///for 0-th counting, p->pt = NULL
-			if (p->pt && !(p->flag&HAF_COUNT_REFINE)) MALLOC(s->buf[i].b, m);
-			else MALLOC(s->buf[i].a, m);
-		}
+		if(p->us_in) mzl_init_kuf(p, s);
+		else mz_init_kuf(p, s);
 		// fill the buffer
 		///for 0-th counting, p->opt->w == 1
 		if (p->opt->w == 1) { // enumerate all k-mers
 			///scan all reads
+			int i;
 			for (i = 0; i < s->n_seq; ++i) {
 				if (p->opt->is_HPC)
 					count_seq_buf_HPC(s->buf, p->opt->k, p->opt->pre, s->len[i], s->seq[i]);
@@ -802,39 +852,8 @@ static void *worker_count(void *data, int step, void *in) // callback for kt_pip
 				if (!p->is_store) free(s->seq[i]);
 			}
 		} else { // minimizers only
-			uint32_t j;
-			// compute minimizers
-			// s->n_seq is how many reads at this buffer
-			// s->mz && s->mz_buf are lists of minimzer vectors
-			CALLOC(s->mz, s->n_seq);
-			CALLOC(s->mz_buf, p->opt->n_thread);
-			CALLOC(s->mt, p->opt->n_thread);						
-			///calculate minimzers for each read, each read corresponds to one thread
-			kt_for(p->opt->n_thread, worker_for_mz, s, s->n_seq);
-
-			for (i = 0; i < p->opt->n_thread; ++i)
-			{
-				free(s->mt[i].a);
-				free(s->mz_buf[i].a);
-			}
-			free(s->mt);
-			free(s->mz_buf);
-			// insert minimizers
-			if (p->pt && !(p->flag&HAF_COUNT_REFINE)) {///insert whole minimizer
-				for (i = 0; i < s->n_seq; ++i)
-					for (j = 0; j < s->mz[i].n; ++j)
-						pt_insert_buf(s->buf, p->opt->pre, &s->mz[i].a[j]);
-			} else {///just insert the hash key of minimizer
-				for (i = 0; i < s->n_seq; ++i)
-					for (j = 0; j < s->mz[i].n; ++j)
-						ct_insert_buf(s->buf, p->opt->pre, s->mz[i].a[j].x);
-			}
-			for (i = 0; i < s->n_seq; ++i) {
-				p->n_mz += s->mz[i].n;
-				free(s->mz[i].a);
-				if (!p->is_store) free(s->seq[i]);
-			}
-			free(s->mz);
+			if(p->us_in) mzl_mselect(p, s);
+			else mz_mselect(p, s);
 		}
 		///just clean seq
 		free(s->seq); free(s->len);
@@ -842,25 +861,10 @@ static void *worker_count(void *data, int step, void *in) // callback for kt_pip
 		return s;
 	} else if (step == 2) { // step 3: insert k-mers to hash table
 		st_data_t *s = (st_data_t*)in;
-		int i, n = 1<<p->opt->pre;
-		uint64_t n_ins = 0;
 		///for 0-th counting, p->pt = NULL
-		kt_for(p->opt->n_thread, worker_for_insert, s, n);
-		///n_ins is number of distinct k-mers
-		for (i = 0; i < n; ++i) {
-			n_ins += s->buf[i].n_ins;
-			if (p->pt && !(p->flag&HAF_COUNT_REFINE)) free(s->buf[i].b);
-			else free(s->buf[i].a);
-		}
-		if (p->ct) p->ct->tot += n_ins, p->ct->bs += s->sum_len;
-		if (p->pt) p->pt->tot_pos += n_ins;
-		free(s->buf);
-		#if 0
-		fprintf(stderr, "[M::%s::%.3f*%.2f] processed %ld sequences; %ld %s in the hash table\n", __func__,
-				yak_realtime(), yak_cpu_usage(), (long)s->n_seq0 + s->n_seq,
-				(long)(p->pt? p->pt->tot_pos : p->ct->tot), p->pt? "positions" : "distinct k-mers");
-		#endif
-		free(s);
+		kt_for(p->opt->n_thread, worker_for_insert, s, 1<<p->opt->pre);
+		if(p->us_in) mzl_destory_kuf(p, s, 1<<p->opt->pre);
+		else mz_destory_kuf(p, s, 1<<p->opt->pre);
 	}
 	return 0;
 }
@@ -975,11 +979,11 @@ ha_ct_t *ha_count(const hifiasm_opt_t *asm_opt, int flag, ha_pt_t *p0, const voi
 			malloc_All_reads(rs);
 	}
 	yak_copt_init(&opt);
-	opt.k = asm_opt->k_mer_length;
+	opt.k = us? asm_opt->ul_mer_length:asm_opt->k_mer_length;
 	///always 0
 	opt.is_HPC = !(asm_opt->flag&HA_F_NO_HPC);
 	///for ft-counting, shoud be 1
-	opt.w = flag & HAF_COUNT_ALL? 1 : asm_opt->mz_win;
+	opt.w = flag & HAF_COUNT_ALL? 1 : (us? asm_opt->ul_mz_win:asm_opt->mz_win);
 	///for ft-counting, shoud be 37
 	///for ha_pt_gen, shoud be 0
 	opt.bf_shift = flag & HAF_COUNT_EXACT? 0 : asm_opt->bf_shift;
@@ -987,7 +991,7 @@ ha_ct_t *ha_count(const hifiasm_opt_t *asm_opt, int flag, ha_pt_t *p0, const voi
 	opt.adaLen = (keep_adapter? asm_opt->adapterLen : 0);
 	opt.min_rcnt = (low_freq?*low_freq:-1);
 	///asm_opt->num_reads is the number of fastq files
-	for (i = n_bs = 0; i < asm_opt->num_reads; ++i){
+	for (i = n_bs = 0; i < (us?1:asm_opt->num_reads); ++i){
 		h = yak_count(&opt, asm_opt->read_file_names[i], flag|HAF_CREATE_NEW, p0, h, flt_tab, rs, us, &n_seq);
 		if(h) n_bs += h->bs;
 	}
@@ -1076,50 +1080,29 @@ void debug_ct_index(void* q_ct_idx, void* r_ct_idx)
 void *ha_ft_ug_gen(const hifiasm_opt_t *asm_opt, ma_utg_v *us, int hap_n)
 {
 	yak_ft_t *flt_tab;
-	int64_t cnt[YAK_N_COUNTS];
-	int cutoff = hap_n + 1;
 	ha_ct_t *h;
+	///HAF_COUNT_EXACT ---> no bf; HAF_COUNT_ALL ---> no minimizer
 	h = ha_count(asm_opt, HAF_COUNT_ALL|HAF_UG_READ|HAF_COUNT_EXACT, NULL, NULL, NULL, us, 0, NULL);
-
-	ha_ct_hist(h, cnt, asm_opt->thread_num);
-	print_hist_lines(YAK_N_COUNTS, 1, cnt);
-	
-	ha_ct_shrink(h, cutoff, YAK_MAX_COUNT, asm_opt->thread_num);
+	ha_ct_shrink(h, 1, YAK_MAX_COUNT-1, asm_opt->thread_num);
 	flt_tab = gen_hh(h, asm_opt->max_kmer_cnt);
 	ha_ct_destroy(h);
-	fprintf(stderr, "[M::%s::%.3f*%.2f@%.3fGB] ==> filtered out %ld k-mers occurring %d or more times\n", __func__,
-			yak_realtime(), yak_cpu_usage(), yak_peakrss_in_gb(), (long)kh_size(flt_tab), cutoff);
 	return (void*)flt_tab;
 }
 
 
 ha_pt_t *ha_pt_ug_gen(const hifiasm_opt_t *asm_opt, const void *flt_tab, ma_utg_v *us, int hap_n)
 {
-	int64_t cnt[YAK_N_COUNTS], tot_cnt;
-	int i;
 	ha_ct_t *ct;
 	ha_pt_t *pt;
 	///HAF_COUNT_EXACT: no bf
 	ct = ha_count(asm_opt, HAF_COUNT_EXACT|HAF_UG_READ, NULL, flt_tab, NULL, us, 0, NULL);
 	fprintf(stderr, "[M::%s::%.3f*%.2f] ==> counted %ld distinct minimizer k-mers\n", __func__,
 			yak_realtime(), yak_cpu_usage(), (long)ct->tot);
+	///minimizer with YAK_MAX_COUNT occ may apper > YAK_MAX_COUNT times, so it may lead to overflow at ha_pt_gen
+	ha_ct_shrink(ct, 1, YAK_MAX_COUNT - 1, asm_opt->thread_num);
 
-	ha_ct_hist(ct, cnt, asm_opt->thread_num);
-	print_hist_lines(YAK_N_COUNTS, 1, cnt);
-	
-	///here ha_ct_shrink is mostly used to remove k-mer appearing only 1 time
-	if (flt_tab == 0) {
-		ha_ct_shrink(ct, 2, hap_n, asm_opt->thread_num);
-		for (i = 2, tot_cnt = 0; i <= hap_n; ++i) tot_cnt += cnt[i] * i;
-	} else {
-		///Note: here is just to remove minimizer appearing YAK_MAX_COUNT times
-		///minimizer with YAK_MAX_COUNT occ may apper > YAK_MAX_COUNT times, so it may lead to overflow at ha_pt_gen
-		ha_ct_shrink(ct, 2, YAK_MAX_COUNT - 1, asm_opt->thread_num);
-		for (i = 2, tot_cnt = 0; i <= YAK_MAX_COUNT - 1; ++i) tot_cnt += cnt[i] * i;
-	}
-	pt = ha_pt_gen(ct, asm_opt->thread_num);
+	pt = ha_pt_gen(ct, asm_opt->thread_num, 1);
 	ha_count(asm_opt, HAF_COUNT_EXACT|HAF_UG_READ, pt, flt_tab, NULL, us, 0, NULL);
-	assert((uint64_t)tot_cnt == pt->tot_pos);
 	//ha_pt_sort(pt, asm_opt->thread_num);
 	fprintf(stderr, "[M::%s::%.3f*%.2f] ==> indexed %ld positions\n", __func__,
 			yak_realtime(), yak_cpu_usage(), (long)pt->tot_pos);
@@ -1219,7 +1202,7 @@ ha_pt_t *ha_pt_gen(const hifiasm_opt_t *asm_opt, const void *flt_tab, int read_f
 	if(!(asm_opt->flag & HA_F_FAST))
 	{
 		fprintf(stderr, "[M::%s::] counting in normal mode\n", __func__);
-		pt = ha_pt_gen(ct, asm_opt->thread_num);
+		pt = ha_pt_gen(ct, asm_opt->thread_num, 0);
 		ha_count(asm_opt, HAF_COUNT_EXACT|extra_flag2, pt, flt_tab, rs, NULL, 1, NULL);
 		assert((uint64_t)tot_cnt == pt->tot_pos);
 	}

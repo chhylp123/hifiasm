@@ -25,16 +25,16 @@ typedef struct { uint32_t n, m; ha_mz1_t *a; } ha_mz1_v;
 
 typedef struct {
 	uint64_t x; ///x is the hash key
-	///rid is the read id, pos is the end pos of this minimizer, rev is the direction
-	///span is the length of this k-mer. For non-HPC k-mer, span may not be equal to k
-	uint64_t rid:30, pos:34;
-	uint16_t rev:1, span:15;
+	uint64_t rid:31, rev:1;
+	uint32_t pos;
+	uint8_t span;
 } ha_mzl_t;
 
 typedef struct {
-	uint64_t rid:30, pos:34;
-	uint16_t rev:1, span:15;
-} ha_mzl_idxpos_t;
+	uint64_t rid:31, rev:1;
+	uint32_t pos;
+	uint8_t span;
+} ha_idxposl_t;
 
 typedef struct { uint32_t n, m; ha_mzl_t *a; } ha_mzl_v;
 
@@ -101,7 +101,7 @@ double yak_cpu_usage(void);
 
 void ha_triobin(const hifiasm_opt_t *opt);
 
-void ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mz1_v *p, const void *hf, int sample_dist, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct, ha_pt_t *pt, int min_freq, int32_t dp_min_len, float dp_e, st_mt_t *mt, int32_t ws);
+void ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mz1_v *p, const void *hf, int sample_dist, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct, ha_pt_t *pt, int min_freq, int32_t dp_min_len, float dp_e, st_mt_t *mt, int32_t ws, int32_t is_unique);
 int ha_analyze_count(int n_cnt, int start_cnt, int m_peak_hom, const int64_t *cnt, int *peak_het);
 int adj_m_peak_hom(int m_peak_hom, int max_i, int max2_i, int max3_i, int *peak_het);
 void print_hist_lines(int n_cnt, int start_cnt, const int64_t *cnt);
