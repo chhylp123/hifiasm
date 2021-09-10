@@ -14993,7 +14993,7 @@ kv_u_trans_t *ta, trans_idx* dis, int sc_weight)
             if(ta->a[i].nw > sw[(i*3)]) ta->a[i].nw = sw[(i*3)];
             if(ta->a[i].nw > sw[(i*3)+1]) ta->a[i].nw = sw[(i*3)+1];
             if(ta->a[i].nw > sw[(i*3)+2]) ta->a[i].nw = sw[(i*3)+2];
-            ta->a[i].nw *= 4/**2**/;
+            ta->a[i].nw *= 2/**4**/;
         }
         free(sw);
     }
