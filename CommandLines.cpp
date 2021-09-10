@@ -44,6 +44,8 @@ static ko_longopt_t long_options[] = {
     { "dp-er",     ko_required_argument, 330},
     { "max-kocc",     ko_required_argument, 331},
     { "hg-size",     ko_required_argument, 332},
+    { "ul",     ko_required_argument, 333},
+    { "unskew",     ko_no_argument, 334},
 	{ 0, 0, 0 }
 };
 
@@ -155,6 +157,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->hic_enzymes = NULL;
     asm_opt->hic_reads[0] = NULL;
     asm_opt->hic_reads[1] = NULL;
+    asm_opt->ar = NULL;
     asm_opt->thread_num = 1;
     asm_opt->k_mer_length = 51;
     asm_opt->hic_mer_length = 31;
@@ -245,6 +248,7 @@ void destory_opt(hifiasm_opt_t* asm_opt)
     if(asm_opt->hic_enzymes != NULL) destory_enzyme(asm_opt->hic_enzymes);
     if(asm_opt->hic_reads[0] != NULL) destory_enzyme(asm_opt->hic_reads[0]);
     if(asm_opt->hic_reads[1] != NULL) destory_enzyme(asm_opt->hic_reads[1]);
+    if(asm_opt->ar != NULL) destory_enzyme(asm_opt->ar);
 }
 
 void ha_opt_reset_to_round(hifiasm_opt_t* asm_opt, int round)
@@ -493,6 +497,13 @@ int check_option(hifiasm_opt_t* asm_opt)
         return 0;
     }
 
+    if(asm_opt->ar != NULL && check_hic_reads(asm_opt->ar, "UL") == 0) return 0;
+    if(asm_opt->ar != NULL && asm_opt->ar->n == 0)
+    {
+        fprintf(stderr, "[ERROR] wrong UL reads (--ul)\n");
+        return 0;
+    }
+
     if(asm_opt->b_low_cov < 0)
     {
         fprintf(stderr, "[ERROR] must >= 0 (--b-cov)\n");
@@ -725,6 +736,8 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         else if (c == 330) asm_opt->dp_e = atof(opt.arg);
         else if (c == 331) asm_opt->max_kmer_cnt = atol(opt.arg);
         else if (c == 332) asm_opt->hg_size = inter_gsize(opt.arg);      
+        else if (c == 333) get_hic_enzymes(opt.arg, &(asm_opt->ar), 0);
+        else if (c == 334) asm_opt->flag |= HA_F_USKEW;
         else if (c == 'l')
         {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
             asm_opt->purge_level_primary = asm_opt->purge_level_trio = atoi(opt.arg);

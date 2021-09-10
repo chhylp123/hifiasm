@@ -118,7 +118,7 @@ static inline double kr_drand_r(uint64_t *x)
     return u.d - 1.0;
 }
 
-void mc_solve(hap_overlaps_list* ovlp, trans_chain* t_ch, kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g, double f_rate, uint8_t* trio_flag, uint32_t renew_s, int8_t *s, uint32_t is_sys, bubble_type* bub, kv_u_trans_t *ref);
+void mc_solve(hap_overlaps_list* ovlp, trans_chain* t_ch, kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g, double f_rate, uint8_t* trio_flag, uint32_t renew_s, int8_t *s, uint32_t is_sys, bubble_type* bub, kv_u_trans_t *ref, int clean_ov);
 void debug_mc_g_t(const char* name);
 void mc_solve_general(kv_u_trans_t *ta, uint32_t un, kv_gg_status *s, uint16_t hapN, uint16_t update_ta, uint16_t write_dump);
 kv_gg_status *init_mc_gg_status(ma_ug_t *ug, asg_t *read_g, ma_sub_t* coverage_cut, 

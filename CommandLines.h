@@ -4,7 +4,7 @@
 #include <pthread.h>
 #include <stdint.h>
 
-#define HA_VERSION "0.16.0-r369"
+#define HA_VERSION "0.16.1-r373"
 
 #define VERBOSE 0
 
@@ -21,6 +21,7 @@
 #define HA_F_HIGH_HET        0x400
 #define HA_F_PARTITION       0x800
 #define HA_F_FAST            0x1000
+#define HA_F_USKEW            0x2000
 
 #define HA_MIN_OV_DIFF       0.02 // min sequence divergence in an overlap
 
@@ -40,6 +41,7 @@ typedef struct {
 	char *extract_list;
     enzyme *hic_reads[2];
     enzyme *hic_enzymes;
+    enzyme *ar;
 	int extract_iter;
     int thread_num;
     int k_mer_length;

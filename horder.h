@@ -67,4 +67,6 @@ kvec_pe_hit *get_r_hits_order(kvec_pe_hit *uhits, uint64_t hits_uid_bits, uint64
 asg_t *rg, ma_ug_t* ug, bubble_type* bub);
 void ha_aware_order(kvec_pe_hit *r_hits, asg_t *rg, ma_ug_t *ug_fa, ma_ug_t *ug_mo, kv_u_trans_t *ref, 
 ug_opt_t *opt, uint32_t round);
+spg_t *horder_utg(kvec_pe_hit *i_hits, uint64_t i_hits_uid_bits, uint64_t i_hits_pos_mode, 
+asg_t *i_rg, ma_ug_t* i_ug, bubble_type* bub, ug_opt_t *opt);
 #endif

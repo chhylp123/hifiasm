@@ -190,7 +190,7 @@ void print_gfa(asg_t *g);
 typedef struct { size_t n, m; uint64_t *a; } asg64_v;
 
 
-typedef struct { size_t n, m; ma_utg_t *a; } ma_utg_v;
+typedef struct { size_t n, m; ma_utg_t *a; int h;} ma_utg_v;
 
 typedef struct {
 	ma_utg_v u;
@@ -890,6 +890,12 @@ typedef struct {
 	kv_u_trans_t t;
 	buf_t b0, b1;
 } utg_trans_t;
+
+typedef struct {
+	ma_ug_t *ug;
+	kvec_t(uint64_t) idx;
+	kvec_t(uint32_t) dst;
+} spg_t;
 
 void init_hc_links(hc_links* link, uint64_t ug_num, trans_chain* t_ch);
 void destory_hc_links(hc_links* link);

@@ -2767,6 +2767,48 @@ void clean_ovlp_by_mc(mc_g_t *mg, hap_overlaps_list* ha)
 }
 
 
+void filter_ta_by_mc(ma_ug_t *ug, asg_t *read_g, uint32_t uID, kv_u_trans_t* ta, mc_match_t *ma, int8_t *s)
+{
+	mc_edge_t *o = pt_a(*ma, uID);
+	uint32_t n = pt_n(*ma, uID), k, qn, tn;
+	u_trans_t *p = NULL;
+	for (k = 0; k < n; ++k)
+	{
+		qn = ma_x(o[k]); tn = ma_y(o[k]); p = NULL;
+		if((s[qn]*s[tn])!=-1) continue;
+		get_u_trans_spec(ta, qn, tn, &p, NULL);
+		if(p && p->nw == o[k].w) {
+			p->del = 0; 
+		}
+		else {
+			get_u_trans_spec(ta, tn, qn, &p, NULL);
+			if(p && p->nw == o[k].w) p->del = 0;
+		}
+		if(!p) fprintf(stderr, "ERROR-ta-p\n");
+	}
+}
+
+
+void clean_ta_by_mc(mc_g_t *mg, kv_u_trans_t *ta)
+{
+	uint32_t v, i;
+	u_trans_t *p = NULL;
+	for (i = 0; i < ta->n; i++) ta->a[i].del = 1;
+	for (i = 0; i < mg->e->n_seq; ++i) filter_ta_by_mc(mg->ug, mg->rg, i, ta, mg->e, mg->s.a);
+	for (i = v = 0; i < ta->n; i++) {
+		if(ta->a[i].del) continue;
+		ta->a[v++] = ta->a[i];
+	}
+	ta->n = v;
+	for (i = 0; i < v; i++) {
+		kv_pushp(u_trans_t, *ta, &p);
+		(*p) = ta->a[i];
+		p->qn = ta->a[i].tn; p->qs = ta->a[i].ts; p->qe = ta->a[i].te;
+        p->tn = ta->a[i].qn; p->ts = ta->a[i].qs; p->te = ta->a[i].qe;
+	}
+	kt_u_trans_t_idx(ta, mg->ug->g->n_seq);
+}
+
 void p_nodes(mc_g_t *mg, trans_chain* t_ch, uint8_t* trio_flag)
 {
 	uint32_t i;
@@ -2844,7 +2886,7 @@ void print_hap_s(int8_t *s, uint32_t sn)
 	}
 }
 
-void mc_solve(hap_overlaps_list* ovlp, trans_chain* t_ch, kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g, double f_rate, uint8_t* trio_flag, uint32_t renew_s, int8_t *s, uint32_t is_sys, bubble_type* bub, kv_u_trans_t *ref)
+void mc_solve(hap_overlaps_list* ovlp, trans_chain* t_ch, kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g, double f_rate, uint8_t* trio_flag, uint32_t renew_s, int8_t *s, uint32_t is_sys, bubble_type* bub, kv_u_trans_t *ref, int clean_ov)
 {
 	mc_opt_t opt;
 	mc_opt_init(&opt, asm_opt.n_perturb, asm_opt.f_perturb, asm_opt.seed);
@@ -2863,8 +2905,10 @@ void mc_solve(hap_overlaps_list* ovlp, trans_chain* t_ch, kv_u_trans_t *ta, ma_u
 		p_nodes(mg, t_ch, trio_flag);
 	}
 
-	if(ovlp) clean_ovlp_by_mc(mg, ovlp);
-
+	if(clean_ov){
+		if(ovlp) clean_ovlp_by_mc(mg, ovlp);
+		if(ta) clean_ta_by_mc(mg, ta);
+	}
 	// print_hap_s(s, ug->u.n);
 
 	destory_mc_g_t(&mg);	

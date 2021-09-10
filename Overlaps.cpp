@@ -1475,14 +1475,6 @@ R_to_U* ruIndex, int max_hang, int min_ovlp)
         
                 delete_all_edges(sources, coverage_cut, Get_qn(*h));
                 set_R_to_U(ruIndex, Get_qn(*h), Get_tn(*h), 0, NULL);
-
-                // if(delete_all_edges_carefully(sources, coverage_cut, max_hang, min_ovlp, 
-                // Get_qn(*h))==0)
-                // {
-                //     set_R_to_U(ruIndex, Get_qn(*h), Get_tn(*h), 0);
-                // }
-                // sq->del = 1;
-                // set_R_to_U(ruIndex, Get_qn(*h), Get_tn(*h), 0);
             }
 		    else if (r == MA_HT_TCONT) 
             {
@@ -1491,15 +1483,6 @@ R_to_U* ruIndex, int max_hang, int min_ovlp)
 
                 delete_all_edges(sources, coverage_cut, Get_tn(*h));
                 set_R_to_U(ruIndex, Get_tn(*h), Get_qn(*h), 0, NULL);
-
-                // if(delete_all_edges_carefully(sources, coverage_cut, max_hang, 
-                // min_ovlp, Get_tn(*h)) == 0)
-                // {
-                //     set_R_to_U(ruIndex, Get_tn(*h), Get_qn(*h), 0);
-                //     no_fully_tn_num++;
-                // }
-                // st->del = 1;
-                // set_R_to_U(ruIndex, Get_tn(*h), Get_qn(*h), 0);
             }
         }
     }
@@ -9673,7 +9656,7 @@ ma_hit_t_alloc* sources, R_to_U* ruIndex, uint8_t* r_flag)
         r_flag[rId] = 0;
     }
 
-    return C_bases/R_bases;
+    return R_bases == 0? 0:C_bases/R_bases;
 }
 
 uint32_t get_ug_coverage_aggressive(ma_ug_t *ug, uint32_t uID, asg_t* read_g, 
@@ -13158,7 +13141,7 @@ long long gap_fuzz, bub_label_t* b_mask_t)
         ///asm_opt.purge_simi_thres = asm_opt.purge_simi_rate_hic;
         adjust_utg_by_primary(&copy_ug, copy_sg, TRIO_THRES, sources, reverse_sources, coverage_cut, 
         tipsLen, tip_drop_ratio, stops_threshold, ruIndex, chimeric_rate, drop_ratio, 
-        max_hang, min_ovlp, &new_rtg_edges, &cov, b_mask_t, 1, 1/**0**/);
+        max_hang, min_ovlp, &new_rtg_edges, &cov, b_mask_t, 1, 0);
 
         print_utg(copy_ug, copy_sg, coverage_cut, output_file_name, sources, ruIndex, max_hang, 
         min_ovlp, &new_rtg_edges);
@@ -13182,7 +13165,6 @@ long long gap_fuzz, bub_label_t* b_mask_t)
     }
 
     // char* gfa_name = (char*)malloc(strlen(output_file_name)+50);
-    // FILE* output_file = NULL;
     // sprintf(gfa_name, "%s.pre.clean_d_utg.noseq.gfa", output_file_name);
     // FILE* output_file = fopen(gfa_name, "w");
     // ma_ug_print_simple(ug, sg, coverage_cut, sources, ruIndex, "utg", output_file);
@@ -13744,7 +13726,7 @@ void kt_u_trans_t_symm(kv_u_trans_t *ta, ma_ug_t *ug)
             if (i == n || a[i].tn != a[st].tn)
             {
                 get_u_trans_spec(ta, a[st].tn, a[st].qn, &r_a, &r_n);
-                if(i - st == 1 && r_n == 0)
+                if(i - st == 1 && r_n == 0)///should be always here
                 {
                     st = i;
                     continue;
@@ -14811,9 +14793,37 @@ void label_r_set(buf_t* b, R_to_U* ruIndex, ma_ug_t *ug, uint32_t flag)
     }
 }
 
+inline int trio_check(ma_ug_t *ug, uint32_t *a, uint32_t a_n, uint32_t flag)
+{
+    if(flag != FATHER && flag != MOTHER) return 0;
+    uint32_t flag_occ = 0, non_flag_occ = 0, ambigious = 0, u_n = 0, f, nf, ab, k;
+    for (k = 0; k < a_n; k++) {
+        get_unitig_trio_flag(&(ug->u.a[a[k]>>1]), flag, &f, &nf, &ab);
+        flag_occ += f;
+        non_flag_occ += nf;
+        ambigious += ab;
+        u_n += ug->u.a[a[k]>>1].n;
+    }    
+    if((flag_occ+non_flag_occ) == 0) return 0;
+    if(flag_occ <= ((non_flag_occ+flag_occ)*0.75)) return 0;
+    if(non_flag_occ == 0 && flag_occ >= 20) return 1;
+    if(u_n >= 100)
+    {
+        if(flag_occ < u_n*DOUBLE_CHECK_THRES) return 0;
+    }
+    else if(u_n >= 50)
+    {
+        if(flag_occ < u_n*DOUBLE_CHECK_THRES*0.5) return 0;
+    }
+    else
+    {
+        if(flag_occ < u_n*DOUBLE_CHECK_THRES*0.25) return 0;
+    }
+    return 1;
+}
 
 int asg_arc_cut_trio_long_tip_primary(asg_t *g, ma_ug_t *ug, asg_t *read_sg, ma_hit_t_alloc* reverse_sources,
-R_to_U* ruIndex, uint32_t min_edge_length, float drop_ratio, hap_cov_t *cov, utg_trans_t *o)
+R_to_U* ruIndex, uint32_t min_edge_length, float drop_ratio, uint32_t trio_flag, hap_cov_t *cov, utg_trans_t *o)
 {
     double startTime = Get_T();
     ///the reason is that each read has two direction (query->target, target->query)
@@ -14874,6 +14884,7 @@ R_to_U* ruIndex, uint32_t min_edge_length, float drop_ratio, hap_cov_t *cov, utg
                 } 
 
                 if(ll >= (v_maxLen*drop_ratio)) continue;
+                if(trio_check(ug, b.b.a, b.b.n, trio_flag)) continue;
                 n_reduced++;
 
                 operation = TRIM;
@@ -14934,7 +14945,7 @@ R_to_U* ruIndex, uint32_t min_edge_length, float drop_ratio, hap_cov_t *cov, utg
 }
 
 int asg_arc_cut_trio_long_tip_primary_complex(asg_t *g, ma_ug_t *ug, asg_t *read_sg, ma_hit_t_alloc* reverse_sources,
-R_to_U* ruIndex, uint32_t min_edge_length, float drop_ratio, uint32_t stops_threshold, hap_cov_t *cov, utg_trans_t *o)
+R_to_U* ruIndex, uint32_t min_edge_length, float drop_ratio, uint32_t stops_threshold, hap_cov_t *cov, utg_trans_t *o, uint32_t trio_flag)
 {
     double startTime = Get_T();
     uint32_t v, n_vtx = g->n_seq * 2, n_reduced = 0, convex, in, flag, operation;
@@ -14958,6 +14969,7 @@ R_to_U* ruIndex, uint32_t min_edge_length, float drop_ratio, uint32_t stops_thre
         &max_stop_baseLen, 1, &b);
 
         if(return_flag != MUL_INPUT) continue;
+        if(trio_check(ug, b.b.a, b.b.n, trio_flag)) continue;
         in = convex^1;
         get_real_length(g, convex, &convex);
         convex = convex^1;
@@ -15177,16 +15189,10 @@ hap_cov_t *cov, utg_trans_t *o)
             &max_stop_baseLen, 1, &b);
 
             if(return_flag != END_TIPS) continue;
+            if(trio_check(ug, b.b.a, b.b.n, trio_flag)) continue;
 
             flag = check_different_haps(g, ug, read_sg, av[base_maxLen_i].v, av[i].v,
             reverse_sources, &b_0, &b_1, ruIndex, cov->is_r_het, miniedgeLen, 1);
-
-            // if((av[i].v>>1) == 255 && (av[base_maxLen_i].v>>1) == 33)
-            // if((av[i].v>>1) == 1852 && (av[base_maxLen_i].v>>1) == 2441)
-            // {
-            //     fprintf(stderr, "max-utg%.6ul (%u), p-utg%.6ul (%u)\n", 
-            //     (av[base_maxLen_i].v>>1)+1, av[base_maxLen_i].v, (av[i].v>>1)+1, av[i].v);
-            // }
 
             // #define UNAVAILABLE (uint32_t)-1
             // #define PLOID 0
@@ -15445,7 +15451,7 @@ R_to_U* ruIndex, uint32_t positive_flag, float drop_rate)
 
 int asg_arc_cut_trio_long_equal_tips_assembly_complex(asg_t *g, ma_ug_t *ug, asg_t *read_sg, 
 ma_hit_t_alloc* reverse_sources, long long miniedgeLen, R_to_U* ruIndex, uint32_t stops_threshold, 
-hap_cov_t *cov, utg_trans_t *o)
+hap_cov_t *cov, utg_trans_t *o, uint32_t trio_flag)
 {
     double startTime = Get_T();
     uint32_t v, n_vtx = g->n_seq * 2, n_reduced = 0, convex, in, flag;
@@ -15471,6 +15477,7 @@ hap_cov_t *cov, utg_trans_t *o)
         &max_stop_baseLen, 1, &b);
 
         if(return_flag != MUL_INPUT) continue;
+        if(trio_check(ug, b.b.a, b.b.n, trio_flag)) continue;
         in = convex^1;
         get_real_length(g, convex, &convex);
         convex = convex^1;
@@ -15955,10 +15962,11 @@ float drop_ratio, uint32_t trio_flag, float trio_drop_rate, hap_cov_t *cov)
         if(just_bubble_pop == 0)
         {
             ///need consider tangles
-            asg_arc_cut_trio_long_tip_primary(g, ug, read_g, reverse_sources, ruIndex, 2, tip_drop_ratio, cov, NULL);            
+            asg_arc_cut_trio_long_tip_primary(g, ug, read_g, reverse_sources, ruIndex, 2, tip_drop_ratio, trio_flag, cov, NULL);            
+            // if(trio_flag == MOTHER) print_debug_gfa(read_g, ug, coverage_cut, "debug_dups", sources, ruIndex, asm_opt.max_hang_Len, asm_opt.min_overlap_Len);
             asg_arc_cut_trio_long_equal_tips_assembly(g, ug, read_g, reverse_sources, 2, ruIndex, trio_flag, cov, NULL);            
-            asg_arc_cut_trio_long_tip_primary_complex(g, ug, read_g, reverse_sources, ruIndex, 2, tip_drop_ratio, stops_threshold, cov, NULL);
-            asg_arc_cut_trio_long_equal_tips_assembly_complex(g, ug, read_g, reverse_sources, 2, ruIndex, stops_threshold, cov, NULL);
+            asg_arc_cut_trio_long_tip_primary_complex(g, ug, read_g, reverse_sources, ruIndex, 2, tip_drop_ratio, stops_threshold, cov, NULL, trio_flag);
+            asg_arc_cut_trio_long_equal_tips_assembly_complex(g, ug, read_g, reverse_sources, 2, ruIndex, stops_threshold, cov, NULL, trio_flag);
             detect_chimeric_by_topo(g, ug, read_g, reverse_sources, 2, stops_threshold, chimeric_rate, ruIndex, NULL, cov->is_r_het);
             ///need consider tangles
             ///note we need both the read graph and the untig graph
@@ -15972,10 +15980,11 @@ float drop_ratio, uint32_t trio_flag, float trio_drop_rate, hap_cov_t *cov)
     }
 
     ///print_debug_gfa(read_g, ug, coverage_cut, "debug_dups", sources, ruIndex, asm_opt.max_hang_Len, asm_opt.min_overlap_Len);
-
+    magic_trio_phasing(g, ug, read_g, coverage_cut, sources, reverse_sources, 2, ruIndex, trio_flag, trio_drop_rate); 
     resolve_tangles(ug, read_g, reverse_sources, 20, 100, 0.05, 0.2, ruIndex, cov->is_r_het, trio_flag, drop_ratio);    
     drop_semi_circle(ug, g, read_g, reverse_sources, ruIndex, cov->is_r_het);
     all_to_all_deduplicate(ug, read_g, coverage_cut, sources, trio_flag, trio_drop_rate, reverse_sources, ruIndex, cov->is_r_het, DOUBLE_CHECK_THRES, asm_opt.trio_flag_occ_thres);
+    // if(trio_flag == MOTHER) print_untig_by_read(ug, "m54329U_190827_173812/30214441/ccs", (uint32_t)-1, NULL, NULL, "bf-16");
     if(is_first)
     {
         is_first = 0;
@@ -16031,10 +16040,10 @@ int just_bubble_pop, float drop_ratio, hap_cov_t *cov)
         if(just_bubble_pop == 0)
         {
             ///need consider tangles  
-            asg_arc_cut_trio_long_tip_primary(g, ug, read_g, reverse_sources, ruIndex, 2, tip_drop_ratio, cov, NULL); 
+            asg_arc_cut_trio_long_tip_primary(g, ug, read_g, reverse_sources, ruIndex, 2, tip_drop_ratio, (uint32_t)-1, cov, NULL); 
             asg_arc_cut_trio_long_equal_tips_assembly(g, ug, read_g, reverse_sources, 2, ruIndex, (uint32_t)-1, cov, NULL);   
-            asg_arc_cut_trio_long_tip_primary_complex(g, ug, read_g, reverse_sources, ruIndex, 2, tip_drop_ratio, stops_threshold, cov, NULL);   
-            asg_arc_cut_trio_long_equal_tips_assembly_complex(g, ug, read_g, reverse_sources, 2, ruIndex, stops_threshold, cov, NULL);
+            asg_arc_cut_trio_long_tip_primary_complex(g, ug, read_g, reverse_sources, ruIndex, 2, tip_drop_ratio, stops_threshold, cov, NULL, (uint32_t)-1);   
+            asg_arc_cut_trio_long_equal_tips_assembly_complex(g, ug, read_g, reverse_sources, 2, ruIndex, stops_threshold, cov, NULL, (uint32_t)-1);
             detect_chimeric_by_topo(g, ug, read_g, reverse_sources, 2, stops_threshold, chimeric_rate, ruIndex, NULL, cov->is_r_het);    
             if(round != T_ROUND)
             {
@@ -16094,10 +16103,10 @@ int min_ovlp, hap_cov_t *cov)
                 asg_pop_bubble_primary_trio(ug, NULL, (uint32_t)-1, DROP, cov, o, 1);
                 
                 ///need consider tangles  
-                asg_arc_cut_trio_long_tip_primary(g, ug, read_g, reverse_sources, ruIndex, 2, tip_drop_ratio, cov, o);              
+                asg_arc_cut_trio_long_tip_primary(g, ug, read_g, reverse_sources, ruIndex, 2, tip_drop_ratio, (uint32_t)-1, cov, o);              
                 asg_arc_cut_trio_long_equal_tips_assembly(g, ug, read_g, reverse_sources, 2, ruIndex, (uint32_t)-1, cov, o);   
-                asg_arc_cut_trio_long_tip_primary_complex(g, ug, read_g, reverse_sources, ruIndex, 2, tip_drop_ratio, stops_threshold, cov, o);   
-                asg_arc_cut_trio_long_equal_tips_assembly_complex(g, ug, read_g, reverse_sources, 2, ruIndex, stops_threshold, cov, o);
+                asg_arc_cut_trio_long_tip_primary_complex(g, ug, read_g, reverse_sources, ruIndex, 2, tip_drop_ratio, stops_threshold, cov, o, (uint32_t)-1);   
+                asg_arc_cut_trio_long_equal_tips_assembly_complex(g, ug, read_g, reverse_sources, 2, ruIndex, stops_threshold, cov, o, (uint32_t)-1);
                 detect_chimeric_by_topo(g, ug, read_g, reverse_sources, 2, stops_threshold, chimeric_rate, ruIndex, o, cov->is_r_het);    
                 
                 cur_cons = get_graph_statistic(g);
@@ -23920,6 +23929,8 @@ int write_ruIndex(R_to_U* ruIndex, char* read_file_name)
     fwrite(ruIndex->index, sizeof(ruIndex->index[0]), ruIndex->len, fp);
     fwrite(R_INF.trio_flag, sizeof(R_INF.trio_flag[0]), ruIndex->len, fp);
     // fwrite(ruIndex->is_het, 1, ruIndex->len, fp);
+    fwrite(&(asm_opt.hom_global_coverage_set), sizeof(asm_opt.hom_global_coverage_set), 1, fp);
+    fwrite(&(asm_opt.hom_global_coverage), sizeof(asm_opt.hom_global_coverage), 1, fp);
     free(index_name);    
     fflush(fp);
     fclose(fp);
@@ -23946,6 +23957,9 @@ int load_ruIndex(R_to_U* ruIndex, char* read_file_name)
 
     // CALLOC(ruIndex->is_het, ruIndex->len);
     // f_flag += fread(ruIndex->is_het, 1, ruIndex->len, fp);
+
+    f_flag += fread(&(asm_opt.hom_global_coverage_set), sizeof(asm_opt.hom_global_coverage_set), 1, fp);
+    f_flag += fread(&(asm_opt.hom_global_coverage), sizeof(asm_opt.hom_global_coverage), 1, fp);
 
     free(index_name);    
     fflush(fp);
@@ -24707,7 +24721,7 @@ uint32_t collect_p_trans, uint32_t collect_p_trans_f)
         fprintf(stderr, "[M::%s] primary contig coverage range: [%d, infinity]\n", 
         __func__, asm_opt.recover_atg_cov_min);
     }
-    
+
     skip_purge:
     recover_utg_by_coverage(ug, read_g, coverage_cut, sources, ruIndex, cov->t_ch);
     if(i_cov)
@@ -30869,12 +30883,10 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
 
     output_contig_graph_primary_pre(sg, coverage_cut, o_file, sources, reverse_sources, 
         asm_opt.small_pop_bubble_size, asm_opt.max_short_tip, ruIndex, max_hang_length, mini_overlap_length);
-
     if (asm_opt.flag & HA_F_VERBOSE_GFA)
     {
         write_debug_graph(sg, sources, coverage_cut, output_file_name, n_read, reverse_sources, ruIndex);
         debug_gfa:;
-        set_hom_global_coverage(&asm_opt, sg, coverage_cut, sources, reverse_sources, ruIndex, max_hang_length, mini_overlap_length);
     }
     
     if (ha_opt_triobin(&asm_opt) && ha_opt_hic(&asm_opt))

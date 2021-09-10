@@ -25,14 +25,12 @@ typedef struct { uint32_t n, m; ha_mz1_t *a; } ha_mz1_v;
 
 typedef struct {
 	uint64_t x; ///x is the hash key
-	uint64_t rid:31, rev:1;
-	uint32_t pos;
+	uint64_t rid:31, rev:1, pos:32;
 	uint8_t span;
 } ha_mzl_t;
 
 typedef struct {
-	uint64_t rid:31, rev:1;
-	uint32_t pos;
+	uint64_t rid:31, rev:1, pos:32;
 	uint8_t span;
 } ha_idxposl_t;
 
@@ -71,12 +69,12 @@ extern void *ha_flt_tab_hp;
 extern ha_pt_t *ha_idx_hp;
 extern void *ha_ct_table;
 
-void *ha_ft_ug_gen(const hifiasm_opt_t *asm_opt, ma_utg_v *us, int hap_n);
+void *ha_ft_ug_gen(const hifiasm_opt_t *asm_opt, ma_utg_v *us, int is_HPC, int k, int w, int min_freq, int max_freq);
 void *ha_ft_gen(const hifiasm_opt_t *asm_opt, All_reads *rs, int *hom_cov, int is_hp_mode);
 int32_t ha_ft_cnt(const void *hh, uint64_t y);
 void ha_ft_destroy(void *h);
 
-ha_pt_t *ha_pt_ug_gen(const hifiasm_opt_t *asm_opt, const void *flt_tab, ma_utg_v *us, int hap_n);
+ha_pt_t *ha_pt_ug_gen(const hifiasm_opt_t *asm_opt, const void *flt_tab, ma_utg_v *us, int is_HPC, int k, int w, int min_freq);
 ha_pt_t *ha_pt_gen(const hifiasm_opt_t *asm_opt, const void *flt_tab, int read_from_store, int is_hp_mode, All_reads *rs, int *hom_cov, int *het_cov);
 void ha_pt_destroy(ha_pt_t *h);
 const ha_idxpos_t *ha_pt_get(const ha_pt_t *h, uint64_t hash, int *n);
@@ -101,7 +99,8 @@ double yak_cpu_usage(void);
 
 void ha_triobin(const hifiasm_opt_t *opt);
 
-void ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mz1_v *p, const void *hf, int sample_dist, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct, ha_pt_t *pt, int min_freq, int32_t dp_min_len, float dp_e, st_mt_t *mt, int32_t ws, int32_t is_unique);
+void mz1_ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mz1_v *p, const void *hf, int sample_dist, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct, ha_pt_t *pt, int min_freq, int32_t dp_min_len, float dp_e, st_mt_t *mt, int32_t ws, int32_t is_unique);
+void mz2_ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mzl_v *p, const void *hf, int sample_dist, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct, ha_pt_t *pt, int min_freq, int32_t dp_min_len, float dp_e, st_mt_t *mt, int32_t ws, int32_t is_unique);
 int ha_analyze_count(int n_cnt, int start_cnt, int m_peak_hom, const int64_t *cnt, int *peak_het);
 int adj_m_peak_hom(int m_peak_hom, int max_i, int max2_i, int max3_i, int *peak_het);
 void print_hist_lines(int n_cnt, int start_cnt, const int64_t *cnt);

@@ -51,7 +51,7 @@ typedef struct {
 typedef struct {
     hap_alignment_struct* buf;
     uint32_t num_threads;
-
+    uint8_t *hh;
     ma_ug_t *ug;
     asg_t *read_g;
     ma_hit_t_alloc* sources;
@@ -471,6 +471,30 @@ void destory_hap_alignment_struct(hap_alignment_struct* x)
     kv_destroy(x->u_can.a);
 }
 
+uint8_t *init_pip_hh(asg_t *rg, ma_hit_t_alloc* reverse_sources, ma_sub_t *coverage_cut, long long sc)
+{
+    uint8_t *c = NULL; CALLOC(c, rg->n_seq);
+    ma_hit_t *h = NULL;
+    uint32_t i, k;
+    long long R_Base, C_Base;
+    for (i = 0; i < rg->n_seq; i++) {
+        if(sc <= 0){
+            c[i] = 1;
+            continue;
+        }
+        R_Base = (coverage_cut[i].e - coverage_cut[i].s);
+        for (k = 0, C_Base = 0; k < reverse_sources[i].length; k++){
+            h = &(reverse_sources[i].buffer[k]);
+            C_Base += (Get_qe((*h)) - Get_qs((*h)));
+        }
+        C_Base = (R_Base!=0?(C_Base/R_Base):0);
+        C_Base /= sc;
+        c[i] = 1;
+        if(C_Base < REV_W) c[i] = REV_W -  C_Base;
+    }
+    return c;
+}
+
 void init_hap_alignment_struct_pip(hap_alignment_struct_pip* x, uint32_t num_threads, uint32_t n_seq,
 ma_ug_t *ug, asg_t *read_g,  ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, ma_sub_t *coverage_cut, 
 uint64_t* position_index, float Hap_rate, int max_hang, int min_ovlp, float chain_rate, hap_overlaps_list* all_ovlp, hap_cov_t *cov)
@@ -496,6 +520,17 @@ uint64_t* position_index, float Hap_rate, int max_hang, int min_ovlp, float chai
     x->chain_rate = chain_rate;
     x->all_ovlp = all_ovlp;
     x->cov = cov;
+    long long sc = -1;
+    if(asm_opt.hom_global_coverage_set) {
+        sc = asm_opt.hom_global_coverage*1.75;
+    }
+    else {
+        if(asm_opt.hom_global_coverage > 0){
+            sc = ((int)(((double)asm_opt.hom_global_coverage)/((double)HOM_PEAK_RATE)))*1.75;
+        }
+    }
+    if(sc <= 0) sc = -1;
+    x->hh = init_pip_hh(read_g, reverse_sources, coverage_cut, sc);
 }
 
 
@@ -508,6 +543,7 @@ void destory_hap_alignment_struct_pip(hap_alignment_struct_pip* x)
     }
 
     free(x->buf);
+    free(x->hh);
 }
 
 void init_hap_overlaps_list(hap_overlaps_list* x, uint32_t num)
@@ -677,15 +713,9 @@ void deduplicate_edge(kvec_asg_arc_t_offset* u_buffer)
     long long i = u_buffer->a.n - 1, k, i_off;
     uint32_t v = u_buffer->a.a[i].x.ul>>33, m;
 
-    for (; i >= 0; i--)
-    {
-        if((u_buffer->a.a[i].x.ul>>33) != v)
-        {
-            break;
-        } 
+    for (; i >= 0; i--) {
+        if((u_buffer->a.a[i].x.ul>>33) != v) break;
     }
-
-    ///fprintf(stderr, "u_buffer->a.n: %u, i: %lld\n", u_buffer->a.n, i);
 
     i = i + 1;
     for (m = i; i < (long long)u_buffer->a.n; i++)
@@ -960,7 +990,7 @@ ma_hit_t_alloc* reverse_sources, asg_t *read_g, R_to_U* ruIndex, double* Match, 
     uint32_t i, j, qn, tn, is_Unitig, uId, min_count = 0, max_count = 0, cutoff = 0;;
     for (i = 0; i < Len; i++)
     {
-        if(cutoff > CUTOFF_THRES)
+        if(cutoff > CUTOFF_THRES && cutoff > (Len>>1))
         {
             max_count = 0;
             min_count = Len;
@@ -2254,6 +2284,7 @@ uint32_t* xBeg, uint32_t* xEnd, uint32_t* yBeg, uint32_t* yEnd)
 
 #define generic_key(x) (x)
 KRADIX_SORT_INIT(i32, int32_t, generic_key, sizeof(int32_t))
+KRADIX_SORT_INIT(ru32, uint32_t, generic_key, sizeof(uint32_t))
 
 long long get_chain_score(ma_utg_t *xReads, asg_t *read_g, kvec_asg_arc_t_offset* u_buffer, kvec_t_i32_warp* tailIndex, kvec_t_i32_warp* idx, 
 ma_hit_t_alloc* reverse_sources, long long xBegPos, long long xEndPos)
@@ -2820,7 +2851,7 @@ long long y_readLen)
 {
     u_can->a.n = 0;
     if(u_buffer->a.n == 0) return;
-    uint32_t i = 0, anchor_i = 0, m = 1, break_point = (uint32_t)-1, is_merge;
+    uint32_t i = 0, /**anchor_i = 0, **/m = 1, break_point = (uint32_t)-1, is_merge;
 
     qsort(u_buffer->a.a, u_buffer->a.n, sizeof(asg_arc_t_offset), cmp_hap_alignment_chaining);
 
@@ -2832,14 +2863,14 @@ long long y_readLen)
         if(u_buffer->a.a[m-1].x.el == u_buffer->a.a[i].x.el)
         {
             if(u_buffer->a.a[m-1].Off == u_buffer->a.a[i].Off) is_merge = 1;
-            if(is_merge == 0 && (Get_xOff(u_buffer->a.a[m-1].Off)==Get_xOff(u_buffer->a.a[i].Off)))
-            {
-                if((Get_yOff(u_buffer->a.a[i].Off)-(Get_yOff(u_buffer->a.a[m-1].Off))) ==
-                  (i-anchor_i))///not sure why, does it use for tolerate indels in overlaps? 
-                {
-                    is_merge = 1;
-                }
-            }
+            ///I think we don't need the following merging
+            // if(is_merge == 0 && (Get_xOff(u_buffer->a.a[m-1].Off)==Get_xOff(u_buffer->a.a[i].Off)))
+            // {
+            //     if((Get_yOff(u_buffer->a.a[i].Off)-(Get_yOff(u_buffer->a.a[m-1].Off))) == (i-anchor_i))///not sure why, does it use for tolerate indels in overlaps? 
+            //     {
+            //         is_merge = 1;
+            //     }
+            // }
 
             if(is_merge)
             {
@@ -2848,7 +2879,7 @@ long long y_readLen)
             }
         } 
         u_buffer->a.a[m] = u_buffer->a.a[i];
-        anchor_i = i;
+        // anchor_i = i;
         if(u_buffer->a.a[m].x.el != u_buffer->a.a[m-1].x.el) break_point = m;
         m++;
     }
@@ -2957,6 +2988,7 @@ static void hap_alignment_advance_worker(void *_data, long eid, int tid)
     kvec_t_u8_warp* flag_vec = &(hap_buf->buf[tid].u_buffer_flag);
     uint64_t cov_threshold = hap_buf->cov_threshold;
     hap_cov_t *cov = hap_buf->cov;
+    uint8_t *hh = hap_buf->hh, hhc;
     if(hap_buf->cov_threshold < 0) cov_threshold = (uint64_t)-1;
     ma_utg_t *xReads = NULL, *yReads = NULL;
     ma_hit_t_alloc *xR = NULL;
@@ -3036,7 +3068,7 @@ static void hap_alignment_advance_worker(void *_data, long eid, int tid)
         for (k = 0; k < xReads->n; k++)
         {
             xR = &(reverse_sources[xReads->a[k]>>33]);
-
+            hhc = hh[xReads->a[k]>>33];
             for (j = 0; j < xR->length; j++)
             {
                 h = &(xR->buffer[j]);
@@ -3078,7 +3110,7 @@ static void hap_alignment_advance_worker(void *_data, long eid, int tid)
                 if(((t_offset.Off>>32) == (uint32_t)-1) || (((uint32_t)t_offset.Off) == (uint32_t)-1)) continue;
 
                 t_offset.x = t;
-                t_offset.weight = 1;
+                t_offset.weight = hhc;
 
                 kv_push(asg_arc_t_offset, u_buffer->a, t_offset);
             }
@@ -3155,7 +3187,7 @@ static void hap_alignment_advance_worker(void *_data, long eid, int tid)
         }
         all_ovlp->x[xUid].a.n = m;
         **/
-        
+
         hap_align_x = NULL;
         for (k = m; k < all_ovlp->x[xUid].a.n; k++)
         {
@@ -5255,6 +5287,243 @@ void collect_purge_trans_cov(ma_ug_t *ug, hap_overlaps_list* ha, hap_cov_t *cov,
     }
 }
 
+/**
+typedef struct {
+    uint32_t qn, qs, qe;
+    uint32_t tn, ts, te;
+    uint32_t oid;
+    uint8_t rev;
+}scg_hits;
+
+typedef struct {
+    scg_hits *a;
+    size_t n,m;
+    kvec_t(uint64_t) idx;
+}scg_hits_v;
+
+#define scg_key_qtn(a) ((((uint64_t)(a).qn)<<32)|((uint64_t)(a).tn))
+KRADIX_SORT_INIT(scg_qtn, scg_hits, scg_key_qtn, 8)
+#define scg_key_qts(a) ((((uint64_t)(a).qs)<<32)|((uint64_t)(a).ts))
+KRADIX_SORT_INIT(scg_qts, scg_hits, scg_key_qts, 8)
+#define scg_key_qte(a) ((((uint64_t)(a).qe)<<32)|((uint64_t)(a).te))
+KRADIX_SORT_INIT(scg_qte, scg_hits, scg_key_qte, 8)
+#define scg_key_rev(a) ((a).rev)
+KRADIX_SORT_INIT(scg_rev, scg_hits, scg_key_rev, member_size(scg_hits, rev))
+
+inline void rev_scg_hits(scg_hits *p, spg_t *scg)
+{
+    if(p->rev){
+        uint32_t t;
+        p->ts = scg->ug->u.a[p->tn].len - p->ts - 1;
+        p->te = scg->ug->u.a[p->tn].len - (p->te - 1) - 1;
+        t = p->ts; p->ts = p->te; p->te = t; p->te++;
+    }
+}
+
+#define arc_first(g, v) ((g)->arc[(g)->idx[(v)]>>32])
+scg_hits_v *get_scg_hits_v(scg_hits_v *vp, spg_t *scg)
+{   
+    scg_hits_v *hh = NULL; CALLOC(hh, 1);
+    ma_utg_v *u = &(scg->ug->u);
+    uint32_t i, mn, *ma = NULL;
+    uint64_t offset, *idx = NULL;
+
+    for (i = 0; i < scg->idx.n; i++) {
+        mn = (uint32_t)scg->idx.a[i];
+        ma = scg->dst.a + (scg->idx.a[i]>>32);
+    }
+    
+
+
+
+    return hh;
+}
+
+void refine_scg(spg_t *scg, ma_ug_t *lug, hap_overlaps_list *ha, hap_cov_t *cov, uint64_t* position_index)
+{
+    scg_hits_v vp; kv_init(vp);
+    uint32_t v, i, k, st, c[2];
+    hap_overlaps *x = NULL;
+    u_trans_t *z = NULL;
+    scg_hits *p = NULL;
+
+    for (v = 0; v < cov->t_ch->k_trans.n; v++){
+        z = &(cov->t_ch->k_trans.a[v]);
+        if(z->del) continue;
+        kv_pushp(scg_hits, vp, &p);
+        p->rev = z->rev; p->oid = (uint32_t)-1;
+        p->qn = z->qn; p->qs = z->qs; p->qe = z->qe;
+        p->tn = z->tn; p->ts = z->ts; p->te = z->te;
+        // rev_scg_hits(p, scg);
+        kv_pushp(scg_hits, vp, &p);
+        p->rev = z->rev; p->oid = (uint32_t)-1;
+        p->qn = z->tn; p->qs = z->ts; p->qe = z->te;
+        p->tn = z->qn; p->ts = z->qs; p->te = z->qe;
+        // rev_scg_hits(p, scg);
+    }
+    
+    for (v = 0; v < ha->num; v++){
+        for (i = 0; i < ha->x[v].a.n; i++){
+            x = &(ha->x[v].a.a[i]);
+            st = cov->t_ch->k_trans.n;
+            chain_origin_trans_uid_by_purge(x, lug, cov, position_index);
+            for (k = st; k < cov->t_ch->k_trans.n; k++){
+                z = &(cov->t_ch->k_trans.a[k]);
+                if(z->del) continue;
+                kv_pushp(scg_hits, vp, &p);
+                p->rev = z->rev; p->oid = v;
+                p->qn = z->qn; p->qs = z->qs; p->qe = z->qe;
+                p->tn = z->tn; p->ts = z->ts; p->te = z->te;
+                // rev_scg_hits(p, scg);
+                kv_pushp(scg_hits, vp, &p);
+                p->rev = z->rev; p->oid = v;
+                p->qn = z->tn; p->qs = z->ts; p->qe = z->te;
+                p->tn = z->qn; p->ts = z->qs; p->te = z->qe;
+                // rev_scg_hits(p, scg);
+            }
+            cov->t_ch->k_trans.n = st;
+        }
+    }
+
+    ///two scg_hits might be totally equal; must remove first
+    radix_sort_scg_qtn(vp.a, vp.a + vp.n);
+    for (st = 0, i = 1; i <= vp.n; ++i){
+        if (i == vp.n || vp.a[i].qn != vp.a[st].qn || vp.a[i].tn != vp.a[st].tn){
+           if(i - st > 1) radix_sort_scg_rev(vp.a+st, vp.a+i);
+           for (v = st, c[0] = c[1] = 0; v < i; v++) c[vp.a[v].rev]++;
+           if(c[0]>1) radix_sort_scg_qts(vp.a+st, vp.a+st+c[0]);
+           if(c[1]>1) radix_sort_scg_qts(vp.a+st+c[0], vp.a+st+c[0]+c[1]);
+           st = i;
+        }
+    }
+    for (st = 0, i = 1; i <= vp.n; ++i){
+        if (i == vp.n || vp.a[i].rev != vp.a[st].rev || 
+                vp.a[i].qn != vp.a[st].qn || vp.a[i].tn != vp.a[st].tn || 
+                vp.a[i].qs != vp.a[st].qs || vp.a[i].ts != vp.a[st].ts)
+        {
+           if(i - st > 1) radix_sort_scg_qte(vp.a+st, vp.a+i);
+           st = i;
+        }
+    }
+    for (st = 0, i = 1, k = 0; i <= vp.n; ++i){
+        if (i == vp.n || vp.a[i].rev != vp.a[st].rev ||
+                vp.a[i].qn != vp.a[st].qn || vp.a[i].tn != vp.a[st].tn || 
+                vp.a[i].qs != vp.a[st].qs || vp.a[i].ts != vp.a[st].ts ||
+                vp.a[i].qe != vp.a[st].qe || vp.a[i].te != vp.a[st].te)
+        {
+           vp.a[k] = vp.a[st];
+           k++;
+           st = i;
+        }
+    }
+    ///build idx
+    vp.n = k; kv_resize(uint64_t, vp.idx, scg->ug->u.n); vp.idx.n = scg->ug->u.n; 
+    memset(vp.idx.a, 0, vp.idx.n*sizeof(uint64_t));
+    for (st = 0, i = 1; i <= vp.n; ++i)
+    {
+        if (i == vp.n || vp.a[i].qn != vp.a[st].qn)
+        {
+            vp.idx.a[vp.a[st].qn] = (uint64_t)st << 32 | (i - st);
+            st = i;
+        }
+    }
+
+
+    kv_destroy(vp); kv_destroy(vp.idx);
+}
+**/
+uint32_t seed_uid(ma_utg_t *vu, uint64_t* ps_idx, R_to_U* ruIndex, ma_ug_t *rug)
+{
+    int64_t v_i, v, w, w_i, wb, we, vb, ve, k;
+    uint32_t uid, is_u;
+    ma_utg_t *wu = NULL;
+    for (v_i = 0; v_i < vu->n; v_i++) {
+        v = vu->a[v_i]>>32;
+        get_R_to_U(ruIndex, v>>1, &uid, &is_u);
+        if(is_u == 0 || uid == (uint32_t)-1 || ps_idx[v>>1] == (uint64_t)-1) continue;
+        w_i = (uint32_t)ps_idx[v>>1];
+        wu = &(rug->u.a[uid]);
+        w = wu->a[w_i]>>32;
+        if((v>>1)!=(w>>1)) continue;
+        vb = 0; ve = vu->n; ///[vb, ve)
+        if(v == w){ ///[wb, we)
+            wb = w_i - v_i;
+            we = wb + vu->n;
+            if(wb < 0 || we > wu->n) continue;
+            for (k = 0; k < vu->n; k++){
+                if((vu->a[k+vb]>>32) != (wu->a[k+wb]>>32)) break;
+            }
+            if(k >= vu->n) return uid;
+        } else {
+            wb = w_i + 1 - (ve - v_i);
+            we = wb + vu->n;
+            if(wb < 0 || we > wu->n) continue;
+            for (k = 0; k < vu->n; k++){
+                if((vu->a[k+vb]>>32) != ((wu->a[we-k-1]>>32)^1)) break;
+            }
+            if(k >= vu->n) return uid;
+        }
+    }
+    return (uint32_t)-1;
+}
+
+void filter_ovlp_vecs(hap_overlaps_list* ha, uint32_t *a, uint32_t a_n)
+{
+    uint32_t st, k, i, m, v, w;
+    int idx;
+    radix_sort_ru32(a, a + a_n);
+    for (st = 0, m = 0, k = 1; k <= a_n; k++){
+        if(k == a_n || a[k] != a[st]){
+            a[m++] = a[st];
+            st = k;
+        }
+    }
+    a_n = m;
+    if(a_n < 2) return;
+    for (k = 0; k < a_n; k++){
+        v = a[k];
+        for (i = k+1; i < a_n; i++) {
+            w = a[i];
+            idx = get_specific_hap_overlap(&(ha->x[v]), v, w);
+            if(idx != -1) ha->x[v].a.a[idx].status = DELETE;
+            idx = get_specific_hap_overlap(&(ha->x[w]), w, v);
+            if(idx != -1) ha->x[w].a.a[idx].status = DELETE;
+        }
+    }
+}
+
+void filter_ovlp_scg(hap_overlaps_list* ha, uint64_t* ps_idx, R_to_U* ruIndex, ma_ug_t *rug, spg_t *scg)
+{
+    uint32_t i, k, v, *ma = NULL, mn, luid;
+    ma_utg_v *pp = &(scg->ug->u);
+    kvec_t(uint32_t) vv; kv_init(vv);
+    for (i = 0; i < scg->idx.n; i++){
+        ma = scg->dst.a + (scg->idx.a[i]>>32);
+        mn = (uint64_t)scg->idx.a[i];
+        if(mn < 2) continue;
+        for (k = 0, vv.n = 0; k < mn; k++){
+            luid = seed_uid(&(pp->a[ma[k]>>1]), ps_idx, ruIndex, rug);
+            if(luid == (uint32_t)-1) {
+                fprintf(stderr, "ERROR-scg\n");
+                continue;
+            }
+            kv_push(uint32_t, vv, luid);
+        }
+        if(vv.n < 2) continue;
+        filter_ovlp_vecs(ha, vv.a, vv.n);
+    }
+
+    for (v = 0; v < ha->num; v++){
+        for (i = 0, k = 0; i < ha->x[v].a.n; i++){
+            if(ha->x[v].a.a[i].status == DELETE) continue;
+            ha->x[v].a.a[k++] = ha->x[v].a.a[i];
+        }
+        ha->x[v].a.n = k;
+    }
+
+    kv_destroy(vv);
+}
+
 void purge_dups(ma_ug_t *ug, asg_t *read_g, ma_sub_t* coverage_cut, ma_hit_t_alloc* sources, 
 ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, kvec_asg_arc_t_warp* edge, float density, 
 uint32_t purege_minLen, int max_hang, int min_ovlp, float drop_ratio, uint32_t just_contain, 
@@ -5343,7 +5612,9 @@ uint32_t just_coverage, hap_cov_t *cov, uint32_t collect_p_trans, uint32_t colle
     ///if(debug_enable) print_all_purge_ovlp(ug, &all_ovlp);
     filter_hap_overlaps_by_length(&all_ovlp, purege_minLen);
 
-    normalize_hap_overlaps_advance(&all_ovlp, &back_all_ovlp, ug, read_g, reverse_sources, ruIndex);
+    // normalize_hap_overlaps_advance(&all_ovlp, &back_all_ovlp, ug, read_g, reverse_sources, ruIndex);
+    pg = init_p_g_t(ug, cov, read_g);
+    normalize_hap_overlaps_advance_by_p_g_t(&all_ovlp, &back_all_ovlp, ug, read_g, reverse_sources, ruIndex, pg, cov, 0.8);
 
     if(collect_p_trans && collect_p_trans_f == 0)
     {
@@ -5352,18 +5623,13 @@ uint32_t just_coverage, hap_cov_t *cov, uint32_t collect_p_trans, uint32_t colle
     
     if(asm_opt.polyploidy <= 2)
     {
-        mc_solve(&all_ovlp, cov->t_ch, NULL, ug, read_g, 0.8, R_INF.trio_flag, 1, NULL, 1, NULL, NULL);
+        mc_solve(&all_ovlp, cov->t_ch, NULL, ug, read_g, 0.8, R_INF.trio_flag, 1, NULL, 1, NULL, NULL, 1);
     } 
     
     if(collect_p_trans && collect_p_trans_f == 1)
     {
         collect_purge_trans_cov(ug, &all_ovlp, cov, position_index);
     } 
-    
-    pg = init_p_g_t(ug, cov, read_g);
-    
-    normalize_hap_overlaps_advance_by_p_g_t(&all_ovlp, &back_all_ovlp, ug, read_g, reverse_sources, 
-    ruIndex, pg, cov, 0.8);
 
     ///normalize_hap_overlaps_advance(&all_ovlp, &back_all_ovlp, ug, read_g, reverse_sources, ruIndex);
     ///debug_hap_overlaps(&all_ovlp, &back_all_ovlp);

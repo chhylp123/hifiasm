@@ -1636,8 +1636,8 @@ void ug_idx_build(ma_ug_t *ug, int hap_n)
 {
     int flag = asm_opt.flag&HA_F_NO_HPC, i;
     asm_opt.flag -= flag;
-    ha_flt_tab = ha_ft_ug_gen(&asm_opt, &(ug->u), hap_n);
-    ha_idx = ha_pt_ug_gen(&asm_opt, ha_flt_tab, &(ug->u), hap_n);
+    // ha_flt_tab = ha_ft_ug_gen(&asm_opt, &(ug->u), hap_n, hap_n);
+    // ha_idx = ha_pt_ug_gen(&asm_opt, ha_flt_tab, &(ug->u), hap_n);
 
     ha_ovec_buf_t **b = NULL;
     // overlap and correct reads

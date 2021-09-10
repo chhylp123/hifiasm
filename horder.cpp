@@ -2178,9 +2178,9 @@ uint64_t rs, uint64_t re, uint64_t limit_s, uint64_t limit_e, int unique_only)
     return cnt;
 }
 
-void detect_lowNs(kvec_pe_hit *hit, uint64_t sHit, uint64_t eHit, kvec_t_u64_warp *b, 
-h_cov_t *Np, uint64_t len, uint64_t cutoff_s, uint64_t cutoff_e, h_covs *res,
-h_covs *cov_buf, h_covs *b_points, uint64_t local_bound, int unique_only)
+int detect_lowNs(kvec_pe_hit *hit, uint64_t sHit, uint64_t eHit, kvec_t_u64_warp *b, 
+h_cov_t *Np, uint64_t len, uint64_t cutoff_s, uint64_t cutoff_e, uint64_t force_cutoff, uint64_t force_cutoff_cov,
+h_covs *res, h_covs *cov_buf, h_covs *b_points, uint64_t local_bound, int unique_only)
 {
     uint64_t cov_hic, cov_utg, cov_ava, i, p0s, p0e, p1s, p1e, span_s, span_e, cutoff, bs, be, occ = 0;
     uint64_t sPos, ePos, min_cutoff;
@@ -2219,6 +2219,18 @@ h_covs *cov_buf, h_covs *b_points, uint64_t local_bound, int unique_only)
     radix_sort_ho64(b->a.a, b->a.a+b->a.n);
     cov_utg = get_hic_cov_interval(b->a.a, b->a.n, 1, NULL, NULL, NULL);
     cov_ava = (cov_utg? cov_hic/cov_utg:0);
+    if(force_cutoff != (uint64_t)-1 || force_cutoff_cov != (uint64_t)-1)
+    {
+        min_cutoff = get_sub_cov(hit, sHit, eHit, len, Np->s, Np->e, sPos, ePos, unique_only);
+        if((force_cutoff != (uint64_t)-1 && min_cutoff <= (cov_ava/force_cutoff)) || 
+                (force_cutoff_cov != (uint64_t)-1 && min_cutoff <= force_cutoff_cov))
+        {
+            kv_pushp(h_cov_t, *b_points, &p);
+            p->s = get_hit_suid(*hit, sHit); p->e = Np->dp; p->dp = 0;
+            return 1;
+        }
+    }
+    
     ///if cov_ava == 0, do nothing or break?
     /*******************************for debug************************************/
     // fprintf(stderr, "\n[M::%s::] utg%.6lul, ulen: %lu, # hic hits: %lu, map cov: %lu, utg cov: %lu, average: %lu\n", 
@@ -2269,24 +2281,29 @@ h_covs *cov_buf, h_covs *b_points, uint64_t local_bound, int unique_only)
         {
             kv_pushp(h_cov_t, *b_points, &p);
             p->s = get_hit_suid(*hit, sHit); p->e = Np->dp; p->dp = 0;
+            return 1;
             /*******************************for debug************************************/
             // fprintf(stderr, "consensus_break-rid: %lu\n", p->e);
             /*******************************for debug************************************/
         }
     }
+    return 0;
 }
 
-uint64_t break_scaffold(horder_t *h, uint64_t cutoff_s, uint64_t cutoff_e, uint64_t local_bound, int unique_only)
+uint64_t break_scaffold(horder_t *h, uint64_t cutoff_s, uint64_t cutoff_e, uint64_t force_cutoff, uint64_t force_cutoff_cov,
+uint64_t local_bound, int unique_only, h_covs *r_b_points)
 {
     uint64_t k, l, i, ulen;
     kvec_t_u64_warp b; kv_init(b.a);
     h_covs cov_buf; kv_init(cov_buf);
     h_covs res; kv_init(res);
-    h_covs b_points; kv_init(b_points);
+    h_covs *b_points = NULL; 
+    if(r_b_points) b_points = r_b_points;
+    else CALLOC(b_points, 1);
+    b_points->n = 0;
     h_covs Ns; kv_init(Ns);
     ma_ug_t *ug = h->ug;
     kvec_pe_hit *hits = &(h->u_hits);
-    b_points.n = 0; 
     for (k = 1, l = 0; k <= hits->a.n; ++k) 
     {   
         if (k == hits->a.n || (get_hit_suid(*hits, k) != get_hit_suid(*hits, l))) 
@@ -2302,8 +2319,10 @@ uint64_t break_scaffold(horder_t *h, uint64_t cutoff_s, uint64_t cutoff_e, uint6
                 {
                     for (i = 0; i < Ns.n; i++)
                     {
-                        detect_lowNs(hits, l, k, &b, &(Ns.a[i]), ulen, cutoff_s, cutoff_e, 
-                        &res, &cov_buf, &b_points, local_bound, unique_only);
+                        if(detect_lowNs(hits, l, k, &b, &(Ns.a[i]), ulen, cutoff_s, cutoff_e, force_cutoff,
+                        force_cutoff_cov, &res, &cov_buf, b_points, local_bound, unique_only) && r_b_points){
+                            b_points->a[b_points->n-1].dp = i;
+                        }
                     }
                 }
             }  
@@ -2311,15 +2330,68 @@ uint64_t break_scaffold(horder_t *h, uint64_t cutoff_s, uint64_t cutoff_e, uint6
         }
     }
 
-    break_utg_horder(h, &b_points);
-
+    if(!r_b_points){
+        break_utg_horder(h, b_points);
+        kv_destroy(*b_points);
+    }
+    
     kv_destroy(b.a);
     kv_destroy(cov_buf);
     kv_destroy(res);
-    kv_destroy(b_points);
     kv_destroy(Ns);
 
-    return b_points.n;
+    return b_points->n;
+}
+
+uint64_t break_scaffold_mean(horder_t *h, uint64_t cutoff_s, uint64_t cutoff_e, uint64_t force_cutoff, uint64_t force_cutoff_cov,
+uint64_t local_bound, int unique_only, h_covs *r_b_points)
+{
+    uint64_t k, l, i, ulen;
+    kvec_t_u64_warp b; kv_init(b.a);
+    h_covs cov_buf; kv_init(cov_buf);
+    h_covs res; kv_init(res);
+    h_covs *b_points = NULL; 
+    if(r_b_points) b_points = r_b_points;
+    else CALLOC(b_points, 1);
+    b_points->n = 0;
+    h_covs Ns; kv_init(Ns);
+    ma_ug_t *ug = h->ug;
+    kvec_pe_hit *hits = &(h->u_hits);
+    for (k = 1, l = 0; k <= hits->a.n; ++k) 
+    {   
+        if (k == hits->a.n || (get_hit_suid(*hits, k) != get_hit_suid(*hits, l))) 
+        {
+            ulen = ug->u.a[get_hit_suid(*hits, l)].len;
+            Ns.n = 0;
+            // if(ulen >= BREAK_THRES)
+            {
+                get_Ns(&(ug->u.a[get_hit_suid(*hits, l)]), &Ns);
+                if(Ns.n)
+                {
+                    for (i = 0; i < Ns.n; i++)
+                    {
+                        if(detect_lowNs(hits, l, k, &b, &(Ns.a[i]), ulen, cutoff_s, cutoff_e, force_cutoff,
+                        force_cutoff_cov, &res, &cov_buf, b_points, local_bound, unique_only) && r_b_points){
+                            b_points->a[b_points->n-1].dp = i;
+                        }
+                    }
+                }
+            }  
+            l = k;
+        }
+    }
+
+    if(!r_b_points){
+        break_utg_horder(h, b_points);
+        kv_destroy(*b_points);
+    }
+    
+    kv_destroy(b.a);
+    kv_destroy(cov_buf);
+    kv_destroy(res);
+    kv_destroy(Ns);
+
+    return b_points->n;
 }
 
 
@@ -2729,7 +2801,7 @@ void update_scg(horder_t *h, trans_col_t *t_idx)
         h->sg.g->seq[i].ez[0] = ug->u.a[i].len>>1;
         h->sg.g->seq[i].ez[1] = ug->u.a[i].len - (ug->u.a[i].len>>1);
     }
-    idx = build_interval_idx(hits, ug);
+    idx = build_interval_idx(hits, ug);///idx is used to get density
     
     for (i = 0, e.n = 0; i < hits->a.n; i++)
     {
@@ -3397,10 +3469,12 @@ uint32_t get_sl_occ(sc_lay_t *sl)
 
 void refine_layout(horder_t *h, sc_lay_t *sl, uint8_t *vis)
 {
-    uint32_t k, m/**, max_utg, max_sc**/;
+    uint32_t k/**m, max_utg, max_sc**/;
     lay_t *p = NULL;
     uint8_t *sgv = NULL; MALLOC(sgv, sl->n);
     double *w = NULL; MALLOC(w, sl->n);
+    
+    /**
     uint32_t *idx = NULL; MALLOC(idx, h->sg.g->n_seq);
     memset(idx, -1, sizeof(uint32_t)*h->sg.g->n_seq);
 
@@ -3412,8 +3486,6 @@ void refine_layout(horder_t *h, sc_lay_t *sl, uint8_t *vis)
             idx[p->a[m]>>1] = k;
         }
     }
-
-    /**
     while (get_max_anchor(h, sl, vis, w, sgv, idx, &max_utg, &max_sc))
     {
         
@@ -3422,6 +3494,7 @@ void refine_layout(horder_t *h, sc_lay_t *sl, uint8_t *vis)
         vis[max_utg<<1] = vis[(max_utg<<1)+1] = 1;
         idx[max_utg] = max_sc;
     }
+    free(idx); 
     **/
 
     for (k = 0; k < h->sg.g->n_seq; k++)
@@ -3434,8 +3507,7 @@ void refine_layout(horder_t *h, sc_lay_t *sl, uint8_t *vis)
         vis[(k<<1)] = vis[(k<<1)+1] = 1;
     }
 
-    
-    free(w); free(idx); free(sgv);
+    free(w); free(sgv);
 }
 
 
@@ -3591,7 +3663,7 @@ void update_avoids(horder_t *h, sc_lay_t *sl)
     h->avoid.n = m;
 }
 
-void update_ug_by_layout(horder_t *h, sc_lay_t *sl)
+void update_ug_by_layout(horder_t *h, sc_lay_t *sl, ma_ug_t* i_ug)
 {
     uint32_t i;
     lay_t *p = NULL;
@@ -3603,7 +3675,7 @@ void update_ug_by_layout(horder_t *h, sc_lay_t *sl)
     {
         p = &(sl->a[i]);
         kv_pushp(ma_utg_t, sug->u, &pu);
-        generate_scaffold(pu, p, h->ug, h->r_g);
+        generate_scaffold(pu, p, i_ug?i_ug:h->ug, h->r_g);
     }
     ma_ug_destroy(h->ug);
     h->ug = sug;
@@ -3677,7 +3749,14 @@ void get_long_switch_scaffolds(horder_t *h, sc_lay_t *sl, osg_t *lg)
     kv_destroy(idx);
 }
 
-void layout_scg(horder_t *h, double nw_thres, uint32_t occ_thres)
+void destory_sc_lay_t(sc_lay_t *sl)
+{
+    uint32_t i;
+    for (i = 0; i < sl->n; i++) kv_destroy(sl->a[i]);
+    kv_destroy(*sl);
+}
+
+void layout_scg(horder_t *h, double nw_thres, uint32_t occ_thres, sc_lay_t *r_sl)
 {
     uint32_t k;
     osg_arc_t *p = NULL, *lp = NULL;
@@ -3708,17 +3787,23 @@ void layout_scg(horder_t *h, double nw_thres, uint32_t occ_thres)
 
     get_backbone_layout(h, &sl, lg, vis);
 
-    get_long_switch_scaffolds(h, &sl, lg);
+    // get_long_switch_scaffolds(h, &sl, lg);
     
     refine_layout(h, &sl, vis);
     
     // print_N50_layout(h->ug, &sl);
 
-    update_ug_by_layout(h, &sl);
+    update_ug_by_layout(h, &sl, NULL);
 
     print_N50(h->ug);
 
-    kv_destroy(sl);
+    if(r_sl){
+        r_sl->a = sl.a; sl.a = NULL;
+        r_sl->m = sl.m; sl.m = 0;
+        r_sl->n = sl.n; sl.n = 0;
+
+    }
+    destory_sc_lay_t(&sl);
     osg_destroy(lg);
     free(vis);
 }
@@ -3729,7 +3814,7 @@ void renew_scaffold(horder_t *h)
     while (1)
     {
         update_u_hits(&(h->u_hits), &(h->r_hits), h->ug, h->r_g);
-        if(!break_scaffold(h, 5, 15, 2500000, 1)) break;
+        if(!break_scaffold(h, 5, 15, (uint64_t)-1, (uint64_t)-1, 2500000, 1, NULL)) break;
         print_N50(h->ug);
     }
     fprintf(stderr, "[M::%s::%.3f] \n", __func__, yak_realtime()-index_time);
@@ -3789,7 +3874,7 @@ void scaffold_hap(horder_t *h, ug_opt_t *opt, trans_col_t *t_idx, uint32_t round
     {
         update_u_hits(&(h->u_hits), &(h->r_hits), h->ug, h->r_g);
         update_scg(h, t_idx);
-        layout_scg(h, 1.001, 19);
+        layout_scg(h, 1.001, 19, NULL);
         renew_scaffold(h);
     }
     
@@ -3832,7 +3917,7 @@ void scaffold_ug(horder_t *h, ma_ug_t *ug, ug_opt_t *opt, uint32_t round, char *
         fprintf(stderr, "[M::%s::]**i->%u**\n", __func__, i);
         update_scg(h, NULL);
         fprintf(stderr, "[M::%s::]***i->%u***\n", __func__, i);
-        layout_scg(h, 1.001, 19);
+        layout_scg(h, 1.001, 19, NULL);
         fprintf(stderr, "[M::%s::]****i->%u****\n", __func__, i);
         renew_scaffold(h);
         fprintf(stderr, "[M::%s::]*****i->%u*****\n", __func__, i);
@@ -3887,7 +3972,7 @@ asg_t *i_rg, ma_ug_t* i_ug, bubble_type* bub, kv_u_trans_t *ref, ug_opt_t *opt, 
     {
         update_u_hits(&(h->u_hits), &(h->r_hits), h->ug, h->r_g);
         update_scg(h, t_idx);
-        layout_scg(h, 1.001, 19);
+        layout_scg(h, 1.001, 19, NULL);
         renew_scaffold(h);
     }
     
@@ -3902,6 +3987,113 @@ asg_t *i_rg, ma_ug_t* i_ug, bubble_type* bub, kv_u_trans_t *ref, ug_opt_t *opt, 
     return h;
 }
 
+void cpy_u_hits(kvec_pe_hit *u_hits, kvec_pe_hit *i_hits, uint32_t u_n)
+{
+    uint64_t i;
+    memset(u_hits, 0, sizeof(kvec_pe_hit));
+    u_hits->pos_mode = i_hits->pos_mode;
+    u_hits->uID_bits = i_hits->uID_bits;
+    u_hits->a.n = u_hits->a.m = i_hits->a.n;
+    MALLOC(u_hits->a.a, u_hits->a.n);
+    memcpy(u_hits->a.a, i_hits->a.a, u_hits->a.n*sizeof(pe_hit));
+    for (i = 0; i < u_hits->a.n; i++) u_hits->a.a[i].id = 1;
+    idx_hits(u_hits, u_n);
+}
+
+void update_sc_lay(sc_lay_t *sl, h_covs *b)
+{
+    uint64_t k, l, i, pidx, cidx;
+    lay_t *s = NULL;
+    lay_t *p = NULL;
+    for (k = 1, l = 0; k <= b->n; ++k) 
+    {   
+        if (k == b->n || (b->a[k].s != b->a[l].s)) 
+        {
+            s = &(sl->a[b->a[l].s]);
+            for (i = l, pidx = 0; i < k; i++){
+                cidx = b->a[i].dp;
+                kv_pushp(lay_t, *sl, &p);
+                kv_init(*p);
+                p->n = p->m = (cidx - pidx + 1)<<1;
+                MALLOC(p->a, p->n);
+                mempcpy(p->a, s->a + (pidx<<1), sizeof(*(p->a))*p->n);
+                pidx = cidx + 1;
+            }
+
+            if(pidx >= (s->n>>1)) fprintf(stderr, "ERROR-update\n");
+            cidx = (s->n>>1)-1;
+            kv_pushp(lay_t, *sl, &p);
+            kv_init(*p);
+            p->n = p->m = (cidx - pidx + 1)<<1;
+            MALLOC(p->a, p->n);
+            mempcpy(p->a, s->a + (pidx<<1), sizeof(*(p->a))*p->n);
+            free(s->a); s->n = s->m = 0;
+            l = k;
+        }
+    }
+
+    for (i = k = 0; i < sl->n; i++){
+        if(!sl->a[i].a) continue;
+        sl->a[k] = sl->a[i];
+        sl->a[i].a = NULL; sl->a[i].n = sl->a[i].m = 0;
+        if(sl->a[k].n == 2){
+            sl->a[k].a[0] >>= 1; sl->a[k].a[0] <<= 1;
+            sl->a[k].a[1] >>= 1; sl->a[k].a[1] <<= 1; sl->a[k].a[1]++;
+        }
+        k++;
+    }
+    sl->n = k;
+}
+
+void renew_scaffold_utg(horder_t *h, sc_lay_t *sl, ma_ug_t* i_ug)
+{
+    double index_time = yak_realtime();
+    h_covs b; kv_init(b);
+    while (1)
+    {
+        update_u_hits(&(h->u_hits), &(h->r_hits), h->ug, h->r_g);
+        if(!break_scaffold(h, 5, 15, 15, 25, 2500000, 1, &b)) break;
+        update_sc_lay(sl, &b);
+        update_ug_by_layout(h, sl, i_ug);
+        print_N50(h->ug);
+    }
+    fprintf(stderr, "[M::%s::%.3f] \n", __func__, yak_realtime()-index_time);
+    kv_destroy(b);
+}
+
+spg_t *scf_g(sc_lay_t *sl, ma_ug_t* ug)
+{
+    spg_t *scg = NULL; CALLOC(scg, 1); scg->ug = ug;    
+    uint64_t i, k;
+    lay_t *p = NULL;
+    for (i = 0; i < sl->n; i++){
+        p = &(sl->a[i]);
+        kv_push(uint64_t, scg->idx, (uint64_t)scg->dst.n << 32 | (p->n>>1));
+        for (k = 0; k < p->n; k+=2) kv_push(uint32_t, scg->dst, p->a[k]);        
+    }
+    return scg;
+}
+
+spg_t *horder_utg(kvec_pe_hit *i_hits, uint64_t i_hits_uid_bits, uint64_t i_hits_pos_mode, 
+asg_t *i_rg, ma_ug_t* i_ug, bubble_type* bub, ug_opt_t *opt)
+{
+    horder_t *h = NULL; CALLOC(h, 1);
+    sc_lay_t sl; kv_init(sl);
+    get_r_hits(i_hits, &(h->r_hits), i_rg, i_ug, bub, i_hits_uid_bits, i_hits_pos_mode);
+    h->r_g = copy_read_graph(i_rg);
+    horder_clean_sg_by_utg(h->r_g, i_ug);
+    h->ug = copy_untig_graph(i_ug); asg_destroy(h->ug->g); h->ug->g = NULL;
+    cpy_u_hits(&(h->u_hits), i_hits, h->ug->u.n);
+
+    update_scg(h, NULL);
+    layout_scg(h, ((double)1)/((double)0.75), 19, &sl);
+    renew_scaffold_utg(h, &sl, i_ug);
+    
+    spg_t *scg = scf_g(&sl, i_ug);
+    destory_sc_lay_t(&sl);
+    destory_horder_t(&h);
+    return scg;
+}
 
 
 void ha_aware_order(kvec_pe_hit *r_hits, asg_t *rg, ma_ug_t *ug_fa, ma_ug_t *ug_mo, kv_u_trans_t *ref, 

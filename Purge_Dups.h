@@ -12,6 +12,7 @@
 #define ALTER_COV_THRES 0.9
 #define REAL_ALTER_THRES 0.25
 #define CHAIN_FILTER_RATE 0.7
+#define REV_W 8
 
 #define SELF_EXIST 0
 #define REVE_EXIST 1

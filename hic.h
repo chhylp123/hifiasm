@@ -75,6 +75,7 @@ typedef struct{
 }pdq;
 
 
+
 #define P_het(B) ((B).num.n)
 #define M_het(B) ((B).num.n + 1)
 // #define IF_BUB(ID, B) ((B).index[(ID)] < (B).num.n)
@@ -106,5 +107,5 @@ long long *dis);
 void set_utg_by_dis(uint32_t v, pdq* pq, asg_t *g, kvec_t_u32_warp *res, uint32_t dis);
 void dedup_hits(kvec_pe_hit* hits, uint64_t is_dup);
 void hic_analysis(ma_ug_t *ug, asg_t* read_g, trans_chain* t_ch, ug_opt_t *opt, uint32_t is_poy, kvec_pe_hit **rhits);
-
+spg_t *hic_pre_analysis(ma_ug_t *ug, asg_t* read_g, trans_chain* t_ch, ug_opt_t *opt, kvec_pe_hit **rhits);
 #endif

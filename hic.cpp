@@ -2378,7 +2378,7 @@ void dfs_bubble(asg_t *g, kvec_t_u32_warp* stack, kvec_t_u32_warp* result, uint3
 uint32_t get_unitig_het_arb(ma_ug_t* ug, uint32_t uid, uint8_t *r_het_flag, kv_u_trans_t *ref, uint32_t m_het_occ,
 uint32_t m_het_label, uint32_t p_het_label, uint32_t n_het_label)
 {
-    if(ref && u_trans_n(*ref, uid) > 0) return m_het_label;
+    if(ref && ref->idx.n > 0 && u_trans_n(*ref, uid) > 0) return m_het_label;
     ma_utg_t *u = &(ug->u.a[uid]);
     uint32_t k, rId;
     uint32_t het_occ, hom_occ;
@@ -2411,7 +2411,6 @@ void identify_bubbles(ma_ug_t* ug, bubble_type* bub, uint8_t *r_het_flag, kv_u_t
     uint64_t pathLen;
     bub->ug = ug; 
     bub->b_bub = bub->b_end_bub = bub->tangle_bub = bub->cross_bub = bub->mess_bub = 0;
-
     if(bub->round_id == 0)
     {
         buf_t b; memset(&b, 0, sizeof(buf_t)); b.a = (binfo_t*)calloc(n_vtx, sizeof(binfo_t));
@@ -2421,10 +2420,8 @@ void identify_bubbles(ma_ug_t* ug, bubble_type* bub, uint8_t *r_het_flag, kv_u_t
         bub->b_ug = NULL; kv_init(bub->chain_weight);
         bub->b_s_idx.n = ug->g->n_seq;
         memset(bub->b_s_idx.a, -1, bub->b_s_idx.n * sizeof(uint64_t));
-
         CALLOC(bub->index, n_vtx);
         for (i = 0; i < ug->g->n_seq; i++) ug->g->seq[i].c = 0;
-
         for (v = 0; v < n_vtx; ++v) 
         {
             if(ug->g->seq[v>>1].del) continue;
@@ -2444,7 +2441,6 @@ void identify_bubbles(ma_ug_t* ug, bubble_type* bub, uint8_t *r_het_flag, kv_u_t
                 bub->index[b.S.a[0]^1] &= mode; bub->index[b.S.a[0]^1] += 3;
             }
         }
-
 
         kvec_t_u32_warp stack, result;
         kv_init(stack.a); kv_init(result.a);
@@ -2498,16 +2494,14 @@ void identify_bubbles(ma_ug_t* ug, bubble_type* bub, uint8_t *r_het_flag, kv_u_t
                 }
             }
         }
-        
         kv_push(uint32_t, bub->num, bub->list.n);
         free(b.a); free(b.S.a); free(b.T.a); free(b.b.a); free(b.e.a);
         bub->f_bub = bub->num.n - 1; ///bub->s_bub = bub->num.n - 1;
         
-       for (i = 0; i < ug->g->n_seq; i++)
-       {
-           bub->index[i] = get_unitig_het_arb(ug, i, r_het_flag, ref, 20, M_het(*bub), P_het(*bub), (uint32_t)-1);
-       }
-
+        for (i = 0; i < ug->g->n_seq; i++)
+        {
+            bub->index[i] = get_unitig_het_arb(ug, i, r_het_flag, ref, 20, M_het(*bub), P_het(*bub), (uint32_t)-1);
+        }
         for (i = 0; i < bub->f_bub; i++)
         {
             get_bubbles(bub, i, &beg, &sink, &a, &n, &pathLen);
@@ -2555,7 +2549,6 @@ void identify_bubbles(ma_ug_t* ug, bubble_type* bub, uint8_t *r_het_flag, kv_u_t
                 bub->b_s_idx.a[v] |= i;
             }        
         }
-        
         for (i = 0; i < ug->g->n_seq; i++)
         {
             if(bub->index[i] == M_het(*bub)) bub->index[i] = P_het(*bub);
@@ -4923,7 +4916,7 @@ int load_hc_hits(kvec_pe_hit* hits, ma_ug_t* ug, const char *fn)
     }
 
     fclose(fp);
-    // fprintf(stderr, "[M::%s::] ==> Hi-C linkages have been loaded\n", __func__);
+    fprintf(stderr, "[M::%s::] ==> Hi-C linkages have been loaded\n", __func__);
     return 1;
 }
 
@@ -14883,14 +14876,56 @@ inline uint32_t trans_checking_pass(bubble_type* bub, kv_u_trans_t *ref, uint32_
     return 1;
 }
 
+uint32_t get_u_trans_spec_idx(kv_u_trans_t *ta, uint32_t qn, uint32_t tn, u_trans_t **r_a, uint32_t *occ, uint32_t *idx)
+{
+    if(r_a) (*r_a) = NULL; 
+    if(occ) (*occ) = 0;
+    if(idx) (*idx) = (uint32_t)-1;
+    u_trans_t *a = NULL;
+    uint32_t n, st, i;
+    a = u_trans_a(*ta, qn);
+    n = u_trans_n(*ta, qn);
+    for (st = 0, i = 1; i <= n; ++i)
+    {
+        if (i == n || a[i].tn != a[st].tn)
+        {
+            if(a[st].tn == tn)
+            {
+                if(r_a) (*r_a) = a + st;
+                if(occ) (*occ) = i - st;
+                if(idx) (*idx) = st + ((*ta).idx.a[(qn)]>>32);
+                return 1;
+            }
+            st = i;
+        }
+    }
+    return 0;
+}
+
+void interpr_hit(ha_ug_index* idx, uint64_t x, uint32_t rLen, uint32_t *uid, uint32_t *beg, uint32_t *end);
+int hic_sc_type(ha_ug_index* idx, kvec_pe_hit* hits, uint64_t k)
+{
+    uint32_t s_uid, s_beg, s_end, e_uid, e_beg, e_end, slen, elen, x = 0;
+
+    interpr_hit(idx, hits->a.a[k].s, hits->a.a[k].len>>32, &s_uid, &s_beg, &s_end); 
+    s_beg = (s_beg+s_end)>>1; slen = idx->ug->u.a[s_uid].len;
+    if(s_beg >= (slen>>1)) x+=1;
+
+    interpr_hit(idx, hits->a.a[k].e, (uint32_t)hits->a.a[k].len, &e_uid, &e_beg, &e_end); 
+    e_beg = (e_beg+e_end)>>1; elen = idx->ug->u.a[e_uid].len;
+    if(e_beg >= (elen>>1)) x+=2;
+    return x;
+}
+
 void weight_kv_u_trans(ha_ug_index* idx, kvec_pe_hit* hits, hc_links* link, bubble_type* bub, 
-kv_u_trans_t *ta, trans_idx* dis)
+kv_u_trans_t *ta, trans_idx* dis, int sc_weight)
 {
     uint64_t k, i, shif = 64 - idx->uID_bits, beg, end, t_d;
     u_trans_t *e1 = NULL, *e2 = NULL;
     long double weight;
+    double *sw = NULL;
     u_trans_t *p = NULL;
-    uint32_t is_cc;
+    uint32_t is_cc, ii1, ii2;
 
     for (i = 0, ta->idx.n = ta->n = 0; i < link->a.n; i++)
     {
@@ -14908,6 +14943,11 @@ kv_u_trans_t *ta, trans_idx* dis)
         }
     }
     kt_u_trans_t_idx(ta, idx->ug->g->n_seq);
+    if(sc_weight) {
+        k = ta->n*3;
+        MALLOC(sw, k);
+        for (i = 0; i < k; i++) sw[i] = 0;
+    }
 
 
     for (k = 0; k < hits->a.n; ++k) 
@@ -14925,16 +14965,38 @@ kv_u_trans_t *ta, trans_idx* dis)
         // if(t_d == (uint64_t)-1 && is_cc == 0) continue;
         // if(t_d == (uint64_t)-1 && !dis) continue;
 
-        get_u_trans_spec(ta, beg, end, &e1, NULL);
-        get_u_trans_spec(ta, end, beg, &e2, NULL);
+        get_u_trans_spec_idx(ta, beg, end, &e1, NULL, &ii1);
+        get_u_trans_spec_idx(ta, end, beg, &e2, NULL, &ii2);
 
         if(e1 == NULL || e2 == NULL) continue;
         weight = 1;
         if(dis) weight = get_trans_weight_advance(idx, t_d, dis);
         
-        e1->nw -= weight; e1->occ++;
-        e2->nw -= weight; e2->occ++;
+        if(sc_weight){
+            i = hic_sc_type(idx, hits, k);
+            if(i == 0){
+                e1->nw -= weight; e2->nw -= weight;
+            }
+            else{
+                i--;
+                sw[(ii1*3)+i] -= weight;
+                sw[(ii2*3)+i] -= weight;
+            }
+        } else{
+            e1->nw -= weight; e2->nw -= weight; 
+        }
+        e1->occ++; e2->occ++;
     }    
+
+    if(sc_weight) {
+        for (i = 0; i < ta->n; ++i){
+            if(ta->a[i].nw > sw[(i*3)]) ta->a[i].nw = sw[(i*3)];
+            if(ta->a[i].nw > sw[(i*3)+1]) ta->a[i].nw = sw[(i*3)+1];
+            if(ta->a[i].nw > sw[(i*3)+2]) ta->a[i].nw = sw[(i*3)+2];
+            ta->a[i].nw *= 4/**2**/;
+        }
+        free(sw);
+    }
 }
 
 void interpr_hit(ha_ug_index* idx, uint64_t x, uint32_t rLen, uint32_t *uid, uint32_t *beg, uint32_t *end)
@@ -15450,7 +15512,7 @@ ha_ug_index* idx, bubble_type* bub, int8_t *s, mc_gg_status *sa, uint32_t ignore
 
     if(hits->idx.n == 0) idx_hc_links(hits, idx, bub);
 
-    weight_kv_u_trans(idx, hits, lk, bub, ta, is_comples_weight == 1? &dis : NULL);
+    weight_kv_u_trans(idx, hits, lk, bub, ta, is_comples_weight == 1? &dis : NULL, asm_opt.flag&HA_F_USKEW?0:1);
     // if(bub->round_id == bub->n_round-1)
     // {
     //     print_debug_hc_links(idx, bub, lk, ta, hits);
@@ -15686,12 +15748,9 @@ void resolve_tangles_hic(ha_ug_index *idx, bubble_type *bub, kvec_pe_hit *hits, 
     uint64_t shif = 64 - idx->uID_bits, qn, tn;
     pe_hit *h_a = NULL;
     u_trans_t *p = NULL;
-
     identify_bubbles(idx->ug, bub, idx->t_ch->ir_het, &(idx->t_ch->k_trans));
-
     ta->idx.n = ta->n = 0;
     if(hits->idx.n == 0) idx_hc_links(hits, idx, NULL);
-
     for (qn = 0; qn < hits->idx.n; qn++)
     {
         h_a = hits->a.a + (hits->idx.a[qn]>>32);
@@ -15713,9 +15772,7 @@ void resolve_tangles_hic(ha_ug_index *idx, bubble_type *bub, kvec_pe_hit *hits, 
             }
         }
     }
-
     radix_sort_u_trans_m(ta->a, ta->a + ta->n);
-
     for (k = 1, l = 0, m = 0; k <= ta->n; ++k)
     {
         if (k == ta->n || ta->a[l].qn != ta->a[k].qn || ta->a[l].tn != ta->a[k].tn) //same qn and tn
@@ -15736,23 +15793,21 @@ void resolve_tangles_hic(ha_ug_index *idx, bubble_type *bub, kvec_pe_hit *hits, 
     }
     ta->n = m;
     kt_u_trans_t_idx(ta, idx->ug->g->n_seq);
-
     
     resolve_bubble_chain_by_hic(idx, ta, bub);
-
     ta->idx.n = ta->n = 0;
 }
 
 
-void print_kv_u_trans_t(kv_u_trans_t *ta)
+void print_kv_u_trans_t(kv_u_trans_t *ta, ma_ug_t* ug)
 {
     uint32_t i;
     u_trans_t *p = NULL;
     for (i = 0; i < ta->n; i++)
     {
         p = &(ta->a[i]);
-        fprintf(stderr, "q-utg%.6ul\tqs(%u)\tqe(%u)\tt-utg%.6ul\tts(%u)\tte(%u)\trev(%u)\tw(%f)\tf(%u)\n", 
-        p->qn+1, p->qs, p->qe, p->tn+1, p->ts, p->te, p->rev, p->nw, p->f);
+        fprintf(stderr, "q-utg%.6ul\tql(%u)\tqs(%u)\tqe(%u)\tt-utg%.6ul\ttl(%u)\tts(%u)\tte(%u)\trev(%u)\tw(%f)\tf(%u)\n", 
+        p->qn+1, ug->u.a[p->qn].len, p->qs, p->qe, p->tn+1, ug->u.a[p->tn].len, p->ts, p->te, p->rev, p->nw, p->f);
     }
     fprintf(stderr, "[M::%s::] \n", __func__);
 }
@@ -16191,6 +16246,61 @@ void renew_idx_para(ha_ug_index* idx, ma_ug_t* ug)
     idx->rev_mode = ((uint64_t)1) << 63;
 }
 
+uint32_t get_oe_occ(uint32_t qn, uint32_t tn, kvec_pe_hit* hits, ha_ug_index* idx)
+{
+    uint64_t shif = 64 - idx->uID_bits, occ = 0;
+    pe_hit *h_a = hits->a.a + (hits->idx.a[qn]>>32);
+    uint32_t h_occ = (uint32_t)(hits->idx.a[qn]), i;
+    for (i = 0; i < h_occ; i++) {
+        if(((h_a[i].s<<1)>>shif)==qn && ((h_a[i].e<<1)>>shif)==tn) occ++;
+    }
+    return occ;
+}
+
+void optimize_u_trans(kv_u_trans_t *ovlp, kvec_pe_hit* hits, ha_ug_index* idx)
+{
+    if(hits->idx.n == 0) idx_hc_links(hits, idx, NULL);
+    uint64_t i, m, occ;
+    u_trans_t *x = NULL, *p = NULL;
+    kv_u_trans_t k_trans; 
+    kv_init(k_trans); kv_init(k_trans.idx);
+    for (i = 0; i < ovlp->n; i++){
+        x = &(ovlp->a[i]);
+        if(x->qn > x->tn) continue;
+        if(x->f != RC_2 || x->del) continue;
+        occ = get_oe_occ(x->qn, x->tn, hits, idx) + get_oe_occ(x->tn, x->qn, hits, idx);
+        kv_pushp(u_trans_t, k_trans, &p);
+        (*p) = (*x); p->nw = (x->nw*(1-(((double)(occ<<1))/((double)(hits->occ.a[x->qn]+hits->occ.a[x->tn])))));
+        if(p->nw < 0) fprintf(stderr, "ERROR-nw\n");
+        if(p->nw == 0) p->nw = x->nw*0.005;
+        if(p->nw == 0) {
+            k_trans.n--;
+        }
+        else {
+            kv_pushp(u_trans_t, k_trans, &p);
+            (*p) = k_trans.a[k_trans.n-2];
+            p->qn = k_trans.a[k_trans.n-2].tn; p->qs = k_trans.a[k_trans.n-2].ts; p->qe = k_trans.a[k_trans.n-2].te;
+            p->tn = k_trans.a[k_trans.n-2].qn; p->ts = k_trans.a[k_trans.n-2].qs; p->te = k_trans.a[k_trans.n-2].qe;
+        }
+    }
+    kt_u_trans_t_idx(&k_trans, idx->ug->g->n_seq);
+    mc_solve(NULL, NULL, &k_trans, idx->ug, idx->read_g, 0.8, R_INF.trio_flag, 1, NULL, 1, NULL, NULL, 1);
+    for (i = m = 0; i < ovlp->n; i++){
+        x = &(ovlp->a[i]);
+        if(x->del) continue;
+        if(x->f == RC_2){
+            get_u_trans_spec(&k_trans, x->qn, x->tn, &p, NULL);
+            if(!p) continue;
+        }
+        ovlp->a[m++] = ovlp->a[i];
+    }
+    ovlp->n = m;
+    kt_u_trans_t_idx(ovlp, idx->ug->g->n_seq);
+    free(hits->idx.a); hits->idx.a = NULL; hits->idx.n = hits->idx.m = 0;
+    free(hits->occ.a); hits->occ.a = NULL; hits->occ.n = hits->occ.m = 0;
+    kv_destroy(k_trans); kv_destroy(k_trans.idx);
+}
+
 int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, ug_opt_t *opt, kvec_pe_hit **rhits)
 {
     double index_time = yak_realtime();
@@ -16209,15 +16319,16 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, ug_o
         alignment_worker_pipeline(&sl, fn1, fn2);
         write_hc_hits(&sl.hits, idx->ug, asm_opt.output_file_name);
     }
+    sl.hits.uID_bits = idx->uID_bits; sl.hits.pos_mode = idx->pos_mode;
+    optimize_u_trans(&(idx->t_ch->k_trans), &sl.hits, idx);
     filter_kv_u_trans_t(&(idx->t_ch->k_trans), idx->ug, 0.5);
+    // print_kv_u_trans_t(&(idx->t_ch->k_trans), idx->ug);
     // flter_by_cov(idx, &sl.hits, 2);
     // update_hits(idx, &sl.hits, idx->t_ch->is_r_het);
     ///debug_hc_hits_v14(&sl.hits, asm_opt.output_file_name, sl.idx);
     ////dedup_hits(&(sl.hits), sl.idx);   
     ///write_hc_hits_v14(&sl.hits, asm_opt.output_file_name);
     
-
-    sl.hits.uID_bits = idx->uID_bits; sl.hits.pos_mode = idx->pos_mode;
     if(asm_opt.misjoin_len > 0)
     {
         update_switch_unitig(idx->ug, idx->read_g, &(sl.hits), &(idx->t_ch->k_trans), 10, 20, asm_opt.misjoin_len, 0.15);
@@ -16255,7 +16366,7 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, ug_o
         // update_trans_g(idx, &k_trans, &bub);
         /*******************************for debug************************************/
         mc_solve(NULL, NULL, &k_trans, idx->ug, idx->read_g, 0.8, R_INF.trio_flag, 
-        (bub.round_id == 0? 1 : 0), s->s, 1, /**&bub**/NULL, &(idx->t_ch->k_trans));
+        (bub.round_id == 0? 1 : 0), s->s, 1, /**&bub**/NULL, &(idx->t_ch->k_trans), 0);
         /*******************************for debug************************************/
         label_unitigs_sm(s->s, NULL, idx->ug);
 
@@ -16319,6 +16430,49 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, ug_o
     
     fprintf(stderr, "[M::%s::%.3f] processed %lu pairs; %lu bases\n", __func__, yak_realtime()-index_time, sl.total_pair, sl.total_base);
     return 1;
+}
+
+spg_t *hic_short_pre_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, ug_opt_t *opt, kvec_pe_hit **rhits)
+{
+    // double index_time = yak_realtime();
+    sldat_t sl;
+    sl.idx = idx;
+    sl.t_ch = idx->t_ch;
+    sl.chunk_size = 20000000;
+    sl.n_thread = asm_opt.thread_num;
+    sl.total_base = sl.total_pair = 0;
+    idx->hap_cnt = asm_opt.hap_occ;
+    kv_init(sl.hits.a); kv_init(sl.hits.idx); kv_init(sl.hits.occ);
+
+    if(!load_hc_hits(&sl.hits, idx->ug, asm_opt.output_file_name))
+    {
+        alignment_worker_pipeline(&sl, fn1, fn2);
+        fprintf(stderr, "sb0sb\n");
+        write_hc_hits(&sl.hits, idx->ug, asm_opt.output_file_name);
+        fprintf(stderr, "sb1sb\n");
+    }
+    sl.hits.uID_bits = idx->uID_bits; sl.hits.pos_mode = idx->pos_mode;
+    kv_u_trans_t k_trans; 
+    kv_init(k_trans); kv_init(k_trans.idx);
+    bubble_type bub; 
+    memset(&bub, 0, sizeof(bubble_type));
+    bub.round_id = 0; bub.n_round = asm_opt.n_weight;
+    fprintf(stderr, "sb2sb\n");
+    resolve_tangles_hic(idx, &bub, &sl.hits, &k_trans);
+    fprintf(stderr, "sb3sb\n");
+    spg_t *scg = horder_utg(&sl.hits, idx->uID_bits, idx->pos_mode, idx->read_g, idx->ug, &bub, opt);
+    fprintf(stderr, "sb4sb\n");
+    if(rhits){
+        CALLOC(*rhits, 1);
+        (**rhits) = sl.hits;
+        sl.hits.a.a = NULL;
+        sl.hits.idx.a = NULL;
+        sl.hits.occ.a = NULL;
+    }
+    kv_destroy(sl.hits.a); kv_destroy(sl.hits.idx); kv_destroy(sl.hits.occ);
+    kv_destroy(k_trans); kv_destroy(k_trans.idx);
+    destory_bubbles(&bub);
+    return scg;
 }
 
 int load_psg_t(psg_t **sg, const char *fn)
@@ -16433,7 +16587,7 @@ int hic_short_align_poy(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, 
         // }
         /*******************************for debug************************************/
     }
-    write_psg_t(s, asm_opt.output_file_name);
+    if((asm_opt.flag & HA_F_VERBOSE_GFA)) write_psg_t(s, asm_opt.output_file_name);
 
     skip_flipping:
     verbose_het_stat(&bub);
@@ -16486,6 +16640,19 @@ void hic_analysis(ma_ug_t *ug, asg_t* read_g, trans_chain* t_ch, ug_opt_t *opt, 
     
     
     destory_hc_pt_index(ug_index);free(ug_index);
+}
+
+spg_t *hic_pre_analysis(ma_ug_t *ug, asg_t* read_g, trans_chain* t_ch, ug_opt_t *opt, kvec_pe_hit **rhits)
+{
+    ug_index = NULL;
+    int exist = (asm_opt.load_index_from_disk? 
+                    load_hc_pt_index(&ug_index, ug, asm_opt.output_file_name) : 0);
+    if(exist == 0) ug_index = build_unitig_index(ug, asm_opt.hic_mer_length, asm_opt.hap_occ, 0, asm_opt.thread_num);
+    if(exist == 0) write_hc_pt_index(ug_index, asm_opt.output_file_name);
+    ug_index->ug = ug;
+    ug_index->read_g = read_g;
+    ug_index->t_ch = t_ch;
+    return hic_short_pre_align(asm_opt.hic_reads[0], asm_opt.hic_reads[1], ug_index, opt, rhits);    
 }
 
 
