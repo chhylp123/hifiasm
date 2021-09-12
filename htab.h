@@ -62,6 +62,9 @@ typedef struct ha_pt_s ha_pt_t;
 struct ha_abuf_s;
 typedef struct ha_abuf_s ha_abuf_t;
 
+struct ha_abufl_s;
+typedef struct ha_abufl_s ha_abufl_t;
+
 extern const unsigned char seq_nt4_table[256];
 extern void *ha_flt_tab;
 extern ha_pt_t *ha_idx;
@@ -78,6 +81,7 @@ ha_pt_t *ha_pt_ug_gen(const hifiasm_opt_t *asm_opt, const void *flt_tab, ma_utg_
 ha_pt_t *ha_pt_gen(const hifiasm_opt_t *asm_opt, const void *flt_tab, int read_from_store, int is_hp_mode, All_reads *rs, int *hom_cov, int *het_cov);
 void ha_pt_destroy(ha_pt_t *h);
 const ha_idxpos_t *ha_pt_get(const ha_pt_t *h, uint64_t hash, int *n);
+const ha_idxposl_t *ha_ptl_get(const ha_pt_t *h, uint64_t hash, int *n);
 const int ha_pt_cnt(const ha_pt_t *h, uint64_t hash);
 
 int write_pt_index(void *flt_tab, ha_pt_t *ha_idx, All_reads* r, hifiasm_opt_t* opt, char* file_name);
@@ -89,6 +93,9 @@ int query_ct_index(void* ct_idx, uint64_t hash);
 ha_abuf_t *ha_abuf_init(void);
 void ha_abuf_destroy(ha_abuf_t *ab);
 uint64_t ha_abuf_mem(const ha_abuf_t *ab);
+ha_abufl_t *ha_abufl_init(void);
+void ha_abufl_destroy(ha_abufl_t *ab);
+uint64_t ha_abufl_mem(const ha_abufl_t *ab);
 
 double yak_cputime(void);
 void yak_reset_realtime(void);

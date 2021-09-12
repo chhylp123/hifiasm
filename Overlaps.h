@@ -190,7 +190,7 @@ void print_gfa(asg_t *g);
 typedef struct { size_t n, m; uint64_t *a; } asg64_v;
 
 
-typedef struct { size_t n, m; ma_utg_t *a; int h;} ma_utg_v;
+typedef struct { size_t n, m; ma_utg_t *a;} ma_utg_v;
 
 typedef struct {
 	ma_utg_v u;

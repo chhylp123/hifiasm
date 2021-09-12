@@ -504,7 +504,13 @@ void ha_pt_destroy(ha_pt_t *h)
 	if (h == 0) return;
 	for (i = 0; i < 1<<h->pre; ++i) {
 		yak_pt_destroy(h->h[i].h);
-		free(h->h[i].a);
+		if(h->h[i].a){
+			free(h->h[i].a); h->h[i].a = NULL;
+		}
+		if(h->h[i].al){
+			free(h->h[i].al); h->h[i].al = NULL;
+		}
+		
 	}
 	free(h->h); free(h);
 }
@@ -518,6 +524,17 @@ const ha_idxpos_t *ha_pt_get(const ha_pt_t *h, uint64_t hash, int *n)
 	if (k == kh_end(g->h)) return 0;
 	*n = kh_key(g->h, k) & YAK_MAX_COUNT;
 	return &g->a[kh_val(g->h, k)];
+}
+
+const ha_idxposl_t *ha_ptl_get(const ha_pt_t *h, uint64_t hash, int *n)
+{
+	khint_t k;
+	const ha_pt1_t *g = &h->h[hash & ((1ULL<<h->pre) - 1)];
+	*n = 0;
+	k = yak_pt_get(g->h, hash >> h->pre << YAK_COUNTER_BITS);
+	if (k == kh_end(g->h)) return 0;
+	*n = kh_key(g->h, k) & YAK_MAX_COUNT;
+	return &g->al[kh_val(g->h, k)];
 }
 
 const int ha_pt_cnt(const ha_pt_t *h, uint64_t hash)
@@ -703,7 +720,7 @@ static void *sf##_worker_count(void *data, int step, void *in) /** callback for 
 					break;\
 			}\
 		} else if(p->us_in) {\
-			ma_utg_t *u; s->uq = p->us_in->h;\
+			ma_utg_t *u; s->uq = 1;\
 			while (p->n_seq < p->us_in->n) {\
 				u = &(p->us_in->a[p->n_seq]);\
 				if (s->n_seq == s->m_seq) {\
@@ -1052,7 +1069,7 @@ void *ha_ft_ug_gen(const hifiasm_opt_t *asm_opt, ma_utg_v *us, int is_HPC, int k
 	///HAF_COUNT_EXACT ---> no bf; HAF_COUNT_ALL ---> no minimizer
 	h = ha_count(asm_opt, HAF_COUNT_ALL|HAF_UG_READ|HAF_COUNT_EXACT, is_HPC, k, w, NULL, NULL, NULL, us, 0, NULL);
 	ha_ct_shrink(h, min_freq, max_freq>YAK_MAX_COUNT-1?YAK_MAX_COUNT-1:max_freq, asm_opt->thread_num);
-	flt_tab = gen_hh(h, asm_opt->max_kmer_cnt);
+	flt_tab = gen_hh(h, YAK_MAX_COUNT);
 	ha_ct_destroy(h);
 	return (void*)flt_tab;
 }

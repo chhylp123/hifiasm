@@ -4016,7 +4016,7 @@ void update_sc_lay(sc_lay_t *sl, h_covs *b)
                 kv_init(*p);
                 p->n = p->m = (cidx - pidx + 1)<<1;
                 MALLOC(p->a, p->n);
-                mempcpy(p->a, s->a + (pidx<<1), sizeof(*(p->a))*p->n);
+                memcpy(p->a, s->a + (pidx<<1), sizeof(*(p->a))*p->n);
                 pidx = cidx + 1;
             }
 
@@ -4026,7 +4026,7 @@ void update_sc_lay(sc_lay_t *sl, h_covs *b)
             kv_init(*p);
             p->n = p->m = (cidx - pidx + 1)<<1;
             MALLOC(p->a, p->n);
-            mempcpy(p->a, s->a + (pidx<<1), sizeof(*(p->a))*p->n);
+            memcpy(p->a, s->a + (pidx<<1), sizeof(*(p->a))*p->n);
             free(s->a); s->n = s->m = 0;
             l = k;
         }

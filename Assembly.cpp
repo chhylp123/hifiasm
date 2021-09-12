@@ -425,6 +425,7 @@ typedef struct {
 	overlap_region_alloc olist;
     overlap_region_alloc olist_hp;
 	ha_abuf_t *ab;
+    ha_abufl_t *abl;
 	// error correction related buffers
 	int64_t num_read_base, num_correct_base, num_recorrect_base;
 	Cigar_record cigar1;
@@ -441,7 +442,7 @@ typedef struct {
     st_mt_t sp;
 } ha_ovec_buf_t;
 
-ha_ovec_buf_t *ha_ovec_init(int is_final, int save_ov)
+ha_ovec_buf_t *ha_ovec_init(int is_final, int save_ov, int is_ug)
 {
 	ha_ovec_buf_t *b;
 	CALLOC(b, 1);
@@ -456,7 +457,8 @@ ha_ovec_buf_t *ha_ovec_init(int is_final, int save_ov)
     kv_init(b->r_buf.a);
     kv_init(b->k_flag.a);
     kv_init(b->sp);
-	b->ab = ha_abuf_init();
+	if(!is_ug) b->ab = ha_abuf_init();
+    else b->abl = ha_abufl_init();
 	if (!b->is_final) {
 		init_Cigar_record(&b->cigar1);
 		init_Graph(&b->POA_Graph);
@@ -476,6 +478,7 @@ void ha_ovec_destroy(ha_ovec_buf_t *b)
 	destory_overlap_region_alloc(&b->olist);
     destory_overlap_region_alloc(&b->olist_hp);
 	ha_abuf_destroy(b->ab);
+    ha_abufl_destroy(b->abl);
     destory_fake_cigar(&(b->tmp_region.f_cigar));
     kv_destroy(b->b_buf.a);
     kv_destroy(b->r_buf.a);
@@ -526,7 +529,8 @@ int64_t ha_ovec_mem(const ha_ovec_buf_t *b)
 		mem_olist += r->boundary_cigars.size * sizeof(window_list);
 	}
 
-	mem = ha_abuf_mem(b->ab) + mem_clist + mem_olist;
+    if(b->ab) mem = ha_abuf_mem(b->ab) + mem_clist + mem_olist;
+    if(b->abl) mem = ha_abufl_mem(b->abl) + mem_clist + mem_olist;
 	if (!b->is_final) {
 		mem += sizeof(Cigar_record) + b->cigar1.lost_base_size + b->cigar1.size * 4;
 		mem += sizeof(Correct_dumy) + b->correct.size * 8;
@@ -852,7 +856,7 @@ void ha_overlap_and_correct(int round)
 	// overlap and correct reads
 	CALLOC(b, asm_opt.thread_num);
 	for (i = 0; i < asm_opt.thread_num; ++i)
-		b[i] = ha_ovec_init(0, (round == asm_opt.number_of_round - 1));
+		b[i] = ha_ovec_init(0, (round == asm_opt.number_of_round - 1),0);
     if(ha_idx) hom_cov = asm_opt.hom_cov;
 	if(ha_idx == NULL) ha_idx = ha_pt_gen(&asm_opt, ha_flt_tab, round == 0? 0 : 1, 0, &R_INF, &hom_cov, &het_cov); // build the index
 	///debug_adapter(&asm_opt, &R_INF);
@@ -1588,7 +1592,7 @@ void ha_overlap_final(void)
 
 	CALLOC(b, asm_opt.thread_num);
 	for (i = 0; i < asm_opt.thread_num; ++i)
-		b[i] = ha_ovec_init(asm_opt.flag & HA_F_HIGH_HET, 1);///b[i] = ha_ovec_init(1, 1);
+		b[i] = ha_ovec_init(asm_opt.flag & HA_F_HIGH_HET, 1,0);///b[i] = ha_ovec_init(1, 1);
 	ha_idx = ha_pt_gen(&asm_opt, ha_flt_tab, 1, 0, &R_INF, &hom_cov, &het_cov); // build the index
     if(asm_opt.flag & HA_F_HIGH_HET)
     {
@@ -1644,7 +1648,7 @@ void ug_idx_build(ma_ug_t *ug, int hap_n)
     CALLOC(b, asm_opt.thread_num);
     for (i = 0; i < asm_opt.thread_num; ++i)
     {
-        b[i] = ha_ovec_init(1, 1);
+        b[i] = ha_ovec_init(1, 1, 0);
         b[i]->ua = &(ug->u);
     }
             

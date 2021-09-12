@@ -506,10 +506,10 @@ void sf##_ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is
                 int32_t cnt, filtered;\
                 y = yak_hash64_64(kmer[z<<1|0]) + yak_hash64_64(kmer[z<<1|1]);\
                 cnt = hf? ha_ft_cnt(hf, y) : 0;\
-                filtered = (cnt >= 1<<28);\
-				if(is_unique){\
-					filtered = (cnt < is_unique);\
-					cnt = (cnt == is_unique? 0:cnt);\
+				filtered = (cnt >= 1<<28);\
+                if(is_unique && (!filtered)) {\
+					filtered = (cnt == 0);\
+					cnt = (cnt == 1? 0:cnt);\
 				}\
                 if (dbg_ct != NULL) kv_push(uint64_t, dbg_ct->a, ((((uint64_t)(query_ct_index(ha_ct_table, y))<<1)|filtered)<<32)|(uint64_t)(i));\
                 if (!filtered) info.x = y, info.rid = cnt, info.pos = i, info.rev = z, info.span = kmer_span; /** initially ha_mz1_t::rid keeps the k-mer count**/\
