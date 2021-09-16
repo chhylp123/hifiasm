@@ -8,11 +8,19 @@
 #include "Overlaps.h"
 #include "CommandLines.h"
 #include "htab.h"
+#include "Hash_Table.h"
 KSEQ_INIT(gzFile, gzread)
 
 typedef struct {
 	int w, k, bw, max_gap, is_HPC, hap_n;
 } mg_idxopt_t;
+
+typedef struct {
+    ha_abufl_t *abl;
+    st_mt_t sp;
+    Candidates_list clist;
+    overlap_region_alloc olist;
+} ma_ov_buf_t;
 
 typedef struct { // global data structure for kt_pipeline()
     const void *ha_flt_tab;
@@ -24,6 +32,39 @@ typedef struct { // global data structure for kt_pipeline()
     uint64_t total_base;
     uint64_t total_pair;
 } uldat_t;
+
+typedef struct { // data structure for each step in kt_pipeline()
+    const void *ha_flt_tab;
+    const ha_pt_t *ha_idx;
+	int n, m, sum_len;
+	uint64_t *len, id;
+	char **seq;
+    ma_ov_buf_t **mo;
+} utepdat_t;
+
+ma_ov_buf_t **init_ma_ov_buf_t_arr(uint64_t n)
+{
+    uint64_t i;
+    ma_ov_buf_t **p = NULL; CALLOC(p, 1); CALLOC(*p, n);
+    for (i = 0; i < n; i++){
+        kv_init((*p)[i].sp); (*p)[i].abl = ha_abufl_init();
+        init_Candidates_list(&((*p)[i].clist));
+	    init_overlap_region_alloc(&((*p)[i].olist));
+    }
+    return p;
+}
+
+void destory_ma_ov_buf_t_arr(ma_ov_buf_t ***p, uint64_t n)
+{
+    uint64_t i;
+    for (i = 0; i < n; i++){
+        kv_destroy((**p)[i].sp); ha_abufl_destroy((**p)[i].abl);
+        destory_Candidates_list(&((**p)[i].clist));
+	    destory_overlap_region_alloc(&((**p)[i].olist));
+    }
+    free((**p)); free((*p));
+}
+
 
 void init_mg_opt(mg_idxopt_t *opt, int is_HPC, int k, int w, int hap_n)
 {
@@ -50,33 +91,39 @@ void uidx_destory()
     ha_pt_destroy(ha_idx);
 }
 
+static void worker_for_ul_alignment(void *data, long i, int tid) // callback for kt_for()
+{
+    utepdat_t *s = (utepdat_t*)data;
+    ma_ov_buf_t *b = s->mo[tid];
+    uint64_t len = s->len[i];
+    char *r = s->seq[i];
+
+
+}
+
 static void *worker_ul_pipeline(void *data, int step, void *in) // callback for kt_pipeline()
 {
-    /**
     uldat_t *p = (uldat_t*)data;
     ///uint64_t total_base = 0, total_pair = 0;
     if (step == 0) { // step 1: read a block of sequences
-        int ret1, ret2;
-        uint64_t l1, l2;
-		stepdat_t *s;
+        int ret;
+        uint64_t l;
+		utepdat_t *s;
 		CALLOC(s, 1);
-        s->idx = p->idx; s->id = p->total_pair; s->t_ch = p->t_ch;
-        while (((ret1 = kseq_read(p->ks1)) >= 0)&&((ret2 = kseq_read(p->ks2)) >= 0)) 
+        s->ha_flt_tab = p->ha_flt_tab; s->ha_idx = p->ha_idx; s->id = p->total_pair; 
+        while ((ret = kseq_read(p->ks)) >= 0) 
         {
-            if (p->ks1->seq.l < p->idx->k || p->ks2->seq.l < p->idx->k) continue;
+            if (p->ks->seq.l < (uint64_t)p->opt->k) continue;
             if (s->n == s->m) {
                 s->m = s->m < 16? 16 : s->m + (s->n>>1);
                 REALLOC(s->len, s->m);
                 REALLOC(s->seq, s->m);
             }
-
-            l1 = p->ks1->seq.l; l2 = p->ks2->seq.l;
-            MALLOC(s->seq[s->n], l1+l2);
-            s->sum_len += l1+l2;
-            memcpy(s->seq[s->n], p->ks1->seq.s, l1);
-            memcpy(s->seq[s->n]+l1, p->ks2->seq.s, l2);
-            s->len[s->n++] = (uint64_t)(l1<<32)|(uint64_t)l2;
-
+            l = p->ks->seq.l;
+            MALLOC(s->seq[s->n], l);
+            s->sum_len += l;
+            memcpy(s->seq[s->n], p->ks->seq.s, l);
+            s->len[s->n++] = l;
             if (s->sum_len >= p->chunk_size) break;            
         }
         p->total_pair += s->n;
@@ -84,25 +131,24 @@ static void *worker_ul_pipeline(void *data, int step, void *in) // callback for 
 		else return s;
     }
     else if (step == 1) { // step 2: alignment
-        stepdat_t *s = (stepdat_t*)in;
-        CALLOC(s->pos_buf, p->n_thread);
+        utepdat_t *s = (utepdat_t*)in;
+        s->mo = init_ma_ov_buf_t_arr(p->n_thread);
+        /**
         CALLOC(s->pos, s->n);
+        **/
         int i;
-        kt_for(p->n_thread, worker_for_alignment, s, s->n);
+        kt_for(p->n_thread, worker_for_ul_alignment, s, s->n);
         for (i = 0; i < s->n; ++i) {
             free(s->seq[i]);
-            p->total_base += (s->len[i]>>32) + (uint32_t)s->len[i];
+            p->total_base += s->len[i];
         }
-        
         free(s->seq); free(s->len);
-        for (i = 0; i < (int)p->n_thread; ++i) {
-            free(s->pos_buf[i].a.a);
-        }
-        free(s->pos_buf);
+        destory_ma_ov_buf_t_arr(&(s->mo), p->n_thread);
 		return s;
     }
     else if (step == 2) { // step 3: dump
-        stepdat_t *s = (stepdat_t*)in;
+        utepdat_t *s = (utepdat_t*)in;
+        /**
         int i;
         for (i = 0; i < s->n; ++i) {
             // if(s->pos[i].a == NULL) continue;
@@ -111,9 +157,9 @@ static void *worker_ul_pipeline(void *data, int step, void *in) // callback for 
             kv_push(pe_hit, p->hits.a, s->pos[i]);
         }
         free(s->pos);
+        **/
         free(s);
     }
-    **/
     return 0;
 }
 
