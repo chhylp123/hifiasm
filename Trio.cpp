@@ -349,6 +349,83 @@ static void ha_triobin_list(const hifiasm_opt_t *opt)
 	fprintf(stderr, "[M::%s::%.3f*%.2f] ==> partitioned reads with external lists\n", __func__, yak_realtime(), yak_cpu_usage());
 }
 
+inline void phrase_hstatus(char *s, char **rname, uint32_t *hid)
+{
+	char *p = NULL, *id = NULL; *rname = NULL; *hid = (uint32_t)-1;
+	uint32_t tot; 
+	for (p = s, tot = 0; *p; ++p){
+		if (*p == '\t' || *p == ' '){
+			*p = 0;
+			if(!tot) *rname = p+1;
+			else break;
+			tot++;
+		}
+	}
+	for (p = s, tot = 0; *p; ++p){
+		if (*p == '_') id = p + 1;
+	}
+	*hid = atoi(id);
+}
+
+uint32_t *ha_polybin_list(const hifiasm_opt_t *opt)
+{
+	int64_t i;
+	khint_t k;
+	cstr_ht_t *h;
+	assert(R_INF.total_reads < (uint32_t)-1);
+	h = cstr_ht_init();
+	for (i = 0; i < (int64_t)R_INF.total_reads; ++i) {
+		int absent;
+		char *str = (char*)calloc(Get_NAME_LENGTH(R_INF, i) + 1, 1);
+		strncpy(str, Get_NAME(R_INF, i), Get_NAME_LENGTH(R_INF, i));
+		k = cstr_ht_put(h, str, &absent);
+		if (absent) kh_val(h, k) = i;
+	}
+	fprintf(stderr, "[M::%s::%.3f*%.2f] created the hash table for read names\n", __func__, yak_realtime(), yak_cpu_usage());
+
+	gzFile fp;
+	kstream_t *ks;
+	kstring_t str = {0,0,0};
+	char *rname = NULL;
+	uint32_t hid, *ss = NULL;
+	int dret;
+	int64_t n_tot = 0, n_bin = 0;
+	fp = gzopen(opt->fn_bin_poy, "r");
+	if (fp == 0) {
+		fprintf(stderr, "ERROR: failed to open file '%s'\n", opt->fn_bin_poy);
+		for (k = 0; k < kh_end(h); ++k)
+			if (kh_exist(h, k))
+				free((char*)kh_key(h, k));
+		cstr_ht_destroy(h);
+		return NULL;
+	}
+	CALLOC(ss, R_INF.total_reads);
+	ks = ks_init(fp);
+	while (ks_getuntil(ks, KS_SEP_LINE, &str, &dret) >= 0) {
+		khint_t k; ++n_tot;
+		phrase_hstatus(str.s, &rname, &hid);
+		if((!(*rname)) || hid == (uint32_t)-1) {
+			fprintf(stderr, "ERROR: wrong hap status\n");
+			continue;
+		}
+		k = cstr_ht_get(h, rname);
+		if (k != kh_end(h)) {
+			ss[kh_val(h, k)] |= (((uint32_t)1)<<(hid-1));
+			++n_bin;
+		}
+	}
+	free(str.s);
+	ks_destroy(ks);
+	gzclose(fp);
+	
+	for (k = 0; k < kh_end(h); ++k)
+		if (kh_exist(h, k))
+			free((char*)kh_key(h, k));
+	cstr_ht_destroy(h);
+	fprintf(stderr, "[M::%s::%.3f*%.2f] ==> partitioned reads with external lists\n", __func__, yak_realtime(), yak_cpu_usage());
+	return ss;
+}
+
 void ha_triobin(const hifiasm_opt_t *opt)
 {
 	memset(R_INF.trio_flag, AMBIGU, R_INF.total_reads * sizeof(uint8_t));

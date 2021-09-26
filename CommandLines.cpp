@@ -157,6 +157,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->hic_enzymes = NULL;
     asm_opt->hic_reads[0] = NULL;
     asm_opt->hic_reads[1] = NULL;
+    asm_opt->fn_bin_poy = NULL;
     asm_opt->ar = NULL;
     asm_opt->thread_num = 1;
     asm_opt->k_mer_length = 51;
@@ -654,7 +655,7 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
 
     int c;
 
-    while ((c = ketopt(&opt, argc, argv, 1, "hvt:o:k:w:m:n:r:a:b:z:x:y:p:c:d:M:P:if:D:FN:1:2:3:4:l:s:O:eu", long_options)) >= 0) {
+    while ((c = ketopt(&opt, argc, argv, 1, "hvt:o:k:w:m:n:r:a:b:z:x:y:p:c:d:M:P:if:D:FN:1:2:3:4:5:l:s:O:eu", long_options)) >= 0) {
         if (c == 'h')
         {
             Print_H(asm_opt);
@@ -684,6 +685,7 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         else if (c == '2' || c == 'M') asm_opt->fn_bin_yak[1] = opt.arg;
         else if (c == '3') asm_opt->fn_bin_list[0] = opt.arg;
         else if (c == '4') asm_opt->fn_bin_list[1] = opt.arg;
+        else if (c == '5') asm_opt->fn_bin_poy = opt.arg;
         else if (c == 'x') asm_opt->max_drop_rate = atof(opt.arg);
         else if (c == 'y') asm_opt->min_drop_rate = atof(opt.arg);
         else if (c == 'p') asm_opt->small_pop_bubble_size = atoll(opt.arg);

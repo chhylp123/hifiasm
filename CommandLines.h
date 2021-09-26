@@ -4,7 +4,7 @@
 #include <pthread.h>
 #include <stdint.h>
 
-#define HA_VERSION "0.16.1-r375"
+#define HA_VERSION "0.16.1-r377"
 
 #define VERBOSE 0
 
@@ -38,6 +38,7 @@ typedef struct {
     char* required_read_name;
 	char *fn_bin_yak[2];
 	char *fn_bin_list[2];
+    char *fn_bin_poy;
 	char *extract_list;
     enzyme *hic_reads[2];
     enzyme *hic_enzymes;
