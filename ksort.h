@@ -52,6 +52,17 @@ typedef struct {
 		} \
 		l[i] = tmp; \
 	} \
+	void ks_heapup_##name(size_t n, type_t l[]) \
+	{ \
+		size_t i, k = n - 1; \
+		type_t tmp = l[k]; \
+		while (k) { \
+			i = (k - 1) >> 1; \
+			if (__sort_lt(tmp, l[i])) break; \
+			l[k] = l[i]; k = i; \
+		} \
+		l[k] = tmp; \
+	} \
 	void ks_heapmake_##name(size_t lsize, type_t l[]) \
 	{ \
 		size_t i; \

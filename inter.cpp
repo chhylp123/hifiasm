@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <zlib.h>
+#include <math.h>
 #include "kseq.h" // FASTA/Q parser
 #include "kavl.h"
 #include "khash.h"
@@ -60,42 +61,11 @@ void *mg_tbuf_get_km(mg_tbuf_t *b)
 }
 
 typedef struct {
-	int w, k, bw, max_gap, is_HPC, hap_n, occ_weight, max_gap_pre;
-	int max_lc_skip, max_lc_iter, min_lc_cnt, min_lc_score;
-    float chn_pen_gap;
+	int w, k, bw, max_gap, is_HPC, hap_n, occ_weight, max_gap_pre, max_gc_seq_ext, seed;
+	int max_lc_skip, max_lc_iter, min_lc_cnt, min_lc_score, max_gc_skip, ref_bonus;
+	int min_gc_cnt, min_gc_score, sub_diff, best_n;
+    float chn_pen_gap, mask_level, pri_ratio;
 } mg_idxopt_t;
-
-typedef struct {
-    ha_abufl_t *abl;
-    st_mt_t sp;
-    Candidates_list clist;
-    overlap_region_alloc olist;
-} ma_ov_buf_t;
-
-typedef struct { // global data structure for kt_pipeline()
-    const void *ha_flt_tab;
-    const ha_pt_t *ha_idx;
-    const mg_idxopt_t *opt;
-    const ma_ug_t *ug;
-	kseq_t *ks;
-    int64_t chunk_size;
-    uint64_t n_thread;
-    uint64_t total_base;
-    uint64_t total_pair;
-} uldat_t;
-
-typedef struct { // data structure for each step in kt_pipeline()
-    const mg_idxopt_t *opt;
-    const void *ha_flt_tab;
-    const ha_pt_t *ha_idx;
-    const ma_ug_t *ug;
-	int n, m, sum_len;
-	uint64_t *len, id;
-	char **seq;
-    ha_mzl_v *mzs;
-    st_mt_t *sps;
-    mg_tbuf_t **buf;
-} utepdat_t;
 
 typedef struct {
 	///off: start idx in mg128_t * a[];
@@ -117,15 +87,84 @@ typedef struct {
 	int32_t pre;
 } mg_pathv_t;
 
-KHASH_MAP_INIT_INT(sp, sp_topk_t)
-KHASH_MAP_INIT_INT(sp2, uint64_t)
-
 ///mg128_t->y: weight(8)seg_id(8)flag(8)span(8)pos(32)
 ///mg128_t->x: rid(31)rev(1)pos(33); keep reference
 typedef struct { uint64_t x, y; } mg128_t;
 #define sort_key_128x(a) ((a).x)
 KRADIX_SORT_INIT(128x, mg128_t, sort_key_128x, 8) 
 void radix_sort_128x(mg128_t *beg, mg128_t *end);
+
+typedef struct {
+	int32_t off, cnt;
+	uint32_t v;
+	int32_t score;
+} mg_llchain_t;
+
+typedef struct {
+	int32_t id, parent;
+	int32_t off, cnt;
+	int32_t n_anchor, score;
+	int32_t qs, qe;
+	int32_t plen, ps, pe;
+	int32_t blen, mlen;
+	float div;
+	uint32_t hash;
+	int32_t subsc, n_sub;
+	uint32_t mapq:8, flt:1, dummy:23;
+} mg_gchain_t;
+
+typedef struct {
+	size_t n,m;
+    uint64_t *a, tl;
+	kvec_t(char) cc;
+} mg_dbn_t;
+
+typedef struct {
+	int32_t cnt;
+	uint32_t v;
+	int32_t score;
+	uint32_t qs, qe, ts, te;
+} mg_lres_t;
+
+typedef struct {
+    int32_t n_gc, n_lc;
+    mg_gchain_t *gc;///g_chain; idx in l_chains
+    mg_lres_t *lc;///l_chain
+    uint64_t qid, qlen;
+} mg_gres_t;
+
+typedef struct {
+	size_t n,m;
+    mg_gres_t *a;
+} mg_gres_a;
+
+typedef struct { // global data structure for kt_pipeline()
+    const void *ha_flt_tab;
+    const ha_pt_t *ha_idx;
+    const mg_idxopt_t *opt;
+    const ma_ug_t *ug;
+	kseq_t *ks;
+    int64_t chunk_size;
+    uint64_t n_thread;
+    uint64_t total_base;
+    uint64_t total_pair;
+	mg_gres_a hits;
+	mg_dbn_t nn;
+} uldat_t;
+
+///three levels: 
+///level-0: minimizers
+///level-1: linear chains
+///level-2: g chains
+///gc[] saves the idx in lc[], lc saves the idx in a[]
+typedef struct {
+	void *km;
+	int32_t n_gc, n_lc, n_a, rep_len;
+	mg_gchain_t *gc;///g_chain; idx in l_chains
+	mg_llchain_t *lc;///l_chain
+	mg128_t *a; // minimizer positions; see comments above mg_update_anchors() for details
+	uint64_t qid, qlen;
+} mg_gchains_t;
 
 typedef struct {
 	uint32_t n; ///length of candidate list 
@@ -198,6 +237,24 @@ KAVL_INIT(sp, sp_node_t, head, sp_node_cmp)
 #define sp_node_lt(a, b) ((a)->di < (b)->di)
 KSORT_INIT(sp, sp_node_p, sp_node_lt)
 
+KHASH_MAP_INIT_INT(sp, sp_topk_t)
+KHASH_MAP_INIT_INT(sp2, uint64_t)
+
+
+typedef struct { // data structure for each step in kt_pipeline()
+    const mg_idxopt_t *opt;
+    const void *ha_flt_tab;
+    const ha_pt_t *ha_idx;
+    const ma_ug_t *ug;
+	int n, m, sum_len;
+	uint64_t *len, id;
+	char **seq;
+    ha_mzl_v *mzs;
+    st_mt_t *sps;
+	mg_gchains_t **gcs;
+    mg_tbuf_t **buf;
+} utepdat_t;
+
 void init_mg_opt(mg_idxopt_t *opt, int is_HPC, int k, int w, int hap_n)
 {
     opt->k = k; 
@@ -214,23 +271,42 @@ void init_mg_opt(mg_idxopt_t *opt, int is_HPC, int k, int w, int hap_n)
 	opt->max_lc_iter = 10000;
 	opt->min_lc_cnt = 2; 
 	opt->min_lc_score = 30;
+	opt->max_gc_skip = 25;
+	opt->ref_bonus = 0;
+	opt->mask_level = 0.5f;
+	opt->max_gc_seq_ext = 5;
+	opt->seed = 11;
+	opt->min_gc_cnt = 3, opt->min_gc_score = 50;
+	opt->sub_diff = 6;
+	opt->best_n = 5;
+	opt->pri_ratio = 0.8f;
 }
 
 void uidx_build(ma_ug_t *ug, mg_idxopt_t *opt)
 {
     int flag = asm_opt.flag;
     asm_opt.flag |= HA_F_NO_HPC;
-    ha_flt_tab = ha_ft_ug_gen(&asm_opt, &(ug->u), opt->is_HPC, opt->k, opt->w, 1, opt->hap_n*10);
+    ha_flt_tab = ha_ft_ug_gen(&asm_opt, &(ug->u), opt->is_HPC, opt->k, opt->w, 1, opt->hap_n*5);
     ha_idx = ha_pt_ug_gen(&asm_opt, ha_flt_tab, &(ug->u), opt->is_HPC, opt->k, opt->w, 1);
     asm_opt.flag = flag;
+	fprintf(stderr, "[M::%s] Index has been built.\n", __func__);
 }
 
 void uidx_destory()
 {
     ha_ft_destroy(ha_flt_tab); 
     ha_pt_destroy(ha_idx);
+	ha_flt_tab = NULL; ha_idx = NULL;
 }
 
+void mg_gres_a_des(mg_gres_a *p)
+{
+	uint64_t i = 0;
+	for (i = 0; i < p->n; i++){
+		free(p->a[i].lc); free(p->a[i].gc);
+	}
+	free(p->a);
+}
 
 ///only use non-repetitive minimizers
 static mg_match_t *collect_matches(void *km, int *_n_m, int max_occ, const void *ha_flt_tab, const ha_pt_t *ha_idx, int check_unique, const ha_mzl_v *mv, int64_t *n_a, int *rep_len, int *n_mini_pos, int32_t **mini_pos)
@@ -686,9 +762,8 @@ static inline sp_node_t *gen_sp_node(void *km, uint32_t v, int32_t d, int32_t id
 }
 
 ///max_dist is like the overlap length in string graph
-///mg_shortest_k(km, g, li->v^1, n_dst, dst, max_dist_g + (g->seg[li->v>>1].len - li->rs), MG_MAX_SHORT_K, 0, 0, 1, 0);
 ///the end position of qs is li->qs; dst[]->->qlen indicate the region that need to be checked in bases
-mg_pathv_t *mg_shortest_k(void *km0, const asg_t *g, uint32_t src, int32_t n_dst, mg_path_dst_t *dst, int32_t max_dist, int32_t max_k, int32_t ql, const char *qs, int is_rev, int32_t *n_pathv)
+mg_pathv_t *mg_shortest_k(void *km0, const asg_t *g, uint32_t src, int32_t n_dst, mg_path_dst_t *dst, int32_t max_dist, int32_t max_k, /** //pathint32_t ql, const char *qs, int is_rev, **/int32_t *n_pathv)
 {
 	sp_node_t *p, *root = 0, **out;
 	sp_topk_t *q;
@@ -697,12 +772,14 @@ mg_pathv_t *mg_shortest_k(void *km0, const asg_t *g, uint32_t src, int32_t n_dst
 	void *km;
 	khint_t k;
 	int absent;
-	int32_t i, j, n_done, n_found, n_seeds = 0;
+	int32_t i, j, n_done, n_found;
 	uint32_t id, n_out, m_out;
 	int8_t *dst_done;
 	mg_pathv_t *ret = 0;
-	uint64_t *dst_group, *seeds = 0;
+	uint64_t *dst_group;
 	/** //path
+	int32_t n_seeds = 0;
+	uint64_t *seeds = 0;
 	void *h_seeds = 0; 
 	mg128_v mini = {0,0,0}; 
 	**/
@@ -899,7 +976,7 @@ mg_pathv_t *mg_shortest_k(void *km0, const asg_t *g, uint32_t src, int32_t n_dst
 				kavl_insert(sp, &root, p, 0);
 				q->p[q->k++] = p;
 				ks_heapup_sp(q->k, q->p);///adjust heap by distance
-			} else if (q->p[0]->di>>32 > d) { // shorter than the longest path so far: replace the longest
+			} else if ((int32_t)(q->p[0]->di>>32) > d) { // shorter than the longest path so far: replace the longest
 				p = kavl_erase(sp, &root, q->p[0], 0);
 				if (p) {
 					p->di = (uint64_t)d<<32 | (id++);
@@ -923,9 +1000,11 @@ mg_pathv_t *mg_shortest_k(void *km0, const asg_t *g, uint32_t src, int32_t n_dst
 	kfree(km, dst_group);
 	kfree(km, dst_done);
 	kh_destroy(sp, h);
+	/** //path
 	mg_idx_hfree(h_seeds);
 	kfree(km, seeds);
 	kfree(km, mini.a);
+	**/
 	// NB: AVL nodes are not deallocated. When km==0, they are memory leaks.
 
 	for (i = 0, n_found = 0; i < n_dst; ++i)
@@ -939,7 +1018,7 @@ mg_pathv_t *mg_shortest_k(void *km0, const asg_t *g, uint32_t src, int32_t n_dst
 			if (t->n_path > 0 && t->target_dist >= 0 && t->path_end >= 0)
 				trans[(int32_t)out[t->path_end]->di] = 1;
 		}
-		for (i = 0; i < n_out; ++i) { // mark dst vertices without a target distance
+		for (i = 0; (uint32_t)i < n_out; ++i) { // mark dst vertices without a target distance
 			k = kh_get(sp2, h2, out[i]->v);
 			if (k != kh_end(h2)) { // TODO: check if this is correct!
 				int32_t off = kh_val(h2, k)>>32, cnt = (int32_t)kh_val(h2, k);
@@ -951,13 +1030,13 @@ mg_pathv_t *mg_shortest_k(void *km0, const asg_t *g, uint32_t src, int32_t n_dst
 		for (i = n_out - 1; i >= 0; --i) // mark all predecessors
 			if (trans[i] && out[i]->pre >= 0)
 				trans[out[i]->pre] = 1;
-		for (i = n = 0; i < n_out; ++i) // generate coordinate translations
+		for (i = n = 0; (uint32_t)i < n_out; ++i) // generate coordinate translations
 			if (trans[i]) trans[i] = n++;
 			else trans[i] = -1;
 
 		*n_pathv = n;
 		KMALLOC(km0, ret, n);
-		for (i = 0; i < n_out; ++i) { // generate the backtrack array
+		for (i = 0; (uint32_t)i < n_out; ++i) { // generate the backtrack array
 			mg_pathv_t *p;
 			if (trans[i] < 0) continue;
 			p = &ret[trans[i]];
@@ -973,280 +1052,699 @@ mg_pathv_t *mg_shortest_k(void *km0, const asg_t *g, uint32_t src, int32_t n_dst
 	return ret;
 }
 
+static inline int32_t cal_sc(const mg_path_dst_t *dj, const mg_lchain_t *li, const mg_lchain_t *lc, const mg128_t *an, const gc_frag_t *a, const int32_t *f,
+							 int bw, int ref_bonus, float chn_pen_gap)
+{
+	const mg_lchain_t *lj;
+	int32_t gap, sc;
+	float lin_pen, log_pen;
+	if (dj->n_path == 0) return INT32_MIN;
+	gap = dj->dist - dj->target_dist;
+	lj = &lc[a[dj->meta].i];
+	if (gap < 0) gap = -gap;
+	if (gap > bw) return INT32_MIN;
+	if (lj->qe <= li->qs) sc = li->score;
+	else sc = (int32_t)((double)(li->qe - lj->qe) / (li->qe - li->qs) * li->score + .499); // dealing with overlap on query
+	//sc += dj->mlen; // TODO: is this line the right thing to do?
+	if (dj->is_0) sc += ref_bonus;
+	lin_pen = chn_pen_gap * (float)gap;
+	log_pen = gap >= 2? mg_log2(gap) : 0.0f;
+	sc -= (int32_t)(lin_pen + log_pen);
+	sc += f[dj->meta];
+	return sc;
+}
 
 int32_t mg_gchain1_dp(void *km, const ma_ug_t *ug, int32_t *n_lc_, mg_lchain_t *lc, int32_t qlen, int32_t max_dist_g, int32_t max_dist_q, int32_t bw, int32_t max_skip,
-					  int32_t ref_bonus, float chn_pen_gap, float chn_pen_skip, float mask_level, int32_t max_gc_seq_ext, const char *qseq, const mg128_t *an, uint64_t **u_)
+                      int32_t ref_bonus, float chn_pen_gap, float mask_level, int32_t max_gc_seq_ext, const mg128_t *an, uint64_t **u_)
 {
-	int32_t i, j, k, m_dst, n_dst, n_ext, n_u, n_v, n_lc = *n_lc_;
-	int32_t *f, *v, *t;
-	int64_t *p;
-	uint64_t *u;
-	mg_path_dst_t *dst;
-	gc_frag_t *a;
-	mg_lchain_t *swap;
-	char *qs;
-	asg_t *g = ug->g;
+    int32_t i, j, k, m_dst, n_dst, n_ext, n_u, n_v, n_lc = *n_lc_;
+    int32_t *f, *v, *t;
+    int64_t *p;
+    uint64_t *u;
+    mg_path_dst_t *dst;
+    gc_frag_t *a;
+    mg_lchain_t *swap;
+    // char *qs;
+    asg_t *g = ug->g;
 
-	*u_ = 0;
-	if (n_lc == 0) return 0;
+    *u_ = 0;
+    if (n_lc == 0) return 0;
 
-	KMALLOC(km, a, n_lc);
-	///n_lc how many linear chains
-	for (i = n_ext = 0; i < n_lc; ++i) { // a[] is a view of frag[]; for sorting
-		mg_lchain_t *r = &lc[i];
-		gc_frag_t *ai = &a[i];
-		int32_t is_isolated = 0, min_end_dist_g;
-		r->dist_pre = -1;///indicate parent in graph chain
-		min_end_dist_g = g->seq[r->v>>1].len - r->re;///r->v: ref_id|rev
-		if (r->rs < min_end_dist_g) min_end_dist_g = r->rs;
-		if (min_end_dist_g > max_dist_g) is_isolated = 1; // if too far from segment ends
-		else if (min_end_dist_g>>3 > r->score) is_isolated = 1; // if the lchain too small relative to distance to the segment ends
-		ai->srt = (uint32_t)is_isolated<<31 | r->qe;
-		ai->i = i;
-		if (!is_isolated) ++n_ext;
-	}
-	///if the alignment is too far from segment ends, which means it cannot contribute to graph alignment
-	if (n_ext < 2) { // no graph chaining needed; early return
-		kfree(km, a);
-		KMALLOC(km, u, n_lc);
-		for (i = 0; i < n_lc; ++i)
-			u[i] = (uint64_t)lc[i].score<<32 | 1;
-		*u_ = u;
-		return n_lc;
-	}
-	radix_sort_gc(a, a + n_lc);///sort by: is_isolated(1):qe
+    KMALLOC(km, a, n_lc);
+    ///n_lc how many linear chains
+    for (i = n_ext = 0; i < n_lc; ++i) { // a[] is a view of frag[]; for sorting
+        mg_lchain_t *r = &lc[i];
+        gc_frag_t *ai = &a[i];
+        int32_t is_isolated = 0, min_end_dist_g;
+        r->dist_pre = -1;///indicate parent in graph chain
+        min_end_dist_g = g->seq[r->v>>1].len - r->re;///r->v: ref_id|rev
+        if (r->rs < min_end_dist_g) min_end_dist_g = r->rs;
+        if (min_end_dist_g > max_dist_g) is_isolated = 1; // if too far from segment ends
+        else if (min_end_dist_g>>3 > r->score) is_isolated = 1; // if the lchain too small relative to distance to the segment ends
+        ai->srt = (uint32_t)is_isolated<<31 | r->qe;
+        ai->i = i;
+        if (!is_isolated) ++n_ext;
+    }
+    ///if the alignment is too far from segment ends, which means it cannot contribute to graph alignment
+    if (n_ext < 2) { // no graph chaining needed; early return
+        kfree(km, a);
+        KMALLOC(km, u, n_lc);
+        for (i = 0; i < n_lc; ++i)
+            u[i] = (uint64_t)lc[i].score<<32 | 1;
+        *u_ = u;
+        return n_lc;
+    }
+    radix_sort_gc(a, a + n_lc);///sort by: is_isolated(1):qe
 
-	KMALLOC(km, v, n_lc);
-	KMALLOC(km, f, n_ext);
-	KMALLOC(km, p, n_ext);
-	KCALLOC(km, t, n_ext);
-	// KMALLOC(km, qs, max_dist_q + 1);//for 
+    KMALLOC(km, v, n_lc);
+    KMALLOC(km, f, n_ext);
+    KMALLOC(km, p, n_ext);
+    KCALLOC(km, t, n_ext);
+    // KMALLOC(km, qs, max_dist_q + 1);//for 
 
-	m_dst = n_dst = 0, dst = 0;
-	///n_ext is number of linear chains that might be included in graph chains
-	///sorted by the positions in query; sorted by qe of each chain
-	for (i = 0; i < n_ext; ++i) { // core loop
-		gc_frag_t *ai = &a[i];
-		mg_lchain_t *li = &lc[ai->i];///linear chain; sorted by qe, i.e. end position in query
-		///note segi is query id, instead of ref id; it is not such useful
-		/**
-		 * a[].x: idx_in_minimizer_arr(32)r_pos(32)
-		 * a[].y: weight(8)query_id(8)flag(8)span(8)q_pos(32)
-		**/
-		{ // collect end points potentially reachable from _i_
-			int32_t x = li->qs + bw, n_skip = 0;
-			if (x > qlen) x = qlen;
-			///collect alignments that can be reachable from the left side
-			///that is, a[x].qe <= x
-			x = find_max(i, a, x);
-			n_dst = 0;
-			for (j = x; j >= 0; --j) { // collect potential destination vertices
-				gc_frag_t *aj = &a[j];
-				//potential chains that might be overlapped with the left side of li
-				mg_lchain_t *lj = &lc[aj->i];
-				mg_path_dst_t *q;
-				int32_t target_dist, dq;
-				///lj->qs >= li->qs && lj->qe <= li->qs, so lj is contained
-				if (lj->qs >= li->qs) continue; // lj is contained in li on the query coordinate
-				///lj->qs************lj->qe
-				///			li->qs************li->qe
-				if (lj->qe > li->qs) { // test overlap on the query
-					int o = lj->qe - li->qs;
-					///mask_level = 0.5, if overlap is too long
-					///note here is the overlap in query, so too long overlaps might be wrong
-					if (o > (lj->qe - lj->qs) * mask_level || o > (li->qe - li->qs) * mask_level)
-						continue;
-				}
-				dq = li->qs - lj->qe;///dq might be smaller than 0
-				if (dq > max_dist_q) break; // if query gap too large, stop
-				///The above filter chains like:
-				///1. lj is contained in li
-				///2. the overlap between li and lj is too large
-				///3. li and lj are too far
-				/**
-				 lj->qs************lj->qe
-				 			li->qs************li->qe
+    m_dst = n_dst = 0, dst = 0;
+    ///n_ext is number of linear chains that might be included in graph chains
+    ///sorted by the positions in query; sorted by qe of each chain
+    for (i = 0; i < n_ext; ++i) { // core loop
+        gc_frag_t *ai = &a[i];
+        mg_lchain_t *li = &lc[ai->i];///linear chain; sorted by qe, i.e. end position in query
+        ///note segi is query id, instead of ref id; it is not such useful
+        /**
+         * a[].x: idx_in_minimizer_arr(32)r_pos(32)
+         * a[].y: weight(8)query_id(8)flag(8)span(8)q_pos(32)
+        **/
+        { // collect end points potentially reachable from _i_
+            int32_t x = li->qs + bw, n_skip = 0;
+            if (x > qlen) x = qlen;
+            ///collect alignments that can be reachable from the left side
+            ///that is, a[x].qe <= x
+            x = find_max(i, a, x);
+            n_dst = 0;
+            for (j = x; j >= 0; --j) { // collect potential destination vertices
+                gc_frag_t *aj = &a[j];
+                //potential chains that might be overlapped with the left side of li
+                mg_lchain_t *lj = &lc[aj->i];
+                mg_path_dst_t *q;
+                int32_t target_dist, dq;
+                ///lj->qs >= li->qs && lj->qe <= li->qs, so lj is contained
+                if (lj->qs >= li->qs) continue; // lj is contained in li on the query coordinate
+                ///lj->qs************lj->qe
+                ///         li->qs************li->qe
+                if (lj->qe > li->qs) { // test overlap on the query
+                    int o = lj->qe - li->qs;
+                    ///mask_level = 0.5, if overlap is too long
+                    ///note here is the overlap in query, so too long overlaps might be wrong
+                    if (o > (lj->qe - lj->qs) * mask_level || o > (li->qe - li->qs) * mask_level)
+                        continue;
+                }
+                dq = li->qs - lj->qe;///dq might be smaller than 0
+                if (dq > max_dist_q) break; // if query gap too large, stop
+                ///The above filter chains like:
+                ///1. lj is contained in li
+                ///2. the overlap between li and lj is too large
+                ///3. li and lj are too far
+                /**
+                 lj->qs************lj->qe
+                            li->qs************li->qe
 
-				*****lj->rs************lj->re*****
-				                                     ****li->rs************li->re**
-				**/
-				///above we have checked gap/overlap in query 
-				///then we need to check gap/overlap in reference
-				if (li->v != lj->v) { // the two linear chains are on two different refs
-					// minimal graph gap; the real graph gap might be larger
-					int32_t min_dist = li->rs + (g->seq[lj->v>>1].len - lj->re); 
-					if (min_dist > max_dist_g) continue; // graph gap too large
-					//note here min_dist - (lj->qs - li->qe) > bw is important
-					//min_dist is always larger than 0, (lj->qs - li->qe) might be negative 
-					if (min_dist - bw > li->qs - lj->qe) continue; ///note seg* is the query id, instead of ref id
-					target_dist = mg_target_dist(g, lj, li);
-					if (target_dist < 0) continue; // this may happen if the query overlap is far too large
-				} else if (lj->rs >= li->rs || lj->re >= li->re) { // not colinear
-					continue;
-				} else {///li->v == lj->v and colinear; at the same ref id
-						/**
-						 	case 1: lj->qs************lj->qe
-												li->qs************li->qe
-							case 2: lj->qs************lj->qe
-																li->qs************li->qe
+                *****lj->rs************lj->re*****
+                                                     ****li->rs************li->re**
+                **/
+                ///above we have checked gap/overlap in query 
+                ///then we need to check gap/overlap in reference
+                if (li->v != lj->v) { // the two linear chains are on two different refs
+                    // minimal graph gap; the real graph gap might be larger
+                    int32_t min_dist = li->rs + (g->seq[lj->v>>1].len - lj->re); 
+                    if (min_dist > max_dist_g) continue; // graph gap too large
+                    //note here min_dist - (lj->qs - li->qe) > bw is important
+                    //min_dist is always larger than 0, (lj->qs - li->qe) might be negative 
+                    if (min_dist - bw > li->qs - lj->qe) continue; ///note seg* is the query id, instead of ref id
+                    target_dist = mg_target_dist(g, lj, li);
+                    if (target_dist < 0) continue; // this may happen if the query overlap is far too large
+                } else if (lj->rs >= li->rs || lj->re >= li->re) { // not colinear
+                    continue;
+                } else {///li->v == lj->v and colinear; at the same ref id
+                        /**
+                            case 1: lj->qs************lj->qe
+                                                li->qs************li->qe
+                            case 2: lj->qs************lj->qe
+                                                                li->qs************li->qe
 
-							*****lj->rs************lj->re*****
-																			****li->rs************li->re**
-						* **/
-					///w is indel, w is always positive
-					int32_t dr = li->rs - lj->re, w = dr > dq? dr - dq : dq - dr;
-					///note that l*->v is the ref id, while seg* is the query id
-					if (w > bw) continue; // test bandwidth
-					if (dr > max_dist_g || dr < -max_dist_g) continue;
-					if (lj->re > li->rs) { // test overlap on the graph segment
-						int o = lj->re - li->rs;
-						if (o > (lj->re - lj->rs) * mask_level || o > (li->re - li->rs) * mask_level)
-							continue;
-					}
-					target_dist = mg_target_dist(g, lj, li);
-				}
-				if (n_dst == m_dst) KEXPAND(km, dst, m_dst); // TODO: watch out the quadratic behavior!
-				q = &dst[n_dst++];///q saves information for i->j
-				memset(q, 0, sizeof(mg_path_dst_t));
-				///note v is (rid:rev), so two alignment chains might be at the same ref id with different directions
-				q->inner = (li->v == lj->v);
-				q->v = lj->v^1;///must be v^1 instead of v
-				q->meta = j;
-				///lj->qs************lj->qe
-				///			li->qs************li->qe
-				q->qlen = li->qs - lj->qe;///might be negative
-				q->target_dist = target_dist;///cannot understand the target_dist
-				q->target_hash = 0;
-				q->check_hash = 0;
-				if (t[j] == i) {///this pre-cut is weird; attention
-					if (++n_skip > max_skip)
-						break;
-				}
-				if (p[j] >= 0) t[p[j]] = i;
-			}
-		}
-		///the above saves all linear chains that might be reached to the left side of chain i
-		///all those chains are saved to dst<n_dst>
-		{ // confirm reach-ability
-			int32_t k;
-			// test reach-ability without sequences
-			/**
-			*****lj->rs************lj->re*****
-				                                     ****li->rs************li->re***
-			(g->seg[li->v>>1].len - li->rs) ----> is like the node length in string graph
-	 		**/
-			mg_shortest_k(km, g, li->v^1, n_dst, dst, max_dist_g + (g->seq[li->v>>1].len - li->rs), MG_MAX_SHORT_K, 0, 0, 1, 0);
-			// remove unreachable destinations
-			for (j = k = 0; j < n_dst; ++j) {
-				mg_path_dst_t *dj = &dst[j];
-				int32_t sc;
-				if (dj->n_path == 0) continue; // unreachable
-				sc = cal_sc(dj, li, lc, an, a, f, bw, ref_bonus, chn_pen_gap);
-				if (sc == INT32_MIN) continue; // out of band
-				if (sc + li->score < 0) continue; // negative score and too low
-				dst[k] = dst[j];
-				dst[k++].srt_key = INT64_MAX/2 - (int64_t)sc; // sort in the descending order
-			}
-			n_dst = k;
-			if (n_dst > 0) {
-				radix_sort_dst(dst, dst + n_dst);
-				// discard weaker chains if the best score is much larger (assuming base-level heuristic won't lift it to the top chain)
-				// dst[0].srt_key has the largest score
-				for (j = 1; j < n_dst; ++j) 
-					if (dst[j].srt_key - dst[0].srt_key > li->score)//discard chains with too small weight
-						break;
-				n_dst = j;
-				if (n_dst > max_gc_seq_ext) n_dst = max_gc_seq_ext; // discard weaker chains
-			}
-		}
-		if (n_dst > 0) { // find paths with sequences
-			int32_t min_qs = li->qs;
-			for (j = 0; j < n_dst; ++j) {
-				const mg_lchain_t *lj;
-				assert(dst[j].n_path > 0);
-				///a[]->srt = (uint32_t)is_isolated<<31 | r->qe;
-				///a[]->i = i;
-				lj = &lc[a[dst[j].meta].i];
-				if (lj->qe < min_qs) min_qs = lj->qe;
-			}
-			///qs keeps the sequence at the gap between the li and lj in query
-			memcpy(qs, &qseq[min_qs], li->qs - min_qs);
-			mg_shortest_k(km, g, li->v^1, n_dst, dst, max_dist_g + (g->seg[li->v>>1].len - li->rs), MG_MAX_SHORT_K, li->qs - min_qs, qs, 1, 0);
-			if (mg_dbg_flag & MG_DBG_GC1) fprintf(stderr, "[src:%d] q_intv=[%d,%d), src=%c%s[%d], n_dst=%d, max_dist=%d, min_qs=%d, lc_score=%d\n", ai->i, li->qs, li->qe, "><"[(li->v&1)^1], g->seg[li->v>>1].name, li->v^1, n_dst, max_dist_g + (g->seg[li->v>>1].len - li->rs), min_qs, li->score);
-		}
-		{ // DP
-			int32_t max_f = li->score, max_j = -1, max_d = -1, max_inner = 0;
-			uint32_t max_hash = 0;
-			for (j = 0; j < n_dst; ++j) {
-				mg_path_dst_t *dj = &dst[j];
-				int32_t sc;
-				sc = cal_sc(dj, li, lc, an, a, f, bw, ref_bonus, chn_pen_gap);
-				if (sc == INT32_MIN) continue;
-				if (mg_dbg_flag & MG_DBG_GC1) {
-					mg_lchain_t *lj = &lc[a[dj->meta].i];
-					fprintf(stderr, "  [dst:%d] dst=%c%s[%d], n_path=%d, target=%d, opt_dist=%d, score=%d, q_intv=[%d,%d), g_intv=[%d,%d)\n", dj->meta, "><"[dj->v&1], g->seg[dj->v>>1].name, dj->v, dj->n_path, dj->target_dist - g->seg[li->v>>1].len, dj->dist - g->seg[li->v>>1].len, sc, lj->qs, lj->qe, lj->rs, lj->re);
-				}
-				if (sc > max_f) max_f = sc, max_j = dj->meta, max_d = dj->dist, max_hash = dj->hash, max_inner = dj->inner;
-			}
-			f[i] = max_f, p[i] = max_j;
-			li->dist_pre = max_d;
-			li->hash_pre = max_hash;
-			li->inner_pre = max_inner;
-			v[i] = max_j >= 0 && v[max_j] > max_f? v[max_j] : max_f;
-			if (mg_dbg_flag & MG_DBG_GC1) fprintf(stderr, " [opt:%d] opt=%d, max_f=%d\n", ai->i, max_j, max_f);
-		}
-	}
-	kfree(km, dst);
-	kfree(km, qs);
-	if (mg_dbg_flag & MG_DBG_GC1) {
-		int32_t mmax_f = 0, mmax_i = -1;
-		for (i = 0; i < n_ext; ++i) if (f[i] > mmax_f) mmax_f = f[i], mmax_i = i;
-		i = mmax_i; while (i >= 0) { fprintf(stderr, "[best] i=%d, seg=%s, max_f=%d, chn_pen_gap=%f\n", a[i].i, g->seg[lc[a[i].i].v>>1].name, f[i], chn_pen_gap); i = p[i]; }
-	}
-	///n_ext: number of useful chains
-	///n_lc - n_ext: number of isoated chains
-	u = mg_chain_backtrack(km, n_ext, f, p, v, t, 0, 0, n_lc - n_ext, &n_u, &n_v);
-	kfree(km, f); kfree(km, p); kfree(km, t);
-	///store the extra isoated chains
-	for (i = 0; i < n_lc - n_ext; ++i) {
-		u[n_u++] = (uint64_t)lc[a[n_ext + i].i].score << 32 | 1;
-		v[n_v++] = n_ext + i;
-	}
+                            *****lj->rs************lj->re*****
+                                                                            ****li->rs************li->re**
+                        * **/
+                    ///w is indel, w is always positive
+                    int32_t dr = li->rs - lj->re, w = dr > dq? dr - dq : dq - dr;
+                    ///note that l*->v is the ref id, while seg* is the query id
+                    if (w > bw) continue; // test bandwidth
+                    if (dr > max_dist_g || dr < -max_dist_g) continue;
+                    if (lj->re > li->rs) { // test overlap on the graph segment
+                        int o = lj->re - li->rs;
+                        if (o > (lj->re - lj->rs) * mask_level || o > (li->re - li->rs) * mask_level)
+                            continue;
+                    }
+                    target_dist = mg_target_dist(g, lj, li);
+                }
+                if (n_dst == m_dst) KEXPAND(km, dst, m_dst); // TODO: watch out the quadratic behavior!
+                q = &dst[n_dst++];///q saves information for i->j
+                memset(q, 0, sizeof(mg_path_dst_t));
+                ///note v is (rid:rev), so two alignment chains might be at the same ref id with different directions
+                q->inner = (li->v == lj->v);
+                q->v = lj->v^1;///must be v^1 instead of v
+                q->meta = j;
+                ///lj->qs************lj->qe
+                ///         li->qs************li->qe
+                q->qlen = li->qs - lj->qe;///might be negative
+                q->target_dist = target_dist;///cannot understand the target_dist
+                q->target_hash = 0;
+                q->check_hash = 0;
+                if (t[j] == i) {///this pre-cut is weird; attention
+                    if (++n_skip > max_skip)
+                        break;
+                }
+                if (p[j] >= 0) t[p[j]] = i;
+            }
+        }
+        ///the above saves all linear chains that might be reached to the left side of chain i
+        ///all those chains are saved to dst<n_dst>
+        { // confirm reach-ability
+            int32_t k;
+            // test reach-ability without sequences
+            /**
+            *****lj->rs************lj->re*****
+                                                     ****li->rs************li->re***
+            (g->seg[li->v>>1].len - li->rs) ----> is like the node length in string graph
+            **/
+            mg_shortest_k(km, g, li->v^1, n_dst, dst, max_dist_g + (g->seq[li->v>>1].len - li->rs), MG_MAX_SHORT_K, /**0, 0, 1,**/ 0);
+            // remove unreachable destinations
+            for (j = k = 0; j < n_dst; ++j) {
+                mg_path_dst_t *dj = &dst[j];
+                int32_t sc;
+                if (dj->n_path == 0) continue; // unreachable
+                sc = cal_sc(dj, li, lc, an, a, f, bw, ref_bonus, chn_pen_gap);
+                if (sc == INT32_MIN) continue; // out of band
+                if (sc + li->score < 0) continue; // negative score and too low
+                dst[k] = dst[j];
+                dst[k++].srt_key = INT64_MAX/2 - (int64_t)sc; // sort in the descending order
+            }
+            n_dst = k;
+            if (n_dst > 0) {
+                radix_sort_dst(dst, dst + n_dst);
+                // discard weaker chains if the best score is much larger (assuming base-level heuristic won't lift it to the top chain)
+                // dst[0].srt_key has the largest score
+                for (j = 1; j < n_dst; ++j) 
+                    if ((int64_t)(dst[j].srt_key - dst[0].srt_key) > li->score)//discard chains with too small weight
+                        break;
+                n_dst = j;
+                if (n_dst > max_gc_seq_ext) n_dst = max_gc_seq_ext; // discard weaker chains
+            }
+        }
+		/** //path
+        if (n_dst > 0) { // find paths with sequences
+            int32_t min_qs = li->qs;
+            for (j = 0; j < n_dst; ++j) {
+                const mg_lchain_t *lj;
+                assert(dst[j].n_path > 0);
+                ///a[]->srt = (uint32_t)is_isolated<<31 | r->qe;
+                ///a[]->i = i;
+                lj = &lc[a[dst[j].meta].i];
+                if (lj->qe < min_qs) min_qs = lj->qe;
+            }
+            ///qs keeps the sequence at the gap between the li and lj in query
+            memcpy(qs, &qseq[min_qs], li->qs - min_qs);
+            mg_shortest_k(km, g, li->v^1, n_dst, dst, max_dist_g + (g->seg[li->v>>1].len - li->rs), MG_MAX_SHORT_K, li->qs - min_qs, qs, 1, 0);
+            if (mg_dbg_flag & MG_DBG_GC1) fprintf(stderr, "[src:%d] q_intv=[%d,%d), src=%c%s[%d], n_dst=%d, max_dist=%d, min_qs=%d, lc_score=%d\n", ai->i, li->qs, li->qe, "><"[(li->v&1)^1], g->seg[li->v>>1].name, li->v^1, n_dst, max_dist_g + (g->seg[li->v>>1].len - li->rs), min_qs, li->score);
+        }**/
+        { // DP
+            int32_t max_f = li->score, max_j = -1, max_d = -1, max_inner = 0;
+            uint32_t max_hash = 0;
+            for (j = 0; j < n_dst; ++j) {
+                mg_path_dst_t *dj = &dst[j];
+                int32_t sc;
+                sc = cal_sc(dj, li, lc, an, a, f, bw, ref_bonus, chn_pen_gap);
+                if (sc == INT32_MIN) continue;
+                if (sc > max_f) max_f = sc, max_j = dj->meta, max_d = dj->dist, max_hash = dj->hash, max_inner = dj->inner;
+            }
+            f[i] = max_f, p[i] = max_j;
+            li->dist_pre = max_d;
+            li->hash_pre = max_hash;
+            li->inner_pre = max_inner;
+            v[i] = max_j >= 0 && v[max_j] > max_f? v[max_j] : max_f;
+        }
+    }
+    kfree(km, dst);
+    // kfree(km, qs);
+    ///n_ext: number of useful chains
+    ///n_lc - n_ext: number of isoated chains
+    u = mg_chain_backtrack(km, n_ext, f, p, v, t, 0, 0, n_lc - n_ext, &n_u, &n_v);
+    kfree(km, f); kfree(km, p); kfree(km, t);
+    ///store the extra isoated chains
+    for (i = 0; i < n_lc - n_ext; ++i) {
+        u[n_u++] = (uint64_t)lc[a[n_ext + i].i].score << 32 | 1;
+        v[n_v++] = n_ext + i;
+    }
 
-	///reorganize lc;
-	KMALLOC(km, swap, n_v);
-	for (i = 0, k = 0; i < n_u; ++i) {
-		int32_t k0 = k, ni = (int32_t)u[i];
-		for (j = 0; j < ni; ++j)
-			swap[k++] = lc[a[v[k0 + (ni - j - 1)]].i];
-	}
-	assert(k == n_v);
-	memcpy(lc, swap, n_v * sizeof(mg_lchain_t));
-	*n_lc_ = n_v;
-	*u_ = u;
+    ///reorganize lc;
+    KMALLOC(km, swap, n_v);
+    for (i = 0, k = 0; i < n_u; ++i) {
+        int32_t k0 = k, ni = (int32_t)u[i];
+        for (j = 0; j < ni; ++j)
+            swap[k++] = lc[a[v[k0 + (ni - j - 1)]].i];
+    }
+    assert(k == n_v);
+    memcpy(lc, swap, n_v * sizeof(mg_lchain_t));
+    *n_lc_ = n_v;
+    *u_ = u;
 
-	kfree(km, a);
-	kfree(km, swap);
-	kfree(km, v);
-	return n_u;
+    kfree(km, a);
+    kfree(km, swap);
+    kfree(km, v);
+    return n_u;
 }
 
 
+static inline void copy_lchain(mg_llchain_t *q, const mg_lchain_t *p, int32_t *n_a, mg128_t *a_new, const mg128_t *a_old)
+{
+	q->cnt = p->cnt, q->v = p->v, q->score = p->score;
+	memcpy(&a_new[*n_a], &a_old[p->off], q->cnt * sizeof(mg128_t));
+	q->off = *n_a;
+	(*n_a) += q->cnt;
+}
+
+void mg_gchain_extra(const asg_t *g, mg_gchains_t *gs)
+{
+	int32_t i, j, k;
+	for (i = 0; i < gs->n_gc; ++i) { // iterate over gchains
+		mg_gchain_t *p = &gs->gc[i];
+		const mg_llchain_t *q;
+		const mg128_t *last_a;
+		int32_t q_span, rest_pl, tmp, n_mini;
+
+		p->qs = p->qe = p->ps = p->pe = -1, p->plen = p->blen = p->mlen = 0, p->div = -1.0f;
+		if (p->cnt == 0) continue;
+
+		assert(gs->lc[p->off].cnt > 0 && gs->lc[p->off + p->cnt - 1].cnt > 0); // first and last lchains can't be empty
+		q = &gs->lc[p->off];
+		q_span = (int32_t)(gs->a[q->off].y>>32&0xff);
+		/**
+		 * a[].x: idx_in_minimizer_arr(32)r_pos(32)
+ 		 * a[].y: weight(8)query_id(8)flag(8)span(8)q_pos(32)
+		 * **/
+		p->qs = (int32_t)gs->a[q->off].y + 1 - q_span;///calculated by the first lchain
+		p->ps = (int32_t)gs->a[q->off].x + 1 - q_span;///calculated by the first lchain
+		tmp = (int32_t)(gs->a[q->off].x>>32);
+		assert(p->qs >= 0 && p->ps >= 0);
+		q = &gs->lc[p->off + p->cnt - 1];///last lchain
+		p->qe = (int32_t)gs->a[q->off + q->cnt - 1].y + 1;
+		p->pe = g->seq[q->v>>1].len - (int32_t)gs->a[q->off + q->cnt - 1].x - 1; // this is temporary
+		n_mini = (int32_t)(gs->a[q->off + q->cnt - 1].x>>32) - tmp + 1;
+		assert(p->n_anchor > 0);
+
+		rest_pl = 0; // this value is never used if the first lchain is not empty (which should always be true)
+		last_a = &gs->a[gs->lc[p->off].off];///first minizers in the first linear chain
+		for (j = 0; j < p->cnt; ++j) { // iterate over lchains
+			const mg_llchain_t *q = &gs->lc[p->off + j];
+			int32_t vlen = g->seq[q->v>>1].len;///node length in graph
+			p->plen += vlen;
+			for (k = 0; k < q->cnt; ++k) { // iterate over anchors
+				const mg128_t *r = &gs->a[q->off + k];
+				int32_t pl, ql = (int32_t)r->y - (int32_t)last_a->y;
+				int32_t span = (int32_t)(r->y>>32&0xff);
+				if (j == 0 && k == 0) { // the first anchor on the first lchain
+					pl = ql = span;
+				} else if (j > 0 && k == 0) { // the first anchor but not on the first lchain
+					pl = (int32_t)r->x + 1 + rest_pl;
+				} else {
+					pl = (int32_t)r->x - (int32_t)last_a->x;
+				}
+				if (ql < 0) ql = -ql, n_mini += (int32_t)(last_a->x>>32) - (int32_t)(r->x>>32); // dealing with overlapping query at junctions
+				p->blen += pl > ql? pl : ql;
+				p->mlen += pl > span && ql > span? span : pl < ql? pl : ql;
+				last_a = r;
+			}
+			if (q->cnt == 0) rest_pl += vlen;
+			else rest_pl = vlen - (int32_t)gs->a[q->off + q->cnt - 1].x - 1;
+		}
+		p->pe = p->plen - p->pe;
+		assert(p->pe >= p->ps);
+		// here n_mini >= p->n_anchor should stand almost all the time
+		p->div = n_mini >= p->n_anchor? log((double)n_mini / p->n_anchor) / q_span : log((double)p->n_anchor / n_mini) / q_span;
+	}
+}
+
+// reorder gcs->a[] and gcs->lc[] such that they are in the same order as gcs->gc[]
+void mg_gchain_restore_order(void *km, mg_gchains_t *gcs)
+{
+	int32_t i, n_a, n_lc;
+	mg_llchain_t *lc;
+	mg128_t *a;
+	KMALLOC(km, lc, gcs->n_lc);
+	KMALLOC(km, a, gcs->n_a);
+	n_a = n_lc = 0;
+	for (i = 0; i < gcs->n_gc; ++i) {
+		mg_gchain_t *gc = &gcs->gc[i];
+		assert(gc->cnt > 0);
+		memcpy(&lc[n_lc], &gcs->lc[gc->off], gc->cnt * sizeof(mg_llchain_t));
+		memcpy(&a[n_a], &gcs->a[gcs->lc[gc->off].off], gc->n_anchor * sizeof(mg128_t));
+		n_lc += gc->cnt, n_a += gc->n_anchor;
+	}
+	memcpy(gcs->lc, lc, gcs->n_lc * sizeof(mg_llchain_t));
+	memcpy(gcs->a, a, gcs->n_a * sizeof(mg128_t));
+	kfree(km, lc); kfree(km, a);
+}
+
+// sort chains by score
+void mg_gchain_sort_by_score(void *km, mg_gchains_t *gcs)
+{
+	mg128_t *z;
+	mg_gchain_t *gc;
+	int32_t i;
+	KMALLOC(km, z, gcs->n_gc);
+	KMALLOC(km, gc, gcs->n_gc);
+	for (i = 0; i < gcs->n_gc; ++i)
+		z[i].x = (uint64_t)gcs->gc[i].score << 32 | gcs->gc[i].hash, z[i].y = i;
+	radix_sort_128x(z, z + gcs->n_gc);
+	for (i = gcs->n_gc - 1; i >= 0; --i)
+		gc[gcs->n_gc - 1 - i] = gcs->gc[z[i].y];
+	memcpy(gcs->gc, gc, gcs->n_gc * sizeof(mg_gchain_t));
+	kfree(km, z); kfree(km, gc);
+	mg_gchain_restore_order(km, gcs); // this put gcs in the proper order
+}
+
+///u[]: sc|occ of chains
+///a[]: candidate list
+///gcs[0] = mg_gchain_gen(0, b->km, gi->g, n_gc, u, lc, a, hash, opt->min_gc_cnt, opt->min_gc_score);
+// TODO: if frequent malloc() is a concern, filter first and then generate gchains; or generate gchains in thread-local pool and then move to global malloc()
+mg_gchains_t *mg_gchain_gen(void *km_dst, void *km, const asg_t *g, int32_t n_u, const uint64_t *u, const mg_lchain_t *lc, const mg128_t *a,
+							uint32_t hash, int32_t min_gc_cnt, int32_t min_gc_score)
+{
+	mg_gchains_t *gc;
+	mg_llchain_t *tmp;
+	int32_t i, j, k, st, n_g, n_a, s_tmp, n_tmp, m_tmp;
+	KCALLOC(km_dst, gc, 1);
+	// count the number of gchains and remaining anchors
+	// filter out low-quality g_chains
+	for (i = 0, st = 0, n_g = n_a = 0; i < n_u; ++i) {
+		///nui: how many linear chaisn in i-th g_chain
+		int32_t m = 0, nui = (int32_t)u[i];
+		for (j = 0; j < nui; ++j) m += lc[st + j].cnt; // m is the number of anchors in this gchain
+		if (m >= min_gc_cnt && (int64_t)(u[i]>>32) >= min_gc_score)
+			++n_g, n_a += m;
+		st += nui;
+	}
+	if (n_g == 0) return gc;
+
+	// preallocate
+	gc->km = km_dst;
+	gc->n_gc = n_g, gc->n_a = n_a;
+	KCALLOC(km_dst, gc->gc, n_g);///all graph chains
+	KMALLOC(km_dst, gc->a, n_a);///all anchors, aka minimizers
+
+	// core loop
+	tmp = 0; s_tmp = n_tmp = m_tmp = 0;
+		for (i = k = 0, st = 0, n_a = 0; i < n_u; ++i) {
+		int32_t n_a0 = n_a, m = 0, nui = (int32_t)u[i]; ///nui: how many linear chaisn in i-th g_chain
+		for (j = 0; j < nui; ++j) m += lc[st + j].cnt; ///how many minizers in i-th g_chain
+		if (m >= min_gc_cnt && (int64_t)(u[i]>>32) >= min_gc_score) {
+			mg_llchain_t *q;
+			uint32_t h = hash;
+
+			gc->gc[k].score = u[i]>>32; ///chain score
+			gc->gc[k].off = s_tmp; ///all minimizers of k-th chain: gc->a[gc->gc[k].off, )
+
+			for (j = 0; j < nui; ++j) {///how many linear chains
+				const mg_lchain_t *p = &lc[st + j];
+				h += __ac_Wang_hash(p->qs) + __ac_Wang_hash(p->re) + __ac_Wang_hash(p->v);
+			}
+			gc->gc[k].hash = __ac_Wang_hash(h);///hash key for the k-th graph chain
+
+			if (n_tmp == m_tmp) KEXPAND(km, tmp, m_tmp);
+			// copy the first lchain to gc->a[] and tmp[] (aka, gc->lc[])
+			// for the first lchain, it is easy and we just copy all its anchors
+			copy_lchain(&tmp[n_tmp++], &lc[st], &n_a, gc->a, a); 
+			///0-th lchain has been stored
+			///process the remaining chains
+			for (j = 1; j < nui; ++j) { 
+				const mg_lchain_t *l0 = &lc[st + j - 1], *l1 = &lc[st + j];
+				if (!l1->inner_pre) { // bridging two segments; if l0 and l1 are at different reference
+					int32_t s, n_pathv;
+					mg_path_dst_t dst;
+					mg_pathv_t *p;
+					memset(&dst, 0, sizeof(mg_path_dst_t));
+					dst.v = l0->v ^ 1;
+					assert(l1->dist_pre >= 0);
+					dst.target_dist = l1->dist_pre;
+					dst.target_hash = l1->hash_pre;
+					dst.check_hash = 1;
+					p = mg_shortest_k(km, g, l1->v^1, 1, &dst, dst.target_dist, MG_MAX_SHORT_K, &n_pathv);
+					if (n_pathv == 0 || dst.target_hash != dst.hash)
+						fprintf(stderr, "%c[%d] -> %c[%d], dist=%d, target_dist=%d\n", "><"[(l1->v^1)&1], l1->v^1, "><"[(l0->v^1)&1], l0->v^1, dst.dist, dst.target_dist);
+					assert(n_pathv > 0);
+					assert(dst.target_hash == dst.hash);
+					for (s = n_pathv - 2; s >= 1; --s) { // path found in a backward way, so we need to reverse it
+						if (n_tmp == m_tmp) KEXPAND(km, tmp, m_tmp);
+						q = &tmp[n_tmp++];
+						q->off = q->cnt = q->score = 0;
+						q->v = p[s].v^1; // when reversing a path, we also need to flip the orientation
+					}
+					kfree(km, p);
+					if (n_tmp == m_tmp) KEXPAND(km, tmp, m_tmp);
+					copy_lchain(&tmp[n_tmp++], l1, &n_a, gc->a, a);
+				}
+				else { // if both of them are at the same linear chain, just merge them
+					#if 1
+					int32_t k;
+					mg_llchain_t *t = &tmp[n_tmp - 1];//the last lchain, have alread done
+					assert(l0->v == l1->v);
+					// a[].x: ref_id(31)rev(1)r_pos(32)
+ 					// a[].y: weight(8)query_id(8)flag(8)span(8)q_pos(32)
+					for (k = 0; k < l1->cnt; ++k) {
+						const mg128_t *ak = &a[l1->off + k];
+						if ((int32_t)ak->x > l0->re && (int32_t)ak->y > l0->qe)//find colinear anchors
+							break;
+					}
+					assert(k < l1->cnt);
+					t->cnt += l1->cnt - k, t->score += l1->score;
+					memcpy(&gc->a[n_a], &a[l1->off + k], (l1->cnt - k) * sizeof(mg128_t));
+					n_a += l1->cnt - k;
+					#else // don't use this block; for debugging only
+					if (n_tmp == m_tmp) KEXPAND(km, tmp, m_tmp);
+					copy_lchain(&tmp[n_tmp++], l1, &n_a, gc->a, a);
+					#endif
+				}
+			}
+			gc->gc[k].cnt = n_tmp - s_tmp;
+			gc->gc[k].n_anchor = n_a - n_a0;
+			++k, s_tmp = n_tmp;
+		}
+		st += nui;
+	}
+	assert(n_a <= gc->n_a);
+
+	gc->n_a = n_a;
+	gc->n_lc = n_tmp;
+	KMALLOC(km_dst, gc->lc, n_tmp);
+	memcpy(gc->lc, tmp, n_tmp * sizeof(mg_llchain_t));
+	kfree(km, tmp);
+
+	mg_gchain_extra(g, gc);
+	mg_gchain_sort_by_score(km, gc);
+	return gc;
+}
+
+
+// set r[].{id,parent,subsc}, ASSUMING r[] is sorted by score
+// mg_gchain_set_parent(b->km, opt->mask_level, gcs[0]->n_gc, gcs[0]->gc, opt->sub_diff, 0);
+void mg_gchain_set_parent(void *km, float mask_level, int n, mg_gchain_t *r, int sub_diff, int hard_mask_level)
+{
+	int i, j, k, *w;
+	uint64_t *cov;
+	if (n <= 0) return;
+	for (i = 0; i < n; ++i) r[i].id = i;
+	cov = (uint64_t*)kmalloc(km, n * sizeof(uint64_t));
+	w = (int*)kmalloc(km, n * sizeof(int));
+	w[0] = 0, r[0].parent = 0;///the first gchain is a primary hits; since all gchains have already been sorted by scores
+	for (i = 1, k = 1; i < n; ++i) {///start from the 1-th chain, instead of the 0-th chain
+		mg_gchain_t *ri = &r[i];
+		int si = ri->qs, ei = ri->qe, n_cov = 0, uncov_len = 0;
+		if (hard_mask_level) goto skip_uncov;
+		for (j = 0; j < k; ++j) { // traverse existing primary hits to find overlapping hits
+			mg_gchain_t *rp = &r[w[j]];
+			int sj = rp->qs, ej = rp->qe;
+			if (ej <= si || sj >= ei) continue;///no overlaps
+			if (sj < si) sj = si;///MAX(si, sj)
+			if (ej > ei) ej = ei;///MIN(ei, ej)
+			cov[n_cov++] = (uint64_t)sj<<32 | ej;///overlap coordinates
+		}
+		if (n_cov == 0) {
+			goto set_parent_test; // no overlapping primary hits; then i is a new primary hit
+		} else if (n_cov > 0) { // there are overlapping primary hits; find the length not covered by existing primary hits
+			int j, x = si;
+			radix_sort_gfa64(cov, cov + n_cov);
+			for (j = 0; j < n_cov; ++j) {
+				if ((int)(cov[j]>>32) > x) uncov_len += (cov[j]>>32) - x;
+				x = (int32_t)cov[j] > x? (int32_t)cov[j] : x;
+			}
+			if (ei > x) uncov_len += ei - x;
+		}
+skip_uncov:
+		for (j = 0; j < k; ++j) { // traverse existing primary hits again
+			mg_gchain_t *rp = &r[w[j]];
+			int sj = rp->qs, ej = rp->qe, min, max, ol;
+			if (ej <= si || sj >= ei) continue; // no overlap
+			min = ej - sj < ei - si? ej - sj : ei - si;///chain length
+			max = ej - sj > ei - si? ej - sj : ei - si;///chain length
+			ol = si < sj? (ei < sj? 0 : ei < ej? ei - sj : ej - sj) : (ej < si? 0 : ej < ei? ej - si : ei - si); // overlap length; TODO: this can be simplified
+			if ((float)ol / min - (float)uncov_len / max > mask_level) {
+				int cnt_sub = 0;
+				ri->parent = rp->parent;
+				rp->subsc = rp->subsc > ri->score? rp->subsc : ri->score;
+				if (ri->cnt >= rp->cnt) cnt_sub = 1;
+				if (cnt_sub) ++rp->n_sub;
+				break;
+			}
+		}
+set_parent_test:
+		if (j == k) w[k++] = i, ri->parent = i, ri->n_sub = 0;
+	}
+	kfree(km, cov);
+	kfree(km, w);
+}
+
+// set r[].flt, i.e. mark weak suboptimal chains as filtered
+int mg_gchain_flt_sub(float pri_ratio, int min_diff, int best_n, int n, mg_gchain_t *r)
+{
+	if (pri_ratio > 0.0f && n > 0) {
+		int i, k, n_2nd = 0;
+		for (i = k = 0; i < n; ++i) {
+			int p = r[i].parent;
+			if (p == i) { // primary
+				r[i].flt = 0, ++k;
+			} else if ((r[i].score >= r[p].score * pri_ratio || r[i].score + min_diff >= r[p].score) && n_2nd < best_n) {
+				if (!(r[i].qs == r[p].qs && r[i].qe == r[p].qe && r[i].ps == r[p].ps && r[i].pe == r[p].pe)) // not identical hits; TODO: check path as well
+					r[i].flt = 0, ++n_2nd, ++k;
+				else r[i].flt = 1;
+			} else r[i].flt = 1;
+		}
+		return k;
+	}
+	return n;
+}
+
+// recompute gcs->gc[].{off,n_anchor} and gcs->lc[].off, ASSUMING they are properly ordered (see mg_gchain_restore_order)
+void mg_gchain_restore_offset(mg_gchains_t *gcs)
+{
+	int32_t i, j, n_a, n_lc;
+	for (i = 0, n_a = n_lc = 0; i < gcs->n_gc; ++i) {
+		mg_gchain_t *gc = &gcs->gc[i];
+		gc->off = n_lc;
+		for (j = 0, gc->n_anchor = 0; j < gc->cnt; ++j) {
+			mg_llchain_t *lc = &gcs->lc[n_lc + j];
+			lc->off = n_a;
+			n_a += lc->cnt;
+			gc->n_anchor += lc->cnt;
+		}
+		n_lc += gc->cnt;
+	}
+	assert(n_lc == gcs->n_lc && n_a == gcs->n_a);
+}
+
+// hard drop filtered chains, ASSUMING gcs is properly ordered
+void mg_gchain_drop_flt(void *km, mg_gchains_t *gcs)
+{
+	int32_t i, n_gc, n_lc, n_a, n_lc0, n_a0, *o2n;
+	if (gcs->n_gc == 0) return;
+	KMALLOC(km, o2n, gcs->n_gc);
+	for (i = 0, n_gc = 0; i < gcs->n_gc; ++i) {
+		mg_gchain_t *r = &gcs->gc[i];
+		o2n[i] = -1;
+		if (r->flt || r->cnt == 0) continue;
+		o2n[i] = n_gc++;
+	}
+	n_gc = n_lc = n_a = 0;
+	n_lc0 = n_a0 = 0;
+	for (i = 0; i < gcs->n_gc; ++i) {
+		mg_gchain_t *r = &gcs->gc[i];
+		if (o2n[i] >= 0) {
+			memmove(&gcs->a[n_a], &gcs->a[n_a0], r->n_anchor * sizeof(mg128_t));
+			memmove(&gcs->lc[n_lc], &gcs->lc[n_lc0], r->cnt * sizeof(mg_llchain_t));
+			gcs->gc[n_gc] = *r;
+			gcs->gc[n_gc].id = n_gc;
+			gcs->gc[n_gc].parent = o2n[gcs->gc[n_gc].parent];
+			++n_gc, n_lc += r->cnt, n_a += r->n_anchor;
+		}
+		n_lc0 += r->cnt, n_a0 += r->n_anchor;
+	}
+	assert(n_lc0 == gcs->n_lc && n_a0 == gcs->n_a);
+	kfree(km, o2n);
+	gcs->n_gc = n_gc, gcs->n_lc = n_lc, gcs->n_a = n_a;
+	if (n_a != n_a0) {
+		KREALLOC(gcs->km, gcs->a, gcs->n_a);
+		KREALLOC(gcs->km, gcs->lc, gcs->n_lc);
+		KREALLOC(gcs->km, gcs->gc, gcs->n_gc);
+	}
+	mg_gchain_restore_offset(gcs);
+}
+
+// estimate mapping quality
+///mg_gchain_set_mapq(b->km, gcs, qlen, mz->n, opt->min_gc_score);
+void mg_gchain_set_mapq(void *km, mg_gchains_t *gcs, int qlen, int max_mini, int min_gc_score)
+{
+	static const float q_coef = 40.0f;
+	int64_t sum_sc = 0;
+	float uniq_ratio, r_sc, r_cnt;
+	int i, t_sc, t_cnt;
+	if (gcs == 0 || gcs->n_gc == 0) return;
+	t_sc = qlen < 100? qlen : 100;
+	t_cnt = max_mini < 10? max_mini : 10;
+	if (t_cnt < 5) t_cnt = 5;
+	r_sc = 1.0 / t_sc;
+	r_cnt = 1.0 / t_cnt;
+	for (i = 0; i < gcs->n_gc; ++i)
+		if (gcs->gc[i].parent == gcs->gc[i].id)
+			sum_sc += gcs->gc[i].score;///primary chain
+	uniq_ratio = (float)sum_sc / (sum_sc + gcs->rep_len);
+	for (i = 0; i < gcs->n_gc; ++i) {
+		mg_gchain_t *r = &gcs->gc[i];
+		if (r->parent == r->id) {///primary chain
+			int mapq, subsc;
+			float pen_s1 = (r->score > t_sc? 1.0f : r->score * r_sc) * uniq_ratio;
+			float x, pen_cm = r->n_anchor > t_cnt? 1.0f : r->n_anchor * r_cnt;
+			pen_cm = pen_s1 < pen_cm? pen_s1 : pen_cm;
+			subsc = r->subsc > min_gc_score? r->subsc : min_gc_score;
+			x = (float)subsc / r->score;
+			mapq = (int)(pen_cm * q_coef * (1.0f - x) * logf(r->score));
+			mapq -= (int)(4.343f * logf(r->n_sub + 1) + .499f);
+			mapq = mapq > 0? mapq : 0;
+			if (r->score > subsc && mapq == 0) mapq = 1;
+			r->mapq = mapq < 60? mapq : 60;
+		} else r->mapq = 0;
+	}
+}
+
 void mg_map_frag(const void *ha_flt_tab, const ha_pt_t *ha_idx, const ma_ug_t *ug, const uint32_t qid, const int qlen, const char *qseq, ha_mzl_v *mz, 
-st_mt_t *sp, mg_tbuf_t *b, int32_t w, int32_t k, int32_t hpc, int32_t mz_sd, int32_t mz_rewin, const mg_idxopt_t *opt)
+st_mt_t *sp, mg_tbuf_t *b, int32_t w, int32_t k, int32_t hpc, int32_t mz_sd, int32_t mz_rewin, const mg_idxopt_t *opt, mg_gchains_t **gcs)
 {
     mg128_t *a = NULL;
     int64_t n_a;
     int32_t *mini_pos;
-    int i, rep_len, n_mini_pos, n_lc, max_chain_gap_qry, max_chain_gap_ref;
+    int i, rep_len, n_mini_pos, n_lc, max_chain_gap_qry, max_chain_gap_ref, n_gc;
+	uint32_t hash;
     uint64_t *u;
 	mg_lchain_t *lc;
+	km_stat_t kmst;
+	(*gcs) = NULL;
+
+	hash  = qid;
+    hash ^= __ac_Wang_hash(qlen) + __ac_Wang_hash(opt->seed);
+    hash  = __ac_Wang_hash(hash);
+
     mz->n = 0;
     mz2_ha_sketch(qseq, qlen, w, k, 0, hpc, mz, ha_flt_tab, mz_sd, NULL, NULL, NULL, -1, -1, -1, sp, mz_rewin, 1);
-    ///a[]->y: weight(8)seg_id(8)flag(8)span(8)pos(32);--->query
+	///a[]->y: weight(8)seg_id(8)flag(8)span(8)pos(32);--->query
     ///a[]->x: rid(31)rev(1)rpos(33);--->reference
     a = collect_seed_hits(b->km, opt, opt->hap_n, ha_flt_tab, ha_idx, ug, mz, &n_a, &rep_len, &n_mini_pos, &mini_pos);
-    if (opt->max_gap_pre > 0 && opt->max_gap_pre * 2 < opt->max_gap) n_a = flt_anchors(n_a, a, opt->max_gap_pre);
+	if (opt->max_gap_pre > 0 && opt->max_gap_pre * 2 < opt->max_gap) n_a = flt_anchors(n_a, a, opt->max_gap_pre);
     max_chain_gap_qry = max_chain_gap_ref = opt->max_gap;
     if (n_a == 0) {
         if(a) kfree(b->km, a);
@@ -1262,22 +1760,88 @@ st_mt_t *sp, mg_tbuf_t *b, int32_t w, int32_t k, int32_t hpc, int32_t mz_sd, int
 			mg_update_anchors(lc[i].cnt, &a[lc[i].off], n_mini_pos, mini_pos);///update a[].x
 	} else lc = 0;
 	kfree(b->km, mini_pos); kfree(b->km, u);
-
+	// fprintf(stderr, "++0++qid: %u, qlen: %d, n_a: %ld, n_lc: %d\n", qid, qlen, n_a, n_lc);
 	/**
 	 * up to here, a[] has been changed
 	 * a[].x: idx_in_minimizer_arr(32)r_pos(32)
 	 * a[].y: weight(8)query_id(8)flag(8)span(8)q_pos(32)
 	**/
-	
+	n_gc = mg_gchain1_dp(b->km, ug, &n_lc, lc, qlen, max_chain_gap_ref, max_chain_gap_qry, opt->bw, opt->max_gc_skip, opt->ref_bonus,
+						opt->chn_pen_gap, opt->mask_level, opt->max_gc_seq_ext, a, &u);
+	(*gcs) = mg_gchain_gen(0, b->km, ug->g, n_gc, u, lc, a, hash, opt->min_gc_cnt, opt->min_gc_score);
+	(*gcs)->rep_len = rep_len; (*gcs)->qid = qid; (*gcs)->qlen = qlen;
+	kfree(b->km, a);
+	kfree(b->km, lc);
+	kfree(b->km, u);
+
+	mg_gchain_set_parent(b->km, opt->mask_level, (*gcs)->n_gc, (*gcs)->gc, opt->sub_diff, 0);
+	mg_gchain_flt_sub(opt->pri_ratio, k * 2, opt->best_n, (*gcs)->n_gc, (*gcs)->gc);
+	mg_gchain_drop_flt(b->km, (*gcs));
+	mg_gchain_set_mapq(b->km, (*gcs), qlen, mz->n, opt->min_gc_score);
+
+	if (b->km) {
+		km_stat(b->km, &kmst);
+		if (kmst.n_blocks != kmst.n_cores) {
+			fprintf(stderr, "[E::%s] memory leak at %u\n", __func__, qid);
+			abort();
+		}
+		if (kmst.largest > 1U<<28) {
+			km_destroy(b->km);
+			b->km = km_init();
+		}
+	}
+	// fprintf(stderr, "++6++qid: %u, (*gcs)->n_gc: %d\n", qid, (*gcs)->n_gc);
+
 }
 
 static void worker_for_ul_alignment(void *data, long i, int tid) // callback for kt_for()
 {
     utepdat_t *s = (utepdat_t*)data;
-    // ma_ov_buf_t *b = s->mo[tid];
     mg_map_frag(s->ha_flt_tab, s->ha_idx, s->ug, s->id+i, s->len[i], s->seq[i], &(s->mzs[tid]), &(s->sps[tid]), s->buf[tid], s->opt->w, s->opt->k, 
-    s->opt->is_HPC, asm_opt.mz_sample_dist, asm_opt.mz_rewin, s->opt);
+    s->opt->is_HPC, asm_opt.mz_sample_dist, asm_opt.mz_rewin, s->opt, &(s->gcs[i]));
+}
 
+void dump_gaf(mg_gres_a *hits, const mg_gchains_t *gs, uint32_t only_p)
+{
+	if (gs == NULL || gs->n_gc == 0 || gs->n_lc == 0) return;
+	uint64_t i, j;
+	int64_t q_span;
+	mg_gres_t *p = NULL;
+	kv_pushp(mg_gres_t, *hits, &p); memset(p, 0, sizeof(*p));
+	p->n_gc = 0; p->n_lc = 0; p->qid = gs->qid; p->qlen = gs->qlen;
+	// p->n_gc = gs->n_gc; p->n_lc = gs->n_lc; p->qid = gs->qid; p->qlen = gs->qlen;
+	// MALLOC(p->gc, p->n_gc); memcpy(p->gc, gs->gc, p->n_gc);
+	for (i = 0; i < (uint64_t)gs->n_gc; ++i) {
+		const mg_gchain_t *t = &gs->gc[i];///one of the gchain
+		if(only_p && t->id != t->parent) continue;
+		if (t->cnt == 0) continue;
+		p->n_gc++; p->n_lc += t->cnt;
+	}
+	if (p->n_gc == 0) {
+		hits->n--;
+		return;
+	}
+	MALLOC(p->gc, p->n_gc); MALLOC(p->lc, p->n_lc); 
+	p->n_gc = p->n_lc = 0;
+	for (i = 0; i < (uint64_t)gs->n_gc; ++i) {
+		const mg_gchain_t *t = &gs->gc[i];///one of the gchain
+		if(only_p && t->id != t->parent) continue;
+		if (t->cnt == 0) continue;
+		p->gc[p->n_gc] = *t; p->gc[p->n_gc].off = p->n_lc;
+		for (j = 0; j < (uint64_t)t->cnt; ++j) {
+			const mg_llchain_t *q = &gs->lc[t->off + j];
+			p->lc[p->n_lc+j].cnt = q->cnt;
+			p->lc[p->n_lc+j].score = q->score;
+			p->lc[p->n_lc+j].v = q->v;
+			q_span = (int32_t)(gs->a[q->off].y>>32&0xff);
+			p->lc[p->n_lc+j].qs = (int32_t)gs->a[q->off].y + 1 - q_span;///calculated by the first lchain
+			p->lc[p->n_lc+j].ts = (int32_t)gs->a[q->off].x + 1 - q_span;///calculated by the first lchain
+			p->lc[p->n_lc+j].qe = (int32_t)gs->a[q->off + q->cnt - 1].y + 1;
+			p->lc[p->n_lc+j].te = (int32_t)gs->a[q->off + q->cnt - 1].x + 1;
+			// mg_sprintf_lite(s, "%c%s", "><"[q->v&1], g->seg[q->v>>1].name);
+		}
+		p->n_gc++; p->n_lc += t->cnt;
+	}
 }
 
 static void *worker_ul_pipeline(void *data, int step, void *in) // callback for kt_pipeline()
@@ -1298,6 +1862,12 @@ static void *worker_ul_pipeline(void *data, int step, void *in) // callback for 
                 REALLOC(s->len, s->m);
                 REALLOC(s->seq, s->m);
             }
+			if(asm_opt.flag & HA_F_VERBOSE_GFA) {
+				kv_push(uint64_t, p->nn, p->ks->name.l+p->nn.tl);
+				kv_resize(char, p->nn.cc, p->ks->name.l+p->nn.tl);
+				memcpy(p->nn.cc.a+p->nn.tl, p->ks->name.s, p->ks->name.l);
+				p->nn.tl += p->ks->name.l;
+			}
             l = p->ks->seq.l;
             MALLOC(s->seq[s->n], l);
             s->sum_len += l;
@@ -1314,35 +1884,36 @@ static void *worker_ul_pipeline(void *data, int step, void *in) // callback for 
         utepdat_t *s = (utepdat_t*)in;
         CALLOC(s->mzs, p->n_thread);
         CALLOC(s->sps, p->n_thread);
+		CALLOC(s->gcs, s->n);
 
 		s->buf = (mg_tbuf_t**)calloc(p->n_thread, sizeof(mg_tbuf_t*));
 		for (i = 0; i < p->n_thread; ++i) s->buf[i] = mg_tbuf_init();
-        /**
-        CALLOC(s->pos, s->n);
-        **/
+        
         kt_for(p->n_thread, worker_for_ul_alignment, s, s->n);
         for (i = 0; i < (uint64_t)s->n; ++i) {
             free(s->seq[i]);
             p->total_base += s->len[i];
         }
-        free(s->seq); free(s->len);
-
-		for (i = 0; i < p->n_thread; ++i) mg_tbuf_destroy(s->buf[i]);
-		free(s->buf);
+        free(s->seq); free(s->len); 
+		
+		for (i = 0; i < p->n_thread; ++i) {
+			mg_tbuf_destroy(s->buf[i]);
+			free(s->mzs[i].a); free(s->sps[i].a);
+		}
+		
+		free(s->buf); free(s->mzs); free(s->sps);
 		return s;
     }
     else if (step == 2) { // step 3: dump
         utepdat_t *s = (utepdat_t*)in;
-        /**
-        int i;
-        for (i = 0; i < s->n; ++i) {
-            // if(s->pos[i].a == NULL) continue;
-            // kv_push(pe_hit_hap, p->hits, s->pos[i]);
-            if(s->pos[i].s == (uint64_t)-1) continue;
-            kv_push(pe_hit, p->hits.a, s->pos[i]);
+		uint64_t i;
+        for (i = 0; i < (uint64_t)s->n; ++i) {
+            // if(s->pos[i].s == (uint64_t)-1) continue;
+            // kv_push(pe_hit, p->hits.a, s->pos[i]);
+			dump_gaf(&(p->hits), s->gcs[i], 1);
+			free(s->gcs[i]->gc); free(s->gcs[i]->a); free(s->gcs[i]->lc); free(s->gcs[i]);
         }
-        free(s->pos);
-        **/
+        free(s->gcs);
         free(s);
     }
     return 0;
@@ -1364,28 +1935,50 @@ int alignment_ul_pipeline(uldat_t* sl, const enzyme *fn)
     return 1;
 }
 
+void print_gaf(const ma_ug_t *ug, mg_gres_a *hits, mg_dbn_t *name)
+{
+	uint64_t i, q;
+	int32_t k, nl, m;
+	char *nn; mg_gchain_t *gc; mg_lres_t *lc; 
+	for (i = 0; i < hits->n; i++) {
+		q = hits->a[i].qid;
+		nn = name->cc.a + (q>0?name->a[q-1]:0);
+		nl = name->a[q] - (q>0?name->a[q-1]:0);
+		for (k = 0; k < hits->a[i].n_gc; k++) {
+			gc = &(hits->a[i].gc[k]);
+			fprintf(stderr, "S\t%.*s\tq:id:%lu\tl:n:%d\n", nl, nn, q, gc->cnt);
+			for (m = 0; m < gc->cnt; m++) {
+				lc = &(hits->a[i].lc[gc->off + m]);
+				fprintf(stderr, "*\tA\tutg%.6d%c\t%c\tqs:%u\tqe:%u\tql:%lu\tts:%u\tte:%u\ttl:%u\n", 
+				(lc->v>>1)+1, "lc"[ug->u.a[lc->v>>1].circ], "+-"[lc->v&1], lc->qs, lc->qe, hits->a[i].qlen, lc->ts, lc->te, ug->u.a[lc->v>>1].len);
+			}
+		}
+	}
+}
+
 int ul_align(mg_idxopt_t *opt, const enzyme *fn, void *ha_flt_tab, ha_pt_t *ha_idx, ma_ug_t *ug)
 {
     uldat_t sl; memset(&sl, 0, sizeof(sl));
     sl.ha_flt_tab = ha_flt_tab;
     sl.ha_idx = ha_idx;
     sl.opt = opt;   
-    sl.chunk_size = 20000000;
+    sl.chunk_size = 200000000;
     sl.n_thread = asm_opt.thread_num;
     sl.ug = ug;
     alignment_ul_pipeline(&sl, fn);
+	print_gaf(ug, &(sl.hits), &(sl.nn));
+	mg_gres_a_des(&(sl.hits)); free(sl.nn.a); free(sl.nn.cc.a);
     return 1;
 }
 
 void ul_resolve(ma_ug_t *ug, int hap_n)
 {
+	fprintf(stderr, "[M::%s::] ==> UL\n", __func__);
     mg_idxopt_t opt;
     init_mg_opt(&opt, 0, 19, 10, hap_n);
-    uidx_build(ug, &opt);
+	int exist = (asm_opt.load_index_from_disk? uidx_load(&ha_flt_tab, &ha_idx, asm_opt.output_file_name) : 0);
+    if(exist == 0) uidx_build(ug, &opt);
+	if(exist == 0) uidx_write(ha_flt_tab, ha_idx, asm_opt.output_file_name);
     ul_align(&opt, asm_opt.ar, ha_flt_tab, ha_idx, ug);
-
-
-
-
     uidx_destory();
 }

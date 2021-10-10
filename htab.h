@@ -86,6 +86,8 @@ const int ha_pt_cnt(const ha_pt_t *h, uint64_t hash);
 
 int write_pt_index(void *flt_tab, ha_pt_t *ha_idx, All_reads* r, hifiasm_opt_t* opt, char* file_name);
 int load_pt_index(void **r_flt_tab, ha_pt_t **r_ha_idx, All_reads* r, hifiasm_opt_t* opt, char* file_name);
+int uidx_write(void *flt_tab, ha_pt_t *ha_idx, char* file_name);
+int uidx_load(void **r_flt_tab, ha_pt_t **r_ha_idx, char* file_name);
 int write_ct_index(void *ct_idx, char* file_name);
 int load_ct_index(void **ct_idx, char* file_name);
 int query_ct_index(void* ct_idx, uint64_t hash);
