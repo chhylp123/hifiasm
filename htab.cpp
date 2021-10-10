@@ -676,7 +676,7 @@ static void sf##_worker_for_mz(void *data, long i, int tid)\
 	(s->p->pt&&(s->p->flag&HAF_COUNT_REFINE))?s->p->pt:NULL, s->p->opt->min_rcnt, asm_opt.dp_min_len, asm_opt.dp_e, &(s->mt[tid]), asm_opt.mz_rewin, s->uq);\
 	s->mz[i].n = s->mz[i].m = b->n;\
 	MALLOC(s->mz[i].a, b->n);\
-	memcpy(s->mz[i].a, b->a, b->n * sizeof(VType));\
+	MEMCPY(s->mz[i].a, b->a, b->n);\
 }\
 static inline void sf##_pt_insert_buf(sf##_ch_buf_t *buf, int p, const HType *y){\
 	/**assign minimizer to one of 4096 bins by low 12 bits**/\
@@ -974,7 +974,6 @@ ha_ct_t *ha_count(const hifiasm_opt_t *asm_o, int flag, int HPC, int k, int w, h
 	///for ha_pt_gen, shoud be 0
 	opt.bf_shift = flag & HAF_COUNT_EXACT? 0 : asm_o->bf_shift;
 	opt.n_thread = asm_o->thread_num;
-	// opt.n_thread = p0? 1: asm_o->thread_num;
 	opt.adaLen = (keep_adapter? asm_o->adapterLen : 0);
 	opt.min_rcnt = (low_freq?*low_freq:-1);
 	///asm_opt->num_reads is the number of fastq files
@@ -1085,15 +1084,11 @@ ha_pt_t *ha_pt_ug_gen(const hifiasm_opt_t *asm_opt, const void *flt_tab, ma_utg_
 	ct = ha_count(asm_opt, HAF_COUNT_EXACT|HAF_UG_READ, is_HPC, k, w, NULL, flt_tab, NULL, us, 0, NULL);
 	fprintf(stderr, "[M::%s::%.3f*%.2f] ==> counted %ld distinct minimizer k-mers\n", __func__,
 			yak_realtime(), yak_cpu_usage(), (long)ct->tot);
-	exit(1);
 	///minimizer with YAK_MAX_COUNT occ may apper > YAK_MAX_COUNT times, so it may lead to overflow at ha_pt_gen
 	ha_ct_shrink(ct, min_freq, YAK_MAX_COUNT - 1, asm_opt->thread_num);
-	fprintf(stderr, "[M::%s::%.3f*%.2f] ==> sb0\n", __func__, yak_realtime(), yak_cpu_usage());
 
 	pt = ha_pt_gen(ct, asm_opt->thread_num, 1);
-	fprintf(stderr, "[M::%s::%.3f*%.2f] ==> sb1\n", __func__, yak_realtime(), yak_cpu_usage());
 	ha_count(asm_opt, HAF_COUNT_EXACT|HAF_UG_READ, is_HPC, k, w, pt, flt_tab, NULL, us, 0, NULL);
-	fprintf(stderr, "[M::%s::%.3f*%.2f] ==> sb2\n", __func__, yak_realtime(), yak_cpu_usage());
 	//ha_pt_sort(pt, asm_opt->thread_num);
 	fprintf(stderr, "[M::%s::%.3f*%.2f] ==> indexed %ld positions\n", __func__,
 			yak_realtime(), yak_cpu_usage(), (long)pt->tot_pos);

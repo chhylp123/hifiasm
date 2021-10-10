@@ -159,6 +159,7 @@ static inline uint64_t yak_hash_long(uint64_t x[4])
 #define CALLOC(ptr, len) ((ptr) = (__typeof__(ptr))calloc((len), sizeof(*(ptr))))
 #define MALLOC(ptr, len) ((ptr) = (__typeof__(ptr))malloc((len) * sizeof(*(ptr))))
 #define REALLOC(ptr, len) ((ptr) = (__typeof__(ptr))realloc((ptr), (len) * sizeof(*(ptr))))
+#define MEMCPY(dest, src, len) (memcpy((dest), (src), (len) * sizeof(*(src))))
 
 #ifndef kroundup32
 #define kroundup32(x) (--(x), (x)|=(x)>>1, (x)|=(x)>>2, (x)|=(x)>>4, (x)|=(x)>>8, (x)|=(x)>>16, ++(x))
