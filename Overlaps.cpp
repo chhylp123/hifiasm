@@ -13289,6 +13289,12 @@ ma_hit_t_alloc* sources, R_to_U* ruIndex)
     FILE* output_file = fopen(gfa_name, "w");
     ma_ug_print(ug, sg, coverage_cut, sources, ruIndex, "utg", output_file);
     fclose(output_file);
+
+    sprintf(gfa_name, "%s.after.clean_d_utg.noseq.gfa", output_file_name);
+    output_file = fopen(gfa_name, "w");
+    ma_ug_print_simple(ug, sg, coverage_cut, sources, ruIndex, "utg", output_file);
+    fclose(output_file);
+    
     free(gfa_name);
 }
 
@@ -13325,8 +13331,8 @@ long long gap_fuzz, bub_label_t* b_mask_t)
 
     new_rtg_edges.a.n = 0;
     ma_ug_seq(ug, sg, coverage_cut, sources, &new_rtg_edges, max_hang, min_ovlp, &d_edges, 1);///polish
-    print_debug_gfa(ug, sg, coverage_cut, output_file_name, sources, ruIndex);
-    ul_resolve(ug, asm_opt.polyploidy);
+    // print_debug_gfa(ug, sg, coverage_cut, output_file_name, sources, ruIndex);
+    ul_resolve(ug, sg, &opt, asm_opt.polyploidy);
     /**
     hap_cov_t *cov = NULL;
     trans_chain* t_ch = NULL;
