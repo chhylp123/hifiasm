@@ -2079,6 +2079,18 @@ t_w_t mc_score_all_advance(const mc_match_t *ma, int8_t *s)
 	return zt;
 }
 
+void mc_status_all(const mc_match_t *ma, int8_t *s)
+{
+	t_w_t tt_w = mc_score_all_advance(ma, s);
+	uint64_t k, nn = 0, ne = 0;
+	for (k = 0; k < ma->n_seq; ++k) {
+		if((uint32_t)ma->idx.a[k]) nn++;
+		ne += (uint32_t)ma->idx.a[k];
+	}
+	fprintf(stderr, "[M::%s::] ==> # nodes: %lu, # edges: %lu, weight: %f\n", __func__, nn, ne, tt_w);
+}
+
+
 t_w_t mb_score_all_advance(const mc_match_t *ma, mb_g_t *mbg)
 {
 	uint32_t k;
@@ -2637,6 +2649,7 @@ void mb_solve_core(mc_opt_t *opt, mc_g_t *mg, kv_u_trans_t *ref, uint32_t is_sys
 	fprintf(stderr, "[M::%s::%.3f] ==> Partition\n", __func__, yak_realtime()-index_time);
 }
 
+
 void mc_solve_core(const mc_opt_t *opt, mc_g_t *mg, bubble_type* bub)
 {
 	double index_time = yak_realtime();
@@ -2665,7 +2678,10 @@ void mc_solve_core(const mc_opt_t *opt, mc_g_t *mg, bubble_type* bub)
 	if(VERBOSE_CUT)
 	{
 		fprintf(stderr, "##############end-[---M::%s::score->%f] ==> Partition\n", __func__, mc_score_all(mg->e, b));
+		mc_status_all(mg->e, mg->s.a);
 	}
+	
+
 	if(bp) mc_solve_bp(bp);	
 	///mc_write_info(g, b);
 	mc_svaux_destroy(b);

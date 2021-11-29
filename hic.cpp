@@ -494,58 +494,6 @@ void hc_pt_t_gen_single(hc_pt1_t* pt, uint64_t* up_bound, uint64_t* low_bound)
     CALLOC(pt->a, pt->n);
 }
 
-void write_dbug(ma_ug_t* ug, FILE* fp)
-{
-    ma_utg_t *u = NULL;
-    uint32_t t, i;
-    fwrite(&(ug->u.n), sizeof(ug->u.n), 1, fp);
-    for (i = 0; i < ug->u.n; i++)
-    {
-        u = &(ug->u.a[i]);
-        t = u->len;
-        fwrite(&t, sizeof(t), 1, fp);
-        t = u->circ;
-        fwrite(&t, sizeof(t), 1, fp);
-        fwrite(&(u->start), sizeof(u->start), 1, fp);
-        fwrite(&(u->end), sizeof(u->end), 1, fp);
-        fwrite(&(u->n), sizeof(u->n), 1, fp);
-        fwrite(u->a, sizeof(uint64_t), u->n, fp);
-    }
-}
-
-uint32_t test_dbug(ma_ug_t* ug, FILE* fp)
-{
-    uint32_t f_flag = 0, t, i, r_flag = 0;
-    size_t tt;
-    ma_utg_t ua, *ub = NULL; memset(&ua, 0, sizeof(ua));
-    f_flag = fread(&tt, sizeof(tt), 1, fp);
-    if(f_flag == 0 || tt != ug->u.n) goto DES;
-    for (i = 0; i < tt; i++)
-    {
-        ub = &(ug->u.a[i]);
-        f_flag = fread(&t, sizeof(t), 1, fp);
-        if(f_flag == 0 || t != ub->len) goto DES;
-        f_flag = fread(&t, sizeof(t), 1, fp);
-        if(f_flag == 0 || t != ub->circ) goto DES;
-        f_flag = fread(&(ua.start), sizeof(ua.start), 1, fp);
-        if(f_flag == 0 || ua.start != ub->start) goto DES;
-        f_flag = fread(&(ua.end), sizeof(ua.end), 1, fp);
-        if(f_flag == 0 || ua.end != ub->end) goto DES;
-        f_flag = fread(&(ua.n), sizeof(ua.n), 1, fp);
-        if(f_flag == 0 || ua.n != ub->n) goto DES;
-        t = ua.n;
-        ua.n = 0;
-        kv_resize(uint64_t, ua, t);
-        ua.n = t;
-        f_flag = fread(ua.a, sizeof(uint64_t), ua.n, fp);
-        if(f_flag == 0 || memcmp(ua.a, ub->a, ua.n)) goto DES;
-    }
-    r_flag = 1;
-
-    DES:
-    free(ua.a);
-    return r_flag;
-}
 
 int write_hc_pt_index(ha_ug_index* idx, char* file_name)
 {
@@ -16301,6 +16249,32 @@ void optimize_u_trans(kv_u_trans_t *ovlp, kvec_pe_hit* hits, ha_ug_index* idx)
     kv_destroy(k_trans); kv_destroy(k_trans.idx);
 }
 
+void round_test(ps_t *s, uint64_t seed, bubble_type *bub, kv_u_trans_t *k_trans, hc_links *link, sldat_t *sl, 
+ha_ug_index* idx, uint64_t test_block_flip, uint64_t n_perturb)
+{
+    s->xs = seed; memset(s->s, 0, s->n);
+    bub->round_id = 0; asm_opt.n_perturb = n_perturb;
+
+    fprintf(stderr, "[M::%s] ----> test_block_flip: %lu, n_perturb: %lu\n", 
+    __func__, test_block_flip, n_perturb);
+    renew_kv_u_trans(k_trans, link, &sl->hits, &(idx->t_ch->k_trans), idx, bub, s->s, NULL, 0);    
+    mc_solve(NULL, NULL, k_trans, idx->ug, idx->read_g, 0.8, R_INF.trio_flag, 
+        (bub->round_id == 0? 1 : 0), s->s, 1, NULL, test_block_flip?&(idx->t_ch->k_trans):0, 0);
+
+}
+
+void debug_round_test(ps_t *s, uint64_t seed, bubble_type *bub, kv_u_trans_t *k_trans, hc_links *link, sldat_t *sl, 
+ha_ug_index* idx, uint64_t step, uint64_t total)
+{
+    uint64_t i;
+    for (i = step; i <= total; i += step) {
+        fprintf(stderr, "\n");
+        round_test(s, seed, bub, k_trans, link, sl, idx, 0, i);
+        round_test(s, seed, bub, k_trans, link, sl, idx, 1, i);
+    }
+    
+}
+
 int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, ug_opt_t *opt, kvec_pe_hit **rhits)
 {
     double index_time = yak_realtime();
@@ -16358,6 +16332,7 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, ug_o
     //     goto skip_flipping;
     // }
     s = init_ps_t(11, idx->ug->g->n_seq);
+    // debug_round_test(s, 11, &bub, &k_trans, &link, &sl, idx, 1000, 10000);
     for (bub.round_id = 0; bub.round_id < bub.n_round; bub.round_id++)
     {
         // identify_bubbles(idx->ug, &bub, idx->t_ch->is_r_het, &(idx->t_ch->k_trans));

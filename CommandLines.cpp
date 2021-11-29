@@ -46,6 +46,7 @@ static ko_longopt_t long_options[] = {
     { "hg-size",     ko_required_argument, 332},
     { "ul",     ko_required_argument, 333},
     { "unskew",     ko_no_argument, 334},
+    { "kpt-rate",     ko_required_argument, 335},
 	{ 0, 0, 0 }
 };
 
@@ -226,6 +227,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->dp_min_len = 2000;
     asm_opt->dp_e = 0.0025;
     asm_opt->hg_size = -1;
+    asm_opt->kpt_rate = -1;
 }
 
 void destory_enzyme(enzyme* f)
@@ -740,6 +742,7 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         else if (c == 332) asm_opt->hg_size = inter_gsize(opt.arg);      
         else if (c == 333) get_hic_enzymes(opt.arg, &(asm_opt->ar), 0);
         else if (c == 334) asm_opt->flag |= HA_F_USKEW;
+        else if (c == 335) asm_opt->kpt_rate = atof(opt.arg);
         else if (c == 'l')
         {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
             asm_opt->purge_level_primary = asm_opt->purge_level_trio = atoi(opt.arg);

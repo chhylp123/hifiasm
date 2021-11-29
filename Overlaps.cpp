@@ -13091,6 +13091,40 @@ void hic_clean(asg_t* read_g)
     kv_destroy(ax);
 }
 
+void update_dump_trio(uint8_t* trio_flag, uint32_t rn, uint8_t *rf, ma_ug_t *ug)
+{
+    uint32_t k, i, x;
+    ma_utg_t *p = NULL; 
+    if(ug) {
+        for (i = 0; i < ug->u.n; ++i) { // the Segment lines in GFA
+            p = &ug->u.a[i];
+            if(p->m == 0) continue;
+            for (k = 0; k < p->n; k++) {
+                x = p->a[k]>>33;
+                if(trio_flag[x] == FATHER || trio_flag[x] == MOTHER) {
+                    rf[x] = trio_flag[x];
+                } else if(rf[x] != FATHER && rf[x] != MOTHER) {
+                    rf[x] = DROP;
+                }
+            }
+        }
+    } else {
+        for (i = 0; i < rn; i++) {
+            if(rf[i]) {
+                rf[i] <<= 1; rf[i] += 1;
+            } else {
+                rf[i] = trio_flag[i]; rf[i] <<= 1;
+            }
+
+            if(trio_flag[i] == FATHER || trio_flag[i] == MOTHER) {
+                trio_flag[i] = ((rf[i]&1)?MOTHER:FATHER);
+            } else {
+                trio_flag[i] = ((rf[i]&1)?DROP:AMBIGU);
+            }
+        }
+    }    
+}
+
 void update_poly_trio(uint32_t mm, uint32_t *hapS, uint32_t rn)
 {
     uint32_t i;
@@ -13145,6 +13179,58 @@ bub_label_t* b_mask_t, uint32_t hapN)
     free(fp); free(hapS);
 }
 
+uint32_t test_dbug(ma_ug_t* ug, FILE* fp)
+{
+    uint32_t f_flag = 0, t, i, r_flag = 0;
+    size_t tt;
+    ma_utg_t ua, *ub = NULL; memset(&ua, 0, sizeof(ua));
+    f_flag = fread(&tt, sizeof(tt), 1, fp);
+    if(f_flag == 0 || tt != ug->u.n) goto DES;
+    for (i = 0; i < tt; i++)
+    {
+        ub = &(ug->u.a[i]);
+        f_flag = fread(&t, sizeof(t), 1, fp);
+        if(f_flag == 0 || t != ub->len) goto DES;
+        f_flag = fread(&t, sizeof(t), 1, fp);
+        if(f_flag == 0 || t != ub->circ) goto DES;
+        f_flag = fread(&(ua.start), sizeof(ua.start), 1, fp);
+        if(f_flag == 0 || ua.start != ub->start) goto DES;
+        f_flag = fread(&(ua.end), sizeof(ua.end), 1, fp);
+        if(f_flag == 0 || ua.end != ub->end) goto DES;
+        f_flag = fread(&(ua.n), sizeof(ua.n), 1, fp);
+        if(f_flag == 0 || ua.n != ub->n) goto DES;
+        t = ua.n;
+        ua.n = 0;
+        kv_resize(uint64_t, ua, t);
+        ua.n = t;
+        f_flag = fread(ua.a, sizeof(uint64_t), ua.n, fp);
+        if(f_flag == 0 || memcmp(ua.a, ub->a, ua.n)) goto DES;
+    }
+    r_flag = 1;
+
+    DES:
+    free(ua.a);
+    return r_flag;
+}
+
+void write_dbug(ma_ug_t* ug, FILE* fp)
+{
+    ma_utg_t *u = NULL;
+    uint32_t t, i;
+    fwrite(&(ug->u.n), sizeof(ug->u.n), 1, fp);
+    for (i = 0; i < ug->u.n; i++)
+    {
+        u = &(ug->u.a[i]);
+        t = u->len;
+        fwrite(&t, sizeof(t), 1, fp);
+        t = u->circ;
+        fwrite(&t, sizeof(t), 1, fp);
+        fwrite(&(u->start), sizeof(u->start), 1, fp);
+        fwrite(&(u->end), sizeof(u->end), 1, fp);
+        fwrite(&(u->n), sizeof(u->n), 1, fp);
+        fwrite(u->a, sizeof(uint64_t), u->n, fp);
+    }
+}
 
 void output_contig_graph_alternative(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name,
 ma_hit_t_alloc* sources, R_to_U* ruIndex, int max_hang, int min_ovlp);
@@ -13198,7 +13284,6 @@ long long gap_fuzz, bub_label_t* b_mask_t)
         adjust_utg_by_primary(&copy_ug, copy_sg, TRIO_THRES, sources, reverse_sources, coverage_cut, 
         tipsLen, tip_drop_ratio, stops_threshold, ruIndex, chimeric_rate, drop_ratio, 
         max_hang, min_ovlp, &new_rtg_edges, &cov, b_mask_t, 1, 0);
-
         print_utg(copy_ug, copy_sg, coverage_cut, output_file_name, sources, ruIndex, max_hang, 
         min_ovlp, &new_rtg_edges);
 
@@ -13207,7 +13292,6 @@ long long gap_fuzz, bub_label_t* b_mask_t)
             output_contig_graph_alternative(copy_sg, coverage_cut, output_file_name, sources, ruIndex, max_hang, 
             min_ovlp);
         }
-
         ma_ug_destroy(copy_ug);
         asg_destroy(copy_sg);
 
@@ -13228,6 +13312,7 @@ long long gap_fuzz, bub_label_t* b_mask_t)
     // free(gfa_name);
 
     hic_analysis(ug, sg, cov?cov->t_ch:t_ch, &opt, 0, asm_opt.scffold?&rhits:NULL);
+
 
     if(!rhits && cov) destory_hap_cov_t(&cov);
     if(!rhits && t_ch) destory_trans_chain(&t_ch);
@@ -14692,6 +14777,16 @@ void print_untig(ma_ug_t *g, uint32_t uId, const char* info, uint32_t is_print_r
         fprintf(stderr, "%s: rId>>1: %lu, dir: %lu, name: %.*s\n", 
         info, (unsigned long)(u->a[k]>>33), (unsigned long)((u->a[k]>>32)&1),
         (int)Get_NAME_LENGTH((R_INF), (u->a[k]>>33)), Get_NAME((R_INF), (u->a[k]>>33)));
+    }
+}
+
+
+void reset_untig_hap_label(ma_ug_t *g, uint32_t uId, uint8_t trio_flag, uint8_t* bin_res)
+{
+	uint32_t k;
+    ma_utg_t *u = &g->u.a[uId];
+    for (k = 0; k < u->n; k++) {
+        if(bin_res[u->a[k]>>33] == AMBIGU) bin_res[u->a[k]>>33] = trio_flag;
     }
 }
 
@@ -17293,6 +17388,20 @@ char *f_prefix)
     return NULL;
 }
 
+
+void output_trio_graph(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name, 
+ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, 
+long long tipsLen, float tip_drop_ratio, long long stops_threshold, R_to_U* ruIndex, 
+float chimeric_rate, float drop_ratio, int max_hang, int min_ovlp, int is_bench, bub_label_t* b_mask_t)
+{
+    output_trio_unitig_graph(sg, coverage_cut, output_file_name, FATHER, sources, 
+        reverse_sources, tipsLen, tip_drop_ratio, stops_threshold, ruIndex, chimeric_rate, 
+        drop_ratio, max_hang, min_ovlp, is_bench, b_mask_t, NULL);
+    
+    output_trio_unitig_graph(sg, coverage_cut, output_file_name, MOTHER, sources, 
+        reverse_sources, tipsLen, tip_drop_ratio, stops_threshold, ruIndex, chimeric_rate, 
+        drop_ratio, max_hang, min_ovlp, is_bench, b_mask_t, NULL);
+}
 
 void output_read_graph(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name, long long n_read)
 {
@@ -25027,6 +25136,12 @@ R_to_U* ruIndex, int max_hang, int min_ovlp)
         renew_utg(&ug, sg, &new_rtg_edges);
     }
     
+    // reset_untig_hap_label(ug, 7, FATHER, R_INF.trio_flag);
+    // reset_untig_hap_label(ug, 35, FATHER, R_INF.trio_flag);
+
+    // reset_untig_hap_label(ug, 713, FATHER, R_INF.trio_flag);
+    // reset_untig_hap_label(ug, 273, FATHER, R_INF.trio_flag);
+    // reset_untig_hap_label(ug, 822, FATHER, R_INF.trio_flag);
 
     ma_ug_seq(ug, sg, coverage_cut, sources, &new_rtg_edges, max_hang, min_ovlp, 0, 1);
 

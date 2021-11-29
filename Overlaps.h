@@ -1006,6 +1006,8 @@ asg_t *i_read_sg, trans_chain* i_t_ch, uint32_t i_cBeg, uint32_t i_cEnd);
 void extract_sub_overlaps(uint32_t i_tScur, uint32_t i_tEcur, uint32_t i_tSpre, uint32_t i_tEpre,
 uint32_t tn, kv_u_trans_hit_t* ktb, uint32_t bn);
 void clean_u_trans_t_idx(kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g);
+uint32_t test_dbug(ma_ug_t* ug, FILE* fp);
+void write_dbug(ma_ug_t* ug, FILE* fp);
 
 
 #define JUNK_COV 5
