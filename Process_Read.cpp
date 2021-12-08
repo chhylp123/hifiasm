@@ -609,6 +609,7 @@ void ha_compress_base(uint8_t* dest, char* src, uint64_t src_l, uint64_t** N_sit
 {
 	///N_site_lis saves the pos of all Ns in this read
 	///N_site_lis[0] is the number of Ns
+	free((*N_site_lis));
 	if (N_site_occ)
 	{
 		(*N_site_lis) = (uint64_t*)malloc(sizeof(uint64_t)*(N_site_occ + 1));

@@ -228,6 +228,8 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->dp_e = 0.0025;
     asm_opt->hg_size = -1;
     asm_opt->kpt_rate = -1;
+    asm_opt->infor_cov = 3;
+    asm_opt->s_hap_cov = 3;
 }
 
 void destory_enzyme(enzyme* f)

@@ -11,6 +11,15 @@
 
 #define generic_key(x) (x)
 KRADIX_SORT_INIT(b32, uint32_t, generic_key, 4)
+KRADIX_SORT_INIT(bc64, uint64_t, generic_key, 8)
+
+#define haplotype_evdience_key(x) ((x).site)
+KRADIX_SORT_INIT(haplotype_evdience_srt, haplotype_evdience, haplotype_evdience_key, member_size(haplotype_evdience, site))
+
+#define haplotype_evdience_id_key(x) ((x).overlapID)
+KRADIX_SORT_INIT(haplotype_evdience_id_srt, haplotype_evdience, haplotype_evdience_id_key, member_size(haplotype_evdience, overlapID))
+
+
 
 int ha_ov_type(const overlap_region *r, uint32_t len);
 
@@ -5026,7 +5035,7 @@ long long xBeg, long long xEnd, long long flag_offset)
             {
                 /// note we need to deal with flag_offset carefully
                 ///if(flag[x_i - flag_offset] < 127 && x_i >= xBeg && x_i <= xEnd)
-                if(x_i >= xBeg && x_i <= xEnd && flag[x_i - flag_offset] < 127)
+                if(x_i >= xBeg && x_i <= xEnd && flag[x_i - flag_offset] < 127)///Fix-attention
                 {
                     flag[x_i - flag_offset]++;
                 }
@@ -5518,7 +5527,8 @@ overlap_region_alloc* overlap_list, Correct_dumy* dumy, All_reads* R_INF, haplot
         ///for a real snp, the coverage should be at least 2
         if(hap->flag[i] > snp_threshold)
         {
-            hap->snp++;
+            // hap->snp++;
+            hap->nn_snp++;
         }
     }
     ///if there are any >0 elements, both first_snp and last_snp should be != -1
@@ -5582,15 +5592,45 @@ window_list** end_cigar)
     (*end_cigar) = &(boundary_cigars->buffer[id*2+1]);
 }
 
+int cmp_haplotype_evdience(const void * a, const void * b)
+{
+    if ((*(haplotype_evdience*)a).site != (*(haplotype_evdience*)b).site)
+    {
+        return (*(haplotype_evdience*)a).site > (*(haplotype_evdience*)b).site ? 1 : -1; 
+    }
+    else
+    {
+        if ((*(haplotype_evdience*)a).type != (*(haplotype_evdience*)b).type)
+        {
+            return (*(haplotype_evdience*)a).type > (*(haplotype_evdience*)b).type ? 1 : -1; 
+        }
+        else
+        {
+            if ((*(haplotype_evdience*)a).misBase != (*(haplotype_evdience*)b).misBase)
+            {
+                return (*(haplotype_evdience*)a).misBase > (*(haplotype_evdience*)b).misBase ? 1 : -1; 
+            }
+            else
+            {
+                return 0;
+            }
+            
+        }
+        
+    }
+    
+    
+}
+
 void cluster_advance(char* r_string, long long window_start, long long window_end, 
 overlap_region_alloc* overlap_list, Correct_dumy* dumy, All_reads* R_INF, 
-haplotype_evdience_alloc* hap, UC_Read* overlap_read)
+haplotype_evdience_alloc* hap, UC_Read* overlap_read, int snp_threshold)
 {
     window_list* beg_cigar;
     window_list* end_cigar;
     ///window_start, window_end, and useful_length correspond to x, instead of y
     long long useful_length = window_end - window_start + 1;
-    long long x_start, x_length;
+    long long x_start, x_length, ll = hap->length, lr;
     char* x_string;
     char* y_string;
     long long i;
@@ -5598,8 +5638,6 @@ haplotype_evdience_alloc* hap, UC_Read* overlap_read)
     long long overlapID, windowID;
 
     long long correct_x_pos_s;
-    int snp_threshold;
-    snp_threshold = 1;
 
 
     ///all overlaps related to the current window [window_start, window_end]
@@ -5651,7 +5689,7 @@ haplotype_evdience_alloc* hap, UC_Read* overlap_read)
     /****************************may have bugs********************************/
     long long last_snp = -1;
     long long first_snp = -1;
-    for (i = 0; i < useful_length; i++)
+    for (i = 0, lr = 0; i < useful_length; i++)
     {
         if(hap->flag[i] != 0)
         {
@@ -5664,7 +5702,9 @@ haplotype_evdience_alloc* hap, UC_Read* overlap_read)
         ///for a real snp, the coverage should be at least 2
         if(hap->flag[i] > snp_threshold)
         {
-            hap->snp++;
+            // hap->snp++; 
+            hap->nn_snp++;
+            lr++;
         }
     }
     ///if there are any >0 elements, both first_snp and last_snp should be != -1
@@ -5735,38 +5775,9 @@ haplotype_evdience_alloc* hap, UC_Read* overlap_read)
     }
 
     RsetInitHaplotypeEvdienceFlag(hap, first_snp, last_snp + 1 - first_snp);
-}
 
-int cmp_haplotype_evdience(const void * a, const void * b)
-{
-    if ((*(haplotype_evdience*)a).site != (*(haplotype_evdience*)b).site)
-    {
-        return (*(haplotype_evdience*)a).site > (*(haplotype_evdience*)b).site ? 1 : -1; 
-    }
-    else
-    {
-        if ((*(haplotype_evdience*)a).type != (*(haplotype_evdience*)b).type)
-        {
-            return (*(haplotype_evdience*)a).type > (*(haplotype_evdience*)b).type ? 1 : -1; 
-        }
-        else
-        {
-            if ((*(haplotype_evdience*)a).misBase != (*(haplotype_evdience*)b).misBase)
-            {
-                return (*(haplotype_evdience*)a).misBase > (*(haplotype_evdience*)b).misBase ? 1 : -1; 
-            }
-            else
-            {
-                return 0;
-            }
-            
-        }
-        
-    }
-    
-    
+    if(hap->length - ll > 1 && lr > 1) radix_sort_haplotype_evdience_srt(hap->list+ll, hap->list + hap->length);
 }
-
 
 int cmp_snp_stats(const void * a, const void * b)
 {
@@ -5802,7 +5813,7 @@ int cmp_max_DP(const void * a, const void * b)
 
 
 int split_sub_list(haplotype_evdience_alloc* hap, 
-haplotype_evdience* sub_list, long long sub_length, long long num_haplotype, 
+haplotype_evdience* sub_list, long long sub_length, 
 overlap_region_alloc* overlap_list, All_reads* R_INF, UC_Read* g_read)
 {
     long long i = 0;
@@ -5888,7 +5899,7 @@ overlap_region_alloc* overlap_list, All_reads* R_INF, UC_Read* g_read)
     double available = new_0 + max;
     double threshold = 0.95;
     available = available/((double)(new_total));
-    if(available < threshold)
+    if(available < threshold)///Fix-attention: looks definitely wrong 
     {
         return 0;
     }
@@ -5899,7 +5910,7 @@ overlap_region_alloc* overlap_list, All_reads* R_INF, UC_Read* g_read)
     available = max;
     threshold = 0.70;
     available = available/((double)(new_total));
-    if(available < threshold)
+    if(available < threshold)///Fix-attention: looks definitely wrong 
     {
         return 0;
     }
@@ -5933,11 +5944,11 @@ void print_core_snp(haplotype_evdience_alloc* hap)
     for (i = 0; i < hap->core_snp; i++)
     {
         fprintf(stderr, "core(i): %lu, site: %u, occ_0: %u, occ_1: %u, occ_2: %u, score: %d\n", 
-    (unsigned long)i, hap->snp_stat[i].site, hap->snp_stat[i].occ_0, hap->snp_stat[i].occ_1,
-    hap->snp_stat[i].occ_2,
-    hap->snp_stat[i].score); 
+    (unsigned long)i, hap->snp_stat.a[i].site, hap->snp_stat.a[i].occ_0, hap->snp_stat.a[i].occ_1,
+    hap->snp_stat.a[i].occ_2,
+    hap->snp_stat.a[i].score); 
 
-        int vectorID = hap->snp_stat[i].id;
+        int vectorID = hap->snp_stat.a[i].id;
         int8_t* vector = Get_SNP_Vector((*hap), vectorID);
 
         for (j = 0; j < hap->overlap; j++)
@@ -6051,7 +6062,7 @@ int merge_snp_vectors_and_test(haplotype_evdience_alloc* hap, int diff_vector_ID
             continue;
         }
 
-        vectorID = hap->snp_stat[i].id;
+        vectorID = hap->snp_stat.a[i].id;
         vector = Get_SNP_Vector((*hap), vectorID);
 
         for (j = 0; j < vectorLen; j++)
@@ -6098,7 +6109,8 @@ int generate_haplotypes(haplotype_evdience_alloc* hap)
     }
 
     ///sort by weight
-    qsort(hap->snp_stat, hap->available_snp, sizeof(SnpStats), cmp_snp_stats);
+    // qsort(hap->snp_stat, hap->available_snp, sizeof(SnpStats), cmp_snp_stats);
+    qsort(hap->snp_stat.a, hap->snp_stat.n, sizeof(SnpStats), cmp_snp_stats);
 
 
     ///the hap->core_snp is used to find centriod    
@@ -6138,9 +6150,9 @@ int generate_haplotypes(haplotype_evdience_alloc* hap)
     vector = Get_Result_SNP_Vector((*hap));
     ///and for each non-core snp vector, if it has no conflict with result vector
     /// add it to result vector
-    for (j = hap->core_snp; j < (int)hap->available_snp; j++)
+    for (j = hap->core_snp; j < (int)hap->snp_stat.n/**hap->available_snp**/; j++)
     {
-        vectorID2 = hap->snp_stat[j].id;
+        vectorID2 = hap->snp_stat.a[j].id;
         vector2 = Get_SNP_Vector((*hap), vectorID2);
         if(calculate_distance_snp_vector(vector, vector2, Get_SNP_Vector_Length((*hap))) == 0)
         {
@@ -6164,14 +6176,14 @@ int generate_haplotypes(haplotype_evdience_alloc* hap)
 
 void Preorder_Merge(uint32_t snpID, haplotype_evdience_alloc* hap, int is_merge) 
 { 
-    int vectorID = hap->snp_stat[snpID].id;
+    int vectorID = hap->snp_stat.a[snpID].id;
     int8_t* vector = Get_SNP_Vector((*hap), vectorID);
     hap->dp.visit[snpID] = 1;
     
 
     if(is_merge)
     {
-        if(hap->snp_stat[snpID].is_homopolymer)
+        if(hap->snp_stat.a[snpID].is_homopolymer)
         {
             hap->result_stat.homopolymer_num++;
         }
@@ -6201,7 +6213,7 @@ void Preorder_Merge(uint32_t snpID, haplotype_evdience_alloc* hap, int is_merge)
             int add_ID = 0;
             for (j = 0; j < (int)hap->dp.backtrack_length[snpID]; j++)
             {
-                if(hap->snp_stat[column[j]].is_homopolymer == 0)
+                if(hap->snp_stat.a[column[j]].is_homopolymer == 0)
                 {
                     add_ID = j;
                 }
@@ -6278,9 +6290,9 @@ void generate_result_vector(haplotype_evdience_alloc* hap, int pathLen)
     for (j = 0; j < pathLen; j++)
     {
         snpID1 = hap->dp.buffer[j];
-        vectorID = hap->snp_stat[snpID1].id;
+        vectorID = hap->snp_stat.a[snpID1].id;
         vector = Get_SNP_Vector((*hap), vectorID);
-        if(hap->snp_stat[snpID1].is_homopolymer)
+        if(hap->snp_stat.a[snpID1].is_homopolymer)
         {
             hap->result_stat.homopolymer_num++;
         }
@@ -6364,7 +6376,7 @@ long long occ_0, long long occ_1, uint32_t* SNPs, long long SNPsLen)
         return 0;
     }
 
-
+    ///Fix-attention
     if(occ_1 >= occ_1_coverage_low && occ_0 >= occ_1_coverage_low)
     {
         return 1;
@@ -6406,9 +6418,9 @@ void merge_SNP_Vectors(haplotype_evdience_alloc* hap, uint32_t* SNPs, long long 
     for (j = 0; j < SNPLen; j++)
     {
         snpID1 = SNPs[j];
-        vectorID = hap->snp_stat[snpID1].id;
+        vectorID = hap->snp_stat.a[snpID1].id;
         vector = Get_SNP_Vector((*hap), vectorID);
-        if(hap->snp_stat[snpID1].is_homopolymer)
+        if(hap->snp_stat.a[snpID1].is_homopolymer)
         {
             hap->result_stat.homopolymer_num++;
         }
@@ -6435,7 +6447,7 @@ void remove_reads(haplotype_evdience_alloc* hap, uint32_t* SNPs, long long SNPsL
     for (i = 0; i < SNPsLen; i++)
     {
         snpID = SNPs[i];
-        vectorID = hap->snp_stat[snpID].id;
+        vectorID = hap->snp_stat.a[snpID].id;
         vector = Get_SNP_Vector((*hap), vectorID);
         ///hap->snp_stat[snpID].site;
 
@@ -6452,9 +6464,9 @@ void remove_reads(haplotype_evdience_alloc* hap, uint32_t* SNPs, long long SNPsL
             }
 
             /****************************may have bugs********************************/
-            if( hap->snp_stat[snpID].site >= overlap_list->list[j].x_pos_s
+            if( hap->snp_stat.a[snpID].site >= overlap_list->list[j].x_pos_s
                 &&
-                hap->snp_stat[snpID].site <= overlap_list->list[j].x_pos_e)
+                hap->snp_stat.a[snpID].site <= overlap_list->list[j].x_pos_e)
               {
                   overlap_list->list[j].strong = 1;
               }
@@ -6493,9 +6505,9 @@ uint32_t* SNPs, long long SNPLen, haplotype_evdience_alloc* hap)
         for (j = 0; j < Get_SNP_Vector_Length((*hap)); j++)
         {
             /****************************may have bugs********************************/
-            if( hap->snp_stat[snpID].site >= overlap_list->list[j].x_pos_s
+            if( hap->snp_stat.a[snpID].site >= overlap_list->list[j].x_pos_s
                 &&
-                hap->snp_stat[snpID].site <= overlap_list->list[j].x_pos_e)
+                hap->snp_stat.a[snpID].site <= overlap_list->list[j].x_pos_e)
               {
                   overlap_list->list[j].strong = 1;
               }
@@ -6661,13 +6673,13 @@ int debug_print_snp_stat(char* name, haplotype_evdience_alloc* hap, overlap_regi
        memcmp(name, Get_NAME((*R_INF), overlap_list->list[0].x_id), 
        Get_NAME_LENGTH((*R_INF), overlap_list->list[0].x_id)) == 0)
     {
-        fprintf(stderr, "\n%s, available_snp: %d\n", name, hap->available_snp);
+        fprintf(stderr, "\n%s, available_snp: %d\n", name, (int)hap->snp_stat.n);
         int i;
-        for (i = 0; i < (int)hap->available_snp; i++)
+        for (i = 0; i < (int)hap->snp_stat.n; i++)
         {
             fprintf(stderr, "site: %d, occ_0: %d, occ_1: %d, occ_2: %d\n", 
-            hap->snp_stat[i].site, hap->snp_stat[i].occ_0,
-            hap->snp_stat[i].occ_1, hap->snp_stat[i].occ_2);
+            hap->snp_stat.a[i].site, hap->snp_stat.a[i].occ_0,
+            hap->snp_stat.a[i].occ_1, hap->snp_stat.a[i].occ_2);
         }
     }
 
@@ -6682,7 +6694,8 @@ int force_repeat)
     int8_t *vector, *vector2;
 
     
-    if(hap->available_snp == 0)
+    // if(hap->available_snp == 0)
+    if(hap->snp_stat.n == 0)
     {
         return 0;
     }
@@ -6692,41 +6705,43 @@ int force_repeat)
     
     ///if hap->available_snp == 1, the following codes would have bugs
     ///filter snps that are highly likly false 
-    if(hap->available_snp > 1)
+    // if(hap->available_snp > 1)
+    if(hap->snp_stat.n > 1)
     {
         i = 0;
-        ///if a snp is very near to others, it should not be a real snp
-        for (j = 0; j < (int)hap->available_snp; j++)
+        ///if a snp is very close to others, it should not be a real snp
+        for (j = 0; j < (int)hap->snp_stat.n/**hap->available_snp**/; j++)
         {
-            if(j > 0 && j < (int)(hap->available_snp - 1))
+            if(j > 0 && j + 1 < (int)hap->snp_stat.n)
             {
-                if(hap->snp_stat[j].site != hap->snp_stat[j - 1].site + 1
+                if(hap->snp_stat.a[j].site != hap->snp_stat.a[j - 1].site + 1
                     &&
-                hap->snp_stat[j].site + 1 != hap->snp_stat[j + 1].site)
+                hap->snp_stat.a[j].site + 1 != hap->snp_stat.a[j + 1].site)
                 {
-                    hap->snp_stat[i] = hap->snp_stat[j];
+                    hap->snp_stat.a[i] = hap->snp_stat.a[j];
                     i++;
                 }
 
             }
             else if(j == 0)
             {
-                if(hap->snp_stat[j].site + 1 != hap->snp_stat[j + 1].site)
+                if(hap->snp_stat.a[j].site + 1 != hap->snp_stat.a[j + 1].site)
                 {
-                    hap->snp_stat[i] = hap->snp_stat[j];
+                    hap->snp_stat.a[i] = hap->snp_stat.a[j];
                     i++;
                 }
             }
             else
             {
-                if(hap->snp_stat[j].site != hap->snp_stat[j - 1].site + 1)
+                if(hap->snp_stat.a[j].site != hap->snp_stat.a[j - 1].site + 1)
                 {
-                    hap->snp_stat[i] = hap->snp_stat[j];
+                    hap->snp_stat.a[i] = hap->snp_stat.a[j];
                     i++;
                 }
             }
         }
-        hap->available_snp = i;
+        // hap->available_snp = i;
+        hap->snp_stat.n = i;
     }
 
 
@@ -6745,9 +6760,9 @@ int force_repeat)
         {
             total_read++;
             flag = -1;
-            for (j = 0; j < (int)hap->available_snp; j++)
+            for (j = 0; j < (int)hap->snp_stat.n; j++)
             {
-                vectorID = hap->snp_stat[j].id;
+                vectorID = hap->snp_stat.a[j].id;
                 vector = Get_SNP_Vector((*hap), vectorID);
 
                 ///flag == -1 means there are no useful signals yet
@@ -6776,29 +6791,29 @@ int force_repeat)
             }
 
 
-            if(flag == 3)
+            if(flag == 3) ///Fix-attention: definitely wrong
             {
                 unuseful_read++;
-                for (j = 0; j < (int)hap->available_snp; j++)
+                for (j = 0; j < (int)hap->snp_stat.n; j++)
                 {
-                    vectorID = hap->snp_stat[j].id;
+                    vectorID = hap->snp_stat.a[j].id;
                     vector = Get_SNP_Vector((*hap), vectorID);
                     
 
                     
                     if(vector[i] == 0)
                     {
-                        hap->snp_stat[j].occ_0--;
-                        hap->snp_stat[j].occ_2++;
+                        hap->snp_stat.a[j].occ_0--;
+                        hap->snp_stat.a[j].occ_2++;
                     }
                     else if(vector[i] == 1)
                     {
-                        hap->snp_stat[j].occ_1--;
-                        hap->snp_stat[j].occ_2++;
+                        hap->snp_stat.a[j].occ_1--;
+                        hap->snp_stat.a[j].occ_2++;
                     }
                     else if(vector[i] != 2)
                     {
-                        hap->snp_stat[j].occ_2++;
+                        hap->snp_stat.a[j].occ_2++;
                     }
                     
 
@@ -6817,17 +6832,17 @@ int force_repeat)
     
 
     /*******************************DP********************************/
-    init_DP_matrix(&(hap->dp), hap->available_snp);
+    init_DP_matrix(&(hap->dp), hap->snp_stat.n);
 
     long long equal_best = 0;
     uint32_t* column;
 
     
 
-    for (i = 0; i < (int)hap->available_snp; i++)
+    for (i = 0; i < (int)hap->snp_stat.n; i++)
     {
         ///vector of snp i
-        vectorID = hap->snp_stat[i].id;
+        vectorID = hap->snp_stat.a[i].id;
         vector = Get_SNP_Vector((*hap), vectorID);
         hap->dp.visit[i] = 0;
         hap->dp.max[i] = 1;
@@ -6838,7 +6853,7 @@ int force_repeat)
         for (j = 0; j < i; j++)
         {
             ///vector of snp j
-            vectorID2 = hap->snp_stat[j].id;
+            vectorID2 = hap->snp_stat.a[j].id;
             vector2 = Get_SNP_Vector((*hap), vectorID2);
 
             ///vector is compatible with vector2
@@ -6869,7 +6884,7 @@ int force_repeat)
 
     uint64_t tmp_mode = 0;
 
-    for (i = 0; i < (int)hap->available_snp; i++)
+    for (i = 0; i < (int)hap->snp_stat.n; i++)
     {
         tmp_mode = hap->dp.max[i];
         tmp_mode = tmp_mode << 32;
@@ -6877,7 +6892,7 @@ int force_repeat)
         hap->dp.max_for_sort[i] = tmp_mode;
     }
     
-    qsort(hap->dp.max_for_sort, hap->available_snp, sizeof(uint64_t), cmp_max_DP);
+    qsort(hap->dp.max_for_sort, hap->snp_stat.n, sizeof(uint64_t), cmp_max_DP);
 
 
     int snpID;
@@ -6886,7 +6901,7 @@ int force_repeat)
     hap->dp.max_score = -2;
     
 
-    for (i = 0; i < (int)hap->available_snp; i++)
+    for (i = 0; i < (int)hap->snp_stat.n; i++)
     {
         snpID = Get_Max_DP_ID(hap->dp.max_for_sort[i]);
         if(hap->dp.visit[snpID] == 0)
@@ -6900,7 +6915,7 @@ int force_repeat)
 
 
     //if(hap->dp.max_snp_num > 0)
-    if(hap->available_snp > 0)
+    if(hap->snp_stat.n > 0)
     {
         process_repeat_snps(hap, overlap_list);
         return 1;
@@ -6951,77 +6966,77 @@ int force_repeat)
     int j, i;
 
     
-    if(hap->available_snp == 0)
+    if(hap->snp_stat.n == 0)
     {
         return 0;
     }
 
     ///if hap->available_snp == 1, the following codes would have bugs
     ///filter snps that are highly likly false 
-    if(hap->available_snp > 1)
+    if(hap->snp_stat.n > 1)
     {
         i = 0;
         ///if a snp is very close to others, it should not be a real snp
-        for (j = 0; j < (int)hap->available_snp; j++)
+        for (j = 0; j < (int)hap->snp_stat.n; j++)
         {
             
-            if(j > 0 && j < (int)(hap->available_snp - 1))
+            if(j > 0 && j + 1 < (int)hap->snp_stat.n)
             {
-                if(hap->snp_stat[j].site != hap->snp_stat[j - 1].site + 1
+                if(hap->snp_stat.a[j].site != hap->snp_stat.a[j - 1].site + 1
                     &&
-                hap->snp_stat[j].site + 1 != hap->snp_stat[j + 1].site)
+                hap->snp_stat.a[j].site + 1 != hap->snp_stat.a[j + 1].site)
                 {
-                    hap->snp_stat[i] = hap->snp_stat[j];
+                    hap->snp_stat.a[i] = hap->snp_stat.a[j];
                     i++;
                 }
 
             }
             else if(j == 0)
             {
-                if(hap->snp_stat[j].site + 1 != hap->snp_stat[j + 1].site)
+                if(hap->snp_stat.a[j].site + 1 != hap->snp_stat.a[j + 1].site)
                 {
-                    hap->snp_stat[i] = hap->snp_stat[j];
+                    hap->snp_stat.a[i] = hap->snp_stat.a[j];
                     i++;
                 }
             }
             else
             {
-                if(hap->snp_stat[j].site != hap->snp_stat[j - 1].site + 1)
+                if(hap->snp_stat.a[j].site != hap->snp_stat.a[j - 1].site + 1)
                 {
-                    hap->snp_stat[i] = hap->snp_stat[j];
+                    hap->snp_stat.a[i] = hap->snp_stat.a[j];
                     i++;
                 }
             }
         }
-        hap->available_snp = i;
+        hap->snp_stat.n = i;
     }
 
 
     long long m;
-    if(hap->available_snp > 0)
+    if(hap->snp_stat.n > 0)
     {
         ///************************debug**************************///
         m = 0;
-        for (i = 0; i < (int)hap->available_snp; i++)
+        for (i = 0; i < (int)hap->snp_stat.n; i++)
         {
-            if(check_informative_site(hap, &(hap->snp_stat[i])))
+            if(check_informative_site(hap, &(hap->snp_stat.a[i])))
             {
-                hap->snp_stat[m] = hap->snp_stat[i];
+                hap->snp_stat.a[m] = hap->snp_stat.a[i];
                 m++;
             }
         }
-        hap->available_snp = m;
+        hap->snp_stat.n = m;
         ///************************debug**************************///
 
 
 
-        init_DP_matrix(&(hap->dp), hap->available_snp);
+        init_DP_matrix(&(hap->dp), hap->snp_stat.n);
 
-        for (i = 0; i < (int)hap->available_snp; i++)
+        for (i = 0; i < (int)hap->snp_stat.n; i++)
         {
             hap->dp.max_buffer[i] = i;
         }
-        hap->dp.max_snp_num = hap->available_snp;
+        hap->dp.max_snp_num = hap->snp_stat.n;
         remove_reads(hap, hap->dp.max_buffer, hap->dp.max_snp_num, overlap_list);
 
         return 1;
@@ -7032,6 +7047,165 @@ int force_repeat)
         return 0;
     }
 
+}
+
+
+void generate_haplotypes_naive_advance(haplotype_evdience_alloc* hap, overlap_region_alloc* overlap_list)
+{
+    if(hap->length == 0) return;
+    uint64_t k, l, i, o, *a, ii;
+    int64_t z;
+    SnpStats *s = NULL, *t = NULL;
+    hap->snp_srt.n = 0;
+    radix_sort_haplotype_evdience_id_srt(hap->list, hap->list + hap->length);
+    for (k = 1, l = 0; k <= hap->length; ++k) {  
+        if (k == hap->length || hap->list[k].overlapID != hap->list[l].overlapID) {
+            for (i = l, o = 0; i < k; i++) {
+                if(hap->list[i].type!=1) continue;
+                s = &(hap->snp_stat.a[hap->list[i].overlapSite]);
+                if(s->occ_0 < 2 || s->occ_1 < 2) continue;
+                if(s->occ_0 >= asm_opt.s_hap_cov && s->occ_1 >= asm_opt.infor_cov) o++;
+            }
+            if(o > 0) {
+                o = ((uint32_t)-1) - o;
+                o <<= 32; o += l; kv_push(uint64_t, hap->snp_srt, o); 
+            }
+            l = k;
+        }
+    }
+    // fprintf(stderr, "\nhap->snp_srt.n: %u, overlap_list->length: %lu, x_id: %u\n", 
+    // (uint32_t)hap->snp_srt.n, overlap_list->length, overlap_list->list[0].x_id);
+    if (hap->snp_srt.n > 0) {
+        radix_sort_bc64(hap->snp_srt.a, hap->snp_srt.a + hap->snp_srt.n);///sort by how many snps in one overlap
+        for (k = 0; k < hap->snp_srt.n; k++) {
+            o = 0; l = (uint32_t)hap->snp_srt.a[k];
+            for (i = l; i < hap->length && hap->list[i].overlapID == hap->list[l].overlapID; i++) {
+                if(hap->list[i].type!=1) continue;
+                s = &(hap->snp_stat.a[hap->list[i].overlapSite]);
+                if(s->occ_0 < 2 || s->occ_1 < 2) continue;
+                if(s->occ_0 >= asm_opt.s_hap_cov && s->occ_1 >= asm_opt.infor_cov) o++;
+            }
+            // fprintf(stderr, "o: %lu, op: %lu, %c, ovlp_id: %u, x_s: %u, x_e: %u\n", 
+            // o, ((uint32_t)-1) - (hap->snp_srt.a[k]>>32),
+            // "ze"[o==(((uint32_t)-1) - (hap->snp_srt.a[k]>>32))], hap->list[l].overlapID,
+            // overlap_list->list[hap->list[l].overlapID].x_pos_s, 
+            // overlap_list->list[hap->list[l].overlapID].x_pos_e);
+            if(o == 0) continue;
+
+            ii = hap->list[l].overlapID;
+            if(overlap_list->list[ii].is_match == 1) overlap_list->list[ii].is_match = 2;
+            for (i = l; i < hap->length && hap->list[i].overlapID == hap->list[l].overlapID; i++) {
+                if(hap->list[i].type==1){
+                    s = &(hap->snp_stat.a[hap->list[i].overlapSite]);
+                    s->score = 1; 
+                } else if(hap->list[i].type==0) {
+                    z = hap->list[i].overlapSite; s = &(hap->snp_stat.a[z]);
+                    for (z = hap->list[i].overlapSite; z >= 0; z--) {
+                        t = &(hap->snp_stat.a[z]);
+                        if(s->site!=t->site) break;
+                        if(t->occ_0 < 2) fprintf(stderr, "WRONG-CORRECTION\n");
+                        // if(t->occ_0 == asm_opt.s_hap_cov && t->occ_1 >= asm_opt.infor_cov){
+                        //     fprintf(stderr, "t->id=%u, t->site=%u\n", t->id, t->site);
+                        // }
+                        t->occ_0--;
+                    }
+                }
+            }
+        }
+
+        for (k = 0; k < hap->snp_srt.n; k++) {
+            o = 0; l = (uint32_t)hap->snp_srt.a[k];
+            for (i = l; i < hap->length && hap->list[i].overlapID == hap->list[l].overlapID; i++) {
+                if(hap->list[i].type!=1) continue;
+                s = &(hap->snp_stat.a[hap->list[i].overlapSite]);
+                if(s->occ_0 < 2 || s->occ_1 < 2) continue;
+                if(s->score == 1) o++;
+            }
+            ii = hap->list[l].overlapID;
+            if(overlap_list->list[ii].is_match == 2 && o == 0) {
+                overlap_list->list[ii].is_match = 1;
+            }
+            if(overlap_list->list[ii].is_match == 1 && o > 0) {
+                overlap_list->list[ii].is_match = 2;
+            }
+        }
+    }
+
+    hap->snp_srt.n = 0;
+    for (k = 1, l = 0; k <= hap->length; ++k) {  
+        if (k == hap->length || hap->list[k].overlapID != hap->list[l].overlapID) {
+            if(overlap_list->list[hap->list[l].overlapID].is_match == 2) {
+                l = k;
+                continue;
+            }
+            for (i = l, o = 0; i < k; i++) {
+                if(hap->list[i].type!=1) continue;
+                s = &(hap->snp_stat.a[hap->list[i].overlapSite]);
+                if(s->occ_0 < 2 || s->occ_1 < 2) continue;
+                if(s->score == 1) continue;
+                 o++; kv_push(uint64_t, hap->snp_srt, hap->list[i].overlapSite);
+            }
+            hap->snp_srt.n -= o;
+            if(o >= 2) {///there are at least two variants at one read
+                radix_sort_bc64(hap->snp_srt.a + hap->snp_srt.n, hap->snp_srt.a + hap->snp_srt.n + o);
+                a = hap->snp_srt.a + hap->snp_srt.n;
+                for (i = z = 0; i < o; i++) {
+                    if(i > 0) s = &(hap->snp_stat.a[a[i-1]]);
+                    if(i + 1 < o) t = &(hap->snp_stat.a[a[i+1]]);
+                    if(s && s->site + 32 > hap->snp_stat.a[a[i]].site) continue;
+                    if(t && hap->snp_stat.a[a[i]].site + 32 > t->site) continue;
+                    a[z] = a[i];
+                    z++;
+                }
+                if(z >= 2) hap->snp_srt.n += z; 
+            }
+            l = k;
+        }
+    }
+    if (hap->snp_srt.n > 0) {
+        radix_sort_bc64(hap->snp_srt.a, hap->snp_srt.a + hap->snp_srt.n);
+        for (k = 1, l = 0; k <= hap->snp_srt.n; ++k) {  
+            if(k == hap->snp_srt.n || hap->snp_srt.a[k] != hap->snp_srt.a[l]) {
+                if(k - l >= 2) hap->snp_stat.a[hap->snp_srt.a[l]].score = 1;
+            }
+            l = k;
+        }
+    }
+    
+    for (k = 1, l = 0; k <= hap->length; ++k) {  
+        if (k == hap->length || hap->list[k].overlapID != hap->list[l].overlapID) {
+            ii = hap->list[l].overlapID;
+            if(overlap_list->list[ii].is_match==2) overlap_list->list[ii].is_match = 1;
+            if(overlap_list->list[ii].is_match==1) {
+                for (i = l; i < k; i++) {
+                    if(hap->list[i].type==1 || hap->list[i].type==0) {
+                        s = &(hap->snp_stat.a[hap->list[i].overlapSite]);
+                        if(s->score == 1 && (!(s->occ_0 < 2 || s->occ_1 < 2))) {
+                            overlap_list->list[ii].strong = 1;
+                            if(hap->list[i].type==1) {
+                                overlap_list->list[ii].is_match = 2;
+                                overlap_list->mapped_overlaps_length -= 
+                                            overlap_list->list[ii].x_pos_e + 1 - overlap_list->list[ii].x_pos_s;
+                                break;
+                            }
+                        }
+                    }
+
+                }
+            }
+            l = k;
+        }
+    }
+
+    // for (i = k = 0; i < overlap_list->length; i++) {
+    //     if(overlap_list->list[i].is_match == 2) k++;
+    // }
+    // for (i = l = 0; i < hap->snp_stat.n; i++) {
+    //     s = &(hap->snp_stat.a[i]);
+    //     if(s->score == 1 && (!(s->occ_0 < 2 || s->occ_1 < 2))) l++;
+    // }
+    // fprintf(stderr, "#trans ovlp: %lu, # snp:: %lu\n", k, l);
+    
 }
 
 
@@ -7080,7 +7254,7 @@ void partition_overlaps(overlap_region_alloc* overlap_list, All_reads* R_INF,
 
     ///debug_hap_information(overlap_list, R_INF, g_read, hap, dumy);
 
-    SetSnpMatrix(hap, hap->snp, overlap_list->length);
+    SetSnpMatrix(hap, &(hap->nn_snp), &(overlap_list->length), 1);
 
 
     uint64_t pre_site = (uint64_t)-1;
@@ -7098,7 +7272,7 @@ void partition_overlaps(overlap_region_alloc* overlap_list, All_reads* R_INF,
             {
                 sub_list = hap->list + pre_i;
                 sub_length = i - pre_i;
-                split_sub_list(hap, sub_list, sub_length, hap->snp, overlap_list, R_INF, g_read);
+                split_sub_list(hap, sub_list, sub_length, overlap_list, R_INF, g_read);
             }
             num_of_snps++;
             pre_site = hap->list[i].site;
@@ -7110,7 +7284,7 @@ void partition_overlaps(overlap_region_alloc* overlap_list, All_reads* R_INF,
     {
         sub_list = hap->list + pre_i;
         sub_length = i - pre_i;
-        split_sub_list(hap, sub_list, sub_length, hap->snp, overlap_list, R_INF, g_read);
+        split_sub_list(hap, sub_list, sub_length, overlap_list, R_INF, g_read);
     }
 
     ///debug_snp_matrix(hap);
@@ -7124,7 +7298,7 @@ void partition_overlaps(overlap_region_alloc* overlap_list, All_reads* R_INF,
 }
 
 
-void partition_overlaps_advance(overlap_region_alloc* overlap_list, All_reads* R_INF, 
+void partition_overlaps_advance_back(overlap_region_alloc* overlap_list, All_reads* R_INF, 
                         UC_Read* g_read, UC_Read* overlap_read, Correct_dumy* dumy, 
                         haplotype_evdience_alloc* hap, int force_repeat)
 {
@@ -7159,15 +7333,15 @@ void partition_overlaps_advance(overlap_region_alloc* overlap_list, All_reads* R
         
         ///need to deal with 
         cluster_advance(g_read->seq, window_start, window_end, overlap_list, 
-        dumy, R_INF, hap, overlap_read);
+        dumy, R_INF, hap, overlap_read, 1);
     }
 
 
     
     ///very time-consuming
-    qsort(hap->list, hap->length, sizeof(haplotype_evdience), cmp_haplotype_evdience);
-    SetSnpMatrix(hap, hap->snp, overlap_list->length);
-
+    ///Fix-attention ---> able to be sorted locally
+    // qsort(hap->list, hap->length, sizeof(haplotype_evdience), cmp_haplotype_evdience);
+    SetSnpMatrix(hap, &(hap->nn_snp), &(overlap_list->length), 1);
 
     uint64_t pre_site = (uint64_t)-1;
     uint64_t num_of_snps = 0;
@@ -7184,7 +7358,7 @@ void partition_overlaps_advance(overlap_region_alloc* overlap_list, All_reads* R
             {
                 sub_list = hap->list + pre_i;
                 sub_length = i - pre_i;
-                split_sub_list(hap, sub_list, sub_length, hap->snp, overlap_list, R_INF, g_read);
+                split_sub_list(hap, sub_list, sub_length, overlap_list, R_INF, g_read);
             }
             num_of_snps++;
             pre_site = hap->list[i].site;
@@ -7196,11 +7370,151 @@ void partition_overlaps_advance(overlap_region_alloc* overlap_list, All_reads* R
     {
         sub_list = hap->list + pre_i;
         sub_length = i - pre_i;
-        split_sub_list(hap, sub_list, sub_length, hap->snp, overlap_list, R_INF, g_read);
+        split_sub_list(hap, sub_list, sub_length, overlap_list, R_INF, g_read);
     }
 
     generate_haplotypes_DP(hap, overlap_list, R_INF, g_read->length, force_repeat);
     ///generate_haplotypes_naive(hap, overlap_list, R_INF, g_read->length, force_repeat);
+
+    lable_large_indels(overlap_list, R_INF, g_read->length, dumy);
+}
+
+inline void insert_snp_vv(haplotype_evdience_alloc* h, haplotype_evdience* a, uint64_t a_n, char misBase, UC_Read* g_read)
+{
+    if(a_n == 0) return;
+    SnpStats *p = NULL; uint64_t /**nn = 0,**/ i;
+    kv_pushp(SnpStats, h->snp_stat, &p);
+    p->id = h->snp_stat.n-1;
+    p->occ_0 = 1;
+    p->occ_1 = 0;
+    p->occ_2 = 0;
+    p->overlap_num = 0;
+    p->site = a[0].site;
+    p->is_homopolymer = if_is_homopolymer_strict(p->site, g_read->seq, g_read->length);
+    // nn = h->snp_stat.n*h->overlap;
+    // if(nn > h->snp_matrix_size) {
+    //     REALLOC(h->snp_matrix, nn);
+    //     memset(h->snp_matrix+h->snp_matrix_size, -1, nn-h->snp_matrix_size);
+    //     h->snp_matrix_size = nn;
+    // }
+    // int8_t* vector = Get_SNP_Vector((*h), p->id);
+    for (i = 0; i < a_n; i++) {
+        if(a[i].type == 0) {
+            // vector[a[i].overlapID] = 0;
+            a[i].overlapSite = p->id;
+            h->snp_stat.a[p->id].occ_0++;
+        }
+        else if(a[i].type == 1 && a[i].misBase == misBase) {
+            // vector[a[i].overlapID] = 1; 
+            a[i].overlapSite = p->id;
+            h->snp_stat.a[p->id].occ_1++;
+        }
+        else {
+            // vector[a[i].overlapID] = 2;
+            // a[i].overlapSite = (uint32_t)-1;
+            h->snp_stat.a[p->id].occ_2++;
+        }
+        h->snp_stat.a[p->id].overlap_num++;
+    }
+    h->snp_stat.a[p->id].score = -1;
+}
+
+int insert_snp_ee(haplotype_evdience_alloc* h, haplotype_evdience* a, uint64_t a_n, haplotype_evdience* u_a, UC_Read* g_read)
+{
+    uint64_t i, m, occ_0, occ_1[5], occ_2, diff;
+    occ_0 = occ_2 = diff = 0; memset(occ_1, 0, sizeof(uint64_t)*5);
+
+    for (i = 0; i < a_n; i++) {
+        if(a[i].type == 0){
+            occ_0++;
+        }else if(a[i].type == 1){
+            occ_1[seq_nt6_table[(uint8_t)(a[i].misBase)]]++;
+            diff++;
+        }
+        // else if(a[i].type == 2){
+        //     occ_2++;
+        //     diff++;
+        // }
+    }
+
+    /**
+     1. if occ_0 = 0, that means all overlaps are different with this read at this site
+     2. it is not possible that occ_1 = 0,
+     3. if occ_1 = 1, there are only one difference. It must be a sequencing error.
+        (for repeat, it maybe a snp at repeat. but ...)
+    **/
+    if(occ_0 == 0 || diff <= 1) return 0;
+    for (i = m = 0; i < 4; i++) {
+        if(occ_1[i] >= 2) {
+            insert_snp_vv(h, a, a_n, s_H[i], g_read);
+            m++;
+        }
+    }
+    if(m == 0) return 0;
+
+    for (i = m = 0; i < a_n; i++) {
+        if(a[i].type == 0){
+            u_a[m++] = a[i];
+        }else if(a[i].type == 1){
+            if(occ_1[seq_nt6_table[(uint8_t)(a[i].misBase)]] >= 2) u_a[m++] = a[i];
+        }
+    }
+
+    return m;
+}
+
+
+void partition_overlaps_advance(overlap_region_alloc* overlap_list, All_reads* R_INF, 
+                        UC_Read* g_read, UC_Read* overlap_read, Correct_dumy* dumy, 
+                        haplotype_evdience_alloc* hap, int force_repeat)
+{
+    ResizeInitHaplotypeEvdience(hap);
+
+    uint64_t k, l, m;
+    long long window_start, window_end;
+    long long num_availiable_win = 0;
+    
+    Window_Pool w_inf;
+    init_Window_Pool(&w_inf, g_read->length, WINDOW, (int)(1.0/asm_opt.max_ov_diff_ec));
+
+    int flag = 0;
+    while(get_Window(&w_inf, &window_start, &window_end) && flag != -2)
+    {
+        dumy->length = 0;
+        dumy->lengthNT = 0;
+        ///return overlaps that is overlaped with [window_start, window_end]
+        flag = get_available_interval(window_start, window_end, overlap_list, dumy);
+        switch (flag)
+        {
+            case 1:    ///found matched overlaps
+                break;
+            case 0:    ///do not find any matched overlaps
+                break;
+            case -2: ///do not find any matched overlaps, and the next window also cannot match
+                break;
+        }
+        
+        num_availiable_win = num_availiable_win + dumy->length;
+        
+        ///need to deal with 
+        cluster_advance(g_read->seq, window_start, window_end, overlap_list, dumy, R_INF, hap, overlap_read, 1);
+    }
+
+    ///very time-consuming
+    ///Fix-attention ---> able to be sorted locally
+    // qsort(hap->list, hap->length, sizeof(haplotype_evdience), cmp_haplotype_evdience);
+    SetSnpMatrix(hap, &(hap->nn_snp), &(overlap_list->length), 0);
+    for (k = 1, l = m = 0; k <= hap->length; ++k) {  
+        if (k == hap->length || hap->list[k].site != hap->list[l].site) {
+            m += insert_snp_ee(hap, hap->list+l, k-l, hap->list+m, g_read);
+            l = k;
+        }
+    }
+    hap->length = m;
+
+    generate_haplotypes_naive_advance(hap, overlap_list);
+    // generate_haplotypes_DP(hap, overlap_list, R_INF, g_read->length, force_repeat);
+    // generate_haplotypes_naive(hap, overlap_list, R_INF, g_read->length, force_repeat);
 
     lable_large_indels(overlap_list, R_INF, g_read->length, dumy);
 }

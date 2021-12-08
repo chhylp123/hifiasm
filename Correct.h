@@ -229,7 +229,14 @@ DP_matrix;
 #define Get_SNP_Martix_Size(matrix) (matrix.snp * matrix.overlap)
 #define Get_SNP_Vector(matrix, i) (matrix.snp_matrix + matrix.overlap * i)
 #define Get_SNP_Vector_Length(matrix) (matrix.overlap)
-#define Get_Result_SNP_Vector(matrix) (matrix.snp_matrix + matrix.overlap*matrix.snp)
+// #define Get_Result_SNP_Vector(matrix) (matrix.snp_matrix + matrix.overlap*matrix.snp)
+#define Get_Result_SNP_Vector(matrix) (matrix.r_snp)
+
+typedef struct
+{
+    SnpStats* a;
+    size_t n,m;
+}kv_SnpStats_t;
 
 typedef struct
 {
@@ -243,15 +250,22 @@ typedef struct
     uint8_t flag[WINDOW_MAX_SIZE];
     /****************************may have bugs********************************/
 
-    uint32_t available_snp;
+    
     uint32_t core_snp;
-    uint32_t snp;
     uint32_t overlap;
-    int8_t* snp_matrix;
+    int8_t *snp_matrix;
     uint32_t snp_matrix_size;
-    SnpStats* snp_stat; 
+    int8_t *r_snp;
+    uint32_t r_snp_size;
     SnpStats result_stat;
-    uint32_t snp_stat_size;
+    
+    kv_SnpStats_t snp_stat;
+    uint32_t nn_snp;
+    kvec_t(uint64_t) snp_srt;
+    // SnpStats* snp_stat; 
+    // uint32_t snp;
+    // uint32_t snp_stat_size;
+    // uint32_t available_snp;
 
     DP_matrix dp;
 }
@@ -341,9 +355,9 @@ inline void count_nearby_snps(haplotype_evdience_alloc* hap, uint32_t* SNPs, int
             small_id = SNPs[i + 1];
             
 
-            if(hap->snp_stat[large_id].site - hap->snp_stat[current_id].site < distance
+            if(hap->snp_stat.a[large_id].site - hap->snp_stat.a[current_id].site < distance
               ||
-              hap->snp_stat[current_id].site - hap->snp_stat[small_id].site < distance)
+              hap->snp_stat.a[current_id].site - hap->snp_stat.a[small_id].site < distance)
             {
                 (*nearsnp)++;
             }
@@ -352,8 +366,8 @@ inline void count_nearby_snps(haplotype_evdience_alloc* hap, uint32_t* SNPs, int
                 (*non_nearsnps)++;
             }
 
-            if(hap->snp_stat[current_id].site > hap->snp_stat[large_id].site || 
-               hap->snp_stat[current_id].site < hap->snp_stat[small_id].site)
+            if(hap->snp_stat.a[current_id].site > hap->snp_stat.a[large_id].site || 
+               hap->snp_stat.a[current_id].site < hap->snp_stat.a[small_id].site)
             {
                 fprintf(stderr, "error\n");
             }
@@ -362,7 +376,7 @@ inline void count_nearby_snps(haplotype_evdience_alloc* hap, uint32_t* SNPs, int
         {
             current_id= SNPs[i];
             small_id = SNPs[i + 1];
-            if(hap->snp_stat[current_id].site - hap->snp_stat[small_id].site < distance)
+            if(hap->snp_stat.a[current_id].site - hap->snp_stat.a[small_id].site < distance)
             {
                 (*nearsnp)++;
             }
@@ -371,7 +385,7 @@ inline void count_nearby_snps(haplotype_evdience_alloc* hap, uint32_t* SNPs, int
                 (*non_nearsnps)++;
             }
 
-            if(hap->snp_stat[current_id].site < hap->snp_stat[small_id].site)
+            if(hap->snp_stat.a[current_id].site < hap->snp_stat.a[small_id].site)
             {
                 fprintf(stderr, "error\n");
             }
@@ -380,7 +394,7 @@ inline void count_nearby_snps(haplotype_evdience_alloc* hap, uint32_t* SNPs, int
         {
             large_id = SNPs[i - 1];
             current_id= SNPs[i];
-            if(hap->snp_stat[large_id].site - hap->snp_stat[current_id].site < distance)
+            if(hap->snp_stat.a[large_id].site - hap->snp_stat.a[current_id].site < distance)
             {
                 (*nearsnp)++;
             }
@@ -389,7 +403,7 @@ inline void count_nearby_snps(haplotype_evdience_alloc* hap, uint32_t* SNPs, int
                 (*non_nearsnps)++;
             }
 
-            if(hap->snp_stat[current_id].site > hap->snp_stat[large_id].site)
+            if(hap->snp_stat.a[current_id].site > hap->snp_stat.a[large_id].site)
             {
                 fprintf(stderr, "error\n");
             }
@@ -632,46 +646,61 @@ UC_Read* g_read)
 {
     if(sub_length <= 0)
         return;
-    long long i = 0;
-    h->snp_stat[h->available_snp].id = h->available_snp;
-    h->snp_stat[h->available_snp].occ_0 = 0;
-    h->snp_stat[h->available_snp].occ_1 = 0;
-    h->snp_stat[h->available_snp].occ_2 = 0;
-    h->snp_stat[h->available_snp].overlap_num = 0;
+    long long i = 0; SnpStats *p = NULL;
+    kv_pushp(SnpStats, h->snp_stat, &p);
     
-    h->snp_stat[h->available_snp].site = sub_list[0].site;
+    // h->snp_stat[h->available_snp].id = h->available_snp;
+    // h->snp_stat[h->available_snp].occ_0 = 0;
+    // h->snp_stat[h->available_snp].occ_1 = 0;
+    // h->snp_stat[h->available_snp].occ_2 = 0;
+    // h->snp_stat[h->available_snp].overlap_num = 0;
+    // h->snp_stat[h->available_snp].site = sub_list[0].site;
+    // h->snp_stat[h->available_snp].is_homopolymer = 
+    // if_is_homopolymer_strict(h->snp_stat[h->available_snp].site, g_read->seq, g_read->length);
+    // int8_t* vector = Get_SNP_Vector((*h), h->available_snp);
 
-    h->snp_stat[h->available_snp].is_homopolymer = 
-    if_is_homopolymer_strict(h->snp_stat[h->available_snp].site, g_read->seq, g_read->length);
-
-    int8_t* vector = Get_SNP_Vector((*h), h->available_snp);
+    p->id = h->snp_stat.n-1;
+    p->occ_0 = 0;
+    p->occ_1 = 0;
+    p->occ_2 = 0;
+    p->overlap_num = 0;
+    p->site = sub_list[0].site;
+    p->is_homopolymer = if_is_homopolymer_strict(p->site, g_read->seq, g_read->length);
+    int8_t* vector = Get_SNP_Vector((*h), p->id);
     for (i = 0; i < sub_length; i++)
     {
         if(sub_list[i].type == 0)
         {
             vector[sub_list[i].overlapID] = 0;
-            h->snp_stat[h->available_snp].occ_0++;
+            // h->snp_stat[h->available_snp].occ_0++;
+            h->snp_stat.a[p->id].occ_0++;
         }
         else if(sub_list[i].type == 1 && sub_list[i].misBase == misBase)
         {
             vector[sub_list[i].overlapID] = 1;
-            h->snp_stat[h->available_snp].occ_1++;
+            // h->snp_stat[h->available_snp].occ_1++;
+            h->snp_stat.a[p->id].occ_1++;
         }
         else
         {
             vector[sub_list[i].overlapID] = 2;
-            h->snp_stat[h->available_snp].occ_2++;
+            // h->snp_stat[h->available_snp].occ_2++;
+            h->snp_stat.a[p->id].occ_2++;
         }
-        h->snp_stat[h->available_snp].overlap_num++;
+        // h->snp_stat[h->available_snp].overlap_num++;
+        h->snp_stat.a[p->id].overlap_num++;
     }
 
 
-    int new_occ_0 = h->snp_stat[h->available_snp].occ_0 + 1;
-    int new_occ_1 = h->snp_stat[h->available_snp].occ_1;
+    // int new_occ_0 = h->snp_stat[h->available_snp].occ_0 + 1;
+    // int new_occ_1 = h->snp_stat[h->available_snp].occ_1;
+    int new_occ_0 = h->snp_stat.a[p->id].occ_0 + 1;
+    int new_occ_1 = h->snp_stat.a[p->id].occ_1;
 
-    if(filter_snp(new_occ_0, new_occ_1, new_occ_0 + new_occ_1) == 0)
+    if(filter_snp(new_occ_0, new_occ_1, new_occ_0 + new_occ_1) == 0) ///Fix-attention:definitely wrong
     {
-        h->snp_stat[h->available_snp].score = -1;
+        // h->snp_stat[h->available_snp].score = -1;
+        h->snp_stat.a[p->id].score = -1;
     }
     else
     {
@@ -682,7 +711,7 @@ UC_Read* g_read)
 
         consensus = consensus /((double)(new_occ_0 + new_occ_1));
 
-        ///50% vs 50%
+        ///50% vs 50%///Fix-attention:definitely wrong
         if(new_occ_0 == new_occ_1)
         {
             consensus = consensus + 0.25;
@@ -707,12 +736,13 @@ UC_Read* g_read)
 
         consensus= consensus*((double)(new_occ_0 + new_occ_1));
 
-        h->snp_stat[h->available_snp].score = consensus;
+        // h->snp_stat[h->available_snp].score = consensus;
+        h->snp_stat.a[p->id].score = consensus;
     }
 
 
     
-    h->available_snp++;
+    // h->available_snp++;
 }
 
 
@@ -760,32 +790,28 @@ inline int calculate_score(int new_occ_0, int new_occ_1)
     return consensus;
 }
 
-inline void SetSnpMatrix(haplotype_evdience_alloc* h, long long snp_num, long long overlap_num)
+inline void SetSnpMatrix(haplotype_evdience_alloc* h, uint32_t *nn_snp, uint64_t *overlap_num, int32_t set_matrix)
 {
-    long long new_size = (snp_num + 1)* overlap_num;
+    if(nn_snp && overlap_num) {
+        kv_resize(SnpStats, h->snp_stat, *nn_snp);
+        h->snp_stat.n = 0; h->overlap = *overlap_num; h->core_snp = 0;
+    } 
 
-    if(h->snp_matrix_size < new_size)
-    {
-        h->snp_matrix_size = new_size;
-        h->snp_matrix = (int8_t*)realloc(h->snp_matrix, h->snp_matrix_size);
+    if(set_matrix) {
+        uint64_t n_snp = nn_snp? *nn_snp:h->snp_stat.n;
+        uint64_t n_ovlp = overlap_num? *overlap_num:h->overlap;
+        uint64_t new_size = n_snp* n_ovlp;
+        if(h->snp_matrix_size < new_size) {
+            h->snp_matrix_size = new_size;
+            REALLOC(h->snp_matrix, h->snp_matrix_size);
+        }
+        memset(h->snp_matrix, -1, n_snp * n_ovlp);
+
+        if(h->r_snp_size < n_ovlp) {
+            h->r_snp_size = n_ovlp;
+            REALLOC(h->r_snp, h->r_snp_size);
+        }
     }
-
-    if(h->snp_stat_size < snp_num)
-    {
-        h->snp_stat_size = snp_num;
-        h->snp_stat = (SnpStats*)realloc(h->snp_stat, h->snp_stat_size * sizeof(SnpStats));
-    }
-
-    ///h->snp may be different with the number of snp vector
-    ///since some snps have been filtered
-    h->snp = snp_num;
-    h->overlap = overlap_num;
-    h->available_snp = 0;
-    h->core_snp = 0;
-
-    memset(h->snp_matrix, -1, h->snp * h->overlap);
-
-    
 }
 
 
@@ -899,13 +925,19 @@ inline void init_DP_matrix(DP_matrix* dp, uint32_t snp_num)
 
 inline void InitHaplotypeEvdience(haplotype_evdience_alloc* h)
 {
-    h->snp = 0;
-    h->available_snp = 0;
+    
     h->overlap = 0;
-    h->snp_matrix_size = 0;
-    h->snp_stat_size = 0;
+    h->snp_matrix_size = 0;   
     h->snp_matrix = NULL;
-    h->snp_stat = NULL;
+    h->r_snp_size = 0;
+    h->r_snp = NULL;
+    kv_init(h->snp_stat);
+    kv_init(h->snp_srt);
+    h->nn_snp = 0;
+    // h->snp_stat = NULL;
+    // h->snp = 0;
+    // h->snp_stat_size = 0;
+    // h->available_snp = 0;
 
 
     h->sub_list_start = 0;
@@ -954,8 +986,11 @@ inline void EndSubListHaplotypeEvdience(haplotype_evdience_alloc* h)
 inline void destoryHaplotypeEvdience(haplotype_evdience_alloc* h)
 {
     free(h->list);
-    free(h->snp_stat);
+    // free(h->snp_stat);
+    kv_destroy(h->snp_stat);
+    kv_destroy(h->snp_srt);
     free(h->snp_matrix);
+    free(h->r_snp);
     free(h->dp.backtrack);
     free(h->dp.max);
     free(h->dp.max_for_sort);
@@ -968,7 +1003,9 @@ inline void destoryHaplotypeEvdience(haplotype_evdience_alloc* h)
 
 inline void ResizeInitHaplotypeEvdience(haplotype_evdience_alloc* h)
 {
-    h->snp = 0;
+    // h->snp = 0;
+    h->nn_snp = 0;
+    h->snp_stat.n = 0;
     h->length = 0;
     h->sub_list_start = 0;
     h->sub_list_length = 0;

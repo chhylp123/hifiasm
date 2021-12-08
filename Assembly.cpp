@@ -535,7 +535,7 @@ int64_t ha_ovec_mem(const ha_ovec_buf_t *b)
 		mem += sizeof(Cigar_record) + b->cigar1.lost_base_size + b->cigar1.size * 4;
 		mem += sizeof(Correct_dumy) + b->correct.size * 8;
 		mem += sizeof(Round2_alignment) + b->round2.cigar.size * 4 + b->round2.tmp_cigar.size * 4;
-		mem += sizeof(haplotype_evdience_alloc) + b->hap.size * sizeof(haplotype_evdience) + b->hap.snp_matrix_size + b->hap.snp_stat_size * sizeof(SnpStats);
+		mem += sizeof(haplotype_evdience_alloc) + b->hap.size * sizeof(haplotype_evdience) + b->hap.snp_matrix_size + b->hap.r_snp_size + b->hap.snp_stat.m * sizeof(SnpStats) + b->hap.snp_srt.m * sizeof(uint64_t);
 		mem += ha_Graph_mem(&b->POA_Graph);
 		mem += ha_Graph_mem(&b->DAGCon);
 	}
@@ -865,7 +865,7 @@ void ha_overlap_and_correct(int round)
 	if (asm_opt.required_read_name)
 		kt_for(asm_opt.thread_num, worker_ovec_related_reads, b, R_INF.total_reads);
 	else
-		kt_for(asm_opt.thread_num, worker_ovec, b, R_INF.total_reads);
+		kt_for(asm_opt.thread_num, worker_ovec, b, R_INF.total_reads);///debug_for_fix
 
     if (r_out) write_pt_index(ha_flt_tab, ha_idx, &R_INF, &asm_opt, asm_opt.output_file_name);
 	ha_pt_destroy(ha_idx);

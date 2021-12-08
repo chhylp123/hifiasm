@@ -14402,7 +14402,7 @@ bub_label_t* b_mask_t)
 
     set_trio_flag_by_cov(ug, sg, cov);
     // print_r_het(cov, R_INF.trio_flag, "out-1");
-
+    // print_debug_gfa(ug, sg, coverage_cut, output_file_name, sources, ruIndex);
 
     destory_hap_cov_t(&cov);
     ma_ug_destroy(ug);
