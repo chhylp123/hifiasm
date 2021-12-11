@@ -20,6 +20,7 @@ void ha_sort_list_by_anchor(overlap_region_alloc *overlap_list);
 
 All_reads R_INF;
 Debug_reads R_INF_FLAG;
+all_ul_t UL_INF;
 
 void get_corrected_read_from_cigar(Cigar_record* cigar, char* pre_read, int pre_length, char* new_read, int* new_length)
 {
@@ -416,31 +417,6 @@ long long push_final_overlaps_increment(ma_hit_t_alloc* paf, ma_hit_t_alloc* rev
 
     return available_overlaps;
 }
-
-typedef struct {
-	int is_final, save_ov;
-	// chaining and overlapping related buffers
-	UC_Read self_read, ovlp_read;
-	Candidates_list clist;
-	overlap_region_alloc olist;
-    overlap_region_alloc olist_hp;
-	ha_abuf_t *ab;
-    ha_abufl_t *abl;
-	// error correction related buffers
-	int64_t num_read_base, num_correct_base, num_recorrect_base;
-	Cigar_record cigar1;
-	Graph POA_Graph;
-	Graph DAGCon;
-	Correct_dumy correct;
-	haplotype_evdience_alloc hap;
-	Round2_alignment round2;
-    kvec_t_u32_warp b_buf;
-    kvec_t_u64_warp r_buf;
-    kvec_t_u8_warp k_flag;
-    overlap_region tmp_region;
-    ma_utg_v *ua;
-    st_mt_t sp;
-} ha_ovec_buf_t;
 
 ha_ovec_buf_t *ha_ovec_init(int is_final, int save_ov, int is_ug)
 {

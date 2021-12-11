@@ -31102,6 +31102,13 @@ char *get_outfile_name(char* output_file_name)
     return buf;
 }
 
+void create_ul_info()
+{
+    ug_opt_t opt; memset(&opt, 0, sizeof(opt));
+    ul_load(&opt);
+    exit(1);
+}
+
 void clean_graph(
 int min_dp, ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, 
 long long n_read, uint64_t* readLen, long long mini_overlap_length, 
@@ -31110,6 +31117,30 @@ float min_ovlp_drop_ratio, float max_ovlp_drop_ratio, char* output_file_name,
 long long bubble_dist, int read_graph, R_to_U* ruIndex, asg_t **sg_ptr, 
 ma_sub_t **coverage_cut_ptr, int debug_g)
 {
+    // if(asm_opt.ar) create_ul_info();
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     char *o_file = get_outfile_name(output_file_name);
 	ma_sub_t *coverage_cut = *coverage_cut_ptr;
 	asg_t *sg = *sg_ptr;

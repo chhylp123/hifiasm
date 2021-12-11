@@ -156,6 +156,41 @@ typedef struct
     pthread_mutex_t OutputMutex;
 } Debug_reads;
 
+
+typedef struct
+{
+    uint32_t hid:31, rev:1;
+    uint32_t qs, qe, ts, te;
+} uc_block_t;
+
+typedef struct
+{
+    uint32_t *a;
+    ssize_t n ,m;
+} N_t;
+
+typedef struct
+{
+    char *n_n;
+    uint32_t n_l;
+
+    kvec_t(uint8_t) r_base;
+    uint32_t rlen;
+
+    kvec_t(uc_block_t) bb;
+    N_t N_site;
+} ul_vec_t;
+
+typedef struct
+{
+    ul_vec_t *a;
+    size_t n, m;
+    All_reads *hR;
+    uint32_t mm;
+} all_ul_t;
+
+extern all_ul_t UL_INF;
+
 void init_All_reads(All_reads* r);
 void malloc_All_reads(All_reads* r);
 void ha_insert_read_len(All_reads *r, int read_len, int name_len);
@@ -173,4 +208,10 @@ int destory_read_bin(All_reads* r);
 void init_Debug_reads(Debug_reads* x, const char* file);
 void destory_Debug_reads(Debug_reads* x);
 void recover_UC_sub_Read(UC_Read* i_r, long long start_pos, long long length, uint8_t strand, All_reads* R_INF, long long ID);
+
+void init_all_ul_t(all_ul_t *x, All_reads *hR);
+void destory_all_ul_t(all_ul_t *x, All_reads *hR);
+void append_ul_t(all_ul_t *x, uint64_t *rid, char* id, int64_t id_l, char* str, int64_t str_l, ul_ov_t *o, int64_t on);
+void retrieve_ul_t(UC_Read* r, all_ul_t *ref, uint64_t ID, uint8_t strand);
+
 #endif

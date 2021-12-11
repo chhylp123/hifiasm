@@ -76,5 +76,5 @@ hic.o: hic.h
 rcut.o: rcut.h
 horder.o: horder.h
 tovlp.o: tovlp.h
-inter.o: inter.h
+inter.o: inter.h Process_Read.h
 kalloc.o: kalloc.h

@@ -14,6 +14,8 @@
 #include "htab.h"
 #include "Hash_Table.h"
 #include "Correct.h"
+#include "Process_Read.h"
+#include "Assembly.h"
 KSEQ_INIT(gzFile, gzread)
 
 #define MG_SEED_IGNORE     (1ULL<<41)
@@ -290,6 +292,7 @@ typedef struct { // data structure for each step in kt_pipeline()
     st_mt_t *sps;
 	mg_gchains_t **gcs;
     mg_tbuf_t **buf;
+	ha_ovec_buf_t **hab;
 } utepdat_t;
 
 void init_mg_opt(mg_idxopt_t *opt, int is_HPC, int k, int w, int hap_n)
@@ -2249,6 +2252,137 @@ int alignment_ul_pipeline(uldat_t* sl, const enzyme *fn)
     return 1;
 }
 
+static void *worker_ul_scall_pipeline(void *data, int step, void *in) // callback for kt_pipeline()
+{
+    uldat_t *p = (uldat_t*)data;
+    ///uint64_t total_base = 0, total_pair = 0;
+    if (step == 0) { // step 1: read a block of sequences
+        int ret;
+        uint64_t l;
+		utepdat_t *s;
+		CALLOC(s, 1);
+        s->ha_flt_tab = p->ha_flt_tab; s->ha_idx = p->ha_idx; s->id = p->total_pair; 
+		s->opt = p->opt; s->ug = p->ug; s->uopt = p->uopt; s->rg = p->rg;
+        while ((ret = kseq_read(p->ks)) >= 0) 
+        {
+            if (p->ks->seq.l < (uint64_t)p->opt->k) continue;
+            if (s->n == s->m) {
+                s->m = s->m < 16? 16 : s->m + (s->n>>1);
+                REALLOC(s->len, s->m);
+                REALLOC(s->seq, s->m);
+            }
+			
+			append_ul_t(&UL_INF, NULL, p->ks->name.s, p->ks->name.l, NULL, 0, NULL, 0);		
+            l = p->ks->seq.l;
+            MALLOC(s->seq[s->n], l);
+            s->sum_len += l;
+            memcpy(s->seq[s->n], p->ks->seq.s, l);
+            s->len[s->n++] = l;
+            if (s->sum_len >= p->chunk_size) break;            
+        }
+        p->total_pair += s->n;
+        if (s->sum_len == 0) free(s);
+		else return s;
+    }
+    else if (step == 1) { // step 2: alignment
+        utepdat_t *s = (utepdat_t*)in;
+
+		uint64_t i;
+		CALLOC(s->hab, p->n_thread);
+		for (i = 0; i < p->n_thread; ++i) s->hab[i] = ha_ovec_init(0, 0, 1);
+		///debug
+		/**
+		uint64_t i;
+        CALLOC(s->mzs, p->n_thread);
+        CALLOC(s->sps, p->n_thread);
+		CALLOC(s->gcs, s->n);
+
+		s->buf = (mg_tbuf_t**)calloc(p->n_thread, sizeof(mg_tbuf_t*));
+		for (i = 0; i < p->n_thread; ++i) s->buf[i] = mg_tbuf_init();
+        
+        kt_for(p->n_thread, worker_for_ul_alignment, s, s->n);
+        for (i = 0; i < (uint64_t)s->n; ++i) {
+            free(s->seq[i]);
+            p->total_base += s->len[i];
+        }
+        free(s->seq); free(s->len); 
+		
+		for (i = 0; i < p->n_thread; ++i) {
+			mg_tbuf_destroy(s->buf[i]);
+			free(s->mzs[i].a); free(s->sps[i].a);
+		}
+		**/
+		for (i = 0; i < p->n_thread; ++i) ha_ovec_destroy(s->hab[i]);
+		// free(s->buf); free(s->mzs); free(s->sps);
+		return s;
+    }
+    else if (step == 2) { // step 3: dump
+        utepdat_t *s = (utepdat_t*)in;
+		uint64_t i, rid;
+        for (i = 0; i < (uint64_t)s->n; ++i) {
+			///debug
+			/**
+            // if(s->pos[i].s == (uint64_t)-1) continue;
+            // kv_push(pe_hit, p->hits.a, s->pos[i]);
+			if(!s->gcs[i]) continue;
+			dump_gaf(&(p->hits), s->gcs[i], 1);
+			free(s->gcs[i]->gc); free(s->gcs[i]->a); free(s->gcs[i]->lc); free(s->gcs[i]);
+			**/
+			rid = s->id + i;
+			append_ul_t(&UL_INF, &rid, NULL, 0, s->seq[i], s->len[i], NULL, 0);	
+			free(s->seq[i]); p->total_base += s->len[i];
+        }
+		///debug
+		/**
+        free(s->gcs);
+		**/
+        free(s);
+    }
+    return 0;
+}
+
+int scall_ul_pipeline(uldat_t* sl, const enzyme *fn)
+{
+    double index_time = yak_realtime();
+    int i;
+	init_aux_table();
+
+	init_all_ul_t(&UL_INF, &R_INF);
+    for (i = 0; i < fn->n; i++){
+        gzFile fp;
+        if ((fp = gzopen(fn->a[i], "r")) == 0) return 0;
+        sl->ks = kseq_init(fp);
+        kt_pipeline(3, worker_ul_scall_pipeline, sl, 3);
+        kseq_destroy(sl->ks);
+        gzclose(fp);
+    }
+	sl->hits.total_base = sl->total_base;
+	sl->hits.total_pair = sl->total_pair;
+    fprintf(stderr, "[M::%s::%.3f] ==> Qualification\n", __func__, yak_realtime()-index_time);
+	fprintf(stderr, "[M::%s::%.3f] ==> # reads: %lu, # bases: %lu\n", __func__, yak_realtime()-index_time, 
+							UL_INF.n, sl->total_base);
+	
+    return 1;
+}
+
+
+int print_ul_rs(all_ul_t *U_INF)
+{
+	uint32_t i;
+	ul_vec_t *p = NULL;
+	UC_Read ur;
+	init_UC_Read(&ur);
+	for (i = 0; i < U_INF->n; i++) {
+		p = &(U_INF->a[i]);
+		retrieve_ul_t(&ur, U_INF, i, 0);
+		fprintf(stderr, ">%s\n", p->n_n);
+		fprintf(stderr, "%.*s\n", (int)ur.length, ur.seq);		
+	}
+
+	destory_UC_Read(&ur);
+	return 1;
+}
+
 inline void get_ulname(mg_dbn_t *name, int32_t rid, char **rn, int32_t *rl)
 {
 	(*rn) = name->cc.a + (rid>0?name->a[rid-1]:0);
@@ -2728,4 +2862,33 @@ void ul_resolve(ma_ug_t *ug, const asg_t *rg, const ug_opt_t *uopt, int hap_n)
 	if(exist == 0) uidx_write(ha_flt_tab, ha_idx, asm_opt.output_file_name);
     ul_align(&opt, uopt, rg, asm_opt.ar, ha_flt_tab, ha_idx, ug);
     uidx_destory();
+}
+
+int ul_v_call(mg_idxopt_t *opt, const ug_opt_t *uopt, const asg_t *rg, const enzyme *fn, void *ha_flt_tab, ha_pt_t *ha_idx, ma_ug_t *ug)
+{
+    uldat_t sl; memset(&sl, 0, sizeof(sl));
+    sl.ha_flt_tab = ha_flt_tab;
+    sl.ha_idx = ha_idx;
+    sl.opt = opt;   
+    sl.chunk_size = 500000000;
+    sl.n_thread = asm_opt.thread_num;
+    sl.ug = ug;
+	sl.rg = rg;
+	sl.uopt = uopt;
+	scall_ul_pipeline(&sl, fn);
+	print_ul_rs(&UL_INF);
+	// if(!load_ul_hits(&sl.hits, &sl.nn, asm_opt.output_file_name)) {
+    // 	scall_ul_pipeline(&sl, fn);
+	// 	write_ul_hits(&sl.hits, &sl.nn, asm_opt.output_file_name);
+	// }
+
+	return 1;
+}
+
+void ul_load(const ug_opt_t *uopt)
+{
+	fprintf(stderr, "[M::%s::] ==> UL\n", __func__);
+	mg_idxopt_t opt;
+	init_mg_opt(&opt, 0, 19, 10, 4095);
+	ul_v_call(&opt, uopt, /**rg**/NULL, asm_opt.ar, ha_flt_tab, ha_idx, /**ug**/NULL);
 }

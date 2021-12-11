@@ -53,7 +53,12 @@
 #define CUT 11
 #define CUT_DIF_HAP 12
 
-
+///query is the read itself
+typedef struct {
+	uint32_t qn, qs, qe;
+	uint32_t tn, ts, te;
+	uint8_t sec:6, el:1, rev:1;
+} ul_ov_t;
 
 
 ///query is the read itself

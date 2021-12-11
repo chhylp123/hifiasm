@@ -3,6 +3,8 @@
 #include <string.h>
 #include <fcntl.h>
 #include "Process_Read.h"
+#include "htab.h"
+#include "Correct.h"
 
 uint8_t seq_nt6_table[256] = {
     5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,
@@ -735,4 +737,198 @@ void destory_Debug_reads(Debug_reads* x)
 	
 	free(x->read_name);
 	fclose(x->fp);
+}
+
+
+void init_all_ul_t(all_ul_t *x, All_reads *hR) {
+	memset(x, 0, sizeof(*x));
+	x->hR = hR; x->mm = 0x7fffffff;
+}
+void destory_all_ul_t(all_ul_t *x, All_reads *hR) {
+	uint64_t i;
+	for (i = 0; i < x->n; i++) {
+		free(x->a[i].n_n); free(x->a[i].N_site.a); 
+		free(x->a[i].r_base.a); free(x->a[i].bb.a);
+	}
+	free(x->a);
+}
+
+void ha_encode_base(uint8_t* dest, char* src, uint64_t src_l, N_t *nn)
+{
+    uint64_t i = 0;
+    uint64_t dest_i = 0;
+    uint8_t tmp = 0;
+    uint8_t c = 0;
+
+    while (i + 4 <= src_l) {
+        tmp = 0;
+
+        c = seq_nt6_table[(uint8_t)src[i]];
+		if (c >= 4) {
+			c = 0; kv_push(uint32_t, *nn, i);
+		}
+		i++;
+        tmp = tmp | (c<<6);
+
+        c = seq_nt6_table[(uint8_t)src[i]];
+		if (c >= 4) {
+			c = 0; kv_push(uint32_t, *nn, i);
+		}
+		i++;
+        tmp = tmp | (c<<4);
+
+        c = seq_nt6_table[(uint8_t)src[i]];
+		if (c >= 4) {
+			c = 0; kv_push(uint32_t, *nn, i);
+		}
+		i++;
+        tmp = tmp | (c<<2);
+
+        c = seq_nt6_table[(uint8_t)src[i]];
+		if (c >= 4) {
+			c = 0; kv_push(uint32_t, *nn, i);
+		}
+		i++;
+        tmp = tmp | c;
+
+        dest[dest_i] = tmp;
+
+        dest_i++;
+    }
+
+    //at most 3 bases here
+    uint64_t shift = 6;
+    if (i < src_l) {
+        tmp = 0;
+        while (i < src_l) {
+            c = seq_nt6_table[(uint8_t)src[i]];
+			if (c >= 4) {
+				c = 0; kv_push(uint32_t, *nn, i);
+			}
+			i++;
+            tmp = tmp | (c << shift);
+            shift = shift -2;
+        }
+        
+        dest[dest_i] = tmp;
+        dest_i++;
+    }
+}
+
+#define B4L(x) (((x)>>2)+(((x)&3)?1:0))
+void append_ul_t(all_ul_t *x, uint64_t *rid, char* id, int64_t id_l, char* str, int64_t str_l, ul_ov_t *o, int64_t on) {
+	int64_t i, mine, maxs, ovlp, end;
+	ul_vec_t *p = NULL;
+	ul_ov_t *z = NULL, *zp = NULL;
+	uc_block_t *b = NULL;
+	if(rid == NULL) {
+		kv_pushp(ul_vec_t, *x, &p);
+		memset(p, 0, sizeof(*p));
+	}
+	else {
+		p = &(x->a[*rid]);
+	}
+
+	if(id && id_l > 0) {
+		free(p->n_n);
+		p->n_l = id_l; MALLOC(p->n_n, p->n_l+1); memcpy(p->n_n, id, id_l); p->n_n[id_l] = '\0';
+	}
+	if(str && str_l > 0) {
+		p->bb.n = p->N_site.n = p->r_base.n = 0;
+		p->rlen = str_l; 
+		
+		if(o == NULL || on == 0) on = 0;
+		for (i = end = 0, zp = NULL; i < on; i++) {
+			z = &(o[i]);
+			if(!z->el) continue;
+			if(zp) {
+				mine = MIN(zp->qe, z->qe); maxs = MAX(zp->qs, z->qs);
+				ovlp = mine - maxs; 
+				if(zp->qe >= z->qe && zp->qs <= z->qs) continue;
+			} else {
+				ovlp = -z->qs; 
+			}
+			if(ovlp < 0) {///push original bases
+				kv_pushp(uc_block_t, p->bb, &b);
+				b->hid = x->mm; b->rev = 0;
+				b->qs = end; b->qe = b->qs - ovlp;
+				b->ts = p->r_base.n; b->te = b->ts + B4L(-ovlp);
+				kv_resize(uint8_t, p->r_base, b->te); p->r_base.n = b->te;
+				ha_encode_base(p->r_base.a+b->ts, str+b->qs, b->qe-b->qs, &(p->N_site));
+			} 
+
+			///push ovlp bases
+			kv_pushp(uc_block_t, p->bb, &b);
+			b->hid = z->tn; b->rev = z->rev;
+			b->qs = z->qs + (ovlp>0?ovlp:0); b->qe = z->qe;
+			if(z->rev) {
+				b->ts = z->ts; b->te = z->ts + (b->qe - b->qs);
+			} else {
+				b->ts = z->te - (b->qe - b->qs); b->te = z->te;
+			}
+
+			end = MAX(zp?zp->qe:0, z->qe);
+		}
+		
+		if(end < str_l) {///push original bases
+			kv_pushp(uc_block_t, p->bb, &b);
+			b->hid = x->mm; b->rev = 0;
+			b->qs = end; b->qe = str_l;
+			b->ts = p->r_base.n; b->te = b->ts + B4L(b->qe - b->qs);
+			kv_resize(uint8_t, p->r_base, b->te); p->r_base.n = b->te;
+			ha_encode_base(p->r_base.a+b->ts, str+b->qs, b->qe-b->qs, &(p->N_site));
+		}
+	}
+}
+
+
+void retrieve_ul_t(UC_Read* r, all_ul_t *ref, uint64_t ID, uint8_t strand) {
+	ul_vec_t *p = &(ref->a[ID]);
+	uc_block_t *b = NULL;
+	char *a = NULL;
+	uint8_t *src = NULL;
+	int64_t k, i, a_n, l_chr, idx;
+	r->length = p->rlen; r->RID = ID;
+
+	if(r->length + 4 > r->size) {
+        r->size = r->length + 4;
+        r->seq = (char*)realloc(r->seq,sizeof(char)*(r->size));
+    }
+
+	a = NULL; 
+	if(strand == 0) {
+		for (k = 0; k < (int64_t)p->bb.n; k++) {
+			b = &(p->bb.a[k]); a = r->seq + b->qs; a_n = b->qe - b->qs; src = p->r_base.a + b->ts; 
+			if(b->hid == ref->mm){///original bases
+				i = 0;
+				while (i < a_n) {
+					memcpy(a+i, bit_t_seq_table[src[i>>2]], 4);
+					i += 4;
+				}
+			} else {///ovlps
+				recover_UC_Read_sub_region(a, b->ts, b->te - b->ts, b->rev, ref->hR, b->hid);
+			}
+		}
+		for (k = 0; k < (int64_t)p->N_site.n; k++) r->seq[p->N_site.a[k]] = 'N';
+	} else {
+		for (k = 0; k < (int64_t)p->bb.n; k++) {
+			b = &(p->bb.a[k]); a = r->seq + r->length - b->qe; a_n = b->qe - b->qs; src = p->r_base.a + b->ts;
+			if(b->hid == ref->mm){///original bases
+				l_chr = (b->qe - b->qs)&((uint32_t)3);
+				i = ((b->qe - b->qs)>>2)+(l_chr!= 0)-1;
+				idx = 0;
+				if(l_chr > 0) {
+					memcpy(a + idx, bit_t_seq_table_rc[src[i]]+4-l_chr, l_chr);
+					idx = l_chr; i--;
+				}
+				while (i >= 0) {
+					memcpy(a + idx, bit_t_seq_table_rc[src[i]], 4);
+					i--; idx += 4;
+				}
+			} else {///ovlps
+				recover_UC_Read_sub_region(a, b->ts, b->te - b->ts, b->rev==strand?0:1, ref->hR, b->hid);
+			}
+		}
+		for (k = 0; k < (int64_t)p->N_site.n; k++) r->seq[r->length - p->N_site.a[k] - 1] = 'N';
+	}
 }
