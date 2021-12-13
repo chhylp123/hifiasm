@@ -322,6 +322,13 @@ void init_mg_opt(mg_idxopt_t *opt, int is_HPC, int k, int w, int hap_n)
 	opt->pri_ratio = 0.8f;
 }
 
+void uidx_l_build(ma_ug_t *ug, mg_idxopt_t *opt, int cutoff)
+{
+    ha_flt_tab = ha_ft_ul_gen(&asm_opt, &(ug->u), opt->k, opt->w, cutoff);
+    ha_idx = ha_pt_ul_gen(&asm_opt, ha_flt_tab, &(ug->u), opt->k, opt->w, cutoff);	
+	fprintf(stderr, "[M::%s] Index has been built.\n", __func__);
+}
+
 void uidx_build(ma_ug_t *ug, mg_idxopt_t *opt)
 {
     int flag = asm_opt.flag;
@@ -2345,7 +2352,6 @@ int scall_ul_pipeline(uldat_t* sl, const enzyme *fn)
 {
     double index_time = yak_realtime();
     int i;
-	init_aux_table();
 
 	init_all_ul_t(&UL_INF, &R_INF);
     for (i = 0; i < fn->n; i++){
@@ -2885,10 +2891,74 @@ int ul_v_call(mg_idxopt_t *opt, const ug_opt_t *uopt, const asg_t *rg, const enz
 	return 1;
 }
 
+ma_ug_t *dedup_HiFis(ma_hit_t_alloc* src, int64_t min_ovlp, int64_t max_hang, uint64_t n_read, int64_t readLen)
+{
+	uint64_t i, k, qn, tn;
+	int32_t r; asg_arc_t t, *p = NULL; 
+	asg_t *rg = asg_init();
+
+	rg->m_seq = n_read; MALLOC(rg->seq, rg->m_seq);
+	for (i = 0; i < n_read; ++i) rg->seq[i].len = Get_READ_LENGTH(R_INF, i);
+	
+	for (i = 0; i < n_read; i++) {
+		if(rg->seq[i].del) continue;
+		for (k = 0; k < src[i].length; k++) {
+			if(!src[i].buffer[k].el) continue;
+			qn = Get_qn(src[i].buffer[k]); tn = Get_tn(src[i].buffer[k]);
+			if(rg->seq[qn].del || rg->seq[tn].del) continue;
+			r = ma_hit2arc(&(src[i].buffer[k]), rg->seq[qn].len, rg->seq[tn].len, max_hang, asm_opt.max_hang_rate, min_ovlp, &t);
+			if (r == MA_HT_QCONT) {
+				rg->seq[qn].del = 1;
+			} else if(r == MA_HT_TCONT) {
+				rg->seq[tn].del = 1;
+			}
+			if(rg->seq[i].del) break;
+		}
+	}
+
+	for (i = 0; i < n_read; i++) {
+		if(rg->seq[i].del) continue;
+		for (k = 0; k < src[i].length; k++) {
+			if(!src[i].buffer[k].el) continue;
+			qn = Get_qn(src[i].buffer[k]); tn = Get_tn(src[i].buffer[k]);
+			if(rg->seq[qn].del || rg->seq[tn].del) continue;
+			r = ma_hit2arc(&(src[i].buffer[k]), rg->seq[qn].len, rg->seq[tn].len, max_hang, asm_opt.max_hang_rate, min_ovlp, &t);
+			if (r >= 0) {
+                p = asg_arc_pushp(rg);
+                *p = t;
+            }
+		}
+	}
+
+	asg_cleanup(rg); asg_symm(rg);
+
+
+
+
+	ma_ug_t *ug = NULL;
+	ug = ma_ug_gen(rg);
+
+
+
+
+
+
+	asg_destroy(rg); ma_ug_destroy(ug);
+}
+
 void ul_load(const ug_opt_t *uopt)
 {
 	fprintf(stderr, "[M::%s::] ==> UL\n", __func__);
 	mg_idxopt_t opt;
-	init_mg_opt(&opt, 0, 19, 10, 4095);
+	ma_ug_t *ug = NULL;
+	int cutoff = asm_opt.hom_cov * asm_opt.high_factor;
+	init_aux_table();
+	init_mg_opt(&opt, !(asm_opt.flag&HA_F_NO_HPC), 19, 10, cutoff);
+	int exist = (asm_opt.load_index_from_disk? uidx_load(&ha_flt_tab, &ha_idx, asm_opt.output_file_name) : 0);
+    if(exist == 0) uidx_l_build(ug, &opt, cutoff);
+	if(exist == 0) uidx_write(ha_flt_tab, ha_idx, asm_opt.output_file_name);
+
+
+	
 	ul_v_call(&opt, uopt, /**rg**/NULL, asm_opt.ar, ha_flt_tab, ha_idx, /**ug**/NULL);
 }

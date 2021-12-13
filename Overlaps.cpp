@@ -31117,7 +31117,7 @@ float min_ovlp_drop_ratio, float max_ovlp_drop_ratio, char* output_file_name,
 long long bubble_dist, int read_graph, R_to_U* ruIndex, asg_t **sg_ptr, 
 ma_sub_t **coverage_cut_ptr, int debug_g)
 {
-    // if(asm_opt.ar) create_ul_info();
+    if(asm_opt.ar) create_ul_info();
 
 
 
@@ -31400,6 +31400,7 @@ long long bubble_dist, int read_graph, int write)
     init_R_to_U(&ruIndex, n_read);
     asg_t *sg = NULL;
     ma_sub_t* coverage_cut = NULL;
+    init_aux_table();
         
     ///actually min_thres = asm_opt.max_short_tip + 1 there are asm_opt.max_short_tip reads
     min_thres = asm_opt.max_short_tip + 1;

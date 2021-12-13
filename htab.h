@@ -72,11 +72,13 @@ extern void *ha_flt_tab_hp;
 extern ha_pt_t *ha_idx_hp;
 extern void *ha_ct_table;
 
+void *ha_ft_ul_gen(const hifiasm_opt_t *asm_opt, ma_utg_v *us, int k, int w, int cutoff);
 void *ha_ft_ug_gen(const hifiasm_opt_t *asm_opt, ma_utg_v *us, int is_HPC, int k, int w, int min_freq, int max_freq);
 void *ha_ft_gen(const hifiasm_opt_t *asm_opt, All_reads *rs, int *hom_cov, int is_hp_mode);
 int32_t ha_ft_cnt(const void *hh, uint64_t y);
 void ha_ft_destroy(void *h);
 
+ha_pt_t *ha_pt_ul_gen(const hifiasm_opt_t *asm_opt, const void *flt_tab, ma_utg_v *us, int k, int w, int cutoff);
 ha_pt_t *ha_pt_ug_gen(const hifiasm_opt_t *asm_opt, const void *flt_tab, ma_utg_v *us, int is_HPC, int k, int w, int min_freq);
 ha_pt_t *ha_pt_gen(const hifiasm_opt_t *asm_opt, const void *flt_tab, int read_from_store, int is_hp_mode, All_reads *rs, int *hom_cov, int *het_cov);
 void ha_pt_destroy(ha_pt_t *h);

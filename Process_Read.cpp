@@ -881,7 +881,6 @@ void append_ul_t(all_ul_t *x, uint64_t *rid, char* id, int64_t id_l, char* str, 
 	}
 }
 
-
 void retrieve_ul_t(UC_Read* r, all_ul_t *ref, uint64_t ID, uint8_t strand) {
 	ul_vec_t *p = &(ref->a[ID]);
 	uc_block_t *b = NULL;
@@ -930,5 +929,19 @@ void retrieve_ul_t(UC_Read* r, all_ul_t *ref, uint64_t ID, uint8_t strand) {
 			}
 		}
 		for (k = 0; k < (int64_t)p->N_site.n; k++) r->seq[r->length - p->N_site.a[k] - 1] = 'N';
+	}
+}
+
+void retrieve_u_seq(UC_Read* i_r, char* i_s, ma_utg_t *u, uint8_t strand)
+{
+	if(i_r) {
+		
+	}
+
+
+	if (r->length + 4 > r->size)
+	{
+		r->size = r->length + 4;
+		r->seq = (char*)realloc(r->seq,sizeof(char)*(r->size));
 	}
 }
