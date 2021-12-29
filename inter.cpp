@@ -288,10 +288,10 @@ typedef struct { // data structure for each step in kt_pipeline()
 	int n, m, sum_len;
 	uint64_t *len, id;
 	char **seq;
-    ha_mzl_v *mzs;
-    st_mt_t *sps;
-	mg_gchains_t **gcs;
-    mg_tbuf_t **buf;
+    ha_mzl_v *mzs;///useless
+    st_mt_t *sps;///useless
+	mg_gchains_t **gcs;///useless
+    mg_tbuf_t **buf;///useless
 	ha_ovec_buf_t **hab;
 } utepdat_t;
 
@@ -2320,6 +2320,7 @@ static void *worker_ul_scall_pipeline(void *data, int step, void *in) // callbac
 		}
 		**/
 		for (i = 0; i < p->n_thread; ++i) ha_ovec_destroy(s->hab[i]);
+		free(s->hab);
 		// free(s->buf); free(s->mzs); free(s->sps);
 		return s;
     }
@@ -2337,13 +2338,14 @@ static void *worker_ul_scall_pipeline(void *data, int step, void *in) // callbac
 			**/
 			rid = s->id + i;
 			append_ul_t(&UL_INF, &rid, NULL, 0, s->seq[i], s->len[i], NULL, 0);	
+			// fprintf(stderr, "%.*s\n", (int)s->len[i], s->seq[i]);	
 			free(s->seq[i]); p->total_base += s->len[i];
         }
 		///debug
 		/**
         free(s->gcs);
 		**/
-        free(s);
+        free(s->len); free(s->seq); free(s);
     }
     return 0;
 }
@@ -2380,7 +2382,7 @@ int print_ul_rs(all_ul_t *U_INF)
 	init_UC_Read(&ur);
 	for (i = 0; i < U_INF->n; i++) {
 		p = &(U_INF->a[i]);
-		retrieve_ul_t(&ur, U_INF, i, 0);
+		retrieve_ul_t(&ur, NULL, U_INF, i, 0, 0, -1);
 		fprintf(stderr, ">%s\n", p->n_n);
 		fprintf(stderr, "%.*s\n", (int)ur.length, ur.seq);		
 	}
@@ -2870,19 +2872,19 @@ void ul_resolve(ma_ug_t *ug, const asg_t *rg, const ug_opt_t *uopt, int hap_n)
     uidx_destory();
 }
 
-int ul_v_call(mg_idxopt_t *opt, const ug_opt_t *uopt, const asg_t *rg, const enzyme *fn, void *ha_flt_tab, ha_pt_t *ha_idx, ma_ug_t *ug)
+int ul_v_call(mg_idxopt_t *opt, const ug_opt_t *uopt, const enzyme *fn, void *ha_flt_tab, ha_pt_t *ha_idx, ma_ug_t *ug)
 {
     uldat_t sl; memset(&sl, 0, sizeof(sl));
     sl.ha_flt_tab = ha_flt_tab;
     sl.ha_idx = ha_idx;
     sl.opt = opt;   
-    sl.chunk_size = 500000000;
+    sl.chunk_size = 100000000;
     sl.n_thread = asm_opt.thread_num;
     sl.ug = ug;
-	sl.rg = rg;
 	sl.uopt = uopt;
 	scall_ul_pipeline(&sl, fn);
-	print_ul_rs(&UL_INF);
+	// print_ul_rs(&UL_INF);
+	debug_retrieve_rc_sub(&UL_INF, &R_INF, &(ug->u), 100);
 	// if(!load_ul_hits(&sl.hits, &sl.nn, asm_opt.output_file_name)) {
     // 	scall_ul_pipeline(&sl, fn);
 	// 	write_ul_hits(&sl.hits, &sl.nn, asm_opt.output_file_name);
@@ -2891,13 +2893,13 @@ int ul_v_call(mg_idxopt_t *opt, const ug_opt_t *uopt, const asg_t *rg, const enz
 	return 1;
 }
 
-ma_ug_t *dedup_HiFis(ma_hit_t_alloc* src, int64_t min_ovlp, int64_t max_hang, uint64_t n_read, int64_t readLen)
+ma_ug_t *dedup_HiFis(ma_hit_t_alloc* src, int64_t min_ovlp, int64_t max_hang, int64_t gap_fuzz)
 {
-	uint64_t i, k, qn, tn;
+	uint64_t i, k, qn, tn, n_read = R_INF.total_reads;
 	int32_t r; asg_arc_t t, *p = NULL; 
 	asg_t *rg = asg_init();
 
-	rg->m_seq = n_read; MALLOC(rg->seq, rg->m_seq);
+	rg->m_seq = rg->n_seq = n_read; MALLOC(rg->seq, rg->m_seq);
 	for (i = 0; i < n_read; ++i) rg->seq[i].len = Get_READ_LENGTH(R_INF, i);
 	
 	for (i = 0; i < n_read; i++) {
@@ -2906,6 +2908,8 @@ ma_ug_t *dedup_HiFis(ma_hit_t_alloc* src, int64_t min_ovlp, int64_t max_hang, ui
 			if(!src[i].buffer[k].el) continue;
 			qn = Get_qn(src[i].buffer[k]); tn = Get_tn(src[i].buffer[k]);
 			if(rg->seq[qn].del || rg->seq[tn].del) continue;
+			if((Get_qe(src[i].buffer[k]) - Get_qs(src[i].buffer[k])) < min_ovlp) continue;
+			if((Get_te(src[i].buffer[k]) - Get_ts(src[i].buffer[k])) < min_ovlp) continue;
 			r = ma_hit2arc(&(src[i].buffer[k]), rg->seq[qn].len, rg->seq[tn].len, max_hang, asm_opt.max_hang_rate, min_ovlp, &t);
 			if (r == MA_HT_QCONT) {
 				rg->seq[qn].del = 1;
@@ -2922,6 +2926,8 @@ ma_ug_t *dedup_HiFis(ma_hit_t_alloc* src, int64_t min_ovlp, int64_t max_hang, ui
 			if(!src[i].buffer[k].el) continue;
 			qn = Get_qn(src[i].buffer[k]); tn = Get_tn(src[i].buffer[k]);
 			if(rg->seq[qn].del || rg->seq[tn].del) continue;
+			if((Get_qe(src[i].buffer[k]) - Get_qs(src[i].buffer[k])) < min_ovlp) continue;
+			if((Get_te(src[i].buffer[k]) - Get_ts(src[i].buffer[k])) < min_ovlp) continue;
 			r = ma_hit2arc(&(src[i].buffer[k]), rg->seq[qn].len, rg->seq[tn].len, max_hang, asm_opt.max_hang_rate, min_ovlp, &t);
 			if (r >= 0) {
                 p = asg_arc_pushp(rg);
@@ -2931,34 +2937,29 @@ ma_ug_t *dedup_HiFis(ma_hit_t_alloc* src, int64_t min_ovlp, int64_t max_hang, ui
 	}
 
 	asg_cleanup(rg); asg_symm(rg);
-
-
-
-
+	asg_arc_del_trans(rg, gap_fuzz);
 	ma_ug_t *ug = NULL;
 	ug = ma_ug_gen(rg);
+	asg_destroy(rg);
 
-
-
-
-
-
-	asg_destroy(rg); ma_ug_destroy(ug);
+	for (i = k = 0; i < ug->u.n; i++) k += ug->u.a[i].len;
+	fprintf(stderr, "[M::%s::] # unitigs: %lu, # bases: %lu\n", __func__, (uint64_t)ug->u.n, k);
+	return ug;
 }
 
 void ul_load(const ug_opt_t *uopt)
 {
 	fprintf(stderr, "[M::%s::] ==> UL\n", __func__);
 	mg_idxopt_t opt;
-	ma_ug_t *ug = NULL;
+	ma_ug_t *ug = dedup_HiFis(uopt->sources, uopt->min_ovlp, uopt->max_hang, uopt->gap_fuzz);
 	int cutoff = asm_opt.hom_cov * asm_opt.high_factor;
 	init_aux_table();
 	init_mg_opt(&opt, !(asm_opt.flag&HA_F_NO_HPC), 19, 10, cutoff);
+	/**
 	int exist = (asm_opt.load_index_from_disk? uidx_load(&ha_flt_tab, &ha_idx, asm_opt.output_file_name) : 0);
     if(exist == 0) uidx_l_build(ug, &opt, cutoff);
 	if(exist == 0) uidx_write(ha_flt_tab, ha_idx, asm_opt.output_file_name);
-
-
-	
-	ul_v_call(&opt, uopt, /**rg**/NULL, asm_opt.ar, ha_flt_tab, ha_idx, /**ug**/NULL);
+	**/
+	ul_v_call(&opt, uopt, asm_opt.ar, ha_flt_tab, ha_idx, ug);
+	ma_ug_destroy(ug); destory_all_ul_t(&UL_INF);
 }

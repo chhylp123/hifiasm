@@ -733,7 +733,7 @@ static void *sf##_worker_count(void *data, int step, void *in) /** callback for 
 				}\
 				MALLOC(s->seq[s->n_seq], u->len);\
 				if(u->s) memcpy(s->seq[s->n_seq], u->s, u->len);\
-				else memcpy(s->seq[s->n_seq], u->s, u->len);\
+				else retrieve_u_seq(NULL, s->seq[s->n_seq], u, 0, 0, -1);\
 				s->len[s->n_seq++] = u->len;\
 				++p->n_seq;\
 				s->sum_len += u->len;\

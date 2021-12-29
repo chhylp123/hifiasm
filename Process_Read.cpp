@@ -28,7 +28,7 @@ uint8_t seq_nt6_table[256] = {
 char bit_t_seq_table[256][4] = {{0}};
 char bit_t_seq_table_rc[256][4] = {{0}};
 char s_H[5] = {'A', 'C', 'G', 'T', 'N'};
-char rc_Table[5] = {'T', 'G', 'C', 'A', 'N'};
+char rc_Table[6] = {'T', 'G', 'C', 'A', 'N', 'N'};
 
 void init_All_reads(All_reads* r)
 {
@@ -341,87 +341,92 @@ void init_UC_Read(UC_Read* r)
 }
 
 
-void recover_UC_Read_sub_region(char* r, long long start_pos, long long length, uint8_t strand, All_reads* R_INF, long long ID)
+void recover_UC_Read_sub_region(char* r, int64_t start_pos, int64_t length, uint8_t strand, All_reads* R_INF, int64_t ID)
 {
-	long long readLen = Get_READ_LENGTH((*R_INF), ID);
+	int64_t readLen = Get_READ_LENGTH((*R_INF), ID);
+	int64_t end_pos = start_pos + length - 1, begLen, tailLen, offset, mn, src_i, des_i, i;
 	uint8_t* src = Get_READ((*R_INF), ID);
 
-	long long i;
-	long long copyLen;
-	long long end_pos = start_pos + length - 1;
+	if(strand == 0) {
+		offset = start_pos&3;
+		begLen = 4-offset;
+		if(begLen > length) begLen = length;
+		tailLen = (length-begLen)&3;
+		mn = (length - begLen - tailLen)>>2;
+		src_i = start_pos; des_i = 0; i = 0;
 
-	if (strand == 0)
-	{
-		i = start_pos;
-		copyLen = 0;
-
-		long long initLen = start_pos % 4;
-
-		if (initLen != 0)
-		{
-			memcpy(r, bit_t_seq_table[src[i>>2]] + initLen, 4 - initLen);
-			copyLen = copyLen + 4 - initLen;
-			i = i + copyLen;
+		if(begLen > 0) {
+			memcpy(r+des_i, bit_t_seq_table[src[src_i>>2]]+offset, begLen);
+			des_i += begLen; src_i += begLen;
 		}
 
-		while (copyLen < length)
-		{
-			memcpy(r+copyLen, bit_t_seq_table[src[i>>2]], 4);
-			copyLen = copyLen + 4;
-			i = i + 4;
+		for (i = 0; i < mn; i++) {
+			memcpy(r+des_i, bit_t_seq_table[src[src_i>>2]], 4);
+			des_i += 4; src_i += 4;
 		}
 
-		if (R_INF->N_site[ID])
-		{
-			for (i = 1; i <= (long long)R_INF->N_site[ID][0]; i++)
-			{
-				if ((long long)R_INF->N_site[ID][i] >= start_pos && (long long)R_INF->N_site[ID][i] <= end_pos)
-				{
+		if(tailLen > 0) {
+			memcpy(r+des_i, bit_t_seq_table[src[src_i>>2]], tailLen);
+			des_i += tailLen; src_i += tailLen;
+		}
+
+		if (R_INF->N_site[ID]) {
+			for (i = 1; i <= (long long)R_INF->N_site[ID][0]; i++) {
+				if ((long long)R_INF->N_site[ID][i] >= start_pos && (long long)R_INF->N_site[ID][i] <= end_pos) {
 					r[R_INF->N_site[ID][i] - start_pos] = 'N';
 				}
-				else if((long long)R_INF->N_site[ID][i] > end_pos)
-				{
+				else if((long long)R_INF->N_site[ID][i] > end_pos) {
 					break;
 				}
 			}
 		}
 	}
-	else
-	{
+	else {
 		start_pos = readLen - start_pos - 1;
 		end_pos = readLen - end_pos - 1;
 
-		///start_pos > end_pos
-		i = start_pos;
-		copyLen = 0;
-		long long initLen = (start_pos + 1) % 4;
+		begLen = (start_pos+1)&3;
+		offset = 4 - begLen;
+		if(begLen > length) begLen = length;
+		tailLen = (length-begLen)&3;
+		mn = (length - begLen - tailLen)>>2;
+		src_i = start_pos; des_i = 0; i = 0;
 
-		if (initLen != 0)
-		{
-			memcpy(r, bit_t_seq_table_rc[src[i>>2]] + 4 - initLen, initLen);
-			copyLen = copyLen + initLen;
-			i = i - initLen;
+		if(begLen > 0) {
+			memcpy(r+des_i, bit_t_seq_table_rc[src[src_i>>2]]+offset, begLen);
+			des_i += begLen; src_i -= begLen;
 		}
 
-		while (copyLen < length)
-		{
-			memcpy(r+copyLen, bit_t_seq_table_rc[src[i>>2]], 4);
-			copyLen = copyLen + 4;
-			i = i - 4;
+		for (i = 0; i < mn; i++) {
+			memcpy(r+des_i, bit_t_seq_table_rc[src[src_i>>2]], 4);
+			des_i += 4; src_i -= 4;
 		}
 
-		if (R_INF->N_site[ID])
-		{
-			long long offset = readLen - start_pos - 1;
+		if(tailLen > 0) {
+			memcpy(r+des_i, bit_t_seq_table_rc[src[src_i>>2]], tailLen);
+			des_i += tailLen; src_i -= tailLen;
+		}
 
-			for (i = 1; i <= (long long)R_INF->N_site[ID][0]; i++)
-			{
-				if ((long long)R_INF->N_site[ID][i] >= end_pos && (long long)R_INF->N_site[ID][i] <= start_pos)
-				{
+		/**
+		if (R_INF->N_site[ID]) {
+			offset = readLen - start_pos - 1;
+			for (i = 1; i <= (long long)R_INF->N_site[ID][0]; i++) {
+				if ((long long)R_INF->N_site[ID][i] >= end_pos && (long long)R_INF->N_site[ID][i] <= start_pos) {
 					r[readLen - R_INF->N_site[ID][i] - 1 - offset] = 'N';
 				}
-				else if((long long)R_INF->N_site[ID][i] > start_pos)
-				{
+				else if((long long)R_INF->N_site[ID][i] > start_pos) {
+					break;
+				}
+			}
+		}
+		**/
+		if (R_INF->N_site[ID]) {
+			start_pos = readLen - start_pos - 1; end_pos = readLen - end_pos - 1;
+			for (i = 1; i <= (long long)R_INF->N_site[ID][0]; i++) {
+				offset = readLen - R_INF->N_site[ID][i] - 1;
+				if(offset >= start_pos && offset <= end_pos) {
+					r[offset - start_pos] = 'N';
+				} else if(offset < start_pos) {
 					break;
 				}
 			}
@@ -676,6 +681,7 @@ void reverse_complement(char* pattern, uint64_t length)
 
 	for (i = 0; i < end; i++)
 	{
+		
 		index = length - i - 1;
 		k = pattern[index];
 		pattern[index] = RC_CHAR(pattern[i]);
@@ -743,8 +749,9 @@ void destory_Debug_reads(Debug_reads* x)
 void init_all_ul_t(all_ul_t *x, All_reads *hR) {
 	memset(x, 0, sizeof(*x));
 	x->hR = hR; x->mm = 0x7fffffff;
+	init_aux_table();
 }
-void destory_all_ul_t(all_ul_t *x, All_reads *hR) {
+void destory_all_ul_t(all_ul_t *x) {
 	uint64_t i;
 	for (i = 0; i < x->n; i++) {
 		free(x->a[i].n_n); free(x->a[i].N_site.a); 
@@ -753,7 +760,7 @@ void destory_all_ul_t(all_ul_t *x, All_reads *hR) {
 	free(x->a);
 }
 
-void ha_encode_base(uint8_t* dest, char* src, uint64_t src_l, N_t *nn)
+void ha_encode_base(uint8_t* dest, char* src, uint64_t src_l, N_t *nn, uint64_t nn_offset)
 {
     uint64_t i = 0;
     uint64_t dest_i = 0;
@@ -765,28 +772,28 @@ void ha_encode_base(uint8_t* dest, char* src, uint64_t src_l, N_t *nn)
 
         c = seq_nt6_table[(uint8_t)src[i]];
 		if (c >= 4) {
-			c = 0; kv_push(uint32_t, *nn, i);
+			c = 0; kv_push(uint32_t, *nn, i+nn_offset);
 		}
 		i++;
         tmp = tmp | (c<<6);
 
         c = seq_nt6_table[(uint8_t)src[i]];
 		if (c >= 4) {
-			c = 0; kv_push(uint32_t, *nn, i);
+			c = 0; kv_push(uint32_t, *nn, i+nn_offset);
 		}
 		i++;
         tmp = tmp | (c<<4);
 
         c = seq_nt6_table[(uint8_t)src[i]];
 		if (c >= 4) {
-			c = 0; kv_push(uint32_t, *nn, i);
+			c = 0; kv_push(uint32_t, *nn, i+nn_offset);
 		}
 		i++;
         tmp = tmp | (c<<2);
 
         c = seq_nt6_table[(uint8_t)src[i]];
 		if (c >= 4) {
-			c = 0; kv_push(uint32_t, *nn, i);
+			c = 0; kv_push(uint32_t, *nn, i+nn_offset);
 		}
 		i++;
         tmp = tmp | c;
@@ -803,7 +810,7 @@ void ha_encode_base(uint8_t* dest, char* src, uint64_t src_l, N_t *nn)
         while (i < src_l) {
             c = seq_nt6_table[(uint8_t)src[i]];
 			if (c >= 4) {
-				c = 0; kv_push(uint32_t, *nn, i);
+				c = 0; kv_push(uint32_t, *nn, i+nn_offset);
 			}
 			i++;
             tmp = tmp | (c << shift);
@@ -816,14 +823,33 @@ void ha_encode_base(uint8_t* dest, char* src, uint64_t src_l, N_t *nn)
 }
 
 #define B4L(x) (((x)>>2)+(((x)&3)?1:0))
+void push_subblock_original_bases(char* str, all_ul_t *x, ul_vec_t *p, uint32_t s, uint32_t e, uint32_t subLen)//for debug
+{
+	uc_block_t *b = NULL;
+	uint32_t qs = s, qe = e;
+	while (qs < e) {
+		qe = qs + subLen; if(qe > e) qe = e;
+		kv_pushp(uc_block_t, p->bb, &b);
+		b->hid = x->mm; b->rev = 0;
+		b->qs = qs; b->qe = qe;
+		b->ts = p->r_base.n; b->te = b->ts + B4L(b->qe - b->qs);
+		kv_resize(uint8_t, p->r_base, b->te); p->r_base.n = b->te;
+		ha_encode_base(p->r_base.a+b->ts, str+b->qs, b->qe-b->qs, &(p->N_site), b->qs);
+
+		qs = qe;
+	}	
+}
+
 void append_ul_t(all_ul_t *x, uint64_t *rid, char* id, int64_t id_l, char* str, int64_t str_l, ul_ov_t *o, int64_t on) {
 	int64_t i, mine, maxs, ovlp, end;
 	ul_vec_t *p = NULL;
 	ul_ov_t *z = NULL, *zp = NULL;
 	uc_block_t *b = NULL;
+	if(rid) fprintf(stderr, "rid:%lu\n", *rid);
 	if(rid == NULL) {
 		kv_pushp(ul_vec_t, *x, &p);
 		memset(p, 0, sizeof(*p));
+		fprintf(stderr, "x->n:%u\n", x->n);
 	}
 	else {
 		p = &(x->a[*rid]);
@@ -854,7 +880,7 @@ void append_ul_t(all_ul_t *x, uint64_t *rid, char* id, int64_t id_l, char* str, 
 				b->qs = end; b->qe = b->qs - ovlp;
 				b->ts = p->r_base.n; b->te = b->ts + B4L(-ovlp);
 				kv_resize(uint8_t, p->r_base, b->te); p->r_base.n = b->te;
-				ha_encode_base(p->r_base.a+b->ts, str+b->qs, b->qe-b->qs, &(p->N_site));
+				ha_encode_base(p->r_base.a+b->ts, str+b->qs, b->qe-b->qs, &(p->N_site), b->qs);
 			} 
 
 			///push ovlp bases
@@ -876,72 +902,348 @@ void append_ul_t(all_ul_t *x, uint64_t *rid, char* id, int64_t id_l, char* str, 
 			b->qs = end; b->qe = str_l;
 			b->ts = p->r_base.n; b->te = b->ts + B4L(b->qe - b->qs);
 			kv_resize(uint8_t, p->r_base, b->te); p->r_base.n = b->te;
-			ha_encode_base(p->r_base.a+b->ts, str+b->qs, b->qe-b->qs, &(p->N_site));
+			ha_encode_base(p->r_base.a+b->ts, str+b->qs, b->qe-b->qs, &(p->N_site), b->qs);		
+			// push_subblock_original_bases(str, x, p, end, str_l, 321);//for debug
 		}
+		// char *sst = NULL; CALLOC(sst, str_l);//for debug
+		// retrieve_ul_t(NULL, sst, x, rid?*rid:x->n-1, 0, 0, -1);
+		// if(memcmp(sst, str, str_l)) {
+		// 	fprintf(stderr, "ap-Wrong read, id: %ld, [%d, %ld)\n", (int64_t)(rid?*rid:x->n-1), 0, str_l);
+		// 	for (i = 0; i < str_l; i++) {
+		// 		if(sst[i] != str[i]) fprintf(stderr, "[%ld] input:%c, decompress:%c\n", i, str[i], sst[i]);
+		// 	}
+		// }
+		// free(sst);
 	}
 }
 
-void retrieve_ul_t(UC_Read* r, all_ul_t *ref, uint64_t ID, uint8_t strand) {
-	ul_vec_t *p = &(ref->a[ID]);
+void retrieve_ul_t(UC_Read* i_r, char *i_s, all_ul_t *ref, uint64_t ID, uint8_t strand, int64_t s, int64_t l) {
+	ul_vec_t *p = &(ref->a[ID]); 
+	if(l < 0) l = p->rlen;
 	uc_block_t *b = NULL;
-	char *a = NULL;
+	char *r = NULL;
 	uint8_t *src = NULL;
-	int64_t k, i, a_n, l_chr, idx;
-	r->length = p->rlen; r->RID = ID;
+	int64_t k, i, a_n, e = s + l, ssp, sep, sl, rts, rte;
+	int64_t offset, begLen, tailLen, src_i, des_i;
+	if(i_r) {
+		i_r->length = l; i_r->RID = ID;
+		if(i_r->length > i_r->size) {
+			i_r->size = i_r->length;
+			i_r->seq = (char*)realloc(i_r->seq,sizeof(char)*(i_r->size));
+		}
+		r = i_r->seq;
+	}
+	if(i_s) r = i_s;
+	
+	
 
-	if(r->length + 4 > r->size) {
-        r->size = r->length + 4;
-        r->seq = (char*)realloc(r->seq,sizeof(char)*(r->size));
-    }
-
-	a = NULL; 
 	if(strand == 0) {
-		for (k = 0; k < (int64_t)p->bb.n; k++) {
-			b = &(p->bb.a[k]); a = r->seq + b->qs; a_n = b->qe - b->qs; src = p->r_base.a + b->ts; 
+		for (k = 0, des_i = 0; k < (int64_t)p->bb.n; k++) {
+			b = &(p->bb.a[k]); 
+			if(b->qe <= s) continue;
+			if(b->qs >= e) break;
+			src = p->r_base.a + b->ts; 
+			ssp = MAX(s, b->qs) - b->qs; 
+			sep = MIN(e, b->qe) - b->qs;
+			sl = sep - ssp;
+			
 			if(b->hid == ref->mm){///original bases
-				i = 0;
-				while (i < a_n) {
-					memcpy(a+i, bit_t_seq_table[src[i>>2]], 4);
-					i += 4;
+				offset = ssp&3; 
+				begLen = 4-offset;
+				if(begLen > sl) begLen = sl;
+				tailLen = (sl-begLen)&3;
+				a_n = (sl - begLen - tailLen)>>2;
+
+				src_i = ssp; i = 0;
+				if(begLen > 0) {
+					memcpy(r+des_i, bit_t_seq_table[src[src_i>>2]]+offset, begLen);
+					des_i += begLen; src_i += begLen;
+				}
+
+				for (i = 0; i < a_n; i++) {
+					memcpy(r+des_i, bit_t_seq_table[src[src_i>>2]], 4);
+					des_i += 4; src_i += 4;
+				}
+
+				if(tailLen > 0) {
+					memcpy(r+des_i, bit_t_seq_table[src[src_i>>2]], tailLen);
+					des_i += tailLen; src_i += tailLen;
 				}
 			} else {///ovlps
-				recover_UC_Read_sub_region(a, b->ts, b->te - b->ts, b->rev, ref->hR, b->hid);
+				if(b->rev == 0) {
+					recover_UC_Read_sub_region(r+des_i, b->ts + ssp, sep - ssp, b->rev, ref->hR, b->hid);
+				} else{
+					rts = b->ts + (b->qe - sep); rte = rts + sep - ssp;
+					recover_UC_Read_sub_region(r+des_i, Get_READ_LENGTH((*ref->hR), b->hid) - rte, 
+					sep - ssp, b->rev, ref->hR, b->hid);
+				}
+				des_i += sep - ssp;
 			}
 		}
-		for (k = 0; k < (int64_t)p->N_site.n; k++) r->seq[p->N_site.a[k]] = 'N';
+		for (k = 0; k < (int64_t)p->N_site.n; k++) {
+			if(p->N_site.a[k] >= s && p->N_site.a[k] < e){
+				r[p->N_site.a[k]-s] = 'N';
+			}
+			else if(p->N_site.a[k] >= e) {
+				break;
+			}
+		}
 	} else {
-		for (k = 0; k < (int64_t)p->bb.n; k++) {
-			b = &(p->bb.a[k]); a = r->seq + r->length - b->qe; a_n = b->qe - b->qs; src = p->r_base.a + b->ts;
+		sep = p->rlen - s; 
+		ssp = p->rlen - e;
+		s = ssp; e = sep; 
+		///[s, e)
+		for (k = ((int64_t)p->bb.n)-1, des_i = 0; k >= 0; k--) {
+			b = &(p->bb.a[k]); 
+			if(b->qe <= s) break;
+			if(b->qs >= e) continue;
+            src = p->r_base.a + b->ts; 
+            ssp = MAX(s, b->qs) - b->qs; 
+            sep = MIN(e, b->qe) - b->qs;
+            sl = sep - ssp;
+			///[ssp, sep)
+			
 			if(b->hid == ref->mm){///original bases
-				l_chr = (b->qe - b->qs)&((uint32_t)3);
-				i = ((b->qe - b->qs)>>2)+(l_chr!= 0)-1;
-				idx = 0;
-				if(l_chr > 0) {
-					memcpy(a + idx, bit_t_seq_table_rc[src[i]]+4-l_chr, l_chr);
-					idx = l_chr; i--;
+				begLen = sep&3;
+        		offset = 4 - begLen;
+				if(begLen > sl) begLen = sl;
+				tailLen = (sl-begLen)&3;
+				a_n = (sl - begLen - tailLen)>>2;
+				src_i = sep-1; i = 0;
+
+				if(begLen > 0) {
+					memcpy(r+des_i, bit_t_seq_table_rc[src[src_i>>2]]+offset, begLen);
+					des_i += begLen; src_i -= begLen;
 				}
-				while (i >= 0) {
-					memcpy(a + idx, bit_t_seq_table_rc[src[i]], 4);
-					i--; idx += 4;
+
+				for (i = 0; i < a_n; i++) {
+					memcpy(r+des_i, bit_t_seq_table_rc[src[src_i>>2]], 4);
+					des_i += 4; src_i -= 4;
+				}
+
+				if(tailLen > 0) {
+					memcpy(r+des_i, bit_t_seq_table_rc[src[src_i>>2]], tailLen);
+					des_i += tailLen; src_i -= tailLen;
 				}
 			} else {///ovlps
-				recover_UC_Read_sub_region(a, b->ts, b->te - b->ts, b->rev==strand?0:1, ref->hR, b->hid);
+				if(b->rev == 0) {///b->rev != strand
+					rts = b->ts + ssp; rte = rts + sep - ssp;
+					recover_UC_Read_sub_region(r+des_i, Get_READ_LENGTH((*ref->hR), b->hid) - rte, sep - ssp, 1, ref->hR, b->hid);
+				} else {///b->rev == strand
+					rts = b->ts + (b->qe - sep); rte = rts + sep - ssp;
+					recover_UC_Read_sub_region(r+des_i, rts, sep - ssp, 0, ref->hR, b->hid);
+				}
+				des_i += sep - ssp;
 			}
 		}
-		for (k = 0; k < (int64_t)p->N_site.n; k++) r->seq[r->length - p->N_site.a[k] - 1] = 'N';
+
+		sep = p->rlen - s; 
+		ssp = p->rlen - e;
+		s = ssp; e = sep; 
+		for (k = 0; k < (int64_t)p->N_site.n; k++) {
+			sl = p->rlen - p->N_site.a[k] - 1;
+			if(sl >= s && sl < e) r[sl-s] = 'N';
+			else if(sl < s) {
+				break;
+			}
+		}		
 	}
 }
 
-void retrieve_u_seq(UC_Read* i_r, char* i_s, ma_utg_t *u, uint8_t strand)
+
+void retrieve_u_seq(UC_Read* i_r, char* i_s, ma_utg_t *u, uint8_t strand, int64_t s, int64_t l)
 {
+	if(u->m == 0 || u->n == 0) return;
+	if(l < 0) l = u->len;
+	char *r = NULL, *a = NULL;
+	int64_t e = s + l, ssp, sep, rs, re, des_i;
+	uint64_t k, rId, ori, r_l;
 	if(i_r) {
+        i_r->length = l; i_r->RID = 0;
+        if(i_r->length > i_r->size) {
+            i_r->size = i_r->length;
+            i_r->seq = (char*)realloc(i_r->seq,sizeof(char)*(i_r->size));
+        }
+        r = i_r->seq;
+    }
+    if(i_s) r = i_s;
+
+	if(strand == 1) {
+		sep = u->len - s; 
+        ssp = u->len - e;
+        s = ssp; e = sep; 
+	}
+	for (k = l = des_i = 0; k < u->n; k++) {
+		rId = u->a[k]>>33;
+		ori = u->a[k]>>32&1;
+		r_l = (uint32_t)u->a[k];
+		if(r_l == 0) continue;
+		ssp = l; sep = l + r_l;
+		l += r_l;
+		if(sep <= s) continue;
+		if(ssp >= e) break;
+		rs = MAX(ssp, s); re = MIN(sep, e); 
+		a = r + des_i; des_i += re - rs;
+		recover_UC_Read_sub_region(a, rs-ssp, re-rs, ori, &R_INF, rId);
+	}
+	if(strand == 1) {
+		char t;
+		re = (e - s);
+		l = re>>1; 
+		for (k = 0; k < (uint64_t)l; k++) {
+			des_i = re - k - 1;
+			t = r[des_i];
+			r[des_i] = RC_CHAR(r[k]);
+			r[k] = RC_CHAR(t);
+		}
+		if(re&1) r[l] = RC_CHAR(r[l]);
+	}
+}
+
+void produce_u_seq(char* r, ma_utg_t *u, UC_Read *buf)
+{
+	if(u->m == 0 || u->n == 0) return;
+	uint32_t j, k, l = 0;
+    uint32_t rId, ori, start, eLen, readLen;
+	char *readS = NULL;
+	memset(r, 'N', u->len);
+	for (j = 0; j < u->n; ++j) {
+		rId = u->a[j]>>33;
+		///uId = i;
+		ori = u->a[j]>>32&1;
+		start = l;
+		eLen = (uint32_t)u->a[j];
+		l += eLen;
+
+		if(eLen == 0) continue;
+		recover_UC_Read(buf, &R_INF, rId);
+
+		readS = buf->seq;
+		readLen = Get_READ_LENGTH(R_INF, rId);
 		
+		if (!ori) // forward strand
+		{
+			for (k = 0; k < eLen; k++)
+			{
+				r[start + k] = readS[k];
+			}
+		}
+		else
+		{
+			for (k = 0; k < eLen; k++)
+			{
+				uint8_t c = (uint8_t)readS[readLen - 1 - k];
+				r[start + k] = c >= 128? 'N' : RC_CHAR(c);
+			}
+		}
+	}
+}
+
+void debug_retrieve_rc_sub(all_ul_t *ref, const All_reads *R_INF, ma_utg_v *u, uint32_t n_step)
+{
+	uint64_t i, step, s, e, occ;
+	UC_Read f, r; 
+	init_UC_Read(&f); init_UC_Read(&r);
+	kvec_t(char) ss; kv_init(ss);
+	if(ref) {
+		for (i = 0, occ = 0; i < ref->n; i++) {
+			retrieve_ul_t(&f, NULL, ref, i, 0, 0, -1);
+			retrieve_ul_t(&r, NULL, ref, i, 1, 0, -1);
+
+			kv_resize(char, ss, ref->a[i].rlen); 
+			ss.n = ref->a[i].rlen;
+			memcpy(ss.a, r.seq, ss.n); 
+			reverse_complement(ss.a, ss.n);
+			if(memcmp(ss.a, f.seq, ss.n)) {
+				fprintf(stderr, "1-Wrong whole reverse-read, id: %lu\n", i);
+				// for (s = 0; s < ss.n; s++) {
+				// 	if(ss.a[s] != f.seq[s]) {
+				// 		fprintf(stderr,"s:%lu, ss.a[s]:%c, f.seq[s]:%c, r.seq[rs]:%c\n", s, ss.a[s], f.seq[s], r.seq[ref->a[i].rlen - s - 1]);
+				// 	}
+				// }
+			}
+
+			step = ss.n/n_step;
+			if(step <= 0) step = 1;
+
+			for (s = 0; s < ss.n; s += step) {
+				e = MIN(s+step, ss.n);
+				retrieve_ul_t(NULL, ss.a, ref, i, 0, s, e-s);
+				if(memcmp(ss.a, f.seq + s, e - s)) {
+					fprintf(stderr, "1-Wrong sub forward-read, id: %lu, [%lu, %lu)\n", i, s, e);
+				}
+
+				retrieve_ul_t(NULL, ss.a, ref, i, 1, s, e-s);
+				if(memcmp(ss.a, r.seq + s, e - s)) {
+					fprintf(stderr, "1-Wrong sub reverse-read, id: %lu, [%lu, %lu)\n", i, s, e);
+					// uint64_t dk; char *tf = ss.a; char *rf = r.seq + s;
+					// for (dk = 0; dk < e - s; dk++) {
+					// 	if(tf[dk] != rf[dk]) {
+					// 		fprintf(stderr,"dk:%lu, tf[dk]:%c, rf[dk]:%c\n", 
+					// 					dk, tf[dk], rf[dk]);
+					// 	}
+					// }
+				}
+				occ++;
+			}
+		}
+		fprintf(stderr, "[M::%s::# checking: %lu] ==> all_ul_t\n", __func__, occ);
 	}
 
 
-	if (r->length + 4 > r->size)
-	{
-		r->size = r->length + 4;
-		r->seq = (char*)realloc(r->seq,sizeof(char)*(r->size));
+	if(R_INF) {
+		for (i = 0, occ = 0; i < R_INF->total_reads; i++) {
+			recover_UC_Read(&f, R_INF, i);
+			recover_UC_Read_RC(&r, (All_reads*)R_INF, i);
+			kv_resize(char, ss, Get_READ_LENGTH((*R_INF), i)); 
+			ss.n = Get_READ_LENGTH((*R_INF), i);
+			memcpy(ss.a, r.seq, ss.n); 
+			reverse_complement(ss.a, ss.n);
+			if(memcmp(ss.a, f.seq, ss.n)) fprintf(stderr, "2-Wrong whole reverse-read, id: %lu\n", i);
+
+			step = ss.n/n_step;
+			if(step <= 0) step = 1;
+			for (s = 0; s < ss.n; s += step) {
+				e = MIN(s+step, ss.n);
+				recover_UC_Read_sub_region(ss.a, s, e-s, 0, (All_reads*)R_INF, i);
+				if(memcmp(ss.a, f.seq + s, e - s)) fprintf(stderr, "2-Wrong sub forward-read, id: %lu, [%lu, %lu)\n", i, s, e);
+
+				recover_UC_Read_sub_region(ss.a, s, e-s, 1, (All_reads*)R_INF, i);
+				if(memcmp(ss.a, r.seq + s, e - s)) fprintf(stderr, "2-Wrong sub reverse-read, id: %lu, [%lu, %lu)\n", i, s, e);
+				occ++;
+			}
+		}
+		fprintf(stderr, "[M::%s::# checking: %lu] ==> All_reads\n", __func__, occ);
 	}
+
+	if(u) {
+		for (i = 0, occ = 0; i < u->n; i++) {
+			kv_resize(char, ss, u->a[i].len); ss.n = u->a[i].len;
+			retrieve_u_seq(&f, NULL, &(u->a[i]), 0, 0, -1);
+			produce_u_seq(ss.a, &(u->a[i]), &r);
+			if(memcmp(ss.a, f.seq, ss.n)) fprintf(stderr, "4-Wrong whole reverse-read, id: %lu\n", i);
+			retrieve_u_seq(&r, NULL, &(u->a[i]), 1, 0, -1);
+			
+			memcpy(ss.a, r.seq, ss.n); 
+			reverse_complement(ss.a, ss.n);
+			if(memcmp(ss.a, f.seq, ss.n)) fprintf(stderr, "3-Wrong whole reverse-read, id: %lu\n", i);
+
+			step = ss.n/n_step;
+    		if(step <= 0) step = 1;
+
+			for (s = 0; s < ss.n; s += step) {
+				e = MIN(s+step, ss.n);
+				retrieve_u_seq(NULL, ss.a, &(u->a[i]), 0, s, e-s);
+				if(memcmp(ss.a, f.seq + s, e - s)) fprintf(stderr, "3-Wrong sub forward-read, id: %lu, [%lu, %lu)\n", i, s, e);
+
+				retrieve_u_seq(NULL, ss.a, &(u->a[i]), 1, s, e-s);
+				if(memcmp(ss.a, r.seq + s, e - s)) fprintf(stderr, "3-Wrong sub reverse-read, id: %lu, [%lu, %lu)\n", i, s, e);
+				occ++;
+			}
+		}
+		fprintf(stderr, "[M::%s::# checking: %lu] ==> ma_utg_v\n", __func__, occ);
+	}
+
+	destory_UC_Read(&f); destory_UC_Read(&r);
+	kv_destroy(ss);
 }
