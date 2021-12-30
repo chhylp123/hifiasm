@@ -754,10 +754,12 @@ void init_all_ul_t(all_ul_t *x, All_reads *hR) {
 void destory_all_ul_t(all_ul_t *x) {
 	uint64_t i;
 	for (i = 0; i < x->n; i++) {
-		free(x->a[i].n_n); free(x->a[i].N_site.a); 
-		free(x->a[i].r_base.a); free(x->a[i].bb.a);
+		free(x->a[i].N_site.a); free(x->a[i].r_base.a); free(x->a[i].bb.a);
 	}
 	free(x->a);
+
+	for (i = 0; i < x->nid.n; i++) free(x->nid.a[i].a);
+	free(x->nid.a);
 }
 
 void ha_encode_base(uint8_t* dest, char* src, uint64_t src_l, N_t *nn, uint64_t nn_offset)
@@ -843,23 +845,29 @@ void push_subblock_original_bases(char* str, all_ul_t *x, ul_vec_t *p, uint32_t 
 void append_ul_t(all_ul_t *x, uint64_t *rid, char* id, int64_t id_l, char* str, int64_t str_l, ul_ov_t *o, int64_t on) {
 	int64_t i, mine, maxs, ovlp, end;
 	ul_vec_t *p = NULL;
+	nid_t *np = NULL;
 	ul_ov_t *z = NULL, *zp = NULL;
 	uc_block_t *b = NULL;
-	if(rid) fprintf(stderr, "rid:%lu\n", *rid);
-	if(rid == NULL) {
-		kv_pushp(ul_vec_t, *x, &p);
-		memset(p, 0, sizeof(*p));
-		fprintf(stderr, "x->n:%u\n", x->n);
-	}
-	else {
-		p = &(x->a[*rid]);
+
+	if(id) {
+		kv_pushp(nid_t, x->nid, &np);
+		np->n = id_l; MALLOC(np->a, np->n+1); memcpy(np->a, id, id_l); np->a[id_l] = '\0';
 	}
 
-	if(id && id_l > 0) {
-		free(p->n_n);
-		p->n_l = id_l; MALLOC(p->n_n, p->n_l+1); memcpy(p->n_n, id, id_l); p->n_n[id_l] = '\0';
-	}
-	if(str && str_l > 0) {
+	if(str) {
+		if(rid == NULL) {
+			kv_pushp(ul_vec_t, *x, &p);
+			memset(p, 0, sizeof(*p));
+		} else {
+			if((*rid) >= x->m) kv_resize(ul_vec_t, *x, (*rid) + 1);
+			if((*rid) >= x->n) {
+				memset(x->a+x->n, 0, sizeof(*p)*((*rid) + 1 - x->n));
+				x->n = (*rid) + 1;
+			}
+			p = &(x->a[(*rid)]);
+		}
+		
+
 		p->bb.n = p->N_site.n = p->r_base.n = 0;
 		p->rlen = str_l; 
 		

@@ -1106,6 +1106,12 @@ void add_new_cell_to_cigar_record_with_different_base(Cigar_record* dummy, uint3
 void add_existing_cell_to_cigar_record_with_different_base(Cigar_record* dummy, uint32_t len, uint32_t type, char* seq);
 
 
+void correct_ul_overlap(overlap_region_alloc* overlap_list, const ma_ug_t *uref, 
+                        UC_Read* g_read, Correct_dumy* dumy, UC_Read* overlap_read, 
+                        Graph* g, Graph* DAGCon, Cigar_record* current_cigar, 
+                        haplotype_evdience_alloc* hap, Round2_alignment* second_round, 
+                        int force_repeat, int is_consensus, int* fully_cov, int* abnormal, double max_ov_diff_ec);
+
 /***
  type:
  0. match

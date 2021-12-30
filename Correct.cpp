@@ -539,6 +539,236 @@ char* r_string)
     }
 }
 
+
+void verify_ul_window(long long window_start, long long window_end, overlap_region_alloc* overlap_list,Correct_dumy* dumy, const ma_ug_t *uref,
+char* r_string)
+{
+    long long i;
+    long long currentID;
+    long long x_start, y_start, o_len;
+    long long Window_Len = WINDOW + (THRESHOLD << 1);
+    char* x_string = NULL;
+    char* y_string = NULL;
+    long long x_end, x_len;
+    int end_site;
+    unsigned int error;
+    int groupLen = 0;
+    int return_sites[GROUP_SIZE];
+	unsigned int return_sites_error[GROUP_SIZE];
+    uint64_t overlapID[GROUP_SIZE];
+    uint64_t y_startGroup[GROUP_SIZE];
+    int y_extra_begin[GROUP_SIZE];
+    int y_extra_end[GROUP_SIZE];
+    int error_threshold[GROUP_SIZE];
+    int extra_begin;
+    int extra_end;
+
+    ///here are overlaps fully covered by WINDOW
+    for (i = 0; i < (long long)dumy->length; i++)
+    {
+        extra_begin = extra_end = 0;
+        ///if the window has been fully covered, the interval at x is [window_start, window_end]
+        x_len = WINDOW;
+        currentID = dumy->overlapID[i];
+        x_start = window_start;
+        ///offset of y
+        y_start = (x_start - overlap_list->list[currentID].x_pos_s) + overlap_list->list[currentID].y_pos_s;
+        /****************************may have bugs********************************/
+        y_start += y_start_offset(x_start, &(overlap_list->list[currentID].f_cigar));
+        /****************************may have bugs********************************/
+        
+  
+        if(!determine_overlap_region(THRESHOLD, y_start, overlap_list->list[currentID].y_id, Window_Len, R_INF,
+        &extra_begin, &extra_end, &y_start, &o_len))
+        {
+            append_window_list(&overlap_list->list[currentID], window_start, window_end, 
+            -1, -1, -1, -1, -1, -1);
+            continue;
+        }
+
+        fill_subregion(dumy->overlap_region_group[groupLen], y_start, o_len, overlap_list->list[currentID].y_pos_strand, 
+        R_INF, overlap_list->list[currentID].y_id, extra_begin, extra_end);
+
+        y_extra_begin[groupLen] = extra_begin;
+        y_extra_end[groupLen] = extra_end;
+        overlapID[groupLen] = currentID;
+        y_startGroup[groupLen] = y_start;
+        error_threshold[groupLen] = THRESHOLD;
+        x_string = r_string + x_start;
+        groupLen++;
+        
+
+        if (groupLen == GROUP_SIZE)
+        {
+            Reserve_Banded_BPM_4_SSE_only(dumy->overlap_region_group[0], dumy->overlap_region_group[1], 
+            dumy->overlap_region_group[2], dumy->overlap_region_group[3], Window_Len, x_string, WINDOW,
+                return_sites, return_sites_error, THRESHOLD, dumy->Peq_SSE);
+            groupLen = 0;
+
+            
+            if (return_sites_error[0]!=(unsigned int)-1)
+            {
+                overlap_list->list[overlapID[0]].align_length += x_len;
+
+                append_window_list(&overlap_list->list[overlapID[0]], window_start, window_end, 
+                            y_startGroup[0], y_startGroup[0] + return_sites[0], (int)return_sites_error[0],
+                            y_extra_begin[0], y_extra_end[0], error_threshold[0]);
+            }
+            else
+            {
+                append_window_list(&overlap_list->list[overlapID[0]], window_start, window_end, y_startGroup[0], -1, -1,
+                y_extra_begin[0], y_extra_end[0], error_threshold[0]);
+            }
+            
+
+            if (return_sites_error[1]!=(unsigned int)-1)
+            {
+                overlap_list->list[overlapID[1]].align_length += x_len;
+
+                append_window_list(&overlap_list->list[overlapID[1]], window_start, window_end, 
+                            y_startGroup[1], y_startGroup[1] + return_sites[1], (int)return_sites_error[1],
+                            y_extra_begin[1], y_extra_end[1], error_threshold[1]);
+            }
+            else
+            {
+                append_window_list(&overlap_list->list[overlapID[1]], window_start, window_end, y_startGroup[1], -1, -1,
+                y_extra_begin[1], y_extra_end[1], error_threshold[1]);
+            }
+            
+
+            if (return_sites_error[2]!=(unsigned int)-1)
+            {
+                overlap_list->list[overlapID[2]].align_length += x_len;
+
+                append_window_list(&overlap_list->list[overlapID[2]], window_start, window_end, 
+                            y_startGroup[2], y_startGroup[2] + return_sites[2], (int)return_sites_error[2],
+                            y_extra_begin[2], y_extra_end[2], error_threshold[2]);
+            }
+            else
+            {
+                append_window_list(&overlap_list->list[overlapID[2]], window_start, window_end, y_startGroup[2], -1, -1,
+                y_extra_begin[2], y_extra_end[2], error_threshold[2]);
+            }
+            
+
+            if (return_sites_error[3]!=(unsigned int)-1)
+            {
+                overlap_list->list[overlapID[3]].align_length += x_len;
+
+                append_window_list(&overlap_list->list[overlapID[3]], window_start, window_end, 
+                            y_startGroup[3], y_startGroup[3] + return_sites[3], (int)return_sites_error[3],
+                            y_extra_begin[3], y_extra_end[3], error_threshold[3]);
+            }
+            else
+            {
+                append_window_list(&overlap_list->list[overlapID[3]], window_start, window_end, y_startGroup[3], -1, -1,
+                y_extra_begin[3], y_extra_end[3], error_threshold[3]);
+            }    
+        }
+    }
+
+    if (groupLen == 1)
+    {
+        end_site = Reserve_Banded_BPM(dumy->overlap_region_group[0], Window_Len, x_string, WINDOW, THRESHOLD, &error);
+
+        if (error!=(unsigned int)-1)
+        {
+            overlap_list->list[overlapID[0]].align_length += x_len;
+
+            append_window_list(&overlap_list->list[overlapID[0]], window_start, window_end, 
+                                y_startGroup[0], y_startGroup[0] + end_site, (int)error,
+                                y_extra_begin[0], y_extra_end[0], error_threshold[0]);
+        }
+        else
+        {
+            append_window_list(&overlap_list->list[overlapID[0]], window_start, window_end, y_startGroup[0], -1, -1,
+            y_extra_begin[0], y_extra_end[0], error_threshold[0]);
+        }
+    }
+    else if (groupLen > 1)
+    {
+        Reserve_Banded_BPM_4_SSE_only(dumy->overlap_region_group[0], dumy->overlap_region_group[1], 
+                dumy->overlap_region_group[2], dumy->overlap_region_group[3], Window_Len, x_string, WINDOW,
+			        return_sites, return_sites_error, THRESHOLD, dumy->Peq_SSE);
+
+        for (i = 0; i < groupLen; i++)
+        {
+            if (return_sites_error[i]!=(unsigned int)-1)
+            {
+                overlap_list->list[overlapID[i]].align_length += x_len;
+                append_window_list(&overlap_list->list[overlapID[i]], window_start, window_end, 
+                                y_startGroup[i], y_startGroup[i] + return_sites[i], (int)return_sites_error[i],
+                                y_extra_begin[i], y_extra_end[i], error_threshold[i]);
+            }
+            else
+            {
+                append_window_list(&overlap_list->list[overlapID[i]], window_start, window_end, y_startGroup[i], -1, -1,
+                y_extra_begin[i], y_extra_end[i], error_threshold[i]);
+            }
+            
+        }
+
+        groupLen = 0;
+    }
+
+    long long reverse_i = dumy->size - 1;
+    int threshold;
+    
+    ///here are overlaps partially covered by WINDOW
+    for (i = 0; i < (long long)dumy->lengthNT; i++)
+    {
+        extra_begin = extra_end = 0;
+        currentID = dumy->overlapID[reverse_i--];
+        x_start = MAX(window_start, (long long)overlap_list->list[currentID].x_pos_s);
+        x_end = MIN(window_end, (long long)overlap_list->list[currentID].x_pos_e);
+
+        ///overlap length between [window_start, window_end]
+        x_len = x_end - x_start + 1;
+        threshold = x_len * asm_opt.max_ov_diff_ec;
+        /****************************may have bugs********************************/
+        threshold = Adjust_Threshold(threshold, x_len);
+        /****************************may have bugs********************************/
+        
+        ///offset of y
+        y_start = (x_start - overlap_list->list[currentID].x_pos_s) + overlap_list->list[currentID].y_pos_s;
+        /****************************may have bugs********************************/
+        y_start += y_start_offset(x_start, &(overlap_list->list[currentID].f_cigar));
+        /****************************may have bugs********************************/
+
+        Window_Len = x_len + (threshold << 1);
+
+        if(!determine_overlap_region(threshold, y_start, overlap_list->list[currentID].y_id, Window_Len, R_INF,
+        &extra_begin, &extra_end, &y_start, &o_len))
+        {
+            append_window_list(&overlap_list->list[currentID], x_start, x_end, 
+            -1, -1, -1, -1, -1, -1);
+            continue;
+        }
+        
+        fill_subregion(dumy->overlap_region, y_start, o_len, overlap_list->list[currentID].y_pos_strand, 
+        R_INF, overlap_list->list[currentID].y_id, extra_begin, extra_end);        
+
+        x_string = r_string + x_start;
+        y_string = dumy->overlap_region;
+
+        end_site = Reserve_Banded_BPM(y_string, Window_Len, x_string, x_len, threshold, &error);
+
+        if (error!=(unsigned int)-1)
+        {
+            overlap_list->list[currentID].align_length += x_len;
+            append_window_list(&overlap_list->list[currentID], x_start, x_end, y_start, y_start + end_site, (int)error,
+            extra_begin, extra_end, threshold);
+        }
+        else
+        {
+            append_window_list(&overlap_list->list[currentID], x_start, x_end, y_start, -1, -1,
+            extra_begin, extra_end, threshold);
+        }
+    }
+}
+
+
+
 inline double trim_error_rate(overlap_region_alloc* overlap_list, long long ID)
 {
     long long tLen, tError,i, subWinLen, subWinNum;
@@ -7742,6 +7972,63 @@ void correct_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF,
 
 
     (*fully_cov) = check_if_fully_covered(overlap_list, R_INF, g_read, dumy, g, abnormal);
+}
+
+
+void correct_ul_overlap(overlap_region_alloc* overlap_list, const ma_ug_t *uref, 
+                        UC_Read* g_read, Correct_dumy* dumy, UC_Read* overlap_read, 
+                        Graph* g, Graph* DAGCon, Cigar_record* current_cigar, 
+                        haplotype_evdience_alloc* hap, Round2_alignment* second_round, 
+                        int force_repeat, int is_consensus, int* fully_cov, int* abnormal, double max_ov_diff_ec)
+{
+    
+    clear_Correct_dumy(dumy, overlap_list);
+
+    long long window_start, window_end;
+
+    Window_Pool w_inf;
+
+    init_Window_Pool(&w_inf, g_read->length, WINDOW, (int)(1.0/max_ov_diff_ec));
+    
+    int flag = 0;
+    
+    while(get_Window(&w_inf, &window_start, &window_end) && flag != -2)
+    {
+        dumy->length = 0;
+        dumy->lengthNT = 0;
+        flag = get_interval(window_start, window_end, overlap_list, dumy);
+
+        switch (flag)
+        {
+            case 1:    ///no match here
+                break;
+            case 0:    ///no match here
+                break;
+            case -2: ///if flag == -2, loop would be terminated
+                break;
+        }
+
+        
+        ///dumy->lengthNT represent how many overlaps that the length of them is not equal to WINDOW; may larger or less than WINDOW
+        ///dumy->length represent how many overlaps that the length of them is WINDOW
+        ///now the windows which are larger than WINDOW are verified one-by-one, to improve it, we can do it group-bygroup
+        verify_ul_window(window_start, window_end, overlap_list, dumy, uref, g_read->seq);
+    }
+
+    /**
+    // recalcate_window(overlap_list, R_INF, g_read, dumy, overlap_read);
+    // partition_overlaps(overlap_list, R_INF, g_read, dumy, hap, force_repeat);
+    recalcate_window_advance(overlap_list, R_INF, g_read, dumy, overlap_read);
+    partition_overlaps_advance(overlap_list, R_INF, g_read, overlap_read, dumy, hap, force_repeat);
+    
+    if(is_consensus)
+    {
+        generate_consensus(overlap_list, R_INF, g_read, dumy, g, DAGCon, current_cigar, second_round);
+    }
+
+
+    (*fully_cov) = check_if_fully_covered(overlap_list, R_INF, g_read, dumy, g, abnormal);
+    **/
 }
 
 

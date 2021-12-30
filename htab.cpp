@@ -1141,11 +1141,11 @@ ha_pt_t *ha_pt_ul_gen(const hifiasm_opt_t *asm_opt, const void *flt_tab, ma_utg_
 	///minimizer with YAK_MAX_COUNT occ may apper > YAK_MAX_COUNT times, so it may lead to overflow at ha_pt_gen
 	if (flt_tab == 0) {
         if (cutoff > YAK_MAX_COUNT - 1) cutoff = YAK_MAX_COUNT - 1;
-        ha_ct_shrink(ct, 2, cutoff, asm_opt->thread_num);
+        ha_ct_shrink(ct, /**2**/1, cutoff, asm_opt->thread_num);
     } else {
         ///Note: here is just to remove minimizer appearing YAK_MAX_COUNT times
         ///minimizer with YAK_MAX_COUNT occ may apper > YAK_MAX_COUNT times, so it may lead to overflow at ha_pt_gen
-        ha_ct_shrink(ct, 2, YAK_MAX_COUNT - 1, asm_opt->thread_num);
+        ha_ct_shrink(ct, /**2**/1, YAK_MAX_COUNT - 1, asm_opt->thread_num);
     }
 	
 	pt = ha_pt_gen(ct, asm_opt->thread_num, 1);

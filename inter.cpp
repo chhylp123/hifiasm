@@ -18,6 +18,9 @@
 #include "Assembly.h"
 KSEQ_INIT(gzFile, gzread)
 
+void ha_get_ul_candidates_interface(ha_abufl_t *ab, int64_t rid, char* rs, uint64_t rl, uint64_t mz_w, uint64_t mz_k, overlap_region_alloc *overlap_list, overlap_region_alloc *overlap_list_hp, Candidates_list *cl, double bw_thres, 
+								 int max_n_chain, int keep_whole_chain, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* chain_idx, overlap_region* f_cigar, kvec_t_u64_warp* dbg_ct, st_mt_t *sp);
+
 #define MG_SEED_IGNORE     (1ULL<<41)
 #define MG_SEED_TANDEM     (1ULL<<42)
 #define MG_SEED_KEPT       (1ULL<<43)
@@ -68,6 +71,8 @@ typedef struct {
 	int max_lc_skip, max_lc_iter, min_lc_cnt, min_lc_score, max_gc_skip, ref_bonus;
 	int min_gc_cnt, min_gc_score, sub_diff, best_n;
     float chn_pen_gap, mask_level, pri_ratio;
+	///base-alignment
+	double bw_thres, diff_ec_ul; int max_n_chain;
 } mg_idxopt_t;
 
 typedef struct {
@@ -162,6 +167,7 @@ typedef struct { // global data structure for kt_pipeline()
     uint64_t total_pair;
 	mg_gres_a hits;
 	mg_dbn_t nn;
+	uint64_t num_bases, num_corrected_bases, num_recorrected_bases;
 } uldat_t;
 
 typedef struct {
@@ -293,9 +299,10 @@ typedef struct { // data structure for each step in kt_pipeline()
 	mg_gchains_t **gcs;///useless
     mg_tbuf_t **buf;///useless
 	ha_ovec_buf_t **hab;
+	uint64_t num_bases, num_corrected_bases, num_recorrected_bases;
 } utepdat_t;
 
-void init_mg_opt(mg_idxopt_t *opt, int is_HPC, int k, int w, int hap_n)
+void init_mg_opt(mg_idxopt_t *opt, int is_HPC, int k, int w, int hap_n, int max_n_chain, double bw_thres, double diff_ec_ul)
 {
     opt->k = k; 
     opt->w = w;
@@ -320,6 +327,9 @@ void init_mg_opt(mg_idxopt_t *opt, int is_HPC, int k, int w, int hap_n)
 	opt->sub_diff = 6;
 	opt->best_n = 5;
 	opt->pri_ratio = 0.8f;
+	opt->max_n_chain = max_n_chain;
+	opt->bw_thres = bw_thres;
+	opt->diff_ec_ul = diff_ec_ul;
 }
 
 void uidx_l_build(ma_ug_t *ug, mg_idxopt_t *opt, int cutoff)
@@ -2116,6 +2126,30 @@ static void worker_for_ul_alignment(void *data, long i, int tid) // callback for
     s->opt->is_HPC, asm_opt.mz_sample_dist, asm_opt.mz_rewin, s->opt, s->uopt, &(s->gcs[i]));
 }
 
+static void worker_for_ul_scall_alignment(void *data, long i, int tid) // callback for kt_for()
+{
+    utepdat_t *s = (utepdat_t*)data;
+	ha_ovec_buf_t *b = s->hab[tid];
+	int64_t rid = s->id+i;
+	int fully_cov, abnormal;
+	
+	ha_get_ul_candidates_interface(b->abl, rid, s->seq[i], s->len[i], s->opt->w, s->opt->k, &b->olist, &b->olist_hp, &b->clist, s->opt->bw_thres, 
+		s->opt->max_n_chain, 1, &(b->k_flag), &b->r_buf, &(b->tmp_region), NULL, &(b->sp));
+    // mg_map_frag(s->ha_flt_tab, s->ha_idx, s->ug, s->rg, s->id+i, s->len[i], s->seq[i], &(s->mzs[tid]), &(s->sps[tid]), s->buf[tid], s->opt->w, s->opt->k, 
+    // s->opt->is_HPC, asm_opt.mz_sample_dist, asm_opt.mz_rewin, s->opt, s->uopt, &(s->gcs[i]));
+	clear_Cigar_record(&b->cigar1);
+	clear_Round2_alignment(&b->round2);
+
+	b->self_read.seq = s->seq[i]; b->self_read.length = s->len[i]; b->self_read.size = 0;
+	correct_ul_overlap(&b->olist, s->ug, &b->self_read, &b->correct, &b->ovlp_read, &b->POA_Graph, &b->DAGCon,
+			&b->cigar1, &b->hap, &b->round2, 0, 1, &fully_cov, &abnormal, s->opt->diff_ec_ul);
+
+	b->num_read_base += b->self_read.length;
+	b->num_correct_base += b->correct.corrected_base;
+	b->num_recorrect_base += b->round2.dumy.corrected_base;
+	memset(&b->self_read, 0, sizeof(b->self_read));
+}
+
 void dump_gaf(mg_gres_a *hits, const mg_gchains_t *gs, uint32_t only_p)
 {
 	if (gs == NULL || gs->n_gc == 0 || gs->n_lc == 0) return;
@@ -2297,6 +2331,7 @@ static void *worker_ul_scall_pipeline(void *data, int step, void *in) // callbac
 		uint64_t i;
 		CALLOC(s->hab, p->n_thread);
 		for (i = 0; i < p->n_thread; ++i) s->hab[i] = ha_ovec_init(0, 0, 1);
+		kt_for(p->n_thread, worker_for_ul_scall_alignment, s, s->n);
 		///debug
 		/**
 		uint64_t i;
@@ -2319,7 +2354,12 @@ static void *worker_ul_scall_pipeline(void *data, int step, void *in) // callbac
 			free(s->mzs[i].a); free(s->sps[i].a);
 		}
 		**/
-		for (i = 0; i < p->n_thread; ++i) ha_ovec_destroy(s->hab[i]);
+		for (i = 0; i < p->n_thread; ++i) {
+			s->num_bases += s->hab[i]->num_read_base;
+			s->num_corrected_bases += s->hab[i]->num_correct_base;
+			s->num_recorrected_bases += s->hab[i]->num_recorrect_base;
+			ha_ovec_destroy(s->hab[i]);
+		}
 		free(s->hab);
 		// free(s->buf); free(s->mzs); free(s->sps);
 		return s;
@@ -2327,6 +2367,9 @@ static void *worker_ul_scall_pipeline(void *data, int step, void *in) // callbac
     else if (step == 2) { // step 3: dump
         utepdat_t *s = (utepdat_t*)in;
 		uint64_t i, rid;
+		p->num_bases += s->num_bases;
+		p->num_corrected_bases += s->num_corrected_bases;
+		p->num_recorrected_bases += s->num_recorrected_bases;
         for (i = 0; i < (uint64_t)s->n; ++i) {
 			///debug
 			/**
@@ -2367,8 +2410,9 @@ int scall_ul_pipeline(uldat_t* sl, const enzyme *fn)
 	sl->hits.total_base = sl->total_base;
 	sl->hits.total_pair = sl->total_pair;
     fprintf(stderr, "[M::%s::%.3f] ==> Qualification\n", __func__, yak_realtime()-index_time);
-	fprintf(stderr, "[M::%s::%.3f] ==> # reads: %lu, # bases: %lu\n", __func__, yak_realtime()-index_time, 
-							UL_INF.n, sl->total_base);
+	fprintf(stderr, "[M::%s::] ==> # reads: %lu, # bases: %lu\n", __func__, UL_INF.n, sl->total_base);
+	fprintf(stderr, "[M::%s::] ==> # bases: %lu; # corrected bases: %lu; # recorrected bases: %lu\n", 
+	__func__, sl->num_bases, sl->num_corrected_bases, sl->num_recorrected_bases);
 	
     return 1;
 }
@@ -2377,13 +2421,11 @@ int scall_ul_pipeline(uldat_t* sl, const enzyme *fn)
 int print_ul_rs(all_ul_t *U_INF)
 {
 	uint32_t i;
-	ul_vec_t *p = NULL;
 	UC_Read ur;
 	init_UC_Read(&ur);
 	for (i = 0; i < U_INF->n; i++) {
-		p = &(U_INF->a[i]);
 		retrieve_ul_t(&ur, NULL, U_INF, i, 0, 0, -1);
-		fprintf(stderr, ">%s\n", p->n_n);
+		fprintf(stderr, ">%s\n", U_INF->nid.a[i].a);
 		fprintf(stderr, "%.*s\n", (int)ur.length, ur.seq);		
 	}
 
@@ -2864,7 +2906,7 @@ void ul_resolve(ma_ug_t *ug, const asg_t *rg, const ug_opt_t *uopt, int hap_n)
 {
 	fprintf(stderr, "[M::%s::] ==> UL\n", __func__);
     mg_idxopt_t opt;
-    init_mg_opt(&opt, 0, 19, 10, hap_n);
+    init_mg_opt(&opt, 0, 19, 10, hap_n, 0, 0, 0.05);
 	int exist = (asm_opt.load_index_from_disk? uidx_load(&ha_flt_tab, &ha_idx, asm_opt.output_file_name) : 0);
     if(exist == 0) uidx_build(ug, &opt);
 	if(exist == 0) uidx_write(ha_flt_tab, ha_idx, asm_opt.output_file_name);
@@ -2884,7 +2926,7 @@ int ul_v_call(mg_idxopt_t *opt, const ug_opt_t *uopt, const enzyme *fn, void *ha
 	sl.uopt = uopt;
 	scall_ul_pipeline(&sl, fn);
 	// print_ul_rs(&UL_INF);
-	debug_retrieve_rc_sub(&UL_INF, &R_INF, &(ug->u), 100);
+	// debug_retrieve_rc_sub(&UL_INF, &R_INF, &(ug->u), 100);
 	// if(!load_ul_hits(&sl.hits, &sl.nn, asm_opt.output_file_name)) {
     // 	scall_ul_pipeline(&sl, fn);
 	// 	write_ul_hits(&sl.hits, &sl.nn, asm_opt.output_file_name);
@@ -2952,14 +2994,15 @@ void ul_load(const ug_opt_t *uopt)
 	fprintf(stderr, "[M::%s::] ==> UL\n", __func__);
 	mg_idxopt_t opt;
 	ma_ug_t *ug = dedup_HiFis(uopt->sources, uopt->min_ovlp, uopt->max_hang, uopt->gap_fuzz);
-	int cutoff = asm_opt.hom_cov * asm_opt.high_factor;
-	init_aux_table();
-	init_mg_opt(&opt, !(asm_opt.flag&HA_F_NO_HPC), 19, 10, cutoff);
-	/**
+	int cutoff;
+	init_aux_table(); ha_opt_update_cov(&asm_opt, asm_opt.hom_cov);
+	cutoff = asm_opt.max_n_chain;
+	init_mg_opt(&opt, !(asm_opt.flag&HA_F_NO_HPC), 19, 10, cutoff, asm_opt.max_n_chain, 0.05, 0.05);
+
 	int exist = (asm_opt.load_index_from_disk? uidx_load(&ha_flt_tab, &ha_idx, asm_opt.output_file_name) : 0);
     if(exist == 0) uidx_l_build(ug, &opt, cutoff);
-	if(exist == 0) uidx_write(ha_flt_tab, ha_idx, asm_opt.output_file_name);
-	**/
+	if(exist == 0) uidx_write(ha_flt_tab, ha_idx, asm_opt.output_file_name);	
+	
 	ul_v_call(&opt, uopt, asm_opt.ar, ha_flt_tab, ha_idx, ug);
 	ma_ug_destroy(ug); destory_all_ul_t(&UL_INF);
 }

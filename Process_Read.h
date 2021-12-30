@@ -171,9 +171,11 @@ typedef struct
 
 typedef struct
 {
-    char *n_n;
-    uint32_t n_l;
+    char *a; uint32_t n;
+} nid_t;
 
+typedef struct
+{
     kvec_t(uint8_t) r_base;
     uint32_t rlen;
 
@@ -183,6 +185,7 @@ typedef struct
 
 typedef struct
 {
+    kvec_t(nid_t) nid;
     ul_vec_t *a;
     size_t n, m;
     All_reads *hR;
