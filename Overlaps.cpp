@@ -9757,19 +9757,17 @@ uint64_t *n_utg)
 void ma_ug_print2(const ma_ug_t *ug, All_reads *RNF, asg_t* read_g, const ma_sub_t *coverage_cut, 
 ma_hit_t_alloc* sources, R_to_U* ruIndex, int print_seq, const char* prefix, FILE *fp)
 {
-    uint8_t* primary_flag = (uint8_t*)calloc(read_g->n_seq, sizeof(uint8_t));
-	uint32_t i, j, l;
+    uint8_t* primary_flag = read_g?(uint8_t*)calloc(read_g->n_seq, sizeof(uint8_t)):NULL;
+	uint32_t i, j, l, pc = read_g && coverage_cut && sources && ruIndex?1:0;
 	char name[32];
 	for (i = 0; i < ug->u.n; ++i) { // the Segment lines in GFA
 		ma_utg_t *p = &ug->u.a[i];
         if(p->m == 0) continue;
         sprintf(name, "%s%.6d%c", prefix, i + 1, "lc"[p->circ]);
 		if (print_seq) fprintf(fp, "S\t%s\t%s\tLN:i:%d\trd:i:%u\n", name, p->s? p->s : "*", p->len, 
-        get_ug_coverage(p, read_g, coverage_cut, sources, ruIndex, primary_flag));
+        pc?get_ug_coverage(p, read_g, coverage_cut, sources, ruIndex, primary_flag):0);
 		else fprintf(fp, "S\t%s\t*\tLN:i:%d\trd:i:%u\n", name, p->len, 
-        get_ug_coverage(p, read_g, coverage_cut, sources, ruIndex, primary_flag));
-        // if (print_seq) fprintf(fp, "S\t%s\t%s\tLN:i:%d\n", name, p->s? p->s : "*", p->len);
-		// else fprintf(fp, "S\t%s\t*\tLN:i:%d\n", name, p->len);
+        pc?get_ug_coverage(p, read_g, coverage_cut, sources, ruIndex, primary_flag):0);
         
 		for (j = l = 0; j < p->n; j++) {
             if(p->a[j] != (uint64_t)-1)
@@ -9779,13 +9777,13 @@ ma_hit_t_alloc* sources, R_to_U* ruIndex, int print_seq, const char* prefix, FIL
                 {
                     fprintf(fp, "A\t%s\t%d\t%c\t%.*s\t%d\t%d\tid:i:%d\tHG:A:%c\n", name, l, "+-"[p->a[j]>>32&1],
                     (int)Get_NAME_LENGTH((*RNF), x), Get_NAME((*RNF), x), 
-                    coverage_cut[x].s, coverage_cut[x].e, x, 
+                    coverage_cut?coverage_cut[x].s:0, coverage_cut?coverage_cut[x].e:(int)Get_READ_LENGTH((*RNF), x), x, 
                     "apmaaa"[((RNF->trio_flag[x]!=FATHER && RNF->trio_flag[x]!=MOTHER)?AMBIGU:RNF->trio_flag[x])]);
                 }
                 else
                 {
                     fprintf(fp, "A\t%s\t%d\t%c\t%s\t%d\t%d\tid:i:%d\tHG:A:%c\n", name, l, "+-"[p->a[j]>>32&1],
-                        "FAKE", coverage_cut[x].s, coverage_cut[x].e, x, '*');
+                        "FAKE", coverage_cut?coverage_cut[x].s:0, coverage_cut?coverage_cut[x].e:(int)Get_READ_LENGTH((*RNF), x), x, '*');
                 }
             }
             else

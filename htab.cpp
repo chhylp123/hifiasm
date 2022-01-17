@@ -674,7 +674,7 @@ static void sf##_worker_for_mz(void *data, long i, int tid)\
 	VType *b = &s->mz_buf[tid];\
 	s->mz_buf[tid].n = 0;\
 	sf##_ha_sketch(s->seq[i], s->len[i], s->p->opt->w, s->p->opt->k, s->n_seq0 + i, s->p->opt->is_HPC, b, s->p->flt_tab, asm_opt.mz_sample_dist, 0, 0, \
-	(s->p->pt&&(s->p->flag&HAF_COUNT_REFINE))?s->p->pt:NULL, s->p->opt->min_rcnt, asm_opt.dp_min_len, asm_opt.dp_e, &(s->mt[tid]), asm_opt.mz_rewin, s->uq);\
+	(s->p->pt&&(s->p->flag&HAF_COUNT_REFINE))?s->p->pt:NULL, s->p->opt->min_rcnt, asm_opt.dp_min_len, asm_opt.dp_e, &(s->mt[tid]), asm_opt.mz_rewin, s->uq, NULL);\
 	s->mz[i].n = s->mz[i].m = b->n;\
 	MALLOC(s->mz[i].a, b->n);\
 	MEMCPY(s->mz[i].a, b->a, b->n);\
@@ -733,7 +733,7 @@ static void *sf##_worker_count(void *data, int step, void *in) /** callback for 
 				}\
 				MALLOC(s->seq[s->n_seq], u->len);\
 				if(u->s) memcpy(s->seq[s->n_seq], u->s, u->len);\
-				else retrieve_u_seq(NULL, s->seq[s->n_seq], u, 0, 0, -1);\
+				else retrieve_u_seq(NULL, s->seq[s->n_seq], u, 0, 0, -1, NULL);\
 				s->len[s->n_seq++] = u->len;\
 				++p->n_seq;\
 				s->sum_len += u->len;\

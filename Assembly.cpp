@@ -11,6 +11,7 @@
 #include "htab.h"
 #include "kthread.h"
 #include "rcut.h"
+#include "kalloc.h"
 
 void ha_get_candidates_interface(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_region_alloc *overlap_list, overlap_region_alloc *overlap_list_hp, Candidates_list *cl, double bw_thres, 
 int max_n_chain, int keep_whole_chain, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* chain_idx, ma_hit_t_alloc* paf, ma_hit_t_alloc* rev_paf, overlap_region* f_cigar, kvec_t_u64_warp* dbg_ct, st_mt_t *sp);
@@ -21,6 +22,7 @@ void ha_sort_list_by_anchor(overlap_region_alloc *overlap_list);
 All_reads R_INF;
 Debug_reads R_INF_FLAG;
 all_ul_t UL_INF;
+uint32_t *het_cnt = NULL;
 
 void get_corrected_read_from_cigar(Cigar_record* cigar, char* pre_read, int pre_length, char* new_read, int* new_length)
 {
@@ -418,6 +420,36 @@ long long push_final_overlaps_increment(ma_hit_t_alloc* paf, ma_hit_t_alloc* rev
     return available_overlaps;
 }
 
+ha_ovec_buf_t *ha_ovec_buf_init(void *km, int is_final, int save_ov, int is_ug)
+{
+	ha_ovec_buf_t *b;
+	KCALLOC(km, b, 1);
+	b->is_final = !!is_final, b->save_ov = !!save_ov;
+	init_UC_Read(&b->self_read);//set 0
+	init_UC_Read(&b->ovlp_read);//set 0
+	init_Candidates_list(&b->clist);//set 0
+    memset(&b->olist, 0, sizeof(overlap_region_alloc));
+    memset(&b->olist_hp, 0, sizeof(overlap_region_alloc));
+    // init_overlap_region_alloc(&b->olist);
+    // init_overlap_region_alloc(&b->olist_hp);
+    init_fake_cigar(&(b->tmp_region.f_cigar));//set 0
+    kv_init(b->b_buf.a);//set 0
+    kv_init(b->r_buf.a);//set 0
+    kv_init(b->k_flag.a);//set 0
+    kv_init(b->sp);//set 0
+	if(!is_ug) b->ab = ha_abuf_init_buf(km);
+    else b->abl = ha_abufl_init_buf(km);
+	if (!b->is_final) {
+        init_Cigar_record_buf(&b->cigar1, km);
+		// init_Graph(&b->POA_Graph);
+		// init_Graph(&b->DAGCon);
+		init_Correct_dumy_buf(&b->correct, km);//set 0
+        InitHaplotypeEvdience_buf(&b->hap, km);
+		init_Round2_alignment_buf(&b->round2, km);
+	}
+	return b;
+}
+
 ha_ovec_buf_t *ha_ovec_init(int is_final, int save_ov, int is_ug)
 {
 	ha_ovec_buf_t *b;
@@ -518,6 +550,17 @@ int64_t ha_ovec_mem(const ha_ovec_buf_t *b)
 	return mem;
 }
 
+uint32_t get_het_cnt(haplotype_evdience_alloc *hap)
+{
+    uint32_t i, cnt;
+    for (i = cnt = 0; i < hap->snp_stat.n; i++) {
+        if(hap->snp_stat.a[i].score == 1 && (!(hap->snp_stat.a[i].occ_0 < 2 || hap->snp_stat.a[i].occ_1 < 2))) {
+            cnt++;
+        }
+    }
+    return cnt;
+}
+
 static void worker_ovec(void *data, long i, int tid)
 {
 	ha_ovec_buf_t *b = ((ha_ovec_buf_t**)data)[tid];
@@ -559,6 +602,8 @@ static void worker_ovec(void *data, long i, int tid)
 		push_overlaps(&(R_INF.paf[i]), &b->olist, 1, &R_INF, is_rev);
 		push_overlaps(&(R_INF.reverse_paf[i]), &b->olist, 2, &R_INF, is_rev);
 	}
+
+    if(het_cnt) het_cnt[i] = get_het_cnt(&b->hap);
 }
 
 
@@ -814,6 +859,20 @@ void rescue_hp_reads(ha_ovec_buf_t **b)
 }
 
 
+void print_het_cnt_log(uint32_t *het_cnt)
+{
+    if(!het_cnt) return;
+    char* gfa_name = (char*)malloc(strlen(asm_opt.output_file_name)+35);
+    sprintf(gfa_name, "%s.het_cnt.log", asm_opt.output_file_name);
+    FILE* output_file = fopen(gfa_name, "w");
+    fprintf(stderr, "[M::%s::] ==> print cnt of het sites to %s...\n", __func__, gfa_name);
+    free(gfa_name);
+    uint64_t i;
+    for (i = 0; i < R_INF.total_reads; i++){
+        fprintf(output_file, ">%.*s\t%u\n", (int)Get_NAME_LENGTH(R_INF, i), Get_NAME(R_INF, i), het_cnt[i]);
+    }
+    fclose(output_file);
+}
 
 
 void ha_overlap_and_correct(int round)
@@ -838,6 +897,8 @@ void ha_overlap_and_correct(int round)
 	///debug_adapter(&asm_opt, &R_INF);
     if (round == 0 && ha_flt_tab == 0) // then asm_opt.hom_cov hasn't been updated
 		ha_opt_update_cov(&asm_opt, hom_cov);
+    het_cnt = NULL;
+    if(round == asm_opt.number_of_round-1 && asm_opt.is_dbg_het_cnt) CALLOC(het_cnt, R_INF.total_reads);
 	if (asm_opt.required_read_name)
 		kt_for(asm_opt.thread_num, worker_ovec_related_reads, b, R_INF.total_reads);
 	else
@@ -846,6 +907,10 @@ void ha_overlap_and_correct(int round)
     if (r_out) write_pt_index(ha_flt_tab, ha_idx, &R_INF, &asm_opt, asm_opt.output_file_name);
 	ha_pt_destroy(ha_idx);
 	ha_idx = NULL;
+
+    if(het_cnt) {
+        print_het_cnt_log(het_cnt); free(het_cnt); het_cnt = NULL;
+    }
 
 	// collect statistics
 	for (i = 0; i < asm_opt.thread_num; ++i) {

@@ -6,6 +6,7 @@
 #include "POA.h"
 #include "Process_Read.h"
 #include "Correct.h"
+#include "kalloc.h"
 
 //#define CORRECT_THRESHOLD 0.70
 #define CORRECT_THRESHOLD 0.60
@@ -132,6 +133,7 @@ typedef struct
     uint32_t overlapSite;
     ///there are several types: 0: equal to read 1: not equal to read, but it is a mismatch 2: is a gap
     uint8_t type;
+    uint32_t cov;
     ///misbase
     char misBase;
 }haplotype_evdience;
@@ -790,10 +792,11 @@ inline int calculate_score(int new_occ_0, int new_occ_1)
     return consensus;
 }
 
-inline void SetSnpMatrix(haplotype_evdience_alloc* h, uint32_t *nn_snp, uint64_t *overlap_num, int32_t set_matrix)
+inline void SetSnpMatrix(haplotype_evdience_alloc* h, uint32_t *nn_snp, uint64_t *overlap_num, int32_t set_matrix, void *km)
 {
     if(nn_snp && overlap_num) {
-        kv_resize(SnpStats, h->snp_stat, *nn_snp);
+        if(!km) kv_resize(SnpStats, h->snp_stat, *nn_snp);
+        else kv_resize_km(km, SnpStats, h->snp_stat, *nn_snp);
         h->snp_stat.n = 0; h->overlap = *overlap_num; h->core_snp = 0;
     } 
 
@@ -803,13 +806,15 @@ inline void SetSnpMatrix(haplotype_evdience_alloc* h, uint32_t *nn_snp, uint64_t
         uint64_t new_size = n_snp* n_ovlp;
         if(h->snp_matrix_size < new_size) {
             h->snp_matrix_size = new_size;
-            REALLOC(h->snp_matrix, h->snp_matrix_size);
+            if(!km) REALLOC(h->snp_matrix, h->snp_matrix_size);
+            else KREALLOC(km, h->snp_matrix, h->snp_matrix_size);
         }
         memset(h->snp_matrix, -1, n_snp * n_ovlp);
 
         if(h->r_snp_size < n_ovlp) {
             h->r_snp_size = n_ovlp;
-            REALLOC(h->r_snp, h->r_snp_size);
+            if(!km) REALLOC(h->r_snp, h->r_snp_size);
+            else KREALLOC(km, h->r_snp, h->r_snp_size);
         }
     }
 }
@@ -923,6 +928,18 @@ inline void init_DP_matrix(DP_matrix* dp, uint32_t snp_num)
 
 }
 
+inline void InitHaplotypeEvdience_buf(haplotype_evdience_alloc* h, void *km)
+{
+    memset(h, 0, sizeof(haplotype_evdience_alloc));
+    /****************************may have bugs********************************/
+    memset(h->flag, 0, WINDOW_MAX_SIZE * sizeof(uint8_t));
+    /****************************may have bugs********************************/
+    // init_SNP_IDs(&(h->dp.SNP_IDs));
+    memset(&(h->dp.SNP_IDs), 0, sizeof(h->dp.SNP_IDs));
+    h->dp.SNP_IDs.max_snp_id = -1;
+}
+
+
 inline void InitHaplotypeEvdience(haplotype_evdience_alloc* h)
 {
     
@@ -969,7 +986,6 @@ inline void InitHaplotypeEvdience(haplotype_evdience_alloc* h)
     h->dp.max_buffer = NULL;
 
     init_SNP_IDs(&(h->dp.SNP_IDs));
-
 }
 
 inline void StarSubListHaplotypeEvdience(haplotype_evdience_alloc* h)
@@ -1001,6 +1017,29 @@ inline void destoryHaplotypeEvdience(haplotype_evdience_alloc* h)
     destory_SNP_IDs(&(h->dp.SNP_IDs));
 }
 
+inline void destoryHaplotypeEvdience_buf(void *km, haplotype_evdience_alloc* h, int is_z)
+{
+    kfree(km, h->list);
+    kfree(km, h->snp_stat.a);
+    kfree(km, h->snp_srt.a);
+    kfree(km, h->snp_matrix);
+    kfree(km, h->r_snp);
+    kfree(km, h->dp.backtrack);
+    kfree(km, h->dp.max);
+    kfree(km, h->dp.max_for_sort);
+    kfree(km, h->dp.visit);
+    kfree(km, h->dp.backtrack_length);
+    kfree(km, h->dp.buffer);
+    kfree(km, h->dp.max_buffer);
+    kfree(km, h->dp.SNP_IDs.buffer);
+    kfree(km, h->dp.SNP_IDs.IDs);
+    if(is_z) {
+        memset(h, 0, sizeof(*h));
+        memset(&(h->dp.SNP_IDs), 0, sizeof(h->dp.SNP_IDs));
+        h->dp.SNP_IDs.max_snp_id = -1;
+    }
+}
+
 inline void ResizeInitHaplotypeEvdience(haplotype_evdience_alloc* h)
 {
     // h->snp = 0;
@@ -1021,17 +1060,14 @@ inline void RsetInitHaplotypeEvdienceFlag(haplotype_evdience_alloc* h, long long
     /****************************may have bugs********************************/
 }
 
-inline void addHaplotypeEvdience(haplotype_evdience_alloc* h, haplotype_evdience* ev)
+inline void addHaplotypeEvdience(haplotype_evdience_alloc* h, haplotype_evdience* ev, void *km)
 {
-    uint32_t new_length = h->length + 1;
-    if(new_length > h->size)
-    {
-        h->size = h->size * 2;
-        if(h->size < new_length)
-        {
-            h->size = new_length;
-        }
-        h->list = (haplotype_evdience*)realloc(h->list, sizeof(haplotype_evdience)*h->size);
+    if(h->length + 1 > h->size){
+        h->size = h->length + 1;
+        kroundup32(h->size);
+        if(!km) REALLOC(h->list, h->size);
+        else KREALLOC(km, h->list, h->size);
+        // h->list = (haplotype_evdience*)realloc(h->list, sizeof(haplotype_evdience)*h->size);
     }
 
     h->list[h->length] = (*ev);
@@ -1080,6 +1116,7 @@ typedef struct
 }
 Round2_alignment;
 
+void init_Round2_alignment_buf(Round2_alignment* h, void *km);
 void init_Round2_alignment(Round2_alignment* h);
 void destory_Round2_alignment(Round2_alignment* h);
 void clear_Round2_alignment(Round2_alignment* h);
@@ -1091,13 +1128,16 @@ void correct_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF,
                         Cigar_record* current_cigar, haplotype_evdience_alloc* hap,
                         Round2_alignment* second_round, int force_repeat, int is_consensus,
                         int* fully_cov, int* abnormal);
+void init_Correct_dumy_buf(Correct_dumy* list, void *km);
 void init_Correct_dumy(Correct_dumy* list);
 void destory_Correct_dumy(Correct_dumy* list);
-void clear_Correct_dumy(Correct_dumy* list, overlap_region_alloc* overlap_list);
+void destory_Correct_dumy_buf(void *km, Correct_dumy* list, int is_z);
+void clear_Correct_dumy(Correct_dumy* list, overlap_region_alloc* overlap_list, void *km);
 void clear_Correct_dumy_pure(Correct_dumy* list);
 void get_seq_from_Graph(Graph* backbone, Graph* DAGCon, Correct_dumy* dumy, Cigar_record* current_cigar, char* self_string,
 char* r_string, long long r_string_length, long long r_string_site);
 void init_Cigar_record(Cigar_record* dummy);
+void init_Cigar_record_buf(Cigar_record* dummy, void *km);
 void destory_Cigar_record(Cigar_record* dummy);
 void clear_Cigar_record(Cigar_record* dummy);
 void add_new_cell_to_cigar_record(Cigar_record* dummy, uint32_t len, uint32_t type);
@@ -1106,11 +1146,11 @@ void add_new_cell_to_cigar_record_with_different_base(Cigar_record* dummy, uint3
 void add_existing_cell_to_cigar_record_with_different_base(Cigar_record* dummy, uint32_t len, uint32_t type, char* seq);
 
 
-void correct_ul_overlap(overlap_region_alloc* overlap_list, const ma_ug_t *uref, 
+void correct_ul_overlap(overlap_region_alloc* overlap_list, const ul_idx_t *uref, 
                         UC_Read* g_read, Correct_dumy* dumy, UC_Read* overlap_read, 
                         Graph* g, Graph* DAGCon, Cigar_record* current_cigar, 
                         haplotype_evdience_alloc* hap, Round2_alignment* second_round, 
-                        int force_repeat, int is_consensus, int* fully_cov, int* abnormal, double max_ov_diff_ec);
+                        int force_repeat, int is_consensus, int* fully_cov, int* abnormal, double max_ov_diff_ec, void *km);
 
 /***
  type:

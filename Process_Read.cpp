@@ -5,6 +5,7 @@
 #include "Process_Read.h"
 #include "htab.h"
 #include "Correct.h"
+#include "kalloc.h"
 
 uint8_t seq_nt6_table[256] = {
     5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,  5, 5, 5, 5,
@@ -1059,7 +1060,7 @@ void retrieve_ul_t(UC_Read* i_r, char *i_s, all_ul_t *ref, uint64_t ID, uint8_t 
 }
 
 
-void retrieve_u_seq(UC_Read* i_r, char* i_s, ma_utg_t *u, uint8_t strand, int64_t s, int64_t l)
+void retrieve_u_seq(UC_Read* i_r, char* i_s, ma_utg_t *u, uint8_t strand, int64_t s, int64_t l, void *km)
 {
 	if(u->m == 0 || u->n == 0) return;
 	if(l < 0) l = u->len;
@@ -1070,7 +1071,9 @@ void retrieve_u_seq(UC_Read* i_r, char* i_s, ma_utg_t *u, uint8_t strand, int64_
         i_r->length = l; i_r->RID = 0;
         if(i_r->length > i_r->size) {
             i_r->size = i_r->length;
-            i_r->seq = (char*)realloc(i_r->seq,sizeof(char)*(i_r->size));
+			if(!km) REALLOC(i_r->seq, i_r->size);
+			else KREALLOC(km, i_r->seq, i_r->size);
+            // i_r->seq = (char*)realloc(i_r->seq,sizeof(char)*(i_r->size));
         }
         r = i_r->seq;
     }
@@ -1107,6 +1110,151 @@ void retrieve_u_seq(UC_Read* i_r, char* i_s, ma_utg_t *u, uint8_t strand, int64_
 		if(re&1) r[l] = RC_CHAR(r[l]);
 	}
 }
+
+uint32_t retrieve_u_cov(const ul_idx_t *ul, uint64_t id, uint8_t strand, uint64_t pos, uint8_t dir, int64_t *pi)
+{
+	uint64_t *a = ul->cc->interval.a + ul->cc->idx[id], cc = 0, ff = 0;
+	int64_t a_n = ul->cc->idx[id+1]-ul->cc->idx[id], k = 0, cc_i = pi? *pi:0;
+	if(a_n == 0) return 0;
+	if(cc_i + 1 >= a_n || cc_i < 0) cc_i = 0;
+	if(strand) pos = ul->ug->u.a[id].len - pos - 1;
+	if(dir == 0) {
+		for (k = cc_i; k + 1 < a_n; k++) {
+			if(pos>=(a[k]>>32) && pos<(a[k+1]>>32)) {
+				cc = (uint32_t)a[k];
+				ff = 1;
+				break;
+			}
+		}
+
+		if(ff == 0) {
+			for (k = 0; k < cc_i; k++) {
+					if(pos>=(a[k]>>32) && pos<(a[k+1]>>32)) {
+					cc = (uint32_t)a[k];
+					ff = 1;
+					break;
+				}
+			}
+		}
+	} else {
+		for (k = cc_i; k >= 0; k--) {
+			if(pos>=(a[k]>>32) && pos<(a[k+1]>>32)) {
+				cc = (uint32_t)a[k];
+				ff = 1;
+				break;
+			}
+		}
+
+		if(ff == 0) {
+			for (k = cc_i+1; k + 1 < a_n; k++) {
+				if(pos>=(a[k]>>32) && pos<(a[k+1]>>32)) {
+					cc = (uint32_t)a[k];
+					ff = 1;
+					break;
+				}
+			}
+		}
+	}
+	
+	if(pi) *pi = ff?k:0;
+	return cc;
+}
+
+uint64_t retrieve_u_cov_region(const ul_idx_t *ul, uint64_t id, uint8_t strand, uint64_t s, uint64_t e, int64_t *pi)
+{
+    uint64_t *a = ul->cc->interval.a + ul->cc->idx[id], cc = 0, o = 0, tk, ts, te, tcc = 0;
+    int64_t a_n = ul->cc->idx[id+1]-ul->cc->idx[id], k = 0, cc_i = pi? *pi:0;
+    if(a_n == 0) return 0;
+    if(cc_i + 1 >= a_n || cc_i < 0) cc_i = 0;
+    if(strand) {
+		tk = s;
+		s = ul->ug->u.a[id].len - e;
+		e = ul->ug->u.a[id].len - tk;
+	}
+	// fprintf(stderr,"\nul->ug->u.a[id].len:%u, fs:%lu, fe:%lu\n", ul->ug->u.a[id].len, a[k]>>32, a[k+1]>>32);
+	k = cc_i; tk = s;
+	if(tk < (a[k]>>32)) {
+		for (; k >= 0; k--) {
+            if(tk>=(a[k]>>32) && tk<(a[k+1]>>32)) break;
+        }
+	} else if(tk >= (a[k+1]>>32)) {
+		for (; k + 1 < a_n; k++) {
+            if(tk>=(a[k]>>32) && tk<(a[k+1]>>32)) break;
+        }
+	}
+	if(pi) *pi = k;
+
+	
+
+	for (; k + 1 < a_n; k++) {
+		ts = a[k]>>32; te = a[k+1]>>32; cc = (uint32_t)a[k];
+		o = (MIN(e, te) > MAX(s, ts))?(MIN(e, te)-MAX(s, ts)):0;
+		tcc += o*cc;
+		// fprintf(stderr, ">>k:%ld, s:%lu, e:%lu, ts:%lu, te:%lu, o:%lu, cc:%lu\n", k, s, e, ts, te, o, cc);
+		if(e>=(a[k]>>32) && e<(a[k+1]>>32)) break;
+	}
+    
+    
+    return tcc;
+}
+
+
+uint32_t produce_u_cov(ul_idx_t *ul, uint64_t id, uint8_t strand, uint64_t pos, ma_hit_t_alloc* src, int64_t min_ovlp, int64_t max_hang, int64_t gap_fuzz,
+uint8_t *sset, kvec_t_u64_warp *buf)
+{
+	uint64_t k, l, i, z, s = 0, e = 0, qn, tn, qs, qe;
+	ma_utg_t *u = NULL;
+	int64_t dp, r; 
+	asg_arc_t t;
+
+	if(strand == (uint8_t)-1 || pos == (uint64_t)-1) {
+		u = &(ul->ug->u.a[id]);
+		buf->a.n = 0; kv_resize(uint64_t, buf->a, u->n*2);
+		for (k = l = 0; k < u->n; k++) {
+			kv_push(uint64_t, buf->a, l<<1);
+			kv_push(uint64_t, buf->a, ((l + Get_READ_LENGTH(R_INF, u->a[k]>>33))<<1)|1);
+
+
+			i = u->a[k]>>33;///rid
+			for (z = 0; z < src[i].length; z++) {
+				if(!src[i].buffer[z].el) continue;
+				qn = Get_qn(src[i].buffer[z]); tn = Get_tn(src[i].buffer[z]);
+				if(sset[tn]) continue;
+				if((Get_qe(src[i].buffer[z]) - Get_qs(src[i].buffer[z])) < min_ovlp) continue;
+				if((Get_te(src[i].buffer[z]) - Get_ts(src[i].buffer[z])) < min_ovlp) continue;
+				r = ma_hit2arc(&(src[i].buffer[z]), Get_READ_LENGTH(R_INF, qn), Get_READ_LENGTH(R_INF, tn), 
+				max_hang, asm_opt.max_hang_rate, min_ovlp, &t);
+				if(r != MA_HT_TCONT) continue;///tn is contained
+				if(((u->a[k]>>32)&1) == 0) {
+					qs = Get_qs(src[i].buffer[z]); qe = Get_qe(src[i].buffer[z]);
+				} else {
+					qs = (Get_READ_LENGTH(R_INF, i)) - Get_qe(src[i].buffer[z]);
+					qe = (Get_READ_LENGTH(R_INF, i)) - Get_qs(src[i].buffer[z]);
+				}
+				kv_push(uint64_t, buf->a, (l+qs)<<1);
+				kv_push(uint64_t, buf->a, ((l+qe)<<1)|1);
+			}
+
+			l += (uint32_t)u->a[k];
+		}
+		sort_kvec_t_u64_warp(buf, 0);
+		return 0;
+	}
+
+	if(strand) pos = ul->ug->u.a[id].len - pos - 1;
+	for (k = 0, dp = 0, s = e = 0; k < buf->a.n; k++) {        
+		e = buf->a.a[k]>>1;
+		// fprintf(stderr, "[M::%s::k:%lu] [s, e)->[%lu, %lu), dp->%ld\n", __func__, k, s, e, dp);
+		if(pos >= s && pos < e) break;
+		s = buf->a.a[k]>>1;
+        if (buf->a.a[k]&1) --dp;
+        else ++dp;
+	}
+
+	return dp;
+}
+
+
 
 void produce_u_seq(char* r, ma_utg_t *u, UC_Read *buf)
 {
@@ -1147,9 +1295,9 @@ void produce_u_seq(char* r, ma_utg_t *u, UC_Read *buf)
 	}
 }
 
-void debug_retrieve_rc_sub(all_ul_t *ref, const All_reads *R_INF, ma_utg_v *u, uint32_t n_step)
+void debug_retrieve_rc_sub(const ug_opt_t *uopt, all_ul_t *ref, const All_reads *R_INF, ul_idx_t *ul, uint32_t n_step)
 {
-	uint64_t i, step, s, e, occ;
+	uint64_t i, step, s, e, occ, qc, rc;
 	UC_Read f, r; 
 	init_UC_Read(&f); init_UC_Read(&r);
 	kvec_t(char) ss; kv_init(ss);
@@ -1224,31 +1372,84 @@ void debug_retrieve_rc_sub(all_ul_t *ref, const All_reads *R_INF, ma_utg_v *u, u
 		fprintf(stderr, "[M::%s::# checking: %lu] ==> All_reads\n", __func__, occ);
 	}
 
-	if(u) {
-		for (i = 0, occ = 0; i < u->n; i++) {
-			kv_resize(char, ss, u->a[i].len); ss.n = u->a[i].len;
-			retrieve_u_seq(&f, NULL, &(u->a[i]), 0, 0, -1);
-			produce_u_seq(ss.a, &(u->a[i]), &r);
+	if(ul) {
+
+		uint8_t *sset = NULL; CALLOC(sset, R_INF->total_reads);
+		for (i = 0; i < ul->ug->u.n; i++) {
+			for (s = 0; s < ul->ug->u.a[i].n; s++){
+				sset[ul->ug->u.a[i].a[s]>>33] = 1;
+			}
+		}
+
+		kvec_t_u64_warp buf; memset(&buf, 0, sizeof(buf)); int64_t pi = 0;
+		// produce_u_cov(ul, 0, (uint8_t)-1, (uint64_t)-1, &buf);
+		// produce_u_cov(ul, 0, 0, ul->ug->u.a[0].len>>1, &buf);
+
+		for (i = 0, occ = 0; i < ul->ug->u.n; i++) {
+			kv_resize(char, ss, ul->ug->u.a[i].len); ss.n = ul->ug->u.a[i].len;
+			retrieve_u_seq(&f, NULL, &(ul->ug->u.a[i]), 0, 0, -1, NULL);
+			produce_u_seq(ss.a, &(ul->ug->u.a[i]), &r);
 			if(memcmp(ss.a, f.seq, ss.n)) fprintf(stderr, "4-Wrong whole reverse-read, id: %lu\n", i);
-			retrieve_u_seq(&r, NULL, &(u->a[i]), 1, 0, -1);
+			retrieve_u_seq(&r, NULL, &(ul->ug->u.a[i]), 1, 0, -1, NULL);
 			
 			memcpy(ss.a, r.seq, ss.n); 
 			reverse_complement(ss.a, ss.n);
 			if(memcmp(ss.a, f.seq, ss.n)) fprintf(stderr, "3-Wrong whole reverse-read, id: %lu\n", i);
 
+			produce_u_cov(ul, i, (uint8_t)-1, (uint64_t)-1, uopt->sources, uopt->min_ovlp, uopt->max_hang, uopt->gap_fuzz, sset, &buf);
 			step = ss.n/n_step;
     		if(step <= 0) step = 1;
 
 			for (s = 0; s < ss.n; s += step) {
 				e = MIN(s+step, ss.n);
-				retrieve_u_seq(NULL, ss.a, &(u->a[i]), 0, s, e-s);
+				retrieve_u_seq(NULL, ss.a, &(ul->ug->u.a[i]), 0, s, e-s, NULL);
 				if(memcmp(ss.a, f.seq + s, e - s)) fprintf(stderr, "3-Wrong sub forward-read, id: %lu, [%lu, %lu)\n", i, s, e);
 
-				retrieve_u_seq(NULL, ss.a, &(u->a[i]), 1, s, e-s);
+				retrieve_u_seq(NULL, ss.a, &(ul->ug->u.a[i]), 1, s, e-s, NULL);
 				if(memcmp(ss.a, r.seq + s, e - s)) fprintf(stderr, "3-Wrong sub reverse-read, id: %lu, [%lu, %lu)\n", i, s, e);
+				
+				/**if(ul->ug->u.a[i].n > 1)**/ {
+					rc = produce_u_cov(ul, i, 0, s, uopt->sources, uopt->min_ovlp, uopt->max_hang, uopt->gap_fuzz, sset, &buf);
+
+					qc = retrieve_u_cov(ul, i, 0, s, 0, &pi);
+					if(rc != qc) fprintf(stderr, "4-Wrong coverage, id: %lu, rc:%lu, qc:%lu, pos:%lu\n", i, rc, qc, s);
+					pi++;
+					qc = retrieve_u_cov(ul, i, 0, s, 0, &pi);
+					if(rc != qc) fprintf(stderr, "4-Wrong coverage, id: %lu, rc:%lu, qc:%lu, pos:%lu\n", i, rc, qc, s);
+					pi--;
+					qc = retrieve_u_cov(ul, i, 0, s, 0, &pi);
+					if(rc != qc) fprintf(stderr, "4-Wrong coverage, id: %lu, rc:%lu, qc:%lu, pos:%lu\n", i, rc, qc, s);
+					pi++;
+					qc = retrieve_u_cov(ul, i, 0, s, 1, &pi);
+					if(rc != qc) fprintf(stderr, "4-Wrong coverage, id: %lu, rc:%lu, qc:%lu, pos:%lu\n", i, rc, qc, s);
+					pi--;
+					qc = retrieve_u_cov(ul, i, 0, s, 1, &pi);
+					if(rc != qc) fprintf(stderr, "4-Wrong coverage, id: %lu, rc:%lu, qc:%lu, pos:%lu\n", i, rc, qc, s);
+
+
+
+
+					rc = produce_u_cov(ul, i, 1, s, uopt->sources, uopt->min_ovlp, uopt->max_hang, uopt->gap_fuzz, sset, &buf);
+					qc = retrieve_u_cov(ul, i, 1, s, 0, &pi);
+					if(rc != qc) fprintf(stderr, "4-Wrong coverage, id: %lu, rc:%lu, qc:%lu, pos:%lu\n", i, rc, qc, s);
+					pi++;
+					qc = retrieve_u_cov(ul, i, 1, s, 0, &pi);
+					if(rc != qc) fprintf(stderr, "4-Wrong coverage, id: %lu, rc:%lu, qc:%lu, pos:%lu\n", i, rc, qc, s);
+					pi--;
+					qc = retrieve_u_cov(ul, i, 1, s, 0, &pi);
+					if(rc != qc) fprintf(stderr, "4-Wrong coverage, id: %lu, rc:%lu, qc:%lu, pos:%lu\n", i, rc, qc, s);
+					pi++;
+					qc = retrieve_u_cov(ul, i, 1, s, 1, &pi);
+					if(rc != qc) fprintf(stderr, "4-Wrong coverage, id: %lu, rc:%lu, qc:%lu, pos:%lu\n", i, rc, qc, s);
+					pi--;
+					qc = retrieve_u_cov(ul, i, 1, s, 1, &pi);
+					if(rc != qc) fprintf(stderr, "4-Wrong coverage, id: %lu, rc:%lu, qc:%lu, pos:%lu\n", i, rc, qc, s);
+				}
 				occ++;
 			}
 		}
+	
+		kv_destroy(buf.a); free(sset);
 		fprintf(stderr, "[M::%s::# checking: %lu] ==> ma_utg_v\n", __func__, occ);
 	}
 

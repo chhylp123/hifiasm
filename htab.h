@@ -94,6 +94,11 @@ int write_ct_index(void *ct_idx, char* file_name);
 int load_ct_index(void **ct_idx, char* file_name);
 int query_ct_index(void* ct_idx, uint64_t hash);
 
+ha_abuf_t *ha_abuf_init_buf(void *km);
+ha_abufl_t *ha_abufl_init_buf(void *km);
+void ha_abuf_destroy_buf(void *km, ha_abuf_t *ab);
+void ha_abufl_destroy_buf(void *km, ha_abufl_t *ab);
+void ha_abufl_free_buf(void *km, ha_abufl_t *ab, int is_z);
 ha_abuf_t *ha_abuf_init(void);
 void ha_abuf_destroy(ha_abuf_t *ab);
 uint64_t ha_abuf_mem(const ha_abuf_t *ab);
@@ -111,8 +116,8 @@ double yak_cpu_usage(void);
 void ha_triobin(const hifiasm_opt_t *opt);
 uint32_t *ha_polybin_list(const hifiasm_opt_t *opt);
 
-void mz1_ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mz1_v *p, const void *hf, int sample_dist, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct, ha_pt_t *pt, int min_freq, int32_t dp_min_len, float dp_e, st_mt_t *mt, int32_t ws, int32_t is_unique);
-void mz2_ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mzl_v *p, const void *hf, int sample_dist, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct, ha_pt_t *pt, int min_freq, int32_t dp_min_len, float dp_e, st_mt_t *mt, int32_t ws, int32_t is_unique);
+void mz1_ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mz1_v *p, const void *hf, int sample_dist, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct, ha_pt_t *pt, int min_freq, int32_t dp_min_len, float dp_e, st_mt_t *mt, int32_t ws, int32_t is_unique, void *km);
+void mz2_ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mzl_v *p, const void *hf, int sample_dist, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct, ha_pt_t *pt, int min_freq, int32_t dp_min_len, float dp_e, st_mt_t *mt, int32_t ws, int32_t is_unique, void *km);
 int ha_analyze_count(int n_cnt, int start_cnt, int m_peak_hom, const int64_t *cnt, int *peak_het);
 int adj_m_peak_hom(int m_peak_hom, int max_i, int max2_i, int max3_i, int *peak_het);
 void print_hist_lines(int n_cnt, int start_cnt, const int64_t *cnt);

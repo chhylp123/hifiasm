@@ -3,6 +3,7 @@
 #include "htab.h"
 #include "ksort.h"
 #include "Hash_Table.h"
+#include "kalloc.h"
 
 #define HA_KMER_GOOD_RATIO 0.333
 
@@ -51,7 +52,10 @@ struct ha_abufl_s {
 };
 
 #define HA_ABUF_INIT(HType, MZType, SDType, sf) \
+HType *sf##_init_buf(void *km){HType *b = NULL; KCALLOC((km), b, 1); return b;}\
 HType *sf##_init(void){return (HType*)calloc(1, sizeof(HType));}\
+void sf##_free_buf(void *km, HType *ab, int is_z){if(ab){kfree(km, ab->seed); kfree(km, ab->a); kfree(km, ab->mz.a); if((is_z)){memset(ab, 0, sizeof(*ab));}}}\
+void sf##_destroy_buf(void *km, HType *ab){if(ab){kfree(km, ab->seed); kfree(km, ab->a); kfree(km, ab->mz.a); kfree(km, ab);}}\
 void sf##_destroy(HType *ab){if(ab){free(ab->seed); free(ab->a); free(ab->mz.a); free(ab);}}\
 uint64_t sf##_mem(const HType *ab){\
 	return ab->m_a * sizeof(anchor1_t) + ab->mz.m * (sizeof(MZType) + sizeof(SDType)) + sizeof(HType);\
@@ -84,7 +88,7 @@ void ha_get_new_candidates(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_reg
 	rlen = Get_READ_LENGTH(R_INF, rid); // read length
 
 	// get the list of anchors
-	mz1_ha_sketch(ucr->seq, ucr->length, asm_opt.mz_win, asm_opt.k_mer_length, 0, !(asm_opt.flag & HA_F_NO_HPC), &ab->mz, ha_flt_tab, asm_opt.mz_sample_dist, k_flag, dbg_ct, NULL, -1, asm_opt.dp_min_len, -1, sp, asm_opt.mz_rewin, 0);
+	mz1_ha_sketch(ucr->seq, ucr->length, asm_opt.mz_win, asm_opt.k_mer_length, 0, !(asm_opt.flag & HA_F_NO_HPC), &ab->mz, ha_flt_tab, asm_opt.mz_sample_dist, k_flag, dbg_ct, NULL, -1, asm_opt.dp_min_len, -1, sp, asm_opt.mz_rewin, 0, NULL);
 	// minimizer of queried read
 	if (ab->mz.m > ab->old_mz_m) {
 		ab->old_mz_m = ab->mz.m;
@@ -152,7 +156,7 @@ void ha_get_new_candidates(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_reg
 	}
 	cl->length = ab->n_a;
 
-	calculate_overlap_region_by_chaining(cl, overlap_list, chain_idx, rid, ucr->length, &R_INF, bw_thres, keep_whole_chain, f_cigar);
+	calculate_overlap_region_by_chaining(cl, overlap_list, chain_idx, rid, ucr->length, &R_INF, NULL, bw_thres, keep_whole_chain, f_cigar, NULL);
 
 	#if 0
 	if (overlap_list->length > 0) {
@@ -199,13 +203,12 @@ void ha_get_new_candidates(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_reg
 	///ks_introsort_or_xs(overlap_list->length, overlap_list->list);
 }
 
-void ha_get_new_ul_candidates(ha_abufl_t *ab, int64_t rid, char* rs, int64_t rl, uint64_t mz_w, uint64_t mz_k, overlap_region_alloc *overlap_list, Candidates_list *cl, double bw_thres, int max_n_chain, int keep_whole_chain,
-						   kvec_t_u8_warp* k_flag, kvec_t_u64_warp* chain_idx, void *ha_flt_tab, ha_pt_t *ha_idx, overlap_region* f_cigar, kvec_t_u64_warp* dbg_ct, st_mt_t *sp)
+void ha_get_new_ul_candidates(ha_abufl_t *ab, int64_t rid, char* rs, int64_t rl, uint64_t mz_w, uint64_t mz_k, const ul_idx_t *uref, overlap_region_alloc *overlap_list, Candidates_list *cl, double bw_thres, int max_n_chain, int keep_whole_chain,
+						   kvec_t_u8_warp* k_flag, kvec_t_u64_warp* chain_idx, void *ha_flt_tab, ha_pt_t *ha_idx, overlap_region* f_cigar, kvec_t_u64_warp* dbg_ct, st_mt_t *sp, void *km)
 {
 	uint32_t i;
 	uint64_t k, l;
 	uint32_t high_occ = asm_opt.hom_cov >= 1?asm_opt.hom_cov:1;
-	
 
 	// prepare
     clear_Candidates_list(cl);
@@ -213,13 +216,14 @@ void ha_get_new_ul_candidates(ha_abufl_t *ab, int64_t rid, char* rs, int64_t rl,
 	ab->mz.n = 0, ab->n_a = 0;
 
 	// get the list of anchors
-	mz2_ha_sketch(rs, rl, mz_w, mz_k, 0, !(asm_opt.flag & HA_F_NO_HPC), &ab->mz, ha_flt_tab, asm_opt.mz_sample_dist, k_flag, dbg_ct, NULL, -1, asm_opt.dp_min_len, -1, sp, asm_opt.mz_rewin, 0);
+	mz2_ha_sketch(rs, rl, mz_w, mz_k, 0, !(asm_opt.flag & HA_F_NO_HPC), &ab->mz, ha_flt_tab, asm_opt.mz_sample_dist, k_flag, dbg_ct, NULL, -1, asm_opt.dp_min_len, -1, sp, asm_opt.mz_rewin, 0, km);
 	
 	// minimizer of queried read
 	if (ab->mz.m > ab->old_mz_m) {
 		ab->old_mz_m = ab->mz.m;
-		REALLOC(ab->seed, ab->old_mz_m);
+		KREALLOC(km, ab->seed, ab->old_mz_m);
 	}
+
 	for (i = 0, ab->n_a = 0; i < ab->mz.n; ++i) {
 		int n;
 		ab->seed[i].a = ha_ptl_get(ha_idx, ab->mz.a[i].x, &n);
@@ -228,9 +232,9 @@ void ha_get_new_ul_candidates(ha_abufl_t *ab, int64_t rid, char* rs, int64_t rl,
 	}
 	if (ab->n_a > ab->m_a) {
 		ab->m_a = ab->n_a;
-		kroundup64(ab->m_a);
-		REALLOC(ab->a, ab->m_a);
+		KREALLOC(km, ab->a, ab->m_a);
 	}
+
 	for (i = 0, k = 0; i < ab->mz.n; ++i) {
 		int j;
 		///z is one of the minimizer
@@ -261,8 +265,9 @@ void ha_get_new_ul_candidates(ha_abufl_t *ab, int64_t rid, char* rs, int64_t rl,
 	// copy over to _cl_
 	if (ab->m_a >= (uint64_t)cl->size) {
 		cl->size = ab->m_a;
-		REALLOC(cl->list, cl->size);
+		KREALLOC(km, cl->list, cl->size);
 	}
+
 	for (k = 0; k < ab->n_a; ++k) {
 		k_mer_hit *p = &cl->list[k];
 		p->readID = ab->a[k].srt >> 33;
@@ -279,7 +284,7 @@ void ha_get_new_ul_candidates(ha_abufl_t *ab, int64_t rid, char* rs, int64_t rl,
 	}
 	cl->length = ab->n_a;
 
-	calculate_overlap_region_by_chaining(cl, overlap_list, chain_idx, rid, rl, &R_INF, bw_thres, keep_whole_chain, f_cigar);
+	calculate_overlap_region_by_chaining(cl, overlap_list, chain_idx, rid, rl, NULL, uref, bw_thres, keep_whole_chain, f_cigar, km);
 	
 	#if 0
 	if (overlap_list->length > 0) {
@@ -381,13 +386,13 @@ void calculate_ug_chaining(Candidates_list* candidates, overlap_region_alloc* ov
 
 		chain_len = chain_DP(candidates->list + sub_region_beg,
 				sub_region_end - sub_region_beg + 1, &(candidates->chainDP), f_cigar, band_width_threshold,
-				50, ua->a[(*f_cigar).x_id].len, ua->a[(*f_cigar).y_id].len);
+				50, ua->a[(*f_cigar).x_id].len, ua->a[(*f_cigar).y_id].len, NULL);
 		
 		
 		// if ((*f_cigar).x_id != (*f_cigar).y_id)
 		if ((*f_cigar).x_id != (*f_cigar).y_id && chain_len > mz_occ*mz_rate)
         {
-			append_utg_inexact_overlap_region_alloc(overlap_list, f_cigar, ua, add_beg_end);
+			append_utg_inexact_overlap_region_alloc(overlap_list, f_cigar, ua, add_beg_end, NULL);
         }
     }
 }
@@ -406,7 +411,7 @@ void ha_get_inter_candidates(ha_abufl_t *ab, uint64_t id, char* r, uint64_t rlen
 
 	// get the list of anchors
     mz2_ha_sketch(r, rlen, rw, rk, 0, is_hpc, &ab->mz, ha_flt_tab, asm_opt.mz_sample_dist, k_flag, dbg_ct,   
-    NULL, -1, asm_opt.dp_min_len, -1, sp, asm_opt.mz_rewin, 1);
+    NULL, -1, asm_opt.dp_min_len, -1, sp, asm_opt.mz_rewin, 1, NULL);
 	
 	// minimizer of queried read
 	if (ab->mz.m > ab->old_mz_m) {
@@ -467,7 +472,7 @@ void ha_get_inter_candidates(ha_abufl_t *ab, uint64_t id, char* r, uint64_t rlen
 	}
 	cl->length = ab->n_a;
 
-	calculate_overlap_region_by_chaining(cl, ol, chain_idx, id, rlen, &R_INF, bw_thres, keep_whole_chain, f_cigar);
+	calculate_overlap_region_by_chaining(cl, ol, chain_idx, id, rlen, /**&R_INF**/NULL, NULL, bw_thres, keep_whole_chain, f_cigar, NULL);
 
 	#if 0
 	if (ol->length > 0) {
@@ -754,13 +759,17 @@ void ha_get_candidates_interface(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overl
 }
 
 
-void ha_get_ul_candidates_interface(ha_abufl_t *ab, int64_t rid, char* rs, uint64_t rl, uint64_t mz_w, uint64_t mz_k, overlap_region_alloc *overlap_list, overlap_region_alloc *overlap_list_hp, Candidates_list *cl, double bw_thres, 
-								 int max_n_chain, int keep_whole_chain, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* chain_idx, overlap_region* f_cigar, kvec_t_u64_warp* dbg_ct, st_mt_t *sp)
+void ha_get_ul_candidates_interface(ha_abufl_t *ab, int64_t rid, char* rs, uint64_t rl, uint64_t mz_w, uint64_t mz_k, const ul_idx_t *uref, overlap_region_alloc *overlap_list, overlap_region_alloc *overlap_list_hp, Candidates_list *cl, double bw_thres, 
+								 int max_n_chain, int keep_whole_chain, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* chain_idx, overlap_region* f_cigar, kvec_t_u64_warp* dbg_ct, st_mt_t *sp, void *km)
 {
 	extern void *ha_flt_tab;
 	extern ha_pt_t *ha_idx;
 
-	ha_get_new_ul_candidates(ab, rid, rs, rl, mz_w, mz_k, overlap_list, cl, bw_thres, max_n_chain, keep_whole_chain, k_flag, chain_idx, ha_flt_tab, ha_idx, f_cigar, dbg_ct, sp);
+	ha_get_new_ul_candidates(ab, rid, rs, rl, mz_w, mz_k, uref, overlap_list, cl, bw_thres, max_n_chain, keep_whole_chain, k_flag, chain_idx, ha_flt_tab, ha_idx, f_cigar, dbg_ct, sp, km);
+	if(km) {
+		ha_abufl_free_buf(km, ab, 1); 
+		destory_Candidates_list_buf(km, cl, 1); 
+	}
 	ks_introsort_or_xs(overlap_list->length, overlap_list->list);
 }
 

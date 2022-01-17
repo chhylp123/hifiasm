@@ -34,6 +34,36 @@ void km_stat(const void *_km, km_stat_t *s);
 		KREALLOC((km), (a), (m)); \
 	} while (0)
 
+#define kv_resize_km(km, type, v, s) do { \
+        if ((v).m < (s)) { \
+            (v).m = (s); \
+            kv_roundup32((v).m); \
+			KREALLOC((km), (v).a, (v).m); \
+        } \
+    } while (0)
+
+#define kv_copy_km(km, type, v1, v0) do {                          \
+        if ((v1).m < (v0).n) kv_resize_km((km), type, v1, (v0).n);   \
+        (v1).n = (v0).n;                                    \
+        memcpy((v1).a, (v0).a, sizeof(type) * (v0).n);      \
+    } while (0)                                             \
+
+#define kv_push_km(km, type, v, x) do {                                    \
+        if ((v).n == (v).m) {                                       \
+            (v).m = (v).m? (v).m<<1 : 2;                            \
+            KREALLOC((km), (v).a, (v).m);							    \
+        }                                                           \
+        (v).a[(v).n++] = (x);                                       \
+    } while (0)
+
+#define kv_pushp_km(km, type, v, p) do { \
+        if ((v).n == (v).m) { \
+            (v).m = (v).m? (v).m<<1 : 2; \
+            KREALLOC((km), (v).a, (v).m);	 \
+        } \
+        *(p) = &(v).a[(v).n++]; \
+    } while (0)
+
 #ifndef klib_unused
 #if (defined __clang__ && __clang_major__ >= 3) || (defined __GNUC__ && __GNUC__ >= 3)
 #define klib_unused __attribute__ ((__unused__))

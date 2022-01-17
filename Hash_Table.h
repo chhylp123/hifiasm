@@ -15,6 +15,14 @@
 #define HIGH_HET_OVERLAP_THRESHOLD_FILTER 0.3
 #define HIGH_HET_ERROR_RATE 0.08
 #define THRESHOLD_MAX_SIZE  31
+#define THRESHOLD_UL_MAX 0.2
+#define WINDOW_UL 75
+#define WINDOW_UL_H 200
+// #define WINDOW_UL_H 150
+#define MIN_UL_ALIN_RATE 0.5
+#define MIN_UL_ALIN_LEN (WINDOW_UL*6)
+#define WINDOW_UL_BOUND 48
+#define WINDOW_UL_BOUND_RATE 0.55
 
 #define GROUP_SIZE 4
 ///the max cigar likes 10M10D10M10D10M
@@ -136,23 +144,25 @@ typedef struct
 void init_Candidates_list(Candidates_list* l);
 void clear_Candidates_list(Candidates_list* l);
 void destory_Candidates_list(Candidates_list* l);
+void destory_Candidates_list_buf(void *km, Candidates_list* l, int is_z);
 
 void init_overlap_region_alloc(overlap_region_alloc* list);
 void clear_overlap_region_alloc(overlap_region_alloc* list);
 void destory_overlap_region_alloc(overlap_region_alloc* list);
+void destory_overlap_region_alloc_buf(void *km, overlap_region_alloc* list, int is_z);
 void append_window_list(overlap_region* region, uint64_t x_start, uint64_t x_end, int y_start, int y_end, int error,
-int extra_begin, int extra_end, int error_threshold);
+int extra_begin, int extra_end, int error_threshold, int blockLen, void *km);
 
 void overlap_region_sort_y_id(overlap_region *a, long long n);
 
 void calculate_overlap_region_by_chaining(Candidates_list* candidates, overlap_region_alloc* overlap_list, kvec_t_u64_warp* chain_idx,
-uint64_t readID, uint64_t readLength, All_reads* R_INF, double band_width_threshold, int add_beg_end, overlap_region* f_cigar);
+uint64_t readID, uint64_t readLength, All_reads* R_INF, const ul_idx_t *uref, double band_width_threshold, int add_beg_end, overlap_region* f_cigar, void *km);
 
 void init_fake_cigar(Fake_Cigar* x);
 void destory_fake_cigar(Fake_Cigar* x);
 void clear_fake_cigar(Fake_Cigar* x);
-void add_fake_cigar(Fake_Cigar* x, uint32_t gap_site, int32_t gap_shift);
-void resize_fake_cigar(Fake_Cigar* x, uint64_t size);
+void add_fake_cigar(Fake_Cigar* x, uint32_t gap_site, int32_t gap_shift, void *km);
+void resize_fake_cigar(Fake_Cigar* x, uint64_t size, void *km);
 int get_fake_gap_pos(Fake_Cigar* x, int index);
 int get_fake_gap_shift(Fake_Cigar* x, int index);
 
@@ -182,12 +192,12 @@ static inline long long y_start_offset(long long x_start, Fake_Cigar* o)
     return get_fake_gap_shift(o, i - 1);
 }
 
-void resize_Chain_Data(Chain_Data* x, long long size);
+void resize_Chain_Data(Chain_Data* x, long long size, void *km);
 void init_window_list_alloc(window_list_alloc* x);
 void clear_window_list_alloc(window_list_alloc* x);
 void destory_window_list_alloc(window_list_alloc* x);
-void resize_window_list_alloc(window_list_alloc* x, long long size);
-long long chain_DP(k_mer_hit* a, long long a_n, Chain_Data* dp, overlap_region* result, double band_width_threshold, int max_skip, int x_readLen, int y_readLen);
+void resize_window_list_alloc(window_list_alloc* x, long long size, void *km);
+long long chain_DP(k_mer_hit* a, long long a_n, Chain_Data* dp, overlap_region* result, double band_width_threshold, int max_skip, int x_readLen, int y_readLen, void *km);
 int append_utg_inexact_overlap_region_alloc(overlap_region_alloc* list, overlap_region* tmp, 
-                                        ma_utg_v *ua, int add_beg_end);
+                                        ma_utg_v *ua, int add_beg_end, void *km);
 #endif

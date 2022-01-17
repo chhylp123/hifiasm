@@ -57,8 +57,13 @@
 typedef struct {
 	uint32_t qn, qs, qe;
 	uint32_t tn, ts, te;
-	uint8_t sec:6, el:1, rev:1;
+	uint32_t sec:30, el:1, rev:1;
 } ul_ov_t;
+
+typedef struct {
+	ul_ov_t *a;
+	size_t n, m;
+} kv_ul_ov_t;
 
 
 ///query is the read itself
@@ -207,6 +212,22 @@ typedef struct {
 	uint32_t utg:31, ori:1, start, len;
 } utg_intv_t;
 
+typedef struct {
+	uint32_t *idx;
+	kvec_t(uint64_t) interval;
+} ucov_t;
+
+typedef struct {
+	kvec_t(uint64_t) idx;
+	kvec_t(uint32_t) rids;
+} ul_contain;
+
+typedef struct {
+	ma_ug_t *ug;
+	ucov_t *cc;
+	ul_contain *ct;
+	// kv_ul_ov_t *ov;
+} ul_idx_t;
 
 #define MA_HT_INT        (-1)
 #define MA_HT_QCONT      (-2)
