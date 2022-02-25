@@ -86,7 +86,7 @@ static yak_ch_t *yak_ch_restore_core(yak_ch_t *ch0, const char *fn, int mode, ..
 	if (mode_err) return 0;
 
 	if ((fp = fopen(fn, "rb")) == 0) return 0;
-	if (fread(magic, 1, 4, fp) != 4) return 0;
+	if (fread(magic, 1, 4, fp) != 4) { fclose(fp); return 0; }
 	if (strncmp(magic, YAK_MAGIC, 4) != 0) {
 		fprintf(stderr, "ERROR: wrong file magic.\n");
 		fclose(fp);
