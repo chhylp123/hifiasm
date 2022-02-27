@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <zlib.h>
+#include <inttypes.h>
 #include "Assembly.h"
 #include "Process_Read.h"
 #include "CommandLines.h"
@@ -226,7 +227,7 @@ int debug_cigar(Cigar_record* cigar, char* pre_read, int pre_length, char* new_r
 
     if((int)cigar->new_read_length != new_length)
     {
-        fprintf(stderr, "cigar->new_read_length: %d, new_length: %d\n", cigar->new_read_length, new_length);
+        fprintf(stderr, "cigar->new_read_length: %" PRIu32 ", new_length: %d\n", cigar->new_read_length, new_length);
     }
 }
 
@@ -652,7 +653,7 @@ static void worker_ovec_related_reads(void *data, long i, int tid)
         {
             if(b->olist.list[k].is_match != 1) continue;
 			fprintf(R_INF_FLAG.fp, "%.*s\n", (int)Get_NAME_LENGTH((R_INF), b->olist.list[k].y_id), Get_NAME((R_INF), b->olist.list[k].y_id));
-            fprintf(R_INF_FLAG.fp, "qs: %u, qe: %u, ts: %u, te: %u, rev: %u, strong: %u, no_l_indel: %u, len: %lu\n",
+            fprintf(R_INF_FLAG.fp, "qs: %u, qe: %u, ts: %u, te: %u, rev: %u, strong: %" PRId8 ", no_l_indel: %u, len: %lu\n",
             b->olist.list[k].x_pos_s, b->olist.list[k].x_pos_e, b->olist.list[k].y_pos_s, b->olist.list[k].y_pos_e, 
             b->olist.list[k].y_pos_strand, b->olist.list[k].strong, b->olist.list[k].without_large_indel,
             Get_READ_LENGTH(R_INF, b->olist.list[k].y_id));
@@ -663,7 +664,7 @@ static void worker_ovec_related_reads(void *data, long i, int tid)
         {
             if(b->olist.list[k].is_match != 2) continue;
 			fprintf(R_INF_FLAG.fp, "%.*s\n", (int)Get_NAME_LENGTH((R_INF), b->olist.list[k].y_id), Get_NAME((R_INF), b->olist.list[k].y_id));
-            fprintf(R_INF_FLAG.fp, "qs: %u, qe: %u, ts: %u, te: %u, rev: %u, strong: %u, no_l_indel: %u, len: %lu\n",
+            fprintf(R_INF_FLAG.fp, "qs: %u, qe: %u, ts: %u, te: %u, rev: %u, strong: %" PRId8 ", no_l_indel: %u, len: %lu\n",
             b->olist.list[k].x_pos_s, b->olist.list[k].x_pos_e, b->olist.list[k].y_pos_s, b->olist.list[k].y_pos_e, 
             b->olist.list[k].y_pos_strand, b->olist.list[k].strong, b->olist.list[k].without_large_indel,
             Get_READ_LENGTH(R_INF, b->olist.list[k].y_id));
@@ -675,7 +676,7 @@ static void worker_ovec_related_reads(void *data, long i, int tid)
             if(b->olist.list[k].is_match == 1) continue;
             if(b->olist.list[k].is_match == 2) continue;
 			fprintf(R_INF_FLAG.fp, "%.*s\n", (int)Get_NAME_LENGTH((R_INF), b->olist.list[k].y_id), Get_NAME((R_INF), b->olist.list[k].y_id));
-            fprintf(R_INF_FLAG.fp, "qs: %u, qe: %u, ts: %u, te: %u, rev: %u, strong: %u, no_l_indel: %u, len: %lu\n",
+            fprintf(R_INF_FLAG.fp, "qs: %u, qe: %u, ts: %u, te: %u, rev: %u, strong: %" PRId8 ", no_l_indel: %u, len: %lu\n",
             b->olist.list[k].x_pos_s, b->olist.list[k].x_pos_e, b->olist.list[k].y_pos_s, b->olist.list[k].y_pos_e, 
             b->olist.list[k].y_pos_strand, b->olist.list[k].strong, b->olist.list[k].without_large_indel,
             Get_READ_LENGTH(R_INF, b->olist.list[k].y_id));
@@ -1406,7 +1407,7 @@ void Output_PAF()
             Get_NAME_LENGTH(R_INF, Get_qn(sources[i].buffer[j])), output_file);
             fwrite("\t", 1, 1, output_file);
             fprintf(output_file, "%lu\t", (unsigned long)Get_READ_LENGTH(R_INF, Get_qn(sources[i].buffer[j])));
-            fprintf(output_file, "%d\t", Get_qs(sources[i].buffer[j]));
+            fprintf(output_file, "%" PRIu32 "\t", Get_qs(sources[i].buffer[j]));
             fprintf(output_file, "%d\t", Get_qe(sources[i].buffer[j]));
             if(sources[i].buffer[j].rev)
             {
@@ -1422,8 +1423,8 @@ void Output_PAF()
             fprintf(output_file, "%lu\t", (unsigned long)Get_READ_LENGTH(R_INF, Get_tn(sources[i].buffer[j])));
             fprintf(output_file, "%d\t", Get_ts(sources[i].buffer[j]));
             fprintf(output_file, "%d\t", Get_te(sources[i].buffer[j]));
-            fprintf(output_file, "%d\t", sources[i].buffer[j].ml);
-            fprintf(output_file, "%d\t", sources[i].buffer[j].bl);
+            fprintf(output_file, "%" PRIu32 "\t", sources[i].buffer[j].ml);
+            fprintf(output_file, "%" PRIu32 "\t", sources[i].buffer[j].bl);
             fprintf(output_file, "255\n");
 
         }
