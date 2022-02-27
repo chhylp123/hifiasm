@@ -24165,14 +24165,19 @@ char* output_file_name, ma_hit_t_alloc** reverse_sources, R_to_U* ruIndex)
     char* gfa_name = (char*)malloc(strlen(output_file_name)+55);
     sprintf(gfa_name, "%s.all.debug.source.bin", output_file_name);
     fp = fopen(gfa_name, "r"); if(!fp) return 0;
+    fclose(fp); /* Prevent ressource leak.*/
     sprintf(gfa_name, "%s.all.debug.reverse.bin", output_file_name);
     fp = fopen(gfa_name, "r"); if(!fp) return 0;
+    fclose(fp); /* Prevent ressource leak.*/
     sprintf(gfa_name, "%s.all.debug.coverage_cut.bin", output_file_name);
     fp = fopen(gfa_name, "r"); if(!fp) return 0;
+    fclose(fp); /* Prevent ressource leak.*/
     sprintf(gfa_name, "%s.all.debug.ruIndex.bin", output_file_name);
     fp = fopen(gfa_name, "r"); if(!fp) return 0;
+    fclose(fp); /* Prevent ressource leak.*/
     sprintf(gfa_name, "%s.all.debug.asg_t.bin", output_file_name);
     fp = fopen(gfa_name, "r"); if(!fp) return 0;
+    fclose(fp); /* Prevent ressource leak.*/
     if((sg == NULL) || (sources == NULL) || (coverage_cut == NULL) || (reverse_sources == NULL) || 
         (ruIndex == NULL))
     {
