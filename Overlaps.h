@@ -213,19 +213,31 @@ typedef struct {
 } utg_intv_t;
 
 typedef struct {
+	uint32_t x, s, e;
+} utg_ct_t;
+
+typedef struct {
 	uint32_t *idx;
 	kvec_t(uint64_t) interval;
 } ucov_t;
 
 typedef struct {
 	kvec_t(uint64_t) idx;
-	kvec_t(uint32_t) rids;
+	kvec_t(utg_ct_t) rids;
+	kvec_t(uint8_t) is_c;
 } ul_contain;
+
+typedef struct {
+	ma_ug_t *ug;
+	asg_t *rg;
+	uint64_t *idx;
+} cvert_t;
 
 typedef struct {
 	ma_ug_t *ug;
 	ucov_t *cc;
 	ul_contain *ct;
+	// cvert_t *nug;
 	// kv_ul_ov_t *ov;
 } ul_idx_t;
 
@@ -985,7 +997,9 @@ typedef struct{
     int min_ovlp;
     int is_bench;
 	long long gap_fuzz;
+	int64_t min_dp;
     bub_label_t* b_mask_t;
+	uint64_t* readLen;
 }ug_opt_t;
 
 void adjust_utg_by_trio(ma_ug_t **ug, asg_t* read_g, uint8_t flag, float drop_rate,
@@ -1034,7 +1048,9 @@ uint32_t tn, kv_u_trans_hit_t* ktb, uint32_t bn);
 void clean_u_trans_t_idx(kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g);
 uint32_t test_dbug(ma_ug_t* ug, FILE* fp);
 void write_dbug(ma_ug_t* ug, FILE* fp);
-
+asg_t *build_init_sg(ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, int64_t n_read, 
+int64_t min_dp, uint64_t* readLen, int64_t mini_overlap_length, int64_t max_hang_length, 
+ma_sub_t *coverage_cut, R_to_U* ruIndex);
 
 #define JUNK_COV 5
 #define DISCARD_RATE 0.8

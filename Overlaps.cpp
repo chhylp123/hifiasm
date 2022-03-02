@@ -853,7 +853,7 @@ inline void set_reverse_overlap(ma_hit_t* dest, ma_hit_t* source)
     dest->ml = source->ml;
     dest->no_l_indel = source->no_l_indel;
     /****************************may have bugs********************************/
-    dest->bl = Get_qe(*dest) - Get_qs(*dest);
+    dest->bl = source->bl/**Get_qe(*dest) - Get_qs(*dest)**/;
 }
 
 
@@ -875,7 +875,7 @@ void normalize_ma_hit_t_single_side_advance(ma_hit_t_alloc* sources, long long n
             qn = Get_qn(sources[i].buffer[j]);
             tn = Get_tn(sources[i].buffer[j]);
 
-            sources[i].buffer[j].bl = Get_qe(sources[i].buffer[j]) - Get_qs(sources[i].buffer[j]);
+            // sources[i].buffer[j].bl = Get_qe(sources[i].buffer[j]) - Get_qs(sources[i].buffer[j]);
 
             ///if(sources[i].buffer[j].del) continue;
 
@@ -993,15 +993,15 @@ void normalize_ma_hit_t_single_side_aggressive(ma_hit_t_alloc* sources, long lon
             qn = Get_qn(sources[i].buffer[j]);
             tn = Get_tn(sources[i].buffer[j]);
 
-            sources[i].buffer[j].bl = Get_qe(sources[i].buffer[j]) - Get_qs(sources[i].buffer[j]);
+            // sources[i].buffer[j].bl = Get_qe(sources[i].buffer[j]) - Get_qs(sources[i].buffer[j]);
 
             index = get_specific_overlap(&(sources[tn]), tn, qn);
 
 
             if(index != -1)
             {
-                sources[tn].buffer[index].bl = Get_qe(sources[tn].buffer[index]) 
-                                                            - Get_qs(sources[tn].buffer[index]);
+                // sources[tn].buffer[index].bl = Get_qe(sources[tn].buffer[index]) 
+                //                                             - Get_qs(sources[tn].buffer[index]);
 
                 if(Get_qs(sources[i].buffer[j]) == Get_ts(sources[tn].buffer[index])
                     &&
@@ -1124,15 +1124,15 @@ void normalize_ma_hit_t_single_side(ma_hit_t_alloc* sources, long long num_sourc
             qn = Get_qn(sources[i].buffer[j]);
             tn = Get_tn(sources[i].buffer[j]);
 
-            sources[i].buffer[j].bl = Get_qe(sources[i].buffer[j]) - Get_qs(sources[i].buffer[j]);
+            // sources[i].buffer[j].bl = Get_qe(sources[i].buffer[j]) - Get_qs(sources[i].buffer[j]);
 
             index = get_specific_overlap(&(sources[tn]), tn, qn);
 
 
             if(index != -1)
             {
-                sources[tn].buffer[index].bl = Get_qe(sources[tn].buffer[index]) 
-                                                            - Get_qs(sources[tn].buffer[index]);
+                // sources[tn].buffer[index].bl = Get_qe(sources[tn].buffer[index]) 
+                //                                             - Get_qs(sources[tn].buffer[index]);
 
                 if(Get_qs(sources[i].buffer[j]) == Get_ts(sources[tn].buffer[index])
                     &&
@@ -9902,9 +9902,9 @@ void clean_weak_ma_hit_t(ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_source
                 ||
                 !check_weak_ma_hit_reverse(&(reverse_sources[qn]), sources, tn)**/)
                 {
-                    sources[i].buffer[j].bl = 0;
+                    sources[i].buffer[j].bl |= ((uint32_t)0x40000000);
                     index = get_specific_overlap(&(sources[tn]), tn, qn);
-                    sources[tn].buffer[index].bl = 0;
+                    sources[tn].buffer[index].bl |= ((uint32_t)0x40000000);
                 }
             }
         }
@@ -9919,13 +9919,14 @@ void clean_weak_ma_hit_t(ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_source
         {
             if(sources[i].buffer[j].del) continue;
 
-            if(sources[i].buffer[j].bl != 0)
+            if(sources[i].buffer[j].bl&((uint32_t)0x40000000))
             {
-                sources[i].buffer[j].del = 0;
+                sources[i].buffer[j].del = 1;
+                sources[i].buffer[j].bl -= ((uint32_t)0x40000000);
             }
             else
             {
-                sources[i].buffer[j].del = 1;
+                sources[i].buffer[j].del = 0;
             }
         }
     }
@@ -31100,16 +31101,41 @@ char *get_outfile_name(char* output_file_name)
     return buf;
 }
 
-void create_ul_info(ma_hit_t_alloc* sources, int max_hang, int min_ovlp, long long gap_fuzz)
+asg_t *build_init_sg(ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, int64_t n_read, 
+int64_t min_dp, uint64_t* readLen, int64_t mini_overlap_length, int64_t max_hang_length, 
+ma_sub_t *coverage_cut, R_to_U* ruIndex)
+{
+    asg_t *sg = NULL;
+    clean_weak_ma_hit_t(sources, reverse_sources, n_read);
+    ///ma_hit_sub is just use to init coverage_cut,
+    ///it seems we do not need ma_hit_cut & ma_hit_flt
+    ma_hit_sub(min_dp, sources, n_read, readLen, mini_overlap_length, &coverage_cut);
+    detect_chimeric_reads(sources, n_read, readLen, coverage_cut, asm_opt.max_ov_diff_final * 2.0);
+    
+    ma_hit_cut(sources, n_read, readLen, mini_overlap_length, &coverage_cut);
+    ///print_binned_reads(sources, n_read, coverage_cut);
+    ma_hit_flt(sources, n_read, coverage_cut, max_hang_length, mini_overlap_length);
+    ///fix_binned_reads(sources, n_read, coverage_cut);
+    ///just need to deal with trio here
+    ma_hit_contained_advance(sources, n_read, coverage_cut, ruIndex, max_hang_length, mini_overlap_length);
+    sg = ma_sg_gen(sources, n_read, coverage_cut, max_hang_length, mini_overlap_length);
+    return sg;
+}
+
+void create_ul_info(ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, int64_t max_hang, int64_t min_ovlp, int64_t gap_fuzz, 
+int64_t min_dp, uint64_t* readLen, ma_sub_t *coverage_cut, R_to_U* ruIndex)
 {
     ug_opt_t opt; memset(&opt, 0, sizeof(opt));
     opt.sources = sources;
+    opt.reverse_sources = reverse_sources;
     opt.max_hang = max_hang;
     opt.min_ovlp = min_ovlp;
     opt.gap_fuzz = gap_fuzz;
-
+    opt.min_dp = min_dp;
+    opt.readLen = readLen;
+    opt.coverage_cut = coverage_cut;
+    opt.ruIndex = ruIndex;
     ul_load(&opt);
-    exit(1);
 }
 
 void clean_graph(
@@ -31145,10 +31171,18 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
     {
         memset(R_INF.trio_flag, AMBIGU, R_INF.total_reads*sizeof(uint8_t));
     }
-    if(asm_opt.ar) create_ul_info(sources, max_hang_length, mini_overlap_length, gap_fuzz);
+    if(asm_opt.ar) {
+        create_ul_info(sources, reverse_sources, max_hang_length, mini_overlap_length, gap_fuzz, 
+        min_dp, readLen, coverage_cut, ruIndex);
+        exit(1);
+    } else {
+        // sg = build_init_sg(sources, reverse_sources, n_read, min_dp, readLen, mini_overlap_length, max_hang_length, 
+        //                     coverage_cut, ruIndex);
+        clean_weak_ma_hit_t(sources, reverse_sources, n_read);
+    }
     ///print_binned_reads(sources, n_read, coverage_cut);
-
-    clean_weak_ma_hit_t(sources, reverse_sources, n_read);
+    
+    
     ///ma_hit_sub is just use to init coverage_cut,
     ///it seems we do not need ma_hit_cut & ma_hit_flt
     ma_hit_sub(min_dp, sources, n_read, readLen, mini_overlap_length, &coverage_cut);

@@ -183,9 +183,15 @@ typedef struct
     N_t N_site;
 } ul_vec_t;
 
+typedef struct{
+    kvec_t(uint32_t) idx;
+    kvec_t(uint64_t) occ;
+} ul_vec_rid_t;
+
 typedef struct
 {
     kvec_t(nid_t) nid;
+    ul_vec_rid_t ridx;
     ul_vec_t *a;
     size_t n, m;
     All_reads *hR;

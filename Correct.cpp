@@ -8987,6 +8987,7 @@ inline void insert_snp_vv(haplotype_evdience_alloc* h, haplotype_evdience* a, ui
     h->snp_stat.a[p->id].score = -1;
 }
 
+
 int insert_snp_ee(haplotype_evdience_alloc* h, haplotype_evdience* a, uint64_t a_n, haplotype_evdience* u_a, UC_Read* g_read, void *km)
 {
     uint64_t i, m, occ_0, occ_1[5], occ_2, diff;
@@ -9003,6 +9004,7 @@ int insert_snp_ee(haplotype_evdience_alloc* h, haplotype_evdience* a, uint64_t a
         //     occ_2++;
         //     diff++;
         // }
+        occ_2 += a[i].cov;
     }
 
     /**
@@ -9011,7 +9013,49 @@ int insert_snp_ee(haplotype_evdience_alloc* h, haplotype_evdience* a, uint64_t a
      3. if occ_1 = 1, there are only one difference. It must be a sequencing error.
         (for repeat, it maybe a snp at repeat. but ...)
     **/
+    SnpStats *p = NULL; 
+    uint32_t is_homopolymer = (uint32_t)-1; 
     if(occ_0 == 0 || diff <= 1) return 0;
+    for (i = m = 0; i < 4; i++) {
+        if(occ_1[i] >= 2){
+            if(!km) kv_pushp(SnpStats, h->snp_stat, &p);
+            else kv_pushp_km(km, SnpStats, h->snp_stat, &p);
+            p->id = h->snp_stat.n-1;
+            p->occ_0 = 1 + occ_0;
+            p->occ_1 = occ_1[i];
+            p->occ_2 = occ_2 - p->occ_0 - p->occ_1;
+            p->overlap_num = 0;
+            p->site = a[0].site;
+            p->score = -1;
+            p->overlap_num = occ_2;
+            if(is_homopolymer == (uint32_t)-1) {
+                is_homopolymer = if_is_homopolymer_strict(p->site, g_read->seq, g_read->length);
+            }
+            p->is_homopolymer = is_homopolymer;
+            occ_1[i] = p->id;
+            m++;
+        } else {
+            occ_1[i] = (uint64_t)-1;
+        }
+    }
+    if(m == 0) return 0;
+    
+    for (i = m = 0; i < a_n; i++) {
+        if(a[i].type == 0) {
+            a[i].overlapSite = h->snp_stat.n-1;
+        } else if(occ_1[seq_nt6_table[(uint8_t)(a[i].misBase)]]!=(uint64_t)-1){
+            a[i].cov = a[i].overlapSite;///note: only renew cov here!!!
+            a[i].overlapSite = occ_1[seq_nt6_table[(uint8_t)(a[i].misBase)]];
+        } else {
+            continue;
+        }
+        u_a[m++] = a[i];
+    }
+
+    /**
+    // if(c_snp && ovlp) {
+    //     ;
+    // }
     for (i = m = 0; i < 4; i++) {
         if(occ_1[i] >= 2) {
             insert_snp_vv(h, a, a_n, s_H[i], g_read, km);
@@ -9027,6 +9071,7 @@ int insert_snp_ee(haplotype_evdience_alloc* h, haplotype_evdience* a, uint64_t a
             if(occ_1[seq_nt6_table[(uint8_t)(a[i].misBase)]] >= 2) u_a[m++] = a[i];
         }
     }
+    **/
 
     return m;
 }
@@ -9441,7 +9486,8 @@ void correct_ul_overlap(overlap_region_alloc* overlap_list, const ul_idx_t *uref
                         UC_Read* g_read, Correct_dumy* dumy, UC_Read* overlap_read, 
                         Graph* g, Graph* DAGCon, Cigar_record* current_cigar, 
                         haplotype_evdience_alloc* hap, Round2_alignment* second_round, 
-                        int force_repeat, int is_consensus, int* fully_cov, int* abnormal, double max_ov_diff_ec, void *km)
+                        int force_repeat, int is_consensus, int* fully_cov, int* abnormal, 
+                        double max_ov_diff_ec, long long winLen, void *km)
 {
     
     clear_Correct_dumy(dumy, overlap_list, km);
@@ -9450,7 +9496,7 @@ void correct_ul_overlap(overlap_region_alloc* overlap_list, const ul_idx_t *uref
 
     Window_Pool w_inf;
 
-    init_Window_Pool(&w_inf, g_read->length, /**WINDOW_UL**//**WINDOW_UL_H**/MIN((((double)THRESHOLD_MAX_SIZE)/max_ov_diff_ec),WINDOW), (int)(1.0/max_ov_diff_ec));
+    init_Window_Pool(&w_inf, g_read->length, /**WINDOW_UL**//**WINDOW_UL_H**/winLen, (int)(1.0/max_ov_diff_ec));
     int flag = 0;
     
     while(get_Window(&w_inf, &window_start, &window_end) && flag != -2)
