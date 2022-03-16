@@ -141,14 +141,17 @@ typedef struct {
 
 #define u_trans_a(x, id) ((x).a + ((x).idx.a[(id)]>>32))
 #define u_trans_n(x, id) ((uint32_t)((x).idx.a[(id)]))
+#define OU_MASK (0x3fffU)
 
 typedef struct {
 	uint64_t ul;
 	uint32_t v;
 	uint32_t ol:31, del:1;
-	uint8_t strong;
+	uint16_t ou:14, strong:1, no_l_indel:1;
 	uint8_t el;
-	uint8_t no_l_indel;
+	// uint8_t strong;
+	// uint8_t el;
+	// uint8_t no_l_indel;
 } asg_arc_t;
 
 typedef struct {
@@ -1048,9 +1051,12 @@ uint32_t tn, kv_u_trans_hit_t* ktb, uint32_t bn);
 void clean_u_trans_t_idx(kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g);
 uint32_t test_dbug(ma_ug_t* ug, FILE* fp);
 void write_dbug(ma_ug_t* ug, FILE* fp);
-asg_t *build_init_sg(ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, int64_t n_read, 
-int64_t min_dp, uint64_t* readLen, int64_t mini_overlap_length, int64_t max_hang_length, 
-ma_sub_t *coverage_cut, R_to_U* ruIndex);
+int asg_arc_identify_simple_bubbles_multi(asg_t *g, bub_label_t* x, int check_cross);
+uint8_t get_tip_trio_infor(asg_t *sg, uint32_t begNode);
+int asg_topocut_aux(asg_t *g, uint32_t v, int max_ext);
+int asg_arc_del_triangular_directly(asg_t *g, long long min_edge_length, 
+ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex);
+int asg_arc_del_short_diploid_by_exact(asg_t *g, int max_ext, ma_hit_t_alloc* sources);
 
 #define JUNK_COV 5
 #define DISCARD_RATE 0.8
