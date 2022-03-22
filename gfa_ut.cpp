@@ -238,16 +238,16 @@ static void update_sg_uo_t(void *data, long i, int tid)
 	sset_aux *sl = (sset_aux *)data;
 	ma_hit_t_alloc *src = sl->src; asg_t *g = sl->g;
 	asg_arc_t *e = &(g->arc[i]); uint32_t k, qn, tn;
-
-	for (k = 0; k < src[i].length; k++) {
-		qn = Get_qn(src[i].buffer[k]);
-		tn = Get_tn(src[i].buffer[k]);
+    ma_hit_t_alloc *x = &(src[e->ul>>33]);
+	for (k = 0; k < x->length; k++) {
+		qn = Get_qn(x->buffer[k]);
+		tn = Get_tn(x->buffer[k]);
 		if(qn == (e->ul>>33) && tn == (e->v>>1)) {
-			e->ou = (src[i].buffer[k].bl&OU_MASK);
+			e->ou = (x->buffer[k].bl&OU_MASK);
 			break;
 		}
 	}
-	assert(k < src[i].length);
+	assert(k < x->length);
 }
 
 void update_sg_uo(asg_t *g, ma_hit_t_alloc *src)

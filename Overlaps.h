@@ -70,7 +70,8 @@ typedef struct {
 typedef struct {
 	uint64_t qns;
 	uint32_t qe, tn, ts, te;
-	uint32_t ml:31, rev:1;
+	// uint32_t ml:31, rev:1;
+	uint32_t cc:30, ml:1, rev:1;
 	uint32_t bl:31, del:1;
 	uint8_t el;
 	uint8_t no_l_indel;
@@ -239,6 +240,7 @@ typedef struct {
 typedef struct {
 	ma_ug_t *ug;
 	ucov_t *cc;
+	ucov_t *cr;
 	ul_contain *ct;
 	// cvert_t *nug;
 	// kv_ul_ov_t *ov;

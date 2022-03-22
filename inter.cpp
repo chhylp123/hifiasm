@@ -22,6 +22,14 @@ void ha_get_ul_candidates_interface(ha_abufl_t *ab, int64_t rid, char* rs, uint6
 								 int max_n_chain, int keep_whole_chain, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* chain_idx, overlap_region* f_cigar, kvec_t_u64_warp* dbg_ct, st_mt_t *sp, void *km);
 #define G_CHAIN_BW 128
 #define FLANK_M (0x7fffU)
+#define P_CHAIN_COV 0.985
+#define P_FRAGEMENT_CHAIN_COV 0.25
+#define P_CHAIN_SCORE 0.6
+#define G_CHAIN_GAP 0.1
+#define UG_SKIP 5
+#define RG_SKIP 25
+#define G_CHAIN_TRANS_RATE 0.1
+#define G_CHAIN_INDEL 128
 
 #define MG_SEED_IGNORE     (1ULL<<41)
 #define MG_SEED_TANDEM     (1ULL<<42)
@@ -49,6 +57,9 @@ KRADIX_SORT_INIT(ul_ov_srt_qs, ul_ov_t, ul_ov_srt_qs_key, member_size(ul_ov_t, q
 
 #define ul_ov_srt_tn_key(p) ((p).tn)
 KRADIX_SORT_INIT(ul_ov_srt_tn, ul_ov_t, ul_ov_srt_tn_key, member_size(ul_ov_t, tn))
+
+#define ul_ov_srt_qn_key(p) ((p).qn)
+KRADIX_SORT_INIT(ul_ov_srt_qn, ul_ov_t, ul_ov_srt_qn_key, member_size(ul_ov_t, qn))
 
 #define utg_ct_t_x_key(p) ((p).x)
 KRADIX_SORT_INIT(utg_ct_t_x_srt, utg_ct_t, utg_ct_t_x_key, member_size(utg_ct_t, x))
@@ -1373,7 +1384,7 @@ int64_t max_ovlp_src(const ug_opt_t *uopt, uint32_t v)
 int64_t specific_ovlp(const ma_ug_t *ug, const ug_opt_t *uopt, const uint32_t v, const uint32_t w)
 {
 	if(ug->u.a[v>>1].circ || ug->u.a[w>>1].circ) return 0;
-	uint32_t rv, rw, r = 0, i;
+	uint32_t rv, rw, i; int32_t r;
 	const ma_hit_t_alloc *x = NULL;
 	asg_arc_t t; memset(&t, 0, sizeof(t));
 	if(v&1) rv = ug->u.a[v>>1].start^1;
@@ -2259,15 +2270,18 @@ void replace_ul(overlap_region_alloc* olist, Correct_dumy* dumy, haplotype_evdie
 **/
 
 
-void gl_chain_gen(overlap_region_alloc* olist, const ul_idx_t *uref, kv_ul_ov_t *res, void *km)
+uint64_t gl_chain_gen(overlap_region_alloc* olist, const ul_idx_t *uref, kv_ul_ov_t *res, uint32_t rec_trans, void *km)
 {
-	uint64_t k; ul_ov_t *p = NULL;
+	uint64_t k, o2 = 0; ul_ov_t *p = NULL;
 	res->n = 0;
 	for (k = 0; k < olist->length; k++) {
-		if(olist->list[k].is_match!=1) continue;
+		if(olist->list[k].is_match==2) o2++;
+		if((!rec_trans) && olist->list[k].is_match!=1) continue;
+		if(rec_trans && olist->list[k].is_match!=1 && olist->list[k].is_match!=2) continue;
 		kv_pushp_km(km, ul_ov_t, *res, &p);
 		p->qn = k/**olist->list[k].x_id**/; p->qs = olist->list[k].x_pos_s; p->qe = olist->list[k].x_pos_e+1;
-		p->tn = olist->list[k].y_id; p->el = 1; p->sec = 0; p->rev = olist->list[k].y_pos_strand;
+		p->tn = olist->list[k].y_id; p->sec = 0; p->rev = olist->list[k].y_pos_strand;
+		p->el = (olist->list[k].is_match==1?1:0);
 		if(p->rev) {
 			p->ts = uref->ug->u.a[p->tn].len - (olist->list[k].y_pos_e+1); 
 			p->te = uref->ug->u.a[p->tn].len - olist->list[k].y_pos_s;
@@ -2276,6 +2290,7 @@ void gl_chain_gen(overlap_region_alloc* olist, const ul_idx_t *uref, kv_ul_ov_t 
 			p->te = olist->list[k].y_pos_e+1;
 		}
 	}
+	return o2;
 }
 
 int32_t find_ul_ov_max(int32_t n, const ul_ov_t *a, uint32_t x)
@@ -2594,7 +2609,7 @@ int64_t gen_contain_chain(const ul_idx_t *uref, utg_ct_t *p, overlap_region* o, 
 	kv_pushp_km(km, ul_ov_t, *chains, &x);
 	x->qn = o->x_id; x->qs = x_s; x->qe = x_e;
 
-	x->tn = (uint32_t)(0x80000000); x->tn |= (p->x>>1);
+	/**x->tn = p->x>>1;**/x->tn = (uint32_t)(0x80000000); x->tn |= (p->x>>1);
 	x->ts = q_s; x->te = q_e; x->el = 1;x->sec = 0; x->rev = ((o->y_pos_strand == (p->x&1))?0:1);
 	// if(x->qn == 0 /**&& ((x->tn<<1)>>1) == 302**/) {
 	// 	/**if(o->x_id == 0 && (o->y_id == 46 || o->y_id == 48))**/ {
@@ -2647,7 +2662,7 @@ int64_t debug_utg_ct_t(const ul_idx_t *uref, overlap_region* o, utg_ct_t *ct_a, 
 }
 
 int64_t rescue_contain_ul_chains(const ul_idx_t *uref, overlap_region* o, haplotype_evdience *he_a, int64_t he_n, utg_ct_t *ct_a, int64_t ct_n, 
-kv_ul_ov_t *chains, double diff_ec_ul, int64_t winLen, void *km)
+kv_ul_ov_t *chains, double diff_ec_ul, int64_t winLen, int64_t rescue_trans, void *km)
 {
 	int64_t i, k, ss, ff, t0 = 0;
 	uint64_t ys, ye;
@@ -2666,18 +2681,25 @@ kv_ul_ov_t *chains, double diff_ec_ul, int64_t winLen, void *km)
 			p = &(ct_a[i]);
 			if(p->e <= ys) continue; 
 			if(p->s >= ye) break;
-			for (ff = 1; k < he_n; k++) {
-				if(he_a[k].cov >= p->s && he_a[k].cov < p->e) {
-					ff = 0;
-					break;
+			ff = 1;
+			if(he_a && he_n > 0) {
+				for (; k < he_n; k++) {
+					if(he_a[k].cov >= p->s && he_a[k].cov < p->e) {
+						ff = 0;
+						break;
+					}
+					if(he_a[k].cov >= p->e) break;
 				}
-				if(he_a[k].cov >= p->e) break;
 			}
 			// if(ff == debug_utg_ct_t(uref, o, p, he_a, he_n)) fprintf(stderr, "ERROR\n");
 			if(ff) {
 				///push ovlp
 				t0 += gen_contain_chain(uref, p, o, chains, diff_ec_ul, winLen, km);
-			}
+			} else if(rescue_trans) {
+                if(gen_contain_chain(uref, p, o, chains, diff_ec_ul, winLen, km)){
+                    t0++; chains->a[chains->n-1].el = 0;
+                }
+            }
 			// if(!ff)	t0++;	
 		}
 		
@@ -2688,19 +2710,26 @@ kv_ul_ov_t *chains, double diff_ec_ul, int64_t winLen, void *km)
 			p = &(ct_a[i]); 
 			if(p->e <= ys) continue; 
 			if(p->s >= ye) break;
-			for (ff = 1; k >= 0; k--) {
-				ss = uref->ug->u.a[o->y_id].len - he_a[k].cov - 1;
-				if(ss >= p->s && ss < p->e) {
-					ff = 0;
-					break;
+			ff = 1;
+			if(he_a && he_n > 0) {
+				for (; k >= 0; k--) {
+					ss = uref->ug->u.a[o->y_id].len - he_a[k].cov - 1;
+					if(ss >= p->s && ss < p->e) {
+						ff = 0;
+						break;
+					}
+					if(ss >= p->e) break;
 				}
-				if(ss >= p->e) break;
 			}
 			// if(ff == debug_utg_ct_t(uref, o, p, he_a, he_n)) fprintf(stderr, "ERROR\n");
 			if(ff) {
 				///push ovlp
 				t0 += gen_contain_chain(uref, p, o, chains, diff_ec_ul, winLen, km);
-			}
+			} else if(rescue_trans) {
+                if(gen_contain_chain(uref, p, o, chains, diff_ec_ul, winLen, km)){
+                    t0++; chains->a[chains->n-1].el = 0;
+                }
+            }
 			// if(!ff)	t0++;
 		}
 	}
@@ -2709,11 +2738,12 @@ kv_ul_ov_t *chains, double diff_ec_ul, int64_t winLen, void *km)
 }
 
 int64_t rescue_trans_ul_chains(const ul_idx_t *uref, overlap_region* o, haplotype_evdience *he_a, int64_t he_n, ma_utg_t *u, 
-kv_ul_ov_t *chains, double diff_ec_ul, int64_t winLen, void *km)
+kv_ul_ov_t *chains, double diff_ec_ul, int64_t winLen, int64_t rescue_trans, uint64_t *cis_occ, void *km)
 {
 	uint64_t ys, ye, i, l;
 	int64_t k, ff, ss, t0 = 0;
-	utg_ct_t p;
+	utg_ct_t p; 
+	if(cis_occ) (*cis_occ) = 0;
 
 	if(o->y_pos_strand == 0) {
 		ys = o->y_pos_s; ye = o->y_pos_e + 1;
@@ -2722,17 +2752,24 @@ kv_ul_ov_t *chains, double diff_ec_ul, int64_t winLen, void *km)
 			l += (uint32_t)u->a[i];
 			if(p.e <= ys) continue; 
 			if(p.s >= ye) break;
-			for (ff = 1; k < he_n; k++) {
-				if(he_a[k].cov >= p.s && he_a[k].cov < p.e) {
-					ff = 0;
-					break;
+			ff = 1;
+			if(he_a && he_n) {
+				for (; k < he_n; k++) {
+					if(he_a[k].cov >= p.s && he_a[k].cov < p.e) {
+						ff = 0;
+						break;
+					}
+					if(he_a[k].cov >= p.e) break;
 				}
-				if(he_a[k].cov >= p.e) break;
 			}
 			// if(ff == debug_utg_ct_t(uref, o, 0, 0, 0, &p, he_a, he_n)) fprintf(stderr, "ERROR\n");
 			if(ff) {
 				///push ovlp
 				t0 += gen_contain_chain(uref, &p, o, chains, diff_ec_ul, winLen, km);
+			} else if(rescue_trans) {
+				if(gen_contain_chain(uref, &p, o, chains, diff_ec_ul, winLen, km)){
+					t0++; chains->a[chains->n-1].el = 0; if(cis_occ) (*cis_occ)++;
+				}
 			}
 			// if(!ff)	t0++;	
 		}
@@ -2744,19 +2781,26 @@ kv_ul_ov_t *chains, double diff_ec_ul, int64_t winLen, void *km)
 			l += (uint32_t)u->a[i];
             if(p.e <= ys) continue; 
             if(p.s >= ye) break;
-            for (ff = 1; k >= 0; k--) {
-                ss = uref->ug->u.a[o->y_id].len - he_a[k].cov - 1;
-                if(ss >= p.s && ss < p.e) {
-                    ff = 0;
-                    break;
-                }
-                if(ss >= p.e) break;
-            }
+			ff = 1;
+			if(he_a && he_n) {
+				for (; k >= 0; k--) {
+					ss = uref->ug->u.a[o->y_id].len - he_a[k].cov - 1;
+					if(ss >= p.s && ss < p.e) {
+						ff = 0;
+						break;
+					}
+					if(ss >= p.e) break;
+				}
+			}
             // if(ff == debug_utg_ct_t(uref, o, 0, 0, 0, &p, he_a, he_n)) fprintf(stderr, "ERROR\n");
             if(ff) {
                 ///push ovlp
                 t0 += gen_contain_chain(uref, &p, o, chains, diff_ec_ul, winLen, km);
-            }
+            } else if(rescue_trans) {
+				if(gen_contain_chain(uref, &p, o, chains, diff_ec_ul, winLen, km)){
+					t0++; chains->a[chains->n-1].el = 0; if(cis_occ) (*cis_occ)++;
+				}
+			}
             // if(!ff)  t0++;
         }
 	}
@@ -2767,18 +2811,33 @@ kv_ul_ov_t *chains, double diff_ec_ul, int64_t winLen, void *km)
 
 int64_t dedup_sort_ul_ov_t(ul_ov_t *a, int64_t a_n)
 {
-	int64_t k, l, z, r, i;
+	int64_t k, l, z, r, i, qo, to; float rr = 0.9;
 	for (k = 1, l = i = 0; k <= a_n; k++) {
-		if(k == a_n || a[k].tn != a[l].tn) {
+		if(k == a_n || a[k].tn != a[l].tn) {///remove the duplicated contained alignments
 			for (z = l; z < k; z++) {
 				for (r = i-1; r >= 0 && a[r].tn == a[z].tn; r--){
+					/**
                 	if(a[z].qn == a[r].qn && a[z].qs == a[r].qs && a[z].qe == a[r].qe && 
 					   a[z].tn == a[r].tn && a[z].ts == a[r].ts && a[z].te == a[r].te && 
 					   a[z].sec == a[r].sec && a[z].el == a[r].el && a[z].rev == a[r].rev) {
 						   break;
-					   }
+					}
+					**/
+					if(a[z].qn == a[r].qn && a[z].tn == a[r].tn && a[z].rev == a[r].rev) {
+						qo = ((MIN(a[z].qe, a[r].qe) > MAX(a[z].qs, a[r].qs))? 
+															MIN(a[z].qe, a[r].qe) - MAX(a[z].qs, a[r].qs):0);
+						to = ((MIN(a[z].te, a[r].te) > MAX(a[z].ts, a[r].ts))?
+															MIN(a[z].te, a[r].te) - MAX(a[z].ts, a[r].ts):0);
+						if(qo >= ((a[r].qe - a[r].qs)*rr) && qo >= ((a[z].qe - a[z].qs)*rr) && 
+						   to >= ((a[r].te - a[r].ts)*rr) && to >= ((a[z].te - a[z].ts)*rr)) {
+							break;
+						}
+					}
 				}
-				if(r >= 0 && a[r].tn == a[z].tn) continue;
+				if(r >= 0 && a[r].tn == a[z].tn) {
+					if(a[z].el) a[r].el = 1;
+					continue;
+				}
 				a[i++] = a[z];
 			}
 			l = k;
@@ -2787,10 +2846,6 @@ int64_t dedup_sort_ul_ov_t(ul_ov_t *a, int64_t a_n)
 	return i;
 }
 
-void read_threading()
-{
-	
-}
 
 uint32_t check_contain_pair(const ug_opt_t *uopt, uint32_t x, uint32_t y, uint32_t check_el)
 {
@@ -2955,7 +3010,7 @@ uint64_t infer_read_ovlp(const ul_idx_t *uref, overlap_region_alloc* olist, kv_u
 	for (t = 0; t < in->n; t++) {
 		if(!(in->a[t].tn&(uint32_t)(0x80000000))) {///uid
 			u = &(ug->u.a[in->a[t].tn]); o = &(olist->list[in->a[t].qn]);
-			if(o->y_id != in->a[t].tn) fprintf(stderr, "ERROR-1\n");
+			assert(o->y_id == in->a[t].tn);
 			for (k = l = 0, pb = res->n+2; k < u->n; k++) {
 				p.x = u->a[k]>>32; 
 				p.s = l; p.e = l + Get_READ_LENGTH(R_INF, (u->a[k]>>33));
@@ -2963,10 +3018,11 @@ uint64_t infer_read_ovlp(const ul_idx_t *uref, overlap_region_alloc* olist, kv_u
 				if(p.e <= in->a[t].ts) continue;
 				if(p.s >= in->a[t].te) break;
 				t_0 = gen_contain_chain(uref, &p, o, res, -1, -1, km);	
-				if(t_0 == 0) {
-					fprintf(stderr, "ERROR-2, o->x_id:%u, o->y_id:%u, k:%lu, u->n:%lu, p.s:%u, p.e:%u, ts:%u, te:%u, rev:%u\n", 
-					o->x_id, o->y_id, k, (uint64_t)u->n, p.s, p.e, in->a[t].ts, in->a[t].te, in->a[t].rev);
-				}
+				assert(t_0 > 0);
+				// if(t_0 == 0) {
+				// 	fprintf(stderr, "ERROR-2, o->x_id:%u, o->y_id:%u, k:%lu, u->n:%lu, p.s:%u, p.e:%u, ts:%u, te:%u, rev:%u\n", 
+				// 	o->x_id, o->y_id, k, (uint64_t)u->n, p.s, p.e, in->a[t].ts, in->a[t].te, in->a[t].rev);
+				// }
 				res->a[res->n-1].el = in->a[t].el;
 				res->a[res->n-1].sec = in->a[t].sec;
 				res->a[res->n-1].tn <<= 1; 
@@ -3058,7 +3114,7 @@ int64_t gl_chain_refine(overlap_region_alloc* olist, Correct_dumy* dumy, haploty
 	ll->tk.n = ll->lo.n = 0;
 	kv_ul_ov_t *idx = &(ll->lo);
 	ul_contain *ct = uref->ct;
-	gl_chain_gen(olist, uref, idx, km);
+	gl_chain_gen(olist, uref, idx, 0, km);
 	if(idx->n == 0) return 0;
 	kv_resize_km(km, ul_ov_t, ll->tk, idx->n);
 	kv_resize_km(km, uint64_t, ll->srt.a, idx->n);
@@ -3085,7 +3141,7 @@ int64_t gl_chain_refine(overlap_region_alloc* olist, Correct_dumy* dumy, haploty
 			
 			if(cn > 0 && an > 0) {
 				resc += rescue_contain_ul_chains(uref, &(olist->list[k]), hap->list+si, an, 
-				ct->rids.a + ((ct->idx.a[olist->list[k].y_id])>>32), cn, chains, diff_ec_ul, winLen, km);
+				ct->rids.a + ((ct->idx.a[olist->list[k].y_id])>>32), cn, chains, diff_ec_ul, winLen, 0, km);
 			}
 
 			if(ff == 0) {
@@ -3154,9 +3210,9 @@ void fill_edge_weight(ul_ov_t *a, int64_t a_n, const ug_opt_t *uopt, int64_t bw,
 }
 **/
 
-int64_t get_ecov_adv(const ul_idx_t *uref, const ug_opt_t *uopt, uint32_t v, uint32_t w, int64_t qlen, int64_t bw, double diff_ec_ul, int64_t dq)
+int64_t get_ecov_adv_back(const ul_idx_t *uref, const ug_opt_t *uopt, uint32_t v, uint32_t w, int64_t bw, double diff_ec_ul, int64_t dq, uint32_t *is_contain)
 {
-	int64_t dt = -1, dif, mm;
+	int64_t dt = -1, dif, mm; if(is_contain) (*is_contain) = 0;
 	const asg_t *g = uref?uref->ug->g:NULL;
 	uint32_t nv, i; asg_arc_t *av = NULL;
 	if(g) {
@@ -3184,6 +3240,7 @@ int64_t get_ecov_adv(const ul_idx_t *uref, const ug_opt_t *uopt, uint32_t v, uin
 						if(dt < Get_te(src[x].buffer[z]) - Get_ts(src[x].buffer[z])) {
 							dt = Get_te(src[x].buffer[z]) - Get_ts(src[x].buffer[z]);
 						}
+						if(is_contain) (*is_contain) = 1;
 						break;
 					}
 				}
@@ -3202,49 +3259,236 @@ int64_t get_ecov_adv(const ul_idx_t *uref, const ug_opt_t *uopt, uint32_t v, uin
 	return 0;
 }
 
-int64_t gl_chain_advance(kv_ul_ov_t *res, kv_ul_ov_t *ex, const ul_idx_t *uref, const ug_opt_t *uopt, int64_t bw, 
-double diff_ec_ul, int64_t qlen, uint64_t *srt, uint64_t *idx, uint64_t *track, uint64_t extend_check, void *km)
+ma_hit_t *get_ug_edge_src(ma_ug_t *ug, ma_hit_t_alloc *src, int64_t max_hang, int64_t min_ovlp, uint32_t uv, uint32_t uw)
 {
-	uint32_t li_v, lj_v, rev_n;
-	int64_t mm_ovlp, x, i, j, k, sc, csc, mm_sc, mm_idx, qo;
+	if(ug->u.a[uv>>1].circ || ug->u.a[uw>>1].circ) return NULL;
+	uint32_t v, w, k, qn, tn; int32_t r; asg_arc_t t;
+    v = ((uv&1)?(ug->u.a[uv>>1].start^1):(ug->u.a[uv>>1].end^1));
+    w = ((uw&1)?(ug->u.a[uw>>1].end):(ug->u.a[uw>>1].start));
+    ma_hit_t_alloc *x = &(src[v>>1]);
+
+	for (k = 0; k < x->length; k++) {
+        qn = Get_qn(x->buffer[k]);
+        tn = Get_tn(x->buffer[k]);
+        if(qn == (v>>1) && tn == (w>>1)) {
+            r = ma_hit2arc(&(x->buffer[k]), Get_READ_LENGTH(R_INF, v>>1), Get_READ_LENGTH(R_INF, w>>1),
+			max_hang, asm_opt.max_hang_rate, min_ovlp, &t);
+            if(r < 0) continue;
+            if((t.ul>>32)!=v || t.v!=w) continue;
+			return &(x->buffer[k]);
+        }
+    }
+
+	return NULL;
+}
+
+///mode: 0->ug; 1->read
+int64_t get_ecov_adv(const ul_idx_t *uref, const ug_opt_t *uopt, uint32_t v, uint32_t w, int64_t bw, double diff_ec_ul, int64_t dq, uint64_t mode, int64_t *contain_off)
+{
+	int64_t dt = -1, dif, mm; (*contain_off) = 0;
+	uint32_t nv, i; asg_arc_t *av = NULL; ma_hit_t *x = NULL;
+	if(!mode) {
+		const asg_t *g = uref?uref->ug->g:NULL;
+		nv = asg_arc_n(g, v); av = asg_arc_a(g, v);
+		for (i = 0; i < nv; i++) {
+			if(av[i].del || av[i].v != w) continue;
+			dt = av[i].ol; (*contain_off) = av[i].ou;
+			if(av[i].ou >= OU_MASK) {
+				x = get_ug_edge_src(uref->ug, uopt->sources, uopt->max_hang, uopt->min_ovlp, 
+                                                    						av[i].ul>>32, av[i].v);
+				(*contain_off) = x->cc;
+			}
+			break;
+		}
+	}else {
+		ma_hit_t_alloc* src = uopt->sources;
+		int64_t min_ovlp = uopt->min_ovlp;
+		int64_t max_hang = uopt->max_hang;
+		uint64_t z, qn, tn, x = v>>1; int32_t r = 1; asg_arc_t e;
+		for (z = 0; z < src[x].length; z++) {
+			qn = Get_qn(src[x].buffer[z]); tn = Get_tn(src[x].buffer[z]);
+			if(tn != (w>>1)) continue;
+			r = ma_hit2arc(&(src[x].buffer[z]), Get_READ_LENGTH(R_INF, qn), Get_READ_LENGTH(R_INF, tn), max_hang, asm_opt.max_hang_rate, min_ovlp, &e);
+			if(r < 0) continue;
+			if((e.ul>>32) != v || e.v != w) continue;
+			dt = e.ol; (*contain_off) = src[x].buffer[z].cc;
+			break;
+		}
+	}
+	if(dt < 0) return 0;
+	dif = (dq>dt? dq-dt:dt-dq);
+	mm = MAX(dq, dt); mm *= diff_ec_ul; if(mm < bw) mm = bw;
+	// if((v>>1) == 1163 && (w>>1) == 1168) fprintf(stderr, ">>>>>>dis_q:%ld, dis_t:%ld, dif:%ld, mm:%ld\n", dis_q, dis_t, dif, mm);
+	if(dif <= mm) return 1;
+	return 0;
+}
+
+void get_rr_tse(const ul_idx_t *uref, ul_ov_t *li, uint32_t *ts, uint32_t *te, uint32_t *tl)
+{
+	(*tl) = uref?uref->ug->g->seq[li->tn].len:Get_READ_LENGTH(R_INF, li->tn); 
+	if(!(li->rev)) {
+		(*ts) = li->ts; (*te) = li->te;
+	} else {
+		(*ts) = (*tl) - li->te; (*te) = (*tl) - li->ts;
+	}
+}
+/**
+uint32_t checkM(uint32_t v, uint32_t l, const ul_idx_t *uref, const asg_t *g, uint32_t in, uint32_t its, 
+uint32_t iqs, uint32_t iqe, int64_t bw, double diff_ec_ul, int64_t qlen, ul_ov_t *a, uint32_t a_n) 
+{
+	int64_t vl = uref?uref->ug->g->seq[v>>1].len:Get_READ_LENGTH(R_INF, (v>>1)), t_dis, q_dis, kcs, mm_ovlp, x, k; 
+	t_dis = ((int64_t)(l + vl)) - ((int64_t)(in - its));
+	kcs = iqs; kcs -= t_dis; if(kcs < 0) kcs = 0;
+	uint32_t nv = asg_arc_n(g, v), i, lk_v, kts, kte, kn; 
+	asg_arc_t *av = asg_arc_a(g, v), *p = NULL; mm_ovlp = -1; ul_ov_t *lk;
+	for (i = 0, p = NULL; i < nv; i++) {
+		if(av[i].del) continue;
+		if((int32_t)(av[i].ol) > mm_ovlp) {
+			p = &(av[i]); mm_ovlp = av[i].ol;
+		}
+	}
+	if(!p) return 0;
+
+	x = (kcs + mm_ovlp)*diff_ec_ul; 
+	if(x < bw) x = bw; 
+	x += kcs + mm_ovlp;
+	if (x > qlen+1) x = qlen+1;
+	x = find_ul_ov_max(a_n, a, x); 
+	for (k = x; k >= 0; --k) {
+		lk = &(a[k]); lk_v = ((lk->tn<<1)|lk->rev)^1;
+		if(lk->qe <= kcs) break;//evan this pair has a overlap, its length will be very small; just ignore
+    	if(lk->qs >= kcs) continue; // lk is contained in li on the query coordinate
+
+		get_rr_tse(uref, lk, &kts, &kte, &kn);
+		///t_dis and q_dis might be < 0
+		t_dis = ((int64_t)(l + kn - kte)) - ((int64_t)(in - its));
+		q_dis = ((int64_t)(iqs)) - ((int64_t)(lk->qe));
+	}
+
+}
+
+void best_path_ext(const ul_idx_t *uref, const ug_opt_t *uopt, int64_t g_gap, ul_ov_t *a, uint32_t a_n,
+int64_t bw, double diff_ec_ul, uint64_t *track, ul_ov_t *li)
+{
+	if(a_n <= 0) return;
+	const asg_t *g = uref?uref->ug->g:NULL; asg_arc_t *av = NULL, *p = NULL; ul_ov_t *lk;
+	uint32_t nv, i, v, io, in, its, ite, kn, kts, kte; int64_t mm, l, max_dist, k, t_dis, q_dis; 
+
+	get_rr_tse(uref, li, &its, &ite, &in);
+	io = in - ite; max_dist = g_gap + in - its;
+
+	if(g) {
+		v = (((li->tn<<1)|li->rev)^1); mm = 1; l = 0;
+		while (mm >= 0) {
+
+			
+
+
+
+			nv = asg_arc_n(g, v); av = asg_arc_a(g, v); mm = -1;
+			for (i = 0, p = NULL; i < nv; i++) {
+				if(av[i].del) continue;
+				if((int32_t)(av[i].ol) > mm) {
+					p = &(av[i]); mm = av[i].ol;
+				}
+			}
+			if(p) {
+				l += (uint32_t)(p->ul); 
+				if(l > max_dist) break;
+				for (k = a_n-1; k >= 0; k--) {
+					lk = &(a[k]);
+					if((lk->qe+g_gap) <= li->qs) break; 
+					if(p->v == (((lk->tn<<1)|lk->rev)^1)) {
+						///check if lk can be directly reachedc from li
+						if(lk->qe > li->qs && (track[k]&((uint64_t)0x80000000))) {
+							;
+						}
+						get_rr_tse(uref, lk, &kts, &kte, &kn);
+						///t_dis and q_dis might be < 0
+						t_dis = ((int64_t)(l + kn - kte)) - ((int64_t)(in - its));
+						q_dis = ((int64_t)(li->qs)) - ((int64_t)(lk->qe));
+					}
+				}
+				v = p->v;
+			}
+		}
+	}
+}
+
+
+int64_t gl_chain_advance(kv_ul_ov_t *res, ul_ov_t *ex, const ul_idx_t *uref, const ug_opt_t *uopt, int64_t bw, 
+double diff_ec_ul, int64_t qlen, int64_t max_skip, uint64_t *srt, uint64_t *idx, uint64_t *track, float trav_rate, void *km)
+{
+	uint32_t li_v, lj_v, rev_n, gapLen = (trav_rate>0?trav_rate*qlen:0);
+	int64_t mm_ovlp, x, i, j, k, sc, csc, mm_sc, mm_idx, qo, n_skip, n_all;
 	ul_ov_t *li = NULL, *lj = NULL, rev_t;
 	radix_sort_ul_ov_srt_qe(res->a, res->a + res->n);
 	for (i = 0; i < (int64_t)res->n; ++i) {
-			li = &(res->a[i]); li_v = (li->tn<<1)|li->rev;
-			mm_ovlp = uref?max_ovlp(uref->ug->g, li_v^1):max_ovlp_src(uopt, li_v^1);
-			x = (li->qs + mm_ovlp)*diff_ec_ul; 
-			if(x < bw) x = bw; 
-			x += li->qs + mm_ovlp;
-			if (x > qlen+1) x = qlen+1;
-			x = find_ul_ov_max(i, res->a, x); 
+		li = &(res->a[i]); li_v = (li->tn<<1)|li->rev;
+		// if(!(li->el)) continue;
+		mm_ovlp = uref?max_ovlp(uref->ug->g, li_v^1):max_ovlp_src(uopt, li_v^1);
+		x = (li->qs + mm_ovlp)*diff_ec_ul; 
+		if(x < bw) x = bw; 
+		x += li->qs + mm_ovlp;
+		if (x > qlen+1) x = qlen+1;
+		x = find_ul_ov_max(i, res->a, x); 
+		if(li->el) {
 			csc = uref?retrieve_u_cov_region(uref, li->tn, 0, li->ts, li->te, NULL):li->te-li->ts;
-			mm_sc = csc; mm_idx = -1;
-			for (j = x; j >= 0; --j) { // collect potential destination vertices
-					lj = &(res->a[j]); lj_v = (lj->tn<<1)|lj->rev;
-					if((!extend_check) && (lj->qe <= li->qs)) break; //evan this pair has a overlap, its length will be very small; just ignore
-					// if(lj->qs >= li->qs) continue; // lj is contained in li on the query coordinate
-					qo = infer_rovlp(li, lj, NULL, NULL); ///overlap length in query (UL read)
-					if(li_v != lj_v && get_ecov_adv(uref, uopt, li_v^1, lj_v^1, qlen, bw, diff_ec_ul, qo)) {
-						sc = csc + (track[j]>>32);
-						if(sc > mm_sc) mm_sc = sc, mm_idx = j;
-					}
+		} else {
+			csc = -1;///for cis overlap, the csc should be >1000; so -1 for trans overlaps should be fine
+		}
+		mm_sc = csc; mm_idx = -1; n_skip = n_all = 0;
+		for (j = x; j >= 0; --j) { // collect potential destination vertices
+			lj = &(res->a[j]); lj_v = (lj->tn<<1)|lj->rev;
+			// if((lj->qe+gapLen) <= li->qs) break; 
+			if(lj->qe <= li->qs) break;//evan this pair has a overlap, its length will be very small; just ignore
+			if(lj->qs >= li->qs) continue; // lj is contained in li on the query coordinate
+			qo = infer_rovlp(li, lj, NULL, NULL); ///overlap length in query (UL read)
+			if(li_v != lj_v && get_ecov_adv(uref, uopt, li_v^1, lj_v^1, bw, diff_ec_ul, qo)) {
+				sc = csc + (track[j]>>32);
+				if(sc > mm_sc) mm_sc = sc, mm_idx = j;
+				if(res->a[j].sec == i && res->a[j].el) n_skip++;
+				if((track[j]&((uint64_t)0x7FFFFFFF)) != ((uint64_t)0x7FFFFFFF)) {
+					res->a[(track[j]&((uint64_t)0x7FFFFFFF))].sec = i;
+				}
+				track[j] |= ((uint64_t)0x80000000); 
+			} else {
+				if(track[j]&((uint64_t)0x80000000)) track[j] -= ((uint64_t)0x80000000);
 			}
-			// 4294967295L
-			track[i] = mm_sc; track[i] <<= 32;
-			track[i] |= (mm_idx>=0?mm_idx:((uint64_t)0x7FFFFFFF));
-			srt[i] = mm_sc; srt[i] <<= 32; srt[i] |= i;
-			// fprintf(stderr, "+++i:%ld, mm_idx:%ld, mm_sc:%ld\n", i, mm_idx, mm_sc);
-			// fprintf(stderr, "[M::utg%.6d%c] qs->%u; qe->%u\n\n", li->tn+1, "lc"[uref->ug->u.a[li->tn].circ], li->qs, li->qe);
+			n_all++;
+		}
+
+		if(n_all > max_skip) n_all = max_skip;
+		else n_all -= 2; //allow one mismatch; note here must be -2
+
+		if(li->el && (mm_idx<0 || n_skip<n_all)) {///do not extend for trans overlaps
+			gapLen = (trav_rate>0?trav_rate*qlen*li->el:0);
+			if(gapLen > 0) {
+				// if((lj->qe+gapLen) <= li->qs) break; 
+				///since graph traversal just has one path, so this step might be quite easy
+				
+				best_path_ext(uref, uopt, gapLen, res->a, x+1, bw, diff_ec_ul, li);
+			}
+		}
+		// 4294967295L
+		track[i] = mm_sc; track[i] <<= 32;
+		track[i] |= (mm_idx>=0?mm_idx:((uint64_t)0x7FFFFFFF));
+		srt[i] = mm_sc; srt[i] <<= 32; srt[i] |= i;
+		// fprintf(stderr, "+++i:%ld, mm_idx:%ld, mm_sc:%ld\n", i, mm_idx, mm_sc);
+		// fprintf(stderr, "[M::utg%.6d%c] qs->%u; qe->%u\n\n", li->tn+1, "lc"[uref->ug->u.a[li->tn].circ], li->qs, li->qe);
 	}
 
+	for (i = 0; i < (int64_t)res->n; ++i) {
+		if(track[i]&((uint64_t)0x80000000)) track[i] -= ((uint64_t)0x80000000);
+	}
 	
 	int64_t n_v, n_u, n_v0; 
-	radix_sort_gfa64(srt, srt+res->n); ex->n = res->n;
+	radix_sort_gfa64(srt, srt+res->n); //ex->n = res->n;
 	for (k = (int64_t)res->n-1, n_v = n_u = 0; k >= 0; --k) {
 		// fprintf(stderr, "\nk:%ld\n", k);
 		n_v0 = n_v;
 		for (i = (uint32_t)srt[k]; i >= 0 && (track[i]&((uint64_t)0x80000000)) == 0;) {
-				ex->a[n_v++] = res->a[i]; track[i] |= ((uint64_t)0x80000000);
+				ex[n_v++] = res->a[i]; track[i] |= ((uint64_t)0x80000000);
 				// fprintf(stderr, "+i:%ld, ", i);
 				// fprintf(stderr, "[M::utg%.6d%c] qs->%u; qe->%u\n", res->a[i].tn+1, "lc"[uref->ug->u.a[res->a[i].tn].circ], res->a[i].qs, res->a[i].qe);
 				if((track[i]&((uint64_t)0x7FFFFFFF)) == ((uint64_t)0x7FFFFFFF)) i = -1;
@@ -3264,20 +3508,451 @@ double diff_ec_ul, int64_t qlen, uint64_t *srt, uint64_t *idx, uint64_t *track, 
 		
 		rev_n = ((uint32_t)idx[k])>>1; 
 		///we need to consider contained reads; so determining qs is not such easy
-		res->a[k].qs = (uint32_t)-1; res->a[k].qe = ex->a[n_v0].qe;
+		res->a[k].qs = (uint32_t)-1; res->a[k].qe = ex[n_v0].qe;
 		for (i = 0; i < rev_n; i++) {
-			rev_t = ex->a[n_v0+i]; 
-			ex->a[n_v0+i] = ex->a[n_v0+rev_n-i-1];
-			ex->a[n_v0+rev_n-i-1] = rev_t;
-			if(res->a[k].qs > ex->a[n_v0+i].qs) res->a[k].qs = ex->a[n_v0+i].qs;
-			if(res->a[k].qs > ex->a[n_v0+rev_n-i-1].qs) res->a[k].qs = ex->a[n_v0+rev_n-i-1].qs;
+			rev_t = ex[n_v0+i]; 
+			ex[n_v0+i] = ex[n_v0+rev_n-i-1];
+			ex[n_v0+rev_n-i-1] = rev_t;
+			if(res->a[k].qs > ex[n_v0+i].qs) res->a[k].qs = ex[n_v0+i].qs;
+			if(res->a[k].qs > ex[n_v0+rev_n-i-1].qs) res->a[k].qs = ex[n_v0+rev_n-i-1].qs;
 		}
-		if(i < ((uint32_t)idx[k]) && res->a[k].qs < ex->a[n_v0+i].qs) {
-			res->a[k].qs = ex->a[n_v0+i].qs;
+		if(i < ((uint32_t)idx[k]) && res->a[k].qs < ex[n_v0+i].qs) {
+			res->a[k].qs = ex[n_v0+i].qs;
 		}
 	}
 	res->n = n_u;
 	return res->n;
+}
+**/
+
+int64_t determine_containment_chain(const ug_opt_t *uopt, uint64_t *track, uint64_t *flag, kv_ul_ov_t *res, int32_t nc, int64_t *nsc, int64_t mm_idx, int64_t bw, double diff_ec_ul, uint32_t el)
+{
+	int64_t i, k, pk, ak, e, off = 128, qo, tt = 0, ii; ul_ov_t *li = NULL, *lk = NULL;
+	uint32_t li_v, lk_v, is_c;
+	if(nc<=0) return 0;
+	for (k = tt = ak = 0; k < nc; k++) {
+		if(!(flag[res->a[k].sec]&((uint64_t)0x80000000))) {
+			flag[res->a[k].sec] |= ((uint64_t)0x80000000); tt++;
+		} else {
+			res->a[ak++].sec = res->a[k].sec;
+		}
+	}
+	if(tt==nc) return nsc[0] - nsc[1];
+	assert(ak>0);
+	e = res->a[res->a[ak-1].sec].qe;//e is the smallest qe
+	for (i = mm_idx, pk = 0; i >= 0;) {///i++, li->qe--
+		li = &(res->a[i]); li_v = (li->tn<<1)|li->rev;
+		if((track[i]&((uint64_t)0x7FFFFFFF)) == ((uint64_t)0x7FFFFFFF)) i = -1;
+		else i = track[i]&((uint64_t)0x7FFFFFFF);
+		if(li->qe + off < e || tt == nc) break;//128 is used to tolerate indels; 
+		for (k = pk, ii = 0; k < ak; k++) {///k++, lk->qe--
+			if(res->a[k].sec == ((uint32_t)0x3FFFFFFF)) continue;
+			lk = &(res->a[res->a[k].sec]); lk_v = (lk->tn<<1)|lk->rev;
+			if(li->qe + off >= lk->qe) {
+				if(ii == 0) pk = k;
+				if(li->qs <= lk->qs + off) {
+					qo = infer_rovlp(li, lk, NULL, NULL); ///overlap length in query (UL read)
+					if(li_v != lk_v && get_ecov_adv_back(NULL, uopt, li_v^1, lk_v^1, bw, diff_ec_ul, qo, &is_c)) {
+						if(is_c) {
+							tt++; res->a[k].sec = ((uint32_t)0x3FFFFFFF);
+							if(el) nsc[0] -= ((int64_t)(lk->te-lk->ts));
+							else nsc[!(lk->el)] -= ((int64_t)(lk->te-lk->ts));
+						}
+					}
+				}
+				ii = 1;
+			}
+		}
+	}
+
+	assert(nsc[0]>=0 && nsc[1]>=0);
+	return nsc[0] - nsc[1];
+}
+
+uint64_t push_sc_pre(int64_t mm_sc, int64_t mm_idx)
+{
+	uint32_t sc = (mm_sc>=0?(((uint32_t)(mm_sc))|((uint32_t)(0x80000000))):((uint32_t)(-mm_sc)));
+	uint64_t x = sc; x <<= 32; x |= (mm_idx>=0?mm_idx:((uint64_t)0x7FFFFFFF));
+	return x;
+}
+
+int64_t pop_sc(uint64_t x)
+{
+	int64_t sc;
+	x >>= 32;
+	if(x&((uint64_t)(0x80000000))) {
+		sc = x - ((uint64_t)(0x80000000));
+	} else {
+		sc = x; sc *= -1;
+	}
+	return sc;
+}
+
+int64_t pop_pre(uint64_t x)
+{
+	if((x&((uint64_t)0x7FFFFFFF)) == ((uint64_t)0x7FFFFFFF)) return -1;
+	else return (x&((uint64_t)0x7FFFFFFF));
+}
+
+///mode: 0->ug; 1->read
+int64_t gl_chain_advance(kv_ul_ov_t *res, ul_ov_t *ex, const ul_idx_t *uref, const ug_opt_t *uopt, int64_t bw, 
+double diff_ec_ul, int64_t qlen, int64_t max_skip, uint64_t *srt, uint64_t *idx, uint64_t *track, float trans_allow, 
+uint64_t mode, void *km)
+{
+	if(res->n == 0) return 0;
+	uint32_t li_v, lj_v, rev_n;
+	int64_t mm_ovlp, x, i, j, k, sc, csc, o_csc, mm_sc, mm_idx, qo, trans_scl = (int64_t)(((float)(1))/trans_allow), share, n_el = 0;
+	ul_ov_t *li = NULL, *lj = NULL, rev_t;
+	radix_sort_ul_ov_srt_qe(res->a, res->a + res->n);
+	for (i = 0; i < (int64_t)res->n; ++i) {
+		li = &(res->a[i]); li_v = (li->tn<<1)|li->rev;
+		mm_ovlp = mode?max_ovlp_src(uopt, li_v^1):max_ovlp(uref->ug->g, li_v^1);		
+		x = (li->qs + mm_ovlp)*diff_ec_ul; 
+		if(x < bw) x = bw; 
+		x += li->qs + mm_ovlp;
+		if (x > qlen+1) x = qlen+1;
+		x = find_ul_ov_max(i, res->a, x+G_CHAIN_INDEL); 
+		csc = mode?retrieve_r_cov_region(uref, li->tn, 0, li->ts, li->te, NULL):retrieve_u_cov_region(uref, li->tn, 0, li->ts, li->te, NULL);
+		o_csc = csc;
+		if(!(li->el)) csc *= -trans_scl; //trans overlaps
+		mm_sc = csc; mm_idx = -1; 
+		for (j = x; j >= 0; --j) { // collect potential destination vertices
+			lj = &(res->a[j]); lj_v = (lj->tn<<1)|lj->rev;
+			// if((lj->qe+gapLen) <= li->qs) break; 
+			if(lj->qe+G_CHAIN_INDEL <= li->qs) break;//even this pair has a overlap, its length will be very small; just ignore
+			if(lj->qs >= li->qs+G_CHAIN_INDEL) continue; // lj is contained in li on the query coordinate; 128 for indel offset
+			qo = infer_rovlp(li, lj, NULL, NULL); ///overlap length in query (UL read)
+			if(li_v != lj_v && get_ecov_adv(uref, uopt, li_v^1, lj_v^1, bw, diff_ec_ul, qo, mode, &share)) {
+				sc = csc + pop_sc(track[j]);
+				if(li->el && lj->el) sc -= (share>=o_csc?o_csc:share);
+				if((!li->el) && (!lj->el)) sc -= ((share>=o_csc?o_csc:share)*(-trans_scl));
+				if(sc > mm_sc) mm_sc = sc, mm_idx = j;
+			}
+		}
+
+		track[i] = push_sc_pre(mm_sc, mm_idx);
+		srt[i] = track[i]>>32; srt[i] <<= 32; srt[i] |= i;
+		n_el += li->el;
+		// fprintf(stderr, "[M::utg%.6d%c] qs->%u; qe->%u\n\n", li->tn+1, "lc"[uref->ug->u.a[li->tn].circ], li->qs, li->qe);
+	}
+	
+	int64_t n_v, n_u, n_v0, le, lnv; 
+	radix_sort_gfa64(srt, srt+res->n); 
+	for (k = (int64_t)res->n-1, n_v = n_u = 0; k >= 0; --k) {
+		n_v0 = n_v; i = (uint32_t)srt[k];
+		if(!(res->a[i].el)) { ///chain must start from cis alignments
+			for (le = -1; i >= 0 && (track[i]&((uint64_t)0x80000000)) == 0;) {
+				if(res->a[i].el) {
+					le = -1;
+				}else if(n_v>n_v0 && ex[n_v-1].el) {
+					le = i; lnv = n_v;///cut the cis alignments in the end
+				}
+				ex[n_v++] = res->a[i]; track[i] |= ((uint64_t)0x80000000);
+				// fprintf(stderr, "[M::utg%.6d%c] qs->%u; qe->%u\n", res->a[i].tn+1, "lc"[uref->ug->u.a[res->a[i].tn].circ], res->a[i].qs, res->a[i].qe);
+				i = pop_pre(track[i]);
+			}
+		}
+		if(n_v0 == n_v) continue;
+		if(le >= 0) {
+			i = le; n_v = lnv;
+		}
+		if(n_v0 == n_v) continue;
+		///keep the whole score; do not cut score like minigraph
+		// sc = pop_sc(srt[k]);
+		sc = (i<0?(pop_sc(srt[k])):(pop_sc(srt[k])-pop_sc(track[i])));
+		if(sc <= 0) {
+			n_v = n_v0;
+			continue;
+		}
+		// idx[n_u++] = push_sc_pre(sc, n_v-n_v0);	
+		idx[n_u++] = ((uint64_t)sc<<32)|(n_v-n_v0);	
+	}
+
+	for (k = 0, n_v = n_v0 = 0; k < n_u; k++) {
+		n_v0 = n_v; n_v += (uint32_t)idx[k];
+		res->a[k].qn = idx[k]>>32;//score
+		res->a[k].ts = n_v0; res->a[k].te = n_v;///idx
+		
+		rev_n = ((uint32_t)idx[k])>>1; 
+		///we need to consider contained reads; so determining qs is not such easy
+		res->a[k].qs = (uint32_t)-1; res->a[k].qe = ex[n_v0].qe;
+		for (i = 0; i < rev_n; i++) {
+			rev_t = ex[n_v0+i]; ex[n_v0+i] = ex[n_v-i-1]; ex[n_v-i-1] = rev_t;
+			
+			if(res->a[k].qs > ex[n_v0+i].qs) res->a[k].qs = ex[n_v0+i].qs;
+			if(res->a[k].qs > ex[n_v-i-1].qs) res->a[k].qs = ex[n_v-i-1].qs;
+			n_el -= ex[n_v0+i].el; n_el -= ex[n_v-i-1].el;
+		}
+		if(((uint32_t)idx[k])&1) {
+			if(res->a[k].qs < ex[n_v0+i].qs) res->a[k].qs = ex[n_v0+i].qs;
+			n_el -= ex[n_v0+i].el;
+		}
+		assert(ex[n_v0].el && ex[n_v-1].el);
+	}
+	assert(n_el == 0);
+	res->n = n_u;
+	radix_sort_ul_ov_srt_qn(res->a, res->a + res->n);//sort by score
+	return n_v;
+}
+
+
+int64_t gl_chain_advance_back(kv_ul_ov_t *res, ul_ov_t *ex, const ul_idx_t *uref, const ug_opt_t *uopt, int64_t bw, 
+double diff_ec_ul, int64_t qlen, int64_t max_skip, uint64_t *srt, uint64_t *idx, uint64_t *track, float trans_allow, void *km)
+{
+	uint32_t li_v, lj_v, rev_n, is_c, nc, s_nc;
+	int64_t mm_ovlp, x, i, j, k, sc, csc, mm_sc, mm_idx, qo, trans_scl = (int64_t)(((float)(1))/trans_allow), nsc[2];
+	ul_ov_t *li = NULL, *lj = NULL, rev_t;
+	radix_sort_ul_ov_srt_qe(res->a, res->a + res->n);
+	for (i = s_nc = 0; i < (int64_t)res->n; ++i) {
+		li = &(res->a[i]); li_v = (li->tn<<1)|li->rev;
+		mm_ovlp = uref?max_ovlp(uref->ug->g, li_v^1):max_ovlp_src(uopt, li_v^1);
+		x = (li->qs + mm_ovlp)*diff_ec_ul; 
+		if(x < bw) x = bw; 
+		x += li->qs + mm_ovlp;
+		if (x > qlen+1) x = qlen+1;
+		x = find_ul_ov_max(i, res->a, x); 
+		csc = uref?retrieve_u_cov_region(uref, li->tn, 0, li->ts, li->te, NULL):li->te-li->ts;
+		if(!(li->el)) {
+			csc *= -trans_scl; //trans overlaps
+			if(csc >= 0) csc = -1;
+		}
+		mm_sc = csc; mm_idx = -1; nc = nsc[0] = nsc[1] = 0;
+		for (j = x; j >= 0; --j) { // collect potential destination vertices
+			lj = &(res->a[j]); lj_v = (lj->tn<<1)|lj->rev;
+			// if((lj->qe+gapLen) <= li->qs) break; 
+			if(lj->qe <= li->qs) break;//even this pair has a overlap, its length will be very small; just ignore
+			// if(lj->qs >= li->qs) continue; // lj is contained in li on the query coordinate
+			qo = infer_rovlp(li, lj, NULL, NULL); ///overlap length in query (UL read)
+			if(li_v != lj_v && get_ecov_adv_back(uref, uopt, li_v^1, lj_v^1, bw, diff_ec_ul, qo, &is_c)) {
+				if(!is_c) {
+					sc = csc + pop_sc(track[j]);
+					if(sc > mm_sc) mm_sc = sc, mm_idx = j;
+				} else if(!uref) {///with uref, retrieve_u_cov_region has already consider contained reads
+					res->a[nc++].sec = j; 
+					if(li->el) nsc[0] += lj->te-lj->ts;
+					else nsc[!(lj->el)] += lj->te-lj->ts;
+				}
+			}
+		}
+		
+		if(nc && (!uref) && mm_idx>=0) {///deal with containments
+			mm_sc += determine_containment_chain(uopt, track, srt, res, nc, nsc, mm_idx, bw, diff_ec_ul, li->el);
+			s_nc++;
+		}
+
+		track[i] = push_sc_pre(mm_sc, mm_idx);
+		srt[i] = track[i]>>32; srt[i] <<= 32; srt[i] |= i;
+		// fprintf(stderr, "[M::utg%.6d%c] qs->%u; qe->%u\n\n", li->tn+1, "lc"[uref->ug->u.a[li->tn].circ], li->qs, li->qe);
+	}
+
+	if(s_nc) {
+		for (i = 0; i < (int64_t)res->n; ++i) {
+			if(srt[i]&((uint64_t)0x80000000)) srt[i]-=((uint64_t)0x80000000);
+		}
+	}
+	
+	int64_t n_v, n_u, n_v0, le, lnv; 
+	radix_sort_gfa64(srt, srt+res->n); //ex->n = res->n;
+	for (k = (int64_t)res->n-1, n_v = n_u = 0; k >= 0; --k) {
+		n_v0 = n_v; i = (uint32_t)srt[k];
+		if(i>=0 && (!(res->a[i].el))) { ///chain must start from cis alignments
+			for (le = -1; i >= 0 && (track[i]&((uint64_t)0x80000000)) == 0;) {
+				if(res->a[i].el) {
+					le = -1;
+				}else if(n_v>n_v0 && ex[n_v-1].el) {
+					le = i; lnv = n_v;///cut the cis alignments in the end
+				}
+				ex[n_v++] = res->a[i]; track[i] |= ((uint64_t)0x80000000);
+				// fprintf(stderr, "[M::utg%.6d%c] qs->%u; qe->%u\n", res->a[i].tn+1, "lc"[uref->ug->u.a[res->a[i].tn].circ], res->a[i].qs, res->a[i].qe);
+				i = pop_pre(track[i]);
+			}
+		}
+		if(n_v0 == n_v) continue;
+		if(le >= 0) {
+			i = le; n_v = lnv;
+		}
+		if(n_v0 == n_v) continue;
+		///keep the whole score; do not cut score like minigraph
+		// sc = pop_sc(srt[k]);
+		sc = (i<0?(pop_sc(srt[k])):(pop_sc(srt[k])-pop_sc(track[i])));
+		if(sc < 0) {
+			n_v = n_v0;
+			continue;
+		}
+		// idx[n_u++] = push_sc_pre(sc, n_v-n_v0);	
+		idx[n_u++] = ((uint64_t)sc<<32)|(n_v-n_v0);	
+	}
+
+	for (k = 0, n_v = n_v0 = 0; k < n_u; k++) {
+		n_v0 = n_v; n_v += (uint32_t)idx[k];
+		res->a[k].qn = idx[k]>>32;
+		res->a[k].ts = n_v0; res->a[k].te = n_v;
+		
+		rev_n = ((uint32_t)idx[k])>>1; 
+		///we need to consider contained reads; so determining qs is not such easy
+		res->a[k].qs = (uint32_t)-1; res->a[k].qe = ex[n_v0].qe;
+		for (i = 0; i < rev_n; i++) {
+			rev_t = ex[n_v0+i]; 
+			ex[n_v0+i] = ex[n_v0+rev_n-i-1];
+			ex[n_v0+rev_n-i-1] = rev_t;
+			if(res->a[k].qs > ex[n_v0+i].qs) res->a[k].qs = ex[n_v0+i].qs;
+			if(res->a[k].qs > ex[n_v0+rev_n-i-1].qs) res->a[k].qs = ex[n_v0+rev_n-i-1].qs;
+		}
+		if(i < ((uint32_t)idx[k]) && res->a[k].qs < ex[n_v0+i].qs) {
+			res->a[k].qs = ex[n_v0+i].qs;
+		}
+	}
+	res->n = n_u;
+	radix_sort_ul_ov_srt_qn(res->a, res->a + res->n);
+	return n_v;
+}
+
+uint32_t ff_chain(kv_ul_ov_t *idx, int64_t qlen, float cov_rate)
+{
+	if(idx->n <= 0) return 0;
+	ul_ov_t *m = &(idx->a[idx->n-1]); //largest chain
+	if((m->qe-m->qs) <= (qlen*cov_rate)) return 0;
+	return 1;
+}
+
+void dump_chain(kv_ul_ov_t *des, ul_ov_t *src, ul_ov_t *chain, void *km)
+{
+	///note: dump results to <des> may change <chain>, so we should save <chain> in advance
+	uint64_t beg = chain->ts, occ = chain->te - chain->ts;
+	kv_resize_km(km, ul_ov_t, *des, occ); des->n = occ;
+	memcpy(des->a, src + beg, occ*sizeof((*src)));
+}
+
+int64_t dedup_sort_contains(ul_ov_t *a, uint64_t a_n, ul_contain *ct, const ug_opt_t *uopt)
+{
+	uint64_t k, l, ci; ul_ov_t *z = NULL;
+	for (k = 0; k < a_n; k++) {
+		z = &(a[k]);
+		if(z->tn&((uint32_t)(0x80000000))) continue;///contained alignment
+		if(ct->is_c.a[z->tn] == 0) continue;
+
+		for (ci = k+1; ci < a_n; ci++) {
+			if(a[ci].qe > z->qe + G_CHAIN_INDEL) break;///128 is for indel
+			if(a[ci].qn == (uint32_t)-1) continue;
+			if(!(a[ci].tn&((uint32_t)(0x80000000)))) continue;
+			if(z->qs <= a[ci].qs + G_CHAIN_INDEL && z->qe + G_CHAIN_INDEL >= a[ci].qe) {
+				if(check_contain_pair(uopt, (a[ci].tn<<1)>>1, z->tn,  1)) {
+					a[ci].qn = (uint32_t)-1;
+				}
+			}
+		}
+
+		for (ci = k-1; ci >= 0; ci--) {
+			if(a[ci].qe + G_CHAIN_INDEL <= z->qs) break;
+			if(a[ci].qn == (uint32_t)-1) continue;
+			if(!(a[ci].tn&((uint32_t)(0x80000000)))) continue;
+			if(z->qs <= a[ci].qs + G_CHAIN_INDEL && z->qe + G_CHAIN_INDEL >= a[ci].qe) {
+				if(check_contain_pair(uopt, (a[ci].tn<<1)>>1, z->tn,  1)) {
+					a[ci].qn = (uint32_t)-1;
+				}
+			}
+		}
+	}
+	for (k = l = 0; k < a_n; k++) {
+		if(a[k].qn == (uint32_t)-1) continue;
+		if(k != l) a[l] = a[k];
+		a[l].tn <<= 1; a[l].tn >>= 1;
+		++l;
+	}
+	return l;
+}
+
+void ins_merge_ul_ov(kv_ul_ov_t *idx, int64_t idx_s, int64_t idx_e, ul_ov_t q)
+{	
+	int64_t k, ii, s = -1, e = -1, ovlp = 0, qs = q.qs, qe = q.qe;
+	for (k = idx_s, ii = -1; k < idx_e; k++) {
+		if(ii == -1 && q.qs > idx->a[k].qs) ii = k;
+		if(((int64_t)(idx->a[k].qs)) >= e) {
+			if(s >= 0 && e >= 0) {
+				ovlp += ((MIN(e, qe) > MAX(s, qs))?(MIN(e, qe) - MAX(s, qs)):0);
+			}
+			s = idx->a[k].qs; e = idx->a[k].qe;
+		} else {
+			if(e < ((int64_t)(idx->a[k].qe))) e = idx->a[k].qe;
+		}
+	}
+
+	if(s >= 0 && e >= 0) {
+		ovlp += ((MIN(e, qe) > MAX(s, qs))?(MIN(e, qe) - MAX(s, qs)):0);
+	}
+}
+
+void dump_all_chain(kv_ul_ov_t *idx, kv_ul_ov_t *ax, int64_t ax_new_occ, int64_t qlen, float primary_cov_rate, float primary_score_rate) {
+	if(idx->n <= 0) return;
+	ul_ov_t *m = &(idx->a[idx->n-1]); //largest chain
+	ul_ov_t *a = ax->a + ax->n; int64_t k, i, z, l, idx_n = idx->n; uint64_t ovlp;
+	if((m->qe-m->qs) > (qlen*primary_cov_rate)) { ///found a primary chain
+		for (k = m->ts, l = 0; k < m->te; k++) {
+			a[l] = a[k]; a[l].tn |= ((uint32_t)(0x80000000));
+			l++;
+		}
+		ax->n += l;
+	} else {
+		for (k = idx_n-1; k >= 0; k--) {
+			for (i = idx_n-1; i > k; i--) {
+				if(idx->a[i].qn == (uint32_t)-1) continue;///just remove totally contained alignments
+				if(idx->a[k].qn > idx->a[i].qn*primary_score_rate) continue;///consider score
+				ovlp = ((MIN(idx->a[k].qe, idx->a[i].qe) > MAX(idx->a[k].qs, idx->a[i].qs))?
+								(MIN(idx->a[k].qe, idx->a[i].qe) - MAX(idx->a[k].qs, idx->a[i].qs)):0);
+				if(ovlp > ((idx->a[k].qe-idx->a[k].qs)*primary_cov_rate)) {
+					for (z = idx->a[k].ts; z < idx->a[k].te; z++) a[z].el = 1;
+					idx->a[k].qn = (uint32_t)-1;
+					break;
+				}
+			}
+			// ins_merge_ul_ov(idx, idx_n, idx->n, idx->a[k]);
+		}
+		for (k = 0, l = 0; k < ax_new_occ; k++) {
+			if(a[k].el) continue;
+			a[l] = a[k]; l++;
+		}
+		radix_sort_ul_ov_srt_qe(a, a + l);
+		ax->n += l;
+	}
+}
+
+void dump_all_chain_simple(kv_ul_ov_t *idx, kv_ul_ov_t *ax, int64_t ax_new_occ, int64_t qlen, float primary_cov_rate, float fragement_cov_rate) {
+	if(idx->n <= 0) return;
+	ul_ov_t *m = &(idx->a[idx->n-1]); //largest chain
+	ul_ov_t *a = ax->a + ax->n; int64_t k, z, l, idx_n = idx->n;
+	if((m->qe-m->qs) > (qlen*primary_cov_rate)) { ///found a primary chain
+		for (k = m->ts, l = 0; k < m->te; k++) {
+			a[l] = a[k]; a[l].tn |= ((uint32_t)(0x80000000));
+			l++;
+		}
+		ax->n += l;
+	} else {
+		radix_sort_ul_ov_srt_qe(idx->a, idx->a + idx->n);
+		for (k = 0; k < idx_n - 1; k++) {
+			if(idx->a[k].qe > idx->a[k+1].qs) break;
+		}
+
+		if(idx_n < 2 || k == idx_n - 1) {///only if there is a clear chain (with holes)
+			for (k = 0; k < idx_n; k++) {
+				if((idx->a[k].qe - idx->a[k].qs) <= (qlen*fragement_cov_rate)) continue;
+				for (z = idx->a[k].ts; z < idx->a[k].te; z++) a[z].tn |= ((uint32_t)(0x80000000));
+			}
+		} 
+
+		for (k = 0, l = 0; k < ax_new_occ; k++) {
+			if(a[k].el) continue;
+			a[l] = a[k]; l++;
+		}
+
+		radix_sort_ul_ov_srt_qe(a, a + l);
+		ax->n += l;
+	}
+}
+
+void save_tmp_chains(ul_ov_t *idx_a, uint64_t idx_n, uint64_t *idx_buf_0, uint64_t *idx_buf_1, ul_ov_t *cc_a, uint64_t cc_n, uint64_t *cc_buf)
+{
+	uint64_t k;
+	for (k = 0; k < idx_n; k++) ;
 }
 
 int64_t gl_chain_refine_advance(overlap_region_alloc* olist, Correct_dumy* dumy, haplotype_evdience_alloc *hap, glchain_t *ll, const ul_idx_t *uref, double diff_ec_ul, int64_t winLen, int64_t qlen, const ug_opt_t *uopt, 
@@ -3286,59 +3961,132 @@ void *km)
 	// ll->tk.n = ll->lo.n = 0;
 	kv_ul_ov_t *idx = &(ll->lo);
 	ul_contain *ct = uref->ct;
-	gl_chain_gen(olist, uref, idx, km);
+	uint64_t o2 = gl_chain_gen(olist, uref, idx, 0, km);
 	if(idx->n == 0) return 0;
 
-	uint64_t k, an, cn, si = 0, ei = 0, resc = 0, resc_tk = 0, idx_pl = idx->n;
-	ma_utg_t *u = NULL;
+	uint64_t k, an, cn, si = 0, ei = 0, resc = 0, resc_tk = 0, tk_pl = 0, f = 0, occ = 0, cis_occ = 0, t_cis = 0;
+	ma_utg_t *u = NULL; overlap_region *o = NULL;
 
-	for (k = 0; k < olist->length; k++) {
-		if(olist->list[k].is_match!=2) continue;
-		an = update_ava_het_site(hap, k, &si, &ei, 1);
-		// if(an != get_het_site(hap, k)) fprintf(stderr, "an->%lu, get_het_site->%lu\n", an, get_het_site(hap, k));
-		if(an == 0) {
-			fprintf(stderr, "ERROR\n");
-			continue;
+	kv_resize_km(km, uint64_t, ll->srt.a, idx->n);
+    kv_resize_km(km, uint64_t, hap->snp_srt, idx->n);
+	kv_resize_km(km, ul_ov_t, ll->tk, ll->tk.n+idx->n);
+	///chain exact U-matches
+	occ = gl_chain_advance(idx, ll->tk.a+ll->tk.n, uref, uopt, G_CHAIN_BW, diff_ec_ul, qlen, UG_SKIP, dumy->overlapID, ll->srt.a.a, hap->snp_srt.a, -1, 0, km);
+	if(occ) {
+		if(ff_chain(idx, qlen, P_CHAIN_COV)) {
+			f = 1; //dump_chain(idx, ll->tk.a+ll->tk.n, &(idx->a[idx->n-1]), km); 
+			for (k = idx->a[idx->n-1].ts; k < idx->a[idx->n-1].te; k++) {
+				olist->list[ll->tk.a[ll->tk.n+k].qn].x_pos_strand = 1;
+			}
+		} else if(o2) {///means there are trans overlaps
+			gl_chain_gen(olist, uref, idx, 1, km);
+			kv_resize_km(km, uint64_t, ll->srt.a, idx->n);
+    		kv_resize_km(km, uint64_t, hap->snp_srt, idx->n);
+			kv_resize_km(km, ul_ov_t, ll->tk, ll->tk.n+idx->n);
+			///chain all U-matches
+			occ = gl_chain_advance(idx, ll->tk.a+ll->tk.n, uref, uopt, G_CHAIN_BW, diff_ec_ul, qlen, UG_SKIP, dumy->overlapID, ll->srt.a.a, hap->snp_srt.a, G_CHAIN_TRANS_RATE, 0, km);
+			if(ff_chain(idx, qlen, P_CHAIN_COV)) {
+				f = 1; //dump_chain(idx, ll->tk.a+ll->tk.n, &(idx->a[idx->n-1]), km); 
+				for (k = idx->a[idx->n-1].ts; k < idx->a[idx->n-1].te; k++) {
+					olist->list[ll->tk.a[ll->tk.n+k].qn].x_pos_strand = 1;
+				}
+			}
 		}
-		cn = ((uint32_t)(ct->idx.a[olist->list[k].y_id]));		
-		if(cn > 0) {
-			resc += rescue_contain_ul_chains(uref, &(olist->list[k]), hap->list+si, an, 
-			ct->rids.a + ((ct->idx.a[olist->list[k].y_id])>>32), cn, idx, diff_ec_ul, winLen, km);
-		}
-
-		u = &(uref->ug->u.a[olist->list[k].y_id]);
-		if(u->n > 1) {///no redundant items here,
-			resc_tk += rescue_trans_ul_chains(uref, &(olist->list[k]), hap->list+si, an, u, 
-			&(ll->tk), diff_ec_ul, winLen, km);
-		}
-
-		si = ei;
 	}
 
-	if(resc > 0) {
+	if(!f) {///if f == 1, only dump primary chain; otherwise dump all chains
+		///we can save all data to buffer like ll->srt.a in advance; in case we don't need third round of chaining
+		///means no trans overlaps, no need to do third round of chaining
+		// if(!o2) {
+		// 	;
+		// }
+		for (k = 0; k < occ; k++) {
+			olist->list[ll->tk.a[ll->tk.n+k].qn].x_pos_strand = 1;
+		}
+		// kv_resize_km(km, ul_ov_t, *idx, occ); idx->n = occ;
+		// memcpy(idx->a, ll->tk.a+ll->tk.n, occ*sizeof((*(idx->a))));
+	}
+	// for (k = 0; k < idx->n; k++) olist->list[idx->a[k].qn].x_pos_strand = 1;
+		
+	for (k = 0, idx->n = 0, tk_pl = ll->tk.n, t_cis = 0; k < olist->length; k++) {
+		o = &(olist->list[k]);
+		///if f == 1, no matter 
+		if(o->x_pos_strand && (f || o->is_match == 1)){
+			u = &(uref->ug->u.a[o->y_id]);///overlaped reads
+			resc_tk += rescue_trans_ul_chains(uref, o, NULL, 0, u, &(ll->tk), -1, -1, 0, NULL, km);
+		} else if((!f) && o->is_match == 2) {
+			an = update_ava_het_site(hap, k, &si, &ei, 1);
+			// if(an != get_het_site(hap, k)) fprintf(stderr, "an->%lu, get_het_site->%lu\n", an, get_het_site(hap, k));
+			assert(an > 0);
+
+			cn = ((uint32_t)(ct->idx.a[o->y_id]));		
+			if(cn > 0) {
+				resc += rescue_contain_ul_chains(uref, o, hap->list+si, an, 
+				ct->rids.a + ((ct->idx.a[o->y_id])>>32), cn, idx, diff_ec_ul, winLen, 0, km);
+			}
+
+			u = &(uref->ug->u.a[o->y_id]);
+			if(u->n > 1 || o->x_pos_strand) {///no redundant items here
+				resc_tk += rescue_trans_ul_chains(uref, o, hap->list+si, an, u, 
+				&(ll->tk), diff_ec_ul, winLen, o->x_pos_strand, &cis_occ, km);
+				t_cis += cis_occ;
+			}
+
+			si = ei;
+		} 
+	}
+
+	assert(ll->tk.n == resc_tk+tk_pl);
+	assert(idx->n == resc);
+	if(f) assert(resc==0);
+
+		
+	if(!f) {///dedup contained alignments
+		if(idx->n) {///if some contained alignments have been rescued
+			radix_sort_ul_ov_srt_tn(idx->a, idx->a + idx->n);
+			idx->n = dedup_sort_ul_ov_t(idx->a, idx->n);///different trans alignments may have the same contained alignment
+		}
+		resc = idx->n;
+		for (k = tk_pl; k < ll->tk.n; k++) {///dump all non-contained reads
+			kv_push_km(km, ul_ov_t, *idx, ll->tk.a[k]);
+			if(idx->a[idx->n-1].tn&((uint32_t)(0x80000000))) {
+				idx->a[idx->n-1].tn -= ((uint32_t)(0x80000000));
+			}
+		}
+		ll->tk.n = tk_pl;
+
+		radix_sort_ul_ov_srt_qe(idx->a, idx->a + idx->n);
+		if(resc) {///need to dedup contained alignment again
+			idx->n = dedup_sort_contains(idx->a, idx->n, ct, uopt);
+		}
+
+		kv_resize_km(km, uint64_t, ll->srt.a, idx->n);
+		kv_resize_km(km, uint64_t, hap->snp_srt, idx->n);
+		kv_resize_km(km, ul_ov_t, ll->tk, ll->tk.n+idx->n);
+		occ = gl_chain_advance(idx, ll->tk.a+ll->tk.n, uref, uopt, G_CHAIN_BW, diff_ec_ul, qlen, UG_SKIP, dumy->overlapID, ll->srt.a.a, hap->snp_srt.a, G_CHAIN_TRANS_RATE, 1, km);
+		dump_all_chain_simple(idx, &(ll->tk), occ, qlen, P_CHAIN_COV, P_FRAGEMENT_CHAIN_COV);
+		// dump_all_chain(idx, &(ll->tk), occ, qlen, P_CHAIN_COV, P_CHAIN_SCORE);
+	} else {
+		///for primary chain, each element x: (x->tn & (uint32_t)(0x80000000))
+		radix_sort_ul_ov_srt_qe(ll->tk.a+tk_pl, ll->tk.a+ll->tk.n);
+	} 
+	/**
+	if(resc > 0) {///dedup contained alignments
 		radix_sort_ul_ov_srt_tn(idx->a + idx_pl, idx->a + idx->n);
 		an = dedup_sort_ul_ov_t(idx->a + idx->n - resc, resc);
 		idx->n = idx->n - resc + an;
-
 		// if(olist->length && olist->list[0].x_id == 0) {
 		// 	for (k = chains->n - ff; k < chains->n; k++) {
 		// 		print_ul_ov_t(chains->a + k, "after");
 		// 	}
 		// }
-	}
-
-	// fprintf(stderr, "resc_tk->%ld\n", resc_tk);
-	if(resc_tk > 0) {
-		for (k = ll->tk.n - resc_tk; k < ll->tk.n; k++) {
-			kv_push_km(km, ul_ov_t, *idx, ll->tk.a[k]);
-		}
-		ll->tk.n -= resc_tk;
-	}
-	
+	}**/
+	/**
 	if(idx->n > 0) {
-		an = infer_read_ovlp(uref, olist, idx, &(ll->tk), diff_ec_ul, winLen, uopt, ct, km);
+		an = infer_read_ovlp(uref, olist, idx	, &(ll->tk), diff_ec_ul, winLen, uopt, ct, km);
 		// if(an) fill_edge_weight(ll->tk.a+ll->tk.n-an, an, uopt, G_CHAIN_BW, diff_ec_ul, qlen);
 	}
+	**/
 	return 1;
 }
 
@@ -4435,7 +5183,7 @@ void print_dedup_HiFis_seq(ma_ug_t *ug)
 	exit(1);
 }
 
-void push_coverage_track(ucov_t *cc, uint64_t uid, ma_utg_t *u, asg_t *rg, ma_hit_t_alloc* src, int64_t min_ovlp, int64_t max_hang, int64_t gap_fuzz)
+void push_coverage_track(ucov_t *cc, uint64_t uid, ma_utg_t *u, asg_t *rg, ma_hit_t_alloc* src, int64_t min_ovlp, int64_t max_hang, uint64_t is_el, uint64_t is_del)
 {
 	uint64_t k, l, i, z, dp, qn, tn, qs, qe, ori;
 	int32_t r; asg_arc_t t;
@@ -4445,7 +5193,8 @@ void push_coverage_track(ucov_t *cc, uint64_t uid, ma_utg_t *u, asg_t *rg, ma_hi
 		kv_push(uint64_t, cc->interval, ((l + Get_READ_LENGTH(R_INF, u->a[k]>>33))<<1)|1);
 		i = u->a[k]>>33;///rid
 		for (z = 0; z < src[i].length; z++) {
-            if(!src[i].buffer[z].el) continue;
+            if(is_el && (!src[i].buffer[z].el)) continue;
+			if(is_del && (!src[i].buffer[z].del)) continue;
             qn = Get_qn(src[i].buffer[z]); tn = Get_tn(src[i].buffer[z]);
             if(!rg->seq[tn].del) continue;
             if((Get_qe(src[i].buffer[z]) - Get_qs(src[i].buffer[z])) < min_ovlp) continue;
@@ -4529,7 +5278,7 @@ ma_hit_t_alloc* src, int64_t min_ovlp, int64_t max_hang, int64_t gap_fuzz)
 	return ff;
 }
 
-ul_contain *ul_contain_gen(ma_ug_t *ug, asg_t *rg, ma_hit_t_alloc* src, int64_t min_ovlp, int64_t max_hang, int64_t gap_fuzz)
+ul_contain *ul_contain_gen(ma_ug_t *ug, asg_t *rg, ma_hit_t_alloc* src, int64_t min_ovlp, int64_t max_hang, uint64_t is_el, uint64_t is_del)
 {
 	uint64_t k, l, i, z, t, qn, tn, ori, qs, qe;
 	ul_contain *p = NULL; ma_utg_t *u = NULL;
@@ -4546,7 +5295,8 @@ ul_contain *ul_contain_gen(ma_ug_t *ug, asg_t *rg, ma_hit_t_alloc* src, int64_t 
 			i = u->a[k]>>33;///rid
 
 			for (z = 0; z < src[i].length; z++) {
-				if(!src[i].buffer[z].el) continue;
+				if(is_el && (!src[i].buffer[z].el)) continue;
+				if(is_del && (!src[i].buffer[z].del)) continue;
 				qn = Get_qn(src[i].buffer[z]); tn = Get_tn(src[i].buffer[z]);
 				if(!rg->seq[tn].del) continue;
 				if((Get_qe(src[i].buffer[z]) - Get_qs(src[i].buffer[z])) < min_ovlp) continue;
@@ -4603,6 +5353,28 @@ ul_contain *ul_contain_gen(ma_ug_t *ug, asg_t *rg, ma_hit_t_alloc* src, int64_t 
 }
 
 
+void debug_append_inexact_edges(ma_ug_t *ug, const ug_opt_t *uopt) {
+	uint32_t n_asymm = 0, n_disconnect = 0, z, v, w, k, nv; asg_arc_t *av = NULL;
+	for (z = 0; z < ug->g->n_arc; ++z) {
+		if(ug->g->arc[z].del) continue;
+		if(!get_ug_edge_src(ug, uopt->sources, uopt->max_hang, uopt->min_ovlp, 
+													ug->g->arc[z].ul>>32, ug->g->arc[z].v)) {
+			n_disconnect++;
+		}
+        v = ug->g->arc[z].v^1; w = ug->g->arc[z].ul>>32^1;
+        nv = asg_arc_n(ug->g, v); av = asg_arc_a(ug->g, v);
+        for (k = 0; k < nv; ++k)
+            if ((!av[k].del) && av[k].v == w) break;
+        if (k == nv) ug->g->arc[z].del = 1, ++n_asymm;
+    }
+
+	if(n_asymm || n_disconnect) {
+		asg_cleanup(ug->g); 
+		fprintf(stderr, "[M::%s::%s::%s::%s::%s::%s::] # asymm edges: %u, # disconnect edges: %u\n", 
+		__func__, __func__, __func__, __func__, __func__, __func__, n_asymm, n_disconnect);
+	}
+}
+
 void append_inexact_edges(ma_ug_t *ug, const ug_opt_t *uopt, asg_t *rg)
 {
 	uint32_t *idx = NULL, n_read = R_INF.total_reads, z, v, k, qn, tn, tu, ut_v, ut_w; 
@@ -4614,14 +5386,14 @@ void append_inexact_edges(ma_ug_t *ug, const ug_opt_t *uopt, asg_t *rg)
 	for (z = 0; z < ug->u.n; z++) {
 		u = &(ug->u.a[z]);
 		if(u->circ) continue;
-		idx[u->start>>1] =  idx[u->end>>1] = z;
+		idx[u->start>>1] = idx[u->end>>1] = z;
 	}
 
 	for (z = 0; z < ug->u.n; z++) {
 		u = &(ug->u.a[z]);
 		if(u->circ) continue;
 
-		v = u->start^1; s = &(src[v>>1]); ut_v = (z<<1);
+		v = u->end^1; s = &(src[v>>1]); ut_v = (z<<1);
 		for (k = 0; k < s->length; k++) {
 			if(s->buffer[k].el) continue;///we just need inexact edges
 			qn = Get_qn(s->buffer[k]); tn = Get_tn(s->buffer[k]); tu = idx[tn]; ut_w = (uint32_t)-1;
@@ -4636,7 +5408,7 @@ void append_inexact_edges(ma_ug_t *ug, const ug_opt_t *uopt, asg_t *rg)
 			*p = t; p->ul = ut_v; p->ul <<= 32; p->ul += ((uint32_t)(t.ul)); p->v = ut_w;
 		}
 
-		v = u->end^1; s = &(src[v>>1]); ut_v = (z<<1) + 1;
+		v = u->start^1; s = &(src[v>>1]); ut_v = (z<<1) + 1;
 		for (k = 0; k < s->length; k++) {
 			if(s->buffer[k].el) continue;///we just need inexact edges
 			qn = Get_qn(s->buffer[k]); tn = Get_tn(s->buffer[k]); tu = idx[tn]; ut_w = (uint32_t)-1;
@@ -4653,28 +5425,161 @@ void append_inexact_edges(ma_ug_t *ug, const ug_opt_t *uopt, asg_t *rg)
 	}
 
 	asg_cleanup(ug->g); 
-
-	uint32_t w, nv, n_asymm = 0; asg_arc_t *av = NULL;
-	for (z = 0; z < ug->g->n_arc; ++z) {
-		if(ug->g->arc[z].del) continue;
-        v = ug->g->arc[z].v^1; w = ug->g->arc[z].ul>>32^1;
-        nv = asg_arc_n(ug->g, v); av = asg_arc_a(ug->g, v);
-        for (k = 0; k < nv; ++k)
-            if ((!av[k].del) && av[k].v == w) break;
-        if (k == nv) ug->g->arc[z].del = 1, ++n_asymm;
-    }
-
-	if(n_asymm) {
-		asg_cleanup(ug->g); 
-		fprintf(stderr, "[M::%s::] # asymm edges: %u\n", __func__, n_asymm);
-	}
-
 	free(idx);
+	///for debug
+	debug_append_inexact_edges(ug, uopt);
 }
 
-ul_idx_t *dedup_HiFis(const ug_opt_t *uopt)
+typedef struct {
+	ucov_t *cr;
+	ma_hit_t_alloc* src;
+	int64_t min_ovlp; 
+	int64_t max_hang;
+	uint64_t is_el;
+	uint64_t is_del;
+	uint64_t is_src_cc;
+	asg_t *rg;
+	ma_ug_t *ug;
+} r_contain_aux;
+
+static void update_gen_r_contain(void *data, long i, int tid) // callback for kt_for()
 {
-	uint64_t i, k, qn, tn, m, n_read = R_INF.total_reads, cc_num = 0;
+	r_contain_aux *s = (r_contain_aux *)data;
+	ma_hit_t_alloc *src = s->src; ma_hit_t *t; int32_t r; asg_arc_t x;
+	uint64_t *a = s->cr->interval.a + s->cr->idx[i], a_n = s->cr->idx[i+1] - s->cr->idx[i], k, dp, l, z, qn, tn;
+	uint64_t is_el = s->is_el, is_del = s->is_del, min_ovlp = s->min_ovlp, max_hang = s->max_hang, qs, qe, cs, ce, sum;
+	int64_t ii; asg_t *rg = s->rg; uint64_t *b, b_n, ti;
+	if(a_n == 0 || rg->seq[i].del) return;
+	if(s->is_src_cc) {
+		for (z = 0; z < src[i].length; z++) {
+			t = &(src[i].buffer[z]); t->cc = 0;
+			qn = Get_qn((*t)); tn = Get_tn((*t));
+			if(qn > tn) continue;
+			if(is_el && (!(t->el))) continue;
+			if(is_del && (!(t->del))) continue;
+			if((Get_qe((*t)) - Get_qs((*t))) < min_ovlp) continue;
+			if((Get_te((*t)) - Get_ts((*t))) < min_ovlp) continue;
+			if(rg->seq[tn].del) continue;
+			b = s->cr->interval.a + s->cr->idx[tn]; b_n = s->cr->idx[tn+1] - s->cr->idx[tn];
+			if(b_n == 0) continue;
+			r = ma_hit2arc(t, Get_READ_LENGTH(R_INF, qn), Get_READ_LENGTH(R_INF, tn), max_hang, asm_opt.max_hang_rate, min_ovlp, &x);
+			if(r < 0) continue;	
+			qs = Get_qs((*t)); qe = Get_qe((*t));
+			for (k = 0; k < a_n; k += 2) {
+				cs = a[k]>>33; ce = a[k+1]>>33; assert(rg->seq[(uint32_t)(a[k])].del);
+				if(qs<=cs+128 && qe+128>=ce) { ///128 is the offset for indel
+					for (ti = 0; ti < b_n; ti+=2) {
+						if((uint32_t)(b[ti]) == (uint32_t)(a[k])) {
+							sum = t->cc; sum += (ce - cs);
+							if(sum > 0x3fffffffU) sum = 0x3fffffffU;
+							t->cc = sum;
+							break;
+						}
+					}
+				}
+			}
+		}
+	} else {
+		radix_sort_gfa64(a, a + a_n);
+		for (k = 0, dp = 0; k < a_n; ++k) {
+			///if a[j] is qe
+			if ((a[k]>>32)&1) --dp;
+			else ++dp;
+			l = a[k]>>33; l <<= 32; l += dp;
+			a[k] = l;
+		}
+		for (z = 0; z < src[i].length; z++) {
+			t = &(src[i].buffer[z]); 
+			qn = Get_qn((*t)); tn = Get_tn((*t));
+			if(qn > tn) continue;
+			if(t->cc == 0) continue;
+			ii = get_specific_overlap(&(src[tn]), tn, qn);
+			src[tn].buffer[ii].cc = t->cc;
+		}
+	}
+}
+
+static void update_ug_uo_t(void *data, long i, int tid)
+{
+	r_contain_aux *sl = (r_contain_aux *)data; int32_t r;
+	ma_hit_t_alloc *src = sl->src, *x; uint32_t k, qn, tn, uv, uw, v, w;
+	asg_arc_t *e = &(sl->ug->g->arc[i]), t; 
+	uv = e->ul>>32; uw = e->v; e->ou = 0;
+	if(sl->ug->u.a[uv>>1].circ || sl->ug->u.a[uw>>1].circ) return;
+	v = ((uv&1)?(sl->ug->u.a[uv>>1].start^1):(sl->ug->u.a[uv>>1].end^1));
+	w = ((uw&1)?(sl->ug->u.a[uw>>1].end):(sl->ug->u.a[uw>>1].start));
+	x = &(src[v>>1]);
+
+	for (k = 0; k < x->length; k++) {
+		qn = Get_qn(x->buffer[k]);
+		tn = Get_tn(x->buffer[k]);
+		if(qn == (v>>1) && tn == (w>>1)) {
+			r = ma_hit2arc(&(x->buffer[k]), sl->rg->seq[v>>1].len, sl->rg->seq[w>>1].len,
+            							sl->max_hang, asm_opt.max_hang_rate, sl->min_ovlp, &t);
+			if(r < 0) continue;
+            if((t.ul>>32)!=v || t.v!=w) continue;
+			e->ou = (x->buffer[k].cc&OU_MASK);
+			break;
+		}
+	}
+	assert(k < x->length);
+}
+
+ucov_t *gen_r_contain(ma_ug_t *ug, asg_t *rg, ma_hit_t_alloc* src, uint64_t n_read, int64_t min_ovlp, int64_t max_hang, uint64_t n_thread, uint64_t is_el, uint64_t is_del)
+{
+	ucov_t *cr = NULL; uint64_t i, z, qn, tn, qs, qe; 
+	ma_hit_t *t = NULL; int32_t r; asg_arc_t x;
+	CALLOC(cr, 1); MALLOC(cr->idx, n_read+1); kv_init(cr->interval);
+	for (i = 0; i < n_read; i++) {
+		cr->idx[i] = cr->interval.n;
+		if(rg->seq[i].del) continue;
+		for (z = 0; z < src[i].length; z++) {
+			t = &(src[i].buffer[z]); t->cc = 0;
+			if(is_el && (!(t->el))) continue;
+			if(is_del && (!(t->del))) continue;
+			if((Get_qe((*t)) - Get_qs((*t))) < min_ovlp) continue;
+            if((Get_te((*t)) - Get_ts((*t))) < min_ovlp) continue;
+			qn = Get_qn((*t)); tn = Get_tn((*t));
+			if(!rg->seq[tn].del) continue;
+			r = ma_hit2arc(t, Get_READ_LENGTH(R_INF, qn), Get_READ_LENGTH(R_INF, tn), max_hang, asm_opt.max_hang_rate, min_ovlp, &x);
+            if(r == MA_HT_TCONT) { ///tn is contained
+				qs = Get_qs((*t)); qe = Get_qe((*t));
+				kv_push(uint64_t, cr->interval, ((qs<<1)<<32)|tn);
+				kv_push(uint64_t, cr->interval, (((qe<<1)|1)<<32)|tn);
+			}
+		}
+	}
+	cr->idx[i] = cr->interval.n;
+
+	r_contain_aux aux;
+	aux.cr = cr; aux.src = src; aux.min_ovlp = min_ovlp; aux.rg = rg; aux.ug = ug;
+	aux.max_hang = max_hang; aux.is_el = 0/**is_el**/; aux.is_del = 0/**is_del**/;
+	aux.is_src_cc = 1;
+	kt_for(n_thread, update_gen_r_contain, &aux, n_read);///note: here we should set is_el = is_del = 0
+
+	aux.is_src_cc = 0;
+	kt_for(n_thread, update_gen_r_contain, &aux, n_read);
+
+	kt_for(n_thread, update_ug_uo_t, &aux, ug->g->n_arc);
+
+	return cr;
+}
+
+ucov_t *gen_cov_track(ma_ug_t *ug, asg_t *rg, ma_hit_t_alloc* src, int64_t min_ovlp, int64_t max_hang, uint64_t is_el, uint64_t is_del)
+{
+	uint64_t i, k, m;
+	ucov_t *cc = NULL; CALLOC(cc, 1); MALLOC(cc->idx, ug->u.n+1); kv_init(cc->interval);
+	for (i = k = m = 0; i < ug->u.n; i++) {
+		k += ug->u.a[i].len;
+		push_coverage_track(cc, i, &(ug->u.a[i]), rg, src, min_ovlp, max_hang, is_el, is_del);
+	}
+	fprintf(stderr, "[M::%s::] # bases: %lu\n", __func__, k);
+	return cc;
+}
+
+ul_idx_t *dedup_HiFis(const ug_opt_t *uopt, uint64_t is_el, uint64_t is_del)
+{
+	uint64_t i, k, qn, tn, n_read = R_INF.total_reads, cc_num = 0;
 	int32_t r; asg_arc_t t, *p = NULL; 
 	uint8_t *rset = NULL; CALLOC(rset, n_read<<1);
 	asg_t *rg = asg_init();
@@ -4684,12 +5589,16 @@ ul_idx_t *dedup_HiFis(const ug_opt_t *uopt)
 	int64_t gap_fuzz = uopt->gap_fuzz;
 
 	rg->m_seq = rg->n_seq = n_read; MALLOC(rg->seq, rg->m_seq);
-	for (i = 0; i < n_read; ++i) rg->seq[i].len = Get_READ_LENGTH(R_INF, i);
+	for (i = 0; i < n_read; ++i) {
+		rg->seq[i].len = Get_READ_LENGTH(R_INF, i);
+		rg->seq[i].del = rg->seq[i].c = 0;
+	}
 	
 	for (i = 0; i < n_read; i++) {
 		if(rg->seq[i].del) continue;
 		for (k = 0; k < src[i].length; k++) {
-			if(!src[i].buffer[k].el) continue;
+			if(is_el && (!src[i].buffer[k].el)) continue;
+			if(is_del && (!src[i].buffer[k].del)) continue;
 			qn = Get_qn(src[i].buffer[k]); tn = Get_tn(src[i].buffer[k]);
 			if(rg->seq[qn].del || rg->seq[tn].del) continue;
 			if((Get_qe(src[i].buffer[k]) - Get_qs(src[i].buffer[k])) < min_ovlp) continue;
@@ -4708,7 +5617,8 @@ ul_idx_t *dedup_HiFis(const ug_opt_t *uopt)
 	for (i = 0; i < n_read; i++) {
 		if(rg->seq[i].del) {cc_num++; continue;}
 		for (k = 0; k < src[i].length; k++) {
-			if(!src[i].buffer[k].el) continue;
+			if(is_el && (!src[i].buffer[k].el)) continue;
+			if(is_del && (!src[i].buffer[k].del)) continue;
 			qn = Get_qn(src[i].buffer[k]); tn = Get_tn(src[i].buffer[k]);
 			if(rg->seq[qn].del || rg->seq[tn].del) continue;
 			if((Get_qe(src[i].buffer[k]) - Get_qs(src[i].buffer[k])) < min_ovlp) continue;
@@ -4725,23 +5635,20 @@ ul_idx_t *dedup_HiFis(const ug_opt_t *uopt)
 	asg_arc_del_trans(rg, gap_fuzz);
 	ma_ug_t *ug = NULL; 
 	ug = ma_ug_gen(rg);
+	append_inexact_edges(ug, uopt, rg);
 	
 	ul_idx_t *uu = NULL; CALLOC(uu, 1);
-	uu->ug = ug; CALLOC(uu->cc, 1); 
-	MALLOC(uu->cc->idx, ug->u.n+1); kv_init(uu->cc->interval);
-
-	for (i = k = m = 0; i < ug->u.n; i++) {
-		k += ug->u.a[i].len;
-		push_coverage_track(uu->cc, i, &(ug->u.a[i]), rg, src, min_ovlp, max_hang, gap_fuzz);
-	}
-
-	uu->ct = ul_contain_gen(ug, rg, src, min_ovlp, max_hang, gap_fuzz);
+	uu->ug = ug; 
+	
+	uu->cc = gen_cov_track(ug, rg, src, min_ovlp, max_hang, is_el, is_del);
+	uu->ct = ul_contain_gen(ug, rg, src, min_ovlp, max_hang, is_el, is_del);
+	uu->cr = gen_r_contain(ug, rg, src, n_read, min_ovlp, max_hang, asm_opt.thread_num, is_el, is_del);
 	
 	// uu->ov = compress_dedup_HiFis(ug, src);
 	asg_destroy(rg); free(rset);
 	// uu->nug = cvert_t_gen(uopt);
 
-	fprintf(stderr, "[M::%s::] # unitigs: %lu, # bases: %lu, # edges: %lu, # cc_num: %lu\n", __func__, (uint64_t)ug->u.n, k, (uint64_t)ug->g->n_arc, cc_num);
+	fprintf(stderr, "[M::%s::] # unitigs: %lu, # edges: %lu, # cc_num: %lu\n", __func__, (uint64_t)ug->u.n, (uint64_t)ug->g->n_arc, cc_num);
 	// print_dedup_HiFis_seq(ug);
 	return uu;
 }
@@ -4754,6 +5661,12 @@ void destroy_ul_idx_t(ul_idx_t *uu)
 			free(uu->cc->idx);
 			free(uu->cc->interval.a);
 			free(uu->cc);
+		}
+
+		if(uu->cr) {
+			free(uu->cr->idx);
+			free(uu->cr->interval.a);
+			free(uu->cr);
 		}
 
 		if(uu->ct) {
@@ -4780,7 +5693,7 @@ void ul_load(const ug_opt_t *uopt)
 {
 	fprintf(stderr, "[M::%s::] ==> UL\n", __func__);
 	mg_idxopt_t opt;
-	ul_idx_t *uu = dedup_HiFis(uopt);
+	ul_idx_t *uu = dedup_HiFis(uopt, 1, 0);
 	// asg_t *sg = uu->nug->rg;
 	int cutoff;
 	init_aux_table(); ha_opt_update_cov(&asm_opt, asm_opt.hom_cov);

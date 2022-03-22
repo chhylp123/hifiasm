@@ -996,7 +996,7 @@ void append_ul_t(all_ul_t *x, uint64_t *rid, char* id, int64_t id_l, char* str, 
 		}
 		
 
-		p->bb.n = p->N_site.n = p->r_base.n = 0;
+		p->bb.n = p->N_site.n = p->r_base.n = 0; p->h = 0;
 		p->rlen = str_l; 
 		
 		if(o == NULL || on == 0) on = 0;
@@ -1020,7 +1020,7 @@ void append_ul_t(all_ul_t *x, uint64_t *rid, char* id, int64_t id_l, char* str, 
 
 			///push ovlp bases
 			kv_pushp(uc_block_t, p->bb, &b);
-			b->hid = z->tn; b->rev = z->rev;
+			b->hid = (z->tn<<1)>>1; b->rev = z->rev;
 			b->qs = z->qs; b->qe = z->qe;
 			b->ts = z->ts; b->te = z->te;
 			
@@ -1326,6 +1326,44 @@ uint64_t retrieve_u_cov_region(const ul_idx_t *ul, uint64_t id, uint8_t strand, 
     return tcc;
 }
 
+
+uint64_t retrieve_r_cov_region(const ul_idx_t *ul, uint64_t id, uint8_t strand, uint64_t s, uint64_t e, int64_t *pi)
+{
+    uint64_t *a = ul->cr->interval.a + ul->cr->idx[id], cc = 0, o = 0, tk, ts, te, tcc = 0;
+    int64_t a_n = ul->cr->idx[id+1]-ul->cr->idx[id], k = 0, cc_i = pi? *pi:0;
+    if(a_n == 0) return e>=s?e-s:0;
+    if(cc_i + 1 >= a_n || cc_i < 0) cc_i = 0;
+    if(strand) {
+		tk = s;
+		s = ul->ug->u.a[id].len - e;
+		e = ul->ug->u.a[id].len - tk;
+	}
+	// fprintf(stderr,"\nul->ug->u.a[id].len:%u, fs:%lu, fe:%lu\n", ul->ug->u.a[id].len, a[k]>>32, a[k+1]>>32);
+	k = cc_i; tk = s;
+	if(tk < (a[k]>>32)) {
+		for (; k >= 0; k--) {
+            if(tk>=(a[k]>>32) && tk<(a[k+1]>>32)) break;
+        }
+	} else if(tk >= (a[k+1]>>32)) {
+		for (; k + 1 < a_n; k++) {
+            if(tk>=(a[k]>>32) && tk<(a[k+1]>>32)) break;
+        }
+	}
+	if(pi) *pi = k;
+
+	
+
+	for (; k + 1 < a_n; k++) {
+		ts = a[k]>>32; te = a[k+1]>>32; cc = (uint32_t)a[k];
+		o = (MIN(e, te) > MAX(s, ts))?(MIN(e, te)-MAX(s, ts)):0;
+		tcc += o*cc;
+		// fprintf(stderr, ">>k:%ld, s:%lu, e:%lu, ts:%lu, te:%lu, o:%lu, cc:%lu\n", k, s, e, ts, te, o, cc);
+		if(e>=(a[k]>>32) && e<(a[k+1]>>32)) break;
+	}
+    
+    
+    return tcc + (e>=s?e-s:0);
+}
 
 uint32_t produce_u_cov(ul_idx_t *ul, uint64_t id, uint8_t strand, uint64_t pos, ma_hit_t_alloc* src, int64_t min_ovlp, int64_t max_hang, int64_t gap_fuzz,
 uint8_t *sset, kvec_t_u64_warp *buf)

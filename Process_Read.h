@@ -159,8 +159,9 @@ typedef struct
 
 typedef struct
 {
-    uint32_t hid:31, rev:1;
+    uint32_t hid;
     uint32_t qs, qe, ts, te;
+    uint8_t pchain:6, rev:1, base:1;
 } uc_block_t;
 
 typedef struct
@@ -177,10 +178,12 @@ typedef struct
 typedef struct
 {
     kvec_t(uint8_t) r_base;
-    uint32_t rlen;
+    uint32_t rlen; 
 
     kvec_t(uc_block_t) bb;
     N_t N_site;
+
+    uint8_t h;
 } ul_vec_t;
 
 typedef struct{
@@ -195,7 +198,7 @@ typedef struct
     ul_vec_t *a;
     size_t n, m;
     All_reads *hR;
-    uint32_t mm;
+    // uint32_t mm;
 } all_ul_t;
 
 extern all_ul_t UL_INF;
@@ -227,5 +230,6 @@ void retrieve_u_seq(UC_Read* i_r, char* i_s, ma_utg_t *u, uint8_t strand, int64_
 void debug_retrieve_rc_sub(const ug_opt_t *uopt, all_ul_t *ref, const All_reads *R_INF, ul_idx_t *ul, uint32_t n_step);
 uint32_t retrieve_u_cov(const ul_idx_t *ul, uint64_t id, uint8_t strand, uint64_t pos, uint8_t dir, int64_t *pi);
 uint64_t retrieve_u_cov_region(const ul_idx_t *ul, uint64_t id, uint8_t strand, uint64_t s, uint64_t e, int64_t *pi);
+uint64_t retrieve_r_cov_region(const ul_idx_t *ul, uint64_t id, uint8_t strand, uint64_t s, uint64_t e, int64_t *pi);
 
 #endif
