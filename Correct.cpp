@@ -8990,8 +8990,8 @@ inline void insert_snp_vv(haplotype_evdience_alloc* h, haplotype_evdience* a, ui
 
 int insert_snp_ee(haplotype_evdience_alloc* h, haplotype_evdience* a, uint64_t a_n, haplotype_evdience* u_a, UC_Read* g_read, void *km)
 {
-    uint64_t i, m, occ_0, occ_1[5], occ_2, diff;
-    occ_0 = occ_2 = diff = 0; memset(occ_1, 0, sizeof(uint64_t)*5);
+    uint64_t i, m, occ_0, occ_1[6], occ_2, diff;
+    occ_0 = occ_2 = diff = 0; memset(occ_1, 0, sizeof(uint64_t)*6);
 
     for (i = 0; i < a_n; i++) {
         if(a[i].type == 0){
@@ -9038,9 +9038,11 @@ int insert_snp_ee(haplotype_evdience_alloc* h, haplotype_evdience* a, uint64_t a
             occ_1[i] = (uint64_t)-1;
         }
     }
+    occ_1[4] = occ_1[5] = (uint64_t)-1;
     if(m == 0) return 0;
     
     for (i = m = 0; i < a_n; i++) {
+        // fprintf(stderr, "[M::%s] a[%lu].misBase->%c\n", __func__, i, a[i].misBase);
         if(a[i].type == 0) {
             a[i].overlapSite = h->snp_stat.n-1;
         } else if(occ_1[seq_nt6_table[(uint8_t)(a[i].misBase)]]!=(uint64_t)-1){

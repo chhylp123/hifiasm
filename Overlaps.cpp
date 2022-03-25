@@ -1919,7 +1919,7 @@ void collect_sides(uint32_t rid, ma_hit_t_alloc* pafs, all_ul_t *x, uint64_t rLe
         a = get_hifi2ul_list(x, rid, &a_n);
         for (k = 0; k < a_n; k++) {
             p = &(x->a[a[k]>>32].bb.a[(uint32_t)(a[k])]);
-            if(p->hid&x->mm) continue;///should not happen
+            if(p->base/**->hid&x->mm**/) continue;///should not happen
             qs = p->ts; qe = p->te;///note here is ts && te, instead of qs && qe
 
             ///overlaps from left side
@@ -2013,7 +2013,7 @@ ma_sub_t* max_left, ma_sub_t* max_right, float overlap_rate, all_ul_t *x, uint64
         a = get_hifi2ul_list(x, xid, &a_n);
         for (k = 0; k < a_n; k++) {
             p = &(x->a[a[k]>>32].bb.a[(uint32_t)(a[k])]);
-            if(p->hid&x->mm) continue;///should not happen
+            if(p->base/**->hid&x->mm**/) continue;///should not happen
             qs = p->ts; qe = p->te;///note here is ts && te, instead of qs && qe
             ///check contained overlaps
             if(qs != 0 && qe != rLen)

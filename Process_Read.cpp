@@ -750,7 +750,7 @@ void destory_Debug_reads(Debug_reads* x)
 
 void init_all_ul_t(all_ul_t *x, All_reads *hR) {
 	memset(x, 0, sizeof(*x));
-	x->hR = hR; x->mm = 0x40000000;
+	x->hR = hR;
 	init_aux_table();
 }
 void destory_all_ul_t(all_ul_t *x) {
@@ -835,7 +835,7 @@ void push_subblock_original_bases(char* str, all_ul_t *x, ul_vec_t *p, uint32_t 
 	while (qs < e) {
 		qe = qs + subLen; if(qe > e) qe = e;
 		kv_pushp(uc_block_t, p->bb, &b);
-		b->hid = x->mm; b->rev = 0;
+		b->hid = (uint32_t)-1; b->rev = 0;
 		b->qs = qs; b->qe = qe;
 		b->ts = p->r_base.n; b->te = b->ts + B4L(b->qe - b->qs);
 		kv_resize(uint8_t, p->r_base, b->te); p->r_base.n = b->te;
@@ -887,7 +887,7 @@ void append_ul_t_compress_ovlp(all_ul_t *x, uint64_t *rid, char* id, int64_t id_
 			}
 			if(ovlp < 0) {///push original bases
 				kv_pushp(uc_block_t, p->bb, &b);
-				b->hid = x->mm; b->rev = 0;
+				b->hid = (uint32_t)-1/**x->mm**/; b->rev = 0; b->base = 1; b->pchain = 0;
 				b->qs = end; b->qe = b->qs - ovlp;
 				b->ts = p->r_base.n; b->te = b->ts + B4L(-ovlp);
 				kv_resize(uint8_t, p->r_base, b->te); p->r_base.n = b->te;
@@ -896,7 +896,7 @@ void append_ul_t_compress_ovlp(all_ul_t *x, uint64_t *rid, char* id, int64_t id_
 
 			///push ovlp bases
 			kv_pushp(uc_block_t, p->bb, &b);
-			b->hid = z->tn; b->rev = z->rev;
+			b->hid = (z->tn<<1)>>1; b->rev = z->rev; b->base = 0; b->pchain = 0;
 			b->qs = z->qs + (ovlp>0?ovlp:0); b->qe = z->qe;
 			if(z->rev) {
 				b->ts = z->ts; b->te = z->ts + (b->qe - b->qs);
@@ -909,7 +909,7 @@ void append_ul_t_compress_ovlp(all_ul_t *x, uint64_t *rid, char* id, int64_t id_
 		
 		if(end < str_l) {///push original bases
 			kv_pushp(uc_block_t, p->bb, &b);
-			b->hid = x->mm; b->rev = 0;
+			b->hid = (uint32_t)-1/**x->mm**/; b->rev = 0; b->base = 1; b->pchain = 0;
 			b->qs = end; b->qe = str_l;
 			b->ts = p->r_base.n; b->te = b->ts + B4L(b->qe - b->qs);
 			kv_resize(uint8_t, p->r_base, b->te); p->r_base.n = b->te;
@@ -969,13 +969,13 @@ void debug_append_ul_t(ul_ov_t *o, int64_t on, ul_vec_t *p)
 	}
 }
 
-void append_ul_t(all_ul_t *x, uint64_t *rid, char* id, int64_t id_l, char* str, int64_t str_l, ul_ov_t *o, int64_t on) {
-	int64_t i, mine, maxs, ovlp, st, et;
+void append_ul_t(all_ul_t *x, uint64_t *rid, char* id, int64_t id_l, char* str, int64_t str_l, ul_ov_t *o, int64_t on, float p_chain_rate) {
+	int64_t i, mine, maxs, ovlp, st, et, bl = 0, pc = 0;
 	uint32_t o_l, o_r;
 	ul_vec_t *p = NULL;
 	nid_t *np = NULL;
 	ul_ov_t *z = NULL;
-	uc_block_t *b = NULL;
+	uc_block_t *b = NULL, tt;
 
 	if(id) {
 		kv_pushp(nid_t, x->nid, &np);
@@ -996,7 +996,7 @@ void append_ul_t(all_ul_t *x, uint64_t *rid, char* id, int64_t id_l, char* str, 
 		}
 		
 
-		p->bb.n = p->N_site.n = p->r_base.n = 0; p->h = 0;
+		p->bb.n = p->N_site.n = p->r_base.n = 0; p->dd = 0;
 		p->rlen = str_l; 
 		
 		if(o == NULL || on == 0) on = 0;
@@ -1007,8 +1007,8 @@ void append_ul_t(all_ul_t *x, uint64_t *rid, char* id, int64_t id_l, char* str, 
 			
 			if(ovlp < 0) {///push original bases
 				kv_pushp(uc_block_t, p->bb, &b);
-				b->hid = x->mm; b->rev = 0;
-				b->qe = maxs; b->qs = b->qe + ovlp;
+				b->hid = 0/**x->mm**/; b->rev = 0; b->base = 1; b->pchain = 0;
+				b->qe = maxs; b->qs = b->qe + ovlp; bl += (b->qe-b->qs);
 				o_l = (b->qs >= UL_FLANK?UL_FLANK:b->qs);
 				o_r = ((str_l-b->qe)>=UL_FLANK?UL_FLANK:(str_l-b->qe));
 				b->hid |= (o_l<<15); b->hid |= o_r;
@@ -1020,17 +1020,19 @@ void append_ul_t(all_ul_t *x, uint64_t *rid, char* id, int64_t id_l, char* str, 
 
 			///push ovlp bases
 			kv_pushp(uc_block_t, p->bb, &b);
-			b->hid = (z->tn<<1)>>1; b->rev = z->rev;
+			b->hid = (z->tn<<1)>>1; b->rev = z->rev; b->base = 0; 
+			b->pchain = ((z->tn&((uint32_t)(0x80000000)))?1:0);
 			b->qs = z->qs; b->qe = z->qe;
 			b->ts = z->ts; b->te = z->te;
+			if(b->pchain) pc++;
 			
 			st = MIN(st, z->qs);
 		}
 		
 		if(st > 0) {///push original bases
 			kv_pushp(uc_block_t, p->bb, &b);
-			b->hid = x->mm; b->rev = 0;
-			b->qe = st; b->qs = 0;
+			b->hid = 0/**x->mm**/; b->rev = 0; b->base = 1; b->pchain = 0;
+			b->qe = st; b->qs = 0; bl += (b->qe-b->qs);
 			o_l = (b->qs >= UL_FLANK?UL_FLANK:b->qs);
 			o_r = ((str_l-b->qe)>=UL_FLANK?UL_FLANK:(str_l-b->qe));
 			b->hid |= (o_l<<15); b->hid |= o_r;
@@ -1040,6 +1042,10 @@ void append_ul_t(all_ul_t *x, uint64_t *rid, char* id, int64_t id_l, char* str, 
 			ha_encode_base(p->r_base.a+b->ts, str+b->qs, b->qe-b->qs, &(p->N_site), b->qs);	
 			// push_subblock_original_bases(str, x, p, end, str_l, 321);//for debug
 		}
+
+		if(pc > 0) p->dd = 3;
+		if((pc == on) && ((str_l-bl) > (str_l*p_chain_rate))) p->dd = 2;
+		if((pc == on) && (bl == 0)) p->dd = 1;
 		// debug_append_ul_t(o, on, p);
 		// char *sst = NULL; CALLOC(sst, str_l);//for debug
 		// retrieve_ul_t(NULL, sst, x, rid?*rid:x->n-1, 0, 0, -1);
@@ -1050,6 +1056,13 @@ void append_ul_t(all_ul_t *x, uint64_t *rid, char* id, int64_t id_l, char* str, 
 		// 	}
 		// }
 		// free(sst);
+		ovlp = p->bb.n>>1;
+		for (i = 0; i < ovlp; i++) {
+			tt = p->bb.a[i]; 
+			p->bb.a[i] = p->bb.a[p->bb.n-i-1];
+			p->bb.a[p->bb.n-i-1] = tt;
+		}
+		
 	}
 }
 
@@ -1084,7 +1097,7 @@ void retrieve_ul_t(UC_Read* i_r, char *i_s, all_ul_t *ref, uint64_t ID, uint8_t 
 			sep = MIN(e, b->qe) - b->qs;
 			sl = sep - ssp;
 			
-			if(b->hid&ref->mm){///original bases
+			if(b->base/**b->hid&ref->mm**/){///original bases
 				offset = ssp&3; 
 				begLen = 4-offset;
 				if(begLen > sl) begLen = sl;
@@ -1140,7 +1153,7 @@ void retrieve_ul_t(UC_Read* i_r, char *i_s, all_ul_t *ref, uint64_t ID, uint8_t 
             sl = sep - ssp;
 			///[ssp, sep)
 			
-			if(b->hid&ref->mm){///original bases
+			if(b->base/**b->hid&ref->mm**/){///original bases
 				begLen = sep&3;
         		offset = 4 - begLen;
 				if(begLen > sl) begLen = sl;
@@ -1350,15 +1363,18 @@ uint64_t retrieve_r_cov_region(const ul_idx_t *ul, uint64_t id, uint8_t strand, 
         }
 	}
 	if(pi) *pi = k;
-
+	if(k + 1 >= a_n) return e>=s?e-s:0;
+	if(k < 0) k = 0;
 	
-
+	///note: for unitig coverage, all 
 	for (; k + 1 < a_n; k++) {
+		// fprintf(stderr, "[M::%s] k:%ld, a_n:%ld\n", __func__, k, a_n);
 		ts = a[k]>>32; te = a[k+1]>>32; cc = (uint32_t)a[k];
 		o = (MIN(e, te) > MAX(s, ts))?(MIN(e, te)-MAX(s, ts)):0;
 		tcc += o*cc;
 		// fprintf(stderr, ">>k:%ld, s:%lu, e:%lu, ts:%lu, te:%lu, o:%lu, cc:%lu\n", k, s, e, ts, te, o, cc);
 		if(e>=(a[k]>>32) && e<(a[k+1]>>32)) break;
+		if(e<=(a[k]>>32)) break;///if may happend when [s, e) does not overlap with the first region
 	}
     
     

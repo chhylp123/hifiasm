@@ -183,7 +183,7 @@ typedef struct
     kvec_t(uc_block_t) bb;
     N_t N_site;
 
-    uint8_t h;
+    uint8_t dd;
 } ul_vec_t;
 
 typedef struct{
@@ -224,7 +224,7 @@ void recover_UC_sub_Read(UC_Read* i_r, long long start_pos, long long length, ui
 
 void init_all_ul_t(all_ul_t *x, All_reads *hR);
 void destory_all_ul_t(all_ul_t *x);
-void append_ul_t(all_ul_t *x, uint64_t *rid, char* id, int64_t id_l, char* str, int64_t str_l, ul_ov_t *o, int64_t on);
+void append_ul_t(all_ul_t *x, uint64_t *rid, char* id, int64_t id_l, char* str, int64_t str_l, ul_ov_t *o, int64_t on, float p_chain_rate);
 void retrieve_ul_t(UC_Read* i_r, char *i_s, all_ul_t *ref, uint64_t ID, uint8_t strand, int64_t s, int64_t l);
 void retrieve_u_seq(UC_Read* i_r, char* i_s, ma_utg_t *u, uint8_t strand, int64_t s, int64_t l, void *km);
 void debug_retrieve_rc_sub(const ug_opt_t *uopt, all_ul_t *ref, const All_reads *R_INF, ul_idx_t *ul, uint32_t n_step);
