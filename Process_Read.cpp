@@ -1007,7 +1007,7 @@ void append_ul_t(all_ul_t *x, uint64_t *rid, char* id, int64_t id_l, char* str, 
 			
 			if(ovlp < 0) {///push original bases
 				kv_pushp(uc_block_t, p->bb, &b);
-				b->hid = 0/**x->mm**/; b->rev = 0; b->base = 1; b->pchain = 0;
+				b->hid = 0/**x->mm**/; b->rev = 0; b->base = 1; b->pchain = 0; b->el = 0;
 				b->qe = maxs; b->qs = b->qe + ovlp; bl += (b->qe-b->qs);
 				o_l = (b->qs >= UL_FLANK?UL_FLANK:b->qs);
 				o_r = ((str_l-b->qe)>=UL_FLANK?UL_FLANK:(str_l-b->qe));
@@ -1020,7 +1020,7 @@ void append_ul_t(all_ul_t *x, uint64_t *rid, char* id, int64_t id_l, char* str, 
 
 			///push ovlp bases
 			kv_pushp(uc_block_t, p->bb, &b);
-			b->hid = (z->tn<<1)>>1; b->rev = z->rev; b->base = 0; 
+			b->hid = (z->tn<<1)>>1; b->rev = z->rev; b->base = 0; b->el = 1;
 			b->pchain = ((z->tn&((uint32_t)(0x80000000)))?1:0);
 			b->qs = z->qs; b->qe = z->qe;
 			b->ts = z->ts; b->te = z->te;
@@ -1031,7 +1031,7 @@ void append_ul_t(all_ul_t *x, uint64_t *rid, char* id, int64_t id_l, char* str, 
 		
 		if(st > 0) {///push original bases
 			kv_pushp(uc_block_t, p->bb, &b);
-			b->hid = 0/**x->mm**/; b->rev = 0; b->base = 1; b->pchain = 0;
+			b->hid = 0/**x->mm**/; b->rev = 0; b->base = 1; b->pchain = 0; b->el = 0;
 			b->qe = st; b->qs = 0; bl += (b->qe-b->qs);
 			o_l = (b->qs >= UL_FLANK?UL_FLANK:b->qs);
 			o_r = ((str_l-b->qe)>=UL_FLANK?UL_FLANK:(str_l-b->qe));

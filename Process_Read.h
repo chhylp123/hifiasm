@@ -161,7 +161,7 @@ typedef struct
 {
     uint32_t hid;
     uint32_t qs, qe, ts, te;
-    uint8_t pchain:6, rev:1, base:1;
+    uint8_t pchain:5, rev:1, base:1, el:1;
 } uc_block_t;
 
 typedef struct
