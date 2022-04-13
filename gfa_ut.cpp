@@ -7,6 +7,7 @@
 #include "gfa_ut.h" 
 #include "CommandLines.h"
 #include "Correct.h"
+#include "inter.h"
 
 #define generic_key(x) (x)
 KRADIX_SORT_INIT(srt64, uint64_t, generic_key, 8)
@@ -169,7 +170,7 @@ uint32_t asg_arc_cut_tips(asg_t *g, uint32_t max_ext, asg64_v *in, uint32_t is_o
         }
 		if(mm_ou == (uint32_t)-1) mm_ou = 0;
 		kv += mm_ou; i += mm_ou;
-        if(i < max_ext + (!!is_ou)) kv_push(uint64_t, *b, (((uint64_t)kv)<<32)|v);  
+        if(i < max_ext/** + (!!is_ou)**/) kv_push(uint64_t, *b, (((uint64_t)kv)<<32)|v);  
     }
 
     radix_sort_srt64(b->a, b->a + b->n);
@@ -194,7 +195,7 @@ uint32_t asg_arc_cut_tips(asg_t *g, uint32_t max_ext, asg64_v *in, uint32_t is_o
 		if(mm_ou == (uint32_t)-1) mm_ou = 0;
 		i += mm_ou;
 
-        if(i < max_ext + (!!is_ou)) {
+        if(i < max_ext/** + (!!is_ou)**/) {
             for (i = pb; i < b->n; i++) asg_seq_del(g, ((uint32_t)b->a[i])>>1);
             cnt++;
         }
@@ -239,11 +240,13 @@ static void update_sg_uo_t(void *data, long i, int tid)
 	ma_hit_t_alloc *src = sl->src; asg_t *g = sl->g;
 	asg_arc_t *e = &(g->arc[i]); uint32_t k, qn, tn;
     ma_hit_t_alloc *x = &(src[e->ul>>33]);
+    e->ou = 0;
+    if(e->del) return;
 	for (k = 0; k < x->length; k++) {
 		qn = Get_qn(x->buffer[k]);
 		tn = Get_tn(x->buffer[k]);
 		if(qn == (e->ul>>33) && tn == (e->v>>1)) {
-			e->ou = (x->buffer[k].bl&OU_MASK);
+			e->ou = (x->buffer[k].bl>OU_MASK?OU_MASK:x->buffer[k].bl);
 			break;
 		}
 	}
@@ -254,6 +257,32 @@ void update_sg_uo(asg_t *g, ma_hit_t_alloc *src)
 {
 	sset_aux s; s.g = g; s.src = src;
 	kt_for(asm_opt.thread_num, update_sg_uo_t, &s, g->n_arc);
+    uint32_t k, z, nv, occ_a = 0, occ_n = 0; asg_arc_t *av = NULL;
+    for (k = 0; k < g->n_seq; k++) {
+        if(g->seq[k].del) continue;
+        occ_n++;
+
+        av = asg_arc_a(g, (k<<1)); nv = asg_arc_n(g, (k<<1));
+        for (z = 0; z < nv; z++) {
+            if(av[z].del || av[z].ou == 0) continue;
+            break;
+        }
+        if(z < nv) {
+            occ_a++;
+            continue;
+        }
+
+        av = asg_arc_a(g, ((k<<1)+1)); nv = asg_arc_n(g, ((k<<1)+1));
+        for (z = 0; z < nv; z++) {
+            if(av[z].del || av[z].ou == 0) continue;
+            break;
+        }
+        if(z < nv) {
+            occ_a++;
+        }
+    }
+
+    fprintf(stderr, "[M::%s::] ==> # gfa reads:%u, # covered gfa reads:%u\n", __func__, occ_n, occ_a);
 }
 
 int32_t if_sup_chimeric(ma_hit_t_alloc* src, uint64_t rLen, asg64_v *b, int if_exact)
@@ -328,7 +357,7 @@ int32_t if_sup_chimeric(ma_hit_t_alloc* src, uint64_t rLen, asg64_v *b, int if_e
 }
 
 ///remove single node
-void asg_arc_cut_chimeric(asg_t *g, ma_hit_t_alloc* src, asg64_v *in)
+void asg_arc_cut_chimeric(asg_t *g, ma_hit_t_alloc* src, asg64_v *in, uint32_t ou_thres)
 {
 	asg64_v tx = {0,0,0}, *b = NULL;
 	uint32_t v, w, ei[2] = {0}, k, i, n_vtx = g->n_seq<<1;
@@ -344,7 +373,8 @@ void asg_arc_cut_chimeric(asg_t *g, ma_hit_t_alloc* src, asg64_v *in)
             assert((g->arc[ei[0]].ul>>32) == v && (g->arc[ei[1]].ul>>32) == (v^1));
             if((get_arcs(g, g->arc[ei[0]].v^1, NULL, 0)<2) || (get_arcs(g, g->arc[ei[1]].v^1, NULL, 0)<2)) continue;
             if(g->arc[ei[0]].el) continue;       
-            if(!if_sup_chimeric(&(src[v>>1]), g->seq[v>>1].len, b, 1)) continue;
+            if(ou_thres!=(uint32_t)-1&&g->arc[ei[0]].ou>=ou_thres&&g->arc[ei[1]].ou>=ou_thres) continue;///UL
+            if(!if_sup_chimeric(&(src[v>>1]), g->seq[v>>1].len, b, 1)) continue;///HiFi
             kv_push(uint64_t, *b, (((uint64_t)(g->arc[ei[0]].ol))<<32)|((uint64_t)(ei[0])));
         }
 	}
@@ -429,9 +459,8 @@ void asg_arc_cut_inexact(asg_t *g, ma_hit_t_alloc* src, asg64_v *in, int32_t max
         }
         ///mm_ol and mm_ou are used to make edge with long indel more easy to be cutted
         mm_ol = MIN(ve->ol, we->ol); mm_ou = MIN(ve->ou, we->ou);
-        for (i = kv = ol_max = ou_max = 0, /**ve =**/ vmax = NULL; i < nv; ++i) {
+        for (i = kv = ol_max = ou_max = 0, vmax = NULL; i < nv; ++i) {
             if(av[i].del) continue;
-            // if(av[i].v == (w^1)) ve = &(av[i]);
             kv++;
             if(is_trio && get_tip_trio_infor(g, av[i].v) == ntrioF) continue;
             if(ol_max < av[i].ol) ol_max = av[i].ol, vmax = &(av[i]);
@@ -442,13 +471,12 @@ void asg_arc_cut_inexact(asg_t *g, ma_hit_t_alloc* src, asg64_v *in, int32_t max
         // }
         if (kv < 1) continue;
         if (kv >= 2) {
-            if (/**ve->ol**/mm_ol >= ol_max) continue;
-            if (is_ou && /**ve->ou**/mm_ou >= ou_max) continue;
+            if (mm_ol >= ol_max) continue;
+            if (is_ou && mm_ou >= ou_max) continue;
         }
         
-        for (i = kw = ol_max = ou_max = 0/**, we = NULL**/; i < nw; ++i) {
+        for (i = kw = ol_max = ou_max = 0; i < nw; ++i) {
             if(aw[i].del) continue;
-            // if(aw[i].v == (v^1)) we = &(aw[i]);
             kw++;
             if(is_trio && get_tip_trio_infor(g, aw[i].v) == ntrioF) continue;
             if(ol_max < aw[i].ol) ol_max = aw[i].ol;
@@ -459,8 +487,8 @@ void asg_arc_cut_inexact(asg_t *g, ma_hit_t_alloc* src, asg64_v *in, int32_t max
         // }
         if (kw < 1) continue;
         if (kw >= 2) {
-            if (/**we->ol**/mm_ol >= ol_max) continue;
-            if (is_ou && /**we->ou**/mm_ou >= ou_max) continue;
+            if (mm_ol >= ol_max) continue;
+            if (is_ou && mm_ou >= ou_max) continue;
         }
         if (kv <= 1 && kw <= 1) continue;
 
@@ -698,6 +726,7 @@ uint32_t is_topo, ma_hit_t_alloc *rev, R_to_U* rI, uint32_t *max_drop_len)
 	b->n = 0;
 
     for (v = 0; v < n_vtx; ++v) {
+        // if((v>>1)==17078) fprintf(stderr, "[M::%s::] v:%u, del:%u, seq_vis:%u\n", __func__, v, g->seq[v>>1].del, g->seq_vis[v]);
         if (g->seq[v>>1].del) continue;
         if(g->seq_vis[v] == 0) {
             av = asg_arc_a(g, v); nv = asg_arc_n(g, v);
@@ -711,6 +740,11 @@ uint32_t is_topo, ma_hit_t_alloc *rev, R_to_U* rI, uint32_t *max_drop_len)
 
             for (i = 0; i < nv; ++i) {
                 if(av[i].del) continue;
+                // if((av[i].ul>>33)==287) {
+                //     fprintf(stderr, "++++++%.*s(%c)\t%.*s(%c)\tol:%u\tou:%u\n", 
+                //     (int32_t)Get_NAME_LENGTH(R_INF, (av[i].ul>>33)), Get_NAME(R_INF, (av[i].ul>>33)), "+-"[(av[i].ul>>32)&1], 
+                //     (int32_t)Get_NAME_LENGTH(R_INF, (av[i].v>>1)), Get_NAME(R_INF, (av[i].v>>1)), "+-"[av[i].v&1], av[i].ol, av[i].ou);
+                // }
                 if(max_drop_len && av[i].ol >= (*max_drop_len)) continue;
                 kv_push(uint64_t, *b, (((uint64_t)av[i].ol)<<32) | ((uint64_t)(av-g->arc+i)));   
             }
@@ -747,6 +781,11 @@ uint32_t is_topo, ma_hit_t_alloc *rev, R_to_U* rI, uint32_t *max_drop_len)
         for (i = kv = ol_max = ou_max = 0, /**ve =**/ vl_max = NULL; i < nv; ++i) {
             if(av[i].del) continue;
             // if(av[i].v == (w^1)) ve = &(av[i]);
+            // if((av[i].ul>>33)==287) {
+            //     fprintf(stderr, "++++++%.*s(%c)\t%.*s(%c)\tol:%u\tou:%u\n", 
+            //     (int32_t)Get_NAME_LENGTH(R_INF, (av[i].ul>>33)), Get_NAME(R_INF, (av[i].ul>>33)), "+-"[(av[i].ul>>32)&1], 
+            //     (int32_t)Get_NAME_LENGTH(R_INF, (av[i].v>>1)), Get_NAME(R_INF, (av[i].v>>1)), "+-"[av[i].v&1], av[i].ol, av[i].ou);
+            // }
             kv++;
             if(is_trio && get_tip_trio_infor(g, av[i].v) == ntrioF) continue;
             if(ol_max < av[i].ol) ol_max = av[i].ol, vl_max = &(av[i]);
@@ -754,14 +793,13 @@ uint32_t is_topo, ma_hit_t_alloc *rev, R_to_U* rI, uint32_t *max_drop_len)
         }
         if (kv < 1) continue;
         if (kv >= 2) {
-            if (/**ve->ol**/mm_ol > ol_max*len_rat) continue;
-            if (is_ou && /**ve->ou**/mm_ou > ou_max*ou_rat) continue;
+            if (mm_ol > ol_max*len_rat) continue;
+            if (is_ou && mm_ou > ou_max*ou_rat) continue;
         }
         
 
-        for (i = kw = ol_max = ou_max = 0, /**we =**/ wl_max = NULL; i < nw; ++i) {
+        for (i = kw = ol_max = ou_max = 0, wl_max = NULL; i < nw; ++i) {
             if(aw[i].del) continue;
-            // if(aw[i].v == (v^1)) we = &(aw[i]);
             kw++;
             if(is_trio && get_tip_trio_infor(g, aw[i].v) == ntrioF) continue;
             if(ol_max < aw[i].ol) ol_max = aw[i].ol, wl_max = &(aw[i]);
@@ -769,8 +807,8 @@ uint32_t is_topo, ma_hit_t_alloc *rev, R_to_U* rI, uint32_t *max_drop_len)
         }
         if (kw < 1) continue;
         if (kw >= 2) {
-            if (/**we->ol**/mm_ol > ol_max*len_rat) continue;
-            if (is_ou && /**we->ou**/mm_ou > ou_max*ou_rat) continue;
+            if (mm_ol > ol_max*len_rat) continue;
+            if (is_ou && mm_ou > ou_max*ou_rat) continue;
         }
 
         if (kv <= 1 && kw <= 1) continue;
@@ -1234,8 +1272,47 @@ void debug_edges(asg64_v *dbg, uint32_t *l, uint32_t l_n) {
     }
 }
 
-void ul_clean_gfa(asg_t *sg, ma_hit_t_alloc *src, ma_hit_t_alloc *rev, R_to_U* rI, int64_t clean_round, double min_ovlp_drop_ratio, double max_ovlp_drop_ratio, 
-double ou_drop_rate, int64_t max_tip, bub_label_t *b_mask_t, int32_t is_ou, int32_t is_trio)
+void print_node(asg_t *sg, uint32_t src)
+{
+    asg_arc_t *av; uint32_t nv, v, i;
+    v = src<<1;
+    av = asg_arc_a(sg, v); nv = asg_arc_n(sg, v);
+    fprintf(stderr, "\n%.*s(%c)\tnv:%u\n", 
+                (int32_t)Get_NAME_LENGTH(R_INF, v>>1), Get_NAME(R_INF, v>>1), "+-"[v&1], nv);
+    for (i = 0; i < nv; i++) {
+        fprintf(stderr, "++++++%.*s(%c)<id:%lu>\t%.*s(%c)<id:%u>\tol:%u\tou:%u\tdel:%u\n", 
+                (int32_t)Get_NAME_LENGTH(R_INF, (av[i].ul>>33)), Get_NAME(R_INF, (av[i].ul>>33)), "+-"[(av[i].ul>>32)&1], av[i].ul>>33, 
+                (int32_t)Get_NAME_LENGTH(R_INF, (av[i].v>>1)), Get_NAME(R_INF, (av[i].v>>1)), "+-"[av[i].v&1], av[i].v>>1, av[i].ol, av[i].ou, av[i].del);
+    }
+
+    v = (src<<1)+1;
+    av = asg_arc_a(sg, v); nv = asg_arc_n(sg, v);
+    fprintf(stderr, "\n%.*s(%c)\tnv:%u\n", 
+                (int32_t)Get_NAME_LENGTH(R_INF, v>>1), Get_NAME(R_INF, v>>1), "+-"[v&1], nv);
+    for (i = 0; i < nv; i++) {
+        fprintf(stderr, "------%.*s(%c)<id:%lu>\t%.*s(%c)<id:%u>\tol:%u\tou:%u\tdel:%u\n", 
+                (int32_t)Get_NAME_LENGTH(R_INF, (av[i].ul>>33)), Get_NAME(R_INF, (av[i].ul>>33)), "+-"[(av[i].ul>>32)&1], av[i].ul>>33, 
+                (int32_t)Get_NAME_LENGTH(R_INF, (av[i].v>>1)), Get_NAME(R_INF, (av[i].v>>1)), "+-"[av[i].v&1], av[i].v>>1, av[i].ol, av[i].ou, av[i].del);
+    }
+}
+
+void print_vw_edge(asg_t *sg, uint32_t v, uint32_t w, const char *cmd)
+{
+    asg_arc_t *av; uint32_t nv, i;
+    av = asg_arc_a(sg, v); nv = asg_arc_n(sg, v);
+    for (i = 0; i < nv; i++) {
+        if(av[i].v == w) {
+            fprintf(stderr, "[%s]\t%.*s(%c)<id:%lu>\t%.*s(%c)<id:%u>\tol:%u\tou:%u\tdel:%u\n", cmd, 
+                (int32_t)Get_NAME_LENGTH(R_INF, (av[i].ul>>33)), Get_NAME(R_INF, (av[i].ul>>33)), "+-"[(av[i].ul>>32)&1], av[i].ul>>33, 
+                (int32_t)Get_NAME_LENGTH(R_INF, (av[i].v>>1)), Get_NAME(R_INF, (av[i].v>>1)), "+-"[av[i].v&1], av[i].v>>1, av[i].ol, av[i].ou, av[i].del);
+            break;
+        }
+    }
+    if(i >= nv) fprintf(stderr, "[%s]\tno edges\n", cmd);
+}
+
+void ul_clean_gfa(ug_opt_t *uopt, asg_t *sg, ma_hit_t_alloc *src, ma_hit_t_alloc *rev, R_to_U* rI, int64_t clean_round, double min_ovlp_drop_ratio, double max_ovlp_drop_ratio, 
+double ou_drop_rate, int64_t max_tip, bub_label_t *b_mask_t, int32_t is_ou, int32_t is_trio, uint32_t ou_thres)
 {
     #define HARD_OU_DROP 0.75
     #define HARD_OL_DROP 0.6
@@ -1250,16 +1327,16 @@ double ou_drop_rate, int64_t max_tip, bub_label_t *b_mask_t, int32_t is_ou, int3
 	asg_arc_cut_tips(sg, max_tip, &bu, is_ou);
     for (i = 0; i < clean_round; i++, drop += step) {
         if(drop > max_ovlp_drop_ratio) drop = max_ovlp_drop_ratio;
+        // fprintf(stderr, "(0):i->%ld, drop->%f\n", i, drop);
+        // print_vw_edge(sg, 34156, 34090, "0");
         // stats_chimeric(sg, src, &bu);
         if(!is_ou) asg_iterative_semi_circ(sg, src, &bu, max_tip, 1);
-        // fprintf(stderr, "(0):i->%ld, drop->%f\n", i, drop);
+
         asg_arc_identify_simple_bubbles_multi(sg, b_mask_t, 1);
-        asg_arc_cut_chimeric(sg, src, &bu);
+        asg_arc_cut_chimeric(sg, src, &bu, is_ou?ou_thres:(uint32_t)-1);
         asg_arc_cut_tips(sg, max_tip, &bu, is_ou);
 
         asg_arc_identify_simple_bubbles_multi(sg, b_mask_t, 0);
-
-        // print_edge(sg->arc+45471, "a"); 
         asg_arc_cut_inexact(sg, src, &bu, max_tip, is_ou, is_trio/**, NULL**//**&dbg**/);
         // debug_edges(&dbg, d, 2);
         asg_arc_cut_tips(sg, max_tip, &bu, is_ou);
@@ -1270,11 +1347,12 @@ double ou_drop_rate, int64_t max_tip, bub_label_t *b_mask_t, int32_t is_ou, int3
 
         asg_arc_identify_simple_bubbles_multi(sg, b_mask_t, 1);
         asg_arc_cut_bub_links(sg, &bu, HARD_OL_DROP, HARD_OL_SEC_DROP, HARD_OU_DROP, is_ou, asm_opt.large_pop_bubble_size, rev, rI, max_tip);
-
+        
         asg_arc_identify_simple_bubbles_multi(sg, b_mask_t, 1);
         asg_arc_cut_complex_bub_links(sg, &bu, HARD_OL_DROP, HARD_OU_DROP, is_ou, b_mask_t);
         asg_arc_cut_tips(sg, max_tip, &bu, is_ou);
     }
+
     if(!is_ou) asg_iterative_semi_circ(sg, src, &bu, max_tip, 1);
 
     asg_arc_identify_simple_bubbles_multi(sg, b_mask_t, 0);
@@ -1291,6 +1369,10 @@ double ou_drop_rate, int64_t max_tip, bub_label_t *b_mask_t, int32_t is_ou, int3
     asg_arc_cut_tips(sg, max_tip, &bu, is_ou);
 
     if(!is_ou) asg_cut_semi_circ(sg, LIM_LEN, 1);
+
+    if(is_ou) ul_refine_alignment(uopt, sg);
+
+    // print_node(sg, 17078); //print_node(sg, 8311); print_node(sg, 8294);
     
     free(bu.a); 
 }

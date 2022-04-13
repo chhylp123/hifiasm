@@ -232,7 +232,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->kpt_rate = -1;
     asm_opt->infor_cov = 3;
     asm_opt->s_hap_cov = 3;
-    asm_opt->ul_error_rate = 0.15;
+    asm_opt->ul_error_rate = 0.2/**0.15**/;
     asm_opt->is_dbg_het_cnt = 0;
 }
 

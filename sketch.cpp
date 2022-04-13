@@ -158,7 +158,7 @@ void debug_pl(const char *str, int len, int w, int k, int is_hpc, ha_mz1_v *p, c
                 y = yak_hash64_64(kmer[z<<1|0]) + yak_hash64_64(kmer[z<<1|1]);
                 cnt = hf? ha_ft_cnt(hf, y) : 0;
 
-				for (dbi = 0; dbi < mt->n; dbi++)
+				for (dbi = 0; dbi < (int32_t)mt->n; dbi++)
 				{
 					if(p->a[dbi].x == y && p->a[dbi].rid == cnt && p->a[dbi].pos == i && p->a[dbi].rev == z && p->a[dbi].span == kmer_span)
 					{
@@ -170,9 +170,9 @@ void debug_pl(const char *str, int len, int w, int k, int is_hpc, ha_mz1_v *p, c
         } else l = 0, tq.count = tq.front = 0, kmer_span = 0;
 	}
 
-	if(dbcnt != mt->n) fprintf(stderr, "ERROR\n");
-	if(mt->n != (int)p->n) fprintf(stderr, "ERROR\n");
-	for (dbi = 1; dbi < mt->n; dbi++)
+	if(dbcnt != (int32_t)mt->n) fprintf(stderr, "ERROR\n");
+	if(mt->n != p->n) fprintf(stderr, "ERROR\n");
+	for (dbi = 1; dbi < (int32_t)mt->n; dbi++)
 	{
 		if(p->a[dbi].pos <= p->a[dbi-1].pos || (int)mt->a[dbi] <= (int)mt->a[dbi-1])
 		{

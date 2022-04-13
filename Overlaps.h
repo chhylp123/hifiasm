@@ -226,6 +226,16 @@ typedef struct {
 } ucov_t;
 
 typedef struct {
+	uint32_t u, off, pos;
+} utg_rid_dt;
+
+typedef struct {
+	uint32_t *idx;
+	kvec_t(utg_rid_dt) p;
+	asg_t *rg;
+} utg_rid_t;
+
+typedef struct {
 	kvec_t(uint64_t) idx;
 	kvec_t(utg_ct_t) rids;
 	kvec_t(uint8_t) is_c;
@@ -242,6 +252,7 @@ typedef struct {
 	ucov_t *cc;
 	ucov_t *cr;
 	ul_contain *ct;
+	utg_rid_t *r_ug;
 	// cvert_t *nug;
 	// kv_ul_ov_t *ov;
 } ul_idx_t;
@@ -1059,6 +1070,8 @@ int asg_topocut_aux(asg_t *g, uint32_t v, int max_ext);
 int asg_arc_del_triangular_directly(asg_t *g, long long min_edge_length, 
 ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex);
 int asg_arc_del_short_diploid_by_exact(asg_t *g, int max_ext, ma_hit_t_alloc* sources);
+uint32_t print_debug_gfa(asg_t *read_g, ma_ug_t *ug, ma_sub_t* coverage_cut, const char* output_file_name, 
+ma_hit_t_alloc* sources, R_to_U* ruIndex, int max_hang, int min_ovlp);
 
 #define JUNK_COV 5
 #define DISCARD_RATE 0.8

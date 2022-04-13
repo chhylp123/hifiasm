@@ -982,7 +982,7 @@ void append_ul_t(all_ul_t *x, uint64_t *rid, char* id, int64_t id_l, char* str, 
 		np->n = id_l; MALLOC(np->a, np->n+1); memcpy(np->a, id, id_l); np->a[id_l] = '\0';
 	}
 
-	if(str) {
+	if(str||str_l) {
 		if(rid == NULL) {
 			kv_pushp(ul_vec_t, *x, &p);
 			memset(p, 0, sizeof(*p));
@@ -994,7 +994,7 @@ void append_ul_t(all_ul_t *x, uint64_t *rid, char* id, int64_t id_l, char* str, 
 			}
 			p = &(x->a[(*rid)]);
 		}
-		
+		// if((*rid) == 23) fprintf(stderr, "#rid->%lu, on->%ld\n", *rid, on);
 
 		p->bb.n = p->N_site.n = p->r_base.n = 0; p->dd = 0;
 		p->rlen = str_l; 
@@ -1002,31 +1002,36 @@ void append_ul_t(all_ul_t *x, uint64_t *rid, char* id, int64_t id_l, char* str, 
 		if(o == NULL || on == 0) on = 0;
 		for (i = on-1, st = et = str_l; i >= 0; i--) {
 			z = &(o[i]);
-			mine = MIN(et, ((int64_t)z->qe)); maxs = MAX(st, ((int64_t)z->qs));
-			ovlp = mine - maxs; 
-			
-			if(ovlp < 0) {///push original bases
-				kv_pushp(uc_block_t, p->bb, &b);
-				b->hid = 0/**x->mm**/; b->rev = 0; b->base = 1; b->pchain = 0; b->el = 0;
-				b->qe = maxs; b->qs = b->qe + ovlp; bl += (b->qe-b->qs);
-				o_l = (b->qs >= UL_FLANK?UL_FLANK:b->qs);
-				o_r = ((str_l-b->qe)>=UL_FLANK?UL_FLANK:(str_l-b->qe));
-				b->hid |= (o_l<<15); b->hid |= o_r;
-				b->qs -= o_l; b->qe += o_r;
-				b->ts = p->r_base.n; b->te = b->ts + B4L(b->qe-b->qs);
-				kv_resize(uint8_t, p->r_base, b->te); p->r_base.n = b->te;
-				ha_encode_base(p->r_base.a+b->ts, str+b->qs, b->qe-b->qs, &(p->N_site), b->qs);
-			} 
+			if(z->el) {
+				mine = MIN(et, ((int64_t)z->qe)); maxs = MAX(st, ((int64_t)z->qs));
+				ovlp = mine - maxs; 
+				
+				if(ovlp < 0) {///push original bases
+					kv_pushp(uc_block_t, p->bb, &b);
+					b->hid = 0/**x->mm**/; b->rev = 0; b->base = 1; b->pchain = 0; b->el = 0;
+					b->qe = maxs; b->qs = b->qe + ovlp; bl += (b->qe-b->qs);
+					o_l = (b->qs >= UL_FLANK?UL_FLANK:b->qs);
+					o_r = ((str_l-b->qe)>=UL_FLANK?UL_FLANK:(str_l-b->qe));
+					b->hid |= (o_l<<15); b->hid |= o_r;
+					b->qs -= o_l; b->qe += o_r;
+					b->ts = p->r_base.n; b->te = b->ts + B4L(b->qe-b->qs);
+					kv_resize(uint8_t, p->r_base, b->te); p->r_base.n = b->te;
+					// if(!str) fprintf(stderr, "+rid->%lu\n", *rid);
+					ha_encode_base(p->r_base.a+b->ts, str+b->qs, b->qe-b->qs, &(p->N_site), b->qs);
+				} 
+
+				st = MIN(st, z->qs);
+			}
 
 			///push ovlp bases
 			kv_pushp(uc_block_t, p->bb, &b);
-			b->hid = (z->tn<<1)>>1; b->rev = z->rev; b->base = 0; b->el = 1;
+			b->hid = (z->tn<<1)>>1; b->rev = z->rev; b->base = 0; b->el = z->el;
 			b->pchain = ((z->tn&((uint32_t)(0x80000000)))?1:0);
 			b->qs = z->qs; b->qe = z->qe;
 			b->ts = z->ts; b->te = z->te;
 			if(b->pchain) pc++;
 			
-			st = MIN(st, z->qs);
+			// st = MIN(st, z->qs);
 		}
 		
 		if(st > 0) {///push original bases
@@ -1039,6 +1044,7 @@ void append_ul_t(all_ul_t *x, uint64_t *rid, char* id, int64_t id_l, char* str, 
 			b->qs -= o_l; b->qe += o_r;
 			b->ts = p->r_base.n; b->te = b->ts + B4L(b->qe-b->qs);
 			kv_resize(uint8_t, p->r_base, b->te); p->r_base.n = b->te;
+			// if(!str) fprintf(stderr, "-rid->%lu, st->%ld, str_l->%ld\n", *rid, st, str_l);
 			ha_encode_base(p->r_base.a+b->ts, str+b->qs, b->qe-b->qs, &(p->N_site), b->qs);	
 			// push_subblock_original_bases(str, x, p, end, str_l, 321);//for debug
 		}
@@ -1335,7 +1341,7 @@ uint64_t retrieve_u_cov_region(const ul_idx_t *ul, uint64_t id, uint8_t strand, 
 		if(e>=(a[k]>>32) && e<(a[k+1]>>32)) break;
 	}
     
-    
+    // if(s == 54201 && e == 58376 && id == 492) fprintf(stderr, "tcc:%lu\n", tcc);
     return tcc;
 }
 

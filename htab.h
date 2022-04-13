@@ -6,7 +6,7 @@
 #include "CommandLines.h"
 
 typedef struct {
-	int n, m;
+	size_t n, m;
 	uint64_t *a;
 } st_mt_t;
 
