@@ -52,6 +52,7 @@
 #define TRIM 10
 #define CUT 11
 #define CUT_DIF_HAP 12
+#define SEC_MODE ((uint32_t)(0x3fffffffU))
 
 ///query is the read itself
 typedef struct {

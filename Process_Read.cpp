@@ -6,6 +6,7 @@
 #include "htab.h"
 #include "Correct.h"
 #include "kalloc.h"
+#include <assert.h>
 
 #define UL_FLANK 512
 uint8_t seq_nt6_table[256] = {
@@ -774,7 +775,7 @@ void ha_encode_base(uint8_t* dest, char* src, uint64_t src_l, N_t *nn, uint64_t 
 
     while (i + 4 <= src_l) {
         tmp = 0;
-
+		// fprintf(stderr, "i->%lu, src_l->%ld, src[i]->%c, (uint8_t)src[i]->%u\n", i, src_l, src[i], (uint8_t)src[i]);
         c = seq_nt6_table[(uint8_t)src[i]];
 		if (c >= 4) {
 			c = 0; kv_push(uint32_t, *nn, i+nn_offset);
@@ -969,7 +970,7 @@ void debug_append_ul_t(ul_ov_t *o, int64_t on, ul_vec_t *p)
 	}
 }
 
-void append_ul_t(all_ul_t *x, uint64_t *rid, char* id, int64_t id_l, char* str, int64_t str_l, ul_ov_t *o, int64_t on, float p_chain_rate) {
+void append_ul_t_back(all_ul_t *x, uint64_t *rid, char* id, int64_t id_l, char* str, int64_t str_l, ul_ov_t *o, int64_t on, float p_chain_rate) {
 	int64_t i, mine, maxs, ovlp, st, et, bl = 0, pc = 0;
 	uint32_t o_l, o_r;
 	ul_vec_t *p = NULL;
@@ -1071,6 +1072,174 @@ void append_ul_t(all_ul_t *x, uint64_t *rid, char* id, int64_t id_l, char* str, 
 		
 	}
 }
+
+
+void determine_chain_distance(ul_ov_t *o, int64_t on, ul_vec_t *p, ma_hit_t_alloc *src, int64_t max_hang, int64_t min_ovlp, int64_t rid)
+{
+	int64_t k, i, m, l = 0, r, last_i, last_dis; ul_ov_t *z = NULL; 
+	uint32_t li_v, lj_v, t, qn, tn; ma_hit_t_alloc *x = NULL; asg_arc_t te;
+	
+	for (k = on-1; k >= 0; --k) {
+		z = &(o[k]);
+		if((!z->el) || (z->sec == SEC_MODE)) continue;
+		///if z->el = 1, z->qn must work
+		if(p->bb.a[z->qn].pidx != (uint32_t)-1) continue;
+		last_i = -1; last_dis = 0;
+		for (i = k, l = 0; i >= 0;) {
+			assert((o[i].tn&((uint32_t)(0x80000000))));
+			if(o[i].el) {
+				last_i = o[i].qn; last_dis = l;
+			}
+			m = i; i = o[i].sec; if(o[m].sec == SEC_MODE) i = -1;
+			// i = ((o[i].sec == SEC_MODE)?-1:o[i].sec); 
+			if(i < 0) break;
+			// if(i >= on || i < 0) fprintf(stderr, "m->%ld, i->%ld, rid->%ld, on->%ld, o[m].sec->%u\n", m, i, rid, on, o[m].sec);
+			li_v = (o[m].tn<<1)|o[m].rev; li_v ^= 1;
+			lj_v = (o[i].tn<<1)|o[i].rev; lj_v ^= 1;
+
+			x = &(src[li_v>>1]);
+			for (t = 0; t < x->length; t++) {
+				qn = Get_qn(x->buffer[t]);
+        		tn = Get_tn(x->buffer[t]);
+				if(qn == (li_v>>1) && tn == (lj_v>>1)) {
+					r = ma_hit2arc(&(x->buffer[t]), Get_READ_LENGTH(R_INF, qn), Get_READ_LENGTH(R_INF, tn),
+						max_hang, asm_opt.max_hang_rate, min_ovlp, &te);
+            		if(r < 0) continue;
+            		if((te.ul>>32) != li_v || te.v != lj_v) continue;
+					l += (uint32_t)te.ul;
+					break;
+				}
+			}
+			// if(t>=x->length) {
+			// 	fprintf(stderr, "m->%ld, i->%ld, rid->%ld, on->%ld\n", m, i, rid, on);
+			// 	exit(1);
+			// }
+			assert(t<x->length);
+			if(!(o[i].el)) continue;
+			assert(last_i>=0);
+			p->bb.a[last_i].pidx = o[i].qn;
+			p->bb.a[last_i].pdis = l - last_dis;
+		}
+	}
+}
+
+void append_ul_t(all_ul_t *x, uint64_t *rid, char* id, int64_t id_l, char* str, int64_t str_l, ul_ov_t *o, int64_t on, float p_chain_rate, const ug_opt_t *uopt) {
+	int64_t i, mine, maxs, ovlp, st, et, bl = 0, pc = 0, en = 0;
+	uint32_t o_l, o_r;
+	ul_vec_t *p = NULL;
+	nid_t *np = NULL;
+	ul_ov_t *z = NULL;
+	uc_block_t *b = NULL, tt;
+
+	if(id) {
+		kv_pushp(nid_t, x->nid, &np);
+		np->n = id_l; MALLOC(np->a, np->n+1); memcpy(np->a, id, id_l); np->a[id_l] = '\0';
+	}
+
+	if(str||str_l) {
+		if(rid == NULL) {
+			kv_pushp(ul_vec_t, *x, &p);
+			memset(p, 0, sizeof(*p));
+		} else {
+			if((*rid) >= x->m) kv_resize(ul_vec_t, *x, (*rid) + 1);
+			if((*rid) >= x->n) {
+				memset(x->a+x->n, 0, sizeof(*p)*((*rid) + 1 - x->n));
+				x->n = (*rid) + 1;
+			}
+			p = &(x->a[(*rid)]);
+		}
+		// if((*rid) == 23) fprintf(stderr, "#rid->%lu, on->%ld\n", *rid, on);
+
+		p->bb.n = p->N_site.n = p->r_base.n = 0; p->dd = 0;
+		p->rlen = str_l; 
+		// fprintf(stderr, "str_l->%ld, str->%u\n", str_l, str?1:0);
+		
+		if(o == NULL || on == 0) on = 0; en = 0;
+		for (i = on-1, st = et = str_l; i >= 0; i--) {
+			z = &(o[i]);
+			if(z->el) {
+				if((z->tn&((uint32_t)(0x80000000)))) {
+					mine = MIN(et, ((int64_t)z->qe)); maxs = MAX(st, ((int64_t)z->qs));
+					ovlp = mine - maxs; 
+					
+					if(ovlp < 0) {///push original bases
+						kv_pushp(uc_block_t, p->bb, &b);
+						b->hid = 0/**x->mm**/; b->rev = 0; b->base = 1; b->pchain = 0; b->el = 0;
+						b->qe = maxs; b->qs = b->qe + ovlp; bl += (b->qe-b->qs);
+						o_l = (b->qs >= UL_FLANK?UL_FLANK:b->qs);
+						o_r = ((str_l-b->qe)>=UL_FLANK?UL_FLANK:(str_l-b->qe));
+						b->pidx = b->pdis = (uint32_t)-1;
+						b->hid |= (o_l<<15); b->hid |= o_r;
+						b->qs -= o_l; b->qe += o_r;
+						b->ts = p->r_base.n; b->te = b->ts + B4L(b->qe-b->qs);
+						kv_resize(uint8_t, p->r_base, b->te); p->r_base.n = b->te;
+						// fprintf(stderr, "\n+rid->%lu, str_l->%ld, b->qs->%u, b->qe->%u\n", *rid, str_l, b->qs, b->qe);
+						ha_encode_base(p->r_base.a+b->ts, str+b->qs, b->qe-b->qs, &(p->N_site), b->qs);
+					} 
+
+					st = MIN(st, z->qs);
+				}
+
+				///push ovlp bases
+				kv_pushp(uc_block_t, p->bb, &b);
+				b->hid = (z->tn<<1)>>1; b->rev = z->rev; b->base = 0; b->el = z->el;
+				b->pchain = ((z->tn&((uint32_t)(0x80000000)))?1:0);
+				b->qs = z->qs; b->qe = z->qe;
+				b->ts = z->ts; b->te = z->te;
+				if(b->pchain) pc++;				
+				b->pdis = (uint32_t)-1; b->pidx = i; 
+				en++; z->qn = p->bb.n - 1;
+			}
+		}
+		
+		if(st > 0) {///push original bases
+			kv_pushp(uc_block_t, p->bb, &b);
+			b->hid = 0/**x->mm**/; b->rev = 0; b->base = 1; b->pchain = 0; b->el = 0;
+			b->qe = st; b->qs = 0; bl += (b->qe-b->qs);
+			o_l = (b->qs >= UL_FLANK?UL_FLANK:b->qs);
+			o_r = ((str_l-b->qe)>=UL_FLANK?UL_FLANK:(str_l-b->qe));
+			b->pidx = b->pdis = (uint32_t)-1;
+			b->hid |= (o_l<<15); b->hid |= o_r;
+			b->qs -= o_l; b->qe += o_r;
+			b->ts = p->r_base.n; b->te = b->ts + B4L(b->qe-b->qs);
+			kv_resize(uint8_t, p->r_base, b->te); p->r_base.n = b->te;
+			// if(!str) fprintf(stderr, "-rid->%lu, st->%ld, str_l->%ld\n", *rid, st, str_l);
+			ha_encode_base(p->r_base.a+b->ts, str+b->qs, b->qe-b->qs, &(p->N_site), b->qs);	
+			// push_subblock_original_bases(str, x, p, end, str_l, 321);//for debug
+		}
+
+		if(pc > 0) p->dd = 3;
+		if((pc == en) && ((str_l-bl) > (str_l*p_chain_rate))) p->dd = 2;
+		if((pc == en) && (bl == 0)) p->dd = 1;
+		// debug_append_ul_t(o, on, p);
+		// char *sst = NULL; CALLOC(sst, str_l);//for debug
+		// retrieve_ul_t(NULL, sst, x, rid?*rid:x->n-1, 0, 0, -1);
+		// if(memcmp(sst, str, str_l)) {
+		// 	fprintf(stderr, "ap-Wrong read, id: %ld, [%d, %ld)\n", (int64_t)(rid?*rid:x->n-1), 0, str_l);
+		// 	for (i = 0; i < str_l; i++) {
+		// 		if(sst[i] != str[i]) fprintf(stderr, "[%ld] input:%c, decompress:%c\n", i, str[i], sst[i]);
+		// 	}
+		// }
+		// free(sst);
+		ovlp = p->bb.n>>1;
+		for (i = 0; i < ovlp; i++) {
+			tt = p->bb.a[i]; 
+			p->bb.a[i] = p->bb.a[p->bb.n-i-1];
+			p->bb.a[p->bb.n-i-1] = tt;
+			if(p->bb.a[i].pidx!=(uint32_t)-1) {
+				o[p->bb.a[i].pidx].qn = p->bb.n-o[p->bb.a[i].pidx].qn-1;
+				p->bb.a[i].pidx = (uint32_t)-1;
+			}
+			if(p->bb.a[p->bb.n-i-1].pidx!=(uint32_t)-1) {
+				o[p->bb.a[p->bb.n-i-1].pidx].qn = p->bb.n-o[p->bb.a[p->bb.n-i-1].pidx].qn-1;
+				p->bb.a[p->bb.n-i-1].pidx = (uint32_t)-1;
+			}
+		}
+		
+		determine_chain_distance(o, on, p, uopt->sources, uopt->max_hang, uopt->min_ovlp, *rid);
+	}
+}
+
 
 
 void retrieve_ul_t(UC_Read* i_r, char *i_s, all_ul_t *ref, uint64_t ID, uint8_t strand, int64_t s, int64_t l) {

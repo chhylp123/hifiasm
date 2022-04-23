@@ -122,7 +122,8 @@ typedef struct {
     int64_t hg_size;
     float kpt_rate;
     int64_t infor_cov, s_hap_cov;
-    double ul_error_rate;
+    double ul_error_rate, ul_error_rate_low;
+    int32_t ul_ec_round;
     uint8_t is_dbg_het_cnt;
 } hifiasm_opt_t;
 

@@ -160,7 +160,7 @@ typedef struct
 typedef struct
 {
     uint32_t hid;
-    uint32_t qs, qe, ts, te;
+    uint32_t qs, qe, ts, te; uint32_t pidx, pdis;
     uint8_t pchain:5, rev:1, base:1, el:1;
 } uc_block_t;
 
@@ -224,12 +224,13 @@ void recover_UC_sub_Read(UC_Read* i_r, long long start_pos, long long length, ui
 
 void init_all_ul_t(all_ul_t *x, All_reads *hR);
 void destory_all_ul_t(all_ul_t *x);
-void append_ul_t(all_ul_t *x, uint64_t *rid, char* id, int64_t id_l, char* str, int64_t str_l, ul_ov_t *o, int64_t on, float p_chain_rate);
+void append_ul_t(all_ul_t *x, uint64_t *rid, char* id, int64_t id_l, char* str, int64_t str_l, ul_ov_t *o, int64_t on, float p_chain_rate, const ug_opt_t *uopt);
 void retrieve_ul_t(UC_Read* i_r, char *i_s, all_ul_t *ref, uint64_t ID, uint8_t strand, int64_t s, int64_t l);
 void retrieve_u_seq(UC_Read* i_r, char* i_s, ma_utg_t *u, uint8_t strand, int64_t s, int64_t l, void *km);
 void debug_retrieve_rc_sub(const ug_opt_t *uopt, all_ul_t *ref, const All_reads *R_INF, ul_idx_t *ul, uint32_t n_step);
 uint32_t retrieve_u_cov(const ul_idx_t *ul, uint64_t id, uint8_t strand, uint64_t pos, uint8_t dir, int64_t *pi);
 uint64_t retrieve_u_cov_region(const ul_idx_t *ul, uint64_t id, uint8_t strand, uint64_t s, uint64_t e, int64_t *pi);
 uint64_t retrieve_r_cov_region(const ul_idx_t *ul, uint64_t id, uint8_t strand, uint64_t s, uint64_t e, int64_t *pi);
+void append_ul_t_back(all_ul_t *x, uint64_t *rid, char* id, int64_t id_l, char* str, int64_t str_l, ul_ov_t *o, int64_t on, float p_chain_rate);
 
 #endif

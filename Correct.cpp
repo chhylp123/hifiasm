@@ -9546,7 +9546,6 @@ void correct_ul_overlap(overlap_region_alloc* overlap_list, const ul_idx_t *uref
     **/
 }
 
-
 void init_Cigar_record(Cigar_record* dummy)
 {
     dummy->length = 0;
