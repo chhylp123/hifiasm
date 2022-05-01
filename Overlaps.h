@@ -5,6 +5,7 @@
 #include "kvec.h"
 #include "kdq.h"
 #include "ksort.h"
+#include "CommandLines.h"
 
 ///#define MIN_OVERLAP_LEN 2000
 ///#define MIN_OVERLAP_LEN 500
@@ -538,7 +539,7 @@ long long max_hang_length, long long clean_round, long long gap_fuzz,
 float min_ovlp_drop_ratio, float max_ovlp_drop_ratio, char* output_file_name, 
 long long bubble_dist, int read_graph, int write);
 
-void debug_info_of_specfic_read(char* name, ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, int id, char* command);
+void debug_info_of_specfic_read(const char* name, ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, int id, const char* command);
 void collect_abnormal_edges(ma_hit_t_alloc* paf, ma_hit_t_alloc* rev_paf, long long readNum);
 void add_overlaps(ma_hit_t_alloc* source_paf, ma_hit_t_alloc* dest_paf, uint64_t* source_index, long long listLen);
 void remove_overlaps(ma_hit_t_alloc* source_paf, uint64_t* source_index, long long listLen);
@@ -823,6 +824,12 @@ uint32_t get_edge_from_source(ma_hit_t_alloc* sources, ma_sub_t *coverage_cut,
 R_to_U* ruIndex, int max_hang, int min_ovlp, uint32_t query, uint32_t target, asg_arc_t* t);
 int unitig_arc_del_short_diploid_by_length(asg_t *g, float drop_ratio);
 void asg_bub_backtrack_primary(asg_t *g, uint32_t v0, buf_t *b);
+void set_hom_global_coverage(hifiasm_opt_t *opt, asg_t *sg, ma_sub_t* coverage_cut, 
+ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, int max_hang, int min_ovlp);
+void rescue_bubble_by_chain(asg_t *sg, ma_sub_t *coverage_cut, ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, 
+long long tipsLen, float tip_drop_ratio, long long stops_threshold, R_to_U* ruIndex, 
+float chimeric_rate, float drop_ratio, int max_hang, int min_ovlp, uint32_t chainLenThres, long long gap_fuzz, 
+bub_label_t* b_mask_t);
 
 typedef struct{
     double weight;
@@ -1073,6 +1080,12 @@ ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex);
 int asg_arc_del_short_diploid_by_exact(asg_t *g, int max_ext, ma_hit_t_alloc* sources);
 uint32_t print_debug_gfa(asg_t *read_g, ma_ug_t *ug, ma_sub_t* coverage_cut, const char* output_file_name, 
 ma_hit_t_alloc* sources, R_to_U* ruIndex, int max_hang, int min_ovlp);
+void debug_info_of_specfic_node(const char* name, asg_t *g, R_to_U* ruIndex, const char* command);
+ma_ug_t *gen_polished_ug(const ug_opt_t *uopt, asg_t *sg);
+void output_unitig_graph(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name, 
+ma_hit_t_alloc* sources, R_to_U* ruIndex, int max_hang, int min_ovlp);
+void flat_soma_v(asg_t *sg, ma_hit_t_alloc* sources, R_to_U* ruIndex);
+void hic_clean(asg_t* read_g);
 
 #define JUNK_COV 5
 #define DISCARD_RATE 0.8

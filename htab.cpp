@@ -1075,6 +1075,7 @@ void *ha_ft_ul_gen(const hifiasm_opt_t *asm_opt, ma_utg_v *us, int k, int w, int
 	
 	// cutoff = (int)(asm_opt->hom_cov * asm_opt->high_factor);
     if (cutoff > YAK_MAX_COUNT - 1) cutoff = YAK_MAX_COUNT - 1;
+	// fprintf(stderr, "[M::%s::] cutoff->%d\n\n", __func__, cutoff);
 	ha_ct_shrink(h, cutoff, YAK_MAX_COUNT, asm_opt->thread_num);
 	flt_tab = gen_hh(h, asm_opt->max_kmer_cnt);
 	ha_ct_destroy(h);

@@ -8,6 +8,7 @@
 #include "CommandLines.h"
 #include "Correct.h"
 #include "inter.h"
+#include "Overlaps.h"
 
 #define generic_key(x) (x)
 KRADIX_SORT_INIT(srt64, uint64_t, generic_key, 8)
@@ -283,6 +284,17 @@ void update_sg_uo(asg_t *g, ma_hit_t_alloc *src)
     }
 
     fprintf(stderr, "[M::%s::] ==> # gfa reads:%u, # covered gfa reads:%u\n", __func__, occ_n, occ_a);
+
+    // asg_arc_t *e; uint32_t v, w;
+    // for (k = 0; k < g->n_arc; k++) {
+    //     e = &(g->arc[k]);
+    //     v = e->v^1; w = (e->ul>>32)^1;
+    //     av = asg_arc_a(g, v); nv = asg_arc_n(g, v);
+    //     for (z = 0; z < nv; z++) {
+    //         if(av[z].v == w) break;
+    //     }
+    //     if(z >= nv || av[z].ou != e->ou) fprintf(stderr, "[M::%s::asymmetry]\n", __func__);
+    // }
 }
 
 int32_t if_sup_chimeric(ma_hit_t_alloc* src, uint64_t rLen, asg64_v *b, int if_exact)
@@ -1311,8 +1323,13 @@ void print_vw_edge(asg_t *sg, uint32_t v, uint32_t w, const char *cmd)
     if(i >= nv) fprintf(stderr, "[%s]\tno edges\n", cmd);
 }
 
+void fill_containment_by_ul(asg_t *g, ma_hit_t_alloc *src)
+{
+
+}
+
 void ul_clean_gfa(ug_opt_t *uopt, asg_t *sg, ma_hit_t_alloc *src, ma_hit_t_alloc *rev, R_to_U* rI, int64_t clean_round, double min_ovlp_drop_ratio, double max_ovlp_drop_ratio, 
-double ou_drop_rate, int64_t max_tip, bub_label_t *b_mask_t, int32_t is_ou, int32_t is_trio, uint32_t ou_thres)
+double ou_drop_rate, int64_t max_tip, bub_label_t *b_mask_t, int32_t is_ou, int32_t is_trio, uint32_t ou_thres, char *o_file)
 {
     #define HARD_OU_DROP 0.75
     #define HARD_OL_DROP 0.6
@@ -1323,6 +1340,9 @@ double ou_drop_rate, int64_t max_tip, bub_label_t *b_mask_t, int32_t is_ou, int3
     double drop = min_ovlp_drop_ratio;
     int64_t i; asg64_v bu = {0,0,0}; uint32_t l_drop = 2000;
 	if(is_ou) update_sg_uo(sg, src);
+
+    // debug_info_of_specfic_node("m64012_190921_234837/111673711/ccs", sg, rI, "beg");
+    // debug_info_of_specfic_node("m64011_190830_220126/95028102/ccs", sg, rI, "beg");
 
 	asg_arc_cut_tips(sg, max_tip, &bu, is_ou);
     for (i = 0; i < clean_round; i++, drop += step) {
@@ -1351,7 +1371,13 @@ double ou_drop_rate, int64_t max_tip, bub_label_t *b_mask_t, int32_t is_ou, int3
         asg_arc_identify_simple_bubbles_multi(sg, b_mask_t, 1);
         asg_arc_cut_complex_bub_links(sg, &bu, HARD_OL_DROP, HARD_OU_DROP, is_ou, b_mask_t);
         asg_arc_cut_tips(sg, max_tip, &bu, is_ou);
+
+        if(is_ou) {
+            if(ul_refine_alignment(uopt, sg)) update_sg_uo(sg, src);
+        }
     }
+    // debug_info_of_specfic_node("m64012_190921_234837/111673711/ccs", sg, rI, "end");
+    // debug_info_of_specfic_node("m64011_190830_220126/95028102/ccs", sg, rI, "end");
 
     if(!is_ou) asg_iterative_semi_circ(sg, src, &bu, max_tip, 1);
 
@@ -1370,8 +1396,26 @@ double ou_drop_rate, int64_t max_tip, bub_label_t *b_mask_t, int32_t is_ou, int3
 
     if(!is_ou) asg_cut_semi_circ(sg, LIM_LEN, 1);
 
-    if(is_ou) ul_refine_alignment(uopt, sg);
 
+    rescue_contained_reads_aggressive(NULL, sg, src, uopt->coverage_cut, rI, uopt->max_hang, uopt->min_ovlp, 10, 1, 0, NULL, NULL, b_mask_t);
+    rescue_missing_overlaps_aggressive(NULL, sg, src, uopt->coverage_cut, rI, uopt->max_hang, uopt->min_ovlp, 1, 0, NULL, b_mask_t);
+    rescue_missing_overlaps_backward(NULL, sg, src, uopt->coverage_cut, rI, uopt->max_hang, uopt->min_ovlp, 10, 1, 0, b_mask_t);
+    // rescue_wrong_overlaps_to_unitigs(NULL, sg, sources, reverse_sources, coverage_cut, ruIndex, 
+    // max_hang_length, mini_overlap_length, bubble_dist, NULL);
+    // rescue_no_coverage_aggressive(sg, sources, reverse_sources, &coverage_cut, ruIndex, max_hang_length, 
+    // mini_overlap_length, bubble_dist, 10);
+    set_hom_global_coverage(&asm_opt, sg, uopt->coverage_cut, src, rev, rI, uopt->max_hang, uopt->min_ovlp);
+    rescue_bubble_by_chain(sg, uopt->coverage_cut, src, rev, (asm_opt.max_short_tip*2), 0.15, 3, rI, 0.05, 0.9, uopt->max_hang, uopt->min_ovlp, 10, uopt->gap_fuzz, b_mask_t);
+
+    output_unitig_graph(sg, uopt->coverage_cut, o_file, src, rI, uopt->max_hang, uopt->min_ovlp);
+    // flat_bubbles(sg, ruIndex->is_het); free(ruIndex->is_het); ruIndex->is_het = NULL;
+    flat_soma_v(sg, src, rI);
+
+    if(is_ou) {
+        // hic_clean(sg);
+        // ul_realignment(uopt, sg);
+        // if(ul_refine_alignment(uopt, sg)) update_sg_uo(sg, src);
+    }
     // print_node(sg, 17078); //print_node(sg, 8311); print_node(sg, 8294);
     
     free(bu.a); 

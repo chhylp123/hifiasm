@@ -1078,7 +1078,7 @@ void determine_chain_distance(ul_ov_t *o, int64_t on, ul_vec_t *p, ma_hit_t_allo
 {
 	int64_t k, i, m, l = 0, r, last_i, last_dis; ul_ov_t *z = NULL; 
 	uint32_t li_v, lj_v, t, qn, tn; ma_hit_t_alloc *x = NULL; asg_arc_t te;
-	
+
 	for (k = on-1; k >= 0; --k) {
 		z = &(o[k]);
 		if((!z->el) || (z->sec == SEC_MODE)) continue;
@@ -1118,12 +1118,13 @@ void determine_chain_distance(ul_ov_t *o, int64_t on, ul_vec_t *p, ma_hit_t_allo
 			if(!(o[i].el)) continue;
 			assert(last_i>=0);
 			p->bb.a[last_i].pidx = o[i].qn;
-			p->bb.a[last_i].pdis = l - last_dis;
+			p->bb.a[last_i].pdis = l - last_dis;///TODO: enable pdis
+			p->bb.a[p->bb.a[last_i].pidx].aidx = last_i;
 		}
 	}
 }
 
-void append_ul_t(all_ul_t *x, uint64_t *rid, char* id, int64_t id_l, char* str, int64_t str_l, ul_ov_t *o, int64_t on, float p_chain_rate, const ug_opt_t *uopt) {
+void append_ul_t(all_ul_t *x, uint64_t *rid, char* id, int64_t id_l, char* str, int64_t str_l, ul_ov_t *o, int64_t on, float p_chain_rate, const ug_opt_t *uopt, uint32_t save_bases) {
 	int64_t i, mine, maxs, ovlp, st, et, bl = 0, pc = 0, en = 0;
 	uint32_t o_l, o_r;
 	ul_vec_t *p = NULL;
@@ -1162,13 +1163,13 @@ void append_ul_t(all_ul_t *x, uint64_t *rid, char* id, int64_t id_l, char* str, 
 					mine = MIN(et, ((int64_t)z->qe)); maxs = MAX(st, ((int64_t)z->qs));
 					ovlp = mine - maxs; 
 					
-					if(ovlp < 0) {///push original bases
+					if(save_bases && ovlp < 0) {///push original bases
 						kv_pushp(uc_block_t, p->bb, &b);
 						b->hid = 0/**x->mm**/; b->rev = 0; b->base = 1; b->pchain = 0; b->el = 0;
 						b->qe = maxs; b->qs = b->qe + ovlp; bl += (b->qe-b->qs);
 						o_l = (b->qs >= UL_FLANK?UL_FLANK:b->qs);
 						o_r = ((str_l-b->qe)>=UL_FLANK?UL_FLANK:(str_l-b->qe));
-						b->pidx = b->pdis = (uint32_t)-1;
+						b->pidx = b->pdis = b->aidx = (uint32_t)-1; 
 						b->hid |= (o_l<<15); b->hid |= o_r;
 						b->qs -= o_l; b->qe += o_r;
 						b->ts = p->r_base.n; b->te = b->ts + B4L(b->qe-b->qs);
@@ -1187,18 +1188,18 @@ void append_ul_t(all_ul_t *x, uint64_t *rid, char* id, int64_t id_l, char* str, 
 				b->qs = z->qs; b->qe = z->qe;
 				b->ts = z->ts; b->te = z->te;
 				if(b->pchain) pc++;				
-				b->pdis = (uint32_t)-1; b->pidx = i; 
+				b->pidx = i; b->pdis = b->aidx = (uint32_t)-1; 
 				en++; z->qn = p->bb.n - 1;
 			}
 		}
 		
-		if(st > 0) {///push original bases
+		if(save_bases && st > 0) {///push original bases
 			kv_pushp(uc_block_t, p->bb, &b);
 			b->hid = 0/**x->mm**/; b->rev = 0; b->base = 1; b->pchain = 0; b->el = 0;
 			b->qe = st; b->qs = 0; bl += (b->qe-b->qs);
 			o_l = (b->qs >= UL_FLANK?UL_FLANK:b->qs);
 			o_r = ((str_l-b->qe)>=UL_FLANK?UL_FLANK:(str_l-b->qe));
-			b->pidx = b->pdis = (uint32_t)-1;
+			b->pidx = b->pdis = b->aidx = (uint32_t)-1; 
 			b->hid |= (o_l<<15); b->hid |= o_r;
 			b->qs -= o_l; b->qe += o_r;
 			b->ts = p->r_base.n; b->te = b->ts + B4L(b->qe-b->qs);
@@ -1235,12 +1236,14 @@ void append_ul_t(all_ul_t *x, uint64_t *rid, char* id, int64_t id_l, char* str, 
 				p->bb.a[p->bb.n-i-1].pidx = (uint32_t)-1;
 			}
 		}
+		if(((uint32_t)p->bb.n)&1) {
+			o[p->bb.a[i].pidx].qn = p->bb.n-o[p->bb.a[i].pidx].qn-1;
+			p->bb.a[i].pidx = (uint32_t)-1;
+		}
 		
 		determine_chain_distance(o, on, p, uopt->sources, uopt->max_hang, uopt->min_ovlp, *rid);
 	}
 }
-
-
 
 void retrieve_ul_t(UC_Read* i_r, char *i_s, all_ul_t *ref, uint64_t ID, uint8_t strand, int64_t s, int64_t l) {
 	ul_vec_t *p = &(ref->a[ID]); 
