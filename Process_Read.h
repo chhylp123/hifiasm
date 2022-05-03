@@ -167,7 +167,7 @@ typedef struct
 typedef struct
 {
     uint32_t *a;
-    ssize_t n ,m;
+    size_t n, m;
 } N_t;
 
 typedef struct
@@ -232,5 +232,7 @@ uint32_t retrieve_u_cov(const ul_idx_t *ul, uint64_t id, uint8_t strand, uint64_
 uint64_t retrieve_u_cov_region(const ul_idx_t *ul, uint64_t id, uint8_t strand, uint64_t s, uint64_t e, int64_t *pi);
 uint64_t retrieve_r_cov_region(const ul_idx_t *ul, uint64_t id, uint8_t strand, uint64_t s, uint64_t e, int64_t *pi);
 void append_ul_t_back(all_ul_t *x, uint64_t *rid, char* id, int64_t id_l, char* str, int64_t str_l, ul_ov_t *o, int64_t on, float p_chain_rate);
+void write_compress_base_disk(FILE *fp, uint64_t ul_rid, char *str, uint32_t len, ul_vec_t *buf);
+int64_t load_compress_base_disk(FILE *fp, uint64_t *ul_rid, char *dest, uint32_t *len, ul_vec_t *buf);
 
 #endif

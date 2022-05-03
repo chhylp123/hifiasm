@@ -17,6 +17,7 @@
 #include "horder.h"
 #include "inter.h"
 #include "gfa_ut.h"
+#include "assert.h"
 
 
 uint32_t debug_purge_dup = 0;
@@ -8261,6 +8262,7 @@ void update_ug_ou(ma_ug_t *ug, asg_t *sg)
         for (i = 0; i < nv; i++) {
             if(av[i].v == rw) break;
         }
+        assert(i < nv);
         ue->ou = av[i].ou;
     }
 
@@ -13353,6 +13355,7 @@ uint32_t test_dbug(ma_ug_t* ug, FILE* fp)
     ma_utg_t ua, *ub = NULL; memset(&ua, 0, sizeof(ua));
     f_flag = fread(&tt, sizeof(tt), 1, fp);
     if(f_flag == 0 || tt != ug->u.n) goto DES;
+    
     for (i = 0; i < tt; i++)
     {
         ub = &(ug->u.a[i]);

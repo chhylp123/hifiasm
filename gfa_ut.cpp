@@ -1411,9 +1411,15 @@ double ou_drop_rate, int64_t max_tip, bub_label_t *b_mask_t, int32_t is_ou, int3
     // flat_bubbles(sg, ruIndex->is_het); free(ruIndex->is_het); ruIndex->is_het = NULL;
     flat_soma_v(sg, src, rI);
 
+    ///note: although the above functions will not change the UL part, but it will change the read graph
+    ///so it is necessary to run update_sg_uo
     if(is_ou) {
-        // hic_clean(sg);
-        // ul_realignment(uopt, sg);
+        update_sg_uo(sg, src);
+    }
+    
+    if(is_ou) {
+        hic_clean(sg);
+        ul_realignment(uopt, sg);
         // if(ul_refine_alignment(uopt, sg)) update_sg_uo(sg, src);
     }
     // print_node(sg, 17078); //print_node(sg, 8311); print_node(sg, 8294);

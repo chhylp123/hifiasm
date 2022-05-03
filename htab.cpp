@@ -1486,7 +1486,7 @@ int load_pt_index(void **r_flt_tab, ha_pt_t **r_ha_idx, All_reads* r, hifiasm_op
 
 
 
-int uidx_write(void *flt_tab, ha_pt_t *ha_idx, char* file_name)
+int uidx_write(void *flt_tab, ha_pt_t *ha_idx, char* file_name, ma_ug_t *ug)
 {
 	char* gfa_name = (char*)malloc(strlen(file_name)+25);
     sprintf(gfa_name, "%s.uidx.bin", file_name);
@@ -1495,6 +1495,8 @@ int uidx_write(void *flt_tab, ha_pt_t *ha_idx, char* file_name)
         free(gfa_name);
         return 0;
     }
+
+	if(ug) write_dbug(ug, fp);
 
 	yak_ft_t *ha_flt_tab = (yak_ft_t*)flt_tab;
 
@@ -1529,13 +1531,19 @@ int uidx_write(void *flt_tab, ha_pt_t *ha_idx, char* file_name)
 }
 
 
-int uidx_load(void **r_flt_tab, ha_pt_t **r_ha_idx, char* file_name)
+int uidx_load(void **r_flt_tab, ha_pt_t **r_ha_idx, char* file_name, ma_ug_t *ug)
 {
     char* gfa_name = (char*)malloc(strlen(file_name)+25);
     sprintf(gfa_name, "%s.uidx.bin", file_name);
     FILE* fp = fopen(gfa_name, "r");
     if (!fp) {
         free(gfa_name);
+        return 0;
+    }
+
+	if(ug && (!test_dbug(ug, fp))) {
+        fprintf(stderr, "[M::%s] Renew UL Index\n", __func__);
+        free(gfa_name); fclose(fp);
         return 0;
     }
 

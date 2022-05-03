@@ -1162,11 +1162,11 @@ void append_ul_t(all_ul_t *x, uint64_t *rid, char* id, int64_t id_l, char* str, 
 				if((z->tn&((uint32_t)(0x80000000)))) {
 					mine = MIN(et, ((int64_t)z->qe)); maxs = MAX(st, ((int64_t)z->qs));
 					ovlp = mine - maxs; 
-					
+					if(ovlp < 0) bl -= ovlp;
 					if(save_bases && ovlp < 0) {///push original bases
 						kv_pushp(uc_block_t, p->bb, &b);
 						b->hid = 0/**x->mm**/; b->rev = 0; b->base = 1; b->pchain = 0; b->el = 0;
-						b->qe = maxs; b->qs = b->qe + ovlp; bl += (b->qe-b->qs);
+						b->qe = maxs; b->qs = b->qe + ovlp; //bl += (b->qe-b->qs);
 						o_l = (b->qs >= UL_FLANK?UL_FLANK:b->qs);
 						o_r = ((str_l-b->qe)>=UL_FLANK?UL_FLANK:(str_l-b->qe));
 						b->pidx = b->pdis = b->aidx = (uint32_t)-1; 
@@ -1192,11 +1192,12 @@ void append_ul_t(all_ul_t *x, uint64_t *rid, char* id, int64_t id_l, char* str, 
 				en++; z->qn = p->bb.n - 1;
 			}
 		}
-		
+
+		if(st > 0) bl += st;
 		if(save_bases && st > 0) {///push original bases
 			kv_pushp(uc_block_t, p->bb, &b);
 			b->hid = 0/**x->mm**/; b->rev = 0; b->base = 1; b->pchain = 0; b->el = 0;
-			b->qe = st; b->qs = 0; bl += (b->qe-b->qs);
+			b->qe = st; b->qs = 0; //bl += (b->qe-b->qs);
 			o_l = (b->qs >= UL_FLANK?UL_FLANK:b->qs);
 			o_r = ((str_l-b->qe)>=UL_FLANK?UL_FLANK:(str_l-b->qe));
 			b->pidx = b->pdis = b->aidx = (uint32_t)-1; 
@@ -1815,4 +1816,54 @@ void debug_retrieve_rc_sub(const ug_opt_t *uopt, all_ul_t *ref, const All_reads 
 
 	destory_UC_Read(&f); destory_UC_Read(&r);
 	kv_destroy(ss);
+}
+
+
+void write_compress_base_disk(FILE *fp, uint64_t ul_rid, char *str, uint32_t len, ul_vec_t *buf)
+{
+	buf->N_site.n = buf->bb.n = 0; buf->rlen = len; buf->r_base.n = B4L(len); 
+	kv_resize(uint8_t, buf->r_base, buf->r_base.n); 
+	ha_encode_base(buf->r_base.a, str, len, &(buf->N_site), 0);
+
+	fwrite(&ul_rid, sizeof(ul_rid), 1, fp);
+	fwrite(&len, sizeof(len), 1, fp);
+	fwrite(&buf->N_site.n, sizeof(buf->N_site.n), 1, fp);
+	fwrite(buf->N_site.a, sizeof((*buf->N_site.a)), buf->N_site.n, fp);
+	fwrite(buf->r_base.a, sizeof((*buf->r_base.a)), buf->r_base.n, fp);
+}
+
+int64_t load_compress_base_disk(FILE *fp, uint64_t *ul_rid, char *dest, uint32_t *len, ul_vec_t *buf)
+{
+	fread(ul_rid, sizeof((*ul_rid)), 1, fp);
+	if(feof(fp)) return 0;
+	fread(len, sizeof((*len)), 1, fp);
+	fread(&buf->N_site.n, sizeof(buf->N_site.n), 1, fp);
+	kv_resize(uint32_t, buf->N_site, buf->N_site.n);
+	fread(buf->N_site.a, sizeof((*buf->N_site.a)), buf->N_site.n, fp);
+	buf->r_base.n = B4L((*len)); kv_resize(uint8_t, buf->r_base, buf->r_base.n); 
+	fread(buf->r_base.a, sizeof((*buf->r_base.a)), buf->r_base.n, fp);
+
+	int64_t ssp, sep, sl, offset, begLen, tailLen, a_n, src_i, des_i, i;
+	ssp = 0; sep = (*len); sl = sep - ssp;
+	offset = ssp&3; begLen = 4-offset;
+	if(begLen > sl) begLen = sl;
+	tailLen = (sl-begLen)&3;
+	a_n = (sl - begLen - tailLen)>>2;
+
+	src_i = ssp; i = 0; des_i = 0;
+	if(begLen > 0) {
+		memcpy(dest+des_i, bit_t_seq_table[buf->r_base.a[src_i>>2]]+offset, begLen);
+		des_i += begLen; src_i += begLen;
+	}
+
+	for (i = 0; i < a_n; i++) {
+		memcpy(dest+des_i, bit_t_seq_table[buf->r_base.a[src_i>>2]], 4);
+		des_i += 4; src_i += 4;
+	}
+
+	if(tailLen > 0) {
+		memcpy(dest+des_i, bit_t_seq_table[buf->r_base.a[src_i>>2]], tailLen);
+		des_i += tailLen; src_i += tailLen;
+	}
+	return 1;
 }
