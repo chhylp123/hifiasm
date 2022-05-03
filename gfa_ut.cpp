@@ -1328,6 +1328,8 @@ void fill_containment_by_ul(asg_t *g, ma_hit_t_alloc *src)
 
 }
 
+
+
 void ul_clean_gfa(ug_opt_t *uopt, asg_t *sg, ma_hit_t_alloc *src, ma_hit_t_alloc *rev, R_to_U* rI, int64_t clean_round, double min_ovlp_drop_ratio, double max_ovlp_drop_ratio, 
 double ou_drop_rate, int64_t max_tip, bub_label_t *b_mask_t, int32_t is_ou, int32_t is_trio, uint32_t ou_thres, char *o_file)
 {
@@ -1345,6 +1347,8 @@ double ou_drop_rate, int64_t max_tip, bub_label_t *b_mask_t, int32_t is_ou, int3
     // debug_info_of_specfic_node("m64011_190830_220126/95028102/ccs", sg, rI, "beg");
 
 	asg_arc_cut_tips(sg, max_tip, &bu, is_ou);
+    // fprintf(stderr, "[M::%s] count_edges_v_w(sg, 49778, 49847)->%ld\n", __func__, count_edges_v_w(sg, 49778, 49847));
+    
     for (i = 0; i < clean_round; i++, drop += step) {
         if(drop > max_ovlp_drop_ratio) drop = max_ovlp_drop_ratio;
         // fprintf(stderr, "(0):i->%ld, drop->%f\n", i, drop);
@@ -1406,7 +1410,6 @@ double ou_drop_rate, int64_t max_tip, bub_label_t *b_mask_t, int32_t is_ou, int3
     // mini_overlap_length, bubble_dist, 10);
     set_hom_global_coverage(&asm_opt, sg, uopt->coverage_cut, src, rev, rI, uopt->max_hang, uopt->min_ovlp);
     rescue_bubble_by_chain(sg, uopt->coverage_cut, src, rev, (asm_opt.max_short_tip*2), 0.15, 3, rI, 0.05, 0.9, uopt->max_hang, uopt->min_ovlp, 10, uopt->gap_fuzz, b_mask_t);
-
     output_unitig_graph(sg, uopt->coverage_cut, o_file, src, rI, uopt->max_hang, uopt->min_ovlp);
     // flat_bubbles(sg, ruIndex->is_het); free(ruIndex->is_het); ruIndex->is_het = NULL;
     flat_soma_v(sg, src, rI);
@@ -1418,6 +1421,10 @@ double ou_drop_rate, int64_t max_tip, bub_label_t *b_mask_t, int32_t is_ou, int3
     }
     
     if(is_ou) {
+        for (i = 0; i < (int64_t)sg->n_seq; ++i) {
+            if(sg->seq[i].del) continue;
+            sg->seq[i].c = PRIMARY_LABLE;
+        }
         hic_clean(sg);
         ul_realignment(uopt, sg);
         // if(ul_refine_alignment(uopt, sg)) update_sg_uo(sg, src);

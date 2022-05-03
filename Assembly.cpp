@@ -21,7 +21,7 @@ void ha_sort_list_by_anchor(overlap_region_alloc *overlap_list);
 
 All_reads R_INF;
 Debug_reads R_INF_FLAG;
-all_ul_t UL_INF;
+all_ul_t UL_INF, ULG_INF;
 uint32_t *het_cnt = NULL;
 
 void get_corrected_read_from_cigar(Cigar_record* cigar, char* pre_read, int pre_length, char* new_read, int* new_length)

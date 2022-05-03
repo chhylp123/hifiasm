@@ -1086,6 +1086,7 @@ void output_unitig_graph(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_na
 ma_hit_t_alloc* sources, R_to_U* ruIndex, int max_hang, int min_ovlp);
 void flat_soma_v(asg_t *sg, ma_hit_t_alloc* sources, R_to_U* ruIndex);
 void hic_clean(asg_t* read_g);
+int64_t count_edges_v_w(asg_t *g, uint32_t v, uint32_t w);
 
 #define JUNK_COV 5
 #define DISCARD_RATE 0.8

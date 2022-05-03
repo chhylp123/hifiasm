@@ -8245,6 +8245,16 @@ int asg_arc_del_false_node(asg_t *g, ma_hit_t_alloc* sources, int max_ext)
 	return n_cut;
 }
 
+int64_t count_edges_v_w(asg_t *g, uint32_t v, uint32_t w)
+{
+    asg_arc_t* av = asg_arc_a(g, v); uint32_t nv = asg_arc_n(g, v), i, occ = 0;
+    for (i = 0; i < nv; i++) {
+        if(av[i].del) continue;
+        if(av[i].v == w) occ++;
+    }
+    return occ;
+}
+
 void update_ug_ou(ma_ug_t *ug, asg_t *sg)
 {
     uint32_t k, i, uv, uw, rv, rw, nv; asg_arc_t *ue, *av;
@@ -9451,7 +9461,7 @@ UC_Read* r_read, UC_Read* q_read, int max_hang, int min_ovlp, kvec_asg_arc_t_war
 ma_ug_t *gen_polished_ug(const ug_opt_t *uopt, asg_t *sg)
 {
 	kvec_asg_arc_t_warp e, d;
-	uint32_t i, k; ma_utg_t *u;
+	uint32_t i; ma_utg_t *u;
 	kv_init(e.a); kv_init(d.a);
 	ma_ug_t *ug = ma_ug_gen(sg);
 	UC_Read g_read, tmp;
@@ -9468,7 +9478,7 @@ ma_ug_t *gen_polished_ug(const ug_opt_t *uopt, asg_t *sg)
     destory_UC_Read(&g_read); destory_UC_Read(&tmp);
 
     uint32_t n_vtx = ug->g->n_seq*2, v, nv, vLen = 0;
-    asg_arc_t* av = NULL, *p = NULL;
+    asg_arc_t* av = NULL;
     for (v = 0; v < n_vtx; ++v) {
         if (ug->g->seq[v>>1].del) continue;
         av = asg_arc_a(ug->g, v); nv = asg_arc_n(ug->g, v);
@@ -9480,14 +9490,14 @@ ma_ug_t *gen_polished_ug(const ug_opt_t *uopt, asg_t *sg)
         }
     }
 
-    if(d.a.n > 0) {
-        for (k = 0; k < d.a.n; k++) {
-            p = asg_arc_pushp(sg);
-            *p = d.a.a[k];
-        }
-        free(sg->idx); sg->idx = 0; sg->is_srt = 0;
-        asg_cleanup(sg);
-    }
+    // if(d.a.n > 0) {
+    //     for (k = 0; k < d.a.n; k++) {
+    //         p = asg_arc_pushp(sg);
+    //         *p = d.a.a[k];
+    //     }
+    //     free(sg->idx); sg->idx = 0; sg->is_srt = 0;
+    //     asg_cleanup(sg);
+    // }
 
 	kv_destroy(e.a); kv_destroy(d.a);
 	return ug;
@@ -17718,6 +17728,53 @@ int load_ma_hit_ts(ma_hit_t_alloc** x, char* read_file_name)
         {
             read_ma(&((*x)[i].buffer[k]), fp);
         }  
+        // fread((*x)[i].buffer, sizeof((*((*x)[i].buffer))), (*x)[i].length, fp);
+    }
+
+    free(index_name);    
+    fclose(fp);
+    fprintf(stderr, "ma_hit_ts has been read.\n");
+
+    return 1;
+}
+
+
+int load_debug_ma_hit_ts(ma_hit_t_alloc** x, char* read_file_name)
+{
+    fprintf(stderr, "Loading ma_hit_ts from disk... \n");
+    char* index_name = (char*)malloc(strlen(read_file_name)+15);
+    sprintf(index_name, "%s.bin", read_file_name);
+    FILE* fp = fopen(index_name, "r");
+    if(!fp)
+    {
+        return 0;
+    }
+
+
+    long long n_read;
+    long long i/**, k**/;
+    int f_flag;
+    f_flag = fread(&n_read, sizeof(n_read), 1, fp);
+    (*x) = (ma_hit_t_alloc*)malloc(sizeof(ma_hit_t_alloc)*n_read);
+
+
+    for (i = 0; i < n_read; i++)
+    {        
+        f_flag += fread(&((*x)[i].is_fully_corrected), sizeof((*x)[i].is_fully_corrected), 1, fp);
+        f_flag += fread(&((*x)[i].is_abnormal), sizeof((*x)[i].is_abnormal), 1, fp);
+        f_flag += fread(&((*x)[i].length), sizeof((*x)[i].length), 1, fp);
+        (*x)[i].size = (*x)[i].length;
+
+        (*x)[i].buffer = NULL;
+        if((*x)[i].length == 0) continue;
+        
+        (*x)[i].buffer = (ma_hit_t*)malloc(sizeof(ma_hit_t)*(*x)[i].length);
+
+        // for (k = 0; k < (*x)[i].length; k++)
+        // {
+        //     read_ma(&((*x)[i].buffer[k]), fp);
+        // }  
+        fread((*x)[i].buffer, sizeof((*((*x)[i].buffer))), (*x)[i].length, fp);
     }
 
     free(index_name);    
@@ -17769,6 +17826,37 @@ void write_ma_hit_ts(ma_hit_t_alloc* x, long long n_read, char* read_file_name)
         {
             write_ma(x[i].buffer + k, fp);
         }  
+        // fwrite(x[i].buffer, sizeof((*(x[i].buffer))), x[i].length, fp);
+    }
+
+
+    free(index_name);
+    fflush(fp);    
+    fclose(fp);
+    fprintf(stderr, "ma_hit_ts has been written.\n");
+}
+
+
+void write_debug_ma_hit_ts(ma_hit_t_alloc* x, long long n_read, char* read_file_name)
+{
+    fprintf(stderr, "Writing ma_hit_ts to disk... \n");
+    char* index_name = (char*)malloc(strlen(read_file_name)+15);
+    sprintf(index_name, "%s.bin", read_file_name);
+    FILE* fp = fopen(index_name, "w");
+    long long i/**, k**/;
+    fwrite(&n_read, sizeof(n_read), 1, fp);
+
+
+    for (i = 0; i < n_read; i++)
+    {
+        fwrite(&(x[i].is_fully_corrected), sizeof(x[i].is_fully_corrected), 1, fp);
+        fwrite(&(x[i].is_abnormal), sizeof(x[i].is_abnormal), 1, fp);
+        fwrite(&(x[i].length), sizeof(x[i].length), 1, fp);
+        // for (k = 0; k < x[i].length; k++)
+        // {
+        //     write_ma(x[i].buffer + k, fp);
+        // }  
+        fwrite(x[i].buffer, sizeof((*(x[i].buffer))), x[i].length, fp);
     }
 
 
@@ -24460,18 +24548,20 @@ int load_coverage_cut(ma_sub_t** coverage_cut, char* read_file_name)
     f_flag += fread(&n_read, sizeof(n_read), 1, fp);
     (*coverage_cut) = (ma_sub_t*)malloc(sizeof(ma_sub_t)*n_read);
 
-    uint64_t i = 0, tmp;
-    for (i = 0; i < n_read; i++)
-    {
-        f_flag += fread(&tmp, sizeof(tmp), 1, fp);
-        (*coverage_cut)[i].c = tmp;
-        f_flag += fread(&tmp, sizeof(tmp), 1, fp);
-        (*coverage_cut)[i].del = tmp;
-        f_flag += fread(&tmp, sizeof(tmp), 1, fp);
-        (*coverage_cut)[i].e = tmp;
-        f_flag += fread(&tmp, sizeof(tmp), 1, fp);
-        (*coverage_cut)[i].s = tmp;
-    }
+    // uint64_t i = 0, tmp;
+    // for (i = 0; i < n_read; i++)
+    // {
+    //     f_flag += fread(&tmp, sizeof(tmp), 1, fp);
+    //     (*coverage_cut)[i].c = tmp;
+    //     f_flag += fread(&tmp, sizeof(tmp), 1, fp);
+    //     (*coverage_cut)[i].del = tmp;
+    //     f_flag += fread(&tmp, sizeof(tmp), 1, fp);
+    //     (*coverage_cut)[i].e = tmp;
+    //     f_flag += fread(&tmp, sizeof(tmp), 1, fp);
+    //     (*coverage_cut)[i].s = tmp;
+    // }
+    fread((*coverage_cut), sizeof((*((*coverage_cut)))), n_read, fp);
+
     free(index_name);    
     fflush(fp);
     fclose(fp);
@@ -24485,18 +24575,19 @@ int write_coverage_cut(ma_sub_t* coverage_cut, char* read_file_name, uint64_t n_
     sprintf(index_name, "%s.bin", read_file_name);
     FILE* fp = fopen(index_name, "w");
     fwrite(&n_read, sizeof(n_read), 1, fp);
-    uint64_t i = 0, tmp;
-    for (i = 0; i < n_read; i++)
-    {
-        tmp = coverage_cut[i].c;
-        fwrite(&tmp, sizeof(tmp), 1, fp);
-        tmp = coverage_cut[i].del;
-        fwrite(&tmp, sizeof(tmp), 1, fp);
-        tmp = coverage_cut[i].e;
-        fwrite(&tmp, sizeof(tmp), 1, fp);
-        tmp = coverage_cut[i].s;
-        fwrite(&tmp, sizeof(tmp), 1, fp);
-    }
+    // uint64_t i = 0, tmp;
+    // for (i = 0; i < n_read; i++)
+    // {
+    //     tmp = coverage_cut[i].c;
+    //     fwrite(&tmp, sizeof(tmp), 1, fp);
+    //     tmp = coverage_cut[i].del;
+    //     fwrite(&tmp, sizeof(tmp), 1, fp);
+    //     tmp = coverage_cut[i].e;
+    //     fwrite(&tmp, sizeof(tmp), 1, fp);
+    //     tmp = coverage_cut[i].s;
+    //     fwrite(&tmp, sizeof(tmp), 1, fp);
+    // }
+    fwrite(coverage_cut, sizeof((*(coverage_cut))), n_read, fp);
     free(index_name);    
     fflush(fp);
     fclose(fp);
@@ -24557,7 +24648,7 @@ int write_asg_t(asg_t *sg, char* read_file_name)
     char* index_name = (char*)malloc(strlen(read_file_name)+15);
     sprintf(index_name, "%s.bin", read_file_name);
     FILE* fp = fopen(index_name, "w");
-    uint32_t tmp, i;
+    uint32_t tmp/**, i**/;
     
     tmp = sg->n_arc;
     fwrite(&tmp, sizeof(tmp), 1, fp);
@@ -24588,37 +24679,39 @@ int write_asg_t(asg_t *sg, char* read_file_name)
     fwrite(sg->idx, sizeof(sg->idx[0]), Len, fp);
 
 
-    for (i = 0; i < sg->n_arc; i++)
-    {
-        tmp = sg->arc[i].del;
-        fwrite(&tmp, sizeof(tmp), 1, fp);
-        tmp = sg->arc[i].el;
-        fwrite(&tmp, sizeof(tmp), 1, fp);
-        tmp = sg->arc[i].no_l_indel;
-        fwrite(&tmp, sizeof(tmp), 1, fp);
-        tmp = sg->arc[i].ol;
-        fwrite(&tmp, sizeof(tmp), 1, fp);
-        tmp = sg->arc[i].strong;
-        fwrite(&tmp, sizeof(tmp), 1, fp);
+    // for (i = 0; i < sg->n_arc; i++)
+    // {
+    //     tmp = sg->arc[i].del;
+    //     fwrite(&tmp, sizeof(tmp), 1, fp);
+    //     tmp = sg->arc[i].el;
+    //     fwrite(&tmp, sizeof(tmp), 1, fp);
+    //     tmp = sg->arc[i].no_l_indel;
+    //     fwrite(&tmp, sizeof(tmp), 1, fp);
+    //     tmp = sg->arc[i].ol;
+    //     fwrite(&tmp, sizeof(tmp), 1, fp);
+    //     tmp = sg->arc[i].strong;
+    //     fwrite(&tmp, sizeof(tmp), 1, fp);
 
-        uint64_t tmp_64;
-        tmp_64 = sg->arc[i].ul;
-        fwrite(&tmp_64, sizeof(tmp_64), 1, fp);
+    //     uint64_t tmp_64;
+    //     tmp_64 = sg->arc[i].ul;
+    //     fwrite(&tmp_64, sizeof(tmp_64), 1, fp);
 
-        tmp = sg->arc[i].v;
-        fwrite(&tmp, sizeof(tmp), 1, fp);
-    }
+    //     tmp = sg->arc[i].v;
+    //     fwrite(&tmp, sizeof(tmp), 1, fp);
+    // }
+    fwrite(sg->arc, sizeof((*(sg->arc))), sg->n_arc, fp);
 
 
-    for (i = 0; i < sg->n_seq; i++)
-    {
-        tmp = sg->seq[i].c;
-        fwrite(&tmp, sizeof(tmp), 1, fp);
-        tmp = sg->seq[i].del;
-        fwrite(&tmp, sizeof(tmp), 1, fp);
-        tmp = sg->seq[i].len;
-        fwrite(&tmp, sizeof(tmp), 1, fp);
-    }
+    // for (i = 0; i < sg->n_seq; i++)
+    // {
+    //     tmp = sg->seq[i].c;
+    //     fwrite(&tmp, sizeof(tmp), 1, fp);
+    //     tmp = sg->seq[i].del;
+    //     fwrite(&tmp, sizeof(tmp), 1, fp);
+    //     tmp = sg->seq[i].len;
+    //     fwrite(&tmp, sizeof(tmp), 1, fp);
+    // }
+    fwrite(sg->seq, sizeof((*(sg->seq))), sg->n_seq, fp);
     
     free(index_name);    
     fflush(fp);
@@ -24637,7 +24730,7 @@ int load_asg_t(asg_t **sg, char* read_file_name)
     {
         return 0;
     }
-    uint32_t tmp, i;
+    uint32_t tmp/**, i**/;
 
     (*sg) = (asg_t*)calloc(1, sizeof(asg_t));
     int f_flag = 0;
@@ -24676,41 +24769,43 @@ int load_asg_t(asg_t **sg, char* read_file_name)
     (*sg)->seq = (asg_seq_t*)malloc(sizeof(asg_seq_t)*(*sg)->m_seq);
     
 
-    for (i = 0; i < (*sg)->n_arc; i++)
-    {
-        f_flag += fread(&tmp, sizeof(tmp), 1, fp);
-        (*sg)->arc[i].del = tmp;
+    // for (i = 0; i < (*sg)->n_arc; i++)
+    // {
+    //     f_flag += fread(&tmp, sizeof(tmp), 1, fp);
+    //     (*sg)->arc[i].del = tmp;
 
-        f_flag += fread(&tmp, sizeof(tmp), 1, fp);
-        (*sg)->arc[i].el = tmp;
+    //     f_flag += fread(&tmp, sizeof(tmp), 1, fp);
+    //     (*sg)->arc[i].el = tmp;
 
-        f_flag += fread(&tmp, sizeof(tmp), 1, fp);
-        (*sg)->arc[i].no_l_indel = tmp;
+    //     f_flag += fread(&tmp, sizeof(tmp), 1, fp);
+    //     (*sg)->arc[i].no_l_indel = tmp;
 
-        f_flag += fread(&tmp, sizeof(tmp), 1, fp);
-        (*sg)->arc[i].ol = tmp;
+    //     f_flag += fread(&tmp, sizeof(tmp), 1, fp);
+    //     (*sg)->arc[i].ol = tmp;
 
-        f_flag += fread(&tmp, sizeof(tmp), 1, fp);
-        (*sg)->arc[i].strong = tmp;
+    //     f_flag += fread(&tmp, sizeof(tmp), 1, fp);
+    //     (*sg)->arc[i].strong = tmp;
 
-        uint64_t tmp_64;
-        f_flag += fread(&tmp_64, sizeof(tmp_64), 1, fp);
-        (*sg)->arc[i].ul = tmp_64;
+    //     uint64_t tmp_64;
+    //     f_flag += fread(&tmp_64, sizeof(tmp_64), 1, fp);
+    //     (*sg)->arc[i].ul = tmp_64;
 
-        f_flag += fread(&tmp, sizeof(tmp), 1, fp);
-        (*sg)->arc[i].v = tmp;
-    }
+    //     f_flag += fread(&tmp, sizeof(tmp), 1, fp);
+    //     (*sg)->arc[i].v = tmp;
+    // }
+    fread((*sg)->arc, sizeof((*((*sg)->arc))), (*sg)->n_arc, fp);
 
 
-    for (i = 0; i < (*sg)->n_seq; i++)
-    {
-        f_flag += fread(&tmp, sizeof(tmp), 1, fp);
-        (*sg)->seq[i].c = tmp;
-        f_flag += fread(&tmp, sizeof(tmp), 1, fp);
-        (*sg)->seq[i].del = tmp;
-        f_flag += fread(&tmp, sizeof(tmp), 1, fp);
-        (*sg)->seq[i].len = tmp;
-    }
+    // for (i = 0; i < (*sg)->n_seq; i++)
+    // {
+    //     f_flag += fread(&tmp, sizeof(tmp), 1, fp);
+    //     (*sg)->seq[i].c = tmp;
+    //     f_flag += fread(&tmp, sizeof(tmp), 1, fp);
+    //     (*sg)->seq[i].del = tmp;
+    //     f_flag += fread(&tmp, sizeof(tmp), 1, fp);
+    //     (*sg)->seq[i].len = tmp;
+    // }
+    fread((*sg)->seq, sizeof((*((*sg)->seq))), (*sg)->n_seq, fp);
     
     free(index_name);    
     fflush(fp);
@@ -24720,18 +24815,18 @@ int load_asg_t(asg_t **sg, char* read_file_name)
 }
 
 int write_debug_graph(asg_t *sg, ma_hit_t_alloc* sources, ma_sub_t* coverage_cut, 
-char* output_file_name, long long n_read, ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex)
+char* output_file_name, ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex)
 {
 
     char* gfa_name = (char*)malloc(strlen(output_file_name)+55);
 
     ////write_All_reads(&R_INF, gfa_name);
     sprintf(gfa_name, "%s.all.debug.source", output_file_name);
-    write_ma_hit_ts(sources, R_INF.total_reads, gfa_name);
+    write_debug_ma_hit_ts(sources, R_INF.total_reads, gfa_name);
     sprintf(gfa_name, "%s.all.debug.reverse", output_file_name);
-    write_ma_hit_ts(reverse_sources, R_INF.total_reads, gfa_name);
+    write_debug_ma_hit_ts(reverse_sources, R_INF.total_reads, gfa_name);
     sprintf(gfa_name, "%s.all.debug.coverage_cut", output_file_name);
-    write_coverage_cut(coverage_cut, gfa_name, n_read);
+    write_coverage_cut(coverage_cut, gfa_name, R_INF.total_reads);
     sprintf(gfa_name, "%s.all.debug.ruIndex", output_file_name);
     write_ruIndex(ruIndex, gfa_name);
     sprintf(gfa_name, "%s.all.debug.asg_t", output_file_name);
@@ -24791,13 +24886,13 @@ char* output_file_name, ma_hit_t_alloc** reverse_sources, R_to_U* ruIndex)
     
 
     sprintf(gfa_name, "%s.all.debug.source", output_file_name);
-    if(!load_ma_hit_ts(sources, gfa_name))
+    if(!load_debug_ma_hit_ts(sources, gfa_name))
     {
         return 0;
     }
 
     sprintf(gfa_name, "%s.all.debug.reverse", output_file_name);
-    if(!load_ma_hit_ts(reverse_sources, gfa_name))
+    if(!load_debug_ma_hit_ts(reverse_sources, gfa_name))
     {
         return 0;
     }
@@ -31392,7 +31487,14 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
         output_read_graph(sg, coverage_cut, unlean_name, n_read);
         free(unlean_name);
     }
-    
+
+
+    if (asm_opt.flag & HA_F_VERBOSE_GFA)
+    {
+        write_debug_graph(sg, sources, coverage_cut, output_file_name, reverse_sources, ruIndex);
+        debug_gfa:;
+        if(asm_opt.ar) create_ul_info(sources, reverse_sources, max_hang_length, mini_overlap_length, gap_fuzz, min_dp, readLen, coverage_cut, ruIndex);
+    }
     gen_ug_opt_t(&uopt, sources, reverse_sources, max_hang_length, mini_overlap_length, gap_fuzz, min_dp, readLen, coverage_cut, ruIndex);
     ul_clean_gfa(&uopt, sg, sources, reverse_sources, ruIndex, clean_round, min_ovlp_drop_ratio, max_ovlp_drop_ratio, 
     0.6, asm_opt.max_short_tip, &b_mask_t, !!asm_opt.ar, ha_opt_triobin(&asm_opt), UL_COV_THRES, o_file);
@@ -31529,11 +31631,12 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
 
     output_contig_graph_primary_pre(sg, coverage_cut, o_file, sources, reverse_sources, 
         asm_opt.small_pop_bubble_size, asm_opt.max_short_tip, ruIndex, max_hang_length, mini_overlap_length);
+    /**
     if (asm_opt.flag & HA_F_VERBOSE_GFA)
     {
         write_debug_graph(sg, sources, coverage_cut, output_file_name, n_read, reverse_sources, ruIndex);
         debug_gfa:;
-    }
+    }**/
 
     if(asm_opt.fn_bin_poy)
     {

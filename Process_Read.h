@@ -202,6 +202,7 @@ typedef struct
 } all_ul_t;
 
 extern all_ul_t UL_INF;
+extern all_ul_t ULG_INF;
 // extern uint32_t *het_cnt;
 
 void init_All_reads(All_reads* r);
