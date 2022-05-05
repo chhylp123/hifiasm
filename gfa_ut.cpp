@@ -1420,16 +1420,19 @@ double ou_drop_rate, int64_t max_tip, bub_label_t *b_mask_t, int32_t is_ou, int3
         update_sg_uo(sg, src);
     }
     
-    if(is_ou) {
-        for (i = 0; i < (int64_t)sg->n_seq; ++i) {
-            if(sg->seq[i].del) continue;
-            sg->seq[i].c = PRIMARY_LABLE;
-        }
-        hic_clean(sg);
-        ul_realignment(uopt, sg);
-        // if(ul_refine_alignment(uopt, sg)) update_sg_uo(sg, src);
-    }
     // print_node(sg, 17078); //print_node(sg, 8311); print_node(sg, 8294);
     
     free(bu.a); 
+}
+
+void ul_realignment_gfa(ug_opt_t *uopt, asg_t *sg)
+{
+    uint64_t i;
+    for (i = 0; i < sg->n_seq; ++i) {
+        if(sg->seq[i].del) continue;
+        sg->seq[i].c = PRIMARY_LABLE;
+    }
+    hic_clean(sg);
+    ul_realignment(uopt, sg);
+    // if(ul_refine_alignment(uopt, sg)) update_sg_uo(sg, src);
 }

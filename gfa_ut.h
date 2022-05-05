@@ -14,5 +14,6 @@ void asg_arc_cut_bub_links(asg_t *g, asg64_v *in, float len_rat, float sec_len_r
 void asg_arc_cut_complex_bub_links(asg_t *g, asg64_v *in, float len_rat, float ou_rat, uint32_t is_ou, bub_label_t *b_mask_t);
 uint32_t asg_cut_large_indel(asg_t *g, asg64_v *in, int32_t max_ext, float ou_rat, uint32_t is_ou);
 uint32_t asg_cut_semi_circ(asg_t *g, uint32_t lim_len, uint32_t is_clean);
+void ul_realignment_gfa(ug_opt_t *uopt, asg_t *sg);
 
 #endif
