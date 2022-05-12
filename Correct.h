@@ -1251,14 +1251,14 @@ inline int if_exact_match(char* x, long long xLen, char* y, long long yLen, long
 
 inline void get_cigar_cell(window_list *idx, window_list_alloc *cc, uint32_t i, uint8_t *c, uint32_t *len)
 {
-    uint32_t p = cc->c.a[idx->cidx+i];
-    (*c) = (uint8_t)(p>>30); (*len) = (p<<2)>>2;
+    uint16_t p = cc->c.a[idx->cidx+i];
+    (*c) = (uint8_t)(p>>14); (*len) = (p&((uint16_t)0x3fff));
 }
 
 inline void push_cigar_cell(window_list_alloc *res, uint8_t c, uint32_t len)
 {
-    uint32_t p = c; p <<= 30; p += len;
-    kv_push(uint32_t, res->c, p);
+    uint16_t p = c; p <<= 14; p += (uint16_t)len;
+    kv_push(uint16_t, res->c, p);
 }
 
 #define FORWARD_KSW 0

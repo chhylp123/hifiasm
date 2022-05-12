@@ -44,29 +44,21 @@ typedef struct
     uint64_t end_pos;
 } k_mer_pos_list;
 
-// typedef struct
-// {
-//     int C_L[CIGAR_MAX_LENGTH];
-//     char C_C[CIGAR_MAX_LENGTH];
-//     int length;
-// } CIGAR;
-
 typedef struct
 {
   ///the begining and end of a window, instead of the whole overlap
   int32_t x_start, x_end;
   int32_t y_start, y_end;
-  int32_t extra_begin, extra_end;
-  int32_t error, error_threshold;
+  int16_t extra_begin, extra_end;
+  int16_t error, error_threshold;
   uint32_t cidx, clen;
-  //CIGAR cigar;
 } window_list;
 
 typedef struct
 {
     size_t n, m; 
     window_list *a;
-    kvec_t(uint32_t) c;
+    kvec_t(uint16_t) c;
 } window_list_alloc;
 
 typedef struct

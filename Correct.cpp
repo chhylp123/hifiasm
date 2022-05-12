@@ -1804,10 +1804,13 @@ inline int move_gap_greedy(char* path, int path_i, int path_length, char* x, int
 inline void generate_cigar(char* path, int path_length, window_list *idx, window_list_alloc *res, int* start, int* end, unsigned int* old_error,
     char* x, int x_len, char* y)
 {
+    // uint8_t debug_c; uint32_t debug_c_len;
     idx->cidx = res->c.n;
     if ((*old_error) == 0) {
         push_cigar_cell(res, 0, idx->x_end + 1 - idx->x_start);
         idx->clen = res->c.n - idx->cidx;
+        // get_cigar_cell(idx, res, idx->clen-1, &debug_c, &debug_c_len);
+        // assert(debug_c==0 && debug_c_len==(idx->x_end + 1 - idx->x_start));
         return;
     }
 
@@ -1887,7 +1890,11 @@ inline void generate_cigar(char* path, int path_length, window_list *idx, window
     pre_c = 5; pre_cl = 0;
     for (i = path_length - 1; i >= 0; i--) {
         if (pre_c != path[i]) {
-            if (pre_cl != 0) push_cigar_cell(res, pre_c, pre_cl);
+            if (pre_cl != 0) {
+                push_cigar_cell(res, pre_c, pre_cl);
+                // get_cigar_cell(idx, res, res->c.n - idx->cidx - 1, &debug_c, &debug_c_len);
+                // assert(debug_c==pre_c && debug_c_len==pre_cl);
+            }
             pre_c = path[i]; pre_cl = 1;
         }
         else {
@@ -1895,7 +1902,12 @@ inline void generate_cigar(char* path, int path_length, window_list *idx, window
         }
     }
 
-    if (pre_cl != 0) push_cigar_cell(res, pre_c, pre_cl);    
+    if (pre_cl != 0) {
+        push_cigar_cell(res, pre_c, pre_cl);   
+        // get_cigar_cell(idx, res, res->c.n - idx->cidx -1, &debug_c, &debug_c_len);
+        // assert(debug_c==pre_c && debug_c_len==pre_cl);
+    }
+
     idx->clen = res->c.n - idx->cidx;
     // if(verify_cigar(x, x_len, y, (*end) - (*start) + 1, &(result->cigar), *old_error))
     // {
