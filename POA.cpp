@@ -307,66 +307,53 @@ void addUnmatchedSeqToGraph(Graph* g, char* g_read_seq, long long g_read_length,
 }
 
 void addmatchedSeqToGraph(Graph* backbone, long long currentNodeID, char* x_string, long long x_length, 
-        char* y_string, long long y_length, CIGAR* cigar, long long backbone_start, long long backbone_end)
+        char* y_string, long long y_length, window_list *cigar_idx, window_list_alloc *cigar_s, long long backbone_start, long long backbone_end)
 {
     
-    int x_i, y_i, cigar_i;
-    x_i = 0;
-    y_i = 0;
-    cigar_i = 0;
-    int operation;
-    int operationLen;
-    int i;
-    int last_operation = -1;
-
+    int64_t x_i = 0, y_i = 0, c_i = 0, c_n = cigar_idx->clen;
+    uint32_t i, operLen; uint8_t oper; int8_t last_oper = -1;
+    // if(currentNodeID == 366 && x_length == 9 && y_length == 9) {
+    //     fprintf(stderr, "[M::%s] currentNodeID::%lld, x_length::%lld, c_n::%ld, cidx::%u, cigar_s_n::%lld\n", __func__, 
+    //     currentNodeID, x_length, c_n, cigar_idx->cidx, (long long)cigar_s->c.n);
+    // }
     
     ///note that node 0 is the start node
     ///0 is match, 1 is mismatch, 2 is up, 3 is left
     ///2 mean y has more bases, while 3 means x has more bases
-    while (cigar_i < cigar->length)
-    {
-        operation = cigar->C_C[cigar_i];
-        operationLen = cigar->C_L[cigar_i];
+    for (c_i = 0; c_i < c_n; c_i++) {
+        get_cigar_cell(cigar_idx, cigar_s, c_i, &oper, &operLen);
 
-        ///match/mismatch
-        if (operation == 0 || operation == 1)
-        {
-            
-            for (i = 0; i < operationLen; i++)
-            {
+        // if(currentNodeID == 366 && x_length == 9 && y_length == 9) {
+        //     fprintf(stderr, "[M::%s] c_i::%ld, oper::%u, operLen::%u, last_oper::%d\n", __func__, c_i, oper, operLen, last_oper);
+        // }
+        
+        if (oper == 0 || oper == 1) { ///match/mismatch
+            for (i = 0; i < operLen; i++) {
                 ///if the previous node is insertion, this node might be mismatch/match
-                add_mismatchEdge_weight(backbone, currentNodeID, y_string[y_i], last_operation);    
-                x_i++;
-                y_i++;
-                currentNodeID++;
+                add_mismatchEdge_weight(backbone, currentNodeID, y_string[y_i], last_oper);    
+                x_i++; y_i++; currentNodeID++;
             }
-        }///insertion
-        else if (operation == 2)
-        {
+        } else if (oper == 2) { ///insertion
             ///the begin and end of cigar cannot be 2, so -1 is right here
             ///if (operationLen <= CORRECT_INDEL_LENGTH)
             {
-                add_insertionEdge_weight(backbone, currentNodeID, y_string + y_i, operationLen);
+                add_insertionEdge_weight(backbone, currentNodeID, y_string + y_i, operLen);
                 backbone->g_nodes.list[currentNodeID].num_insertions++;
             }
-            y_i += operationLen;
-        }
-        else if (operation == 3)
-        {
+            y_i += operLen;
+        } else if (oper == 3) {
             ///3 means x has more bases, that means backbone has more bases
             ///like a mismatch (-)
             ///if (operationLen <= CORRECT_INDEL_LENGTH)
             {
-                add_deletionEdge_weight(backbone, currentNodeID, operationLen);
+                add_deletionEdge_weight(backbone, currentNodeID, operLen);
             }
 
             
-            currentNodeID += operationLen;
-            x_i += operationLen;
+            currentNodeID += operLen;
+            x_i += operLen;
         }
 
-        last_operation = operation;
-        
-        cigar_i++;
+        last_oper = oper;
     }
 }

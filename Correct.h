@@ -1017,28 +1017,6 @@ inline void destoryHaplotypeEvdience(haplotype_evdience_alloc* h)
     destory_SNP_IDs(&(h->dp.SNP_IDs));
 }
 
-inline void destoryHaplotypeEvdience_buf(void *km, haplotype_evdience_alloc* h, int is_z)
-{
-    kfree(km, h->list);
-    kfree(km, h->snp_stat.a);
-    kfree(km, h->snp_srt.a);
-    kfree(km, h->snp_matrix);
-    kfree(km, h->r_snp);
-    kfree(km, h->dp.backtrack);
-    kfree(km, h->dp.max);
-    kfree(km, h->dp.max_for_sort);
-    kfree(km, h->dp.visit);
-    kfree(km, h->dp.backtrack_length);
-    kfree(km, h->dp.buffer);
-    kfree(km, h->dp.max_buffer);
-    kfree(km, h->dp.SNP_IDs.buffer);
-    kfree(km, h->dp.SNP_IDs.IDs);
-    if(is_z) {
-        memset(h, 0, sizeof(*h));
-        memset(&(h->dp.SNP_IDs), 0, sizeof(h->dp.SNP_IDs));
-        h->dp.SNP_IDs.max_snp_id = -1;
-    }
-}
 
 inline void ResizeInitHaplotypeEvdience(haplotype_evdience_alloc* h)
 {
@@ -1126,12 +1104,11 @@ void clear_Round2_alignment(Round2_alignment* h);
 void correct_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF, 
                         UC_Read* g_read, Correct_dumy* dumy, UC_Read* overlap_read, Graph* g, Graph* DAGCon, 
                         Cigar_record* current_cigar, haplotype_evdience_alloc* hap,
-                        Round2_alignment* second_round, int force_repeat, int is_consensus,
-                        int* fully_cov, int* abnormal);
+                        Round2_alignment* second_round, kvec_t_u64_warp* v_idx, window_list_alloc* win_ciagr_buf, 
+                        int force_repeat, int is_consensus, int* fully_cov, int* abnormal);
 void init_Correct_dumy_buf(Correct_dumy* list, void *km);
 void init_Correct_dumy(Correct_dumy* list);
 void destory_Correct_dumy(Correct_dumy* list);
-void destory_Correct_dumy_buf(void *km, Correct_dumy* list, int is_z);
 void clear_Correct_dumy(Correct_dumy* list, overlap_region_alloc* overlap_list, void *km);
 void clear_Correct_dumy_pure(Correct_dumy* list);
 void get_seq_from_Graph(Graph* backbone, Graph* DAGCon, Correct_dumy* dumy, Cigar_record* current_cigar, char* self_string,
@@ -1150,6 +1127,7 @@ void correct_ul_overlap(overlap_region_alloc* overlap_list, const ul_idx_t *uref
                         UC_Read* g_read, Correct_dumy* dumy, UC_Read* overlap_read, 
                         Graph* g, Graph* DAGCon, Cigar_record* current_cigar, 
                         haplotype_evdience_alloc* hap, Round2_alignment* second_round, 
+                        kvec_t_u64_warp* v_idx, window_list_alloc* win_ciagr_buf, 
                         int force_repeat, int is_consensus, int* fully_cov, int* abnormal, 
                         double max_ov_diff_ec, long long winLen, void *km);
 
@@ -1253,8 +1231,8 @@ long long* max_q_pos, long long* max_t_pos, long long* global_score,
 long long* extention_score, long long* q_boundary_score, long long* q_boundary_t_coordinate,
 long long* t_boundary_score, long long* t_boundary_q_coordinate,
 long long* droped, int mode);
-void correct_overlap_high_het(overlap_region_alloc* overlap_list, All_reads* R_INF, 
-                        UC_Read* g_read, Correct_dumy* dumy, UC_Read* overlap_read);
+// void correct_overlap_high_het(overlap_region_alloc* overlap_list, All_reads* R_INF, 
+//                         UC_Read* g_read, Correct_dumy* dumy, UC_Read* overlap_read);
 long long get_affine_gap_score(overlap_region* ovc, UC_Read* g_read, UC_Read* overlap_read, uint8_t* x_num,
 uint8_t* y_num, uint64_t EstimateXOlen, uint64_t EstimateYOlen);
 int collect_hp_regions(overlap_region_alloc* olist, All_reads* R_INF, kvec_t_u8_warp* k_flag, float hp_rate, int rlen, FILE* fp);
@@ -1271,7 +1249,17 @@ inline int if_exact_match(char* x, long long xLen, char* y, long long yLen, long
     return 0;
 }
 
+inline void get_cigar_cell(window_list *idx, window_list_alloc *cc, uint32_t i, uint8_t *c, uint32_t *len)
+{
+    uint32_t p = cc->c.a[idx->cidx+i];
+    (*c) = (uint8_t)(p>>30); (*len) = (p<<2)>>2;
+}
 
+inline void push_cigar_cell(window_list_alloc *res, uint8_t c, uint32_t len)
+{
+    uint32_t p = c; p <<= 30; p += len;
+    kv_push(uint32_t, res->c, p);
+}
 
 #define FORWARD_KSW 0
 #define BACKWARD_KSW 1

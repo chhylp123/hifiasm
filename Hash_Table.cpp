@@ -24,9 +24,9 @@ void init_overlap_region_alloc(overlap_region_alloc* list)
     ///list->list = (overlap_region*)malloc(sizeof(overlap_region)*list->size);
     list->list = (overlap_region*)calloc(list->size, sizeof(overlap_region));
     uint64_t i;
-    for (i = 0; i < list->size; i++)
-    { 
+    for (i = 0; i < list->size; i++) { 
         init_fake_cigar(&(list->list[i].f_cigar));
+        init_window_list_alloc(&(list->list[i].w_list));
         init_window_list_alloc(&(list->list[i].boundary_cigars));
     }
 }
@@ -36,10 +36,9 @@ void clear_overlap_region_alloc(overlap_region_alloc* list)
     list->length = 0;
     list->mapped_overlaps_length = 0;
     uint64_t i = 0;
-    for (i = 0; i < list->size; i++)
-    {   
-        list->list[i].w_list_length = 0;
+    for (i = 0; i < list->size; i++) {   
         clear_fake_cigar(&(list->list[i].f_cigar));
+        clear_window_list_alloc(&(list->list[i].w_list));
         clear_window_list_alloc(&(list->list[i].boundary_cigars));
     }
 }
@@ -47,28 +46,12 @@ void clear_overlap_region_alloc(overlap_region_alloc* list)
 void destory_overlap_region_alloc(overlap_region_alloc* list)
 {
     uint64_t i = 0;
-    for (i = 0; i < list->size; i++)
-    {
-        if (list->list[i].w_list_size != 0)
-        {
-            free(list->list[i].w_list);
-        }
+    for (i = 0; i < list->size; i++) {
         destory_fake_cigar(&(list->list[i].f_cigar));
+        destory_window_list_alloc(&(list->list[i].w_list));
         destory_window_list_alloc(&(list->list[i].boundary_cigars));
     }
     free(list->list);
-}
-
-void destory_overlap_region_alloc_buf(void *km, overlap_region_alloc* list, int is_z)
-{
-    uint64_t i = 0;
-    for (i = 0; i < list->size; i++) {
-        if(list->list[i].w_list_size>0) kfree(km, list->list[i].w_list);
-        if(list->list[i].f_cigar.size>0) kfree(km, list->list[i].f_cigar.buffer);
-        if(list->list[i].boundary_cigars.size>0) kfree(km, list->list[i].boundary_cigars.buffer);
-    }
-    kfree(km, list->list);
-    if(is_z) memset(list, 0, sizeof(*list));
 }
 
 int get_fake_gap_pos(Fake_Cigar* x, int index)
@@ -910,32 +893,18 @@ void calculate_overlap_region_by_chaining(Candidates_list* candidates, overlap_r
 void append_window_list(overlap_region* region, uint64_t x_start, uint64_t x_end, int y_start, int y_end, int error,
                         int extra_begin, int extra_end, int error_threshold, int blockLen, void *km)
 {
-    
-    long long length = region->x_pos_e - region->x_pos_s + 1;
-    ///the length of window may large or small than WINDOW
-    /****************************may have bugs********************************/
-    uint64_t num_windows = length / blockLen + 4;
-    /****************************may have bugs********************************/
+    window_list *p = NULL;
+    kv_pushp(window_list, region->w_list, &p);
 
-    ///w_list_length has alredy set to be 0 at clear_overlap_region_alloc
-    if (num_windows > region->w_list_size)
-    {
-        region->w_list_size = num_windows;
-        if(!km) REALLOC(region->w_list, region->w_list_size);
-        else KREALLOC(km, region->w_list, region->w_list_size);
-    }
-    
-
-    region->w_list[region->w_list_length].x_start = x_start;
-    region->w_list[region->w_list_length].x_end = x_end;
-    region->w_list[region->w_list_length].y_start = y_start;
-    region->w_list[region->w_list_length].y_end = y_end;
-    region->w_list[region->w_list_length].error = error;
-    region->w_list[region->w_list_length].cigar.length = -1;
-    region->w_list[region->w_list_length].extra_begin = extra_begin;
-    region->w_list[region->w_list_length].extra_end = extra_end;
-    region->w_list[region->w_list_length].error_threshold = error_threshold;
-    region->w_list_length++;
+    p->x_start = x_start;
+    p->x_end = x_end;
+    p->y_start = y_start;
+    p->y_end = y_end;
+    p->error = error;
+    p->extra_begin = extra_begin;
+    p->extra_end = extra_end;
+    p->error_threshold = error_threshold;
+    p->cidx = p->clen = 0;
 }
 
 void test_single_list(Candidates_list* candidates, k_mer_pos* n_list, uint64_t n_lengh, uint64_t end_pos, uint64_t strand)
@@ -1118,33 +1087,23 @@ void resize_fake_cigar(Fake_Cigar* x, uint64_t size, void *km)
 
 void init_window_list_alloc(window_list_alloc* x)
 {
-    x->buffer = NULL;
-    x->length = 0;
-    x->size = 0;
+    memset(x, 0, sizeof((*x)));
 }
 
 void clear_window_list_alloc(window_list_alloc* x)
 {
-    x->length = 0;
+    x->n = x->c.n = 0;
 }
 
 void destory_window_list_alloc(window_list_alloc* x)
 {
-    if(x->size != 0)
-    {
-        free((x->buffer));
-    }
+    free(x->a); free(x->c.a);
 }
 
-void resize_window_list_alloc(window_list_alloc* x, long long size, void *km)
+void resize_window_list_alloc(window_list_alloc* x, uint64_t size)
 {
-    if(size > x->size){
-        x->size = size;
-        if(!km) REALLOC(x->buffer, x->size);
-        else KREALLOC(km, x->buffer, x->size);
-    }
-
-    long long i;
-    for (i = 0; i < x->size; i++) x->buffer[i].error = -1; 
-    x->length = 0;
+    kv_resize(window_list, *x, size); x->n = x->c.n = 0;
+    uint64_t k;
+    for (k = 0; k < x->m; k++) x->a[k].error = -1; 
+    x->c.n = 0;
 }

@@ -2295,9 +2295,9 @@ uint32_t overlap_statistics(overlap_region_alloc* olist, ma_ug_t *ug, int64_t *t
 		**/
 		if(tt){
 			uint32_t z;
-			for (z = 0; z < olist->list[k].w_list_length; z++) {
-				if(olist->list[k].w_list[z].y_end != -1) {
-					if(tt) *tt += olist->list[k].w_list[z].x_end+1-olist->list[k].w_list[z].x_start;
+			for (z = 0; z < olist->list[k].w_list.n; z++) {
+				if(olist->list[k].w_list.a[z].y_end != -1) {
+					if(tt) *tt += olist->list[k].w_list.a[z].x_end+1-olist->list[k].w_list.a[z].x_start;
 				}
 			}
 		}
@@ -2619,38 +2619,38 @@ double es_win_err(overlap_region* o, int64_t winLen, int64_t s, int64_t e)
 	os = (o->x_pos_s/winLen)*winLen;
 	si = (s-os)/winLen; ei = (e-os)/winLen;
 	for (k = si+1; k <= ei-1; k++) {
-		tLen += o->w_list[k].x_end+1-o->w_list[k].x_start;
-		if(o->w_list[k].y_end != -1) {
-			tErr += o->w_list[k].error;
+		tLen += o->w_list.a[k].x_end+1-o->w_list.a[k].x_start;
+		if(o->w_list.a[k].y_end != -1) {
+			tErr += o->w_list.a[k].error;
 		} else {
-			tErr += o->w_list[k].x_end+1-o->w_list[k].x_start;
+			tErr += o->w_list.a[k].x_end+1-o->w_list.a[k].x_start;
 		}
 	}
 
 	k = si;
-	maxS = MAX(s, (int64_t)(o->w_list[k].x_start)); minE = MIN(e, (int64_t)(o->w_list[k].x_end)) + 1;
+	maxS = MAX(s, (int64_t)(o->w_list.a[k].x_start)); minE = MIN(e, (int64_t)(o->w_list.a[k].x_end)) + 1;
 	ov = minE > maxS? minE - maxS:0; 
 	if(ov == 0) {
-		fprintf(stderr, "WARNNING-1, o->w_list_length->%u, o->x_id->%u, s->%ld, e->%ld, w_list_s->%lu, w_list_e->%lu, winLen->%ld, o->x_pos_s->%u, o->x_pos_e->%u, si->%ld, flag->%d\n", 
-		o->w_list_length, o->x_id, s, e, o->w_list[k].x_start, o->w_list[k].x_end, winLen, o->x_pos_s, o->x_pos_e, si, o->w_list[k].y_end);
+		fprintf(stderr, "WARNNING-1, o->w_list.n->%u, o->x_id->%u, s->%ld, e->%ld, w_list_s->%d, w_list_e->%d, winLen->%ld, o->x_pos_s->%u, o->x_pos_e->%u, si->%ld, flag->%d\n", 
+		(uint32_t)o->w_list.n, o->x_id, s, e, o->w_list.a[k].x_start, o->w_list.a[k].x_end, winLen, o->x_pos_s, o->x_pos_e, si, o->w_list.a[k].y_end);
 	}
 	tLen += ov/**o->w_list[k].x_end+1-o->w_list[k].x_start**/;
-	if(o->w_list[k].y_end != -1) {
-		tErr += (ov*o->w_list[k].error)/(o->w_list[k].x_end+1-o->w_list[k].x_start);
+	if(o->w_list.a[k].y_end != -1) {
+		tErr += (ov*o->w_list.a[k].error)/(o->w_list.a[k].x_end+1-o->w_list.a[k].x_start);
 	} else {
 		tErr += ov/**o->w_list[k].x_end+1-o->w_list[k].x_start**/;
 	}
 
 	k = ei;
-	maxS = MAX(s, (int64_t)(o->w_list[k].x_start)); minE = MIN(e, (int64_t)(o->w_list[k].x_end)) + 1;
+	maxS = MAX(s, (int64_t)(o->w_list.a[k].x_start)); minE = MIN(e, (int64_t)(o->w_list.a[k].x_end)) + 1;
 	ov = minE > maxS? minE - maxS:0; 
 	if(ov == 0) {
-		fprintf(stderr, "WARNNING-2, o->w_list_length->%u, o->x_id->%u, s->%ld, e->%ld, w_list_s->%lu, w_list_e->%lu, winLen->%ld, o->x_pos_s->%u, o->x_pos_e->%u, ei->%ld, flag->%d\n", 
-		o->w_list_length, o->x_id, s, e, o->w_list[k].x_start, o->w_list[k].x_end, winLen, o->x_pos_s, o->x_pos_e, ei, o->w_list[k].y_end);
+		fprintf(stderr, "WARNNING-2, o->w_list.n->%u, o->x_id->%u, s->%ld, e->%ld, w_list_s->%d, w_list_e->%d, winLen->%ld, o->x_pos_s->%u, o->x_pos_e->%u, ei->%ld, flag->%d\n", 
+		(uint32_t)o->w_list.n, o->x_id, s, e, o->w_list.a[k].x_start, o->w_list.a[k].x_end, winLen, o->x_pos_s, o->x_pos_e, ei, o->w_list.a[k].y_end);
 	}
 	tLen += ov/**o->w_list[k].x_end+1-o->w_list[k].x_start**/;
-	if(o->w_list[k].y_end != -1) {
-		tErr += (ov*o->w_list[k].error)/(o->w_list[k].x_end+1-o->w_list[k].x_start);
+	if(o->w_list.a[k].y_end != -1) {
+		tErr += (ov*o->w_list.a[k].error)/(o->w_list.a[k].x_end+1-o->w_list.a[k].x_start);
 	} else {
 		tErr += ov/**o->w_list[k].x_end+1-o->w_list[k].x_start**/;
 	}
@@ -5135,7 +5135,7 @@ static void worker_for_ul_scall_alignment(void *data, long i, int tid) // callba
 
 	b->self_read.seq = s->seq[i]; b->self_read.length = s->len[i]; b->self_read.size = 0;
 	correct_ul_overlap(&b->olist, s->uu, &b->self_read, &b->correct, &b->ovlp_read, &b->POA_Graph, &b->DAGCon,
-			&b->cigar1, &b->hap, &b->round2, 0, 1, &fully_cov, &abnormal, s->opt->diff_ec_ul, winLen, km);
+			&b->cigar1, &b->hap, &b->round2, &b->r_buf, &(b->tmp_region.w_list), 0, 1, &fully_cov, &abnormal, s->opt->diff_ec_ul, winLen, km);
 
 	// uint64_t k;
 	// for (k = 0; k < b->olist.length; k++) {
@@ -5171,11 +5171,6 @@ static void worker_for_ul_scall_alignment(void *data, long i, int tid) // callba
     // 
 	// if(l1 == 0 && l2 > 0) fprintf(stderr, "[M::%s::%lu::no_match]\n", UL_INF.nid.a[s->id+i].a, s->len[i]);
 	// fprintf(stderr, "[M::%s::%lu::] l1->%u; l2->%u\n", UL_INF.nid.a[s->id+i].a, s->len[i], l1, l2);
-	if(km) {
-        destory_overlap_region_alloc_buf(km, &b->olist, 1); 
-        destory_Correct_dumy_buf(km, &b->correct, 1);
-        destoryHaplotypeEvdience_buf(km, &b->hap, 1);
-    }
 }
 
 
@@ -5203,7 +5198,7 @@ static void worker_for_ul_rescall_alignment(void *data, long i, int tid) // call
 
     b->self_read.seq = s->seq[i]; b->self_read.length = s->len[i]; b->self_read.size = 0;
     correct_ul_overlap(&b->olist, s->uu, &b->self_read, &b->correct, &b->ovlp_read, &b->POA_Graph, &b->DAGCon,
-            &b->cigar1, &b->hap, &b->round2, 0, 1, &fully_cov, &abnormal, s->opt->diff_ec_ul, winLen, NULL);
+            &b->cigar1, &b->hap, &b->round2, &b->r_buf, &(b->tmp_region.w_list), 0, 1, &fully_cov, &abnormal, s->opt->diff_ec_ul, winLen, NULL);
 
     // uint64_t k;
     // for (k = 0; k < b->olist.length; k++) {

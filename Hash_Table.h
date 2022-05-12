@@ -44,32 +44,29 @@ typedef struct
     uint64_t end_pos;
 } k_mer_pos_list;
 
-typedef struct
-{
-    int C_L[CIGAR_MAX_LENGTH];
-    char C_C[CIGAR_MAX_LENGTH];
-    int length;
-} CIGAR;
+// typedef struct
+// {
+//     int C_L[CIGAR_MAX_LENGTH];
+//     char C_C[CIGAR_MAX_LENGTH];
+//     int length;
+// } CIGAR;
 
 typedef struct
 {
   ///the begining and end of a window, instead of the whole overlap
-  uint64_t x_start;
-  uint64_t x_end;
-  int y_end;
-  int y_start;
-  int extra_begin;
-  int extra_end;
-  int error_threshold;
-  int error;
-  CIGAR cigar;
+  int32_t x_start, x_end;
+  int32_t y_start, y_end;
+  int32_t extra_begin, extra_end;
+  int32_t error, error_threshold;
+  uint32_t cidx, clen;
+  //CIGAR cigar;
 } window_list;
 
 typedef struct
 {
-    window_list* buffer;
-    int32_t length;
-    int32_t size;
+    size_t n, m; 
+    window_list *a;
+    kvec_t(uint32_t) c;
 } window_list_alloc;
 
 typedef struct
@@ -100,11 +97,12 @@ typedef struct
     int8_t strong;
     uint32_t non_homopolymer_errors;
 
-    window_list* w_list;
-    uint32_t w_list_size;
-    uint32_t w_list_length;
+    // window_list* w_list;
+    // uint32_t w_list_size;
+    // uint32_t w_list_length;
     Fake_Cigar f_cigar;
 
+    window_list_alloc w_list;
     window_list_alloc boundary_cigars;
 } overlap_region;
 
@@ -149,7 +147,6 @@ void destory_Candidates_list_buf(void *km, Candidates_list* l, int is_z);
 void init_overlap_region_alloc(overlap_region_alloc* list);
 void clear_overlap_region_alloc(overlap_region_alloc* list);
 void destory_overlap_region_alloc(overlap_region_alloc* list);
-void destory_overlap_region_alloc_buf(void *km, overlap_region_alloc* list, int is_z);
 void append_window_list(overlap_region* region, uint64_t x_start, uint64_t x_end, int y_start, int y_end, int error,
 int extra_begin, int extra_end, int error_threshold, int blockLen, void *km);
 
@@ -196,7 +193,7 @@ void resize_Chain_Data(Chain_Data* x, long long size, void *km);
 void init_window_list_alloc(window_list_alloc* x);
 void clear_window_list_alloc(window_list_alloc* x);
 void destory_window_list_alloc(window_list_alloc* x);
-void resize_window_list_alloc(window_list_alloc* x, long long size, void *km);
+void resize_window_list_alloc(window_list_alloc* x, uint64_t size);
 long long chain_DP(k_mer_hit* a, long long a_n, Chain_Data* dp, overlap_region* result, double band_width_threshold, int max_skip, int x_readLen, int y_readLen, void *km);
 int append_utg_inexact_overlap_region_alloc(overlap_region_alloc* list, overlap_region* tmp, 
                                         ma_utg_v *ua, int add_beg_end, void *km);
