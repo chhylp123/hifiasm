@@ -24825,12 +24825,16 @@ char* output_file_name, ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, all_ul
     write_debug_ma_hit_ts(sources, R_INF.total_reads, gfa_name);
     sprintf(gfa_name, "%s.all.debug.reverse", output_file_name);
     write_debug_ma_hit_ts(reverse_sources, R_INF.total_reads, gfa_name);
-    sprintf(gfa_name, "%s.all.debug.coverage_cut", output_file_name);
-    write_coverage_cut(coverage_cut, gfa_name, R_INF.total_reads);
+    if(coverage_cut) {
+        sprintf(gfa_name, "%s.all.debug.coverage_cut", output_file_name);
+        write_coverage_cut(coverage_cut, gfa_name, R_INF.total_reads);
+    }
     sprintf(gfa_name, "%s.all.debug.ruIndex", output_file_name);
     write_ruIndex(ruIndex, gfa_name);
-    sprintf(gfa_name, "%s.all.debug.asg_t", output_file_name);
-    write_asg_t(sg, gfa_name);
+    if(sg) {
+        sprintf(gfa_name, "%s.all.debug.asg_t", output_file_name);
+        write_asg_t(sg, gfa_name);
+    }
     if(ul_r_inf) {
         sprintf(gfa_name, "%s.all.debug.ul.rinfor", output_file_name);
         write_all_ul_t(ul_r_inf, gfa_name, NULL);
@@ -24850,19 +24854,22 @@ char* output_file_name, ma_hit_t_alloc** reverse_sources, R_to_U* ruIndex, all_u
     fp = fopen(gfa_name, "r"); if(!fp) return 0; fclose(fp);
     sprintf(gfa_name, "%s.all.debug.reverse.bin", output_file_name);
     fp = fopen(gfa_name, "r"); if(!fp) return 0; fclose(fp);
-    sprintf(gfa_name, "%s.all.debug.coverage_cut.bin", output_file_name);
-    fp = fopen(gfa_name, "r"); if(!fp) return 0; fclose(fp);
+    if(coverage_cut) {
+        sprintf(gfa_name, "%s.all.debug.coverage_cut.bin", output_file_name);
+        fp = fopen(gfa_name, "r"); if(!fp) return 0; fclose(fp);
+    }
     sprintf(gfa_name, "%s.all.debug.ruIndex.bin", output_file_name);
     fp = fopen(gfa_name, "r"); if(!fp) return 0; fclose(fp);
-    sprintf(gfa_name, "%s.all.debug.asg_t.bin", output_file_name);
-    fp = fopen(gfa_name, "r"); if(!fp) return 0; fclose(fp);
+    if(sg) {
+        sprintf(gfa_name, "%s.all.debug.asg_t.bin", output_file_name);
+        fp = fopen(gfa_name, "r"); if(!fp) return 0; fclose(fp);
+    }
     if(ul_r_inf) {
         sprintf(gfa_name, "%s.all.debug.ul.rinfor.ul.ovlp.bin", output_file_name);
         fp = fopen(gfa_name, "r"); if(!fp) return 0; fclose(fp);
     }
     
-    if((sg == NULL) || (sources == NULL) || (coverage_cut == NULL) || (reverse_sources == NULL) || 
-        (ruIndex == NULL))
+    if((sources == NULL) || (reverse_sources == NULL) || (ruIndex == NULL))
     {
         return 1;
     }
@@ -24877,7 +24884,7 @@ char* output_file_name, ma_hit_t_alloc** reverse_sources, R_to_U* ruIndex, all_u
         destory_ma_hit_t_alloc((*reverse_sources));
     }
 
-    if((*coverage_cut)!=NULL)
+    if(coverage_cut && (*coverage_cut)!=NULL)
     {
         free((*coverage_cut));
     }
@@ -24887,7 +24894,7 @@ char* output_file_name, ma_hit_t_alloc** reverse_sources, R_to_U* ruIndex, all_u
         destory_R_to_U((ruIndex));
     }
 
-    if((*sg)!=NULL)
+    if(sg && (*sg)!=NULL)
     {
         asg_destroy(*sg);
     }
@@ -24906,10 +24913,12 @@ char* output_file_name, ma_hit_t_alloc** reverse_sources, R_to_U* ruIndex, all_u
         return 0;
     }
 
-    sprintf(gfa_name, "%s.all.debug.coverage_cut", output_file_name);
-    if(!load_coverage_cut(coverage_cut, gfa_name))
-    {
-        return 0;
+    if(coverage_cut) {
+        sprintf(gfa_name, "%s.all.debug.coverage_cut", output_file_name);
+        if(!load_coverage_cut(coverage_cut, gfa_name))
+        {
+            return 0;
+        }
     }
 
     sprintf(gfa_name, "%s.all.debug.ruIndex", output_file_name);
@@ -24918,11 +24927,14 @@ char* output_file_name, ma_hit_t_alloc** reverse_sources, R_to_U* ruIndex, all_u
         return 0;
     }
 
-    sprintf(gfa_name, "%s.all.debug.asg_t", output_file_name);
-    if(!load_asg_t(sg, gfa_name))
-    {
-        return 0;
+    if(sg) {
+        sprintf(gfa_name, "%s.all.debug.asg_t", output_file_name);
+        if(!load_asg_t(sg, gfa_name))
+        {
+            return 0;
+        }
     }
+    
 
     if(ul_r_inf) {
         sprintf(gfa_name, "%s.all.debug.ul.rinfor", output_file_name);
@@ -31446,7 +31458,7 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
 
     if(debug_g) 
     {
-        init_bub_label_t(&b_mask_t, MIN(10, asm_opt.thread_num), sg->n_seq);
+        init_bub_label_t(&b_mask_t, MIN(10, asm_opt.thread_num), n_read);
         goto debug_gfa;
     }
     ///just for debug
@@ -31468,6 +31480,11 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
     {
         memset(R_INF.trio_flag, AMBIGU, R_INF.total_reads*sizeof(uint8_t));
     }
+
+    // if (asm_opt.flag & HA_F_VERBOSE_GFA) {
+    //     write_debug_graph(NULL, sources, coverage_cut, output_file_name, reverse_sources, ruIndex, &UL_INF);
+    //     debug_gfa:;
+    // }
     ///should recover edges from sources by using UL alignments
     if(asm_opt.ar) create_ul_info(sources, reverse_sources, max_hang_length, mini_overlap_length, gap_fuzz, min_dp, readLen, coverage_cut, ruIndex);
     
@@ -31510,7 +31527,6 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
         write_debug_graph(sg, sources, coverage_cut, output_file_name, reverse_sources, ruIndex, &UL_INF);
         debug_gfa:;
         gen_ug_opt_t(&uopt, sources, reverse_sources, max_hang_length, mini_overlap_length, gap_fuzz, min_dp, readLen, coverage_cut, ruIndex);
-        // if(asm_opt.ar) create_ul_info(sources, reverse_sources, max_hang_length, mini_overlap_length, gap_fuzz, min_dp, readLen, coverage_cut, ruIndex);
     }
     if(asm_opt.ar) ul_realignment_gfa(&uopt, sg);
     print_debug_gfa(sg, NULL, coverage_cut, "UL.debug", sources, ruIndex, max_hang_length, mini_overlap_length);
@@ -31722,7 +31738,7 @@ long long bubble_dist, int read_graph, int write)
     min_thres = asm_opt.max_short_tip + 1;
     if (asm_opt.flag & HA_F_VERBOSE_GFA)
     {
-        if(load_debug_graph(&sg, &sources, &coverage_cut, output_file_name, &reverse_sources, &ruIndex, &UL_INF))
+        if(load_debug_graph(/**NULL**/&sg, &sources, /**NULL**/&coverage_cut, output_file_name, &reverse_sources, &ruIndex, &UL_INF))
         {
             fprintf(stderr, "debug gfa has been loaded\n");
             
