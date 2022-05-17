@@ -56,7 +56,7 @@ void ha_get_ul_candidates_interface(ha_abufl_t *ab, int64_t rid, char* rs, uint6
 
 #define SEC_LEN_DIF 0.03
 #define REA_ALIGN_CUTOFF 32
-#define CHUNK_SIZE 250000000
+#define CHUNK_SIZE 500000000
 
 #define generic_key(x) (x)
 KRADIX_SORT_INIT(gfa64, uint64_t, generic_key, 8)
@@ -6799,7 +6799,18 @@ uint64_t primary_chain_check(uint64_t *idx, int64_t idx_n, mg_lchain_t *a)
 	return 0;
 }
 
-
+uint64_t ck_hq_chain(mg_lchain_t *li, mg_lchain_t *lj, ma_ug_t *ug, const ul_idx_t *uref, const ug_opt_t *uopt, int64_t bw, double ng_diff_thre)
+{
+	if(lj->qe+G_CHAIN_INDEL <= li->qs) return 0;
+	if(lj->qs >= li->qs/**+G_CHAIN_INDEL**/) return 0;
+	ul_ov_t ui, uj; int64_t qo, share
+;	set_ul_ov_t_by_mg_lchain_t(&ui, li); set_ul_ov_t_by_mg_lchain_t(&uj, lj);
+	qo = infer_rovlp(&ui, &uj, NULL, NULL, NULL, ug); ///overlap length in query (UL read)
+	if(li->v!=lj->v && get_ecov_adv(uref, uopt, li->v^1, lj->v^1, bw, ng_diff_thre, qo, 0, &share)) {
+		return 1;
+	}
+	return 0;
+}
 
 int64_t hc_gchain1_dp(void *km, const ul_idx_t *uref, const ma_ug_t *ug, vec_mg_lchain_t *lc, vec_mg_lchain_t *sw, vec_mg_path_dst_t *dst, vec_sp_node_t *out, vec_mg_pathv_t *path,
 int64_t qlen, const ug_opt_t *uopt, int64_t bw, double diff_thre, double ng_diff_thre, uint64_t *srt, st_mt_t *bf, int64_t *f, uint64_t *p, uint64_t *v)
@@ -6909,6 +6920,9 @@ int64_t qlen, const ug_opt_t *uopt, int64_t bw, double diff_thre, double ng_diff
 
 		// collect potential destination vertices
 		for (dst->n = 0, max_target_dist= -1, j = x; j >= 0; --j) { 
+			///same time for gchain
+			// if((p[j]>>33) == ((uint64_t)i)) continue;
+
 			lj = &lc->a[j]; ///extend_end_coord(lj, qlen, g->seq[lj->v>>1].len, &jqs, &jqe, &jrs, &jre);
 			//lj contained in li; actually in circle, this might happen; need to deal with it later
 			if(lj->qs >= li->qs/**+G_CHAIN_INDEL**/) continue;
@@ -6938,6 +6952,13 @@ int64_t qlen, const ug_opt_t *uopt, int64_t bw, double diff_thre, double ng_diff
 			// fprintf(stderr, "+++lj->(%ld)\tutg%.6d%c(%u)\t%u\t%u\t%c\ttarget_dist:%d\n", 
 			// j, (int32_t)(lj->v>>1)+1, "lc"[ug->u.a[lj->v>>1].circ], ug->u.a[lj->v>>1].len,
 			// lj->qs, lj->qe, "+-"[lj->v&1], q->target_dist);
+
+			///j-th has pre, and the pre is good alignment 
+			///same time for gchain
+			// if((((uint32_t)p[j])!=((uint32_t)-1)) && (p[j]&(uint64_t)(0x100000000))) {
+			// 	p[((uint32_t)p[j])] &= (uint64_t)(0x1ffffffff);
+			// 	p[((uint32_t)p[j])] |= (((uint64_t)i)<<33);
+			// }
 		}
 
 		// confirm reach-ability
@@ -6965,13 +6986,30 @@ int64_t qlen, const ug_opt_t *uopt, int64_t bw, double diff_thre, double ng_diff
             }
 		}
 
-		f[i] = max_f, p[i] = max_j<0?(uint64_t)-1:max_j;
+		f[i] = max_f; p[i] = max_j<0?(uint64_t)-1:max_j;
+		///same time for gchain
+		// if(max_j < 0) {
+		// 	p[i] = (uint32_t)-1;
+		// } else {
+		// 	p[i] = max_j;
+		// 	if(ck_hq_chain(li, &(lc->a[max_j]), (ma_ug_t *)ug, uref, uopt, bw, ng_diff_thre)) {
+		// 		p[i] |= (uint64_t)(0x100000000);
+		// 	}
+		// }
+
+
 		li->dist_pre = max_d;
 		li->hash_pre = max_hash;
 		li->inner_pre = max_inner;
 		// fprintf(stderr, "i->%ld, utg%.6d%c->utg%.6d%c, max_f:%ld\n", i, (int32_t)(li->v>>1)+1, "lc"[ug->u.a[li->v>>1].circ], 
 		// max_j<0?0:(int32_t)(lc->a[max_j].v>>1)+1, max_j<0?'*':"lc"[ug->u.a[lc->a[max_j].v>>1].circ], max_f);
 	}
+
+	///same time for gchain
+	// for (i = 0; i < n_ext; ++i) {
+	// 	if(((uint32_t)p[i])==((uint32_t)-1)) p[i] = (uint64_t)-1;
+	// 	else p[i] = (uint32_t)p[i];
+	// }
 
 	kv_resize(uint64_t, *bf, (uint64_t)lc_n); u = bf->a;
 	hc_chain_backtrack(n_ext, f, p, srt, u, v, &n_u, &n_v);
