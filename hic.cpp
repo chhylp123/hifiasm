@@ -6416,15 +6416,15 @@ asg_arc_t *p, uint32_t check_het)
     if(x_1_b_id) id1 = (*x_1_b_id);
     if((x_0 != (uint32_t)-1) && (x_1 != (uint32_t)-1))
     {
-        if(((x_0>>1) == (x_1>>1)))
+        if(((x_0>>1) == (x_1>>1)))///if we would like to find a edge bridging two nearby bubbles
         {
             if(x_0_b_id == NULL && x_1_b_id == NULL)
             {
                 get_bub_id(bub, x_0>>1, &id0, &id1, check_het);
             }
             
-            get_bubbles(bub, id0, &beg_0, &sink_0, &a, &n, NULL);
-            get_bubbles(bub, id1, &beg_1, &sink_1, &a, &n, NULL);
+            get_bubbles(bub, id0, &beg_0, &sink_0, &a, &n, NULL);//first bubble
+            get_bubbles(bub, id1, &beg_1, &sink_1, &a, &n, NULL);//second bubble
 
 
             ori_0 = (uint64_t)-1;
@@ -6716,10 +6716,11 @@ void detect_bub_graph(bubble_type* bub, asg_t *untig_sg)
     uint64_t pLen, rLEN, r_hetLen;
     ma_utg_t *u = NULL;
     asg_arc_t *t = NULL;
-    for (i = 0; i < ug->u.n; i++)
+    for (i = 0; i < ug->u.n; i++)///bubble chain graph; bubbles within the same chain have been merged
     {
         u = &(ug->u.a[i]);
         if(u->n == 0) continue;
+        ///u is a bubble chain
         for (k = pLen = rLEN = r_hetLen = beg_idx = 0, end_idx = -1; k < u->n; k++)
         {
             rId = u->a[k]>>33;
@@ -6727,7 +6728,7 @@ void detect_bub_graph(bubble_type* bub, asg_t *untig_sg)
             get_bubbles(bub, rId, ori == 1?&root:&r_root, ori == 0?&root:&r_root, NULL, NULL, NULL);
             
             t = NULL;
-            if(k+1 < u->n) t = &(arc_first(bg, u->a[k]>>32));
+            if(k+1 < u->n) t = &(arc_first(bg, u->a[k]>>32));//edge between two bubbles within the same chain
 
             pLen += bg->seq[rId].len;///path length in bubble
             if(end_idx < beg_idx) ///first bubble
@@ -6739,7 +6740,7 @@ void detect_bub_graph(bubble_type* bub, asg_t *untig_sg)
 
             if(t)
             {
-                if(t->el == 0)
+                if(t->el == 0)///there is tangle between two bubbles
                 {
                     if(end_idx >= beg_idx)
                     {
@@ -6752,7 +6753,7 @@ void detect_bub_graph(bubble_type* bub, asg_t *untig_sg)
                     pLen = rLEN = r_hetLen = 0;
                     beg_idx = k + 1; end_idx = k;
                 }
-                else
+                else///two bubbles directly connected with each other
                 {
                     pLen += t->ol;
                     rLEN += t->ol;
@@ -6784,7 +6785,7 @@ void get_bub_graph(ma_ug_t* ug, bubble_type* bub)
     uint32_t *pre = NULL; MALLOC(pre, n_vtx);
     uint32_t pre_id, adjecent, bub_occ;
     asg_t *bub_g = asg_init();
-    for (v = 0; v < bub->f_bub; v++)
+    for (v = 0; v < bub->f_bub; v++)///all bubbles
     {
         uint64_t pathbase;
         uint32_t beg, sink;
@@ -6793,11 +6794,12 @@ void get_bub_graph(ma_ug_t* ug, bubble_type* bub)
         bub_g->seq[v].c = PRIMARY_LABLE;
     }
 
-    //check all unitigs
+    //check all unitigs, instead of bubble nodes
     for (v = 0; v < n_vtx; ++v)
     {
         if(sg->seq[v>>1].del) continue;
         if(bub->b_s_idx.a[v>>1] == (uint64_t)-1) continue; ///if (v>>1) is not a beg or sink of bubbles
+        ///one node might be the beg/sink node of at most two bubbles
         bub_occ = connect_bub_occ(bub, v>>1, bub->check_het);
         if(bub_occ == 0) continue;
         if(bub_occ == 2)
@@ -6812,6 +6814,7 @@ void get_bub_graph(ma_ug_t* ug, bubble_type* bub)
         }
         if(ma_2_bub_arc(bub, v, NULL, (uint32_t)-1, NULL, &t, bub->check_het) == 0) continue;
 
+        ///v is the beg/sink node of only one bubble
         get_shortest_path(v, &pq, sg, pre);
         for (k = 0; k < pq.dis.n; k++)
         {
@@ -6833,7 +6836,7 @@ void get_bub_graph(ma_ug_t* ug, bubble_type* bub)
 
             if(adjecent == 0)
             {
-                if(ma_2_bub_arc(bub, v, NULL, k^1, NULL, &t, bub->check_het))
+                if(ma_2_bub_arc(bub, v, NULL, k^1, NULL, &t, bub->check_het))///edges spanning tangles
                 {
                     t.el = 0; t.ol = pq.dis.a[k] + sg->seq[k>>1].len;
                     p = asg_arc_pushp(bub_g);
@@ -6963,7 +6966,7 @@ uint8_t* vis_flag, uint32_t vis_flag_n, kvec_t_u32_warp* stack, asg_t *bsg, asg_
     radix_sort_u32(broken->a.a, broken->a.a + broken->a.n);
     for (i = n = 0, pre = (uint32_t)-1; i < broken->a.n; i++)
     {
-        if((broken->a.a[i]>>1) == (pre>>1)) continue;
+        if((broken->a.a[i]>>1) == (pre>>1)) continue;///skip same node like v and v^1
         pre = broken->a.a[i];
         broken->a.a[n] = pre;
         n++;
@@ -8046,7 +8049,7 @@ void resolve_bubble_chain_tangle(ma_ug_t* ug, bubble_type* bub)
             occ_idx.a[occ_idx.n - k - 1] = tmp;
         }
 
-        for (k = 0; k < bub_ug->g->n_seq; k++)
+        for (k = 0; k < bub_ug->g->n_seq; k++)///start from the longest chain
         {
             v = ((uint32_t)(occ_idx.a[k]))<<1;
             if(is_used[v] == 0 && asg_arc_n(bub_ug->g, v) > 0)
@@ -8192,9 +8195,9 @@ void update_bubble_chain(ma_ug_t* ug, bubble_type* bub, uint32_t is_middle, uint
     ///uint64_t end_thres;
 
     uint8_t *bsg_idx = NULL; CALLOC(bsg_idx, n_vtx>>1); 
-    for (i = 0; i < bub_ug->u.n; i++)
+    for (i = 0; i < bub_ug->u.n; i++)///label all unitigs within the bubble chains
     {
-        u = &(bub_ug->u.a[i]);
+        u = &(bub_ug->u.a[i]);///a bubble chain
         if(u->n == 0) continue;
         for (k_i = 0; k_i < u->n; k_i++)
         {
@@ -8213,7 +8216,7 @@ void update_bubble_chain(ma_ug_t* ug, bubble_type* bub, uint32_t is_middle, uint
     new_bub = bub->b_g->n_seq;
     for (i = 0; i < bub_ug->u.n; i++)
     {
-        u = &(bub_ug->u.a[i]);
+        u = &(bub_ug->u.a[i]);///bubble chain
         if(u->n == 0) continue;
         ///end_thres = calculate_chain_weight(u, bub, ug, &x);
         if(is_middle)
@@ -8223,7 +8226,7 @@ void update_bubble_chain(ma_ug_t* ug, bubble_type* bub, uint32_t is_middle, uint
                 if(k_i+1 >= u->n) continue;
                 ///note: must igore .del here, since bsg might be changed
                 t = &(arc_first(bsg, u->a[k_i]>>32));
-                if(t->el == 1) continue;
+                if(t->el == 1) continue;///if a[k_i] and a[k_i+1] are directly connected without any tangle involoved
 
                 rId_0 = u->a[k_i]>>33;
                 ori_0 = u->a[k_i]>>32&1;
@@ -8233,7 +8236,7 @@ void update_bubble_chain(ma_ug_t* ug, bubble_type* bub, uint32_t is_middle, uint
                 ori_1 = (u->a[k_i+1]>>32&1)^1;
                 get_bubbles(bub, rId_1, ori_1 == 1?&root_1:NULL, ori_1 == 0?&root_1:NULL, NULL, NULL, NULL);
 
-                broken.a.n = 0;
+                broken.a.n = 0;///just collect all nodes between root_0 and root_1
                 get_related_bub_nodes(&broken, bub, &pq, sg, pre, root_0, root_1, NULL);
                 get_related_bub_nodes(&broken, bub, &pq, sg, pre, root_1, root_0, NULL);
                 ///no need to cut the edge, we still have chance to flip by chain
@@ -9353,8 +9356,8 @@ void build_bub_graph(ma_ug_t* ug, bubble_type* bub)
     // detect_bub_graph(bub, ug->g, 1);
     update_bubble_chain(ug, bub, 1, 0);
     ///print_bubble_chain(bub, "second round");
-    update_bubble_chain(ug, bub, 0, 1);
-    resolve_bubble_chain_tangle(ug, bub);
+    update_bubble_chain(ug, bub, 0, 1);///resolve tangles within bubble chains
+    resolve_bubble_chain_tangle(ug, bub);///resolve tangles between bubble chains
 }
 
 void get_forward_distance(uint32_t src, uint32_t dest, asg_t *sg, hc_links* link, MT* M)

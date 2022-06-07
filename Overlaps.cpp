@@ -16280,6 +16280,18 @@ uint32_t cmp_untig_graph(ma_ug_t *src, ma_ug_t *dest)
             fprintf(stderr, "src->g->seq[%u].len: %u, dest->g->seq[%u].len: %u\n", 
             v, src->g->seq[v].len, v, dest->g->seq[v].len);
         }
+        
+        if(src->u.a[v].n != dest->u.a[v].n)
+        {
+            fprintf(stderr, "src->u.a[%u].n: %u, dest->u.a[%u].n: %u\n", 
+            v, src->u.a[v].n, v, dest->u.a[v].n);
+        }
+
+        if(src->u.a[v].a[0] != dest->u.a[v].a[0] || 
+                    src->u.a[v].a[src->u.a[v].n-1] != dest->u.a[v].a[dest->u.a[v].n - 1]) 
+        {
+            fprintf(stderr, "unequal beg/end node\n");
+        }
     }
     
 
@@ -28778,7 +28790,7 @@ void reset_bub(bubble_type* bub, ma_ug_t *ug, trans_chain* back_ug_chain, kvec_a
     destory_bubbles(bub);
     memset(bub, 0, sizeof(bubble_type));
 
-    new_rtg_edges->a.n = 0;
+    if(new_rtg_edges) new_rtg_edges->a.n = 0;
     ///classify_untigs(ug, sg, coverage_cut, sources, reverse_sources, ruIndex, new_rtg_edges, max_hang, min_ovlp);
     identify_bubbles(ug, bub, back_ug_chain->ir_het, NULL);
     // update_bubble_chain(ug, bub, 0, 1);
@@ -31398,19 +31410,23 @@ char *get_outfile_name(char* output_file_name)
 }
 
 void gen_ug_opt_t(ug_opt_t *opt, ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, int64_t max_hang, int64_t min_ovlp,
-int64_t gap_fuzz, int64_t min_dp, uint64_t* readLen, ma_sub_t *coverage_cut, R_to_U* ruIndex)
+int64_t gap_fuzz, int64_t min_dp, uint64_t* readLen, ma_sub_t *coverage_cut, R_to_U* ruIndex, long long tipsLen, 
+float tip_drop_ratio, long long stops_threshold, float chimeric_rate, float drop_ratio, bub_label_t* b_mask_t)
 {
     memset(opt, 0, sizeof((*opt)));
     opt->sources = sources; opt->reverse_sources = reverse_sources; opt->max_hang = max_hang;
     opt->min_ovlp = min_ovlp; opt->gap_fuzz = gap_fuzz; opt->min_dp = min_dp; opt->readLen = readLen;
-    opt->coverage_cut = coverage_cut; opt->ruIndex = ruIndex;
+    opt->coverage_cut = coverage_cut; opt->ruIndex = ruIndex; opt->tipsLen = tipsLen; 
+    opt->tip_drop_ratio = tip_drop_ratio; opt->stops_threshold = stops_threshold; 
+    opt->chimeric_rate = chimeric_rate; opt->drop_ratio = drop_ratio; opt->b_mask_t = b_mask_t;
 }
 
 void create_ul_info(ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, int64_t max_hang, int64_t min_ovlp, int64_t gap_fuzz, 
-int64_t min_dp, uint64_t* readLen, ma_sub_t *coverage_cut, R_to_U* ruIndex)
+int64_t min_dp, uint64_t* readLen, ma_sub_t *coverage_cut, R_to_U* ruIndex, long long tipsLen, float tip_drop_ratio, long long stops_threshold, float chimeric_rate, float drop_ratio, bub_label_t* b_mask_t)
 {
     ug_opt_t opt; 
-    gen_ug_opt_t(&opt, sources, reverse_sources, max_hang, min_ovlp, gap_fuzz, min_dp, readLen, coverage_cut, ruIndex);
+    gen_ug_opt_t(&opt, sources, reverse_sources, max_hang, min_ovlp, gap_fuzz, min_dp, readLen, coverage_cut, ruIndex, 
+    tipsLen, tip_drop_ratio, stops_threshold, chimeric_rate, drop_ratio, b_mask_t);
     ul_load(&opt);
 }
 
@@ -31480,13 +31496,16 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
     {
         memset(R_INF.trio_flag, AMBIGU, R_INF.total_reads*sizeof(uint8_t));
     }
-
+    if(asm_opt.ar) init_all_ul_t(&UL_INF, &R_INF);
     // if (asm_opt.flag & HA_F_VERBOSE_GFA) {
     //     write_debug_graph(NULL, sources, coverage_cut, output_file_name, reverse_sources, ruIndex, &UL_INF);
     //     debug_gfa:;
     // }
     ///should recover edges from sources by using UL alignments
-    if(asm_opt.ar) create_ul_info(sources, reverse_sources, max_hang_length, mini_overlap_length, gap_fuzz, min_dp, readLen, coverage_cut, ruIndex);
+    if(asm_opt.ar) {
+        create_ul_info(sources, reverse_sources, max_hang_length, mini_overlap_length, gap_fuzz, min_dp, readLen, coverage_cut, ruIndex, 
+        (asm_opt.max_short_tip*2), 0.15, 3, 0.05, 0.9, &b_mask_t);
+    }
     
     clean_weak_ma_hit_t(sources, reverse_sources, n_read, asm_opt.ar?UL_COV_THRES:(uint32_t)-1);
     sg = gen_init_sg(min_dp, n_read, mini_overlap_length, max_hang_length, gap_fuzz, sources, readLen, ruIndex, 
@@ -31519,14 +31538,16 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
         free(unlean_name);
     }
 
-    gen_ug_opt_t(&uopt, sources, reverse_sources, max_hang_length, mini_overlap_length, gap_fuzz, min_dp, readLen, coverage_cut, ruIndex);
+    gen_ug_opt_t(&uopt, sources, reverse_sources, max_hang_length, mini_overlap_length, gap_fuzz, min_dp, readLen, coverage_cut, ruIndex, 
+            (asm_opt.max_short_tip*2), 0.15, 3, 0.05, 0.9, &b_mask_t);
     ul_clean_gfa(&uopt, sg, sources, reverse_sources, ruIndex, clean_round, min_ovlp_drop_ratio, max_ovlp_drop_ratio, 
     0.6, asm_opt.max_short_tip, &b_mask_t, !!asm_opt.ar, ha_opt_triobin(&asm_opt), UL_COV_THRES, o_file);
 
     if (asm_opt.flag & HA_F_VERBOSE_GFA) {
         write_debug_graph(sg, sources, coverage_cut, output_file_name, reverse_sources, ruIndex, &UL_INF);
         debug_gfa:;
-        gen_ug_opt_t(&uopt, sources, reverse_sources, max_hang_length, mini_overlap_length, gap_fuzz, min_dp, readLen, coverage_cut, ruIndex);
+        gen_ug_opt_t(&uopt, sources, reverse_sources, max_hang_length, mini_overlap_length, gap_fuzz, min_dp, readLen, coverage_cut, ruIndex, 
+                (asm_opt.max_short_tip*2), 0.15, 3, 0.05, 0.9, &b_mask_t);
     }
     if(asm_opt.ar) ul_realignment_gfa(&uopt, sg);
     print_debug_gfa(sg, NULL, coverage_cut, "UL.debug", sources, ruIndex, max_hang_length, mini_overlap_length);

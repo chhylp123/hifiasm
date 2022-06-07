@@ -8465,13 +8465,14 @@ void print_ovlp_src_bl_stat(all_ul_t *x, const ug_opt_t *uopt)
 	__func__, tt[0]+tt[1]+tt[2]+tt[3], tt[1], tt[2], tt[3]);
 }
 
-void gen_ul_vec_rid_t(all_ul_t *x)
+void gen_ul_vec_rid_t(all_ul_t *x, All_reads *rdb, ma_ug_t *ug)
 {
 	ul_vec_rid_t *ridx = &(x->ridx);
-	uint64_t k, i, l, m, *a, a_n; ul_vec_t *p = NULL;
-	ridx->idx.n = ridx->idx.m = R_INF.total_reads + 1; CALLOC(ridx->idx.a, ridx->idx.n);
+	uint64_t k, i, l, m, *a, a_n, idx_n; ul_vec_t *p = NULL;
+	idx_n = (rdb?rdb->total_reads:ug->u.n);
+	ridx->idx.n = ridx->idx.m = idx_n + 1; CALLOC(ridx->idx.a, ridx->idx.n);
 
-	for (k = 0; k < x->n; k++) {
+	for (k = 0; k < x->n; k++) {///each UL read
 		p = &(x->a[k]);
 		for (i = 0; i < p->bb.n; i++) {
 			if(p->bb.a[i].base) continue;
@@ -8486,7 +8487,7 @@ void gen_ul_vec_rid_t(all_ul_t *x)
 	}
 
 	ridx->occ.n = ridx->occ.m = l; MALLOC(ridx->occ.a, ridx->occ.n);
-	for (k = 0; k < R_INF.total_reads; k++) {
+	for (k = 0; k < idx_n; k++) {
 		a = ridx->occ.a + ridx->idx.a[k];
 		a_n = ridx->idx.a[k+1] - ridx->idx.a[k];
 		if(a_n) a[a_n-1] = 0;
@@ -8504,8 +8505,104 @@ void gen_ul_vec_rid_t(all_ul_t *x)
 			}
 		}
 	}
-	
 }
+
+
+uint32_t ugl_cover_check(uint64_t is, uint64_t ie, ma_utg_t *u)
+{
+	if(is == 0 && ie == u->len) return 1;
+	uint64_t l, i, us, ue;
+	for (i = l = 0; i < u->n; i++) {
+		us = l; ue = l + Get_READ_LENGTH(R_INF, (u->a[i]>>33));
+		if(is <= us && ie >= ue) return 1;
+		if(us >= ie) break;
+		l += (uint32_t)u->a[i];
+	}
+	return 0;
+}
+
+static void update_ug_arch_ul(void *data, long i, int tid) // callback for kt_for()
+{
+	const ma_ug_t *ug = (ma_ug_t *)data;
+	asg_arc_t *e = &(ug->g->arc[i]); e->ou = 0;
+	uint32_t v = e->ul>>32, w = e->v, k, uv, uw;
+	uint64_t *a, a_n; uc_block_t *p, *n;
+	a = UL_INF.ridx.occ.a + UL_INF.ridx.idx.a[v>>1];
+	a_n = UL_INF.ridx.idx.a[(v>>1)+1] - UL_INF.ridx.idx.a[v>>1]; 
+	for (k = 0; k < a_n; k++) {
+		p = &(UL_INF.a[a[k]>>32].bb.a[(uint32_t)(a[k])]);
+		if(p->base || (!p->el) || (!p->pchain)) continue;
+		uv = (((uint32_t)(p->hid))<<1)|((uint32_t)(p->rev));
+		if((uv == v) && (p->aidx != (uint32_t)-1)) {
+			n = &(UL_INF.a[a[k]>>32].bb.a[p->aidx]);
+			// if(!((!n->base)&&(n->el)&&(n->pchain)&&(n->pidx==((uint32_t)(a[k]))))) {
+			// 	fprintf(stderr, "k::%u, n->base::%u, n->el::%u, n->pchain::%u, n->pidx::%u, p->aidx::%u\n", 
+			// 	k, n->base, n->el, n->pchain, n->pidx, p->aidx);
+			// }
+			assert((!n->base)&&(n->el)&&(n->pchain)&&(n->pidx==((uint32_t)(a[k]))));
+			uw = (((uint32_t)(n->hid))<<1)|((uint32_t)(n->rev));
+			if(uw == w) e->ou++;
+		}
+
+		if(((uv^1) == v) && (p->pidx != (uint32_t)-1)) {
+			n = &(UL_INF.a[a[k]>>32].bb.a[p->pidx]);
+			assert((!n->base)&&(n->el)&&(n->pchain)&&(n->aidx==((uint32_t)(a[k]))));
+			uw = (((uint32_t)(n->hid))<<1)|((uint32_t)(n->rev)); uw ^= 1;
+			if(uw == w) e->ou++;
+		}
+	}
+}
+
+static void filter_short_ulalignments(void *data, long i, int tid) // callback for kt_for()
+{
+	const ma_ug_t *ug = (ma_ug_t *)data;
+	uc_block_t *a = NULL; uc_block_t *p; int64_t k, a_n; uint32_t z, fz, lz, l, bz;
+	a = UL_INF.a[i].bb.a; a_n = UL_INF.a[i].bb.n;
+	for (k = a_n - 1; k >= 0; k--) {
+		p = &(a[k]);
+		if(p->base || (!p->el) || (!p->pchain)) continue;
+		if((p->pidx == (uint32_t)-1) && (p->aidx == (uint32_t)-1)) {
+			if(!ugl_cover_check(p->ts, p->te, &(ug->u.a[p->hid]))) p->pchain = 0;
+			continue;
+		}
+		if(p->pidx == (uint32_t)-1) continue;
+		if(ugl_cover_check(p->ts, p->te, &(ug->u.a[p->hid]))) continue;
+		for (z = p->pidx; z != (uint32_t)-1; z = a[z].pidx) {
+			if(ugl_cover_check(a[z].ts, a[z].te, &(ug->u.a[a[z].hid]))) break;
+		}
+		lz = z; fz = p->aidx; l = 0; if(fz != (uint32_t)-1) l = a[fz].pdis;
+		for (z = k; z != lz; z = bz) {
+			bz = a[z].pidx; l += a[z].pdis;
+			a[z].pidx = a[z].pdis = a[z].aidx = (uint32_t)-1; a[z].pchain = 0;
+		}
+
+		if(fz != (uint32_t)-1 && lz != (uint32_t)-1) {
+			a[fz].pdis = l; a[fz].pidx = lz; a[lz].aidx = fz;
+		} else if(fz != (uint32_t)-1) {
+			a[fz].pdis = a[fz].pidx = (uint32_t)-1;
+		} else if(lz != (uint32_t)-1) {
+			a[lz].aidx = (uint32_t)-1;
+		}
+	}
+
+	// for (k = a_n - 1; k >= 0; k--) {
+	// 	p = &(a[k]);
+	// 	if(p->base || (!p->el) || (!p->pchain)) continue;
+	// 	if(p->pidx != (uint32_t)-1) {
+	// 		assert(a[p->pidx].aidx == (uint32_t)k);
+	// 	}
+	// 	if(p->aidx != (uint32_t)-1) {
+	// 		assert(a[p->aidx].pidx == (uint32_t)k);
+	// 	}
+	// }
+}
+
+
+void filter_ul_ug(ma_ug_t *ug)
+{
+	kt_for(asm_opt.thread_num, filter_short_ulalignments, ug, UL_INF.n);
+}
+
 
 int32_t find_ul_block_max_reverse(int32_t n, const uc_block_t *a, uint32_t x)
 {
@@ -8667,6 +8764,7 @@ static void update_ovlp_src(void *data, long i, int tid) // callback for kt_for(
 	// fprintf(stderr, "--i->%d, a_n->%lu--\n", i, a_n);
 }
 
+
 uint64_t* get_hifi2ul_list(all_ul_t *x, uint64_t hid, uint64_t* a_n)
 {
 	(*a_n) = x->ridx.idx.a[hid+1] - x->ridx.idx.a[hid];
@@ -8710,7 +8808,7 @@ int scall_ul_pipeline(uldat_t* sl, const enzyme *fn)
 	fprintf(stderr, "[M::%s::] ==> # reads: %lu, # bases: %lu\n", __func__, UL_INF.n, sl->total_base);
 	fprintf(stderr, "[M::%s::] ==> # bases: %lu; # corrected bases: %lu; # recorrected bases: %lu\n", 
 	__func__, sl->num_bases, sl->num_corrected_bases, sl->num_recorrected_bases);
-	gen_ul_vec_rid_t(&UL_INF);
+	gen_ul_vec_rid_t(&UL_INF, &R_INF, NULL);
     return 1;
 }
 
@@ -8718,13 +8816,7 @@ int scall_ul_pipeline(uldat_t* sl, const enzyme *fn)
 int rescall_ul_pipeline(uldat_t* sl, const enzyme *fn)
 {
     double index_time = yak_realtime();
-    int32_t i; uint32_t k, rlen;
-	///clean UL_INF
-	for (k = 0; k < UL_INF.n; k++) {
-		rlen = UL_INF.a[k].rlen;
-		free(UL_INF.a[k].bb.a); free(UL_INF.a[k].N_site.a); free(UL_INF.a[k].r_base.a); 
-		memset(&(UL_INF.a[k]), 0, sizeof(UL_INF.a[k])); UL_INF.a[k].rlen = rlen;
-	}
+    int32_t i; 
 
     for (i = 0; i < fn->n; i++){
         gzFile fp;
@@ -10009,6 +10101,7 @@ int32_t load_all_ul_t(all_ul_t *x, char* file_name, All_reads *hR, ma_ug_t *ug)
 		return 0;
     }
 
+	destory_all_ul_t(x); 
 	memset(x, 0, sizeof(*x)); x->hR = hR; init_aux_table();
 	uint64_t k; ul_vec_t *p = NULL;
 	
@@ -10089,7 +10182,7 @@ uint64_t ul_refine_alignment(const ug_opt_t *uopt, asg_t *sg)
 	init_uldat_t(&sl, NULL, NULL, &opt, CHUNK_SIZE, asm_opt.thread_num, uopt, uu); sl.rg = sg;
 	if(work_ul_gchains(&sl)) {
 		free(UL_INF.ridx.idx.a); free(UL_INF.ridx.occ.a); memset(&(UL_INF.ridx), 0, sizeof(UL_INF.ridx));
-		gen_ul_vec_rid_t(&UL_INF);
+		gen_ul_vec_rid_t(&UL_INF, &R_INF, NULL);
 		kt_for(sl.n_thread, update_ovlp_src, &sl, R_INF.total_reads);
 		kt_for(sl.n_thread, update_ovlp_src_bl, &sl, R_INF.total_reads);
 		destroy_ul_idx_t(uu);
@@ -10114,6 +10207,18 @@ uint32_t dd_ug(asg_t *sg, ma_ug_t *ug, ma_sub_t* coverage_cut, ma_hit_t_alloc* s
 }
 
 
+void clear_all_ul_t(all_ul_t *x)
+{
+	uint64_t k, rlen;
+	for (k = 0; k < x->n; k++) {
+        rlen = x->a[k].rlen;
+        free(x->a[k].bb.a); free(x->a[k].N_site.a); free(x->a[k].r_base.a); 
+        memset(&(x->a[k]), 0, sizeof(x->a[k])); x->a[k].rlen = rlen;
+    }
+	free(x->ridx.idx.a); free(x->ridx.occ.a); memset(&(x->ridx), 0, sizeof((x->ridx)));
+}
+
+
 
 ma_ug_t *ul_realignment(const ug_opt_t *uopt, asg_t *sg)
 {
@@ -10131,11 +10236,14 @@ ma_ug_t *ul_realignment(const ug_opt_t *uopt, asg_t *sg)
 	// dd_ug(sg, ug, uopt->coverage_cut, uopt->sources, uopt->ruIndex, "UL.sa");
 	// debug_sl_compress_base_disk_0(&sl, asm_opt.ar);
 	// detect_outlier_len("ul_realignment");
+	clear_all_ul_t(&UL_INF);
 	if(!load_all_ul_t(&UL_INF, gfa_name, &R_INF, ug)) {
 		gen_UL_reovlps(&sl, ug, sg, gfa_name, cutoff);
 		write_all_ul_t(&UL_INF, gfa_name, ug);
 	}
-
+	filter_ul_ug(ug);
+	gen_ul_vec_rid_t(&UL_INF, NULL, ug);
+	kt_for(asm_opt.thread_num, update_ug_arch_ul, ug, ug->g->n_arc);
 	// print_all_ul_t_stat(&UL_INF);
 	// kt_for(sl.n_thread, update_ovlp_src, &sl, R_INF.total_reads);
 	// kt_for(sl.n_thread, update_ovlp_src_bl, &sl, R_INF.total_reads);
