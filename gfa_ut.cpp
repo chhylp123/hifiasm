@@ -144,6 +144,48 @@ KRADIX_SORT_INIT(ul_snp_t_srt, ul_snp_t, ul_snp_t_srt_key, member_size(ul_snp_t,
 
 
 typedef struct {
+    uint32_t occ, nid;
+} poa_nid_t;
+
+typedef struct {
+    uint64_t ul;
+    uint32_t v;
+} poa_arc_t;
+
+#define poa_arc_key(a) ((a).ul)
+KRADIX_SORT_INIT(poa_arc_srt, poa_arc_t, poa_arc_key, member_size(poa_arc_t, ul))
+
+typedef struct {
+    kvec_t(uint32_t) ind;
+    kvec_t(uint32_t) stack;
+    kvec_t(uint32_t) res;
+    kvec_t(uint32_t) res2nid;
+} topo_srt_t;
+
+typedef struct {
+    kvec_t(int64_t) sc;
+    kvec_t(uint8_t) dir;
+    kvec_t(uint64_t) prefix;
+    uint64_t n, m;
+} poa_dp_t;
+
+#define poa_dp_idx(dp, x, y) ((dp).m*(x)+(y))
+#define e_pdp 0
+#define ue_pdp 1
+#define lstr_dp 2
+#define lg_dp 3
+
+typedef struct {
+    kvec_t(poa_nid_t) seq;
+    kvec_t(poa_arc_t) arc;
+    kvec_t(uint64_t) idx;
+    uint32_t update_seq;
+    uint32_t update_arc;
+    topo_srt_t srt_b;
+    poa_dp_t dp;
+} poa_g_t;
+
+typedef struct {
     kv_integer_seq_t q;
     kv_integer_seq_t t;
     integer_aln_vec_t b;
@@ -157,6 +199,7 @@ typedef struct {
     // kvec_t(uint64_t) d;
     kvec_t(ul_chain_t) sc;
     kvec_t(ul_snp_t) snp;
+    poa_g_t pg;
 }integer_t;
 
 typedef struct {
@@ -2706,15 +2749,44 @@ bubble_type *bub, all_ul_t *uls)
     exit(1);
 }
 
-int64_t normlize_gdis(ma_ug_t *ug, uc_block_t *i, uc_block_t *k)
+int64_t normlize_gdis(ma_ug_t *ug, uc_block_t *i, uc_block_t *k, int64_t is_i2k_forward)
 {
     int64_t i_len, k_len;
     ///i > k
+    // if(is_i2k_forward == 0){
+    //     if(!i->rev) {
+    //         i_len = i->qe + (ug->g->seq[i->hid].len - i->te);
+    //     } else {
+    //         i_len = i->qe + i->ts;
+    //     }
+
+    //     if(!k->rev) {
+    //         k_len = k->qe + (ug->g->seq[k->hid].len - k->te);
+    //     } else {
+    //         k_len = k->qe + k->ts;
+    //     }
+    // } else {
+    //     if(!i->rev) {
+    //         i_len = (int64_t)i->qs - (int64_t)i->ts;
+    //     } else {
+    //         i_len = (int64_t)i->qs - (int64_t)(ug->g->seq[i->hid].len - i->te);
+    //     }
+    //     if(i_len < 0) i_len = 0;
+
+    //     if(!k->rev) {
+    //         k_len = (int64_t)k->qs - (int64_t)k->ts;
+    //     } else {
+    //         k_len = (int64_t)k->qs - (int64_t)(ug->g->seq[k->hid].len - k->te);
+    //     }
+    //     if(k_len < 0) k_len = 0;
+    // }
+
     if(!i->rev) {
         i_len = i->qe + (ug->g->seq[i->hid].len - i->te);
     } else {
         i_len = i->qe + i->ts;
     }
+    
 
     if(!k->rev) {
         k_len = k->qe + (ug->g->seq[k->hid].len - k->te);
@@ -2722,30 +2794,48 @@ int64_t normlize_gdis(ma_ug_t *ug, uc_block_t *i, uc_block_t *k)
         k_len = k->qe + k->ts;
     }
 
-    assert(i_len >= k_len);
-    return i_len - k_len;
+    if(is_i2k_forward) {
+        i_len -= ug->g->seq[i->hid].len;
+        k_len -= ug->g->seq[k->hid].len;
+    }
+    
+
+    if(i_len >= k_len) return i_len - k_len;
+    // assert(i_len >= k_len);
+    return 0;
 }
 
-int64_t normlize_gdis_exact(ma_ug_t *ug, uc_block_t *a, uint32_t i, uint32_t k)
+int64_t normlize_gdis_exact(ma_ug_t *ug, uc_block_t *a, uint32_t i, uint32_t k, int64_t is_i2k_forward)
 {
     assert(i > k);
-    uint32_t li, lk, pk; uint64_t l;
+    uint32_t li, lk, pk, bi = i; int64_t l;
     for (li = i, l = 0; i != (uint32_t)-1 && i >= k; i = a[i].pidx) {
-        li = i; l += a[i].pdis;
+        li = i; 
+        if(a[i].pidx != (uint32_t)-1 && i > k) l += a[i].pdis;
+    }
+    
+    if(is_i2k_forward) {
+        l += (int64_t)(ug->g->seq[a[li].hid].len);
+        l -= (int64_t)(ug->g->seq[a[bi].hid].len);
     }
     i = li;
     if(i == k) return l;
     assert(i > k); pk = k;
     for (lk = k; k != (uint32_t)-1 && k <= i; k = a[k].aidx) lk = k;
     for (k = lk; k != (uint32_t)-1 && k != pk; k = a[k].pidx) l += a[k].pdis;
-    assert(k == pk);
+    // assert(k == pk);
+    if(is_i2k_forward) {
+        l += (int64_t)(ug->g->seq[a[pk].hid].len);
+        l -= (int64_t)(ug->g->seq[a[lk].hid].len);
+    }
+    if(l < 0) l = 0;
     k = lk;
     assert(i > k);
-    return l + normlize_gdis(ug, &(a[i]), &(a[k]));
+    return l + normlize_gdis(ug, &(a[i]), &(a[k]), is_i2k_forward);
 }
 
 uint32_t dis_check_integer_aln_t(all_ul_t *ul_idx, ul_str_idx_t *str_idx, ma_ug_t *ug, integer_aln_t *li, integer_aln_t *lk, 
-uint32_t qid, uint32_t tid, uint32_t is_rev, double diff_rate)
+uint32_t qid, uint32_t tid, uint32_t is_rev, double diff_rate, int64_t hard_thres)
 {
     assert(((uint32_t)li->tn_rev_qk) >= ((uint32_t)lk->tn_rev_qk));
     if(((uint32_t)li->tn_rev_qk) == ((uint32_t)lk->tn_rev_qk)) return 0;
@@ -2763,23 +2853,36 @@ uint32_t qid, uint32_t tid, uint32_t is_rev, double diff_rate)
 
     kq = &(ul_idx->a[qid].bb.a[(q->a[k_qk]>>32)]); 
     kt = &(ul_idx->a[tid].bb.a[(t->a[k_tk]>>32)]);
-    qlen = normlize_gdis(ug, iq, kq); tlen = normlize_gdis(ug, it, kt);
+    qlen = normlize_gdis(ug, iq, kq, 0); tlen = normlize_gdis(ug, it, kt, is_rev);
     if(qlen < tlen) {
         mm = qlen; dd = tlen - qlen;
     } else {
         mm = tlen; dd = qlen - tlen;
     }
 
-    if(dd <= (mm*diff_rate)) return 1;
-    qlen = normlize_gdis_exact(ug, ul_idx->a[qid].bb.a, (q->a[i_qk]>>32), (q->a[k_qk]>>32));
-    tlen = normlize_gdis_exact(ug, ul_idx->a[tid].bb.a, (t->a[i_tk]>>32), (t->a[k_tk]>>32));
+    // if(tid == 3074) {
+    //     fprintf(stderr, "\n+++[M::%s::] qlen::%ld, tlen::%ld, iq->hid::%u, kq->hid::%u, (q->a[i_qk]>>32)::%lu, (q->a[k_qk]>>32)::%lu, (t->a[i_tk]>>32)::%lu, (t->a[k_tk]>>32)::%lu\n", 
+    //     __func__, qlen, tlen, iq->hid, kq->hid, 
+    //     (q->a[i_qk]>>32), (q->a[k_qk]>>32), (t->a[i_tk]>>32), (t->a[k_tk]>>32));
+    // }
+
+    if(dd <= (mm*diff_rate) || dd < hard_thres) return 1;
+    
+    qlen = normlize_gdis_exact(ug, ul_idx->a[qid].bb.a, (q->a[i_qk]>>32), (q->a[k_qk]>>32), 0);
+    tlen = normlize_gdis_exact(ug, ul_idx->a[tid].bb.a, (t->a[i_tk]>>32), (t->a[k_tk]>>32), is_rev);
     if(qlen < tlen) {
         mm = qlen; dd = tlen - qlen;
     } else {
         mm = tlen; dd = qlen - tlen;
     }
 
-    if(dd <= (mm*diff_rate)) return 1;
+    if(dd <= (mm*diff_rate) || dd < hard_thres) return 1;
+
+    // if(tid == 3074) {
+    //     fprintf(stderr, "---[M::%s::] qlen::%ld, tlen::%ld, iq->hid::%u, kq->hid::%u\n", 
+    //     __func__, qlen, tlen, iq->hid, kq->hid);
+    // }
+    
 
     return 0;
 }
@@ -2791,20 +2894,22 @@ ma_ug_t *ug, ul_str_idx_t *str_idx, all_ul_t *ul_idx, ul_chain_t *res)
     res->q_sidx = res->q_eidx = res->t_sidx = res->t_eidx = (uint32_t)-1;
     if(a_n <= 0) return 0;
     ///already sorted by qe
-    int64_t i, k, max_f, max_k, sc, csc, *p, *f, tf, ti, is_circle;
+    int64_t i, k, max_f, max_k, sc, csc, *p, *f, tf, ti/**, is_circle**/;
     integer_aln_t *li, *lk; uint32_t tid = a[0].tn_rev_qk>>33; uint32_t is_rev = (a[0].tn_rev_qk>>32)&1;
     for (i = 1, sc = 0; i < a_n; ++i) {
         sc += ug->u.a[a[i].vq>>1].n;
         if(a[i].tk <= a[i-1].tk) break;///== means there is a circle
         if(((uint32_t)a[i].tn_rev_qk) <= ((uint32_t)a[i-1].tn_rev_qk)) break;
+        if(!dis_check_integer_aln_t(ul_idx, str_idx, ug, &(a[i]), &(a[i-1]), qid, tid, is_rev, 0.08, 2000)) break;
     }
+    
     if(i >= a_n) {
         sc += ug->u.a[a[0].vq>>1].n; 
         res->v = a[0].tn_rev_qk>>32; res->s = offset; res->e = offset + a_n; res->sc = sc; 
         return 1;
     }
-    is_circle = 1;
-    if(str_idx->str.a[qid].is_cir == 0 && str_idx->str.a[tid].is_cir == 0) is_circle = 0;
+    // is_circle = 1;
+    // if(str_idx->str.a[qid].is_cir == 0 && str_idx->str.a[tid].is_cir == 0) is_circle = 0;
 
     buf->p.n = buf->f.n = 0;
     kv_resize(int64_t, buf->p, (uint64_t)a_n); p = buf->p.a;
@@ -2817,7 +2922,8 @@ ma_ug_t *ug, ul_str_idx_t *str_idx, all_ul_t *ul_idx, ul_chain_t *res)
         for (k = i-1; k >= 0; --k) { 
             lk = &(a[k]);
             if(lk->tk >= li->tk) continue;
-            if(is_circle && (!dis_check_integer_aln_t(ul_idx, str_idx, ug, li, lk, qid, tid, is_rev, 0.04))) continue;
+            // if(is_circle && (!dis_check_integer_aln_t(ul_idx, str_idx, ug, li, lk, qid, tid, is_rev, 0.08))) continue;
+            if(!dis_check_integer_aln_t(ul_idx, str_idx, ug, li, lk, qid, tid, is_rev, 0.08, 2000)) continue;
             sc = csc + f[k];
             if(sc > max_f) {
                 max_f = sc; max_k = k;
@@ -2830,8 +2936,10 @@ ma_ug_t *ug, ul_str_idx_t *str_idx, all_ul_t *ul_idx, ul_chain_t *res)
     }
 
     if(ti < 0) return 0;
+    
     for (i = ti, k = 0; i >= 0; i = p[i]) f[k++] = i;
-    for (i = sc = 0; k >= 0; k--) {
+    assert(k > 0);
+    for (i = sc = 0, k--; k >= 0; k--) {
         a[i] = a[f[k]]; sc += ug->u.a[a[i].vq>>1].n; i++;
     }
     res->v = a[0].tn_rev_qk>>32; res->s = offset; res->e = offset + i; res->sc = sc;
@@ -3006,6 +3114,24 @@ void print_integer_seq(ma_ug_t *ug, ul_str_t *str, int64_t id, int64_t is_header
     fprintf(stderr,"\n");
 }
 
+void print_cns_seq(ma_ug_t *ug, ul_str_t *str, uint64_t *cns_seq, uint64_t cns_occ)
+{
+    fprintf(stderr,"[M::%s::]\t", __func__);
+    uint64_t k, ck;
+    for (k = ck = 0; k < str->cn; k++) {
+        for (; ck < cns_occ; ck++) {
+            if(cns_seq[ck] >= k) break;
+        }
+        if(ck < cns_occ && cns_seq[ck] == k) {
+            fprintf(stderr, "utg%.6d%c(%c)\t", (((uint32_t)str->a[k])>>1)+1, 
+                    "lc"[ug->u.a[(((uint32_t)str->a[k])>>1)].circ], "+-"[(((uint32_t)str->a[k])&1)]);
+        } else {
+            fprintf(stderr, "*\t");
+        }
+    }
+    fprintf(stderr,"\n");
+}
+
 int64_t utg_cover_read_occ_by_qs(ma_ug_t *ug, int64_t oqs, int64_t oqe, uc_block_t *x)
 {
     assert(oqs >= (int64_t)x->qs && oqs <= (int64_t)x->qe);
@@ -3073,7 +3199,7 @@ void print_integer_ovlps(ma_ug_t *ug, ul_str_t *str, integer_aln_t *aln, int64_t
 {
     fprintf(stderr, "\n[M::%s::qid->%ld] qstr->cn::%u, aln_occ::%ld, idx_n::%ld, consenus_occ::%ld\n", 
                                 __func__, qid, str[qid].cn, aln_occ, idx_n, consenus_occ);
-    print_integer_seq(ug, str, qid, 0);
+    // print_integer_seq(ug, str, qid, 0);
     int64_t k, z, z_n, qk, tk, is_rev, tid; //uint64_t z;
     for (k = 0; k < idx_n; k++) {
         fprintf(stderr, "\n[M::%s::tid->%lu] rev->%lu, aln_n->%u\n", __func__, aln[idx[k].s].tn_rev_qk>>33, (aln[idx[k].s].tn_rev_qk>>32)&1, idx[k].e - idx[k].s);
@@ -3093,46 +3219,130 @@ void print_integer_ovlps(ma_ug_t *ug, ul_str_t *str, integer_aln_t *aln, int64_t
     }
 }
 
-int64_t integer_align_extention(all_ul_t *ul_idx, int64_t qid, ul_str_t *q_str, int64_t tid, ul_str_t *t_str, integer_aln_t *idx)
+void integer_align_extention(ma_ug_t *ug, all_ul_t *ul_idx, int64_t qid, ul_str_t *q_str, int64_t tid, ul_str_t *t_str, int64_t is_rev,
+uint64_t *q_cov_buf, uint64_t *t_cov_buf, integer_aln_t *aln_pair, int64_t is_backward, int64_t *r_q_end, int64_t *r_t_end)
 {
-    ;
+    int64_t qk, tk, qoff, toff, qlen, tlen, ext, q_end, t_end; uc_block_t *q_b, *t_b;
+    qk = (uint32_t)(aln_pair->tn_rev_qk); tk = ((is_rev == 0)? (aln_pair->tk):(t_str->cn - aln_pair->tk - 1));
+    q_b = &(ul_idx->a[qid].bb.a[q_str->a[qk]>>32]); t_b = &(ul_idx->a[tid].bb.a[t_str->a[tk]>>32]);
+    qlen = ul_idx->a[qid].rlen; tlen = ul_idx->a[tid].rlen;
+
+    if(is_backward) {
+        qoff = q_b->qs; toff = (is_rev?(tlen-t_b->qe):(t_b->qs));
+    } else {
+        qoff = qlen - q_b->qe; toff = (is_rev?(t_b->qs):(tlen-t_b->qe));
+    }
+
+    if (qoff <= toff) ext = qoff;
+    else ext = toff;
+    
+    if(is_backward) {
+        q_end = estimate_ul_len(ug, &(ul_idx->a[qid]), q_str, qk, -ext, q_cov_buf);
+        t_end = estimate_ul_len(ug, &(ul_idx->a[tid]), t_str, tk, ((is_rev)?(ext):(-ext)), t_cov_buf);
+    } else {
+        q_end = estimate_ul_len(ug, &(ul_idx->a[qid]), q_str, qk, ext, q_cov_buf);
+        t_end = estimate_ul_len(ug, &(ul_idx->a[tid]), t_str, tk, ((is_rev)?(-ext):(ext)), t_cov_buf);
+    }
+
+    (*r_q_end) = q_end; (*r_t_end) = t_end;
+}
+
+int64_t gap_chain_check(ma_ug_t *ug, integer_aln_t *i0, integer_aln_t *i1, int64_t is_rev, ul_str_t *q_str, ul_str_t *t_str, 
+uc_block_t *q_block, uc_block_t *t_block, int64_t qid, int64_t tid, double diff_rate, int64_t hard_thres)
+{
+    int64_t i0_qk, i0_tk, i1_qk, i1_tk, q_near, t_near, lq, lt, min, max, dif; uint32_t e, k;
+    i0_qk = (uint32_t)(i0->tn_rev_qk); i1_qk = (uint32_t)(i1->tn_rev_qk); 
+    if(is_rev == 0) {
+        i0_tk = i0->tk; i1_tk = i1->tk;
+    } else {
+        i1_tk = t_str->cn - i0->tk - 1; i0_tk = t_str->cn - i1->tk - 1;
+    }
+    assert(i0_qk < i1_qk); assert(i0_tk < i1_tk);
+    q_near = t_near = 0;
+    if((i0_qk + 1) == i1_qk) q_near = 1;
+    if((i0_tk + 1) == i1_tk) t_near = 1;
+    if((q_near + t_near) != 1) return 0;
+
+    i0_qk = q_str->a[i0_qk]>>32; i1_qk = q_str->a[i1_qk]>>32; 
+    i0_tk = t_str->a[i0_tk]>>32; i1_tk = t_str->a[i1_tk]>>32; 
+
+    k = i1_qk; e = i0_qk; lq = 0;
+    while ((k != (uint32_t)-1) && (k != e)) {
+        if(q_block[k].pidx != (uint32_t)-1) lq += q_block[k].pdis;
+        k = q_block[k].pidx;
+    }
+    if(k != e) return 0;
+    
+    k = i1_tk; e = i0_tk; lt = 0;
+    while ((k != (uint32_t)-1) && (k != e)) {
+        if(t_block[k].pidx != (uint32_t)-1) lt += t_block[k].pdis;
+        k = t_block[k].pidx;
+    }
+    if(k != e) return 0;
+    if(is_rev) {
+        lt += (int64_t)ug->g->seq[t_block[i0_tk].hid].len;
+        lt -= (int64_t)ug->g->seq[t_block[i1_tk].hid].len;
+    }
+    if(lt < 0) lt = 0;
+    if(lq <= lt) {
+        min = lq; max = lt;
+    } else {
+        min = lt; max = lq;
+    }
+
+    dif = max - min;
+    if(dif >= (min*diff_rate)) {
+        // fprintf(stderr, "+[M::%s] qid::%ld, tid::%ld, i0_qk::%ld, i1_qk::%ld, lq::%ld, lt::%ld\n", 
+        // __func__, qid, tid, i0_qk, i1_qk, lq, lt);
+        lq = normlize_gdis(ug, &(q_block[i1_qk]), &(q_block[i0_qk]), 0);
+        lt = normlize_gdis(ug, &(t_block[i1_tk]), &(t_block[i0_tk]), is_rev);
+        // fprintf(stderr, "-[M::%s] qid::%ld, tid::%ld, i0_qk::%ld, i1_qk::%ld, lq::%ld, lt::%ld\n", 
+        // __func__, qid, tid, i0_qk, i1_qk, lq, lt);
+        // fprintf(stderr, "[M::%s] q_block[i0_qk].qs::%u, q_block[i0_qk].qe::%u, q_block[i1_qk].qs::%u, q_block[i1_qk].qe::%u\n", 
+        // __func__, q_block[i0_qk].qs, q_block[i0_qk].qe, q_block[i1_qk].qs, q_block[i1_qk].qe);
+
+        // fprintf(stderr, "[M::%s] t_block[i0_tk].qs::%u, t_block[i0_tk].qe::%u, t_block[i1_tk].qs::%u, t_block[i1_tk].qe::%u\n", 
+        // __func__, t_block[i0_tk].qs, t_block[i0_tk].qe, t_block[i1_tk].qs, t_block[i1_tk].qe);
+        if(lq <= lt) {
+            min = lq; max = lt;
+        } else {
+            min = lt; max = lq;
+        }
+
+        dif = max - min;
+        if(dif >= (min*diff_rate) || dif < hard_thres) return 0;
+    }
+    return 1;
 }
 
 int64_t refine_integer_ovlps(all_ul_t *ul_idx, bubble_type *bub, ma_ug_t *ug, ul_str_t *str, integer_aln_t *aln, ul_chain_t *idx, int64_t qid, integer_t *buf, 
 uint64_t *cns, uint64_t cns_occ)
 {
     if(idx->e<=idx->s) return 0;
-    int64_t qk, tk, is_rev, tid, qoff, toff, qlen, tlen, ext, q_end, t_end, z; 
-    ul_str_t *q_str, *t_str; uc_block_t *q_b, *t_b; integer_aln_t *x, *y; 
+    int64_t qk, tk, is_rev, tid, q_end, t_end, z; 
+    ul_str_t *q_str, *t_str; uc_block_t *t_b; integer_aln_t *x, *y; 
     tid = aln[idx->s].tn_rev_qk>>33; is_rev = ((aln[idx->s].tn_rev_qk>>32)&1);
-    q_str = &(str[qid]); t_str = &(str[tid]); qlen = ul_idx->a[qid].rlen; tlen = ul_idx->a[tid].rlen;
+    q_str = &(str[qid]); t_str = &(str[tid]); 
     kv_resize(uint64_t, buf->u, buf->u.n + q_str->cn + t_str->cn);
-    uint64_t *q_cov_buf = buf->u.a + buf->u.n, *t_cov_buf = buf->u.a + buf->u.n + q_str->cn, k, rg_occ, cn_k;
+    uint64_t *q_cov_buf = buf->u.a + buf->u.n, *t_cov_buf = buf->u.a + buf->u.n + q_str->cn, k, rg_occ, cn_k, mm;
     memset(q_cov_buf, -1, sizeof((*q_cov_buf))*q_str->cn); memset(t_cov_buf, -1, sizeof((*t_cov_buf))*t_str->cn);
-    
+    // if(tid != 392) return 0;
     //beg
     x = &(aln[idx->s]);
     qk = (uint32_t)(x->tn_rev_qk); tk = ((is_rev == 0)? (x->tk):(t_str->cn - x->tk - 1));
 
     ///direction
     if((qk > 0) && (x->tk > 0)) {
-        q_b = &(ul_idx->a[qid].bb.a[q_str->a[qk]>>32]); t_b = &(ul_idx->a[tid].bb.a[t_str->a[tk]>>32]);
-        ///direction
-        qoff = q_b->qs; toff = (is_rev?(tlen-t_b->qe):(t_b->qs));
-        if (qoff <= toff) ext = qoff;
-        else ext = toff;
-        
-        q_end = estimate_ul_len(ug, &(ul_idx->a[qid]), q_str, qk, -ext, q_cov_buf);
-        t_end = estimate_ul_len(ug, &(ul_idx->a[tid]), t_str, tk, ((is_rev)?(ext):(-ext)), t_cov_buf);
-        // if(tid == 316) {
-        //     fprintf(stderr, "[M::%s::tid->%ld] qoff::%ld, toff::%ld, ext::%ld, q_end::%ld, t_end::%ld\n", 
-        //     __func__, tid, qoff, toff, ext, q_end, t_end);
-        // }
-        idx->q_sidx = q_end; idx->t_sidx = ((is_rev == 0)? (t_end):(t_str->cn - t_end));
+        integer_align_extention(ug, ul_idx, qid, q_str, tid, t_str, is_rev, q_cov_buf, t_cov_buf, x, 1, &q_end, &t_end);
+        idx->q_sidx = q_end; idx->t_sidx = ((is_rev == 0)? (t_end):(t_str->cn - t_end - 1));
     } else {
         idx->q_sidx = (uint32_t)(x->tn_rev_qk); idx->t_sidx = x->tk;
     }
-    assert((idx->q_sidx <= ((uint32_t)(x->tn_rev_qk))) && (idx->t_sidx <= x->tk));
+    // if(!((idx->q_sidx <= ((uint32_t)(x->tn_rev_qk))) && (idx->t_sidx <= x->tk))) {
+    //     fprintf(stderr, "[M::%s] qid::%ld, tid::%ld\n", __func__, qid, tid);
+    // }
+    assert((idx->q_sidx <= ((uint32_t)(x->tn_rev_qk)))); assert(idx->t_sidx <= x->tk);
+    // assert((is_rev && idx->t_sidx >= x->tk) || (is_rev == 0 && idx->t_sidx <= x->tk));
 
     //end
     x = &(aln[idx->e-1]);
@@ -3143,30 +3353,29 @@ uint64_t *cns, uint64_t cns_occ)
     // }
     ///direction
     if((((uint32_t)qk + 1) < q_str->cn) && ((x->tk + 1) < t_str->cn)) {
-        q_b = &(ul_idx->a[qid].bb.a[q_str->a[qk]>>32]); t_b = &(ul_idx->a[tid].bb.a[t_str->a[tk]>>32]);
-        ///direction
-        qoff = qlen - q_b->qe; toff = (is_rev?(t_b->qs):(tlen-t_b->qe));
-        if (qoff <= toff) ext = qoff;
-        else ext = toff;
-        q_end = estimate_ul_len(ug, &(ul_idx->a[qid]), q_str, qk, ext, q_cov_buf);
-        t_end = estimate_ul_len(ug, &(ul_idx->a[tid]), t_str, tk, ((is_rev)?(-ext):(ext)), t_cov_buf);
-        // if(tid == 316) {
-        //     fprintf(stderr, "[end-M::%s::tid->%ld] qk::%ld, tk::%ld, qoff::%ld, toff::%ld, q_end::%ld, t_end::%ld, ext::%ld\n", 
-        //     __func__, tid, qk, tk, qoff, toff, q_end, t_end, ext);
-        // }
+        integer_align_extention(ug, ul_idx, qid, q_str, tid, t_str, is_rev, q_cov_buf, t_cov_buf, x, 0, &q_end, &t_end);
         idx->q_eidx = q_end + 1; idx->t_eidx = ((is_rev == 0)? (t_end + 1):(t_str->cn - t_end));
     } else {
         idx->q_eidx = (uint32_t)(x->tn_rev_qk)+1; idx->t_eidx = x->tk+1;
     }
-    assert(idx->q_eidx > ((uint32_t)(x->tn_rev_qk)) && (idx->t_eidx > x->tk));
-    assert((idx->q_eidx > idx->q_sidx) && (idx->t_eidx > idx->t_sidx));
-    // if(tid == 316) {
+
+    assert(idx->q_eidx > ((uint32_t)(x->tn_rev_qk))); assert(idx->t_eidx > x->tk);
+    // assert((is_rev && idx->t_eidx < x->tk) || (is_rev == 0 && idx->t_eidx > x->tk));
+
+    assert(idx->q_eidx > idx->q_sidx); assert(idx->t_eidx > idx->t_sidx);
+    // assert((is_rev && idx->t_eidx < idx->t_sidx) || (is_rev == 0 && idx->t_eidx > idx->t_sidx));
+    // if(tid == 284) {
     //     fprintf(stderr, "[M::%s::tid->%ld] idx->q_sidx::%u, idx->q_eidx::%u, idx->t_sidx::%u, idx->t_eidx::%u\n", 
     //     __func__, tid, idx->q_sidx, idx->q_eidx, idx->t_sidx, idx->t_eidx);
     // }
 
     ///mid
     for (k = idx->s; k < idx->e; k++) {///go through all alignment pairs
+        // if(qid == 3113 && tid == 3075) {
+        //     fprintf(stderr, "+[M::%s] qid::%ld, tid::%ld, idx->s::%u, idx->e::%u, k::%lu, qk::%u, tk::%u, (idx->v>>1)::%u\n", 
+        //     __func__, qid, tid, idx->s, idx->e, k, (uint32_t)(aln[k].tn_rev_qk), aln[k].tk, idx->v>>1);
+        // }   
+        
         x = &(aln[k]); y = ((k > idx->s)? (&(aln[k-1])):(NULL));
         qk = (uint32_t)(x->tn_rev_qk); 
         q_cov_buf[qk] = buf->u.a[qk]; 
@@ -3179,10 +3388,13 @@ uint64_t *cns, uint64_t cns_occ)
         q_cov_buf[qk] += ((uint64_t)(0x8000000000000000));
         t_cov_buf[tk] += ((uint64_t)(0x8000000000000000));
         
-
         if(!y) continue;
+        mm = 0;
+        if(gap_chain_check(ug, y, x, is_rev, q_str, t_str, ul_idx->a[qid].bb.a, ul_idx->a[tid].bb.a, qid, tid, 0.08, 2000)) {
+            mm = ((uint64_t)(0x8000000000000000));
+        }
         for (z = ((uint32_t)(y->tn_rev_qk)) + 1; z < qk; z++) {
-            q_cov_buf[z] = buf->u.a[z]; 
+            q_cov_buf[z] = buf->u.a[z] + mm; 
         }
 
         z = ((is_rev == 0)? (y->tk):(t_str->cn - x->tk - 1)) + 1;
@@ -3191,7 +3403,7 @@ uint64_t *cns, uint64_t cns_occ)
         for (; z < tk; z++) {
             t_b = &(ul_idx->a[tid].bb.a[t_str->a[z]>>32]);
             assert(((t_b->hid<<1)+t_b->rev)==((uint32_t)t_str->a[z]));
-            t_cov_buf[z] = ug_occ_w(t_b->ts, t_b->te, &(ug->u.a[t_b->hid]));
+            t_cov_buf[z] = ug_occ_w(t_b->ts, t_b->te, &(ug->u.a[t_b->hid])) + mm;
         }
     }
 
@@ -3235,19 +3447,448 @@ uint64_t *cns, uint64_t cns_occ)
         if(cns_cov_occ <= 0 || match_cns_occ <= 0) return 0;
         if(match_cns_occ <= (cns_cov_occ*0.5)) return 0;
     }
+    ///not useful for correction
+    if((idx->q_sidx + 1 == idx->q_eidx) && (idx->t_sidx + 1 == idx->t_eidx)) {///must matched with at least one cns node
+        return 0;
+    }
 
-    // print_integer_ovlps(ug, str, buf->b.a, buf->b.n, idx, 1, qid, buf->o.n);
-    // fprintf(stderr, "[M::%s::tid->%ld] idx->q_sidx::%u, idx->q_eidx::%u, idx->t_sidx::%u, idx->t_eidx::%u\n******************************************************\n", 
-    //     __func__, tid, idx->q_sidx, idx->q_eidx, idx->t_sidx, idx->t_eidx);
+    // /**if(tid == 3074)**/ {
+    //     print_integer_ovlps(ug, str, buf->b.a, buf->b.n, idx, 1, qid, buf->o.n);
+    //     fprintf(stderr, "[M::%s::tid->%ld] idx->q_sidx::%u, idx->q_eidx::%u, idx->t_sidx::%u, idx->t_eidx::%u\n******************************************************\n", 
+    //         __func__, tid, idx->q_sidx, idx->q_eidx, idx->t_sidx, idx->t_eidx);
+    // }
 
     return 1;
 }
 
+#define poa_arc_n(g, v) ((uint32_t)(g)->idx.a[(v)])
+#define poa_arc_a(g, v) (&(g)->arc.a[(g)->idx.a[(v)]>>32])
+
+void reset_poa_g_t(poa_g_t *g)
+{
+    g->seq.n = g->arc.n = g->idx.n = 0; g->update_arc = g->update_seq = 0;
+}
+
+void clean_poa_g_t(poa_g_t *g)
+{
+    uint64_t set_n = g->seq.n<<1;
+    assert(g->arc.n >= g->update_arc); assert(g->seq.n >= g->update_seq);
+    if(g->seq.n > g->update_seq) {
+        kv_resize(uint64_t, g->idx, (g->seq.n<<1)); set_n = g->update_seq<<1;
+        memset(g->idx.a + (g->update_seq<<1), 0, sizeof((*g->idx.a))*((g->seq.n<<1)-(g->update_seq<<1)));
+        g->update_seq = g->seq.n; g->idx.n = (g->seq.n<<1);
+    }
+
+    if(g->arc.n > g->update_arc) {
+        radix_sort_poa_arc_srt(g->arc.a, g->arc.a + g->arc.n);
+        memset(g->idx.a, 0, sizeof((*g->idx.a))*set_n);
+        int64_t k, last, n = g->arc.n;
+        for (k = 1, last = 0; k <= n; ++k){
+            if (k == n || g->arc.a[k-1].ul>>32 != g->arc.a[k].ul>>32) {
+                g->idx.a[g->arc.a[k-1].ul>>32] = (((uint64_t)last<<32)) | (k - last), last = k;
+            }
+        }
+        g->update_arc = g->arc.n;
+    }
+}
+
+void append_unmatch_integer_seq(poa_g_t *g, ma_ug_t *ug, uc_block_t *raw, ul_str_t *str, int64_t s, int64_t e, int64_t is_rev)
+{
+    int64_t k; poa_nid_t *nn; poa_arc_t *ae; uint32_t v; uc_block_t *z;
+    for (k = s; k < e; k++) {
+        if(is_rev) {
+            v = (((uint32_t)str->a[str->cn-k-1])^1);
+            z = &(raw[str->a[str->cn-k-1]>>32]);
+        }
+        else {
+            v = ((uint32_t)str->a[k]); z = &(raw[str->a[k]>>32]);
+        }
+        kv_pushp(poa_nid_t, g->seq, &nn);
+        nn->nid = v; nn->occ = ug_occ_w(z->ts, z->te, &(ug->u.a[z->hid]));
+        // ug->u.a[v>>1].n;
+        if(k > s) {
+            kv_pushp(poa_arc_t, g->arc, &ae);
+            ae->ul = g->seq.n-1; ae->ul <<= 33; ae->ul += ((uint64_t)(0x100000000)); ae->ul += 1;
+            ae->v = g->seq.n-2; ae->v <<= 1; ae->v += 1;
+
+            kv_pushp(poa_arc_t, g->arc, &ae);
+            ae->ul = g->seq.n-2; ae->ul <<= 33; ae->ul += 1;
+            ae->v = g->seq.n-1; ae->v <<= 1;
+        }
+    }
+}
+
+void update_poa_nid_occ(ma_ug_t *ug, uc_block_t *raw, poa_g_t *g, int64_t gidx, uint64_t *str, int64_t str_idx, int64_t is_rev)
+{
+    uint32_t g_v, str_v, new_occ; uc_block_t *z;
+    ///update 
+    g_v = g->seq.a[gidx].nid;
+    z = &(raw[str[str_idx]>>32]); str_v = ((uint32_t)str[str_idx]); if(is_rev) str_v ^= 1;
+    assert(g_v == str_v); assert(g->seq.a[gidx].occ <= ug->u.a[g->seq.a[gidx].nid>>1].n);
+    if(g->seq.a[gidx].occ != ug->u.a[g->seq.a[gidx].nid>>1].n) {
+        new_occ = ug_occ_w(z->ts, z->te, &(ug->u.a[z->hid]));
+        if(new_occ > g->seq.a[gidx].occ) g->seq.a[gidx].occ = new_occ;
+    }
+}
+
+void insert_poa_nodes_0(ma_ug_t *ug, uc_block_t *raw, poa_g_t *g, uint64_t *str, int64_t str_occ, uint64_t is_rev)
+{
+    int64_t k; poa_nid_t *nn; poa_arc_t *ae; uint32_t v; uc_block_t *z;
+    for (k = 0; k < str_occ; k++) {
+        if(is_rev == 0) {
+            v = ((uint32_t)str[k]); z = &(raw[str[k]>>32]);
+        } else {
+            v = ((uint32_t)str[str_occ-k-1])^1; z = &(raw[str[str_occ-k-1]>>32]);
+        }
+        
+        kv_pushp(poa_nid_t, g->seq, &nn);
+        nn->nid = v; nn->occ = ug_occ_w(z->ts, z->te, &(ug->u.a[z->hid]));
+        if(k > 0) {
+            kv_pushp(poa_arc_t, g->arc, &ae);
+            ae->ul = g->seq.n-1; ae->ul <<= 33; ae->ul += ((uint64_t)(0x100000000)); ae->ul += 1;
+            ae->v = g->seq.n-2; ae->v <<= 1; ae->v += 1;
+
+            kv_pushp(poa_arc_t, g->arc, &ae);
+            ae->ul = g->seq.n-2; ae->ul <<= 33; ae->ul += 1;
+            ae->v = g->seq.n-1; ae->v <<= 1;
+        }
+    }
+}
+
+void push_poa_arch_0(poa_g_t *g, uint32_t src, uint32_t des)
+{
+    poa_arc_t *ae;
+    kv_pushp(poa_arc_t, g->arc, &ae);
+    ae->ul = des; ae->ul <<= 33; ae->ul += ((uint64_t)(0x100000000)); ae->ul += 1;
+    ae->v = src; ae->v <<= 1; ae->v += 1;
+
+    kv_pushp(poa_arc_t, g->arc, &ae);
+    ae->ul = src; ae->ul <<= 33; ae->ul += 1;
+    ae->v = des; ae->v <<= 1;
+}
+
+void update_poa_arch_0(poa_g_t *g, uint32_t src, uint32_t des)
+{
+    uint32_t k, v, w, a_n; poa_arc_t *a;
+    v = src<<1; w = des<<1;
+    a_n = poa_arc_n(g, v); a = poa_arc_a(g, v);
+    for (k = 0; k < a_n; k++) {
+        if(a[k].v == w) break;
+    }
+    if(k >= a_n) {
+        push_poa_arch_0(g, src, des);
+    } else {
+        a[k].ul++;
+        v = des<<1; v^=1; 
+        w = src<<1; w^=1;
+        a_n = poa_arc_n(g, v); a = poa_arc_a(g, v);
+        for (k = 0; k < a_n; k++) {
+            if(a[k].v == w) break;
+        }
+        assert(k < a_n);
+        a[k].ul++;
+    }
+}
+
+void append_integer_seq_frag(ma_ug_t *ug, uc_block_t *raw, poa_g_t *g, int64_t g_beg, int64_t g_end, uint64_t *str, int64_t str_occ, uint64_t is_rev)
+{
+    // if(str_occ <= 0) return;
+    uint32_t nid; 
+    // if((g_beg >= 0 || g_end >= 0) && str_occ < 2) return;
+    if(g_beg < 0 && g_end < 0) {//add new nodes
+        insert_poa_nodes_0(ug, raw, g, str, str_occ, is_rev);
+        return;
+    }
+
+    if(g_beg < 0 && g_end >= 0) {///add nodes to the left end
+        assert(str_occ >= 1);
+        update_poa_nid_occ(ug, raw, g, g_end, str, (is_rev?(0):(str_occ-1)), is_rev);
+        if(str_occ < 2) return;
+        insert_poa_nodes_0(ug, raw, g, (is_rev?(str+1):(str)), str_occ-1, is_rev);
+        push_poa_arch_0(g, g->seq.n-1, g_end);
+        return;
+    }
+
+    if(g_beg >= 0 && g_end < 0) {///add nodes to the right end
+        assert(str_occ >= 1);
+        update_poa_nid_occ(ug, raw, g, g_beg, str, (is_rev?(str_occ-1):(0)), is_rev);
+        if(str_occ < 2) return;
+        nid = g->seq.n;///backup
+        insert_poa_nodes_0(ug, raw, g, (is_rev?(str):(str+1)), str_occ-1, is_rev);
+        push_poa_arch_0(g, g_beg, nid);
+        return;
+    }
+
+    if(g_beg >= 0 && g_end >= 0) {///add nodes to the middle
+        assert(str_occ >= 2);
+        update_poa_nid_occ(ug, raw, g, g_beg, str, (is_rev?(str_occ-1):(0)), is_rev);
+        update_poa_nid_occ(ug, raw, g, g_end, str, (is_rev?(0):(str_occ-1)), is_rev);
+        if(str_occ > 2) {///insert new nodes
+            nid = g->seq.n;///backup
+            insert_poa_nodes_0(ug, raw, g, str+1, str_occ-2, is_rev);
+            push_poa_arch_0(g, g_beg, nid); push_poa_arch_0(g, g->seq.n-1, g_end);
+        } else {
+            update_poa_arch_0(g, g_beg, g_end);///add an edge between g_beg and g_end
+        }
+    }
+}
+
+void append_aligned_integer_seq(ma_ug_t *ug, uc_block_t *raw, poa_g_t *g, int64_t g_occ, uint64_t *str, int64_t str_occ, uint64_t is_rev,
+uint32_t *match_g, uint32_t *match_str, int64_t match_occ)
+{
+    if(str_occ <= 0) return;
+    int64_t k, p_str, p_g;
+    
+    if(is_rev == 0) {
+        for (k = match_occ-1, p_str = 0, p_g = -1; k >= 0; k--) {
+            fprintf(stderr, "+[M::%s::] match_str[%ld]::%u, match_occ::%ld\n", 
+            __func__, k, match_str[k], match_occ);
+            assert(((int64_t)match_str[k]) >= p_str); 
+            append_integer_seq_frag(ug, raw, g, p_g, match_g[k], str+p_str, match_str[k]+1-p_str, is_rev);
+            p_str = match_str[k]; p_g = match_g[k]; 
+        }
+        append_integer_seq_frag(ug, raw, g, p_g, -1, str+p_str, str_occ-p_str, is_rev);
+    } else {
+        for (k = match_occ-1, p_str = str_occ-1, p_g = -1; k >= 0; k--) {
+            fprintf(stderr, "-[M::%s::] match_str[%ld]::%u, match_occ::%ld\n", 
+            __func__, k, match_str[k], match_occ);
+            assert(((int64_t)match_str[k]) <= p_str); 
+            append_integer_seq_frag(ug, raw, g, p_g, match_g[k], str+match_str[k], p_str+1-match_str[k], is_rev);
+            p_str = match_str[k]; p_g = match_g[k];  
+        }
+        append_integer_seq_frag(ug, raw, g, p_g, -1, str, p_str+1, is_rev);
+    }
+}
+
+
+void topo_srt_gen(poa_g_t *g)
+{
+    uint32_t k, v, w, a_n; poa_arc_t *a;
+    kv_resize(uint32_t, g->srt_b.ind, g->seq.n);
+    kv_resize(uint32_t, g->srt_b.stack, g->seq.n);
+    kv_resize(uint32_t, g->srt_b.res, g->seq.n);
+    kv_resize(uint32_t, g->srt_b.res2nid, g->seq.n);
+    g->srt_b.ind.n = g->srt_b.stack.n = g->srt_b.res.n = g->srt_b.res2nid.n = 0;
+
+    for (k = 0; k < g->seq.n; k++) {
+        v = (k<<1) + 1; 
+        g->srt_b.ind.a[k] = poa_arc_n(g, v);
+        if(g->srt_b.ind.a[k] == 0) kv_push(uint32_t, g->srt_b.stack, k);
+    }
+    
+    while (g->srt_b.stack.n > 0) {
+        v = g->srt_b.stack.a[--g->srt_b.stack.n]; kv_push(uint32_t, g->srt_b.res, v); v <<= 1;
+        a_n = poa_arc_n(g, v); a = poa_arc_a(g, v);
+        for (k = 0; k < a_n; k++) {
+            w = a[k].v>>1;
+            g->srt_b.ind.a[w]--;
+            if(g->srt_b.ind.a[w] == 0) kv_push(uint32_t, g->srt_b.stack, w);
+        }
+    }
+    assert(g->srt_b.res.n == g->seq.n);
+    for (k = 0; k < g->seq.n; k++) g->srt_b.res2nid.a[g->srt_b.res.a[k]] = k;
+    
+
+}
+
+#define poa_str_idx(i, occ, is_rev) (((is_rev))?((occ)-(i)-1):(i))
+void init_poa_dp(ma_ug_t *ug, poa_dp_t *dp, poa_g_t *g, uint64_t g_occ, uint64_t *str, uint64_t str_occ, uint64_t is_rev, uc_block_t *raw, integer_t *buf)
+{
+    kv_resize(uint8_t, dp->dir, (str_occ+1)*(g_occ+1));
+    kv_resize(int64_t, dp->sc, (str_occ+1)*(g_occ+1));
+    kv_resize(uint64_t, dp->prefix, (str_occ+1)*(g_occ+1));
+    dp->n = str_occ+1; dp->m = g_occ+1;
+    kv_resize(uint64_t, buf->u, str_occ);
+    int64_t *sc = dp->sc.a, bsc, ss; uint8_t *dir = dp->dir.a; uint64_t k, l, *str_w = buf->u.a, *prefix = dp->prefix.a, m; 
+    uc_block_t *z; uint32_t *g_idx = g->srt_b.res.a, *n2gidx = g->srt_b.res2nid.a, v, w, a_n, bsc_i; poa_arc_t *a; 
+    for (k = 0; k < str_occ; k++) {
+        z = &(raw[str[k]>>32]); str_w[k] = ug_occ_w(z->ts, z->te, &(ug->u.a[z->hid]));
+    }
+    
+    sc[poa_dp_idx(*dp, 0, 0)] = dir[poa_dp_idx(*dp, 0, 0)] = 0;
+    for (k = 1, l = 0; k < dp->n; k++) {///pat; new ul read
+        l += str_w[poa_str_idx(k-1, str_occ, is_rev)];
+        sc[poa_dp_idx(*dp, k, 0)] = l;
+        dir[poa_dp_idx(*dp, k, 0)] = lstr_dp;
+        prefix[poa_dp_idx(*dp, k, 0)] = ((k - 1)<<32);
+    }
+    
+    for (k = 1; k < dp->m; k++) {///ref; graph
+        v = (g_idx[k-1]<<1) + 1;
+        a_n = poa_arc_n(g, v); a = poa_arc_a(g, v);
+        for (m = 0, bsc = bsc_i = 0; m < a_n; m++) {
+            w = n2gidx[a[m].v>>1]; assert(w+1 < k);
+            ss = sc[poa_dp_idx(*dp, 0, w+1)];
+            if(ss < bsc || bsc_i == 0) {
+                bsc = ss; bsc_i = w + 1;
+            }
+        }
+        sc[poa_dp_idx(*dp, 0, k)] = bsc + g->seq.a[v>>1].occ;
+        dir[poa_dp_idx(*dp, 0, k)] = lref_dp;
+        prefix[poa_dp_idx(*dp, 0, k)] = bsc_i;
+    }
+}
+
+void update_poa_dp(poa_g_t *g)
+{
+    uint32_t is_srt = 0, k;
+    if(g->seq.n > g->update_seq || g->arc.n > g->update_arc) {
+        if(g->seq.n > g->update_seq) {
+            kv_resize(uint32_t, g->srt_b.res, g->seq.n);
+            kv_resize(uint32_t, g->srt_b.res2nid, g->seq.n);
+            g->srt_b.res.n = g->srt_b.res2nid.n = g->seq.n;
+            for (k = g->update_seq; k < g->seq.n; k++) {
+                g->srt_b.res.a[k] = g->srt_b.res2nid.a[k] = k;
+            }
+        }
+        if(g->arc.n > g->update_arc) { ///check if it is necessary to resort
+            for (k = g->update_arc; k < g->arc.n; k++) {
+                if((g->arc.a[k].ul>>32)&1) continue;
+                if(g->srt_b.res2nid.a[g->arc.a[k].ul>>33] >= g->srt_b.res2nid.a[g->arc.a[k].v>>1]) break;
+            }
+            if(k < g->arc.n) is_srt = 1;
+        }
+
+        clean_poa_g_t(g); 
+        if(is_srt) topo_srt_gen(g);
+    }
+}
+
+void poa_dp(poa_g_t *g, ma_ug_t *ug, uc_block_t *raw, ul_str_t *str, int64_t s, int64_t e, int64_t is_rev, integer_t *buf)
+{
+    if(e <= s) return;
+
+    
+
+    uint32_t *g_idx = g->srt_b.res.a, *n2gidx = g->srt_b.res2nid.a, gnid, v, a_n, pat_v, g_v;
+    uint64_t *pat = (is_rev?(str->a + str->cn - e):(str->a + s)), pat_n = e - s, pp;
+    init_poa_dp(ug, &(g->dp), g, g->seq.n, pat, pat_n, is_rev, raw, buf);
+    int64_t *sc = g->dp.sc.a, min_w, c_w; uint8_t *dir = g->dp.dir.a; 
+    uint64_t *str_w = buf->u.a, *prefix = g->dp.prefix.a;
+    poa_arc_t *a; poa_dp_t *dp = &(g->dp); 
+    int64_t min_i, min_k, min_d, i, k, n = g->dp.n - 1, m = g->dp.m - 1, match_sc, z, pidx, g_k, pat_k;
+    fprintf(stderr, "[M::%s::] ts::%ld, te::%ld, is_rev::%ld, m::%ld(g->seq.n::%u), n::%ld(pat_n::%lu)\n", 
+    __func__, s, e, is_rev, m, (uint32_t)g->seq.n, n, pat_n);
+    for (i = 0; i < m; i++) {///graph
+        gnid = g_idx[i]; v = (gnid<<1) + 1; g_v = g->seq.a[gnid].nid;
+        a_n = poa_arc_n(g, v); a = poa_arc_a(g, v);
+        for (k = 0; k < n; k++) {//read 
+            pat_v = (uint32_t)pat[poa_str_idx(k, pat_n, is_rev)]; if(is_rev) pat_v ^= 1;
+            if(g_v == pat_v) {
+                match_sc = str_w[poa_str_idx(k, pat_n, is_rev)]; match_sc *= -1;
+            } else {
+                match_sc = str_w[poa_str_idx(k, pat_n, is_rev)];
+                if(match_sc < g->seq.a[gnid].occ) match_sc = g->seq.a[gnid].occ;
+            }
+            
+            ///longer graph/shorter read
+            min_w = sc[poa_dp_idx(*dp, k, i+1)] + g->seq.a[gnid].occ; 
+            min_i = i + 1; min_k = k; min_d = lg_dp;
+
+            for (z = 0; z < a_n; z++) {
+                pidx = n2gidx[a[z].v>>1]; assert(pidx < i);
+                ///match
+                c_w = sc[poa_dp_idx(*dp, k, pidx+1)] + match_sc;
+                if(c_w < min_w) {
+                    min_w = c_w; min_i = pidx+1; min_k = k; 
+                    if(match_sc <= 0) min_d = e_pdp;
+                    else min_d = ue_pdp;
+                }
+                ///longer read/shorter graph
+                c_w = sc[poa_dp_idx(*dp, k+1, pidx+1)] + str_w[poa_str_idx(k, pat_n, is_rev)];
+                if(c_w < min_w) {
+                    min_w = c_w; min_i = pidx+1; min_k = k + 1; min_d = lstr_dp;
+                }
+            }
+
+            if(a_n == 0) {///no prefix
+                pidx = -1;
+                ///match
+                c_w = sc[poa_dp_idx(*dp, k, pidx+1)] + match_sc;
+                if(c_w < min_w) {
+                    min_w = c_w; min_i = pidx+1; min_k = k; 
+                    if(match_sc <= 0) min_d = e_pdp;
+                    else min_d = ue_pdp;
+                }
+                ///longer read/shorter graph
+                c_w = sc[poa_dp_idx(*dp, k+1, pidx+1)] + str_w[poa_str_idx(k, pat_n, is_rev)];
+                if(c_w < min_w) {
+                    min_w = c_w; min_i = pidx+1; min_k = k + 1; min_d = lstr_dp;
+                }
+            }
+
+            sc[poa_dp_idx(*dp, k+1, i+1)] = min_w; dir[poa_dp_idx(*dp, k+1, i+1)] = min_d;
+            prefix[poa_dp_idx(*dp, k+1, i+1)] = (((uint64_t)min_k)<<32)|((uint64_t)min_i);
+            fprintf(stderr, "[M::%s::] i::%ld(graph->utg%.6d%c, min_i->%ld), k::%ld(str->utg%.6d%c, min_k->%ld), match_sc::%ld, min_w::%ld, min_d::%ld\n", 
+                                            __func__, i+1, (int32_t)(g_v>>1)+1, "lc"[ug->u.a[g_v>>1].circ], min_i,
+                                            k+1, (int32_t)(pat_v>>1)+1, "lc"[ug->u.a[pat_v>>1].circ], min_k, match_sc, min_w, min_d);
+        }        
+    }
+
+    ///backtrack; global alignment
+    min_i = -1; min_k = n; min_w = 0;
+    for (i = 0; i < m; i++) {///go through graph
+        // gnid = g_idx[i]; v = (gnid<<1);
+        // if(poa_arc_n(g, v) > 0) continue;
+        c_w = sc[poa_dp_idx(*dp, min_k, i+1)];
+        if(min_i < 0 || c_w < min_w) {
+            min_w = c_w; min_i = i+1;
+        }
+    }
+    assert(min_i > 0);
+
+    g->srt_b.ind.n = g->srt_b.stack.n = 0;
+    while (min_i > 0 || min_k > 0) {
+        pat_k = poa_str_idx((min_k-1), pat_n, is_rev);///read
+        g_k = g_idx[min_i-1];///graph
+        fprintf(stderr, "******[M::%s::] min_i::%ld(gid->%ld, m->%ld), min_k::%ld(str_id->%ld, n->%ld), dir::%u, sc::%ld\n", 
+                                            __func__, min_i, g_k, m, min_k, pat_k, n,  
+                                            dir[poa_dp_idx(*dp, min_k, min_i)], sc[poa_dp_idx(*dp, min_k, min_i)]);
+        if(dir[poa_dp_idx(*dp, min_k, min_i)] == e_pdp) {
+            assert(g->seq.a[g_k].nid == (((uint32_t)pat[pat_k])^(is_rev?1:0)));
+            kv_push(uint32_t, g->srt_b.ind, pat_k); ///read
+            kv_push(uint32_t, g->srt_b.stack, g_k); ///graph
+        }
+        pp = prefix[poa_dp_idx(*dp, min_k, min_i)];
+        assert((int64_t)(pp>>32)<=min_k); assert((int64_t)((uint32_t)pp)<=min_i);
+        min_k = pp >> 32; min_i = (uint32_t)pp;
+    }
+    if(!(g->srt_b.ind.n > 0 && g->srt_b.ind.n == g->srt_b.stack.n)) {
+        fprintf(stderr, "[M::%s::] g->srt_b.ind.n::%u, g->srt_b.stack.n::%u, ts::%ld, te::%ld\n", 
+                                            __func__, (uint32_t)g->srt_b.ind.n, (uint32_t)g->srt_b.stack.n, s, e);
+    }
+    assert(g->srt_b.ind.n > 0 && g->srt_b.ind.n == g->srt_b.stack.n);
+    append_aligned_integer_seq(ug, raw, g, g->seq.n, pat, pat_n, is_rev, g->srt_b.stack.a, g->srt_b.ind.a, g->srt_b.ind.n);
+    update_poa_dp(g);
+}
+void gen_cns_by_poa(poa_g_t *g)
+{
+
+}
+
+void poa_cns(poa_g_t *g, all_ul_t *ul_idx, ma_ug_t *ug, ul_str_t *str, integer_aln_t *aln, 
+ul_chain_t *idx, int64_t idx_n, int64_t qid, integer_t *buf)
+{
+    int64_t k, tid, is_rev;
+    reset_poa_g_t(g);
+
+    append_unmatch_integer_seq(g, ug, ul_idx->a[qid].bb.a, &(str[qid]), 0, str[qid].cn, 0);
+    clean_poa_g_t(g); topo_srt_gen(g);
+
+    for (k = 0; k < idx_n; k++) {
+        tid = aln[idx[k].s].tn_rev_qk>>33; is_rev = ((aln[idx[k].s].tn_rev_qk>>32)&1);
+        fprintf(stderr, "\n[M::%s::] k::%ld, tid::%ld, is_rev::%ld\n", __func__, k, tid, is_rev);
+        print_integer_seq(ug, str, tid, 1);
+        poa_dp(g, ug, ul_idx->a[tid].bb.a, &(str[tid]), idx[k].t_sidx, idx[k].t_eidx, is_rev, buf);
+    }
+
+    gen_cns_by_poa(g);
+}
 
 
 void integer_candidate(ul_resolve_t *uidx, integer_t *buf, uint32_t qid)
 {
-    if(qid != 267) return;
+    if(qid != 440) return;
     uint64_t k, z, m_het, m_het_occ, ref_occ, b_n, m; uint32_t vk, vz; integer_aln_t *p; ul_chain_t sc;
     ul_str_idx_t *str_idx = &(uidx->pstr); ma_ug_t *ug = uidx->l1_ug;
     uint64_t *hid_a, hid_n; uc_block_t *xi;
@@ -3287,11 +3928,13 @@ void integer_candidate(ul_resolve_t *uidx, integer_t *buf, uint32_t qid)
     for (k = 1, z = 0; k < b_n; k++) {
         if(k == b_n || (buf->b.a[z].tn_rev_qk>>32) != (buf->b.a[k].tn_rev_qk>>32)) {
             if(integer_chain(qid, buf->b.a + z, k - z, z, buf, ug, str_idx, uidx->idx, &sc) && sc.v != (uint32_t)-1) {
-                if((buf->sc.n > 0) && ((buf->sc.a[buf->sc.n-1].v>>1) == (sc.v>>1)) 
-                                                        && (buf->sc.a[buf->sc.n-1].sc < sc.sc)) {
-                    buf->sc.n--;
+                if((buf->sc.n > 0) && ((buf->sc.a[buf->sc.n-1].v>>1) == (sc.v>>1))) {
+                    if(buf->sc.a[buf->sc.n-1].sc < sc.sc) {
+                        buf->sc.a[buf->sc.n-1] = sc;
+                    }
+                } else {
+                    kv_push(ul_chain_t, buf->sc, sc);
                 }
-                kv_push(ul_chain_t, buf->sc, sc);
             }
             z = k;
         }
@@ -3315,6 +3958,11 @@ void integer_candidate(ul_resolve_t *uidx, integer_t *buf, uint32_t qid)
     if(m_het_occ > 0 && cns_het_occ <= (m_het_occ*0.25)) return;
     if(ref_cns_occ <= (ref_occ*0.5)) return;
 
+    fprintf(stderr, "\n");
+    print_integer_seq(ug, str_idx->str.a, qid, 1);
+    print_cns_seq(ug, str, o, o_n);
+    
+
     for (k = m = 0; k < buf->sc.n; k++) {
         // fprintf(stderr, "[M::%s::k->%lu] m::%lu\n", __func__, k, m);
         // if(k == 72) {
@@ -3323,15 +3971,17 @@ void integer_candidate(ul_resolve_t *uidx, integer_t *buf, uint32_t qid)
         if(refine_integer_ovlps(uidx->idx, uidx->bub, ug, str_idx->str.a, buf->b.a, 
                                                             &(buf->sc.a[k]), qid, buf, o, o_n)) {                                                
             buf->sc.a[m++] = buf->sc.a[k];
-        } else {
-            print_integer_ovlps(ug, str_idx->str.a, buf->b.a, buf->b.n, buf->sc.a+k, 1, qid, o_n);
-            fprintf(stderr, "[M::%s::] idx->q_sidx::%u, idx->q_eidx::%u, idx->t_sidx::%u, idx->t_eidx::%u\n******************************************************\n", 
-                __func__, buf->sc.a[k].q_sidx, buf->sc.a[k].q_eidx, buf->sc.a[k].t_sidx, buf->sc.a[k].t_eidx);
-        }
+        } 
+        // else {
+        //     print_integer_ovlps(ug, str_idx->str.a, buf->b.a, buf->b.n, buf->sc.a+k, 1, qid, o_n);
+        //     fprintf(stderr, "[M::%s::] idx->q_sidx::%u, idx->q_eidx::%u, idx->t_sidx::%u, idx->t_eidx::%u\n******************************************************\n", 
+        //         __func__, buf->sc.a[k].q_sidx, buf->sc.a[k].q_eidx, buf->sc.a[k].t_sidx, buf->sc.a[k].t_eidx);
+        // }
     }
     buf->sc.n = m;
+    if(m <= 0) return;
     // if(m != str->cn) print_integer_ovlps(uidx->l1_ug, str_idx->str.a, buf->b.a, buf->b.n, buf->sc.a, buf->sc.n, qid, m);
-    
+    poa_cns(&(buf->pg), uidx->idx, ug, str_idx->str.a, buf->b.a, buf->sc.a, buf->sc.n, qid, buf);
     
     // radix_sort_ul_chain_t_srt(buf->sc.a, buf->sc.a + buf->sc.n);
     
