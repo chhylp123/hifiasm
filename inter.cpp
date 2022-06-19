@@ -8535,10 +8535,6 @@ static void update_ug_arch_ul(void *data, long i, int tid) // callback for kt_fo
 		uv = (((uint32_t)(p->hid))<<1)|((uint32_t)(p->rev));
 		if((uv == v) && (p->aidx != (uint32_t)-1)) {
 			n = &(UL_INF.a[a[k]>>32].bb.a[p->aidx]);
-			// if(!((!n->base)&&(n->el)&&(n->pchain)&&(n->pidx==((uint32_t)(a[k]))))) {
-			// 	fprintf(stderr, "k::%u, n->base::%u, n->el::%u, n->pchain::%u, n->pidx::%u, p->aidx::%u\n", 
-			// 	k, n->base, n->el, n->pchain, n->pidx, p->aidx);
-			// }
 			assert((!n->base)&&(n->el)&&(n->pchain)&&(n->pidx==((uint32_t)(a[k]))));
 			uw = (((uint32_t)(n->hid))<<1)|((uint32_t)(n->rev));
 			if(uw == w) e->ou++;
@@ -8546,6 +8542,10 @@ static void update_ug_arch_ul(void *data, long i, int tid) // callback for kt_fo
 
 		if(((uv^1) == v) && (p->pidx != (uint32_t)-1)) {
 			n = &(UL_INF.a[a[k]>>32].bb.a[p->pidx]);
+			// if(!((!n->base)&&(n->el)&&(n->pchain)&&(n->aidx==((uint32_t)(a[k]))))) {
+			// 	fprintf(stderr, "ulid->%ld, n->base::%u, n->el::%u, n->pchain::%u, n->aidx::%u, ((uint32_t)(a[k]))::%u\n", 
+			// 	i, n->base, n->el, n->pchain, n->aidx, ((uint32_t)(a[k])));
+			// }
 			assert((!n->base)&&(n->el)&&(n->pchain)&&(n->aidx==((uint32_t)(a[k]))));
 			uw = (((uint32_t)(n->hid))<<1)|((uint32_t)(n->rev)); uw ^= 1;
 			if(uw == w) e->ou++;
@@ -8558,14 +8558,25 @@ static void filter_short_ulalignments(void *data, long i, int tid) // callback f
 	const ma_ug_t *ug = (ma_ug_t *)data;
 	uc_block_t *a = NULL; uc_block_t *p; int64_t k, a_n; uint32_t z, fz, lz, l, bz;
 	a = UL_INF.a[i].bb.a; a_n = UL_INF.a[i].bb.n;
+	// if(i == 4) {
+	// 	fprintf(stderr, "[M::%s::i->%ld] a_n->%ld\n", __func__, i, a_n);
+	// }
 	for (k = a_n - 1; k >= 0; k--) {
 		p = &(a[k]);
+		// if(i == 4) {
+		// 	fprintf(stderr, "[M::%s::k->%ld] p->ts::%u, p->te::%u, p->pchain::%u, p->pidx::%u, p->aidx::%u\n", 
+		// 													__func__, k, p->ts, p->te, p->pchain, p->pidx, p->aidx);
+		// }
 		if(p->base || (!p->el) || (!p->pchain)) continue;
-		if((p->pidx == (uint32_t)-1) && (p->aidx == (uint32_t)-1)) {
-			if(!ugl_cover_check(p->ts, p->te, &(ug->u.a[p->hid]))) p->pchain = 0;
+		if(p->pidx == (uint32_t)-1) {
+			if(!ugl_cover_check(p->ts, p->te, &(ug->u.a[p->hid]))) {
+				p->pchain = 0;
+				if(p->aidx != (uint32_t)-1) {
+					a[p->aidx].pidx = a[p->aidx].pdis = (uint32_t)-1; p->aidx = (uint32_t)-1;
+				}
+			}
 			continue;
 		}
-		if(p->pidx == (uint32_t)-1) continue;
 		if(ugl_cover_check(p->ts, p->te, &(ug->u.a[p->hid]))) continue;
 		for (z = p->pidx; z != (uint32_t)-1; z = a[z].pidx) {
 			if(ugl_cover_check(a[z].ts, a[z].te, &(ug->u.a[a[z].hid]))) break;
@@ -8585,16 +8596,18 @@ static void filter_short_ulalignments(void *data, long i, int tid) // callback f
 		}
 	}
 
-	// for (k = a_n - 1; k >= 0; k--) {
-	// 	p = &(a[k]);
-	// 	if(p->base || (!p->el) || (!p->pchain)) continue;
-	// 	if(p->pidx != (uint32_t)-1) {
-	// 		assert(a[p->pidx].aidx == (uint32_t)k);
-	// 	}
-	// 	if(p->aidx != (uint32_t)-1) {
-	// 		assert(a[p->aidx].pidx == (uint32_t)k);
-	// 	}
-	// }
+	for (k = a_n - 1; k >= 0; k--) {
+		p = &(a[k]);
+		if(p->base || (!p->el) || (!p->pchain)) continue;
+		if(p->pidx != (uint32_t)-1) {
+			assert(a[p->pidx].aidx == (uint32_t)k);
+			assert(a[p->pidx].pchain);
+		}
+		if(p->aidx != (uint32_t)-1) {
+			assert(a[p->aidx].pidx == (uint32_t)k);
+			assert(a[p->aidx].pchain);
+		}
+	}
 }
 
 
@@ -10222,7 +10235,7 @@ void clear_all_ul_t(all_ul_t *x)
 
 ma_ug_t *ul_realignment(const ug_opt_t *uopt, asg_t *sg)
 {
-	fprintf(stderr, "[M::%s::] ==> UL\n", __func__);
+	fprintf(stderr, "[M::%s::] ==> starting UL\n", __func__);
 	mg_idxopt_t opt; uldat_t sl;
 	int32_t cutoff;
 	char* gfa_name = NULL; MALLOC(gfa_name, strlen(asm_opt.output_file_name)+50);
