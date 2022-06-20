@@ -178,7 +178,11 @@ typedef struct {
 
 typedef struct{
     uint64_t pge, ule;
+    uint32_t ulid;
 } emap_t;
+
+#define emap_t_srt_key(x) ((x).pge)
+KRADIX_SORT_INIT(emap_t_srt, emap_t, emap_t_srt_key, member_size(emap_t, pge))
 
 typedef struct {
     kvec_t(poa_nid_t) seq;
@@ -208,6 +212,7 @@ typedef struct {
     kvec_t(ul_chain_t) sc;
     kvec_t(ul_snp_t) snp;
     poa_g_t pg;
+    kvec_t(uint64_t) res_dump;
 }integer_t;
 
 typedef struct {
@@ -3609,7 +3614,7 @@ void clean_poa_g_t(poa_g_t *g)
 
 void append_unmatch_integer_seq(poa_g_t *g, ma_ug_t *ug, uc_block_t *raw, ul_str_t *str, int64_t s, int64_t e, int64_t is_rev, int64_t str_id)
 {
-    int64_t k; poa_nid_t *nn; poa_arc_t *ae; uint32_t v; uc_block_t *z;
+    int64_t k; poa_nid_t *nn; poa_arc_t *ae; uint32_t v; uc_block_t *z; emap_t *em;
     for (k = s; k < e; k++) {
         if(is_rev) {
             v = (((uint32_t)str->a[str->cn-k-1])^1);
@@ -3630,11 +3635,18 @@ void append_unmatch_integer_seq(poa_g_t *g, ma_ug_t *ug, uc_block_t *raw, ul_str
             kv_pushp(poa_arc_t, g->arc, &ae);
             ae->ul = g->seq.n-2; ae->ul <<= 33; ae->ul += 1;
             ae->v = g->seq.n-1; ae->v <<= 1;
+
+            kv_pushp(emap_t, g->e_idx, &em);
+            em->pge = g->seq.n-2; em->pge <<= 32; em->pge += g->seq.n-1;
+            em->ule = (is_rev?(str->cn-k):(k-1)); em->ule <<= 32; em->ule += (is_rev?(str->cn-k-1):(k));
+            em->ulid = str_id;
+            // assert((g->seq.a[em->pge>>32].nid^(is_rev?1:0)) == ((uint32_t)str->a[em->ule>>32]));
+            // assert((g->seq.a[(uint32_t)em->pge].nid^(is_rev?1:0)) == ((uint32_t)str->a[(uint32_t)em->ule]));
         }
     }
 }
 
-void update_poa_nid_occ(ma_ug_t *ug, uc_block_t *raw, poa_g_t *g, int64_t gidx, uint64_t *str, int64_t str_idx, int64_t is_rev, int64_t str_id, int64_t str_off)
+void update_poa_nid_occ(ma_ug_t *ug, uc_block_t *raw, poa_g_t *g, int64_t gidx, uint64_t *str, int64_t str_idx, int64_t is_rev)
 {
     uint32_t g_v, str_v, new_occ; uc_block_t *z; 
     ///update 
@@ -3649,7 +3661,7 @@ void update_poa_nid_occ(ma_ug_t *ug, uc_block_t *raw, poa_g_t *g, int64_t gidx, 
 
 void insert_poa_nodes_0(ma_ug_t *ug, uc_block_t *raw, poa_g_t *g, uint64_t *str, int64_t str_occ, uint64_t is_rev, int64_t str_id, int64_t str_off)
 {
-    int64_t k; poa_nid_t *nn; poa_arc_t *ae; uint32_t v; uc_block_t *z; 
+    int64_t k; poa_nid_t *nn; poa_arc_t *ae; uint32_t v; uc_block_t *z; emap_t *em;
     for (k = 0; k < str_occ; k++) {
         if(is_rev == 0) {
             v = ((uint32_t)str[k]); z = &(raw[str[k]>>32]);
@@ -3668,13 +3680,33 @@ void insert_poa_nodes_0(ma_ug_t *ug, uc_block_t *raw, poa_g_t *g, uint64_t *str,
             kv_pushp(poa_arc_t, g->arc, &ae);
             ae->ul = g->seq.n-2; ae->ul <<= 33; ae->ul += 1;
             ae->v = g->seq.n-1; ae->v <<= 1;
+
+            kv_pushp(emap_t, g->e_idx, &em);
+            em->pge = g->seq.n-2; em->pge <<= 32; em->pge += g->seq.n-1;
+            em->ule = str_off + (is_rev?(str_occ-k):(k-1)); em->ule <<= 32; 
+            em->ule += str_off + (is_rev?(str_occ-k-1):(k));
+            em->ulid = str_id;
+
+            // if(!((g->seq.a[em->pge>>32].nid^(is_rev?1:0)) == ((uint32_t)debug_str->a[em->ule>>32]))) {
+            //     fprintf(stderr, "[M::%s::k->%ld::str_occ->%ld] is_rev->%lu, pg_v->%u, str_v->%u, str_off->%ld, str_k->%lu, str_cn->%u, address_diff->%u\n", 
+            //             __func__, k, str_occ, is_rev, (g->seq.a[em->pge>>32].nid^(is_rev?1:0)), 
+            //             ((uint32_t)debug_str->a[em->ule>>32]), str_off, em->ule>>32, debug_str->cn, (uint32_t)(str - debug_str->a));
+            //     uint64_t debug_k;
+            //     for (debug_k = 0; debug_k < debug_str->cn; debug_k++) {
+            //         fprintf(stderr, "[M::%s::debug_k->%lu] str_v->%u\n", 
+            //             __func__, debug_k, ((uint32_t)debug_str->a[debug_k]));
+            //     }
+                
+            // }
+            // assert((g->seq.a[em->pge>>32].nid^(is_rev?1:0)) == ((uint32_t)debug_str->a[em->ule>>32]));
+            // assert((g->seq.a[(uint32_t)em->pge].nid^(is_rev?1:0)) == ((uint32_t)debug_str->a[(uint32_t)em->ule]));
         }
     }
 }
 
-void push_poa_arch_0(poa_g_t *g, uint32_t src, uint32_t des)
+void push_poa_arch_0(poa_g_t *g, uint32_t src, uint32_t des, int64_t str_id, int64_t str_src, int64_t str_des)
 {
-    poa_arc_t *ae;
+    poa_arc_t *ae; emap_t *em;
     kv_pushp(poa_arc_t, g->arc, &ae);
     ae->ul = des; ae->ul <<= 33; ae->ul += ((uint64_t)(0x100000000)); ae->ul += 1;
     ae->v = src; ae->v <<= 1; ae->v += 1;
@@ -3682,18 +3714,26 @@ void push_poa_arch_0(poa_g_t *g, uint32_t src, uint32_t des)
     kv_pushp(poa_arc_t, g->arc, &ae);
     ae->ul = src; ae->ul <<= 33; ae->ul += 1;
     ae->v = des; ae->v <<= 1;
+
+    kv_pushp(emap_t, g->e_idx, &em);
+    em->pge = src; em->pge <<= 32; em->pge += des;
+    em->ule = str_src; em->ule <<= 32; em->ule += str_des;
+    em->ulid = str_id;
+
+    // assert((g->seq.a[em->pge>>32].nid^(debug_is_rev?1:0)) == ((uint32_t)debug_str->a[em->ule>>32]));
+    // assert((g->seq.a[(uint32_t)em->pge].nid^(debug_is_rev?1:0)) == ((uint32_t)debug_str->a[(uint32_t)em->ule]));
 }
 
-void update_poa_arch_0(poa_g_t *g, uint32_t src, uint32_t des)
+void update_poa_arch_0(poa_g_t *g, uint32_t src, uint32_t des, int64_t str_id, int64_t str_src, int64_t str_des)
 {
-    uint32_t k, v, w, a_n; poa_arc_t *a;
+    uint32_t k, v, w, a_n; poa_arc_t *a; emap_t *em;
     v = src<<1; w = des<<1;
     a_n = poa_arc_n(g, v); a = poa_arc_a(g, v);
     for (k = 0; k < a_n; k++) {
         if(a[k].v == w) break;
     }
     if(k >= a_n) {
-        push_poa_arch_0(g, src, des);
+        push_poa_arch_0(g, src, des, str_id, str_src, str_des);
     } else {
         a[k].ul++;
         v = des<<1; v^=1; 
@@ -3704,6 +3744,14 @@ void update_poa_arch_0(poa_g_t *g, uint32_t src, uint32_t des)
         }
         assert(k < a_n);
         a[k].ul++;
+
+        kv_pushp(emap_t, g->e_idx, &em);
+        em->pge = src; em->pge <<= 32; em->pge += des;
+        em->ule = str_src; em->ule <<= 32; em->ule += str_des;
+        em->ulid = str_id;
+
+        // assert((g->seq.a[em->pge>>32].nid^(debug_is_rev?1:0)) == ((uint32_t)debug_str->a[em->ule>>32]));
+        // assert((g->seq.a[(uint32_t)em->pge].nid^(debug_is_rev?1:0)) == ((uint32_t)debug_str->a[(uint32_t)em->ule]));
     }
 }
 
@@ -3719,33 +3767,40 @@ void append_integer_seq_frag(ma_ug_t *ug, uc_block_t *raw, poa_g_t *g, int64_t g
 
     if(g_beg < 0 && g_end >= 0) {///add nodes to the left end
         assert(str_occ >= 1);
-        update_poa_nid_occ(ug, raw, g, g_end, str, (is_rev?(0):(str_occ-1)), is_rev, str_id, str_off);
+        update_poa_nid_occ(ug, raw, g, g_end, str, (is_rev?(0):(str_occ-1)), is_rev);
         if(str_occ < 2) return;
-        insert_poa_nodes_0(ug, raw, g, (is_rev?(str+1):(str)), str_occ-1, is_rev, str_id, str_off);
-        push_poa_arch_0(g, g->seq.n-1, g_end);
+        insert_poa_nodes_0(ug, raw, g, (is_rev?(str+1):(str)), str_occ-1, is_rev, str_id, str_off+(is_rev?(1):(0)));
+        push_poa_arch_0(g, g->seq.n-1, g_end, str_id, str_off + (is_rev?(1):(str_occ-2)), 
+                                                                str_off + (is_rev?(0):(str_occ-1)));
         return;
     }
 
     if(g_beg >= 0 && g_end < 0) {///add nodes to the right end
         assert(str_occ >= 1);
-        update_poa_nid_occ(ug, raw, g, g_beg, str, (is_rev?(str_occ-1):(0)), is_rev, str_id, str_off);
+        update_poa_nid_occ(ug, raw, g, g_beg, str, (is_rev?(str_occ-1):(0)), is_rev);
         if(str_occ < 2) return;
         nid = g->seq.n;///backup
-        insert_poa_nodes_0(ug, raw, g, (is_rev?(str):(str+1)), str_occ-1, is_rev, str_id, str_off);
-        push_poa_arch_0(g, g_beg, nid);
+        insert_poa_nodes_0(ug, raw, g, (is_rev?(str):(str+1)), str_occ-1, is_rev, str_id, str_off+(is_rev?(0):(1)));
+        push_poa_arch_0(g, g_beg, nid, str_id, str_off + (is_rev?(str_occ-1):(0)), 
+                                                        str_off + (is_rev?(str_occ-2):(1)));
         return;
     }
 
     if(g_beg >= 0 && g_end >= 0) {///add nodes to the middle
         assert(str_occ >= 2);
-        update_poa_nid_occ(ug, raw, g, g_beg, str, (is_rev?(str_occ-1):(0)), is_rev, str_id, str_off);
-        update_poa_nid_occ(ug, raw, g, g_end, str, (is_rev?(0):(str_occ-1)), is_rev, str_id, str_off);
+        update_poa_nid_occ(ug, raw, g, g_beg, str, (is_rev?(str_occ-1):(0)), is_rev);
+        update_poa_nid_occ(ug, raw, g, g_end, str, (is_rev?(0):(str_occ-1)), is_rev);
         if(str_occ > 2) {///insert new nodes
             nid = g->seq.n;///backup
-            insert_poa_nodes_0(ug, raw, g, str+1, str_occ-2, is_rev, str_id, str_off);
-            push_poa_arch_0(g, g_beg, nid); push_poa_arch_0(g, g->seq.n-1, g_end);
+            insert_poa_nodes_0(ug, raw, g, str+1, str_occ-2, is_rev, str_id, str_off+1);
+            push_poa_arch_0(g, g_beg, nid, str_id, str_off + (is_rev?(str_occ-1):(0)),
+                                                            str_off + (is_rev?(str_occ-2):(1))); 
+            push_poa_arch_0(g, g->seq.n-1, g_end, str_id, str_off + (is_rev?(1):(str_occ-2)),
+                                                            str_off + (is_rev?(0):(str_occ-1)));
         } else {
-            update_poa_arch_0(g, g_beg, g_end);///add an edge between g_beg and g_end
+            ///add an edge between g_beg and g_end
+            update_poa_arch_0(g, g_beg, g_end, str_id, str_off + (is_rev?(str_occ-1):(0)), 
+                                                        str_off + (is_rev?(0):(str_occ-1)));
         }
     }
 }
@@ -4032,7 +4087,7 @@ ul_chain_t *idx, int64_t idx_n, int64_t qid, integer_t *buf)
     int64_t k, tid, is_rev;
     reset_poa_g_t(g);
 
-    append_unmatch_integer_seq(g, ug, ul_idx->a[qid].bb.a, &(str[qid]), 0, str[qid].cn, 0, qid);
+    append_unmatch_integer_seq(g, ug, ul_idx->a[qid].bb.a, &(str[qid]), 0, str[qid].cn, 0, qid, 0);
     clean_poa_g_t(g); topo_srt_gen(g);
 
     for (k = 0; k < idx_n; k++) {
@@ -4268,6 +4323,213 @@ void poa_cns_chain(poa_g_t *g, all_ul_t *ul_idx, ma_ug_t *ug, ul_str_t *str, ul_
     gen_cns_by_poa(g);
 }
 
+uint64_t cal_forward_dis(asg_t *g, uc_block_t *a, uint32_t s, uint32_t e)
+{
+    uint32_t i, li = (uint32_t)-1, v, w, nv, z; int64_t l; asg_arc_t *av;
+    for(i = s, l = 0, v = w = (uint32_t)-1; i != (uint32_t)-1 && i <= e; i = a[i].aidx) {
+        w = (((uint32_t)(a[i].hid))<<1)|((uint32_t)(a[i].rev));
+        if(v != (uint32_t)-1) {
+            av = asg_arc_a(g, v); nv = asg_arc_n(g, v); 
+            for (z = 0; z < nv; z++) {
+                if(av[z].del) continue;
+                if(av[z].v == w) break;
+            }
+            if(z < nv) {//found
+                l += (uint32_t)av[z].ul;
+            } else {
+                l += a[i].pdis + g->seq[v>>1].len - g->seq[w>>1].len;
+            }
+        }
+        v = w; li = i;
+    }
+    assert(li == e);
+    if(l < 0) l = 0;
+    return l;
+}
+
+uint64_t cal_integer_match_dis(ma_ug_t *ug, uc_block_t *a, int64_t k_0, int64_t k_1, int64_t is_rev, uint32_t *is_g_connect)
+{
+    uint32_t i, k;
+    assert((is_rev && k_1 < k_0) || ((!is_rev) && k_1 > k_0)); (*is_g_connect) = 0;
+    if(is_rev) {
+        i = k_0; k = k_1;
+    } else {
+        i = k_1; k = k_0;
+    }
+    uint32_t li, lk, pk, bi = i; int64_t l;
+    for (li = i, l = 0; i != (uint32_t)-1 && i >= k; i = a[i].pidx) {
+        li = i; if(a[i].pidx != (uint32_t)-1 && i > k) l += a[i].pdis;
+    }
+
+    if(is_rev) l = cal_forward_dis(ug->g, a, li, bi);
+    if(li == k) {///direct path
+        (*is_g_connect) = 1;    
+        return l;
+    }
+    i = li;
+    assert(i > k); pk = k;
+    for (lk = k; k != (uint32_t)-1 && k <= i; k = a[k].aidx) lk = k;
+    if(!is_rev) {
+        for (k = lk; k != (uint32_t)-1 && k != pk; k = a[k].pidx) l += a[k].pdis;
+    } else {
+        l += cal_forward_dis(ug->g, a, pk, lk);
+    }
+    if(l < 0) l = 0;
+    k = lk;
+    assert(i > k);
+    return l + normlize_gdis(ug, &(a[i]), &(a[k]), is_rev);
+}
+
+uint64_t cal_integer_most_dis(uint64_t *a, uint64_t a_n, double cluster_rate)
+{
+    if(a_n <= 0) return (uint64_t)-1;
+    // fprintf(stderr, "\n[M::%s::] a_n::%lu\n", __func__, a_n);
+    uint64_t k, l, i, m, r_an = a_n, max_m, max_i, cc, cd, nd; int64_t z;
+    for (k = 1, l = m = max_m = 0, max_i = (uint64_t)-1; k <= a_n; k++) {
+        a[k-1] <<= 1; a[k-1] >>= 1;
+        // fprintf(stderr, "[k->%lu] d::%lu, rev::%lu\n", k-1, a[k-1]>>1, a[k-1]&1);
+        if(k == a_n || (a[k]>>1) != (a[l]>>1)) {
+            for (i = l; i < k; i++) {
+                if(!(a[i]&1)) break;
+            }
+            a[m] = a[l]; a[m] >>= 1; a[m] <<= 1; 
+            ///if all integer sequence are mapped reversely 
+            if(i >= k) a[m] += 1;
+            a[m] |= ((uint64_t)(k-l))<<32;
+            if((k-l) > max_m) {
+                max_m = k - l; max_i = m;
+            } else if((k-l) == max_m && i < k) {///i < k means this distance is supported by forward sequences
+                max_m = k - l; max_i = m;
+            }
+            l = k; m++;
+        }
+    }
+    a_n = m; assert(a_n > 0);
+    // fprintf(stderr, "[M::%s::] m::%lu\n", __func__, m);
+    if(max_m > 0 && max_m > (r_an>>1)) {
+        // fprintf(stderr, "[M::%s::] dis::%u\n", __func__, ((uint32_t)a[max_i])>>1);
+        return ((uint32_t)a[max_i])>>1;
+    }
+
+    for (k = 0, max_m = 0, max_i = (uint64_t)-1; k < a_n; k++) {
+        cd = (((uint32_t)a[k])>>1); z = k;
+        // fprintf(stderr, "[mk->%lu] cd::%lu\n", k, cd);
+        for (cc = cd, z--; z >= 0; z--) {
+            nd = (((uint32_t)a[z])>>1); assert(nd < cd);
+            if(((cd-nd) > (nd*cluster_rate)) && ((cd-nd) > 512)) break;
+            cc += (a[z]>>32);
+        }
+        for (i = k+1; i < a_n; i++) {
+            nd = (((uint32_t)a[i])>>1); assert(nd > cd);
+            if(((nd-cd) > (nd*cluster_rate)) && ((nd-cd) > 512)) break;
+            cc += (a[i]>>32);
+        }
+
+        if(cc > max_m) {
+            max_m = cc; max_i = k;
+        } else if(cc == max_m && (!(a[k]&1))) {///means this distance is supported by forward sequences
+            max_m = cc; max_i = k;
+        }
+    }
+
+    k = max_i;
+    cd = (((uint32_t)a[k])>>1); z = k;
+    for (max_m = cd, max_i = k, z--; z >= 0; z--) {
+        nd = (((uint32_t)a[z])>>1); assert(nd < cd);
+        if(((cd-nd) > (nd*cluster_rate)) && ((cd-nd) > 512)) break;
+        cc = (a[z]>>32);
+        if(cc > max_m) {
+            max_m = cc; max_i = z;
+        } else if(cc == max_m && (!(a[z]&1))) {///means this distance is supported by forward sequences
+            max_m = cc; max_i = z;
+        }
+    }
+    for (i = k+1; i < a_n; i++) {
+        nd = (((uint32_t)a[i])>>1); assert(nd > cd);
+        if(((nd-cd) > (nd*cluster_rate)) && ((nd-cd) > 512)) break;
+        cc = (a[i]>>32);
+        if(cc > max_m) {
+            max_m = cc; max_i = i;
+        } else if(cc == max_m && (!(a[i]&1))) {///means this distance is supported by forward sequences
+            max_m = cc; max_i = i;
+        }
+    }
+
+    // fprintf(stderr, "[M::%s::] dis::%u\n", __func__, ((uint32_t)a[max_i])>>1);
+    return ((uint32_t)a[max_i])>>1;
+}
+
+void update_raw_integer_seq(poa_g_t *pg, ma_ug_t *ug, uint32_t *cns_seq, uint32_t cns_occ, all_ul_t *ul_idx, ul_str_t *str, uint32_t qid, integer_t *buf, ul_chain_t *idx_a, uint64_t idx_n)
+{
+    if(cns_occ <= 0) return;
+    radix_sort_emap_t_srt(pg->e_idx.a, pg->e_idx.a + pg->e_idx.n); 
+    kv_resize(uint64_t, buf->u, cns_occ); buf->u.n = cns_occ - 1; memset(buf->u.a, 0, sizeof(*(buf->u.a)*buf->u.n));
+    uint64_t *arc_idx = buf->u.a, arc_idx_n = buf->u.n, x; uint64_t k, l, i, n = pg->e_idx.n, fe = cns_occ - 1;
+    for (k = 1, l = 0; k <= n && fe > 0; k++) {
+        if(k == n || pg->e_idx.a[k].pge != pg->e_idx.a[l].pge) {
+            if(k > l) {
+                for (i = 0; i < arc_idx_n; i++) {
+                    x = (cns_seq[i]>>1); x <<= 32; x += (cns_seq[i+1]>>1);
+                    if(x == pg->e_idx.a[l].pge) {
+                        arc_idx[i] = l; arc_idx[i] <<= 32; arc_idx[i] += k; fe--;
+                        break;
+                    }
+                }
+            }
+            l = k;
+        }
+    }
+    assert(fe == 0);
+    // for (k = 0; k < pg->e_idx.n; k++) {
+    //     assert((pg->seq.a[pg->e_idx.a[k].pge>>32].nid>>1) == 
+    //                             (((uint32_t)str[pg->e_idx.a[k].ulid].a[pg->e_idx.a[k].ule>>32])>>1));
+    //     assert((pg->seq.a[(uint32_t)pg->e_idx.a[k].pge].nid>>1) == 
+    //                             (((uint32_t)str[pg->e_idx.a[k].ulid].a[(uint32_t)pg->e_idx.a[k].ule])>>1));
+    //     assert(((pg->seq.a[pg->e_idx.a[k].pge>>32].nid&1)^(((uint32_t)str[pg->e_idx.a[k].ulid].a[pg->e_idx.a[k].ule>>32])&1)) ==
+    //         ((pg->seq.a[(uint32_t)pg->e_idx.a[k].pge].nid&1)^(((uint32_t)str[pg->e_idx.a[k].ulid].a[(uint32_t)pg->e_idx.a[k].ule])&1)));
+    // }
+
+    uint32_t e_s, e_e, is_rev, is_g_connect, con_occ; emap_t *g_arc; uint64_t t, dd;
+    if(cns_occ > 0) {
+        t = qid; t <<= 32; t |= ((uint64_t)(0xffffffff));
+        kv_push(uint64_t, buf->res_dump, t);
+
+        t = pg->seq.a[cns_seq[0]>>1].nid; t |= ((uint64_t)(0xffffffff00000000));
+        kv_push(uint64_t, buf->res_dump, t);
+    }
+    for (k = 0; k < arc_idx_n; k++) {
+        // csn_v = pg->seq.a[cns_seq[k]>>1].nid; cns_w = pg->seq.a[cns_seq[k+1]>>1].nid;
+        e_s = arc_idx[k]>>32; e_e = (uint32_t)arc_idx[k]; assert(e_e > e_s); 
+        buf->o.n = 0; kv_resize(uint64_t, buf->o, e_e - e_s); con_occ = 0;
+        for (i = e_s; i < e_e; i++) {
+            g_arc = &(pg->e_idx.a[i]);
+            assert((g_arc->pge>>32) == (cns_seq[k]>>1) && ((uint32_t)g_arc->pge) == (cns_seq[k+1]>>1));
+            is_rev = ((g_arc->ule>>32) > ((uint32_t)g_arc->ule)?1:0);
+            assert((pg->seq.a[g_arc->pge>>32].nid^(is_rev?1:0)) == ((uint32_t)str[g_arc->ulid].a[g_arc->ule>>32]));
+            assert((pg->seq.a[(uint32_t)g_arc->pge].nid^(is_rev?1:0)) == ((uint32_t)str[g_arc->ulid].a[(uint32_t)g_arc->ule]));
+            dd = cal_integer_match_dis(ug, ul_idx->a[g_arc->ulid].bb.a, str[g_arc->ulid].a[g_arc->ule>>32]>>32, 
+                                                                    str[g_arc->ulid].a[(uint32_t)g_arc->ule]>>32, is_rev, &is_g_connect);
+
+            dd <<= 1; if(is_rev) dd += 1; 
+            if(is_g_connect) {
+                con_occ++; buf->o.a[buf->o.n] = dd;
+            } else {
+                buf->o.a[buf->o.n] = dd; buf->o.a[buf->o.n] |= ((uint64_t)(0x8000000000000000));
+            } 
+            buf->o.n++;
+        }
+
+        radix_sort_srt64(buf->o.a, buf->o.a + buf->o.n);
+        if(con_occ > 0) buf->o.n = con_occ;
+        dd = cal_integer_most_dis(buf->o.a, buf->o.n, 0.08);
+
+
+        t = pg->seq.a[cns_seq[k+1]>>1].nid; t |= ((uint64_t)(dd<<32)); 
+        if(con_occ > 0) t |= ((uint64_t)(0x8000000000000000));
+        kv_push(uint64_t, buf->res_dump, t);
+    }
+}
+
 void integer_candidate(ul_resolve_t *uidx, integer_t *buf, uint32_t qid, uint32_t is_hom)
 {
     // if(qid != 281) return;
@@ -4385,6 +4647,8 @@ void integer_candidate(ul_resolve_t *uidx, integer_t *buf, uint32_t qid, uint32_
     // integer_phase(str_idx->str.a, buf, buf->sc.a, buf->sc.n, buf->b.a, qid);
 
     // radix_sort_ul_chain_t_srt(buf->sc.a, buf->sc.a + buf->sc.n);
+    o = NULL; o_n = 0;
+    update_raw_integer_seq(&(buf->pg), ug, buf->pg.srt_b.res.a, buf->pg.srt_b.res.n, uidx->idx, str_idx->str.a, qid, buf, buf->sc.a, buf->sc.n);
 }
 
 
