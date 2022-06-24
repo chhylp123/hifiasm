@@ -7853,9 +7853,14 @@ kv_ul_ov_t *raw_idx, kv_ul_ov_t *raw_chn)
 		l += (uint32_t)u->a[i];
 		if(p.e <= rs) continue; 
 		if(p.s >= re) break;
-		// fprintf(stderr, "[M::%s::]rs->%lu, re->%lu, p.s->%u, p.e->%u\n", __func__, rs, re, p.s, p.e); 
+		
 		assert(extract_rovlp_by_ug(&p, uo, res, tOff));
 		res->a[res->n-1].score = uo->v; res->a[res->n-1].cnt = i;
+		// fprintf(stderr, "[M::%s::]u_rs->%lu, u_re->%lu, p.s->%u, p.e->%u\n", __func__, rs, re, p.s, p.e); 
+
+		// int64_t read_rs, read_re, read_qs, read_qe;
+		// get_r_offset(ug, &(res->a[res->n-1]), &read_rs, &read_re, &read_qs, &read_qe);
+		// fprintf(stderr, "\t\t\t(k->%u) r_rs->%ld, r_re->%ld, r_qs->%ld, r_qe->%ld\n", (uint32_t)res->n-1, read_rs, read_re, read_qs, read_qe); 
 		///for res->a[res->n-1]
 		///ts and te are the coordinates in unitig (res->a[res->n-1].score>>1), instead of HiFi read (res->a[res->n-1].v>>1)
 		///qs and qe are the coordinates in UL, 
@@ -7872,12 +7877,12 @@ kv_ul_ov_t *raw_idx, kv_ul_ov_t *raw_chn)
 }
 
 
-void update_rovlp_chain_qse(ma_ug_t *ug, int64_t sidx, int64_t eidx, mg_lchain_t *a, int64_t a_n)
+void update_rovlp_chain_qse(ul_vec_t *rch, ma_ug_t *ug, int64_t sidx, int64_t eidx, mg_lchain_t *a, int64_t a_n)
 {
 	if(eidx - sidx <= 1) return;
 	assert(sidx>=0||eidx<a_n);
 	// fprintf(stderr, "******[M::%s::] sidx:%ld, eidx:%ld\n", __func__, sidx, eidx);
-	int64_t left_r[2], right_r[2], left_q[2], right_q[2]; 
+	int64_t left_r[2], right_r[2], left_q[2], right_q[2], rlen = rch->rlen; 
 	int64_t i, rs, re;//qs or qe might be -1, while rs and re should >= 0
 	if(sidx >= 0) {
 		get_r_offset(ug, &(a[sidx]), &left_r[0], &left_r[1], &left_q[0], &left_q[1]);
@@ -7913,15 +7918,26 @@ void update_rovlp_chain_qse(ma_ug_t *ug, int64_t sidx, int64_t eidx, mg_lchain_t
 
 		for (i = sidx+1; i < eidx; i++) {
 			get_r_offset(ug, &(a[i]), &rs, &re, NULL, NULL);
-			// a[i].qs = left_q[0] + get_offset_adjust((rs - left_r[0]), rlen[0], qlen[0]);
-			///a[i].qs>=left_q[0] && a[i].qs<left_q[0]
-			// a[i].qs = left_q[0] + get_offset_adjust(rs - left_r[0], left_r[1]-left_r[0], left_q[1]-left_q[0]);
-			a[i].qs = left_q[0] + get_offset_adjust(rs - left_r[0], right_r[0]-left_r[0], right_q[0]-left_q[0]);
-			// a[i].qe = left_q[1] + get_offset_adjust((re - left_r[1]), rlen[1], qlen[1]);
-			a[i].qe = left_q[1] + get_offset_adjust((re - left_r[1]), right_r[1] - left_r[1], right_q[1] - left_q[1]);
-			
+			///left_r[0] -> prs; left_r[1] -> pre; right_r[0] -> ars; right_r[1] -> are
+			///note: rs might be smaller than eft_r[0] or larger than right_r[0], when the alignment cannot cover a whole read
+			assert(re >= left_r[1] && re <= right_r[1] && rs <= re); 
+			///the first priority is to make qe done
+			a[i].qe = left_q[1] + get_offset_adjust(re-left_r[1], right_r[1]-left_r[1], right_q[1]-left_q[1]);
+			if(a[i].qe < 0) a[i].qe = 0; if(a[i].qe > rlen) a[i].qe = rlen; 
+			if(rs >= left_r[0]) {
+				a[i].qs = left_q[0] + get_offset_adjust(rs-left_r[0], re-left_r[0], a[i].qe-left_q[0]);
+			} else {///it is possible that rs < left_r[0] when the alignment cannot cover a whole HiFi read
+				a[i].qs = left_q[0] - get_offset_adjust(left_r[0]-rs, re-left_r[0], a[i].qe-left_q[0]);
+			}
+			if(a[i].qs < 0) a[i].qs = 0; if(a[i].qs > rlen) a[i].qs = rlen; 
+			// if(right_q[0] < a[i].qe) {
+			// 	a[i].qs = left_q[0] + get_offset_adjust(rs-left_r[0], right_r[0]-left_r[0], right_q[0]-left_q[0]);
+			// } else {
+			// 	a[i].qs = left_q[0] + get_offset_adjust(rs-left_r[0], re-left_r[0], a[i].qe-left_q[0]);
+			// }
+			assert(a[i].qe >= left_q[1] && a[i].qe <= right_q[1] && a[i].qs <= a[i].qe); 
+			// a[i].qs = left_q[0] + get_offset_adjust(rs-left_r[0], right_r[0]-left_r[0], right_q[0]-left_q[0]);
 			// fprintf(stderr, ">>>i:%ld<<< a[i].qs:%u, a[i].qe:%u, rs:%ld, re:%ld\n", i, a[i].qs, a[i].qe, rs, re);
-
 			left_q[0] = a[i].qs; left_q[1] = a[i].qe;
 			left_r[0] = rs; left_r[1] = re;
 		}
@@ -7930,10 +7946,18 @@ void update_rovlp_chain_qse(ma_ug_t *ug, int64_t sidx, int64_t eidx, mg_lchain_t
 	if(right_q[0] < 0 || right_q[1] < 0) {
 		for (i = sidx+1; i < eidx; i++) {
 			get_r_offset(ug, &(a[i]), &rs, &re, NULL, NULL);
-			///a[i].qs>=left_q[0] && a[i].qs<left_q[0]
-			a[i].qs = left_q[0] + get_offset_adjust(rs - left_r[0], left_r[1]-left_r[0], left_q[1]-left_q[0]);
-			///a[i].qe>=left_q[1]
+			assert(re >= left_r[1] && rs <= re); 
+			///the first priority is to make qe done
 			a[i].qe = left_q[1] + (re - left_r[1]);
+			if(a[i].qe < 0) a[i].qe = 0; if(a[i].qe > rlen) a[i].qe = rlen; 
+			if(rs >= left_r[0]) {
+				a[i].qs = left_q[0] + get_offset_adjust(rs-left_r[0], re-left_r[0], a[i].qe-left_q[0]);
+			} else {///it is possible that rs < left_r[0] when the alignment cannot cover a whole HiFi read
+				a[i].qs = left_q[0] - get_offset_adjust(left_r[0]-rs, re-left_r[0], a[i].qe-left_q[0]);
+			}
+			if(a[i].qs < 0) a[i].qs = 0; if(a[i].qs > rlen) a[i].qs = rlen; 
+			// a[i].qs = left_q[0] + get_offset_adjust(rs - left_r[0], left_r[1]-left_r[0], left_q[1]-left_q[0]);
+			assert(a[i].qe >= left_q[1] && a[i].qs <= a[i].qe);
 			left_q[0] = a[i].qs; left_q[1] = a[i].qe;
 			left_r[0] = rs; left_r[1] = re;
 		}
@@ -7942,8 +7966,18 @@ void update_rovlp_chain_qse(ma_ug_t *ug, int64_t sidx, int64_t eidx, mg_lchain_t
 	if(left_q[0] < 0 || left_q[1] < 0) {
 		for (i = eidx-1; i > sidx; i--) {
 			get_r_offset(ug, &(a[i]), &rs, &re, NULL, NULL);
-			a[i].qe = right_q[1] - get_offset_adjust(right_r[1]-re, right_r[1]-right_r[0], right_q[1]-right_q[0]);
-			a[i].qs = right_q[0] - (right_r[0]-rs);
+			assert(re <= right_r[1] && rs <= re); 
+			if(re >= right_r[0]) {
+				a[i].qe = right_q[1] - get_offset_adjust(right_r[1]-re, right_r[1]-right_r[0], right_q[1]-right_q[0]);
+			} else {
+				a[i].qe = right_q[0] - (right_r[0]-re);
+			}
+			if(a[i].qe < 0) a[i].qe = 0; if(a[i].qe > rlen) a[i].qe = rlen; 
+			
+			a[i].qs = a[i].qe - (re-rs);
+			if(a[i].qs < 0) a[i].qs = 0; if(a[i].qs > rlen) a[i].qs = rlen; 
+
+			assert(a[i].qe <= right_q[1] && a[i].qs <= a[i].qe);
 			right_q[0] = a[i].qs; right_q[1] = a[i].qe;
 			right_r[0] = rs; right_r[1] = re;
 		}
@@ -7962,9 +7996,10 @@ void gen_rovlp_chain_by_ul(ul_vec_t *rch, const ul_idx_t *uref, kv_ul_ov_t *raw_
 {
 	if(a_n == 0) return;
 	int64_t k, l, res_n0 = res->n, tt = 0; ma_ug_t *ug = uref->ug;
-	// fprintf(stderr, "\n[M::%s::a_n->%ld]\n", __func__, a_n);
+	// fprintf(stderr, "***[M::%s::a_n->%ld]\n", __func__, a_n);
 	///a[0, a_n) is a gchain of untigs
 	for (k = 0, l = ug->g->seq[a[0].v>>1].len; k < a_n; k++) {
+		// fprintf(stderr, ">k->%ld, ls->%ld, le->%ld, rev->%c\n", k, l - ug->g->seq[a[k].v>>1].len, l, "+-"[a[k].v&1]);
 		l -= ug->g->seq[a[k].v>>1].len;
 		gl_ug2rg_gen(rch, ug, &(a[k]), res, l, raw_idx, raw_chn);
 		l += ug->g->seq[a[k].v>>1].len + a[k].dist_pre;
@@ -7977,7 +8012,7 @@ void gen_rovlp_chain_by_ul(ul_vec_t *rch, const ul_idx_t *uref, kv_ul_ov_t *raw_
 			if(x[k].qs >= 0) tt++;
 		}
 		if(k == x_n || x[k].qs >=0) { ///x[k] and x[l] are anchors
-			if(k-l>1) update_rovlp_chain_qse(ug, l, k, x, x_n);
+			if(k-l>1) update_rovlp_chain_qse(rch, ug, l, k, x, x_n);
 			l = k;
 		}
 	}
@@ -8245,6 +8280,9 @@ void print_debug_gchain(const ul_idx_t *uref, mg_lchain_t *a, int64_t a_n, ul_ve
 void update_ul_vec_t(const ul_idx_t *uref, kv_ul_ov_t *raw_idx, kv_ul_ov_t *raw_chn, ul_vec_t *rch, 
 vec_mg_lchain_t *uc, vec_mg_lchain_t *swap, int64_t ulid)
 {
+	// fprintf(stderr, "\n++[M::%s::%.*s(id:%ld), len:%u]\n", __func__, 
+	// UL_INF.nid.a[ulid].n, UL_INF.nid.a[ulid].a, ulid, rch->rlen);
+
 	int64_t k, ucn = uc->n; mg_lchain_t *ix; 
 	for (k = 0, swap->n = 0; k < ucn; k += ix->cnt + 1) {
 		ix = &(uc->a[k]); assert(ix->v == (uint32_t)-1);
