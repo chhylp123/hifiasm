@@ -4750,8 +4750,9 @@ int64_t adjust_utg_chain_qoffset(uint64_t *r_srt, int64_t *r_pos, int64_t *q_pos
 	}
 	assert(k < 3);
 
-	rdis = r_pos[(uint32_t)r_srt[k+1]] - r_pos[(uint32_t)r_srt[k]]; 
 	qdis = q_pos[(uint32_t)r_srt[k+1]] - q_pos[(uint32_t)r_srt[k]]; 
+	rdis = r_pos[(uint32_t)r_srt[k+1]] - r_pos[(uint32_t)r_srt[k]]; 
+	if(qdis < 0) return -1;
 	return q_pos[(uint32_t)r_srt[k]] + get_offset_adjust(r_off-r_pos[(uint32_t)r_srt[k]], rdis, qdis);
 }
 
@@ -4763,7 +4764,8 @@ void update_uovlp_chain_qse(ma_ug_t *ug, int64_t sidx, int64_t eidx, mg_lchain_t
 	assert(sidx>=0 && eidx<a_n);
 	
 	int64_t r_pos[4], q_pos[4];  uint64_t r_srt[4];
-	int64_t i, rs, re;//qs or qe might be -1, while rs and re should >= 0
+	int64_t i, rs, re, prs, pre, ars, are;//qs or qe might be -1, while rs and re should >= 0
+	int64_t pqs, pqe, aqs, aqe, fail_s, fail_e;
 	if(sidx >= 0) {
 		get_u_offset(ug, &(a[sidx]), &r_pos[0], &r_pos[1], &q_pos[0], &q_pos[1]);
 	} else {
@@ -4775,6 +4777,11 @@ void update_uovlp_chain_qse(ma_ug_t *ug, int64_t sidx, int64_t eidx, mg_lchain_t
 	} else {
 		get_u_offset(ug, &(a[a_n-1]), &r_pos[2], &r_pos[3], &q_pos[2], &q_pos[3]);
 	}
+	prs = r_pos[0]; pre = r_pos[1]; ars = r_pos[2]; are = r_pos[3]; 
+	pqs = q_pos[0]; pqe = q_pos[1]; aqs = q_pos[2]; aqe = q_pos[3];
+	// fprintf(stderr, "\n[M::%s::] sidx->%ld<r[0]::%ld, r[1]::%ld, q[0]::%ld, q[1]::%ld>, eidx->%ld<r[2]::%ld, r[3]::%ld, q[2]::%ld, q[3]::%ld>\n", __func__, 
+	// sidx, r_pos[0], r_pos[1], q_pos[0], q_pos[1], 
+	// eidx, r_pos[2], r_pos[3], q_pos[2], q_pos[3]);
 	// assert((left_q[0] >= 0 && left_q[1] >= 0) || (right_q[0] >= 0 && right_q[1] >= 0)); ///assert(re >= rs);
 	///for ug chains, sidx >= 0 && eidx < a_n
 	assert(q_pos[0] >= 0 && q_pos[1] >= 0 && q_pos[2] >= 0 && q_pos[3] >= 0);
@@ -4789,10 +4796,26 @@ void update_uovlp_chain_qse(ma_ug_t *ug, int64_t sidx, int64_t eidx, mg_lchain_t
 	// assert(r_pos[(uint32_t)r_srt[3]] == (r_srt[3]>>32));
 
 	for (i = sidx+1; i < eidx; i++) {
-
 		get_u_offset(ug, &(a[i]), &rs, &re, NULL, NULL);
-		a[i].qs = adjust_utg_chain_qoffset(r_srt, r_pos, q_pos, rs);
-		a[i].qe = adjust_utg_chain_qoffset(r_srt, r_pos, q_pos, re);
+		assert(rs >= prs && rs <= ars && re >= pre && re <= are); assert(rs <= re);
+		a[i].qs = adjust_utg_chain_qoffset(r_srt, r_pos, q_pos, rs); fail_s = 1;
+		a[i].qe = adjust_utg_chain_qoffset(r_srt, r_pos, q_pos, re); fail_e = 1;
+		if(a[i].qs >= 0 && a[i].qs >= pqs && a[i].qs <= aqs) fail_s = 0;
+		if(a[i].qe >= 0 && a[i].qe >= pqe && a[i].qe <= aqe) fail_e = 0;
+		if(a[i].qs > a[i].qe) fail_s = fail_e = 1;
+
+		if(fail_s || fail_e) {
+			 a[i].qe = pqe + get_offset_adjust(re-pre, are-pre, aqe-pqe);///first priority
+			 if(aqs < a[i].qe) {
+				a[i].qs = pqs + get_offset_adjust(rs-prs, ars-prs, aqs-pqs);
+			 } else {
+				a[i].qs = pqs + get_offset_adjust(rs-prs, re-prs, a[i].qe-pqs);
+			 }
+		}
+
+		assert(a[i].qs >= pqs && a[i].qs <= aqs && a[i].qe >= pqe && a[i].qe <= aqe); assert(a[i].qs <= a[i].qe);
+		// fprintf(stderr, "[M::%s::i->%ld] rs::%ld, re::%ld, a[i].qs::%d, a[i].qe::%d\n", 
+		// 						__func__, i, rs, re, a[i].qs, a[i].qe);
 		
 		if(i + 1 < eidx) {
 			q_pos[0] = a[i].qs; q_pos[1] = a[i].qe; r_pos[0] = rs; r_pos[1] = re;
@@ -4805,7 +4828,11 @@ void update_uovlp_chain_qse(ma_ug_t *ug, int64_t sidx, int64_t eidx, mg_lchain_t
 			// assert(r_pos[(uint32_t)r_srt[1]] == (r_srt[1]>>32));
 			// assert(r_pos[(uint32_t)r_srt[2]] == (r_srt[2]>>32));
 			// assert(r_pos[(uint32_t)r_srt[3]] == (r_srt[3]>>32));
+			// fprintf(stderr, "[Srt::i->%ld] <r[0]::%ld, r[1]::%ld, q[0]::%ld, q[1]::%ld>, <r[2]::%ld, r[3]::%ld, q[2]::%ld, q[3]::%ld>\n", i, 
+			// 	r_pos[0], r_pos[1], q_pos[0], q_pos[1], 
+			// 	r_pos[2], r_pos[3], q_pos[2], q_pos[3]);
 		}
+		prs = rs; pre = re; pqs = a[i].qs; pqe = a[i].qe;
 	}
 	
 
@@ -4862,20 +4889,18 @@ void debug_update_uovlp_chain_qse(ma_ug_t *ug, mg_lchain_t *a, int64_t a_n, int6
 
 void fill_unaligned_alignments(ma_ug_t *ug, mg_lchain_t *a, int64_t a_n, int64_t offset, int64_t ulid)
 {
-	// fprintf(stderr, "a_n->%ld, offset->%ld\n", a_n, offset);
+	// fprintf(stderr, "\n[M::%s::] a_n->%ld, offset->%ld\n", __func__, a_n, offset);
 	if(a_n == 0) return;
 	int64_t k, l;
 	for (k = 0, l = ug->g->seq[a[0].v>>1].len; k < a_n; k++) {
 		l -= ug->g->seq[a[k].v>>1].len;
-		// fprintf(stderr, "k->%ld, l->%ld [M::utg%.6u%c::%c]\n", k, l, 
-		// (a[k].v>>1)+1, "lc"[ug->u.a[a[k].v>>1].circ], "+-"[a[k].v&1]);
-
 		if(a[k].off < 0) a[k].qs = a[k].qe = -1; 
 		a[k].off = l; a[k].hash_pre = (uint32_t)-1;
 		if(k > 0) a[k].hash_pre = offset + k - 1;
-
+		// fprintf(stderr, "k->%ld, l->%ld, [M::utg%.6u%c::%c::len->%u], qs->%u, qe->%u, rs->%u, re->%u\n", k, l, 
+		// (a[k].v>>1)+1, "lc"[ug->u.a[a[k].v>>1].circ], "+-"[a[k].v&1], ug->u.a[a[k].v>>1].len,
+		//  a[k].qs, a[k].qe, a[k].rs, a[k].re);
 		l += ug->g->seq[a[k].v>>1].len + a[k].dist_pre;
-		
 	}
 
 	// debug_update_uovlp_chain_qse(ug, a, a_n, ulid);
@@ -5231,12 +5256,16 @@ static void worker_for_ul_rescall_alignment(void *data, long i, int tid) // call
     int64_t /**rid = s->id+i,**/ winLen = MIN((((double)THRESHOLD_MAX_SIZE)/s->opt->diff_ec_ul), WINDOW);
     // uint64_t align = 0;
     int fully_cov, abnormal;
-	if(UL_INF.a[s->id+i].rlen != s->len[i]) {
-		fprintf(stderr, "[M::%s] rid:%ld, s->len:%lu, UL_INF->rlen:%u\n", __func__, s->id+i, s->len[i], UL_INF.a[s->id+i].rlen);
-	}
+	// if(UL_INF.a[s->id+i].rlen != s->len[i]) {
+	// 	fprintf(stderr, "[M::%s] rid:%ld, s->len:%lu, UL_INF->rlen:%u\n", __func__, s->id+i, s->len[i], UL_INF.a[s->id+i].rlen);
+	// }
 	assert(UL_INF.a[s->id+i].rlen == s->len[i]);
     // void *km = s->buf?(s->buf[tid]?s->buf[tid]->km:NULL):NULL;
-    // if(s->id+i!=3373) return;
+    // if(s->id+i!=41927 && s->id+i!=47072 && s->id+i!=67641 && s->id+i!=90305 && s->id+i!=698342 && s->id+i!=329421) {
+	// 	return;
+	// }
+	// if(s->id+i!=41927) return;
+
     // fprintf(stderr, "\n[M::%s] rid:%ld, len:%lu\n", __func__, s->id+i, s->len[i]);
     // if (memcmp(UL_INF.nid.a[s->id+i].a, "d0aab024-b3a7-40fb-83cc-22c3d6d951f8", UL_INF.nid.a[s->id+i].n-1)) return;
     // fprintf(stderr, "[M::%s::] ==> len: %lu\n", __func__, s->len[i]);
@@ -5302,6 +5331,7 @@ static void worker_for_ul_rescall_alignment(void *data, long i, int tid) // call
     // if(l1 == 0 && l2 > 0) fprintf(stderr, "[M::%s::%lu::no_match]\n", UL_INF.nid.a[s->id+i].a, s->len[i]);
     // fprintf(stderr, "[M::%s::%lu::] l1->%u; l2->%u\n", UL_INF.nid.a[s->id+i].a, s->len[i], l1, l2);
     // fprintf(stderr, "[M::%s::rid->%ld] done\n", __func__, s->id+i);
+	exit(1);
 }
 
 void dump_gaf(mg_gres_a *hits, const mg_gchains_t *gs, uint32_t only_p)
@@ -5683,6 +5713,7 @@ static void *worker_ul_rescall_pipeline(void *data, int step, void *in) // callb
 			if(UL_INF.a[rid].dd == 0 && p->ucr_s && p->ucr_s->flag == 1) {
 				assert(s->seq[i]);
 				// if(s->seq[i] == NULL) fprintf(stderr, "[M::%s::]rid->%ld, len->%lu\n", __func__, rid, s->len[i]);
+				///for debug interval
 				write_compress_base_disk(p->ucr_s->fp, rid, s->seq[i], s->len[i], &(p->ucr_s->u));
 			}
 			// if(UL_INF.a[rid].dd) fprintf(stderr, "rid->%ld\n", rid);
@@ -8553,6 +8584,11 @@ static void update_ug_arch_ul(void *data, long i, int tid) // callback for kt_fo
 	}
 }
 
+void update_ug_arch_ul_mul(ma_ug_t *ug)
+{
+	kt_for(asm_opt.thread_num, update_ug_arch_ul, ug, ug->g->n_arc);
+}
+
 static void filter_short_ulalignments(void *data, long i, int tid) // callback for kt_for()
 {
 	const ma_ug_t *ug = (ma_ug_t *)data;
@@ -8563,10 +8599,13 @@ static void filter_short_ulalignments(void *data, long i, int tid) // callback f
 	// }
 	for (k = a_n - 1; k >= 0; k--) {
 		p = &(a[k]);
-		// if(i == 4) {
-		// 	fprintf(stderr, "[M::%s::k->%ld] p->ts::%u, p->te::%u, p->pchain::%u, p->pidx::%u, p->aidx::%u\n", 
-		// 													__func__, k, p->ts, p->te, p->pchain, p->pidx, p->aidx);
+		// if(i == 27512) {
+		// 	fprintf(stderr, "+[M::%s::k->%ld::a_n->%ld] p->ts::%u, p->te::%u, p->pchain::%u, p->pidx::%u, p->aidx::%u, p->qs::%u, p->qe::%u\n", 
+		// 													__func__, k, a_n, p->ts, p->te, p->pchain, p->pidx, p->aidx, p->qs, p->qe);
 		// }
+		if(p->qs > p->qe) {
+			fprintf(stderr, "[M::%s] id->%ld, qs->%u, qe->%u\n", __func__, i, p->qs, p->qe);
+		}
 		if(p->base || (!p->el) || (!p->pchain)) continue;
 		if(p->pidx == (uint32_t)-1) {
 			if(!ugl_cover_check(p->ts, p->te, &(ug->u.a[p->hid]))) {
@@ -8598,6 +8637,10 @@ static void filter_short_ulalignments(void *data, long i, int tid) // callback f
 
 	for (k = a_n - 1; k >= 0; k--) {
 		p = &(a[k]);
+		// if(i == 27512) {
+		// 	fprintf(stderr, "-[M::%s::k->%ld::a_n->%ld] p->ts::%u, p->te::%u, p->pchain::%u, p->pidx::%u, p->aidx::%u, p->qs::%u, p->qe::%u\n", 
+		// 													__func__, k, a_n, p->ts, p->te, p->pchain, p->pidx, p->aidx, p->qs, p->qe);
+		// }
 		if(p->base || (!p->el) || (!p->pchain)) continue;
 		if(p->pidx != (uint32_t)-1) {
 			assert(a[p->pidx].aidx == (uint32_t)k);
@@ -8608,6 +8651,21 @@ static void filter_short_ulalignments(void *data, long i, int tid) // callback f
 			assert(a[p->aidx].pchain);
 		}
 	}
+}
+
+
+void print_ul_alignment(ma_ug_t *ug, all_ul_t *aln, uint32_t id, const char* cmd)
+{
+	uc_block_t *a = NULL; int64_t k, a_n;
+	a = aln->a[id].bb.a; a_n = aln->a[id].bb.n;
+	fprintf(stderr, "\n%s::[M::%s::ul_id->%u::a_n->%ld]\n", cmd, __func__, id, a_n);
+	for (k = 0; k < a_n; k++) {
+		fprintf(stderr, "[k->%ld::utg%.6d%c(len->%u)]\tts::%u\tte::%u\t%c\tqs::%u\tqe::%u\tpchain::%u\tpidx::%u\taidx::%u\tpdis::%u\n", 
+			k, a[k].hid + 1, "lc"[ug->u.a[a[k].hid].circ], ug->u.a[a[k].hid].len, 
+			a[k].ts, a[k].te, "+-"[a[k].rev], a[k].qs, a[k].qe, a[k].pchain, a[k].pidx, a[k].aidx, a[k].pdis);
+		
+	}
+	
 }
 
 
@@ -10250,13 +10308,20 @@ ma_ug_t *ul_realignment(const ug_opt_t *uopt, asg_t *sg)
 	// debug_sl_compress_base_disk_0(&sl, asm_opt.ar);
 	// detect_outlier_len("ul_realignment");
 	clear_all_ul_t(&UL_INF);
+	///for debug interval
 	if(!load_all_ul_t(&UL_INF, gfa_name, &R_INF, ug)) {
 		gen_UL_reovlps(&sl, ug, sg, gfa_name, cutoff);
 		write_all_ul_t(&UL_INF, gfa_name, ug);
 	}
+
+	print_ul_alignment(ug, &UL_INF, 41927, "init-0");
 	filter_ul_ug(ug);
+	print_ul_alignment(ug, &UL_INF, 41927, "init-1");
 	gen_ul_vec_rid_t(&UL_INF, NULL, ug);
-	kt_for(asm_opt.thread_num, update_ug_arch_ul, ug, ug->g->n_arc);
+	print_ul_alignment(ug, &UL_INF, 41927, "init-2");
+	update_ug_arch_ul_mul(ug);
+	print_ul_alignment(ug, &UL_INF, 41927, "init-3");
+	// kt_for(asm_opt.thread_num, update_ug_arch_ul, ug, ug->g->n_arc);
 	// print_all_ul_t_stat(&UL_INF);
 	// kt_for(sl.n_thread, update_ovlp_src, &sl, R_INF.total_reads);
 	// kt_for(sl.n_thread, update_ovlp_src_bl, &sl, R_INF.total_reads);
