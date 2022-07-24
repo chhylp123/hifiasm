@@ -259,6 +259,7 @@ typedef struct {
 	// kv_ul_ov_t *ov;
 } ul_idx_t;
 
+#define MA_HT_DOUBLE     (-1024)
 #define MA_HT_INT        (-1)
 #define MA_HT_QCONT      (-2)
 #define MA_HT_TCONT      (-3)
@@ -1079,7 +1080,7 @@ int asg_arc_del_triangular_directly(asg_t *g, long long min_edge_length,
 ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex);
 int asg_arc_del_short_diploid_by_exact(asg_t *g, int max_ext, ma_hit_t_alloc* sources);
 uint32_t print_debug_gfa(asg_t *read_g, ma_ug_t *ug, ma_sub_t* coverage_cut, const char* output_file_name, 
-ma_hit_t_alloc* sources, R_to_U* ruIndex, int max_hang, int min_ovlp);
+ma_hit_t_alloc* sources, R_to_U* ruIndex, int max_hang, int min_ovlp, int is_polish, int is_update_ou, int is_check_alter_lable);
 void debug_info_of_specfic_node(const char* name, asg_t *g, R_to_U* ruIndex, const char* command);
 ma_ug_t *gen_polished_ug(const ug_opt_t *uopt, asg_t *sg);
 void output_unitig_graph(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name, 
@@ -1087,6 +1088,7 @@ ma_hit_t_alloc* sources, R_to_U* ruIndex, int max_hang, int min_ovlp);
 void flat_soma_v(asg_t *sg, ma_hit_t_alloc* sources, R_to_U* ruIndex);
 void hic_clean(asg_t* read_g);
 int64_t count_edges_v_w(asg_t *g, uint32_t v, uint32_t w);
+void renew_utg(ma_ug_t **ug, asg_t* read_g, kvec_asg_arc_t_warp* edge);
 
 #define JUNK_COV 5
 #define DISCARD_RATE 0.8

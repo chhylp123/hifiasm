@@ -8913,18 +8913,9 @@ static void filter_short_ulalignments(void *data, long i, int tid) // callback f
 	const ma_ug_t *ug = (ma_ug_t *)data;
 	uc_block_t *a = NULL; uc_block_t *p; int64_t k, a_n; uint32_t z, fz, lz, l, bz;
 	a = UL_INF.a[i].bb.a; a_n = UL_INF.a[i].bb.n;
-	// if(i == 4) {
-	// 	fprintf(stderr, "[M::%s::i->%ld] a_n->%ld\n", __func__, i, a_n);
-	// }
+
 	for (k = a_n - 1; k >= 0; k--) {
 		p = &(a[k]);
-		// if(i == 27512) {
-		// 	fprintf(stderr, "+[M::%s::k->%ld::a_n->%ld] p->ts::%u, p->te::%u, p->pchain::%u, p->pidx::%u, p->aidx::%u, p->qs::%u, p->qe::%u\n", 
-		// 													__func__, k, a_n, p->ts, p->te, p->pchain, p->pidx, p->aidx, p->qs, p->qe);
-		// }
-		// if(p->qs > p->qe) {
-		// 	fprintf(stderr, "[M::%s] id->%ld, qs->%u, qe->%u\n", __func__, i, p->qs, p->qe);
-		// }
 		if(p->base || (!p->el) || (!p->pchain)) continue;
 		if(p->pidx == (uint32_t)-1) {
 			if(!ugl_cover_check(p->ts, p->te, &(ug->u.a[p->hid]))) {
@@ -8956,10 +8947,6 @@ static void filter_short_ulalignments(void *data, long i, int tid) // callback f
 
 	for (k = a_n - 1; k >= 0; k--) {
 		p = &(a[k]);
-		// if(i == 27512) {
-		// 	fprintf(stderr, "-[M::%s::k->%ld::a_n->%ld] p->ts::%u, p->te::%u, p->pchain::%u, p->pidx::%u, p->aidx::%u, p->qs::%u, p->qe::%u\n", 
-		// 													__func__, k, a_n, p->ts, p->te, p->pchain, p->pidx, p->aidx, p->qs, p->qe);
-		// }
 		if(p->base || (!p->el) || (!p->pchain)) continue;
 		if(p->pidx != (uint32_t)-1) {
 			assert(a[p->pidx].aidx == (uint32_t)k);

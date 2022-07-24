@@ -11180,7 +11180,6 @@ void debug_contig_end(ma_ug_t *ug, asg_t* read_g, kvec_asg_arc_t_warp* edge)
     }
 }
 
-void renew_utg(ma_ug_t **ug, asg_t* read_g, kvec_asg_arc_t_warp* edge);
 void push_sub_unitig(ma_ug_t *n_ug, ma_utg_t *src_u, asg_t *read_g, kvec_asg_arc_t_warp* edge, 
 uint32_t beg_idx, uint32_t occ)
 {
@@ -14819,14 +14818,14 @@ const char* command)
 
 
 uint32_t print_debug_gfa(asg_t *read_g, ma_ug_t *ug, ma_sub_t* coverage_cut, const char* output_file_name, 
-ma_hit_t_alloc* sources, R_to_U* ruIndex, int max_hang, int min_ovlp)
+ma_hit_t_alloc* sources, R_to_U* ruIndex, int max_hang, int min_ovlp, int is_polish, int is_update_ou, int is_check_alter_lable)
 {
     kvec_asg_arc_t_warp new_rtg_edges;
     kv_init(new_rtg_edges.a);
 
     if(ug == NULL) {
         ug = ma_ug_gen(read_g);
-    } else {
+    } else if(is_check_alter_lable) {
         uint32_t i;
         for (i = 0; i < ug->u.n; ++i) 
         {
@@ -14844,8 +14843,8 @@ ma_hit_t_alloc* sources, R_to_U* ruIndex, int max_hang, int min_ovlp)
         }
     }
 
-    update_ug_ou(ug, read_g);
-    ma_ug_seq(ug, read_g, coverage_cut, sources, &new_rtg_edges, max_hang, min_ovlp, 0, 0);
+    if(is_update_ou) update_ug_ou(ug, read_g);
+    if(is_polish) ma_ug_seq(ug, read_g, coverage_cut, sources, &new_rtg_edges, max_hang, min_ovlp, 0, 0);
 
     fprintf(stderr, "Writing raw unitig GFA to disk... \n");
     char* gfa_name = (char*)malloc(strlen(output_file_name)+25);
@@ -16627,7 +16626,7 @@ int min_ovlp, hap_cov_t *cov)
     
     resolve_tangles(ug, read_g, reverse_sources, 20, 100, 0.05, 0.2, ruIndex, cov->is_r_het, (uint32_t)-1, drop_ratio); 
     drop_semi_circle(ug, g, read_g, reverse_sources, ruIndex, cov->is_r_het); 
-    print_debug_gfa(read_g, ug, coverage_cut, "debug_clean_end", sources, ruIndex, asm_opt.max_hang_Len, asm_opt.min_overlap_Len);
+    // print_debug_gfa(read_g, ug, coverage_cut, "debug_clean_end", sources, ruIndex, asm_opt.max_hang_Len, asm_opt.min_overlap_Len);
     unitig_arc_del_short_diploid_by_length_topo(g, ug, drop_ratio, asm_opt.max_short_tip, reverse_sources, 0, 1);    
     
     if(round > 0)
@@ -31549,8 +31548,11 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
         gen_ug_opt_t(&uopt, sources, reverse_sources, max_hang_length, mini_overlap_length, gap_fuzz, min_dp, readLen, coverage_cut, ruIndex, 
                 (asm_opt.max_short_tip*2), 0.15, 3, 0.05, 0.9, &b_mask_t);
     }
-    if(asm_opt.ar) ul_realignment_gfa(&uopt, sg);
-    print_debug_gfa(sg, NULL, coverage_cut, "UL.debug", sources, ruIndex, max_hang_length, mini_overlap_length);
+    if(asm_opt.ar) {
+        ul_realignment_gfa(&uopt, sg, clean_round, min_ovlp_drop_ratio, max_ovlp_drop_ratio, 
+                                                                    asm_opt.max_short_tip, &b_mask_t, ha_opt_triobin(&asm_opt));
+    }
+    print_debug_gfa(sg, NULL, coverage_cut, "UL.debug", sources, ruIndex, max_hang_length, mini_overlap_length, 0, 0, 0);
     /**
     asg_cut_tip(sg, asm_opt.max_short_tip);
     ///debug_info_of_specfic_node("m64043_200505_112554/8849050/ccs", sg, "inner_1");
