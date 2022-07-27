@@ -6959,7 +6959,7 @@ static inline void ulg_seq_del(ma_ug_t *ug, uint32_t s)
 }
 
 
-uint32_t ulg_arc_cut_tips(ul_resolve_t *uidx, ma_ug_t *ug, uint32_t max_ext, uint32_t max_ext_hifi, asg64_v *in, asg64_v *ib)
+uint32_t ulg_arc_cut_tips(ul_resolve_t *uidx, ma_ug_t *ug, uint32_t max_ext, uint32_t max_ext_hifi, uint32_t is_double_check, asg64_v *in, asg64_v *ib)
 {
     asg64_v tx = {0,0,0}, tb = {0,0,0}, *b = NULL, *ub = NULL; asg_t *g = ug->g;
     uint32_t n_vtx = g->n_seq<<1, v, w, i, k, cnt = 0, nv, kv, pb, w_occ, a_occ, ul_occ, del_occ;
@@ -7016,8 +7016,8 @@ uint32_t ulg_arc_cut_tips(ul_resolve_t *uidx, ma_ug_t *ug, uint32_t max_ext, uin
         if(kv <= max_ext && get_remove_hifi_occ(uidx, max_ext_hifi, b->a + pb, b->n - pb, ub, &del_occ)) {
             // fprintf(stderr, "*[M::%s::] k::%u, v>>1::%u, v&1::%u, kv::%u, max_ext::%u, max_ext_hifi::%u\n\n", 
             // __func__, k, v>>1, v&1, kv, max_ext, max_ext_hifi);
-            get_bridges(uidx, b->a + pb, b->n - pb, &w_occ, &a_occ);
-            if(w_occ > 0 || a_occ > 0 || kv == 0 || del_occ == 0) {
+            if(is_double_check) get_bridges(uidx, b->a + pb, b->n - pb, &w_occ, &a_occ);
+            if(is_double_check == 0 || w_occ > 0 || a_occ > 0 || kv == 0 || del_occ == 0) {
                 for (i = pb; i < b->n; i++) ulg_seq_del(ug, (b->a[i]>>1));
                 cnt += b->n - pb;
             }
@@ -8339,55 +8339,124 @@ uint32_t ul_occ_check(ul_resolve_t *uidx, ma_ug_t *ug, uint32_t qocc_ul, uint32_
     return 0;
 }
 
+uint32_t idx_check_rate(uint64_t *a, uint64_t a_n, uint64_t tot, uint64_t winlen, float match_rate)
+{
+    if(a_n == 0) return 0;
+    if(tot < winlen) winlen = tot;
+    uint64_t k, mm = a[0]>>32, ks, s, e; int64_t p;
+    s = 0; e = winlen;
+    for (k = ks = 0; k < a_n; k++) {
+        assert(a[k] != (uint64_t)-1);
+        // if(mm != (a[k]>>32)) {
+        //     fprintf(stderr, "***[M::%s::] mm::%lu, (a[%lu]>>32)::%lu\n", 
+        //     __func__, mm, k, (a[k]>>32));
+        // }
+        assert(mm == (a[k]>>32));
+        if(((uint32_t)a[k]) >= s && ((uint32_t)a[k]) < e) continue;
+        break;
+    }
+    p = k;
+    if(p > 0 && p >= (int64_t)(winlen*match_rate)) return 1;
+
+    for (; k < a_n; k++) {
+        assert(a[k] != (uint64_t)-1);
+        assert(mm == (a[k]>>32));
+        e = ((uint32_t)a[k]) + 1; p++;
+        for (; ks < k; ks++) {
+            if(e - ((uint32_t)a[ks]) <= winlen) break;
+            p--;
+        }
+        assert(p >= 0);
+        if(p > 0 && p >= (int64_t)(winlen*match_rate)) return 1;
+    }
+    return 0;
+}
+
 uint32_t ul_homo_path_check(ul_resolve_t *uidx, ma_ug_t *ug, uint32_t v, uint32_t w, uint32_t raw_ug_occ, float match_rate, asg64_v *b, asg64_v *rb)
 {
+    // if(((v>>1) == 8158 && (w>>1) == 22318) || ((v>>1) == 16783 && (w>>1) == 28464)) {
+    //     fprintf(stderr, "\n++++++[M::%s::] v>>1::%u, v&1::%u, w>>1::%u, w&1::%u\n", 
+    //     __func__, v>>1, v&1, w>>1, w&1);
+    // }
+    
     bubble_type *bub = uidx->bub; 
     uint64_t k, l, z, bn = b->n, vn = 0, wn = 0, *va, *wa, rbn = rb->n, *rva, *rwa, rvn, rwn, rid, x;
     get_ul_path_info(uidx, ug, v, NULL, NULL, NULL, NULL, NULL, b); vn = b->n - bn;
     get_ul_path_info(uidx, ug, w, NULL, NULL, NULL, NULL, NULL, b); wn = b->n - bn - vn;
     va = b->a + bn; wa = b->a + bn + vn;
+    // if(((v>>1) == 8158 && (w>>1) == 22318) || ((v>>1) == 16783 && (w>>1) == 28464)) {
+    //     fprintf(stderr, "[M::%s::] vn::%lu, wn::%lu\n", __func__, vn, wn);
+    // }
 
     gen_ug_integer_seq_on_fly(uidx, va, vn, rb); rvn = rb->n - rbn;
     gen_ug_integer_seq_on_fly(uidx, wa, wn, rb); rwn = rb->n - rbn - rvn;
     rva = rb->a + rbn; rwa = rb->a + rbn + rvn;
-    if(rvn > raw_ug_occ) rvn = raw_ug_occ; 
-    if(rwn > raw_ug_occ) rwn = raw_ug_occ;
+    // if(((v>>1) == 8158 && (w>>1) == 22318) || ((v>>1) == 16783 && (w>>1) == 28464)) {
+    //     fprintf(stderr, "[M::%s::] rvn::%lu, rwn::%lu, raw_ug_occ::%u\n", __func__, rvn, rwn, raw_ug_occ);
+    // }
 
     b->n = bn;
     for (k = 0; k < rvn; k++) {
         rid = rva[k]>>1;
         if(IF_BUB(rid, *bub)) {
-            x = bub->index[rid]; x |= ((uint64_t)(0x80000000)); x <<= 32;
+            x = bub->index[rid]; 
+            x |= ((uint64_t)(0x80000000)); x <<= 32; ///bubble id
         } else {
-            x = rid; x <<= 32;
+            x = rid; ///node id
+            x <<= 32;
         }
-        kv_push(uint64_t, *b, x);
+        x |= (k<<1); kv_push(uint64_t, *b, x);
     }
 
     for (k = 0; k < rwn; k++) {
         rid = rwa[k]>>1;
         if(IF_BUB(rid, *bub)) {
-            x = bub->index[rid]; x |= ((uint64_t)(0x80000000)); x <<= 32;
+            x = bub->index[rid]; 
+            x |= ((uint64_t)(0x80000000)); x <<= 32; ///bubble id
         } else {
-            x = rid; x <<= 32;
+            x = rid; ///node id
+            x <<= 32;
         }
-        x |= 1; kv_push(uint64_t, *b, x);
+        x |= 1; x |= (k<<1); kv_push(uint64_t, *b, x);
     }
     radix_sort_srt64(b->a + bn, b->a + b->n);
 
-    uint64_t o[2];
+    uint64_t o[2], c[2];
     for (l = bn, k = bn + 1, o[0] = o[1] = 0; k <= b->n; k++) {
         if (k == b->n || (b->a[k]>>32) != (b->a[l]>>32)) {
-            if((k - l > 1) && (((uint32_t)b->a[l]) != ((uint32_t)b->a[k-1]))) {
-                for (z = l; z < k; z++) o[(uint32_t)b->a[z]]++;
+            if((k - l > 1)) {
+                for (z = l, c[0] = c[1] = 0; z < k; z++) {
+                    c[b->a[z]&1]++;
+                    if(c[0] > 0 && c[1] > 0) break;
+                }
+                if(c[0] > 0 && c[1] > 0) {
+                    for (z = l; z < k; z++) {
+                        o[b->a[z]&1]++;
+
+                        x = b->a[z]; 
+                        x <<= 32; x >>= 32; x >>= 1; 
+                        if(b->a[z]&1) x|= ((uint64_t)(0x100000000));
+                        b->a[z] = x;
+                    }
+                } else {
+                    for (z = l; z < k; z++) b->a[z] = (uint64_t)-1;
+                }
+            } else {
+                for (z = l; z < k; z++) b->a[z] = (uint64_t)-1;
             }
             l = k;
         }
     }
+    // fprintf(stderr, "\n[M::%s::] rvn::%lu, rwn::%lu, bn::%lu, b->n::%lu, o[0]::%lu, o[1]::%lu\n", __func__, 
+    // rvn, rwn, bn, (uint64_t)b->n, o[0], o[1]);
+    radix_sort_srt64(b->a + bn, b->a + b->n); b->n = bn + o[0] + o[1]; 
     b->n = bn; rb->n = rbn;
 
-    if(o[0] >= (rvn*match_rate)) return 1;
-    if(o[1] >= (rwn*match_rate)) return 1;
+    if(idx_check_rate(b->a + bn, o[0], rvn, raw_ug_occ, match_rate)) return 1;
+    if(idx_check_rate(b->a + bn + o[0], o[1], rwn, raw_ug_occ, match_rate)) return 1;
+
+    // if(o[0] >= (rvn*match_rate)) return 1;
+    // if(o[1] >= (rwn*match_rate)) return 1;
 
     return 0;
 }
@@ -8413,6 +8482,10 @@ uint32_t skip_hom, uint32_t *max_drop_len, asg64_v *in, asg64_v *ib)
         for (i = 0; i < nv; ++i) {
             if(av[i].del) continue; 
             kw = get_arcs(ug->g, av[i].v^1, NULL, 0);
+            // if((v>>1) == 16783) {
+            //     fprintf(stderr, "sss[M::%s::] v>>1::%u, v&1::%u, av[i].v>>1::%u, av[i].v&1::%u, kw::%u\n", 
+            //     __func__, v>>1, v&1, av[i].v>>1, av[i].v&1, kw);
+            // }
             if(kw == 2) {
                 kv_push(uint64_t, *b, ((uint64_t)(av-g->arc+i)));
             } else if(kw == 1) {
@@ -8453,6 +8526,10 @@ uint32_t skip_hom, uint32_t *max_drop_len, asg64_v *in, asg64_v *ib)
         }
         if(kv <= 1 && kw <= 1) continue;
         if(kv != 2 || kw > 2) continue;
+        // if((v>>1) == 16783) {
+        //     fprintf(stderr, "bbb[M::%s::] v>>1::%u, v&1::%u, w>>1::%u, w&1::%u, kv::%u, kw::%u\n", 
+        //     __func__, v>>1, v&1, w>>1, w&1, kv, kw);
+        // }
         raw_ul = 0; wt = w; wte = we; kwt = kw; pb = b->n; ub->n = 0;
         if(kw == 1) {
             if(get_ul_path_info(uidx, ug, w^1, &wt, NULL, NULL, NULL, NULL, b)==TWO_INPUT) {
@@ -8468,16 +8545,27 @@ uint32_t skip_hom, uint32_t *max_drop_len, asg64_v *in, asg64_v *ib)
                     else wp[1] = aw[i].v;
                     kwt++;
                 }
+                // if((v>>1) == 16783) {
+                //     fprintf(stderr, "bbb[M::%s::] v>>1::%u, v&1::%u, w>>1::%u, w&1::%u, wt>>1::%u, wt&1::%u, kwt::%u\n", 
+                //     __func__, v>>1, v&1, w>>1, w&1, wt>>1, wt&1, kwt);
+                // }
                 nw = asg_arc_n(g, w); aw = asg_arc_a(g, w); 
             } else {
                 b->n = pb;
                 continue;
             }
         }
-
+        // if((v>>1) == 16783) {
+        //     fprintf(stderr, "bbb[M::%s::] v>>1::%u, v&1::%u, raw_ul::%lu, max_ext::%u, ***1***\n", 
+        //     __func__, v>>1, v&1, raw_ul, max_ext);
+        // }
         assert(kv == 2 && kwt == 2);
         if(raw_ul <= max_ext && get_remove_hifi_occ(uidx, max_ext_hifi, b->a + pb, b->n - pb, ub, NULL)) {
             raw_hifi = get_ug_integer_seq_occ(uidx, b->a + pb, b->n - pb, ub);
+            // if((v>>1) == 16783) {
+            //     fprintf(stderr, "bbb[M::%s::] v>>1::%u, v&1::%u, ***2***\n", 
+            //     __func__, v>>1, v&1);
+            // }
 
             b->n = pb;
             if(raw_ul > 0) {
@@ -8487,19 +8575,43 @@ uint32_t skip_hom, uint32_t *max_drop_len, asg64_v *in, asg64_v *ib)
                 if(!ul_occ_check(uidx, ug, raw_ul, raw_hifi, wp[1], small_occ_rate, b, ub)) continue;
             }
             
-            
+            // if((v>>1) == 16783) {
+            //     fprintf(stderr, "bbb[M::%s::] v>>1::%u, v&1::%u, ***3***\n", 
+            //     __func__, v>>1, v&1);
+            // }
             pb = b->n; ub->n = 0;
             get_ul_arc_supports(uidx, ve, b, ub, skip_hom, &w_q, &w_t);
             b->n = pb; ub->n = 0;
             if((w_q == (uint64_t)-1) || (w_q > w_t*len_rat)) continue;
+
+            // if((v>>1) == 16783) {
+            //     fprintf(stderr, "bbb[M::%s::] v>>1::%u, v&1::%u, ***4***\n", 
+            //     __func__, v>>1, v&1);
+            // }
 
             pb = b->n; ub->n = 0;
             get_ul_arc_supports(uidx, wte, b, ub, skip_hom, &w_q, &w_t);
             b->n = pb; ub->n = 0;
             if((w_q == (uint64_t)-1) || (w_q > w_t*len_rat)) continue;
 
+            // if((v>>1) == 16783) {
+            //     fprintf(stderr, "bbb[M::%s::] v>>1::%u, v&1::%u, ***5***\n", 
+            //     __func__, v>>1, v&1);
+            // }
+
             if(!ul_homo_path_check(uidx, ug, vp[0], wp[1], raw_ug_occ, raw_match_rate, b, ub)) continue;
+
+
+            // if((v>>1) == 16783) {
+            //     fprintf(stderr, "bbb[M::%s::] v>>1::%u, v&1::%u, ***6***\n", 
+            //     __func__, v>>1, v&1);
+            // }
             if(!ul_homo_path_check(uidx, ug, wp[0], vp[1], raw_ug_occ, raw_match_rate, b, ub)) continue;
+
+            // if((v>>1) == 16783) {
+            //     fprintf(stderr, "bbb[M::%s::] v>>1::%u, v&1::%u, ***7***\n", 
+            //     __func__, v>>1, v&1);
+            // }
 
             if(kw == 1) {
                 get_ul_path_info(uidx, ug, w^1, &wt, NULL, NULL, NULL, NULL, b);
@@ -8515,51 +8627,54 @@ uint32_t skip_hom, uint32_t *max_drop_len, asg64_v *in, asg64_v *ib)
 
     if(!in) free(tx.a); if(!ib) free(tb.a);
     if (cnt > 0) asg_cleanup(g);
+    fprintf(stderr, "[M::%s::] cnt::%u\n", __func__, cnt);
     return cnt;
 }
 
 void u2g_clean(ul_resolve_t *uidx, ulg_opt_t *ulopt)
 {
     ul2ul_idx_t *idx = &(uidx->uovl); asg64_v bu = {0,0,0}, uu = {0,0,0};
-    ma_ug_t *iug = idx->i_ug; int64_t i, mm_tip = ulopt->max_tip; uint64_t cnt = 1, topo_level;
+    ma_ug_t *iug = idx->i_ug; int64_t i, mm_tip = ulopt->max_tip; uint64_t cnt = 1, topo_level, ss = 0;
     double step = (ulopt->clean_round==1?ulopt->max_ovlp_drop_ratio:
                         ((ulopt->max_ovlp_drop_ratio-ulopt->min_ovlp_drop_ratio)/(ulopt->clean_round-1)));
     double drop = ulopt->min_ovlp_drop_ratio; CALLOC(iug->g->seq_vis, iug->g->n_seq*2);
 
-    // ulg_arc_cut_tips(uidx, iug, ulopt->max_tip, ulopt->max_tip_hifi, &bu, &uu);
 
-    for (i = 0, drop = ulopt->min_ovlp_drop_ratio; i < ulopt->clean_round; i++, drop += step) {
-        fprintf(stderr, "\n[M::%s::] Starting round-%ld, drop::%f\n", __func__, i, drop);
-        cnt = 1; topo_level = 2; mm_tip = ulopt->max_tip;
-        while (cnt) {
-            cnt = 0;
-            asg_arc_identify_simple_bubbles_multi(iug->g, ulopt->b_mask_t, 0);
-            cnt += ulg_arc_cut_supports(uidx, iug, mm_tip, ulopt->max_tip_hifi, drop, ulopt->is_trio, topo_level, 1, NULL, &bu, &uu);
-            cnt += ulg_arc_cut_tips(uidx, iug, mm_tip, ulopt->max_tip_hifi, &bu, &uu);
-        }
-        
-        cnt = 1; topo_level = 1; mm_tip = ulopt->max_tip;
-        while (cnt) {
-            cnt = 0;
-            asg_arc_identify_simple_bubbles_multi(iug->g, ulopt->b_mask_t, 0);
-            cnt += ulg_arc_cut_supports(uidx, iug, mm_tip, ulopt->max_tip_hifi, drop, ulopt->is_trio, topo_level, 1, NULL, &bu, &uu);
-            cnt += ulg_arc_cut_tips(uidx, iug, mm_tip, ulopt->max_tip_hifi, &bu, &uu);
+    for (ss = 0; ss < 2; ss++) {
+        for (i = 0, drop = ulopt->min_ovlp_drop_ratio; i < ulopt->clean_round; i++, drop += step) {
+            fprintf(stderr, "\n[M::%s::] Starting round-%ld, drop::%f\n", __func__, i, drop);
+            cnt = 1; topo_level = 2; mm_tip = ulopt->max_tip;
+            while (cnt) {
+                cnt = 0;
+                asg_arc_identify_simple_bubbles_multi(iug->g, ulopt->b_mask_t, 0);
+                cnt += ulg_arc_cut_supports(uidx, iug, mm_tip, ulopt->max_tip_hifi, drop, ulopt->is_trio, topo_level, 1, NULL, &bu, &uu);
+                cnt += ulg_arc_cut_tips(uidx, iug, mm_tip, ulopt->max_tip_hifi, 1, &bu, &uu);
+            }
+            
+            cnt = 1; topo_level = 1; mm_tip = ulopt->max_tip;
+            while (cnt) {
+                cnt = 0;
+                asg_arc_identify_simple_bubbles_multi(iug->g, ulopt->b_mask_t, 0);
+                cnt += ulg_arc_cut_supports(uidx, iug, mm_tip, ulopt->max_tip_hifi, drop, ulopt->is_trio, topo_level, 1, NULL, &bu, &uu);
+                cnt += ulg_arc_cut_tips(uidx, iug, mm_tip, ulopt->max_tip_hifi, 1, &bu, &uu);
+            }
+
+            cnt = 1; topo_level = 1; mm_tip = ((int64_t)0x7fffffff);
+            while (cnt) {
+                cnt = 0;
+                asg_arc_identify_simple_bubbles_multi(iug->g, ulopt->b_mask_t, 0);
+                cnt += ulg_arc_cut_supports(uidx, iug, mm_tip, ulopt->max_tip_hifi, drop, ulopt->is_trio, topo_level, 1, NULL, &bu, &uu);
+                cnt += ulg_arc_cut_tips(uidx, iug, mm_tip, ulopt->max_tip_hifi, 0, &bu, &uu);
+            }
+            fprintf(stderr, "[M::%s::] Done round-%ld, drop::%f\n", __func__, i, drop);
         }
 
-        cnt = 1; topo_level = 1; mm_tip = ((int64_t)0x7fffffff);
-        while (cnt) {
-            cnt = 0;
-            asg_arc_identify_simple_bubbles_multi(iug->g, ulopt->b_mask_t, 0);
-            cnt += ulg_arc_cut_supports(uidx, iug, mm_tip, ulopt->max_tip_hifi, drop, ulopt->is_trio, topo_level, 1, NULL, &bu, &uu);
-            cnt += ulg_arc_cut_tips(uidx, iug, mm_tip, ulopt->max_tip_hifi, &bu, &uu);
-        }
-        fprintf(stderr, "[M::%s::] Done round-%ld, drop::%f\n", __func__, i, drop);
+        ulg_pop_bubble(uidx, iug, NULL, ((int64_t)0x7fffffff), ulopt->max_tip_hifi, 1, &bu, &uu);
+
+        while(ulg_arc_cut_z(uidx, iug, ((int64_t)0x7fffffff), ulopt->max_tip_hifi, 1.5, 0.15, 100, 0.8, ulopt->is_trio, 1, NULL, &bu, &uu));
+
+        ulopt->max_tip_hifi <<= 1;
     }
-
-    ulg_pop_bubble(uidx, iug, NULL, ((int64_t)0x7fffffff), ulopt->max_tip_hifi, 1, &bu, &uu);
-
-    while(ulg_arc_cut_z(uidx, iug, ((int64_t)0x7fffffff), ulopt->max_tip_hifi, 1.5, 0.15, 100, 0.8, ulopt->is_trio, 1, NULL, &bu, &uu));
-
     // fill_u2g(uidx);
 
     // while (cnt) {
@@ -9059,7 +9174,7 @@ ul2ul_idx_t *gen_ul2ul(ul_resolve_t *uidx, ug_opt_t *uopt, ulg_opt_t *ulopt)
     
     // output_integer_graph(uidx, z->i_ug, asm_opt.output_file_name);
     u2g_clean(uidx, ulopt);
-    // renew_ul2_utg(uidx);
+    renew_ul2_utg(uidx);
 
     output_integer_graph(uidx, z->i_ug, asm_opt.output_file_name);
     return z;
