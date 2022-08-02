@@ -14818,7 +14818,7 @@ const char* command)
 
 
 uint32_t print_debug_gfa(asg_t *read_g, ma_ug_t *ug, ma_sub_t* coverage_cut, const char* output_file_name, 
-ma_hit_t_alloc* sources, R_to_U* ruIndex, int max_hang, int min_ovlp, int is_polish, int is_update_ou, int is_check_alter_lable)
+ma_hit_t_alloc* sources, R_to_U* ruIndex, int max_hang, int min_ovlp, int is_update_ou, int is_check_alter_lable, int is_seq)
 {
     kvec_asg_arc_t_warp new_rtg_edges;
     kv_init(new_rtg_edges.a);
@@ -14844,13 +14844,24 @@ ma_hit_t_alloc* sources, R_to_U* ruIndex, int max_hang, int min_ovlp, int is_pol
     }
 
     if(is_update_ou) update_ug_ou(ug, read_g);
-    if(is_polish) ma_ug_seq(ug, read_g, coverage_cut, sources, &new_rtg_edges, max_hang, min_ovlp, 0, 0);
+    if(is_seq) {
+        ma_ug_seq(ug, read_g, coverage_cut, sources, &new_rtg_edges, max_hang, min_ovlp, 0, 0);
+    }
+    // if(is_polish) ma_ug_seq(ug, read_g, coverage_cut, sources, &new_rtg_edges, max_hang, min_ovlp, 0, 0);
 
     fprintf(stderr, "Writing raw unitig GFA to disk... \n");
-    char* gfa_name = (char*)malloc(strlen(output_file_name)+25);
-    sprintf(gfa_name, "%s.r_utg.noseq.gfa", output_file_name);
-    FILE* output_file = fopen(gfa_name, "w");
-    ma_ug_print_simple(ug, read_g, coverage_cut, sources, ruIndex, "utg", output_file);
+    char* gfa_name = (char*)malloc(strlen(output_file_name)+50);
+    FILE* output_file = NULL;
+    
+    if(is_seq) {
+        sprintf(gfa_name, "%s.r_utg.gfa", output_file_name);
+        output_file = fopen(gfa_name, "w");
+        ma_ug_print(ug, read_g, coverage_cut, sources, ruIndex, "utg", output_file);
+    } else {
+        sprintf(gfa_name, "%s.r_utg.noseq.gfa", output_file_name);
+        output_file = fopen(gfa_name, "w");
+        ma_ug_print_simple(ug, read_g, coverage_cut, sources, ruIndex, "utg", output_file);
+    }
     fclose(output_file);
 
     free(gfa_name);
@@ -31552,7 +31563,7 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
         ul_realignment_gfa(&uopt, sg, clean_round, min_ovlp_drop_ratio, max_ovlp_drop_ratio, 
                                                                     asm_opt.max_short_tip, &b_mask_t, ha_opt_triobin(&asm_opt));
     }
-    print_debug_gfa(sg, NULL, coverage_cut, "UL.debug", sources, ruIndex, max_hang_length, mini_overlap_length, 0, 0, 0);
+    // print_debug_gfa(sg, NULL, coverage_cut, "UL.debug", sources, ruIndex, max_hang_length, mini_overlap_length, 0, 0, 0);
     /**
     asg_cut_tip(sg, asm_opt.max_short_tip);
     ///debug_info_of_specfic_node("m64043_200505_112554/8849050/ccs", sg, "inner_1");
