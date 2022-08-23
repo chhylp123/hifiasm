@@ -3801,12 +3801,15 @@ uint64_t mode, All_reads *ridx, ma_ug_t *ug, int64_t debug_i, void *km)
 		// if(!mode) {
 		// 	fprintf(stderr, "[M::utg%.6d%c] qs->%u; qe->%u\n", li->tn+1, "lc"[uref->ug->u.a[li->tn].circ], li->qs, li->qe);
 		// }
+		// fprintf(stderr, "[M::utg%.6d%c] qs->%u; qe->%u; sc->%ld; pre->%ld; el->%u;\n", 
+		// li->tn+1, "lc"[uref->ug->u.a[li->tn].circ], li->qs, li->qe, pop_sc(track[i]), pop_pre(track[i]), li->el);
 	}
 	
 	int64_t n_v, n_u, n_v0, le, lnv; 
 	radix_sort_gfa64(srt, srt+res->n); 
 	for (k = (int64_t)res->n-1, n_v = n_u = 0; k >= 0; --k) {
 		n_v0 = n_v; i = (uint32_t)srt[k];
+		// fprintf(stderr, "+[M::utg%.6d%c] n_v0->%ld;\n", res->a[i].tn+1, "lc"[uref->ug->u.a[res->a[i].tn].circ], n_v0);
 		if(res->a[i].el) { ///chain must start from cis alignments
 			for (le = -1; i >= 0 && (track[i]&((uint64_t)0x80000000)) == 0;) {
 				if(res->a[i].el) {
@@ -3819,6 +3822,7 @@ uint64_t mode, All_reads *ridx, ma_ug_t *ug, int64_t debug_i, void *km)
 				i = pop_pre(track[i]);
 			}
 		}
+		// fprintf(stderr, "-[M::] n_v->%ld;\n", n_v);
 		if(n_v0 == n_v) continue;
 		if(le >= 0) {
 			i = le; n_v = lnv;
@@ -4548,6 +4552,7 @@ void l2g_chain(const ul_idx_t *uref, kv_ul_ov_t *lidx, vec_mg_lchain_t *res)
 
 int64_t l2g_res_chain(ma_ug_t *ug, ul_ov_t *a, uint64_t a_n, vec_mg_lchain_t *gchains, double diff_rate)
 {
+	// fprintf(stderr, "[M::%s::] a_n::%lu\n", __func__, a_n);
 	if(a_n <= 0) return 0;
 	uint64_t k, m; int64_t l, rs, re, qs, qe, dq, dr, dif, mm; a_n++; asg_t *g = ug->g;
 	gchains->n = 0; kv_resize(mg_lchain_t, *gchains, a_n); gchains->n = a_n;
@@ -4564,6 +4569,7 @@ int64_t l2g_res_chain(ma_ug_t *ug, ul_ov_t *a, uint64_t a_n, vec_mg_lchain_t *gc
 			assert(gchains->a[k-1].dist_pre >= 0);
 			l += g->seq[gchains->a[k-1].v>>1].len + gchains->a[k-1].dist_pre;
 		}
+		// fprintf(stderr, "[M::%s::k->%lu] utg%.6dl(%c)\n", __func__, k, (int32_t)(gchains->a[k].v>>1)+1, "+-"[gchains->a[k].v&1]);
 	}
 
 	if(diff_rate < 0) return 1;
@@ -4972,6 +4978,8 @@ void update_ul_vec_t_ug(const ul_idx_t *uref, ul_vec_t *rch, vec_mg_lchain_t *uc
 			z->qs = a[m].qs; z->qe = a[m].qe;
 			z->te = a[m].re; z->ts = a[m].rs;
 			z->pidx = k + 1 + m; z->pdis = z->aidx = (uint32_t)-1;
+			// fprintf(stderr, "[M::%s::k->%ld] m->%ld, utg%.6dl(%c)\n", 
+			// 				__func__, k, m, (int32_t)z->hid+1, "+-"[z->rev]);
 		}
 	}
 
@@ -5017,6 +5025,9 @@ void update_ul_vec_t_ug(const ul_idx_t *uref, ul_vec_t *rch, vec_mg_lchain_t *uc
 	} else if(l < ((int64_t)rch->rlen)*0.001) {
 		rch->dd = 2;
 	}
+
+	// fprintf(stderr, "[M::%s::] rch->dd::%u, rch->bb.n::%u\n", 
+	// 						__func__, rch->dd, (uint32_t)rch->bb.n);
 }
 
 void print_raw_chains(vec_mg_lchain_t *uc, int64_t ulid)
@@ -5298,9 +5309,10 @@ static void worker_for_ul_rescall_alignment(void *data, long i, int tid) // call
     // if(s->id+i!=41927 && s->id+i!=47072 && s->id+i!=67641 && s->id+i!=90305 && s->id+i!=698342 && s->id+i!=329421) {
 	// 	return;
 	// }
-	// if(s->id+i!=41927) return;
+	// if(s->id+i!=43) return;
 
-    // fprintf(stderr, "\n[M::%s] rid:%ld, len:%lu\n", __func__, s->id+i, s->len[i]);
+    // fprintf(stderr, "\n[M::%s] rid::%ld, len::%lu, name::%.*s\n", __func__, s->id+i, s->len[i],
+	// (int32_t)UL_INF.nid.a[s->id+i].n, UL_INF.nid.a[s->id+i].a);
     // if (memcmp(UL_INF.nid.a[s->id+i].a, "d0aab024-b3a7-40fb-83cc-22c3d6d951f8", UL_INF.nid.a[s->id+i].n-1)) return;
     // fprintf(stderr, "[M::%s::] ==> len: %lu\n", __func__, s->len[i]);
     ha_get_ul_candidates_interface(b->abl, i, s->seq[i], s->len[i], s->opt->w, s->opt->k, s->uu, &b->olist, &b->olist_hp, &b->clist, s->opt->bw_thres, 
@@ -10673,8 +10685,9 @@ ma_ug_t *ul_realignment(const ug_opt_t *uopt, asg_t *sg, uint32_t double_check_c
 	// detect_outlier_len("ul_realignment");
 	clear_all_ul_t(&UL_INF);
 	///for debug interval
-	if(!load_all_ul_t(&UL_INF, gfa_name, &R_INF, ug)) {
+	if(!load_all_ul_t(&UL_INF, gfa_name, &R_INF, ug)/**1**/) {
 		gen_UL_reovlps(&sl, ug, sg, gfa_name, cutoff);
+		// exit(1);
 		write_all_ul_t(&UL_INF, gfa_name, ug);
 	} else if(double_check_cache){
 		if(drenew_UL_reovlps(&sl, ug, sg, gfa_name, cutoff)) {

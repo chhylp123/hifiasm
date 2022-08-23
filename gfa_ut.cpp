@@ -6734,12 +6734,12 @@ void print_raw_uls_seq(ul_resolve_t *uidx, const char *nn)
     ma_ug_t *ug = uidx->init_ug; all_ul_t *aln = uidx->idx;
     uint64_t id; uc_block_t *a = NULL; int64_t k, a_n;
     for (id = 0; id < aln->n; id++) {
-        a = aln->a[id].bb.a; a_n = aln->a[id].bb.n;
+        a = aln->a[id].bb.a; a_n = aln->a[id].bb.n; k = 0;
         if(a_n == 0) continue;
         fprintf(fp,"%.*s\tid::%lu\t", (int32_t)aln->nid.a[id].n, aln->nid.a[id].a, id);
-        for (k = 0; k < a_n && ug_occ_w(a[k].ts, a[k].te, &(ug->u.a[a[k].hid])) == 0; k++);
+        // for (k = 0; k < a_n && ug_occ_w(a[k].ts, a[k].te, &(ug->u.a[a[k].hid])) == 0; k++);
         for (; k < a_n; k++) {
-            if(ug_occ_w(a[k].ts, a[k].te, &(ug->u.a[a[k].hid])) == 0) break;
+            // if(ug_occ_w(a[k].ts, a[k].te, &(ug->u.a[a[k].hid])) == 0) break;
             fprintf(fp, "utg%.6d%c(%c)\t", a[k].hid + 1, "lc"[ug->u.a[a[k].hid].circ], "+-"[a[k].rev]);
         }
         fprintf(fp,"\n");
@@ -11914,7 +11914,7 @@ double max_ovlp_drop_ratio, int64_t max_tip, bub_label_t *b_mask_t, uint32_t is_
     ma_ug_t *init_ug = ul_realignment(uopt, sg, 0);
     // exit(1);
     filter_sg_by_ug(sg, init_ug, uopt);
-    // print_debug_gfa(sg, init_ug, uopt->coverage_cut, "UL.debug", uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 0, 0, 1);
+    // print_debug_gfa(sg, init_ug, uopt->coverage_cut, "UL.debug", uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 0, 0, 0);
     // print_ul_alignment(init_ug, &UL_INF, 47072, "after-0");
     bub = gen_bubble_chain(sg, init_ug, uopt, &r_het);
     // print_ul_alignment(init_ug, &UL_INF, 47072, "after-1");
