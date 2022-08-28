@@ -20,22 +20,6 @@ KSEQ_INIT(gzFile, gzread)
 
 void ha_get_ul_candidates_interface(ha_abufl_t *ab, int64_t rid, char* rs, uint64_t rl, uint64_t mz_w, uint64_t mz_k, const ul_idx_t *uref, overlap_region_alloc *overlap_list, overlap_region_alloc *overlap_list_hp, Candidates_list *cl, double bw_thres, 
 								 int max_n_chain, int keep_whole_chain, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* chain_idx, overlap_region* f_cigar, kvec_t_u64_warp* dbg_ct, st_mt_t *sp, uint32_t high_occ, void *km);
-#define G_CHAIN_BW 16//128
-#define FLANK_M (0x7fffU)
-#define P_CHAIN_COV 0.985
-#define P_FRAGEMENT_CHAIN_COV 0.20
-#define P_FRAGEMENT_PRIMARY_CHAIN_COV 0.70
-#define P_FRAGEMENT_PRIMARY_SECOND_COV 0.25
-#define P_CHAIN_SCORE 0.6
-#define G_CHAIN_GAP 0.1
-#define UG_SKIP 5
-#define RG_SKIP 25
-#define G_CHAIN_TRANS_RATE 0.25
-#define G_CHAIN_TRANS_WEIGHT -1
-#define G_CHAIN_INDEL 128
-#define W_CHN_PEN_GAP 0.1
-#define N_GCHAIN_RATE 0.04
-#define PRIMARY_UL_CHAIN_MIN 75000
 
 #define MG_SEED_IGNORE     (1ULL<<41)
 #define MG_SEED_TANDEM     (1ULL<<42)
@@ -85,13 +69,6 @@ KRADIX_SORT_INIT(hap_ev_cov_srt, haplotype_evdience, hap_ev_cov_key, member_size
 #define uc_block_t_qe_key(x) ((x).qe)
 KRADIX_SORT_INIT(uc_block_t_qe_srt, uc_block_t, uc_block_t_qe_key, member_size(uc_block_t, qe));
 
-struct mg_tbuf_s {
-	void *km;
-	int frag_gap;
-};
-typedef struct mg_tbuf_s mg_tbuf_t;
-
-
 mg_tbuf_t *mg_tbuf_init(void)
 {
 	mg_tbuf_t *b;
@@ -111,15 +88,6 @@ void *mg_tbuf_get_km(mg_tbuf_t *b)
 {
 	return b->km;
 }
-
-typedef struct {
-	int w, k, bw, max_gap, is_HPC, hap_n, occ_weight, max_gap_pre, max_gc_seq_ext, seed;
-	int max_lc_skip, max_lc_iter, min_lc_cnt, min_lc_score, max_gc_skip, ref_bonus;
-	int min_gc_cnt, min_gc_score, sub_diff, best_n;
-    float chn_pen_gap, mask_level, pri_ratio;
-	///base-alignment
-	double bw_thres, diff_ec_ul, diff_ec_ul_low; int max_n_chain, ec_ul_round;
-} mg_idxopt_t;
 
 typedef struct {
 	///off: start idx in mg128_t * a[];
@@ -158,58 +126,6 @@ KRADIX_SORT_INIT(mg_pathv_t_v_srt, mg_pathv_t, mg_pathv_t_v_srt_key, member_size
 #define mg_pathv_t_d_srt_key(x) ((x).d)
 KRADIX_SORT_INIT(mg_pathv_t_d_srt, mg_pathv_t, mg_pathv_t_d_srt_key, member_size(mg_pathv_t, d))
 
-
-typedef struct {
-	int32_t off, cnt;
-	uint32_t v;
-	int32_t score;
-} mg_llchain_t;
-
-typedef struct {
-	int32_t id, parent;
-	int32_t off, cnt;
-	int32_t n_anchor, score;
-	int32_t qs, qe;
-	int32_t plen, ps, pe;
-	int32_t blen, mlen;
-	float div;
-	uint32_t hash;
-	int32_t subsc, n_sub;
-	uint32_t mapq:8, flt:1, dummy:23;
-} mg_gchain_t;
-
-typedef struct {
-	size_t n,m;
-    uint64_t *a, tl;
-	kvec_t(char) cc;
-} mg_dbn_t;
-
-typedef struct {
-	int32_t cnt;
-	uint32_t v;
-	int32_t score;
-	uint32_t qs, qe, ts, te;
-} mg_lres_t;
-
-typedef struct {
-    int32_t n_gc, n_lc;
-    mg_gchain_t *gc;///g_chain; idx in l_chains
-    mg_lres_t *lc;///l_chain
-    uint64_t qid, qlen;
-} mg_gres_t;
-
-typedef struct {
-	size_t n,m;
-    mg_gres_t *a;
-	uint64_t total_base;
-    uint64_t total_pair;
-} mg_gres_a;
-
-typedef struct {
-	FILE *fp;
-	ul_vec_t u;
-	uint64_t flag;
-} ucr_file_t;
 
 typedef struct { // global data structure for kt_pipeline()
     const void *ha_flt_tab;
@@ -5309,7 +5225,7 @@ static void worker_for_ul_rescall_alignment(void *data, long i, int tid) // call
     // if(s->id+i!=41927 && s->id+i!=47072 && s->id+i!=67641 && s->id+i!=90305 && s->id+i!=698342 && s->id+i!=329421) {
 	// 	return;
 	// }
-	// if(s->id+i!=43) return;
+	// if(s->id+i!=97) return;
 
     // fprintf(stderr, "\n[M::%s] rid::%ld, len::%lu, name::%.*s\n", __func__, s->id+i, s->len[i],
 	// (int32_t)UL_INF.nid.a[s->id+i].n, UL_INF.nid.a[s->id+i].a);
@@ -5326,7 +5242,7 @@ static void worker_for_ul_rescall_alignment(void *data, long i, int tid) // call
     b->self_read.seq = s->seq[i]; b->self_read.length = s->len[i]; b->self_read.size = 0;
     correct_ul_overlap(&b->olist, s->uu, &b->self_read, &b->correct, &b->ovlp_read, &b->POA_Graph, &b->DAGCon,
             &b->cigar1, &b->hap, &b->round2, &b->r_buf, &(b->tmp_region.w_list), 0, 1, &fully_cov, &abnormal, s->opt->diff_ec_ul, winLen, NULL);
-
+	// exit(1);
     // uint64_t k;
     // for (k = 0; k < b->olist.length; k++) {
     //  if(b->olist.list[k].is_match == 1) b->num_correct_base += b->olist.list[k].x_pos_e+1-b->olist.list[k].x_pos_s;
@@ -10688,7 +10604,7 @@ ma_ug_t *ul_realignment(const ug_opt_t *uopt, asg_t *sg, uint32_t double_check_c
 	if(!load_all_ul_t(&UL_INF, gfa_name, &R_INF, ug)/**1**/) {
 		gen_UL_reovlps(&sl, ug, sg, gfa_name, cutoff);
 		// exit(1);
-		write_all_ul_t(&UL_INF, gfa_name, ug);
+		// write_all_ul_t(&UL_INF, gfa_name, ug);
 	} else if(double_check_cache){
 		if(drenew_UL_reovlps(&sl, ug, sg, gfa_name, cutoff)) {
 			write_all_ul_t(&UL_INF, gfa_name, ug);

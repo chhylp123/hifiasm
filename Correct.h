@@ -1131,6 +1131,13 @@ void correct_ul_overlap(overlap_region_alloc* overlap_list, const ul_idx_t *uref
                         int force_repeat, int is_consensus, int* fully_cov, int* abnormal, 
                         double max_ov_diff_ec, long long winLen, void *km);
 
+void lchain_align(overlap_region_alloc* overlap_list, const ul_idx_t *uref, 
+                        UC_Read* g_read, Correct_dumy* dumy, UC_Read* overlap_read, 
+                        Graph* g, Graph* DAGCon, Cigar_record* current_cigar, 
+                        haplotype_evdience_alloc* hap, Round2_alignment* second_round, 
+                        kvec_t_u64_warp* v_idx, window_list_alloc* win_ciagr_buf, 
+                        int force_repeat, int is_consensus, int* fully_cov, int* abnormal, 
+                        double max_ov_diff_ec, long long winLen, void *km);
 /***
  type:
  0. match
