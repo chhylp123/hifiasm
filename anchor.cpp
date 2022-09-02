@@ -784,10 +784,18 @@ void ha_sort_list_by_anchor(overlap_region_alloc *overlap_list)
 
 
 void minimizers_gen(ha_abufl_t *ab, char* rs, int64_t rl, uint64_t mz_w, uint64_t mz_k, Candidates_list *cl, kvec_t_u8_warp* k_flag, 
-void *ha_flt_tab, ha_pt_t *ha_idx, kvec_t_u64_warp* dbg_ct, st_mt_t *sp, uint32_t high_occ)
+void *ha_flt_tab, ha_pt_t *ha_idx, kvec_t_u64_warp* dbg_ct, st_mt_t *sp, uint32_t *high_occ, uint32_t *low_occ)
 {
-	uint64_t i, k, l; int n, j; ha_mzl_t *z; seedl_t *s; 
-	if(high_occ < 1) high_occ = 1;
+	// fprintf(stderr, "+[M::%s]\n", __func__);
+	uint64_t i, k, l, max_cnt = UINT32_MAX, min_cnt = 0; int n, j; ha_mzl_t *z; seedl_t *s; 
+	if(high_occ) {
+		max_cnt = (*high_occ);
+		if(max_cnt < 2) max_cnt = 2;
+	}
+	if(low_occ) {
+		min_cnt = (*low_occ);
+		if(min_cnt < 2) min_cnt = 2;
+	}
 	clear_Candidates_list(cl); ab->mz.n = 0, ab->n_a = 0;
 	
 	// get the list of anchors
@@ -847,11 +855,12 @@ void *ha_flt_tab, ha_pt_t *ha_idx, kvec_t_u64_warp* dbg_ct, st_mt_t *sp, uint32_
 		p->strand = ab->a[k].srt >> 32 & 1;
 		p->offset = ab->a[k].other_off;
 		p->self_offset = ab->a[k].self_off;
-		if((ab->a[k].cnt>>8) <= high_occ){
+		if(((ab->a[k].cnt>>8) < max_cnt) && ((ab->a[k].cnt>>8) > min_cnt)){
 			p->cnt = 1;
-		}
-		else{
-			p->cnt = 1 + (((ab->a[k].cnt>>8) + (high_occ<<1) - 1)/(high_occ<<1));
+		} else if((ab->a[k].cnt>>8) <= min_cnt) {
+			p->cnt = 2;
+		} else{
+			p->cnt = 1 + (((ab->a[k].cnt>>8) + (max_cnt<<1) - 1)/(max_cnt<<1));
 			p->cnt = pow(p->cnt, 1.1);
 		}
 		if(p->cnt > ((uint32_t)(0xffffffu))) p->cnt = 0xffffffu;
@@ -860,10 +869,11 @@ void *ha_flt_tab, ha_pt_t *ha_idx, kvec_t_u64_warp* dbg_ct, st_mt_t *sp, uint32_
 	cl->length = ab->n_a;
 }
 
-void lchain_gen(Candidates_list* cl, overlap_region_alloc* ol, uint64_t rid, uint64_t rl, All_reads* rdb, 
-				const ul_idx_t *udb, uint32_t beg_tail, overlap_region* tf, uint64_t max_n_chain,
-				int64_t max_skip, int64_t max_iter, int64_t max_dis, double chn_pen_gap, double chn_pen_skip, double bw_rate, int64_t quick_check)
+void lchain_gen(Candidates_list* cl, overlap_region_alloc* ol, uint32_t rid, uint64_t rl, All_reads* rdb, 
+				const ul_idx_t *udb, uint32_t apend_be, overlap_region* tf, uint64_t max_n_chain,
+				int64_t max_skip, int64_t max_iter, int64_t max_dis, double chn_pen_gap, double chn_pen_skip, double bw_rate, int64_t quick_check, uint32_t gen_off)
 {
+	// fprintf(stderr, "+[M::%s]\n", __func__);
 	uint64_t i, k, l, m, sm, cn = cl->length;
 	clear_overlap_region_alloc(ol);
 	clear_fake_cigar(&(tf->f_cigar));
@@ -877,10 +887,18 @@ void lchain_gen(Candidates_list* cl, overlap_region_alloc* ol, uint64_t rid, uin
 				tf->x_pos_strand = cl->list[l].strand;
 				tf->y_id = cl->list[l].readID; 
 				tf->y_pos_strand = 0;///always 0
+				// fprintf(stderr, "+[M::%s] l::%lu, k::%lu\n", __func__, l, k);
 				sm = lchain_dp(cl->list+l, k-l, cl->list+m, &(cl->chainDP), tf, max_skip, max_iter, max_dis, chn_pen_gap, chn_pen_skip, bw_rate, 
               	rl, rdb?Get_READ_LENGTH((*rdb), (*tf).y_id):udb->ug->u.a[(*tf).y_id].len, quick_check);
-				assert(sm > 0);
-				if(ovlp_chain_gen(ol, tf, rl, rdb?Get_READ_LENGTH((*rdb), (*tf).y_id):udb->ug->u.a[(*tf).y_id].len, beg_tail)) {
+				// assert(sm > 0);
+				// uint64_t z;
+				// for (z = 0; z < sm; z++) {
+				// 	fprintf(stderr, "+[M::z->%lu] x::%u, y::%u, cnt::%u\n", 
+				// 	z, cl->list[m+z].self_offset, cl->list[m+z].offset, cl->list[m+z].cnt&(0xffu));
+				// }
+				
+				// fprintf(stderr, "+[M::%s] l::%lu, k::%lu, sm::%lu, # cigar::%u, yid::%u, sc::%d\n", __func__, l, k, sm, tf->f_cigar.length, tf->y_id, tf->shared_seed);
+				if(ovlp_chain_gen(ol, tf, rl, rdb?Get_READ_LENGTH((*rdb), (*tf).y_id):udb->ug->u.a[(*tf).y_id].len, apend_be, cl->list+m, sm)) {
 					m += sm;
 				}
 			}
@@ -929,7 +947,7 @@ void set_lchain_dp_op(uint32_t is_accurate, uint32_t mz_k, int64_t *max_skip, in
 	if(is_accurate) {
 		(*quick_check) = 1; (*max_skip) = 25; (*max_iter) = 5000; (*max_dis) = 5000; div = 0.01; pen_gap = 0.5f; pen_skip = 0.0005f; 
 	} else {
-		(*quick_check) = 0; (*max_skip) = 25; (*max_iter) = 5000; (*max_dis) = 5000; div = 0.1; pen_gap = 0.5f; pen_skip = 0.0005f;
+		(*quick_check) = 1; (*max_skip) = 25; (*max_iter) = 5000; (*max_dis) = 5000; div = 0.1; pen_gap = 0.5f; pen_skip = 0.0005f;
 	}
 	tmp = expf(-div * (double)mz_k);///0.60049557881 -> HiFi; 0.18268352405 -> ont
 	*chn_pen_gap = pen_gap * tmp;///0.300247789405 -> HiFi; 0.091341762025 -> ont
@@ -938,14 +956,14 @@ void set_lchain_dp_op(uint32_t is_accurate, uint32_t mz_k, int64_t *max_skip, in
 	*chn_pen_skip = pen_skip * tmp; 
 }
 
-void ul_map_lchain(ha_abufl_t *ab, int64_t rid, char* rs, uint64_t rl, uint64_t mz_w, uint64_t mz_k, const ul_idx_t *uref, overlap_region_alloc *overlap_list, overlap_region_alloc *overlap_list_hp, Candidates_list *cl, double bw_thres, 
-								 int max_n_chain, int keep_whole_chain, kvec_t_u8_warp* k_flag, overlap_region* f_cigar, kvec_t_u64_warp* dbg_ct, st_mt_t *sp, uint32_t high_occ, uint32_t is_accurate)
+void ul_map_lchain(ha_abufl_t *ab, uint32_t rid, char* rs, uint64_t rl, uint64_t mz_w, uint64_t mz_k, const ul_idx_t *uref, overlap_region_alloc *overlap_list, Candidates_list *cl, double bw_thres, 
+								 int max_n_chain, int apend_be, kvec_t_u8_warp* k_flag, overlap_region* f_cigar, kvec_t_u64_warp* dbg_ct, st_mt_t *sp, uint32_t *high_occ, uint32_t *low_occ, uint32_t is_accurate, uint32_t gen_off)
 {
 	extern void *ha_flt_tab;
 	extern ha_pt_t *ha_idx;
 	int64_t max_skip, max_iter, max_dis, quick_check; double chn_pen_gap, chn_pen_skip;
 	set_lchain_dp_op(is_accurate, mz_k, &max_skip, &max_iter, &max_dis, &chn_pen_gap, &chn_pen_skip, &quick_check);
-	minimizers_gen(ab, rs, rl, mz_w, mz_k, cl, k_flag, ha_flt_tab, ha_idx, dbg_ct, sp, high_occ);
-	lchain_gen(cl, overlap_list, rid, rl, NULL, uref, keep_whole_chain, f_cigar, max_n_chain, max_skip, max_iter, max_dis, chn_pen_gap, chn_pen_skip, bw_thres, quick_check);
+	minimizers_gen(ab, rs, rl, mz_w, mz_k, cl, k_flag, ha_flt_tab, ha_idx, dbg_ct, sp, high_occ, low_occ);
+	lchain_gen(cl, overlap_list, rid, rl, NULL, uref, apend_be, f_cigar, max_n_chain, max_skip, max_iter, max_dis, chn_pen_gap, chn_pen_skip, bw_thres, quick_check, gen_off);
 	///no need to sort here, overlap_list has been sorted at lchain_gen
 }

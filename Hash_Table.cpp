@@ -78,7 +78,54 @@ int get_fake_gap_shift(Fake_Cigar* x, int index)
     return result;
 }
 
-int ovlp_chain_gen(overlap_region_alloc* ol, overlap_region* t, int64_t xl, int64_t yl, int64_t apend_be)
+void gen_fake_cigar(Fake_Cigar* z, overlap_region *o, int64_t apend_be, k_mer_hit* hit, int64_t n_hit, int64_t print)
+{
+    int64_t k, dq, dr, dd, pdd; z->length = 0;
+    if(apend_be == 1) add_fake_cigar(z, o->x_pos_s, 0, NULL);
+    for (k = 0, pdd = INT32_MAX; k < n_hit; k++) {
+        dq = hit[k].self_offset - o->x_pos_s; 
+        dr = hit[k].offset - o->y_pos_s; 
+        dd = dr - dq;
+        if(print) {
+            fprintf(stderr, "[M::k->%lu] x::%u, y::%u, cnt::%u, dd::%ld, pdd::%ld, z->n::%u\n", 
+                k, hit[k].self_offset, hit[k].offset, hit[k].cnt&(0xffu), dd, pdd, z->length);
+        }
+        if(dd != pdd) {
+            pdd = dd;
+            add_fake_cigar(z, hit[k].self_offset, pdd, NULL);
+        }
+    }
+    
+    if((apend_be == 1) && (get_fake_gap_pos(z, z->length-1)!=((int64_t)o->x_pos_e))) {
+        add_fake_cigar(z, o->x_pos_e, get_fake_gap_shift(z, z->length-1), NULL);
+    }
+}
+
+void debug_cigar(Fake_Cigar* z, overlap_region *o, int64_t apend_be, k_mer_hit* hit, uint64_t n_hit)
+{
+    gen_fake_cigar(z, o, apend_be, hit, n_hit, 0);
+    if(!((z->length==o->f_cigar.length) && 
+                    (!memcmp(z->buffer, o->f_cigar.buffer, sizeof((*(o->f_cigar.buffer)))*o->f_cigar.length)))) {
+        uint64_t k;
+        fprintf(stderr, "\n[M::%s] z->n::%u, o->n::%u, rev::%u\n", __func__, z->length, o->f_cigar.length, o->y_pos_strand);
+        for (k = 0; k < z->length; k++) {
+            fprintf(stderr, "[z::k->%lu] pos::%d, off::%d\n", k, 
+                                    get_fake_gap_pos(z, k), get_fake_gap_shift(z, k));
+        }
+        for (k = 0; k < o->f_cigar.length; k++) {
+            fprintf(stderr, "[o::k->%lu] pos::%d, off::%d\n", k, 
+                                    get_fake_gap_pos(&(o->f_cigar), k), get_fake_gap_shift(&(o->f_cigar), k));
+        }
+        gen_fake_cigar(z, o, apend_be, hit, n_hit, 1);
+        // for (k = 0; k < o->f_cigar.length; k++) {
+        // 	fprintf(stderr, "[M::k->%lu] x::%u, y::%u, cnt::%u\n", 
+		// 			k, hit[k].self_offset, hit[k].offset, hit[k].cnt&(0xffu));
+        // }
+        
+    }
+}
+
+int ovlp_chain_gen(overlap_region_alloc* ol, overlap_region* t, int64_t xl, int64_t yl, int64_t apend_be, k_mer_hit* hit, int64_t n_hit)
 {
     if (ol->length + 1 > ol->size) {
         uint64_t sl = ol->size;
@@ -94,8 +141,7 @@ int ovlp_chain_gen(overlap_region_alloc* ol, overlap_region* t, int64_t xl, int6
            ((ol->list[ol->length-1].shared_seed == t->shared_seed) && 
            (ol->list[ol->length-1].overlapLen <= t->overlapLen))) {
             return 0;
-        }
-        else {
+        } else {
             ol->length--;
         }
     }
@@ -126,7 +172,9 @@ int ovlp_chain_gen(overlap_region_alloc* ol, overlap_region* t, int64_t xl, int6
     o->y_pos_strand = t->x_pos_strand;
 
     resize_fake_cigar(&(o->f_cigar), (t->f_cigar.length + 2), NULL);
-    if(apend_be == 1) add_fake_cigar(&(o->f_cigar), o->x_pos_s, 0, NULL);
+    if(apend_be == 1) {
+        add_fake_cigar(&(o->f_cigar), ((t->x_pos_strand)?(xl-t->x_pos_e-1):(t->x_pos_s)), 0, NULL);
+    }
 
     if (t->x_pos_strand == 1) {
         o->x_pos_e = xl-t->x_pos_s-1; o->x_pos_s = xl-t->x_pos_e-1;
@@ -146,7 +194,7 @@ int ovlp_chain_gen(overlap_region_alloc* ol, overlap_region* t, int64_t xl, int6
     
         dq = t->x_pos_e - t->x_pos_s;
         dr = t->y_pos_e - t->y_pos_s;
-        id = dr - dq;
+        id = dr - dq;///indel size from left
 
         pdd = INT32_MAX; fn = t->f_cigar.length;
         for (i = fn-1; i >= 0; i--) {
@@ -159,10 +207,12 @@ int ovlp_chain_gen(overlap_region_alloc* ol, overlap_region* t, int64_t xl, int6
     }
 
     if((apend_be == 1) && (get_fake_gap_pos(&(o->f_cigar), o->f_cigar.length-1) != ((int64_t)o->x_pos_e))) {
-        add_fake_cigar(&(o->f_cigar), o->x_pos_e, 
-                            get_fake_gap_shift(&(o->f_cigar), o->f_cigar.length-1), NULL);
+        add_fake_cigar(&(o->f_cigar), o->x_pos_e, get_fake_gap_shift(&(o->f_cigar), o->f_cigar.length-1), NULL);
     }
-    
+
+    ///debug
+    debug_cigar(&(t->f_cigar), o, apend_be, hit, n_hit);
+
     return 1;
 }
 
@@ -1407,5 +1457,22 @@ uint64_t lchain_dp(k_mer_hit* a, int64_t a_n, k_mer_hit* des, Chain_Data* dp, ov
     }
     res->overlapLen = get_chainLen(a[msc_i].self_offset, a[i].self_offset, xl, a[msc_i].offset, a[i].offset, yl);
     for (i = 0; i < cL; i++) des[i] = a[t[cL-i-1]];
+    if(res->x_pos_strand) {
+        int64_t hcl = cL>>1; k_mer_hit kp;
+        for (i = 0; i < hcl; i++) {
+            j = cL-i-1; kp = des[i]; des[i] = des[j]; des[j] = kp;
+
+            des[i].self_offset = xl-des[i].self_offset-1;
+            des[i].offset = yl-des[i].offset-1;
+
+            des[j].self_offset = xl-des[j].self_offset-1;
+            des[j].offset = yl-des[j].offset-1;
+        }
+        if(cL&1) {
+            des[i].self_offset = xl-des[i].self_offset-1;
+            des[i].offset = yl-des[i].offset-1;
+        }
+    }
+    
     return cL;
 }

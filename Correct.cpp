@@ -563,6 +563,11 @@ char* r_string, double max_ov_diff_ec, long long blockLen, long long max_error, 
             continue;
         }
 
+        // if(overlap_list->list[currentID].y_id == 4) {
+        //     fprintf(stderr, "[M::%s] q_s::%lld, t_s::%lld, t_pri_l::%lld, aux_beg::%d, aux_end::%d, aln_l::%lld\n", __func__, 
+        //         x_start, y_start, o_len, extra_begin, extra_end, Window_Len);
+        // }
+
         fill_subregion_ul(dumy->overlap_region_group[groupLen], y_start, o_len, overlap_list->list[currentID].y_pos_strand, 
         uref, overlap_list->list[currentID].y_id, extra_begin, extra_end);
 
@@ -695,6 +700,11 @@ char* r_string, double max_ov_diff_ec, long long blockLen, long long max_error, 
         &extra_begin, &extra_end, &y_start, &o_len)) {
             continue;
         }
+
+        // if(overlap_list->list[currentID].y_id == 4) {
+        //     fprintf(stderr, "[M::%s] q_s::%lld, t_s::%lld, t_pri_l::%lld, aux_beg::%d, aux_end::%d, aln_l::%lld\n", __func__, 
+        //         x_start, y_start, o_len, extra_begin, extra_end, Window_Len);
+        // }
         
         fill_subregion_ul(dumy->overlap_region, y_start, o_len, overlap_list->list[currentID].y_pos_strand, 
         uref, overlap_list->list[currentID].y_id, extra_begin, extra_end);        
@@ -712,95 +722,120 @@ char* r_string, double max_ov_diff_ec, long long blockLen, long long max_error, 
     }
 }
 
-void verify_ul_ll_window(long long window_start, long long window_end, overlap_region_alloc* overlap_list,Correct_dumy* dumy, const ul_idx_t *uref,
-char* r_string, double max_ov_diff_ec, long long blockLen, void *km)
+int32_t init_waln(int64_t err, int64_t s, int64_t l, int64_t w_l, 
+int64_t* aux_beg, int64_t* aux_end, int64_t* r_s, int64_t* r_l)
 {
-    long long i, reverse_i = dumy->size - 1;
-    long long currentID, threshold = /**THRESHOLD_MAX_SIZE**/THRESHOLD;
-    long long x_start, y_start, o_len;
-    long long Window_Len = blockLen + (threshold << 1);
-    char* x_string = NULL;
-    char* y_string = NULL;
-    long long x_end, x_len;
-    int end_site;
-    unsigned int error;
-    int extra_begin;
-    int extra_end;
+    (*aux_beg) = (*aux_end) = (*r_s) = (*r_l) = -1;
+    ///since w_l == x_len + (err << 1)
+    if((s < 0) || (s >= l) || ((l-s+(2*err)+THRESHOLD_MAX_SIZE) < w_l)) return 0;
+    (*aux_beg) = (*aux_end) = 0;
+    ///s might be less than 0
+    (*r_s) = s - err; 
+    (*r_l) = l-(*r_s); if((*r_l) > w_l) (*r_l) = w_l;
+    (*aux_end) = w_l - (*r_l);
 
-    ///here are overlaps fully covered by blockLen
-    for (i = 0; i < (long long)dumy->length; i++)
-    {
-        extra_begin = extra_end = 0;
-        ///if the window has been fully covered, the interval at x is [window_start, window_end]
-        x_len = blockLen;
-        currentID = dumy->overlapID[i];
-        x_start = window_start;
-        ///offset of y
-        y_start = (x_start - overlap_list->list[currentID].x_pos_s) + overlap_list->list[currentID].y_pos_s;
-        /****************************may have bugs********************************/
-        y_start += y_start_offset(x_start, &(overlap_list->list[currentID].f_cigar));
-        /****************************may have bugs********************************/
-        
-  
-        if(!determine_overlap_region(threshold, y_start, overlap_list->list[currentID].y_id, Window_Len, uref->ug->u.a[overlap_list->list[currentID].y_id].len,
-        &extra_begin, &extra_end, &y_start, &o_len)) {
-            continue;
-        }
-
-        fill_subregion_ul(dumy->overlap_region, y_start, o_len, overlap_list->list[currentID].y_pos_strand, 
-        uref, overlap_list->list[currentID].y_id, extra_begin, extra_end);
-
-        end_site = Reserve_Banded_BPM(dumy->overlap_region, Window_Len, x_string, blockLen, threshold, &error);
-        if (error!=(unsigned int)-1) {
-            overlap_list->list[currentID].align_length += x_len;
-            append_window_list(&overlap_list->list[currentID], window_start, window_end, y_start, y_start + end_site, (int)error,
-            extra_begin, extra_end, threshold, blockLen, km);
-        }
-    }    
-    
-    ///here are overlaps partially covered by blockLen
-    for (i = 0; i < (long long)dumy->lengthNT; i++)
-    {
-        extra_begin = extra_end = 0;
-        currentID = dumy->overlapID[reverse_i--];
-        x_start = MAX(window_start, (long long)overlap_list->list[currentID].x_pos_s);
-        x_end = MIN(window_end, (long long)overlap_list->list[currentID].x_pos_e);
-
-        ///overlap length between [window_start, window_end]
-        x_len = x_end - x_start + 1;
-        threshold = x_len * max_ov_diff_ec;
-        /****************************may have bugs********************************/
-        threshold = Adjust_Threshold(threshold, x_len);
-        if(threshold > THRESHOLD_MAX_SIZE) threshold = THRESHOLD_MAX_SIZE;
-        /****************************may have bugs********************************/
-        
-        ///offset of y
-        y_start = (x_start - overlap_list->list[currentID].x_pos_s) + overlap_list->list[currentID].y_pos_s;
-        /****************************may have bugs********************************/
-        y_start += y_start_offset(x_start, &(overlap_list->list[currentID].f_cigar));
-        /****************************may have bugs********************************/
-
-        Window_Len = x_len + (threshold << 1);
-
-        if(!determine_overlap_region(threshold, y_start, overlap_list->list[currentID].y_id, Window_Len, uref->ug->u.a[overlap_list->list[currentID].y_id].len,
-        &extra_begin, &extra_end, &y_start, &o_len)) {
-            continue;
-        }
-        
-        fill_subregion_ul(dumy->overlap_region, y_start, o_len, overlap_list->list[currentID].y_pos_strand, 
-        uref, overlap_list->list[currentID].y_id, extra_begin, extra_end);        
-
-        x_string = r_string + x_start;
-        y_string = dumy->overlap_region;
-
-        end_site = Reserve_Banded_BPM(y_string, Window_Len, x_string, x_len, threshold, &error);
-
-        if (error!=(unsigned int)-1) {
-            overlap_list->list[currentID].align_length += x_len;
-            append_window_list(&overlap_list->list[currentID], x_start, x_end, y_start, y_start + end_site, (int)error,
-            extra_begin, extra_end, threshold, blockLen, km);
-        }
+    if ((*r_s) < 0) {
+        (*aux_beg) = -(*r_s); (*r_s) = 0; (*r_l) -= (*aux_beg);
     }
+    return 1;
+}
+
+///[s, e)
+int64_t get_num_wins(int64_t s, int64_t e, int64_t block_s)
+{
+    int64_t nl = e - ((s/block_s)*block_s), nw;
+    nw = (nl/block_s); if((nl%block_s)>0) nw++;
+    return nw;
+}
+///[w_s, w_e]
+inline int64_t get_win_id_by_s(overlap_region *z, int64_t w_s, int64_t block_s, int64_t *w_e)
+{
+    int64_t n_s = ((z->x_pos_s/block_s)*block_s), wid = (w_s-n_s)/block_s;
+    if(w_e) {
+        (*w_e) = n_s + (wid+1)*block_s - 1;        
+        if((*w_e) > z->x_pos_e) (*w_e) = z->x_pos_e;
+    }
+    return wid;
+}
+
+///[w_s, w_e]
+inline int64_t get_win_id_by_e(overlap_region *z, int64_t w_e, int64_t block_s, int64_t *w_s)
+{
+    int64_t n_s = ((z->x_pos_s/block_s)*block_s), wid = (w_e-n_s)/block_s;
+    if(w_s) {
+        (*w_s) = n_s + wid*block_s;        
+        if((*w_s) < z->x_pos_s) (*w_s) = z->x_pos_s;
+    }
+    return wid;
+}
+
+///[w_s, w_e]
+inline void get_win_se_by_normalize_xs(overlap_region *z, int64_t norm_w_s, int64_t block_s, int64_t *w_s, int64_t *w_e)
+{
+    int64_t n_s = ((z->x_pos_s/block_s)*block_s), wid = (norm_w_s-n_s)/block_s;
+    if(w_s) {
+        (*w_s) = n_s + wid*block_s;        
+        if((*w_s) < z->x_pos_s) (*w_s) = z->x_pos_s;
+    }
+    if(w_e) {
+        (*w_e) = n_s + (wid+1)*block_s - 1;        
+        if((*w_e) > z->x_pos_e) (*w_e) = z->x_pos_e;
+    }
+}
+
+void gen_str_seq(char *dst, int64_t s, int64_t pri_l, uint8_t rev, const ul_idx_t *uref, long long id, int64_t aux_beg, int64_t aux_end)
+{
+    // int64_t l = pri_l + aux_beg + aux_end;    
+    memset(dst, 'N', aux_beg);
+    retrieve_u_seq(NULL, dst+aux_beg, &(uref->ug->u.a[id]), rev, s, pri_l, NULL);
+    memset(dst+aux_beg+pri_l, 'N', aux_end);
+}
+
+void verify_ul_window_s(overlap_region *z, const ul_idx_t *uref, char* qstr, char *tstr,
+double e_rate, int64_t w_l, int64_t e_max, void *km)
+{
+    int64_t q_s, q_e, nw, k, q_l;
+    int64_t aux_beg, aux_end, t_s, thre, aln_l, t_pri_l, t_end;
+    char *q_string, *t_string; unsigned int error;
+    z->w_list.n = 0; nw = get_num_wins(z->x_pos_s, z->x_pos_e+1, w_l);
+    get_win_se_by_normalize_xs(z, (z->x_pos_s/w_l)*w_l, w_l, &q_s, &q_e);
+    // q_s = z->x_pos_s; get_win_id_by_s(z, q_s, w_l, &q_e); 
+    for (k = 0; k < nw; k++) {
+        aux_beg = aux_end = 0; q_l = 1 + q_e - q_s;
+        thre = q_l*e_rate; thre = Adjust_Threshold(thre, q_l);
+        if(thre > THRESHOLD_MAX_SIZE) thre = THRESHOLD_MAX_SIZE;
+        ///offset of y
+        t_s = (q_s - z->x_pos_s) + z->y_pos_s;
+        t_s += y_start_offset(q_s, &(z->f_cigar));
+
+        aln_l = q_l + (thre<<1);
+        // if(z->y_id == 115) {
+        //     fprintf(stderr, "+[M::] q_s::%ld, t_s::%ld, t_pri_l::%ld, aux_beg::%ld, aux_end::%ld, aln_l::%ld, t_end::%ld, error::%u\n", 
+        //     q_s, t_s, t_pri_l, aux_beg, aux_end, aln_l, t_end, error);
+        // }
+        if(init_waln(thre, t_s, uref->ug->u.a[z->y_id].len, aln_l, &aux_beg, &aux_end, &t_s, &t_pri_l)) {
+            gen_str_seq(tstr, t_s, t_pri_l, z->y_pos_strand, uref, z->y_id, aux_beg, aux_end);
+            q_string = qstr+q_s; t_string = tstr;
+            t_end = Reserve_Banded_BPM(t_string, aln_l, q_string, q_l, thre, &error);
+            // if(z->y_id == 115) {
+            //     fprintf(stderr, "-[M::] q_s::%ld, t_s::%ld, t_pri_l::%ld, aux_beg::%ld, aux_end::%ld, aln_l::%ld, t_end::%ld, error::%u, thre::%ld\n", 
+            //     q_s, t_s, t_pri_l, aux_beg, aux_end, aln_l, t_end, error, thre);
+            // }
+            if (error!=((unsigned int)-1)) {
+                z->align_length += q_l;
+                ///t_s do not have aux_beg, while t_s + t_end (aka, te) has 
+                append_window_list(z, q_s, q_e, t_s, t_s + t_end, error, aux_beg, aux_end, thre, w_l, km);
+            }
+        }
+        q_s = q_e + 1; q_e = q_s + w_l - 1; 
+        if(q_e >= (int64_t)z->x_pos_e) q_e = z->x_pos_e;
+    }
+
+    // if(q_e != (int64_t)z->x_pos_e) {
+    //     fprintf(stderr, "[M::%s] q_e::%ld, z->x_pos_s::%u, z->x_pos_e::%u, w_l::%ld, nw::%ld\n", __func__, 
+    //     q_e, z->x_pos_s, z->x_pos_e, w_l, nw);
+    // }
+    assert(q_e == (int64_t)z->x_pos_e);
 }
 
 ///error_rate should be 30%
@@ -993,49 +1028,6 @@ unsigned int* get_error, int* get_y_end, int* get_x_end, int* get_aligned_xLen)
     else
     {
         return 1;
-    }
-}
-
-///[s, e)
-int64_t get_num_wins(int64_t s, int64_t e, int64_t block_s)
-{
-    int64_t nl = e - ((s/block_s)*block_s), nw;
-    nw = (nl/block_s); if((nl%block_s)>0) nw++;
-    return nw;
-}
-///[w_s, w_e]
-inline int64_t get_win_id_by_s(overlap_region *z, int64_t w_s, int64_t block_s, int64_t *w_e)
-{
-    int64_t n_s = ((z->x_pos_s/block_s)*block_s), wid = (w_s-n_s)/block_s;
-    if(w_e) {
-        (*w_e) = n_s + (wid+1)*block_s - 1;        
-        if((*w_e) > z->x_pos_e) (*w_e) = z->x_pos_e;
-    }
-    return wid;
-}
-
-///[w_s, w_e]
-inline int64_t get_win_id_by_e(overlap_region *z, int64_t w_e, int64_t block_s, int64_t *w_s)
-{
-    int64_t n_s = ((z->x_pos_s/block_s)*block_s), wid = (w_e-n_s)/block_s;
-    if(w_s) {
-        (*w_s) = n_s + wid*block_s;        
-        if((*w_s) < z->x_pos_s) (*w_s) = z->x_pos_s;
-    }
-    return wid;
-}
-
-///[w_s, w_e]
-inline void get_win_se_by_normalize_xs(overlap_region *z, int64_t norm_w_s, int64_t block_s, int64_t *w_s, int64_t *w_e)
-{
-    int64_t n_s = ((z->x_pos_s/block_s)*block_s), wid = (norm_w_s-n_s)/block_s;
-    if(w_s) {
-        (*w_s) = n_s + wid*block_s;        
-        if((*w_s) < z->x_pos_s) (*w_s) = z->x_pos_s;
-    }
-    if(w_e) {
-        (*w_e) = n_s + (wid+1)*block_s - 1;        
-        if((*w_e) > z->x_pos_e) (*w_e) = z->x_pos_e;
     }
 }
 
@@ -3590,6 +3582,10 @@ inline void refine_ed_aln(overlap_region_alloc* overlap_list, All_reads *rref, c
     overlap_list->mapped_overlaps_length = 0; on = overlap_list->length;
     for (j = 0; j < on; ++j) {
         z = &(overlap_list->list[j]); z->is_match = 0; is_srt = 1;
+        // /**if(z->y_id == 4)**/ {
+        //     fprintf(stderr, "[M::%s::idx->%ld::] z->y_id::%u, z->w_list.n::%u, x_pos_s::%u, x_pos_e::%u, y_pos_s::%u, y_pos_e::%u\n", 
+        //         __func__, j, z->y_id, (uint32_t)z->w_list.n, z->x_pos_s, z->x_pos_e, z->y_pos_s, z->y_pos_e);
+        // }
         if(z->w_list.n == 0) continue;///no alignment
         nw = get_num_wins(z->x_pos_s, z->x_pos_e+1, block_s); a_nw = z->w_list.n;
         kv_resize(uint64_t, v_idx->a, (uint64_t)nw); 
@@ -3598,6 +3594,12 @@ inline void refine_ed_aln(overlap_region_alloc* overlap_list, All_reads *rref, c
             assert(z->w_list.a[i].y_end != -1);
             w_id = get_win_id_by_s(z, z->w_list.a[i].x_start, block_s, NULL);
             w_idx[w_id] = i;
+            // /**if(z->y_id == 4)**/ {
+            //     fprintf(stderr, "[M::%s::i->%ld::] x_start::%d, x_end::%d, y_start::%d, y_end::%d, error::%d, error_threshold::%d, extra_begin::%d, extra_end::%d\n", 
+            //         __func__, i, z->w_list.a[i].x_start, z->w_list.a[i].x_end,
+            //         z->w_list.a[i].y_start, z->w_list.a[i].y_end, z->w_list.a[i].error, 
+            //         z->w_list.a[i].error_threshold, z->w_list.a[i].extra_begin, z->w_list.a[i].extra_end);
+            // }
         }
 
         y_id = z->y_id; y_strand = z->y_pos_strand; 
@@ -9163,35 +9165,13 @@ void correct_ul_overlap(overlap_region_alloc* overlap_list, const ul_idx_t *uref
     
     clear_Correct_dumy(dumy, overlap_list, km);
 
-    long long window_start, window_end;
-
     Window_Pool w_inf;
-
-    init_Window_Pool(&w_inf, g_read->length, /**WINDOW_UL**//**WINDOW_UL_H**/winLen, (int)(1.0/max_ov_diff_ec));
-    int flag = 0;
-    
-    while(get_Window(&w_inf, &window_start, &window_end) && flag != -2)
-    {
-        dumy->length = 0;
-        dumy->lengthNT = 0;
-        flag = get_interval(window_start, window_end, overlap_list, dumy, w_inf.window_length);
-
-        switch (flag)
-        {
-            case 1:    ///no match here
-                break;
-            case 0:    ///no match here
-                break;
-            case -2: ///if flag == -2, loop would be terminated
-                break;
-        }
-
-        ///dumy->lengthNT represent how many overlaps that the length of them is not equal to WINDOW; may larger or less than WINDOW
-        ///dumy->length represent how many overlaps that the length of them is WINDOW
-        ///now the windows which are larger than WINDOW are verified one-by-one, to improve it, we can do it group-bygroup
-        verify_ul_window(window_start, window_end, overlap_list, dumy, uref, g_read->seq, max_ov_diff_ec, w_inf.window_length, /**THRESHOLD**/THRESHOLD_MAX_SIZE, km);
-        // verify_ul_ll_window(window_start, window_end, overlap_list, dumy, uref, g_read->seq, max_ov_diff_ec, w_inf.window_length, km);
+    init_Window_Pool(&w_inf, g_read->length, winLen, (int)(1.0/max_ov_diff_ec));
+    uint64_t i;
+    for (i = 0; i < overlap_list->length; i++) {
+        verify_ul_window_s(&(overlap_list->list[i]), uref, g_read->seq, dumy->overlap_region, max_ov_diff_ec, w_inf.window_length, THRESHOLD_MAX_SIZE, km);
     }
+   
     
     // recalcate_window(overlap_list, R_INF, g_read, dumy, overlap_read);
     // partition_overlaps(overlap_list, R_INF, g_read, dumy, hap, force_repeat);
@@ -9260,7 +9240,6 @@ void lchain_align(overlap_region_alloc* overlap_list, const ul_idx_t *uref,
         ///dumy->length represent how many overlaps that the length of them is WINDOW
         ///now the windows which are larger than WINDOW are verified one-by-one, to improve it, we can do it group-bygroup
         verify_ul_window(window_start, window_end, overlap_list, dumy, uref, g_read->seq, max_ov_diff_ec, w_inf.window_length, /**THRESHOLD**/THRESHOLD_MAX_SIZE, km);
-        // verify_ul_ll_window(window_start, window_end, overlap_list, dumy, uref, g_read->seq, max_ov_diff_ec, w_inf.window_length, km);
     }
     
     // recalcate_window(overlap_list, R_INF, g_read, dumy, overlap_read);

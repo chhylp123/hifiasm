@@ -20,7 +20,8 @@ KSEQ_INIT(gzFile, gzread)
 
 void ha_get_ul_candidates_interface(ha_abufl_t *ab, int64_t rid, char* rs, uint64_t rl, uint64_t mz_w, uint64_t mz_k, const ul_idx_t *uref, overlap_region_alloc *overlap_list, overlap_region_alloc *overlap_list_hp, Candidates_list *cl, double bw_thres, 
 								 int max_n_chain, int keep_whole_chain, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* chain_idx, overlap_region* f_cigar, kvec_t_u64_warp* dbg_ct, st_mt_t *sp, uint32_t high_occ, void *km);
-
+void ul_map_lchain(ha_abufl_t *ab, uint32_t rid, char* rs, uint64_t rl, uint64_t mz_w, uint64_t mz_k, const ul_idx_t *uref, overlap_region_alloc *overlap_list, Candidates_list *cl, double bw_thres, 
+								 int max_n_chain, int apend_be, kvec_t_u8_warp* k_flag, overlap_region* f_cigar, kvec_t_u64_warp* dbg_ct, st_mt_t *sp, uint32_t *high_occ, uint32_t *low_occ, uint32_t is_accurate, uint32_t gen_off);
 #define MG_SEED_IGNORE     (1ULL<<41)
 #define MG_SEED_TANDEM     (1ULL<<42)
 #define MG_SEED_KEPT       (1ULL<<43)
@@ -5215,6 +5216,7 @@ static void worker_for_ul_rescall_alignment(void *data, long i, int tid) // call
     ha_ovec_buf_t *b = s->hab[tid];
     glchain_t *bl = &(s->ll[tid]);
     int64_t /**rid = s->id+i,**/ winLen = MIN((((double)THRESHOLD_MAX_SIZE)/s->opt->diff_ec_ul), WINDOW);
+	uint32_t high_occ = 2;
     // uint64_t align = 0;
     int fully_cov, abnormal;
 	// if(UL_INF.a[s->id+i].rlen != s->len[i]) {
@@ -5225,15 +5227,17 @@ static void worker_for_ul_rescall_alignment(void *data, long i, int tid) // call
     // if(s->id+i!=41927 && s->id+i!=47072 && s->id+i!=67641 && s->id+i!=90305 && s->id+i!=698342 && s->id+i!=329421) {
 	// 	return;
 	// }
-	// if(s->id+i!=97) return;
+	// if(s->id+i!=47) return;
 
     // fprintf(stderr, "\n[M::%s] rid::%ld, len::%lu, name::%.*s\n", __func__, s->id+i, s->len[i],
 	// (int32_t)UL_INF.nid.a[s->id+i].n, UL_INF.nid.a[s->id+i].a);
     // if (memcmp(UL_INF.nid.a[s->id+i].a, "d0aab024-b3a7-40fb-83cc-22c3d6d951f8", UL_INF.nid.a[s->id+i].n-1)) return;
     // fprintf(stderr, "[M::%s::] ==> len: %lu\n", __func__, s->len[i]);
-    ha_get_ul_candidates_interface(b->abl, i, s->seq[i], s->len[i], s->opt->w, s->opt->k, s->uu, &b->olist, &b->olist_hp, &b->clist, s->opt->bw_thres, 
-        s->opt->max_n_chain, 1, NULL/**&(b->k_flag)**/, &b->r_buf, &(b->tmp_region), NULL, &(b->sp), 1, NULL);
-    
+    // ha_get_ul_candidates_interface(b->abl, i, s->seq[i], s->len[i], s->opt->w, s->opt->k, s->uu, &b->olist, &b->olist_hp, &b->clist, s->opt->bw_thres, 
+    //     s->opt->max_n_chain, 1, NULL, &b->r_buf, &(b->tmp_region), NULL, &(b->sp), 1, NULL);
+    ul_map_lchain(b->abl, (uint32_t)-1, s->seq[i], s->len[i], s->opt->w, s->opt->k, s->uu, &b->olist, &b->clist, s->opt->bw_thres, 
+            s->opt->max_n_chain, 1, NULL, &(b->tmp_region), NULL, &(b->sp), &high_occ, NULL, 0, 0);
+
     clear_Cigar_record(&b->cigar1);
     clear_Round2_alignment(&b->round2);
     // return;
@@ -9898,6 +9902,121 @@ ul_contain *ul_contain_gen(ma_ug_t *ug, asg_t *rg, ma_hit_t_alloc* src, int64_t 
 	return p;
 }
 
+void gen_hpc_seq(const char *in, uint32_t in_len, ma_utg_t *ou)
+{
+	uint32_t k, l, m; memset(ou, 0, sizeof((*ou)));
+	for (l = 0, k = 1; k <= in_len; k++) {
+		if((k == in_len) || (in[k] != in[l]) || (seq_nt4_table[(uint8_t)in[l]] >= 4)) {
+			ou->len++; l = k;
+		}
+	}
+
+	MALLOC(ou->s, ou->len); m = 0;
+	for (l = 0, k = 1; k <= in_len; k++) {
+		if((k == in_len) || (in[k] != in[l]) || (seq_nt4_table[(uint8_t)in[l]] >= 4)) {
+			ou->s[m++] = in[l];
+			l = k;
+		}
+	}
+}
+
+void gen_microsatellite(const char *in, uint32_t in_len, ma_utg_t *idx, hpc_t *res, uint32_t mcs_len)
+{
+	uint32_t k, i, l, c, o; char sk[256]; 
+	idx->start = idx->end = res->n; 
+	if(mcs_len > 256) mcs_len = 256;
+	for (k = 1; k <= mcs_len; k++) {
+		memset(sk, 'N', k); ///k->length of k-mer
+		o = k + (k>>1) + 1;
+		for (i = l = 0; i < in_len; i++) {
+			c = seq_nt4_table[(uint8_t)in[i]]; 
+			if((c < 4) && (((l >= k) && (sk[l%k] == in[i])) || (l < k))) {
+				if(l < k) sk[l] = in[i]; 
+				l++;
+			} else {
+				if(l >= o) {
+					kv_push(uint64_t, *res, (((uint64_t)(i-l))<<1));
+					kv_push(uint64_t, *res, ((((uint64_t)i)<<1)|1));
+				}
+				l = 0;
+			}
+		}
+	}
+
+	radix_sort_gfa64(res->a+idx->start, res->a+res->n);
+	int64_t dp, old_dp; uint64_t st, en;
+	for (k = st = idx->start, dp = 0; k < res->n; k++) {
+		old_dp = dp;
+        if (res->a[k]&1) --dp;//qe
+        else ++dp;
+		if (old_dp < 1 && dp >= 1) {///qs
+            st = res->a[k]>>1;
+        } else if (old_dp >= 1 && dp < 1) {///qe
+            en = res->a[k]>>1;
+			res->a[idx->end++] = ((st<<32)|(en));
+        }
+	}
+	res->n = idx->end;
+}
+
+uint32_t hpc_l(char *s, int64_t hof, int64_t sof, int64_t scut)
+{
+	if(scut == sof) return hof;
+	if(scut < sof) sof = hof = 0;
+	int64_t l, k;
+	for (k=sof; (k>0)&&(k<scut)&&(s[k]==s[k-1])&&(seq_nt4_table[(uint8_t)s[k]]<4); k++) break;
+	sof = k;
+	for (l=sof, k=sof+1; k <= scut; k++) {
+		if((k == scut) || (s[k] != s[l]) || (seq_nt4_table[(uint8_t)s[l]] >= 4)) {
+			hof++; l = k;
+		}
+	}
+	return hof;
+}
+
+hpc_t *hpc_g_gen(ma_ug_t *ug)
+{
+	uint32_t k, i, ho, so, len; int32_t z; hpc_t *p; kvec_t(char) cc; asg_t *ng = asg_init();
+	CALLOC(p, 1); CALLOC(p->hg, 1); kv_init(cc); 
+	CALLOC(p->hg->u.a, ug->u.n); p->hg->u.n = p->hg->u.m = ug->u.n;
+
+	for (k = 0; k < ug->u.n; k++) {
+		kv_resize(char, cc, ug->u.a[k].len);
+		retrieve_u_seq(NULL, cc.a, &(ug->u.a[k]), 0, 0, ug->u.a[k].len, NULL);
+		gen_hpc_seq(cc.a, ug->u.a[k].len, &(p->hg->u.a[k]));
+		gen_microsatellite(cc.a, ug->u.a[k].len, &(p->hg->u.a[k]), p, 6);
+	}
+
+	ng->m_arc = ng->n_arc = ug->g->n_arc; CALLOC(ng->arc, ng->n_arc);
+	ng->m_seq = ng->n_seq = ug->g->n_seq; CALLOC(ng->seq, ng->n_seq);
+	for (k = 0; k < ng->n_seq; k++) {
+		ng->seq[k].del = ng->seq[k].c = 0; ng->seq[k].len = p->hg->u.a[k].len;///hpc len
+	}
+	memcpy(ng->arc, ug->g->arc, ng->n_arc*(sizeof((*(ng->arc))))); 
+	for (k = 1, i = 0; k <= ng->n_arc; k++) {
+		if(k == ng->n_arc || (ng->arc[i].ul>>32) != (ng->arc[k].ul>>32)) {
+			//sorted by ol
+			len = ng->arc[i].ol; kv_resize(char, cc, len); 
+			retrieve_u_seq(NULL, cc.a, &(ug->u.a[ng->arc[i].ul>>33]), ((ng->arc[i].ul>>32)&1)^1, 0, len, NULL);
+			// min_o = ng->arc[k-1].ol; max_o = ng->arc[i].ol;
+			len = ng->seq[ng->arc[i].ul>>33].len;///hpc len
+			for (z = k-1, ho = so = 0; z >= (int32_t)i; z--) {
+				ho = hpc_l(cc.a, ho, so, ng->arc[z].ol);
+				so = ng->arc[z].ol;
+				ng->arc[z].ol = ho; 
+				ng->arc[z].ul>>=32; 
+				ng->arc[z].ul<<=32;
+				ng->arc[z].ul += len - ng->arc[z].ol;
+				assert(z == (int32_t)k-1 || ng->arc[z].ol>=ng->arc[z+1].ol);
+			}
+			i = k;
+		}
+	}
+	asg_cleanup(ng);
+	p->hg->g = ng;
+	kv_destroy(cc);
+	return p;
+}
 
 void debug_append_inexact_edges(ma_ug_t *ug, const ug_opt_t *uopt) {
 	uint32_t n_asymm = 0, n_disconnect = 0, z, v, w, k, nv; asg_arc_t *av = NULL;
@@ -10238,6 +10357,8 @@ ul_idx_t *gen_ul_idx(const ug_opt_t *uopt, ma_ug_t *ug, asg_t *sg)
 	uu->ct = ul_contain_gen(ug, sg, src, min_ovlp, max_hang, 0, 1);
 	uu->cc = gen_cov_track(ug, sg, uu->ct, src, min_ovlp, max_hang, 0, 1);
 	uu->cr = gen_r_contain(ug, sg, src, R_INF.total_reads, min_ovlp, max_hang, asm_opt.thread_num, 0, 1);
+	uu->hpc_g = hpc_g_gen(ug);
+
 	return uu;
 }
 
@@ -10300,35 +10421,39 @@ void destroy_ul_idx_t(ul_idx_t *uu)
 {
 	if(!uu) return;
 	if(uu->cc) {
-		if(uu->cc) {
-			free(uu->cc->idx);
-			free(uu->cc->interval.a);
-			free(uu->cc);
-		}
+		free(uu->cc->idx);
+		free(uu->cc->interval.a);
+		free(uu->cc);
+	}
 
-		if(uu->cr) {
-			free(uu->cr->idx);
-			free(uu->cr->interval.a);
-			free(uu->cr);
-		}
+	if(uu->cr) {
+		free(uu->cr->idx);
+		free(uu->cr->interval.a);
+		free(uu->cr);
+	}
 
-		if(uu->ct) {
-			free(uu->ct->idx.a);
-			free(uu->ct->rids.a);
-			free(uu->ct->is_c.a);
-			free(uu->ct);
-		}
+	if(uu->ct) {
+		free(uu->ct->idx.a);
+		free(uu->ct->rids.a);
+		free(uu->ct->is_c.a);
+		free(uu->ct);
+	}
 
-		if(uu->r_ug) {
-			free(uu->r_ug->idx);
-			free(uu->r_ug->p.a);
-			free(uu->r_ug);
-		}
+	if(uu->r_ug) {
+		free(uu->r_ug->idx);
+		free(uu->r_ug->p.a);
+		free(uu->r_ug);
+	}
+
+	if(uu->hpc_g) {
+		free(uu->hpc_g->a);
+		ma_ug_destroy(uu->hpc_g->hg);
+		free(uu->hpc_g);
+	}
 		// if(uu->ov) {
 		// 	free(uu->ov->a);
 		// 	free(uu->ov);
 		// }
-	}
 	ma_ug_destroy(uu->ug);
 	// if(uu->nug) {
 	// 	free(uu->nug->idx);

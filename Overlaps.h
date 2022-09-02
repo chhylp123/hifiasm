@@ -250,7 +250,14 @@ typedef struct {
 } cvert_t;
 
 typedef struct {
+	ma_ug_t *hg;
+	size_t n, m; 
+	uint64_t *a;
+} hpc_t;
+
+typedef struct {
 	ma_ug_t *ug;
+	hpc_t *hpc_g;
 	ucov_t *cc;
 	ucov_t *cr;
 	ul_contain *ct;
