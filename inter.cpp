@@ -5236,7 +5236,7 @@ static void worker_for_ul_rescall_alignment(void *data, long i, int tid) // call
     // ha_get_ul_candidates_interface(b->abl, i, s->seq[i], s->len[i], s->opt->w, s->opt->k, s->uu, &b->olist, &b->olist_hp, &b->clist, s->opt->bw_thres, 
     //     s->opt->max_n_chain, 1, NULL, &b->r_buf, &(b->tmp_region), NULL, &(b->sp), 1, NULL);
     ul_map_lchain(b->abl, (uint32_t)-1, s->seq[i], s->len[i], s->opt->w, s->opt->k, s->uu, &b->olist, &b->clist, s->opt->bw_thres, 
-            s->opt->max_n_chain, 1, NULL, &(b->tmp_region), NULL, &(b->sp), &high_occ, NULL, 0, 0);
+            s->opt->max_n_chain, 1, NULL, &(b->tmp_region), NULL, &(b->sp), &high_occ, NULL, 0, 1);
 
     clear_Cigar_record(&b->cigar1);
     clear_Round2_alignment(&b->round2);
@@ -9902,22 +9902,38 @@ ul_contain *ul_contain_gen(ma_ug_t *ug, asg_t *rg, ma_hit_t_alloc* src, int64_t 
 	return p;
 }
 
-void gen_hpc_seq(const char *in, uint32_t in_len, ma_utg_t *ou)
+void gen_hpc_seq(const char *in, uint32_t in_len, ma_utg_t *ou, hmap_t *mm, uint32_t hpc_id)
 {
-	uint32_t k, l, m; memset(ou, 0, sizeof((*ou)));
+	uint32_t k, l, m; int64_t n; memset(ou, 0, sizeof((*ou)));
 	for (l = 0, k = 1; k <= in_len; k++) {
 		if((k == in_len) || (in[k] != in[l]) || (seq_nt4_table[(uint8_t)in[l]] >= 4)) {
 			ou->len++; l = k;
 		}
 	}
+	kv_resize(uint8_t, *mm, mm->n+ou->len); 
+	mm->idx[hpc_id] = ((uint64_t)mm->n)<<32;
 
+	ou->len <<= 1;
 	MALLOC(ou->s, ou->len); m = 0;
 	for (l = 0, k = 1; k <= in_len; k++) {
 		if((k == in_len) || (in[k] != in[l]) || (seq_nt4_table[(uint8_t)in[l]] >= 4)) {
 			ou->s[m++] = in[l];
+			n = k-l;
+			while(n >= 0) {///even if n == 0, need to keep it
+				if(n < 255) {
+					kv_push(uint8_t, *mm, n); break;
+				} else {
+					kv_push(uint8_t, *mm, 255); n -= 255;
+				}
+			}
 			l = k;
 		}
 	}
+	l = m; mm->idx[hpc_id] += (mm->n - (mm->idx[hpc_id]>>32));
+	for (k = 0; k < l; k++) ou->s[m++] = RC_CHAR(ou->s[l-k-1]);
+
+	
+
 }
 
 void gen_microsatellite(const char *in, uint32_t in_len, ma_utg_t *idx, hpc_t *res, uint32_t mcs_len)
@@ -9977,20 +9993,21 @@ uint32_t hpc_l(char *s, int64_t hof, int64_t sof, int64_t scut)
 hpc_t *hpc_g_gen(ma_ug_t *ug)
 {
 	uint32_t k, i, ho, so, len; int32_t z; hpc_t *p; kvec_t(char) cc; asg_t *ng = asg_init();
-	CALLOC(p, 1); CALLOC(p->hg, 1); kv_init(cc); 
+	CALLOC(p, 1); CALLOC(p->hg, 1); kv_init(cc); CALLOC(p->mm, 1);
 	CALLOC(p->hg->u.a, ug->u.n); p->hg->u.n = p->hg->u.m = ug->u.n;
+	CALLOC(p->mm->idx, ug->u.n);
 
 	for (k = 0; k < ug->u.n; k++) {
 		kv_resize(char, cc, ug->u.a[k].len);
 		retrieve_u_seq(NULL, cc.a, &(ug->u.a[k]), 0, 0, ug->u.a[k].len, NULL);
-		gen_hpc_seq(cc.a, ug->u.a[k].len, &(p->hg->u.a[k]));
+		gen_hpc_seq(cc.a, ug->u.a[k].len, &(p->hg->u.a[k]), p->mm, k);
 		gen_microsatellite(cc.a, ug->u.a[k].len, &(p->hg->u.a[k]), p, 6);
 	}
 
 	ng->m_arc = ng->n_arc = ug->g->n_arc; CALLOC(ng->arc, ng->n_arc);
 	ng->m_seq = ng->n_seq = ug->g->n_seq; CALLOC(ng->seq, ng->n_seq);
 	for (k = 0; k < ng->n_seq; k++) {
-		ng->seq[k].del = ng->seq[k].c = 0; ng->seq[k].len = p->hg->u.a[k].len;///hpc len
+		ng->seq[k].del = ng->seq[k].c = 0; ng->seq[k].len = p->hg->u.a[k].len>>1;///hpc len
 	}
 	memcpy(ng->arc, ug->g->arc, ng->n_arc*(sizeof((*(ng->arc))))); 
 	for (k = 1, i = 0; k <= ng->n_arc; k++) {
@@ -10448,6 +10465,9 @@ void destroy_ul_idx_t(ul_idx_t *uu)
 	if(uu->hpc_g) {
 		free(uu->hpc_g->a);
 		ma_ug_destroy(uu->hpc_g->hg);
+		free(uu->hpc_g->mm->a);
+		free(uu->hpc_g->mm->idx);
+		free(uu->hpc_g->mm);
 		free(uu->hpc_g);
 	}
 		// if(uu->ov) {

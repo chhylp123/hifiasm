@@ -26,6 +26,9 @@ KSORT_INIT(or_xs, overlap_region, oreg_xs_lt)
 #define oreg_ss_lt(a, b) ((a).shared_seed > (b).shared_seed) // in the decending order
 KSORT_INIT(or_ss, overlap_region, oreg_ss_lt)
 
+#define oreg_id_lt(a, b) ((a).y_id < (b).y_id)
+KSORT_INIT(or_id, overlap_region, oreg_id_lt)
+
 typedef struct {
 	int n;
 	const ha_idxpos_t *a;
@@ -869,16 +872,34 @@ void *ha_flt_tab, ha_pt_t *ha_idx, kvec_t_u64_warp* dbg_ct, st_mt_t *sp, uint32_
 	cl->length = ab->n_a;
 }
 
+void inline reverse_k_mer_hit(k_mer_hit *a, uint64_t a_n, uint64_t xl, uint64_t yl)
+{
+	uint64_t z, han = a_n>>1; k_mer_hit *ai, *aj, ka;
+	for (z = 0; z < han; z++) {
+		ai = &(a[z]); aj = &(a[a_n-z-1]);
+		ka = (*ai); (*ai) = (*aj); (*aj) = ka;
+
+		ai->self_offset = xl-ai->self_offset-1;
+		ai->offset = yl-ai->offset-1;
+
+		aj->self_offset = xl-aj->self_offset-1;
+		aj->offset = yl-aj->offset-1;
+	}
+	if(a_n&1) {
+		a[z].self_offset = xl-a[z].self_offset-1;
+		a[z].offset = yl-a[z].offset-1;
+	}
+}
+
 void lchain_gen(Candidates_list* cl, overlap_region_alloc* ol, uint32_t rid, uint64_t rl, All_reads* rdb, 
 				const ul_idx_t *udb, uint32_t apend_be, overlap_region* tf, uint64_t max_n_chain,
 				int64_t max_skip, int64_t max_iter, int64_t max_dis, double chn_pen_gap, double chn_pen_skip, double bw_rate, int64_t quick_check, uint32_t gen_off)
 {
 	// fprintf(stderr, "+[M::%s]\n", __func__);
-	uint64_t i, k, l, m, sm, cn = cl->length;
+	uint64_t i, k, l, m, sm, cn = cl->length, srt = 0; overlap_region *r;
 	clear_overlap_region_alloc(ol);
 	clear_fake_cigar(&(tf->f_cigar));
 
-	///calculate_overlap_region_by_chaining(cl, overlap_list, chain_idx, rid, rl, NULL, uref, bw_thres, keep_whole_chain, f_cigar);
 	for (l = 0, k = 1, m = 0; k <= cn; k++) {
 		if((k == cn) || (cl->list[k].readID != cl->list[l].readID) 
 													|| (cl->list[k].strand != cl->list[l].strand)) {
@@ -891,14 +912,14 @@ void lchain_gen(Candidates_list* cl, overlap_region_alloc* ol, uint32_t rid, uin
 				sm = lchain_dp(cl->list+l, k-l, cl->list+m, &(cl->chainDP), tf, max_skip, max_iter, max_dis, chn_pen_gap, chn_pen_skip, bw_rate, 
               	rl, rdb?Get_READ_LENGTH((*rdb), (*tf).y_id):udb->ug->u.a[(*tf).y_id].len, quick_check);
 				// assert(sm > 0);
-				// uint64_t z;
-				// for (z = 0; z < sm; z++) {
-				// 	fprintf(stderr, "+[M::z->%lu] x::%u, y::%u, cnt::%u\n", 
-				// 	z, cl->list[m+z].self_offset, cl->list[m+z].offset, cl->list[m+z].cnt&(0xffu));
-				// }
-				
-				// fprintf(stderr, "+[M::%s] l::%lu, k::%lu, sm::%lu, # cigar::%u, yid::%u, sc::%d\n", __func__, l, k, sm, tf->f_cigar.length, tf->y_id, tf->shared_seed);
 				if(ovlp_chain_gen(ol, tf, rl, rdb?Get_READ_LENGTH((*rdb), (*tf).y_id):udb->ug->u.a[(*tf).y_id].len, apend_be, cl->list+m, sm)) {
+					if(gen_off) {
+						r = &(ol->list[ol->length-1]);
+						if(r->y_pos_strand) {
+							reverse_k_mer_hit(cl->list+m, sm, rl, rdb?Get_READ_LENGTH((*rdb), r->y_id):udb->ug->u.a[r->y_id].len);
+						}
+						gen_fake_cigar(&(r->f_cigar), r, apend_be, cl->list+m, sm);
+					}
 					m += sm;
 				}
 			}
@@ -908,13 +929,13 @@ void lchain_gen(Candidates_list* cl, overlap_region_alloc* ol, uint32_t rid, uin
 	cl->length = m;
 
 
-	
+	k = ol->length;
 	if (ol->length > max_n_chain) {
 		int32_t w, n[4], s[4]; overlap_region t;
 		n[0] = n[1] = n[2] = n[3] = 0, s[0] = s[1] = s[2] = s[3] = 0;
-		ks_introsort_or_ss(ol->length, ol->list);
+		ks_introsort_or_ss(ol->length, ol->list); srt = 1;
 		for (i = 0; i < ol->length; ++i) {
-			const overlap_region *r = &(ol->list[i]);
+			r = &(ol->list[i]);
 			w = ha_ov_type(r, rl);
 			++n[w];
 			if (((uint64_t)n[w]) == max_n_chain) s[w] = r->shared_seed;
@@ -922,7 +943,7 @@ void lchain_gen(Candidates_list* cl, overlap_region_alloc* ol, uint32_t rid, uin
 		if (s[0] > 0 || s[1] > 0 || s[2] > 0 || s[3] > 0) {
 			// n[0] = n[1] = n[2] = n[3] = 0;
 			for (i = 0, k = 0; i < ol->length; ++i) {
-				overlap_region *r = &(ol->list[i]);
+				r = &(ol->list[i]);
 				w = ha_ov_type(r, rl);
 				// ++n[w];
 				// if (((int)n[w] <= max_n_chain) || (r->shared_seed >= s[w] && s[w] >= (asm_opt.k_mer_length<<1))) {
@@ -938,6 +959,27 @@ void lchain_gen(Candidates_list* cl, overlap_region_alloc* ol, uint32_t rid, uin
 			ol->length = k;
 		}
 	}
+
+	if(!gen_off) {
+		if(srt) ks_introsort_or_id(ol->length, ol->list);
+		uint64_t cln = cl->length;
+		for (i = k = m = 0; i < ol->length; ++i) {
+			r = &(ol->list[i]);
+			for (;(k<cln)&&((cl->list[k].readID!=r->y_id)||(cl->list[k].strand!=r->y_pos_strand)); k++);
+			// assert(k<cln);
+			for (cn = m; k < cln; k++, m++) {
+				if((cl->list[k].readID!=r->y_id)||(cl->list[k].strand!=r->y_pos_strand)) break;
+				if(m != k) cl->list[m] = cl->list[k];
+			}
+			// assert(m - cn > 0);
+			if(r->y_pos_strand) {
+				reverse_k_mer_hit(cl->list+cn, m-cn, rl, rdb?Get_READ_LENGTH((*rdb), r->y_id):udb->ug->u.a[r->y_id].len);
+			}
+			// gen_fake_cigar(&(r->f_cigar), r, apend_be, cl->list+cn, m-cn);
+		}
+		cl->length = m;
+	}
+
 	ks_introsort_or_xs(ol->length, ol->list);
 }
 

@@ -250,10 +250,20 @@ typedef struct {
 } cvert_t;
 
 typedef struct {
+	size_t n, m;
+    uint8_t *a;
+	uint64_t *idx;
+} hmap_t;
+
+typedef struct {
 	ma_ug_t *hg;
 	size_t n, m; 
 	uint64_t *a;
+	hmap_t *mm;
 } hpc_t;
+
+#define hpc_len(x, id) ((x).hg->u.a[(id)].len>>1)
+#define hpc_str(x, id, rev) (((x).hg->u.a[(id)].s)+((rev)?((x).hg->u.a[(id)].len>>1):(0)))
 
 typedef struct {
 	ma_ug_t *ug;
