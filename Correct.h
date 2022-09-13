@@ -1130,6 +1130,10 @@ void correct_ul_overlap(overlap_region_alloc* overlap_list, const ul_idx_t *uref
                         kvec_t_u64_warp* v_idx, window_list_alloc* win_ciagr_buf, 
                         int force_repeat, int is_consensus, int* fully_cov, int* abnormal, 
                         double max_ov_diff_ec, long long winLen, void *km);
+void ul_lalign(overlap_region_alloc* ol, Candidates_list *cl, const ul_idx_t *uref, char *qstr, 
+                        uint64_t ql, UC_Read* qu, UC_Read* tu, Correct_dumy* dumy, 
+                        haplotype_evdience_alloc* hap, kvec_t_u64_warp* v_idx,   
+                        double e_rate, int64_t wl, uint64_t is_base, void *km);
 
 void lchain_align(overlap_region_alloc* overlap_list, const ul_idx_t *uref, 
                         UC_Read* g_read, Correct_dumy* dumy, UC_Read* overlap_read, 
@@ -1267,6 +1271,7 @@ inline void push_cigar_cell(window_list_alloc *res, uint8_t c, uint32_t len)
     uint16_t p = c; p <<= 14; p += (uint16_t)len;
     kv_push(uint16_t, res->c, p);
 }
+int64_t get_num_wins(int64_t s, int64_t e, int64_t block_s);
 
 #define FORWARD_KSW 0
 #define BACKWARD_KSW 1

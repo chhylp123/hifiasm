@@ -8,9 +8,12 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include "kvec.h"
 
+extern const unsigned char seq_nt4_table[256];
 typedef uint64_t Word;
 typedef uint32_t Word_32;
+typedef struct {size_t n, m; uint16_t *a; } asg16_v;
 
 inline void get_error(int t_length, int errthold, int init_err, Word VP, Word VN, 
 unsigned int* return_err, int* back_site)
@@ -208,6 +211,151 @@ unsigned int* return_err, int* return_p_end, int* return_t_end)
 	return (*return_t_end);
 }
 
+inline int Reserve_Banded_BPM_Extension_REV
+(char *pattern, int p_length, char *text, int t_length, unsigned short errthold, 
+unsigned int* return_err, int* return_p_end, int* return_t_end)
+{
+    (*return_err) = (unsigned int)-1;
+    (*return_p_end) = -1;
+    (*return_t_end) = -1;
+
+    Word Peq[256];
+
+    unsigned int line_error = (unsigned int)-1;
+    int return_site;
+    int band_length = (errthold << 1) + 1;
+    int i = 0;
+    Word tmp_Peq_1 = (Word)1;
+
+    Peq[(uint8_t)'A'] = (Word)0;
+    Peq[(uint8_t)'T'] = (Word)0;
+    Peq[(uint8_t)'G'] = (Word)0;
+    Peq[(uint8_t)'C'] = (Word)0;
+
+
+    Word Peq_A;
+    Word Peq_T;
+    Word Peq_C;
+    Word Peq_G;
+
+    ///band_length = 2k + 1
+    for (i = 0; i<band_length; i++)
+    {
+        Peq[(uint8_t)pattern[p_length-i-1]] = Peq[(uint8_t)pattern[p_length-i-1]] | tmp_Peq_1;
+        tmp_Peq_1 = tmp_Peq_1 << 1;
+    }
+
+    Peq_A = Peq[(uint8_t)'A'];
+    Peq_C = Peq[(uint8_t)'C'];
+    Peq_T = Peq[(uint8_t)'T'];
+    Peq_G = Peq[(uint8_t)'G'];
+
+
+    memset(Peq, 0, sizeof(Word)* 256);
+
+
+    Peq[(uint8_t)'A'] = Peq_A;
+    Peq[(uint8_t)'C'] = Peq_C;
+    Peq[(uint8_t)'T'] = Peq_T;
+    Peq[(uint8_t)'G'] = Peq_G;
+
+
+    
+
+    Word Mask = ((Word)1 << (errthold << 1));
+
+    Word VP = 0;
+    Word VN = 0;
+    Word X = 0;
+    Word D0 = 0;
+    Word HN = 0;
+    Word HP = 0;
+
+
+    i = 0;
+
+    int err = 0;
+
+    Word err_mask = (Word)1;
+
+    int i_bd = (errthold << 1);
+
+
+    int last_high = (errthold << 1);
+
+    int t_length_1 = t_length - 1;
+
+    while (i<t_length_1)
+    {
+        X = Peq[(uint8_t)text[t_length-i-1]] | VN;
+
+        D0 = ((VP + (X&VP)) ^ VP) | X;
+
+        HN = VP&D0;
+        HP = VN | ~(VP | D0);
+
+        X = D0 >> 1;
+        VN = X&HP;
+        VP = HN | ~(X | HP);
+
+        if (!(D0&err_mask))
+        {
+            ++err;
+            if ((err - last_high)>errthold)
+            {
+                return (*return_t_end);
+            }
+        }
+        get_error(i + 1, errthold, err, VP, VN, &line_error, &return_site);
+        if(line_error != (unsigned int)-1)
+        {
+            (*return_t_end) = t_length-i-1;
+            (*return_p_end) = p_length-return_site-1;
+            (*return_err) = line_error;
+        }
+
+        Peq[(uint8_t)'A'] = Peq[(uint8_t)'A'] >> 1;
+        Peq[(uint8_t)'C'] = Peq[(uint8_t)'C'] >> 1;
+        Peq[(uint8_t)'G'] = Peq[(uint8_t)'G'] >> 1;
+        Peq[(uint8_t)'T'] = Peq[(uint8_t)'T'] >> 1;
+
+
+        ++i;
+        ++i_bd;
+        Peq[(uint8_t)pattern[p_length-i_bd-1]] = Peq[(uint8_t)pattern[p_length-i_bd-1]] | Mask;
+    }
+
+
+
+
+
+    X = Peq[(uint8_t)text[t_length-i-1]] | VN;
+    D0 = ((VP + (X&VP)) ^ VP) | X;
+    HN = VP&D0;
+    HP = VN | ~(VP | D0);
+    X = D0 >> 1;
+    VN = X&HP;
+    VP = HN | ~(X | HP);
+    if (!(D0&err_mask))
+    {
+        ++err;
+        if ((err - last_high)>errthold)
+        {
+            return (*return_t_end);
+        }
+    }
+    ///i = t_length - 1
+    get_error(i + 1, errthold, err, VP, VN, &line_error, &return_site);
+    if(line_error != (unsigned int)-1)
+    {
+        (*return_t_end) = t_length-i-1;
+        (*return_p_end) = p_length-return_site-1;
+        (*return_err) = line_error;
+    }
+
+    return (*return_t_end);
+}
+
 inline void reverse_string(char* str, int strLen)
 {
 	int i, Len;
@@ -267,7 +415,494 @@ int* return_t_end, int* return_aligned_t_len)
 	}
 }
 
+///p_length might be samller than t_length + 2 * errthold
+/// pattern is longer than text
+inline int32_t ed_band_cal_semi(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t thre, int32_t *re_err)
+{
+    (*re_err) = INT32_MAX;
+	Word Peq[5] = {0}, mm = (Word)1, VP = 0, VN = 0, X = 0, D0 = 0, HN = 0, HP = 0; 
+	int32_t bd = (thre<<1)+1, i, err = 0, i_bd = (thre<<1), last_high = (thre<<1), tn0 = tn - 1;
+	int32_t cut = thre+last_high; 
 
+    for (i = 0; i < bd; i++) {
+        Peq[seq_nt4_table[(uint8_t)pstr[i]]] |= mm; mm <<= 1;
+    }
+	///should make Peq[4] = 0 if N is always an error
+	Peq[4] = 0;
+	i = 0; mm = ((Word)1 << (thre<<1));///for the incoming char/last char
+
+    while (i < tn0) {
+        X = Peq[seq_nt4_table[(uint8_t)tstr[i]]] | VN;
+
+        D0 = ((VP + (X&VP)) ^ VP) | X;
+
+        HN = VP&D0;
+        HP = VN | ~(VP | D0);
+
+        X = D0 >> 1;
+        VN = X&HP;
+        VP = HN | ~(X | HP);
+
+        if (!(D0&(1ULL))) {
+            ++err;
+            if (err>cut) return -1;
+        }
+
+		Peq[0] >>= 1; Peq[1] >>= 1; Peq[2] >>= 1; Peq[3] >>= 1; ///Peq[4] >>= 1;    
+
+        ++i; ++i_bd; 
+		Peq[seq_nt4_table[(uint8_t)pstr[i_bd]]] |= mm; Peq[4] = 0;
+    }
+
+    X = Peq[seq_nt4_table[(uint8_t)tstr[i]]] | VN;
+    D0 = ((VP + (X&VP)) ^ VP) | X;
+    HN = VP&D0;
+    HP = VN | ~(VP | D0);
+    X = D0 >> 1;
+    VN = X&HP;
+    VP = HN | ~(X | HP);
+    if (!(D0&(1ULL))) {
+		++err;
+		if (err>cut) return -1;
+	}
+
+    int32_t site = tn - 1, end = -1;///up bound
+    ///in most cases, ai = (thre<<1)
+    int32_t ai = pn - tn, uge = INT32_MAX;
+    if ((err <= thre) && (err<=(*re_err))) {
+        *re_err = err; end = site;
+    }
+    i = 0;
+
+    while (i < ai) {
+        err += ((VP >> i)&(1ULL)); err -= ((VN >> i)&(1ULL)); ++i;
+        if ((err <= thre) && (err <= (*re_err))) {
+            *re_err = err; end = site + i;
+        }
+        if(i == thre) uge = err;
+    }
+
+    if((uge<=thre) && (uge == (*re_err))) end = site + thre;
+    return end;
+}
+
+inline void print_bit(Word z, int64_t w, const char *cmd)
+{
+	int64_t k;//, w = (sizeof(Word)<<3);
+	fprintf(stderr, "%s\t", cmd);
+	for (k = 0; k < w; k++) fprintf(stderr, "%llu", (z>>k)&(1ULL));
+	fprintf(stderr, "\n");
+}
+
+inline void print_bits(Word *az, int64_t w, const char *cmd)
+{
+	int64_t k, m, s = (sizeof(*az)<<3), sw = (w/s) + (!!(w%s)), ks;
+	fprintf(stderr, "%s\t", cmd);
+	for (m = k = 0; m < sw && k < w; m++) {
+		for (ks = 0; ks < s && k < w; ks++, k++) fprintf(stderr, "%llu", (az[m]>>ks)&(1ULL));
+	}
+	fprintf(stderr, "\n");
+}
+
+inline int32_t ed_band_cal_global(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t thre)
+{
+	if((pn > tn + thre) || (tn > pn + thre)) return INT32_MAX;
+	if((pn < thre + 1) || (tn < thre + 1)) return INT32_MAX;
+	Word Peq[5] = {0}, mm, VP = 0, VN = 0, X = 0, D0 = 0, HN = 0, HP = 0; 
+	int32_t i, err, tn0 = tn - 1, cut = thre+(thre<<1), bd = thre+1, i_bd = thre;
+	// fprintf(stderr, "\n[M::%s::]\n", __func__);
+    for (i = 0, mm = (((Word)1)<<thre); i < bd; i++) {
+        Peq[seq_nt4_table[(uint8_t)pstr[i]]] |= mm; mm <<= 1;
+    }
+	Peq[4] = 0;
+	err = thre;
+	VN = (((Word)1)<<(thre))-1; 
+	VP = (((Word)1)<<((thre<<1)+1))-1; VP ^= VN;
+
+	// print_bit(Peq[0], (thre<<1)+1, "Peq[A]");
+	// print_bit(Peq[1], (thre<<1)+1, "Peq[C]");
+	// print_bit(Peq[2], (thre<<1)+1, "Peq[G]");
+	// print_bit(Peq[3], (thre<<1)+1, "Peq[T]");
+	// print_bit(Peq[4], (thre<<1)+1);
+	// print_bit(VN, (thre<<1)+1, "VN");
+	// print_bit(VP, (thre<<1)+1, "VP");
+
+	///should make Peq[4] = 0 if N is always an error
+	i = 0; mm = ((Word)1 << (thre<<1));///for the incoming char/last char
+
+    while (i < tn0) {
+        X = Peq[seq_nt4_table[(uint8_t)tstr[i]]] | VN;
+
+        D0 = ((VP + (X&VP)) ^ VP) | X;
+
+        HN = VP&D0;
+        HP = VN | ~(VP | D0);
+
+        X = D0 >> 1;
+        VN = X&HP;
+        VP = HN | ~(X | HP);
+		// fprintf(stderr, "\n[M::%s::i->%d]\n", __func__, i);
+		// print_bit(VN, (thre<<1)+1, "VN");
+		// print_bit(VP, (thre<<1)+1, "VP");
+		// print_bit(HN, (thre<<1)+1, "HN");
+		// print_bit(HP, (thre<<1)+1, "HP");
+		// print_bit(D0, (thre<<1)+1, "D0");
+
+        if (!(D0&(1ULL))) {
+            ++err;
+            if (err>cut) return INT32_MAX;
+        }
+		// fprintf(stderr, "[M::%s::i->%d] err->%d\n", __func__, i, err);
+
+		Peq[0] >>= 1; Peq[1] >>= 1; Peq[2] >>= 1; Peq[3] >>= 1; ///Peq[4] >>= 1;    
+
+        ++i; ++i_bd;
+        if(i_bd < pn) {
+			Peq[seq_nt4_table[(uint8_t)pstr[i_bd]]] |= mm; Peq[4] = 0;
+		}
+        // if(i < pn) Peq[seq_nt4_table[(uint8_t)pstr[i]]] |= mm;
+    }
+
+    X = Peq[seq_nt4_table[(uint8_t)tstr[i]]] | VN;
+    D0 = ((VP + (X&VP)) ^ VP) | X;
+    HN = VP&D0;
+    HP = VN | ~(VP | D0);
+    X = D0 >> 1;
+    VN = X&HP;
+    VP = HN | ~(X | HP);
+	// fprintf(stderr, "\n[M::%s::i->%d]\n", __func__, i);
+	// print_bit(VN, (thre<<1)+1, "VN");
+	// print_bit(VP, (thre<<1)+1, "VP");
+	// print_bit(HN, (thre<<1)+1, "HN");
+	// print_bit(HP, (thre<<1)+1, "HP");
+	// print_bit(D0, (thre<<1)+1, "D0");
+    if (!(D0&(1ULL))) {
+		++err;
+		if (err>cut) return INT32_MAX;
+	}
+	// fprintf(stderr, "[M::%s::i->%d] err->%d\n", __func__, i, err);
+
+    int32_t site = tn - 1 - thre;///up bound
+	for (cut = pn - 1, i = 0; site < cut; site++, i++) {
+		// fprintf(stderr, "+[M::%s::site->%d] err->%d\n", __func__, site, err);
+		err += ((VP >> i)&(1ULL)); err -= ((VN >> i)&(1ULL));
+		// fprintf(stderr, "-[M::%s::site->%d] err->%d\n", __func__, site, err);
+	}
+
+	if (site == cut && err <= thre) return err;
+    return INT32_MAX;
+}
+
+typedef uint64_t w_sig;
+typedef struct {w_sig a[2];} w128_t;
+#define bitw (6)
+#define bitwbit (64)
+#define bitz (63)
+// typedef uint32_t w_sig;
+// typedef struct {w_sig a[2];} w128_t;
+// #define bitw (5)
+// #define bitwbit (32)
+// #define bitz (31)
+
+#define w128_bit(x, b) ((x).a[((b)>>bitw)]|=(((w_sig)1)<<((b)&bitz)))
+#define w128_clear(x) ((x).a[0]=(x).a[1]=0)
+
+#define w128_self_not(x) ((x).a[0]=~(x).a[0], \
+									(x).a[1]=~(x).a[1])
+
+#define w128_self_or(x, y) ((x).a[0]|=(y).a[0], \
+									(x).a[1]|=(y).a[1])
+
+#define w128_or(r, x, y) ((r).a[0] = (x).a[0]|(y).a[0], \
+									(r).a[1] = (x).a[1]|(y).a[1])
+
+#define w128_and(r, x, y) ((r).a[0] = (x).a[0]&(y).a[0], \
+									(r).a[1] = (x).a[1]&(y).a[1])
+
+#define w128_self_xor(x, y) ((x).a[0]^=(y).a[0], \
+									(x).a[1]^=(y).a[1])
+
+// #define w128_self_lsft_l(x, l) ((x).a[1] = ((x).a[1]<<(l))|((x).a[0]>>(bitwbit-(l))), \
+// 																		(x).a[0] <<= (l))
+
+#define w128_self_lsft_1(x) ((x).a[1] = ((x).a[1]<<1)|((x).a[0]>>bitz), \
+																		(x).a[0] <<= 1)
+
+#define w128_self_rsft_1(x) ((x).a[0] = ((x).a[0]>>1)|((x).a[1]<<bitz), \
+																		(x).a[1] >>= 1)
+
+#define w128_self_add(x, y) ((x).a[0]+=(y).a[0], \
+								(x).a[1]+=(y).a[1]+((x).a[0]<(y).a[0]))
+
+#define w128_set_bit_lsub(x, l) do {	\
+		(x).a[0] = (w_sig)-1, (x).a[1] = 0;	\
+		if((l) <= bitwbit) (x).a[0] = (((w_sig)1)<<(l))-1; \
+		else (x).a[1] = (((w_sig)1)<<((l)-bitwbit))-1;\
+	} while (0)												\
+
+#define ed_core_w128(RE) {	\
+		/**X = Peq[seq_nt4_table[(uint8_t)tstr[i]]] | VN;**/\
+		c = seq_nt4_table[(uint8_t)tstr[i]]; w128_or(X, Peq[c], VN);\
+		/**D0 = ((VP + (X&VP)) ^ VP) | X;**/\
+		w128_and(D0, X, VP);\
+		w128_self_add(D0, VP);\
+		w128_self_xor(D0, VP);\
+		w128_self_or(D0, X);\
+        /**HN = VP&D0;**/\
+		w128_and(HN, VP, D0);\
+        /**HP = VN | ~(VP | D0);**/\
+		w128_or(HP, VP, D0);\
+		w128_self_not(HP);\
+		w128_self_or(HP, VN);\
+        /**X = D0 >> 1;**/\
+		X = D0; w128_self_rsft_1(X);\
+        /**VN = X&HP;**/\
+		w128_and(VN, X, HP);\
+        /**VP = HN | ~(X | HP);**/\
+		w128_or(VP, X, HP);\
+		w128_self_not(VP);\
+		w128_self_or(VP, HN);\
+		/**if (!(D0&(1ULL)))**/\
+        if (!(D0.a[0]&(1ULL))) {\
+            ++err;\
+            if (err>cut) return RE;\
+        }\
+		/** Peq[0] >>= 1; Peq[1] >>= 1; Peq[2] >>= 1; Peq[3] >>= 1;**/\
+		w128_self_rsft_1(Peq[0]); w128_self_rsft_1(Peq[1]);\
+		w128_self_rsft_1(Peq[2]); w128_self_rsft_1(Peq[3]);\
+	} 
+
+inline int32_t ed_band_cal_global_128bit(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t thre)
+{
+	if((pn > tn + thre) || (tn > pn + thre)) return INT32_MAX;
+	if((pn < thre + 1) || (tn < thre + 1)) return INT32_MAX;
+	w128_t Peq[5], mm, VP, VN, X, D0, HN, HP; uint8_t c;
+	int32_t i, err, tn0 = tn - 1, cut = thre+(thre<<1), bd = thre+1, i_bd = thre;
+	w128_clear(Peq[0]); w128_clear(Peq[1]); w128_clear(Peq[2]); w128_clear(Peq[3]); w128_clear(Peq[4]);
+
+	w128_clear(mm); w128_bit(mm, thre); ///mm = (((Word)1)<<thre)
+    for (i = 0; i < bd; i++) {
+		w128_self_or(Peq[seq_nt4_table[(uint8_t)pstr[i]]], mm); w128_self_lsft_1(mm);
+        // Peq[seq_nt4_table[(uint8_t)pstr[i]]] |= mm; mm <<= 1;
+    }
+	w128_clear(Peq[4]);
+	err = thre;
+	w128_set_bit_lsub(VN, thre); ///VN = (((Word)1)<<(thre))-1; 
+	w128_set_bit_lsub(VP, (thre<<1)+1); ///VP = (((Word)1)<<((thre<<1)+1))-1;
+	w128_self_xor(VP, VN); ///VP ^= VN;
+
+	// print_bits(Peq[0].a, (thre<<1)+1, "-Peq[A]");
+	// print_bits(Peq[1].a, (thre<<1)+1, "-Peq[C]");
+	// print_bits(Peq[2].a, (thre<<1)+1, "-Peq[G]");
+	// print_bits(Peq[3].a, (thre<<1)+1, "-Peq[T]");
+	// print_bits(VN.a, (thre<<1)+1, "-VN");
+	// print_bits(VP.a, (thre<<1)+1, "-VP");
+
+	///should make Peq[4] = 0 if N is always an error
+	i = 0; 
+	///for the incoming char/last char
+	w128_clear(mm); w128_bit(mm, (thre<<1)); ///mm = ((Word)1 << (thre<<1));
+	//VP + ((Peq|VN)&VP)
+    while (i < tn0) {
+		///X = Peq[seq_nt4_table[(uint8_t)tstr[i]]] | VN;
+		c = seq_nt4_table[(uint8_t)tstr[i]]; w128_or(X, Peq[c], VN);
+
+		///D0 = ((VP + (X&VP)) ^ VP) | X;
+		w128_and(D0, X, VP);
+		w128_self_add(D0, VP);
+		w128_self_xor(D0, VP);
+		w128_self_or(D0, X);
+
+        // HN = VP&D0;
+		w128_and(HN, VP, D0);
+        // HP = VN | ~(VP | D0);
+		w128_or(HP, VP, D0);
+		w128_self_not(HP);
+		w128_self_or(HP, VN);
+
+        // X = D0 >> 1;
+		X = D0; w128_self_rsft_1(X);
+        // VN = X&HP;
+		w128_and(VN, X, HP);
+        // VP = HN | ~(X | HP);
+		w128_or(VP, X, HP);
+		w128_self_not(VP);
+		w128_self_or(VP, HN);
+
+
+		//if (!(D0&(1ULL)))
+        if (!(D0.a[0]&(1ULL))) {
+            ++err;
+            if (err>cut) return INT32_MAX;
+        }
+		// fprintf(stderr, "[M::%s::i->%d] err->%d\n", __func__, i, err);
+
+		// Peq[0] >>= 1; Peq[1] >>= 1; Peq[2] >>= 1; Peq[3] >>= 1; 
+		w128_self_rsft_1(Peq[0]); w128_self_rsft_1(Peq[1]);
+		w128_self_rsft_1(Peq[2]); w128_self_rsft_1(Peq[3]);
+
+        ++i; ++i_bd;
+        if(i_bd < pn) {
+			c = seq_nt4_table[(uint8_t)pstr[i_bd]]; 
+			///if(c < 4) Peq[c] |= mm;
+			if(c < 4) w128_self_or(Peq[c], mm);
+		}
+    }
+
+    // X = Peq[seq_nt4_table[(uint8_t)tstr[i]]] | VN;
+	c = seq_nt4_table[(uint8_t)tstr[i]]; w128_or(X, Peq[c], VN);
+    // D0 = ((VP + (X&VP)) ^ VP) | X;
+	w128_and(D0, X, VP);
+	w128_self_add(D0, VP);
+	w128_self_xor(D0, VP);
+	w128_self_or(D0, X);
+    // HN = VP&D0;
+	w128_and(HN, VP, D0);
+    // HP = VN | ~(VP | D0);
+	w128_or(HP, VP, D0);
+	w128_self_not(HP);
+	w128_self_or(HP, VN);
+    // X = D0 >> 1;
+	X = D0; w128_self_rsft_1(X);
+    // VN = X&HP;
+	w128_and(VN, X, HP);
+    // VP = HN | ~(X | HP);
+	w128_or(VP, X, HP);
+	w128_self_not(VP);
+	w128_self_or(VP, HN);
+	
+    // if (!(D0&(1ULL))) {
+	if (!(D0.a[0]&(1ULL))) {
+		++err;
+		if (err>cut) return INT32_MAX;
+	}
+	// fprintf(stderr, "[M::%s::i->%d] err->%d\n", __func__, i, err);
+
+    int32_t site = tn - 1 - thre;///up bound
+	for (cut = pn - 1, i = 0; site < cut; site++, i++) {
+		// err += ((VP >> i)&(1ULL)); 
+		err += VP.a[0]&(1ULL); w128_self_rsft_1(VP); 
+		// err -= ((VN >> i)&(1ULL));
+		err -= VN.a[0]&(1ULL); w128_self_rsft_1(VN); 
+	}
+
+	if (site == cut && err <= thre) return err;
+    return INT32_MAX;
+}
+
+inline int32_t ed_band_cal_semi_128bit(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t thre, int32_t *re_err)
+{
+    (*re_err) = INT32_MAX;
+	w128_t Peq[5], mm, VP, VN, X, D0, HN, HP;
+	//Peq[5] = {0}, mm = (Word)1, VP = 0, VN = 0, X, D0, HN, HP; 
+	w128_clear(VP); w128_clear(VN); w128_clear(mm); w128_bit(mm, 0);
+	w128_clear(Peq[0]); w128_clear(Peq[1]); w128_clear(Peq[2]); w128_clear(Peq[3]); w128_clear(Peq[4]);
+	int32_t bd = (thre<<1)+1, i, err = 0, i_bd = (thre<<1), last_high = (thre<<1), tn0 = tn - 1;
+	int32_t cut = thre+last_high; uint8_t c;
+
+    for (i = 0; i < bd; i++) {
+		w128_self_or(Peq[seq_nt4_table[(uint8_t)pstr[i]]], mm); w128_self_lsft_1(mm);
+        // Peq[seq_nt4_table[(uint8_t)pstr[i]]] |= mm; mm <<= 1;
+    }
+	///should make Peq[4] = 0 if N is always an error
+	// Peq[4] = 0;
+	w128_clear(Peq[4]);
+	//mm = ((Word)1 << (thre<<1));///for the incoming char/last char
+	w128_clear(mm); w128_bit(mm, (thre<<1));
+
+	i = 0;
+    while (i < tn0) {
+        // X = Peq[seq_nt4_table[(uint8_t)tstr[i]]] | VN;
+		c = seq_nt4_table[(uint8_t)tstr[i]]; w128_or(X, Peq[c], VN);
+
+        // D0 = ((VP + (X&VP)) ^ VP) | X;
+		w128_and(D0, X, VP);
+        w128_self_add(D0, VP);
+        w128_self_xor(D0, VP);
+        w128_self_or(D0, X);
+
+        // HN = VP&D0;
+		w128_and(HN, VP, D0);
+        // HP = VN | ~(VP | D0);
+		w128_or(HP, VP, D0);
+        w128_self_not(HP);
+        w128_self_or(HP, VN);
+
+        // X = D0 >> 1;
+		X = D0; w128_self_rsft_1(X);
+        // VN = X&HP;
+		w128_and(VN, X, HP);
+        // VP = HN | ~(X | HP);
+		w128_or(VP, X, HP);
+        w128_self_not(VP);
+        w128_self_or(VP, HN);
+
+        // if (!(D0&(1ULL))) {
+		if (!(D0.a[0]&(1ULL))) {
+            ++err;
+            if (err>cut) return -1;
+        }
+
+		// Peq[0] >>= 1; Peq[1] >>= 1; Peq[2] >>= 1; Peq[3] >>= 1; 
+		w128_self_rsft_1(Peq[0]); w128_self_rsft_1(Peq[1]);
+        w128_self_rsft_1(Peq[2]); w128_self_rsft_1(Peq[3]);
+
+        ++i; ++i_bd; 
+		// Peq[seq_nt4_table[(uint8_t)pstr[i_bd]]] |= mm; Peq[4] = 0;
+		c = seq_nt4_table[(uint8_t)pstr[i_bd]]; 
+		if(c < 4) w128_self_or(Peq[c], mm);
+    }
+
+    // X = Peq[seq_nt4_table[(uint8_t)tstr[i]]] | VN;
+	c = seq_nt4_table[(uint8_t)tstr[i]]; w128_or(X, Peq[c], VN);
+    // D0 = ((VP + (X&VP)) ^ VP) | X;
+	w128_and(D0, X, VP);
+    w128_self_add(D0, VP);
+    w128_self_xor(D0, VP);
+    w128_self_or(D0, X);
+    // HN = VP&D0;
+	w128_and(HN, VP, D0);
+    // HP = VN | ~(VP | D0);
+	w128_or(HP, VP, D0);
+    w128_self_not(HP);
+    w128_self_or(HP, VN);
+    // X = D0 >> 1;
+	X = D0; w128_self_rsft_1(X);
+    // VN = X&HP;
+	w128_and(VN, X, HP);
+    // VP = HN | ~(X | HP);
+	w128_or(VP, X, HP);
+    w128_self_not(VP);
+    w128_self_or(VP, HN);
+    // if (!(D0&(1ULL))) {
+	if (!(D0.a[0]&(1ULL))) {
+		++err;
+		if (err>cut) return -1;
+	}
+
+    int32_t site = tn - 1, end = -1;///up bound
+    ///in most cases, ai = (thre<<1)
+    int32_t ai = pn - tn, uge = INT32_MAX;
+    if ((err <= thre) && (err<=(*re_err))) {
+        *re_err = err; end = site;
+    }
+    i = 0;
+
+    while (i < ai) {
+        // err += ((VP >> i)&(1ULL)); 
+		err += VP.a[0]&(1ULL); w128_self_rsft_1(VP); 
+		// err -= ((VN >> i)&(1ULL)); 
+		err -= VN.a[0]&(1ULL); w128_self_rsft_1(VN); 
+		++i;
+        if ((err <= thre) && (err <= (*re_err))) {
+            *re_err = err; end = site + i;
+        }
+        if(i == thre) uge = err;
+    }
+
+    if((uge<=thre) && (uge == (*re_err))) end = site + thre;
+    return end;
+}
 
 
 /**
@@ -277,7 +912,9 @@ inline int Reserve_Banded_BPM
 (char *pattern, int p_length, char *text, int t_length, unsigned short errthold, unsigned int* return_err)
 {
 	(*return_err) = (unsigned int)-1;
-
+	// int32_t rerr, rsite = ed_band_cal_semi_128bit(pattern, p_length, text, t_length, errthold, &rerr);
+	// if(rsite >= 0) (*return_err) = rerr;
+	// return rsite;
 	Word Peq[256];
 
 	int band_length = (errthold << 1) + 1;
@@ -888,7 +1525,6 @@ inline int Reserve_Banded_BPM_PATH
 	return return_site;
 }
 
-
 ////four patterns have the same p_length
 inline int Reserve_Banded_BPM_4_SSE_only(char *pattern1, char *pattern2, char *pattern3, char *pattern4, int p_length, char *text, int t_length,
 	int* return_sites, unsigned int* return_sites_error, unsigned short errthold, __m128i* Peq_SSE)
@@ -1195,6 +1831,279 @@ inline int Reserve_Banded_BPM_4_SSE_only(char *pattern1, char *pattern2, char *p
 	/****************************may have bugs********************************/
 
 	return 1;
+}
+
+
+#define EAC_M 0
+#define MIS_M 1 
+#define MOR_YP 2
+#define MOR_XT 3
+
+inline void push_trace(asg16_v *res, uint16_t c, uint32_t len)
+{
+    uint16_t p; c <<= 14; 
+	while (len >= (0x3fff)) {
+		p = (c + (0x3fff)); kv_push(uint16_t, *res, p); len -= (0x3fff);
+	}
+	if(len) {
+		p = (c + len); kv_push(uint16_t, *res, p);
+	}
+}
+
+// void move_trace_gap(uint16_t *trace, int32_t trace_n, int32_t trace_i, 
+// char *pstr, int32_t pi, char *tstr, int32_t ti, int32_t *err)
+// {
+// 	uint16_t c = trace[trace_i]>>14, l = (trace[trace_i]<<2)>>2; 
+// 	if(c != 3 && c != 2) return;
+// 	trace_i--;
+// 	if(c == 3) pi--;
+// 	else if(c == 2) ti--;
+	
+
+// 	if()
+
+// }
+
+// void adjust_trace(uint16_t *trace, int32_t *trace_n, int32_t *p_beg, int32_t *p_end, int32_t *err, char *pstr, char *tstr)
+// {
+// 	if((*err) == 0) return;
+// 	int32_t i, pi, ti; uint16_t c, l;
+// 	for (i = 0; i < (*trace_n) && (trace[i]>>14) == 1; i++) {
+// 		trace[i] <<= 2; trace[i] >>= 2; trace[i] += (((uint16_t)3)<<14); 
+// 		l = (trace[i]<<2)>>2; (*p_beg) += l;
+// 	}
+// 	for (i = (*trace_n) - 1; i >= 0 && (trace[i]>>14) == 1; i--) {
+// 		trace[i] <<= 2; trace[i] >>= 2; trace[i] += (((uint16_t)3)<<14); 
+// 		l = (trace[i]<<2)>>2; (*p_end) -= l;
+// 	}
+
+// 	i = 0; pi = (*p_beg); ti = 0;
+// 	for (i = 0; i < (*trace_n); i++) {
+// 		c = trace[i]>>14; l = (trace[i]<<2)>>2;
+// 		if(c == 0 || c == 1) {
+//             pi += l; ti += l;
+//         } else if(c == 2) {
+// 			// move_trace_gap(trace, *trace_n, i, pstr, pi, tstr, ti, err);
+//             pi += l;
+//         } else if(c == 3) {
+//             // move_trace_gap(trace, *trace_n, i, pstr, pi, tstr, ti, err);
+//             ti += l;
+//         }
+// 	}
+// }
+
+inline int32_t ungap_trace(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t know_err, int32_t know_end, 
+int32_t *r_err, int32_t *r_beg, asg16_v *cigar, int32_t *cigar_l)
+{
+	int32_t cn = cigar->n, pk, tk, e, l;
+	(*r_err) = (*r_beg) = INT32_MAX; (*cigar_l) = 0;
+	if(know_err < 0 || know_end < 0) return -1;
+	if(know_err == 0) {
+		push_trace(cigar, EAC_M, tn);
+		(*r_err) = know_err; (*r_beg) = know_end + 1 - tn; (*cigar_l) = cigar->n - cn;
+		return know_end;
+	}
+
+	pk = know_end+1-tn; tk = 0; e = 0;
+	for (l = 0; tk < tn; tk++, pk++) {
+		if(pstr[pk]!=tstr[tk]) {
+			e++; if(e > know_err) break;
+			if(tk > l) push_trace(cigar, EAC_M, tk-l);
+			push_trace(cigar, MIS_M, 1); l = tk + 1;
+		}
+	}
+	if(tk == tn) {
+		if(tk > l) push_trace(cigar, EAC_M, tk-l);
+		(*r_err) = know_err; (*r_beg) = know_end + 1 - tn; (*cigar_l) = cigar->n - cn;
+		return know_end;
+	}
+
+	cigar->n = cn;
+	return -1;
+}
+
+
+// ///p_length might be samller than t_length + 2 * errthold
+inline int32_t ed_band_cal_semi_trace(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t thre, 
+		int32_t know_err, int32_t know_end, int32_t *r_err, int32_t *r_beg, Word *buf, asg16_v *cigar, int32_t *cigar_l) {
+	int32_t cn = cigar->n; (*r_err) = (*r_beg) = INT32_MAX; (*cigar_l) = 0; 
+	Word Peq[5] = {0}, mm = (Word)1, VP = 0, VN = 0, X = 0, D0 = 0, HN = 0, HP = 0, i_col, i_col_dux; 
+    int32_t bd = (thre<<1)+1, i, err = 0, i_bd = (thre<<1), last_high = (thre<<1), tn0 = tn - 1;
+    int32_t cut = thre+last_high; ///kv_resize(uint16_t, *cigar, cigar->n+(uint32_t)know_err+2);//pre-alloc
+
+    if(ungap_trace(pstr, pn, tstr, tn, know_err, know_end, r_err, r_beg, cigar, cigar_l) >= 0) {
+		return know_end;
+	}
+
+    for (i = 0; i < bd; i++) {
+        Peq[seq_nt4_table[(uint8_t)pstr[i]]] |= mm; mm <<= 1;
+    }
+	Peq[4] = 0;
+	///should make Peq[4] = 0 if N is always an error
+    i = i_col = 0; mm = ((Word)1 << (thre<<1));///for the incoming char/last char
+
+    while (i < tn0) {
+        X = Peq[seq_nt4_table[(uint8_t)tstr[i]]] | VN;
+
+        D0 = ((VP + (X&VP)) ^ VP) | X;
+
+        HN = VP&D0;
+        HP = VN | ~(VP | D0);
+
+        X = D0 >> 1;
+        VN = X&HP;
+        VP = HN | ~(X | HP);
+
+        if (!(D0&(1ULL))) {
+            ++err;
+			if (err>cut) return -1;    
+        }
+
+		Peq[0] >>= 1; Peq[1] >>= 1; Peq[2] >>= 1; Peq[3] >>= 1; ///Peq[4] >>= 1;
+
+        ++i; ++i_bd; 
+        Peq[seq_nt4_table[(uint8_t)pstr[i_bd]]] |= mm; Peq[4] = 0;
+
+		buf[i_col++] = D0; buf[i_col++] = VP; buf[i_col++] = VN; buf[i_col++] = HP; buf[i_col++] = HN;
+    }
+
+    X = Peq[seq_nt4_table[(uint8_t)tstr[i]]] | VN;
+    D0 = ((VP + (X&VP)) ^ VP) | X;
+    HN = VP&D0;
+    HP = VN | ~(VP | D0);
+    X = D0 >> 1;
+    VN = X&HP;
+    VP = HN | ~(X | HP);
+    if (!(D0&(1ULL))) {
+		++err;
+		if (err>cut) return -1;    
+	}
+
+    buf[i_col++] = D0; buf[i_col++] = VP; buf[i_col++] = VN; buf[i_col++] = HP; buf[i_col++] = HN;
+
+	i_col_dux = i_col/tn;
+
+    int32_t site = tn - 1, end = -1;///up bound
+	///in most cases, ai = (thre<<1)
+    int32_t ai = pn - tn, uge = INT32_MAX;
+    if ((err <= thre) && (err<=(*r_err))) {
+        *r_err = err; end = site;
+    }
+    i = 0;
+
+    while (i < ai) {
+        err += ((VP >> i)&(1ULL)); err -= ((VN >> i)&(1ULL)); ++i;
+        if ((err <= thre) && (err <= (*r_err))) {
+            *r_err = err; end = site + i;
+        }
+        if(i == thre) uge = err;
+    }
+	if((uge<=thre) && (uge == (*r_err))) end = site + thre;
+    if ((*r_err) > thre) return end;
+    
+
+    ///need to correct pn here, since pn might be smaller than tn + 2* thre
+    pn = tn + (thre<<1);
+    int32_t beg = end, back_track_site = bd - (pn - end);
+
+    Word v_value, h_value, delta_value, min_value, current_value;
+    ///Word direction; ///0 is match, 1 is mismatch, 2 is up, 3 is left
+    Word direction = 0, *ba, pd, pdl; ///0 is match, 1 is mismatch, 2 is up, 3 is left
+    i = tn; pd = (Word)-1; pdl = 0; 
+    current_value = *r_err;
+    int32_t low_bound = bd - 1;
+
+    while (i > 0) {
+        if (current_value == 0) break;
+		ba = buf + ((i*i_col_dux) - i_col_dux);
+        delta_value = current_value - ((~(ba[0]>>back_track_site))&(1ULL));
+
+        if (back_track_site == 0) {
+            ///HP
+            h_value = current_value - ((ba[3] >> back_track_site)&(1ULL));
+            //HN
+            h_value = h_value + ((ba[4] >> back_track_site)&1ULL);
+            min_value = delta_value; direction = 0;
+            if (h_value < min_value) {
+                min_value = h_value;
+                direction = 3;
+            }
+        } else if (back_track_site == low_bound) {
+            v_value = current_value - ((ba[1]>>(back_track_site-1))&(1ULL));
+            v_value = v_value + ((ba[2]>>(back_track_site-1))&(1ULL));
+
+            min_value = delta_value; direction = 0;
+            if (v_value < min_value) {
+                min_value = v_value;
+                direction = 2;
+            }
+        }
+        else {
+            h_value = current_value-((ba[3]>>back_track_site)&(1ULL));
+            h_value = h_value+((ba[4]>>back_track_site)&(1ULL));
+
+            v_value = current_value - ((ba[1]>>(back_track_site-1))&(1ULL));
+            v_value = v_value + ((ba[2]>>(back_track_site-1))&(1ULL));
+
+            min_value = delta_value; direction = 0;
+            if (v_value < min_value) {
+                min_value = v_value;
+                direction = 2;
+            }
+
+            if (h_value < min_value) {
+                min_value = h_value;
+                direction = 3;
+            }
+        }
+
+
+        if (direction == 0) {
+            if (delta_value != current_value) {
+                direction = 1;
+            }
+            i--; beg--;
+        }
+        if (direction == 2) {///ru guo xiang shang yi dong, bing bu huan lie
+            back_track_site--; beg--;
+        }
+        else if (direction == 3) {///ru guo xiang zuo yi dong
+            i--;
+            back_track_site++;
+        }
+		
+		if(direction != pd) {
+			if(pdl > 0) push_trace(cigar, pd, pdl);
+			pd = direction; pdl = 1;
+		} else {
+			pdl++;
+		}
+        // path[path_length++] = direction;
+        current_value = min_value;
+    }
+
+
+    if (i > 0) {
+		direction = 0; beg -= i;
+		if(direction != pd) {
+			if(pdl > 0) push_trace(cigar, pd, pdl);
+			pd = direction; pdl = i;
+		} else {
+			pdl += i;
+		}
+    }
+
+	if(pdl > 0) push_trace(cigar, pd, pdl);
+    if (direction != 3) beg++;
+
+	uint16_t *trac = cigar->a + cn, tt; int32_t trac_n = cigar->n - cn; ai = trac_n>>1;
+	for (i = 0; i < ai; i++) {
+		tt = trac[i]; trac[i] = trac[trac_n-i-1]; trac[trac_n-i-1] = tt;
+	}
+	(*cigar_l) = cigar->n - cn;
+
+    (*r_beg) = beg; (*cigar_l) = cigar->n - cn;
+    return end;
 }
 
 

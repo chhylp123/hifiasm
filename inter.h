@@ -26,7 +26,7 @@ typedef struct {
 	int min_gc_cnt, min_gc_score, sub_diff, best_n;
     float chn_pen_gap, mask_level, pri_ratio;
 	///base-alignment
-	double bw_thres, diff_ec_ul, diff_ec_ul_low; int max_n_chain, ec_ul_round;
+	double bw_thres, diff_ec_ul, diff_ec_ul_low, diff_ec_ul_hpc; int max_n_chain, ec_ul_round;
 } mg_idxopt_t;
 
 struct mg_tbuf_s {

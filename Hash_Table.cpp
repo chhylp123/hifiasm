@@ -1441,7 +1441,7 @@ uint64_t lchain_dp_fciagr(k_mer_hit* a, int64_t a_n, k_mer_hit* des, Chain_Data*
 
         if (max_ii < 0 || ((int64_t)a[i].offset) - ((int64_t)a[max_ii].offset) > max_dis) {
 			max = INT32_MIN; max_ii = -1;
-			for (j = i - 1; j >= st; --j) {
+			for (j = i - 1; (j >= st) && ((((int64_t)a[i].offset)-((int64_t)a[j].offset))<=max_dis); --j) {
                 if (max < f[j]) {
                     max = f[j], max_ii = j;
                 }
@@ -1581,7 +1581,7 @@ uint64_t lchain_dp(k_mer_hit* a, int64_t a_n, k_mer_hit* des, Chain_Data* dp, ov
 
         if (max_ii < 0 || ((int64_t)a[i].offset) - ((int64_t)a[max_ii].offset) > max_dis) {
 			max = INT32_MIN; max_ii = -1;
-			for (j = i - 1; j >= st; --j) {
+            for (j = i - 1; (j >= st) && ((((int64_t)a[i].offset)-((int64_t)a[j].offset))<=max_dis); --j) {
                 if (max < f[j]) {
                     max = f[j], max_ii = j;
                 }
