@@ -12,11 +12,11 @@ int main(int argc, char *argv[])
 	yak_reset_realtime();
     init_opt(&asm_opt);
     if (!CommandLine_process(argc, argv, &asm_opt)) return 0;
-	bit_extz_t exz; ///ed_band_cal_global_128bit(t_string+r_ts, t_end+1-r_ts, q_string, ql, thres, &exz);
-	ed_band_cal_extension_128bit((char *)"AAGTTTA", 7, (char *)"CCTTTTTT", 8, 4, &exz);
+	//bit_extz_t exz; ///ed_band_cal_global_128bit(t_string+r_ts, t_end+1-r_ts, q_string, ql, thres, &exz);
+	// ed_band_cal_extension_128bit((char *)"AAGTTTA", 7, (char *)"CCTTTTTT", 8, 4, &exz);
 	// ed_band_cal_extension_128bit((char *)"AA", 2, (char *)"ACTTTTTT", 8, 1, &exz);
-	fprintf(stderr, "ed_extension::%d, pe::%d, te::%d\n", exz.err, exz.pe, exz.te);
-	exit(1);
+	// fprintf(stderr, "ed_extension::%d, pe::%d, te::%d\n", exz.err, exz.pe, exz.te);
+	// exit(1);
 
 	// fprintf(stderr, "[M::%s::] ed_global::%d, ed_global_128bit::%d\n", __func__, 
 	// ed_band_cal_global((char *)"ACT", 3, (char *)"AAT", 3, 1), 
