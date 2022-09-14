@@ -603,8 +603,19 @@ typedef struct {w_sig a[2];} w128_t;
 // #define bitw (5)
 // #define bitwbit (32)
 // #define bitz (31)
+typedef struct {size_t n, m; w_sig *a;} w64_trace_t;
+typedef struct {
+	int32_t done_cigar, cigar_n, done_path, path_n;
+	int32_t ps, pe, pl, ts, te, tl;
+	int32_t thre, err, nword, mword;
+	w128_t Peq[5], mm, VP, VN, X, D0, HN, HP;
+	// asg16_v cigar; w64_trace_t path; 
+} bit_extz_t;
 
 #define w128_bit(x, b) ((x).a[((b)>>bitw)]|=(((w_sig)1)<<((b)&bitz)))
+
+#define w128_get_bit(x, b) (((x).a[((b)>>bitw)]>>((b)&bitz))&((w_sig)1))
+
 #define w128_clear(x) ((x).a[0]=(x).a[1]=0)
 
 #define w128_self_not(x) ((x).a[0]=~(x).a[0], \
@@ -622,8 +633,7 @@ typedef struct {w_sig a[2];} w128_t;
 #define w128_self_xor(x, y) ((x).a[0]^=(y).a[0], \
 									(x).a[1]^=(y).a[1])
 
-// #define w128_self_lsft_l(x, l) ((x).a[1] = ((x).a[1]<<(l))|((x).a[0]>>(bitwbit-(l))), \
-// 																		(x).a[0] <<= (l))
+// #define w128_self_lsft_l(x, l) ((x).a[1] = ((x).a[1]<<(l))|((x).a[0]>>(bitwbit-(l))), (x).a[0] <<= (l))
 
 #define w128_self_lsft_1(x) ((x).a[1] = ((x).a[1]<<1)|((x).a[0]>>bitz), \
 																		(x).a[0] <<= 1)
@@ -640,7 +650,7 @@ typedef struct {w_sig a[2];} w128_t;
 		else (x).a[1] = (((w_sig)1)<<((l)-bitwbit))-1;\
 	} while (0)												\
 
-#define ed_core_w128(RE) {	\
+#define ed_core_w128(Peq, VP, VN, X, D0, HN, HP) {	\
 		/**X = Peq[seq_nt4_table[(uint8_t)tstr[i]]] | VN;**/\
 		c = seq_nt4_table[(uint8_t)tstr[i]]; w128_or(X, Peq[c], VN);\
 		/**D0 = ((VP + (X&VP)) ^ VP) | X;**/\
@@ -662,34 +672,49 @@ typedef struct {w_sig a[2];} w128_t;
 		w128_or(VP, X, HP);\
 		w128_self_not(VP);\
 		w128_self_or(VP, HN);\
-		/**if (!(D0&(1ULL)))**/\
-        if (!(D0.a[0]&(1ULL))) {\
-            ++err;\
-            if (err>cut) return RE;\
-        }\
+	} 
+
+#define ed_core_w128_reshift(Peq) {\
 		/** Peq[0] >>= 1; Peq[1] >>= 1; Peq[2] >>= 1; Peq[3] >>= 1;**/\
 		w128_self_rsft_1(Peq[0]); w128_self_rsft_1(Peq[1]);\
 		w128_self_rsft_1(Peq[2]); w128_self_rsft_1(Peq[3]);\
-	} 
+}
 
-inline int32_t ed_band_cal_global_128bit(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t thre)
+#define init_base_ed(ez, thre, pn, tn) {\
+	(ez).thre = (thre), (ez).err = INT32_MAX, (ez).pl = pn, (ez).tl = tn;\
+	(ez).done_cigar = (ez).done_path = (ez).cigar_n = (ez).path_n = 0;\
+}
+
+#define tst_band_err(p_off, t_off, p_end, dif, ez, k) {\
+	if((p_off) + (((ez).thre)<<1) >= (p_end)) { \
+		for ((k) = 0; (p_off) < (p_end); (p_off)++) {\
+			(dif) += w128_get_bit((ez).VP, (k));\
+			(dif) -= w128_get_bit((ez).VN, (k));\
+			(k)++;}\
+		if((dif) <= (ez).thre && (dif) < (ez).err) {\
+			(ez).err = dif; (ez).pe = p_off; (ez).te = t_off;}\
+	}\
+}
+
+
+inline void ed_band_cal_global_128bit(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t thre, bit_extz_t *ez)
 {
-	if((pn > tn + thre) || (tn > pn + thre)) return INT32_MAX;
-	if((pn < thre + 1) || (tn < thre + 1)) return INT32_MAX;
-	w128_t Peq[5], mm, VP, VN, X, D0, HN, HP; uint8_t c;
-	int32_t i, err, tn0 = tn - 1, cut = thre+(thre<<1), bd = thre+1, i_bd = thre;
-	w128_clear(Peq[0]); w128_clear(Peq[1]); w128_clear(Peq[2]); w128_clear(Peq[3]); w128_clear(Peq[4]);
+	init_base_ed(*ez, thre, pn, tn); ez->ps = ez->ts = 0;
+	if((pn > tn + thre) || (tn > pn + thre)) return;
+	// if((pn < thre + 1) || (tn < thre + 1)) return;
+	int32_t i, err, tn0 = tn - 1, cut = thre+(thre<<1), bd = thre+1, i_bd = thre; uint8_t c;
+	w128_clear(ez->Peq[0]); w128_clear(ez->Peq[1]); w128_clear(ez->Peq[2]); w128_clear(ez->Peq[3]); w128_clear(ez->Peq[4]);
 
-	w128_clear(mm); w128_bit(mm, thre); ///mm = (((Word)1)<<thre)
-    for (i = 0; i < bd; i++) {
-		w128_self_or(Peq[seq_nt4_table[(uint8_t)pstr[i]]], mm); w128_self_lsft_1(mm);
+	w128_clear(ez->mm); w128_bit(ez->mm, thre); ///mm = (((Word)1)<<thre)
+    for (i = 0; i < bd && i < pn; i++) {
+		w128_self_or(ez->Peq[seq_nt4_table[(uint8_t)pstr[i]]], ez->mm); w128_self_lsft_1(ez->mm);
         // Peq[seq_nt4_table[(uint8_t)pstr[i]]] |= mm; mm <<= 1;
     }
-	w128_clear(Peq[4]);
+	w128_clear(ez->Peq[4]);
 	err = thre;
-	w128_set_bit_lsub(VN, thre); ///VN = (((Word)1)<<(thre))-1; 
-	w128_set_bit_lsub(VP, (thre<<1)+1); ///VP = (((Word)1)<<((thre<<1)+1))-1;
-	w128_self_xor(VP, VN); ///VP ^= VN;
+	w128_set_bit_lsub(ez->VN, thre); ///VN = (((Word)1)<<(thre))-1; 
+	w128_set_bit_lsub(ez->VP, (thre<<1)+1); ///VP = (((Word)1)<<((thre<<1)+1))-1;
+	w128_self_xor(ez->VP, ez->VN); ///VP ^= VN;
 
 	// print_bits(Peq[0].a, (thre<<1)+1, "-Peq[A]");
 	// print_bits(Peq[1].a, (thre<<1)+1, "-Peq[C]");
@@ -701,207 +726,173 @@ inline int32_t ed_band_cal_global_128bit(char *pstr, int32_t pn, char *tstr, int
 	///should make Peq[4] = 0 if N is always an error
 	i = 0; 
 	///for the incoming char/last char
-	w128_clear(mm); w128_bit(mm, (thre<<1)); ///mm = ((Word)1 << (thre<<1));
+	w128_clear(ez->mm); w128_bit(ez->mm, (thre<<1)); ///mm = ((Word)1 << (thre<<1));
 	//VP + ((Peq|VN)&VP)
     while (i < tn0) {
-		///X = Peq[seq_nt4_table[(uint8_t)tstr[i]]] | VN;
-		c = seq_nt4_table[(uint8_t)tstr[i]]; w128_or(X, Peq[c], VN);
-
-		///D0 = ((VP + (X&VP)) ^ VP) | X;
-		w128_and(D0, X, VP);
-		w128_self_add(D0, VP);
-		w128_self_xor(D0, VP);
-		w128_self_or(D0, X);
-
-        // HN = VP&D0;
-		w128_and(HN, VP, D0);
-        // HP = VN | ~(VP | D0);
-		w128_or(HP, VP, D0);
-		w128_self_not(HP);
-		w128_self_or(HP, VN);
-
-        // X = D0 >> 1;
-		X = D0; w128_self_rsft_1(X);
-        // VN = X&HP;
-		w128_and(VN, X, HP);
-        // VP = HN | ~(X | HP);
-		w128_or(VP, X, HP);
-		w128_self_not(VP);
-		w128_self_or(VP, HN);
-
-
-		//if (!(D0&(1ULL)))
-        if (!(D0.a[0]&(1ULL))) {
-            ++err;
-            if (err>cut) return INT32_MAX;
+		ed_core_w128(ez->Peq, ez->VP, ez->VN, ez->X, ez->D0, ez->HN, ez->HP);
+        if (!(ez->D0.a[0]&(1ULL))) {
+            ++err; if (err>cut) return;
         }
-		// fprintf(stderr, "[M::%s::i->%d] err->%d\n", __func__, i, err);
-
-		// Peq[0] >>= 1; Peq[1] >>= 1; Peq[2] >>= 1; Peq[3] >>= 1; 
-		w128_self_rsft_1(Peq[0]); w128_self_rsft_1(Peq[1]);
-		w128_self_rsft_1(Peq[2]); w128_self_rsft_1(Peq[3]);
-
+		ed_core_w128_reshift(ez->Peq);
         ++i; ++i_bd;
         if(i_bd < pn) {
 			c = seq_nt4_table[(uint8_t)pstr[i_bd]]; 
 			///if(c < 4) Peq[c] |= mm;
-			if(c < 4) w128_self_or(Peq[c], mm);
+			if(c < 4) w128_self_or(ez->Peq[c], ez->mm);
 		}
     }
-
-    // X = Peq[seq_nt4_table[(uint8_t)tstr[i]]] | VN;
-	c = seq_nt4_table[(uint8_t)tstr[i]]; w128_or(X, Peq[c], VN);
-    // D0 = ((VP + (X&VP)) ^ VP) | X;
-	w128_and(D0, X, VP);
-	w128_self_add(D0, VP);
-	w128_self_xor(D0, VP);
-	w128_self_or(D0, X);
-    // HN = VP&D0;
-	w128_and(HN, VP, D0);
-    // HP = VN | ~(VP | D0);
-	w128_or(HP, VP, D0);
-	w128_self_not(HP);
-	w128_self_or(HP, VN);
-    // X = D0 >> 1;
-	X = D0; w128_self_rsft_1(X);
-    // VN = X&HP;
-	w128_and(VN, X, HP);
-    // VP = HN | ~(X | HP);
-	w128_or(VP, X, HP);
-	w128_self_not(VP);
-	w128_self_or(VP, HN);
-	
-    // if (!(D0&(1ULL))) {
-	if (!(D0.a[0]&(1ULL))) {
-		++err;
-		if (err>cut) return INT32_MAX;
+	ed_core_w128(ez->Peq, ez->VP, ez->VN, ez->X, ez->D0, ez->HN, ez->HP);
+	if (!(ez->D0.a[0]&(1ULL))) {
+		++err; if (err>cut) return;
 	}
-	// fprintf(stderr, "[M::%s::i->%d] err->%d\n", __func__, i, err);
 
     int32_t site = tn - 1 - thre;///up bound
-	for (cut = pn - 1, i = 0; site < cut; site++, i++) {
+	for (cut = pn - 1; site < cut; site++) {
 		// err += ((VP >> i)&(1ULL)); 
-		err += VP.a[0]&(1ULL); w128_self_rsft_1(VP); 
+		err += ez->VP.a[0]&(1ULL); w128_self_rsft_1(ez->VP); 
 		// err -= ((VN >> i)&(1ULL));
-		err -= VN.a[0]&(1ULL); w128_self_rsft_1(VN); 
+		err -= ez->VN.a[0]&(1ULL); w128_self_rsft_1(ez->VN); 
 	}
 
-	if (site == cut && err <= thre) return err;
-    return INT32_MAX;
+	if (site == cut && err <= thre) {
+		ez->err = err; 
+		ez->pe = pn-1; ez->te = tn-1;
+	}
+    return;
 }
 
-inline int32_t ed_band_cal_semi_128bit(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t thre, int32_t *re_err)
+inline void ed_band_cal_semi_128bit(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t thre, bit_extz_t *ez)
 {
-    (*re_err) = INT32_MAX;
-	w128_t Peq[5], mm, VP, VN, X, D0, HN, HP;
-	//Peq[5] = {0}, mm = (Word)1, VP = 0, VN = 0, X, D0, HN, HP; 
-	w128_clear(VP); w128_clear(VN); w128_clear(mm); w128_bit(mm, 0);
-	w128_clear(Peq[0]); w128_clear(Peq[1]); w128_clear(Peq[2]); w128_clear(Peq[3]); w128_clear(Peq[4]);
+    // (*re_err) = INT32_MAX;
+	init_base_ed(*ez, thre, pn, tn); ez->ps = ez->pe = -1; ez->ts = 0; ez->te = tn-1;
+	w128_clear(ez->VP); w128_clear(ez->VN); w128_clear(ez->mm); w128_bit(ez->mm, 0);
+	w128_clear(ez->Peq[0]); w128_clear(ez->Peq[1]); w128_clear(ez->Peq[2]); w128_clear(ez->Peq[3]); w128_clear(ez->Peq[4]);
 	int32_t bd = (thre<<1)+1, i, err = 0, i_bd = (thre<<1), last_high = (thre<<1), tn0 = tn - 1;
 	int32_t cut = thre+last_high; uint8_t c;
 
     for (i = 0; i < bd; i++) {
-		w128_self_or(Peq[seq_nt4_table[(uint8_t)pstr[i]]], mm); w128_self_lsft_1(mm);
+		w128_self_or(ez->Peq[seq_nt4_table[(uint8_t)pstr[i]]], ez->mm); w128_self_lsft_1(ez->mm);
         // Peq[seq_nt4_table[(uint8_t)pstr[i]]] |= mm; mm <<= 1;
     }
 	///should make Peq[4] = 0 if N is always an error
 	// Peq[4] = 0;
-	w128_clear(Peq[4]);
+	w128_clear(ez->Peq[4]);
 	//mm = ((Word)1 << (thre<<1));///for the incoming char/last char
-	w128_clear(mm); w128_bit(mm, (thre<<1));
+	w128_clear(ez->mm); w128_bit(ez->mm, (thre<<1));
 
 	i = 0;
     while (i < tn0) {
-        // X = Peq[seq_nt4_table[(uint8_t)tstr[i]]] | VN;
-		c = seq_nt4_table[(uint8_t)tstr[i]]; w128_or(X, Peq[c], VN);
-
-        // D0 = ((VP + (X&VP)) ^ VP) | X;
-		w128_and(D0, X, VP);
-        w128_self_add(D0, VP);
-        w128_self_xor(D0, VP);
-        w128_self_or(D0, X);
-
-        // HN = VP&D0;
-		w128_and(HN, VP, D0);
-        // HP = VN | ~(VP | D0);
-		w128_or(HP, VP, D0);
-        w128_self_not(HP);
-        w128_self_or(HP, VN);
-
-        // X = D0 >> 1;
-		X = D0; w128_self_rsft_1(X);
-        // VN = X&HP;
-		w128_and(VN, X, HP);
-        // VP = HN | ~(X | HP);
-		w128_or(VP, X, HP);
-        w128_self_not(VP);
-        w128_self_or(VP, HN);
-
-        // if (!(D0&(1ULL))) {
-		if (!(D0.a[0]&(1ULL))) {
-            ++err;
-            if (err>cut) return -1;
+		ed_core_w128(ez->Peq, ez->VP, ez->VN, ez->X, ez->D0, ez->HN, ez->HP);
+		if (!(ez->D0.a[0]&(1ULL))) {
+            ++err; if (err>cut) return;
         }
-
-		// Peq[0] >>= 1; Peq[1] >>= 1; Peq[2] >>= 1; Peq[3] >>= 1; 
-		w128_self_rsft_1(Peq[0]); w128_self_rsft_1(Peq[1]);
-        w128_self_rsft_1(Peq[2]); w128_self_rsft_1(Peq[3]);
+		ed_core_w128_reshift(ez->Peq);
 
         ++i; ++i_bd; 
 		// Peq[seq_nt4_table[(uint8_t)pstr[i_bd]]] |= mm; Peq[4] = 0;
 		c = seq_nt4_table[(uint8_t)pstr[i_bd]]; 
-		if(c < 4) w128_self_or(Peq[c], mm);
+		if(c < 4) w128_self_or(ez->Peq[c], ez->mm);
     }
-
-    // X = Peq[seq_nt4_table[(uint8_t)tstr[i]]] | VN;
-	c = seq_nt4_table[(uint8_t)tstr[i]]; w128_or(X, Peq[c], VN);
-    // D0 = ((VP + (X&VP)) ^ VP) | X;
-	w128_and(D0, X, VP);
-    w128_self_add(D0, VP);
-    w128_self_xor(D0, VP);
-    w128_self_or(D0, X);
-    // HN = VP&D0;
-	w128_and(HN, VP, D0);
-    // HP = VN | ~(VP | D0);
-	w128_or(HP, VP, D0);
-    w128_self_not(HP);
-    w128_self_or(HP, VN);
-    // X = D0 >> 1;
-	X = D0; w128_self_rsft_1(X);
-    // VN = X&HP;
-	w128_and(VN, X, HP);
-    // VP = HN | ~(X | HP);
-	w128_or(VP, X, HP);
-    w128_self_not(VP);
-    w128_self_or(VP, HN);
-    // if (!(D0&(1ULL))) {
-	if (!(D0.a[0]&(1ULL))) {
-		++err;
-		if (err>cut) return -1;
+    ed_core_w128(ez->Peq, ez->VP, ez->VN, ez->X, ez->D0, ez->HN, ez->HP);
+	if (!(ez->D0.a[0]&(1ULL))) {
+		++err; if (err>cut) return;
 	}
 
-    int32_t site = tn - 1, end = -1;///up bound
+    int32_t site = tn - 1;///up bound
     ///in most cases, ai = (thre<<1)
     int32_t ai = pn - tn, uge = INT32_MAX;
-    if ((err <= thre) && (err<=(*re_err))) {
-        *re_err = err; end = site;
+    if ((err <= thre) && (err <= ez->err)) {
+        ez->err = err; ez->pe = site;
     }
     i = 0;
 
     while (i < ai) {
         // err += ((VP >> i)&(1ULL)); 
-		err += VP.a[0]&(1ULL); w128_self_rsft_1(VP); 
+		err += ez->VP.a[0]&(1ULL); w128_self_rsft_1(ez->VP); 
 		// err -= ((VN >> i)&(1ULL)); 
-		err -= VN.a[0]&(1ULL); w128_self_rsft_1(VN); 
+		err -= ez->VN.a[0]&(1ULL); w128_self_rsft_1(ez->VN); 
 		++i;
-        if ((err <= thre) && (err <= (*re_err))) {
-            *re_err = err; end = site + i;
+        if ((err <= thre) && (err <= ez->err)) {
+            ez->err = err; ez->pe = site + i;
         }
         if(i == thre) uge = err;
     }
 
-    if((uge<=thre) && (uge == (*re_err))) end = site + thre;
-    return end;
+    if((uge <= thre) && (uge == ez->err)) ez->pe = site + thre;
+}
+
+///require:: (pn >= tn - thre && pn <= tn + thre)
+inline void ed_band_cal_extension_128bit(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t thre, bit_extz_t *ez)
+{
+	// fprintf(stderr, "\n[M::%s::] pn::%d, tn::%d, thre::%d\n", __func__, pn, tn, thre);
+	if(pn > tn + thre) pn = tn + thre;
+	else if(tn > pn + thre) tn = pn + thre;
+	// fprintf(stderr, "[M::%s::] pn::%d, tn::%d, thre::%d\n", __func__, pn, tn, thre);
+	init_base_ed(*ez, thre, pn, tn); ez->ps = ez->ts = 0; ez->pe = ez->te = -1;
+	// if((pn > tn + thre) || (tn > pn + thre)) return;
+	// if((pn < thre + 1) || (tn < thre + 1)) return;
+	int32_t i, err, tn0 = tn - 1, cut = thre+(thre<<1), bd = thre+1, i_bd = thre; uint8_t c;
+	int32_t poff, pe = pn-1, tmp_e, k;
+	w128_clear(ez->Peq[0]); w128_clear(ez->Peq[1]); w128_clear(ez->Peq[2]); w128_clear(ez->Peq[3]); w128_clear(ez->Peq[4]);
+
+	w128_clear(ez->mm); w128_bit(ez->mm, thre); ///mm = (((Word)1)<<thre)
+    for (i = 0; i < bd && i < pn; i++) {
+		w128_self_or(ez->Peq[seq_nt4_table[(uint8_t)pstr[i]]], ez->mm); w128_self_lsft_1(ez->mm);
+        // Peq[seq_nt4_table[(uint8_t)pstr[i]]] |= mm; mm <<= 1;
+    }
+	w128_clear(ez->Peq[4]);
+	err = thre;
+	w128_set_bit_lsub(ez->VN, thre); ///VN = (((Word)1)<<(thre))-1; 
+	w128_set_bit_lsub(ez->VP, (thre<<1)+1); ///VP = (((Word)1)<<((thre<<1)+1))-1;
+	w128_self_xor(ez->VP, ez->VN); ///VP ^= VN;
+
+	// print_bits(ez->Peq[0].a, (thre<<1)+1, "-Peq[A]");
+	// print_bits(ez->Peq[1].a, (thre<<1)+1, "-Peq[C]");
+	// print_bits(ez->Peq[2].a, (thre<<1)+1, "-Peq[G]");
+	// print_bits(ez->Peq[3].a, (thre<<1)+1, "-Peq[T]");
+	// print_bits(ez->VN.a, (thre<<1)+1, "-VN");
+	// print_bits(ez->VP.a, (thre<<1)+1, "-VP");
+
+	///should make Peq[4] = 0 if N is always an error
+	i = 0; 
+	///for the incoming char/last char
+	w128_clear(ez->mm); w128_bit(ez->mm, (thre<<1)); ///mm = ((Word)1 << (thre<<1));
+	//VP + ((Peq|VN)&VP)
+    while (i < tn0) {
+		ed_core_w128(ez->Peq, ez->VP, ez->VN, ez->X, ez->D0, ez->HN, ez->HP);
+		if (!(ez->D0.a[0]&(1ULL))) {
+            ++err; if (err>cut) return;
+        }
+		poff = i-thre; tmp_e = err; //poff:[i-thre, i+thre]
+		tst_band_err(poff, i, pe, tmp_e, *ez, k);
+
+		ed_core_w128_reshift(ez->Peq);
+        ++i; ++i_bd;
+        if(i_bd < pn) {
+			c = seq_nt4_table[(uint8_t)pstr[i_bd]]; 
+			if(c < 4) w128_self_or(ez->Peq[c], ez->mm);
+		}
+    }
+	ed_core_w128(ez->Peq, ez->VP, ez->VN, ez->X, ez->D0, ez->HN, ez->HP);
+	if (!(ez->D0.a[0]&(1ULL))) {
+		++err; if (err>cut) return;
+	}
+	///i = tn - 1
+    int32_t site = tn - 1 - thre;///up bound; site:[tn - 1 - thre, tn - 1 + thre]
+	for (cut = pn - 1; site < cut; ) {
+		// err += ((VP >> i)&(1ULL)); 
+		err += ez->VP.a[0]&(1ULL); w128_self_rsft_1(ez->VP); 
+		// err -= ((VN >> i)&(1ULL));
+		err -= ez->VN.a[0]&(1ULL); w128_self_rsft_1(ez->VN); 
+		site++;
+		if(err <= thre && err < ez->err) {
+			ez->err = err; ez->pe = site; ez->te = tn-1;
+		}
+	}
+	if(err <= thre && err < ez->err) {
+		ez->err = err; ez->pe = site; ez->te = tn-1;
+	}
+    return;
 }
 
 
@@ -912,9 +903,11 @@ inline int Reserve_Banded_BPM
 (char *pattern, int p_length, char *text, int t_length, unsigned short errthold, unsigned int* return_err)
 {
 	(*return_err) = (unsigned int)-1;
-	// int32_t rerr, rsite = ed_band_cal_semi_128bit(pattern, p_length, text, t_length, errthold, &rerr);
-	// if(rsite >= 0) (*return_err) = rerr;
-	// return rsite;
+
+	// bit_extz_t exz; ed_band_cal_semi_128bit(pattern, p_length, text, t_length, errthold, &exz);
+	// if(exz.err <= exz.thre) (*return_err) = exz.err;
+	// return exz.pe;
+
 	Word Peq[256];
 
 	int band_length = (errthold << 1) + 1;
