@@ -3657,12 +3657,16 @@ char *qstr, char *tstr, char *tstr1, Correct_dumy* dumy, uint32_t rev, uint32_t 
         //     fprintf(stderr, "[qstr] %.*s\n", (int32_t)ql, q_string);
         // }
         // assert(dbg_e <= (int32_t)error);
-        // bit_extz_t exz; 
-        // ed_band_cal_extension_128bit(t_string+r_ts, t_end+1-r_ts, q_string, ql, thres, &exz);
-        // assert(exz.err <= (int32_t)error);
+        bit_extz_t exz; 
+        ed_band_cal_extension_128_w(t_string+r_ts, t_end+1-r_ts, q_string, ql, thres, &exz);
+        assert(exz.err <= (int32_t)error);
 
-        // ed_band_cal_global_128bit(t_string+r_ts, t_end+1-r_ts, q_string, ql, thres, &exz);
-        // assert(exz.err <= (int32_t)error);
+        ed_band_cal_global_128_w(t_string+r_ts, t_end+1-r_ts, q_string, ql, thres, &exz);
+        assert(exz.err <= (int32_t)error);
+
+        ed_band_cal_semi_128_w(t_string, aln_l, q_string, ql, thres, &exz);
+        assert(exz.err == (int32_t)error);
+
         // if(exz.err > (int32_t)error && ql == 1) {
         //     fprintf(stderr, "[M::%s::] error::%u, ed_extension::%d, ql::%ld, thres::%ld\n", 
         //     __func__, error, exz.err, ql, thres);

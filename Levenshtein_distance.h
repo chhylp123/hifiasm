@@ -617,39 +617,39 @@ typedef struct {
 	(ez).done_cigar = (ez).done_path = (ez).cigar_n = (ez).path_n = 0;\
 }
 
-#define w128_bit(x, b) ((x).a[((b)>>bitw)]|=(((w_sig)1)<<((b)&bitz)))
+#define w_128_bit(x, b) ((x).a[((b)>>bitw)]|=(((w_sig)1)<<((b)&bitz)))
 
-#define w128_get_bit(x, b) (((x).a[((b)>>bitw)]>>((b)&bitz))&((w_sig)1))
+#define w_128_get_bit(x, b) (((x).a[((b)>>bitw)]>>((b)&bitz))&((w_sig)1))
 
-#define w128_clear(x) ((x).a[0]=(x).a[1]=0)
+#define w_128_clear(x) ((x).a[0]=(x).a[1]=0)
 
-#define w128_self_not(x) ((x).a[0]=~(x).a[0], \
+#define w_128_self_not(x) ((x).a[0]=~(x).a[0], \
 									(x).a[1]=~(x).a[1])
 
-#define w128_self_or(x, y) ((x).a[0]|=(y).a[0], \
+#define w_128_self_or(x, y) ((x).a[0]|=(y).a[0], \
 									(x).a[1]|=(y).a[1])
 
-#define w128_or(r, x, y) ((r).a[0] = (x).a[0]|(y).a[0], \
+#define w_128_or(r, x, y) ((r).a[0] = (x).a[0]|(y).a[0], \
 									(r).a[1] = (x).a[1]|(y).a[1])
 
-#define w128_and(r, x, y) ((r).a[0] = (x).a[0]&(y).a[0], \
+#define w_128_and(r, x, y) ((r).a[0] = (x).a[0]&(y).a[0], \
 									(r).a[1] = (x).a[1]&(y).a[1])
 
-#define w128_self_xor(x, y) ((x).a[0]^=(y).a[0], \
+#define w_128_self_xor(x, y) ((x).a[0]^=(y).a[0], \
 									(x).a[1]^=(y).a[1])
 
 // #define w128_self_lsft_l(x, l) ((x).a[1] = ((x).a[1]<<(l))|((x).a[0]>>(bitwbit-(l))), (x).a[0] <<= (l))
 
-#define w128_self_lsft_1(x) ((x).a[1] = ((x).a[1]<<1)|((x).a[0]>>bitz), \
+#define w_128_self_lsft_1(x) ((x).a[1] = ((x).a[1]<<1)|((x).a[0]>>bitz), \
 																		(x).a[0] <<= 1)
 
-#define w128_self_rsft_1(x) ((x).a[0] = ((x).a[0]>>1)|((x).a[1]<<bitz), \
+#define w_128_self_rsft_1(x) ((x).a[0] = ((x).a[0]>>1)|((x).a[1]<<bitz), \
 																		(x).a[1] >>= 1)
 
-#define w128_self_add(x, y) ((x).a[0]+=(y).a[0], \
+#define w_128_self_add(x, y) ((x).a[0]+=(y).a[0], \
 								(x).a[1]+=(y).a[1]+((x).a[0]<(y).a[0]))
 
-#define w128_set_bit_lsub(x, l) do {	\
+#define w_128_set_bit_lsub(x, l) do {	\
 		(x).a[0] = (w_sig)-1, (x).a[1] = 0;	\
 		if((l) <= bitwbit) (x).a[0] = (((w_sig)1)<<(l))-1; \
 		else (x).a[1] = (((w_sig)1)<<((l)-bitwbit))-1;\
@@ -657,96 +657,72 @@ typedef struct {
 
 
 
-#define ed_core_w128b(Peq, VP, VN, X, D0, HN, HP) {	\
-		/**X = Peq[seq_nt4_table[(uint8_t)tstr[i]]] | VN;**/\
-		c = seq_nt4_table[(uint8_t)tstr[i]]; w128_or(X, Peq[c], VN);\
-		/**D0 = ((VP + (X&VP)) ^ VP) | X;**/\
-		w128_and(D0, X, VP);\
-		w128_self_add(D0, VP);\
-		w128_self_xor(D0, VP);\
-		w128_self_or(D0, X);\
-        /**HN = VP&D0;**/\
-		w128_and(HN, VP, D0);\
-        /**HP = VN | ~(VP | D0);**/\
-		w128_or(HP, VP, D0);\
-		w128_self_not(HP);\
-		w128_self_or(HP, VN);\
-        /**X = D0 >> 1;**/\
-		X = D0; w128_self_rsft_1(X);\
-        /**VN = X&HP;**/\
-		w128_and(VN, X, HP);\
-        /**VP = HN | ~(X | HP);**/\
-		w128_or(VP, X, HP);\
-		w128_self_not(VP);\
-		w128_self_or(VP, HN);\
-} 
-
 #define ed_core(sf, Peq, VP, VN, X, D0, HN, HP) {	\
 		/**X = Peq[seq_nt4_table[(uint8_t)tstr[i]]] | VN;**/\
-		c = seq_nt4_table[(uint8_t)tstr[i]]; ##sf##or(X, Peq[c], VN);\
+		c = seq_nt4_table[(uint8_t)tstr[i]]; w##sf##or(X, Peq[c], VN);\
 		/**D0 = ((VP + (X&VP)) ^ VP) | X;**/\
-		##sf##and(D0, X, VP);\
-		##sf##self_add(D0, VP);\
-		##sf##self_xor(D0, VP);\
-		##sf##self_or(D0, X);\
+		w##sf##and(D0, X, VP);\
+		w##sf##self_add(D0, VP);\
+		w##sf##self_xor(D0, VP);\
+		w##sf##self_or(D0, X);\
         /**HN = VP&D0;**/\
-		##sf##and(HN, VP, D0);\
+		w##sf##and(HN, VP, D0);\
         /**HP = VN | ~(VP | D0);**/\
-		##sf##or(HP, VP, D0);\
-		##sf##self_not(HP);\
-		##sf##self_or(HP, VN);\
+		w##sf##or(HP, VP, D0);\
+		w##sf##self_not(HP);\
+		w##sf##self_or(HP, VN);\
         /**X = D0 >> 1;**/\
-		X = D0; ##sf##self_rsft_1(X);\
+		X = D0; w##sf##self_rsft_1(X);\
         /**VN = X&HP;**/\
-		##sf##and(VN, X, HP);\
+		w##sf##and(VN, X, HP);\
         /**VP = HN | ~(X | HP);**/\
-		##sf##or(VP, X, HP);\
-		##sf##self_not(VP);\
-		##sf##self_or(VP, HN);\
-} 
+		w##sf##or(VP, X, HP);\
+		w##sf##self_not(VP);\
+		w##sf##self_or(VP, HN);\
+}
 
 
 #define HA_ED_INIT(sf)\
-inline void ed_band_cal_global_##sf##bit(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t thre, bit_extz_t *ez)\
+inline void ed_band_cal_global_##sf##_w(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t thre, bit_extz_t *ez)\
 {\
 	init_base_ed(*ez, thre, pn, tn); ez->ps = ez->ts = 0;\
 	if((pn > tn + thre) || (tn > pn + thre)) return;\
 	/**if((pn < thre + 1) || (tn < thre + 1)) return;**/\
 	int32_t i, err, tn0 = tn - 1, cut = thre+(thre<<1), bd = thre+1, i_bd = thre; uint8_t c;\
-	w##sf##_clear(ez->Peq[0]); w##sf##_clear(ez->Peq[1]); w##sf##_clear(ez->Peq[2]); w##sf##_clear(ez->Peq[3]); w##sf##_clear(ez->Peq[4]);\
+	w_##sf##_clear(ez->Peq[0]); w_##sf##_clear(ez->Peq[1]); w_##sf##_clear(ez->Peq[2]); w_##sf##_clear(ez->Peq[3]); w_##sf##_clear(ez->Peq[4]);\
 	\
-	w##sf##_clear(ez->mm); w##sf##_bit(ez->mm, thre); /**mm = (((Word)1)<<thre)**/\
-    for (i = 0; i < bd && i < pn; i++) {\
-		w##sf##_self_or(ez->Peq[seq_nt4_table[(uint8_t)pstr[i]]], ez->mm); w##sf##_self_lsft_1(ez->mm);\
+	w_##sf##_clear(ez->mm); w_##sf##_bit(ez->mm, thre); /**mm = (((Word)1)<<thre)**/\
+    for (i = 0, bd = ((bd<=pn)?bd:pn); i < bd; i++) {\
+		w_##sf##_self_or(ez->Peq[seq_nt4_table[(uint8_t)pstr[i]]], ez->mm); w_##sf##_self_lsft_1(ez->mm);\
         /** Peq[seq_nt4_table[(uint8_t)pstr[i]]] |= mm; mm <<= 1;**/\
     }\
-	w##sf##_clear(ez->Peq[4]);\
+	w_##sf##_clear(ez->Peq[4]);\
 	err = thre;\
-	w##sf##_set_bit_lsub(ez->VN, thre); /**VN = (((Word)1)<<(thre))-1;**/\ 
-	w##sf##_set_bit_lsub(ez->VP, (thre<<1)+1); /**VP = (((Word)1)<<((thre<<1)+1))-1;**/\
-	w##sf##_self_xor(ez->VP, ez->VN); /**VP ^= VN;**/\
+	w_##sf##_set_bit_lsub(ez->VN, thre); /**VN = (((Word)1)<<(thre))-1;**/\ 
+	w_##sf##_set_bit_lsub(ez->VP, (thre<<1)+1); /**VP = (((Word)1)<<((thre<<1)+1))-1;**/\
+	w_##sf##_self_xor(ez->VP, ez->VN); /**VP ^= VN;**/\
 	\
 	/** print_bits(VP.a, (thre<<1)+1, "-VP");**/\
 	/**should make Peq[4] = 0 if N is always an error**/\
 	i = 0; \
 	/**for the incoming char/last char**/\
-	w##sf##_clear(ez->mm); w##sf##_bit(ez->mm, (thre<<1)); /**mm = ((Word)1 << (thre<<1));**/\
+	w_##sf##_clear(ez->mm); w_##sf##_bit(ez->mm, (thre<<1)); /**mm = ((Word)1 << (thre<<1));**/\
     while (i < tn0) {\
-		ed_core_w##sf##b(ez->Peq, ez->VP, ez->VN, ez->X, ez->D0, ez->HN, ez->HP);\
+		ed_core(_##sf##_, ez->Peq, ez->VP, ez->VN, ez->X, ez->D0, ez->HN, ez->HP);\
         if (!(ez->D0.a[0]&(1ULL))) {\
             ++err; if (err>cut) return;\
         }\
 		/** Peq[0] >>= 1; Peq[1] >>= 1; Peq[2] >>= 1; Peq[3] >>= 1;**/\
-		w##sf##_self_rsft_1(ez->Peq[0]); w##sf##_self_rsft_1(ez->Peq[1]);\
-		w##sf##_self_rsft_1(ez->Peq[2]); w##sf##_self_rsft_1(ez->Peq[3]);\
+		w_##sf##_self_rsft_1(ez->Peq[0]); w_##sf##_self_rsft_1(ez->Peq[1]);\
+		w_##sf##_self_rsft_1(ez->Peq[2]); w_##sf##_self_rsft_1(ez->Peq[3]);\
         ++i; ++i_bd;\
         if(i_bd < pn) {\
 			c = seq_nt4_table[(uint8_t)pstr[i_bd]];\
 			/**if(c < 4) Peq[c] |= mm;**/\
-			if(c < 4) w##sf##_self_or(ez->Peq[c], ez->mm);\
+			if(c < 4) w_##sf##_self_or(ez->Peq[c], ez->mm);\
 		}\
     }\
-	ed_core_w##sf##b(ez->Peq, ez->VP, ez->VN, ez->X, ez->D0, ez->HN, ez->HP);\
+	ed_core(_##sf##_, ez->Peq, ez->VP, ez->VN, ez->X, ez->D0, ez->HN, ez->HP);\
 	if (!(ez->D0.a[0]&(1ULL))) {\
 		++err; if (err>cut) return;\
 	}\
@@ -754,9 +730,9 @@ inline void ed_band_cal_global_##sf##bit(char *pstr, int32_t pn, char *tstr, int
     int32_t site = tn - 1 - thre;/**up bound**/\
 	for (cut = pn - 1; site < cut; site++) {\
 		/**err += ((VP >> i)&(1ULL));**/\ 
-		err += ez->VP.a[0]&(1ULL); w##sf##_self_rsft_1(ez->VP); \
+		err += ez->VP.a[0]&(1ULL); w_##sf##_self_rsft_1(ez->VP); \
 		/**err -= ((VN >> i)&(1ULL));**/\
-		err -= ez->VN.a[0]&(1ULL); w##sf##_self_rsft_1(ez->VN); \
+		err -= ez->VN.a[0]&(1ULL); w_##sf##_self_rsft_1(ez->VN); \
 	}\
 	\
 	if (site == cut && err <= thre) {\
@@ -765,39 +741,39 @@ inline void ed_band_cal_global_##sf##bit(char *pstr, int32_t pn, char *tstr, int
 	}\
     return;\
 }\
-inline void ed_band_cal_semi_##sf##bit(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t thre, bit_extz_t *ez)\
+inline void ed_band_cal_semi_##sf##_w(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t thre, bit_extz_t *ez)\
 {\
 	init_base_ed(*ez, thre, pn, tn); ez->ps = ez->pe = -1; ez->ts = 0; ez->te = tn-1;\
-	w##sf##_clear(ez->VP); w##sf##_clear(ez->VN); w##sf##_clear(ez->mm); w##sf##_bit(ez->mm, 0);\
-	w##sf##_clear(ez->Peq[0]); w##sf##_clear(ez->Peq[1]); w##sf##_clear(ez->Peq[2]); w##sf##_clear(ez->Peq[3]); w##sf##_clear(ez->Peq[4]);\
+	w_##sf##_clear(ez->VP); w_##sf##_clear(ez->VN); w_##sf##_clear(ez->mm); w_##sf##_bit(ez->mm, 0);\
+	w_##sf##_clear(ez->Peq[0]); w_##sf##_clear(ez->Peq[1]); w_##sf##_clear(ez->Peq[2]); w_##sf##_clear(ez->Peq[3]); w_##sf##_clear(ez->Peq[4]);\
 	int32_t bd = (thre<<1)+1, i, err = 0, i_bd = (thre<<1), last_high = (thre<<1), tn0 = tn - 1;\
 	int32_t cut = thre+last_high; uint8_t c;\
 	\
     for (i = 0; i < bd; i++) {\
-		w##sf##_self_or(ez->Peq[seq_nt4_table[(uint8_t)pstr[i]]], ez->mm); w##sf##_self_lsft_1(ez->mm);\
+		w_##sf##_self_or(ez->Peq[seq_nt4_table[(uint8_t)pstr[i]]], ez->mm); w_##sf##_self_lsft_1(ez->mm);\
         /** Peq[seq_nt4_table[(uint8_t)pstr[i]]] |= mm; mm <<= 1;**/\
     }\
 	/**should make Peq[4] = 0 if N is always an error**/\
 	/** Peq[4] = 0;**/\
-	w##sf##_clear(ez->Peq[4]);\
+	w_##sf##_clear(ez->Peq[4]);\
 	/**mm = ((Word)1 << (thre<<1));///for the incoming char/last char**/\
-	w##sf##_clear(ez->mm); w##sf##_bit(ez->mm, (thre<<1));\
+	w_##sf##_clear(ez->mm); w_##sf##_bit(ez->mm, (thre<<1));\
 	\
 	i = 0;\
     while (i < tn0) {\
-		ed_core_w##sf##b(ez->Peq, ez->VP, ez->VN, ez->X, ez->D0, ez->HN, ez->HP);\
+		ed_core(_##sf##_, ez->Peq, ez->VP, ez->VN, ez->X, ez->D0, ez->HN, ez->HP);\
 		if (!(ez->D0.a[0]&(1ULL))) {\
             ++err; if (err>cut) return;\
         }\
 		/** Peq[0] >>= 1; Peq[1] >>= 1; Peq[2] >>= 1; Peq[3] >>= 1;**/\
-		w##sf##_self_rsft_1(ez->Peq[0]); w##sf##_self_rsft_1(ez->Peq[1]);\
-		w##sf##_self_rsft_1(ez->Peq[2]); w##sf##_self_rsft_1(ez->Peq[3]);\
+		w_##sf##_self_rsft_1(ez->Peq[0]); w_##sf##_self_rsft_1(ez->Peq[1]);\
+		w_##sf##_self_rsft_1(ez->Peq[2]); w_##sf##_self_rsft_1(ez->Peq[3]);\
         ++i; ++i_bd; \
 		/** Peq[seq_nt4_table[(uint8_t)pstr[i_bd]]] |= mm; Peq[4] = 0;**/\
 		c = seq_nt4_table[(uint8_t)pstr[i_bd]]; \
-		if(c < 4) w##sf##_self_or(ez->Peq[c], ez->mm);\
+		if(c < 4) w_##sf##_self_or(ez->Peq[c], ez->mm);\
     }\
-    ed_core_w##sf##b(ez->Peq, ez->VP, ez->VN, ez->X, ez->D0, ez->HN, ez->HP);\
+	ed_core(_##sf##_, ez->Peq, ez->VP, ez->VN, ez->X, ez->D0, ez->HN, ez->HP);\
 	if (!(ez->D0.a[0]&(1ULL))) {\
 		++err; if (err>cut) return;\
 	}\
@@ -812,9 +788,9 @@ inline void ed_band_cal_semi_##sf##bit(char *pstr, int32_t pn, char *tstr, int32
 	\
     while (i < ai) {\
         /** err += ((VP >> i)&(1ULL)); **/\
-		err += ez->VP.a[0]&(1ULL); w##sf##_self_rsft_1(ez->VP); \
+		err += ez->VP.a[0]&(1ULL); w_##sf##_self_rsft_1(ez->VP); \
 		/** err -= ((VN >> i)&(1ULL)); **/\
-		err -= ez->VN.a[0]&(1ULL); w##sf##_self_rsft_1(ez->VN); \
+		err -= ez->VN.a[0]&(1ULL); w_##sf##_self_rsft_1(ez->VN); \
 		++i;\
         if ((err <= thre) && (err <= ez->err)) {\
             ez->err = err; ez->pe = site + i;\
@@ -825,33 +801,33 @@ inline void ed_band_cal_semi_##sf##bit(char *pstr, int32_t pn, char *tstr, int32
     if((uge <= thre) && (uge == ez->err)) ez->pe = site + thre;\
 }\
 /**require:: (pn >= tn - thre && pn <= tn + thre)**/\
-inline void ed_band_cal_extension_##sf##bit(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t thre, bit_extz_t *ez)\
+inline void ed_band_cal_extension_##sf##_w(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t thre, bit_extz_t *ez)\
 {\
 	if(pn > tn + thre) pn = tn + thre;\
 	else if(tn > pn + thre) tn = pn + thre;\
 	init_base_ed(*ez, thre, pn, tn); ez->ps = ez->ts = 0; ez->pe = ez->te = -1;\
 	int32_t i, err, tn0 = tn - 1, cut = thre+(thre<<1), bd = thre+1, i_bd = thre; uint8_t c;\
 	int32_t poff, pe = pn-1, tmp_e, k;\
-	w##sf##_clear(ez->Peq[0]); w##sf##_clear(ez->Peq[1]); w##sf##_clear(ez->Peq[2]); w##sf##_clear(ez->Peq[3]); w##sf##_clear(ez->Peq[4]);\
+	w_##sf##_clear(ez->Peq[0]); w_##sf##_clear(ez->Peq[1]); w_##sf##_clear(ez->Peq[2]); w_##sf##_clear(ez->Peq[3]); w_##sf##_clear(ez->Peq[4]);\
 	\
-	w##sf##_clear(ez->mm); w##sf##_bit(ez->mm, thre); /**mm = (((Word)1)<<thre)**/\
-    for (i = 0; i < bd && i < pn; i++) {\
-		w##sf##_self_or(ez->Peq[seq_nt4_table[(uint8_t)pstr[i]]], ez->mm); w##sf##_self_lsft_1(ez->mm);\
+	w_##sf##_clear(ez->mm); w_##sf##_bit(ez->mm, thre); /**mm = (((Word)1)<<thre)**/\
+    for (i = 0, bd = ((bd<=pn)?bd:pn); i < bd; i++) {\
+		w_##sf##_self_or(ez->Peq[seq_nt4_table[(uint8_t)pstr[i]]], ez->mm); w_##sf##_self_lsft_1(ez->mm);\
         /**Peq[seq_nt4_table[(uint8_t)pstr[i]]] |= mm; mm <<= 1;**/\
     }\
-	w##sf##_clear(ez->Peq[4]);\
+	w_##sf##_clear(ez->Peq[4]);\
 	err = thre;\
-	w##sf##_set_bit_lsub(ez->VN, thre); /**VN = (((Word)1)<<(thre))-1; **/\
-	w##sf##_set_bit_lsub(ez->VP, (thre<<1)+1); /**VP = (((Word)1)<<((thre<<1)+1))-1;**/\
-	w##sf##_self_xor(ez->VP, ez->VN); /**VP ^= VN;**/\
+	w_##sf##_set_bit_lsub(ez->VN, thre); /**VN = (((Word)1)<<(thre))-1; **/\
+	w_##sf##_set_bit_lsub(ez->VP, (thre<<1)+1); /**VP = (((Word)1)<<((thre<<1)+1))-1;**/\
+	w_##sf##_self_xor(ez->VP, ez->VN); /**VP ^= VN;**/\
 	\
 	/** print_bits(ez->VP.a, (thre<<1)+1, "-VP");**/\
 	/**should make Peq[4] = 0 if N is always an error**/\
 	i = 0; \
 	/**for the incoming char/last char**/\
-	w##sf##_clear(ez->mm); w##sf##_bit(ez->mm, (thre<<1)); /**mm = ((Word)1 << (thre<<1));**/\
+	w_##sf##_clear(ez->mm); w_##sf##_bit(ez->mm, (thre<<1)); /**mm = ((Word)1 << (thre<<1));**/\
     while (i < tn0) {\
-		ed_core_w##sf##b(ez->Peq, ez->VP, ez->VN, ez->X, ez->D0, ez->HN, ez->HP);\
+		ed_core(_##sf##_, ez->Peq, ez->VP, ez->VN, ez->X, ez->D0, ez->HN, ez->HP);\
 		if (!(ez->D0.a[0]&(1ULL))) {\
             ++err; if (err>cut) return;\
         }\
@@ -860,8 +836,8 @@ inline void ed_band_cal_extension_##sf##bit(char *pstr, int32_t pn, char *tstr, 
 			poff = i-thre; tmp_e = err; /**poff:[i-thre, i+thre]**/\
 			if((poff) + (((*ez).thre)<<1) >= (pe)) { \
 				for ((k) = 0; (poff) < (pe); (poff)++) {\
-					(tmp_e) += w##sf##_get_bit((*ez).VP, (k));\
-					(tmp_e) -= w##sf##_get_bit((*ez).VN, (k));\
+					(tmp_e) += w_##sf##_get_bit((*ez).VP, (k));\
+					(tmp_e) -= w_##sf##_get_bit((*ez).VN, (k));\
 					(k)++;}\
 				if((tmp_e) <= (*ez).thre && (tmp_e) < (*ez).err) {\
 					(*ez).err = tmp_e; (*ez).pe = poff; (*ez).te = i;}\
@@ -869,15 +845,15 @@ inline void ed_band_cal_extension_##sf##bit(char *pstr, int32_t pn, char *tstr, 
 		}\
 		\
 		/** Peq[0] >>= 1; Peq[1] >>= 1; Peq[2] >>= 1; Peq[3] >>= 1;**/\
-		w##sf##_self_rsft_1(ez->Peq[0]); w##sf##_self_rsft_1(ez->Peq[1]);\
-		w##sf##_self_rsft_1(ez->Peq[2]); w##sf##_self_rsft_1(ez->Peq[3]);\
+		w_##sf##_self_rsft_1(ez->Peq[0]); w_##sf##_self_rsft_1(ez->Peq[1]);\
+		w_##sf##_self_rsft_1(ez->Peq[2]); w_##sf##_self_rsft_1(ez->Peq[3]);\
         ++i; ++i_bd;\
         if(i_bd < pn) {\
 			c = seq_nt4_table[(uint8_t)pstr[i_bd]]; \
-			if(c < 4) w##sf##_self_or(ez->Peq[c], ez->mm);\
+			if(c < 4) w_##sf##_self_or(ez->Peq[c], ez->mm);\
 		}\
     }\
-	ed_core_w##sf##b(ez->Peq, ez->VP, ez->VN, ez->X, ez->D0, ez->HN, ez->HP);\
+	ed_core(_##sf##_, ez->Peq, ez->VP, ez->VN, ez->X, ez->D0, ez->HN, ez->HP);\
 	if (!(ez->D0.a[0]&(1ULL))) {\
 		++err; if (err>cut) return;\
 	}\
@@ -885,9 +861,9 @@ inline void ed_band_cal_extension_##sf##bit(char *pstr, int32_t pn, char *tstr, 
     int32_t site = tn - 1 - thre;/**up bound; site:[tn - 1 - thre, tn - 1 + thre]**/\
 	for (cut = pn - 1; site < cut; ) {\
 		/** err += ((VP >> i)&(1ULL)); **/\
-		err += ez->VP.a[0]&(1ULL); w##sf##_self_rsft_1(ez->VP); \
+		err += ez->VP.a[0]&(1ULL); w_##sf##_self_rsft_1(ez->VP); \
 		/** err -= ((VN >> i)&(1ULL));**/\
-		err -= ez->VN.a[0]&(1ULL); w##sf##_self_rsft_1(ez->VN); \
+		err -= ez->VN.a[0]&(1ULL); w_##sf##_self_rsft_1(ez->VN); \
 		site++;\
 		if(err <= thre && err < ez->err) {\
 			ez->err = err; ez->pe = site; ez->te = tn-1;\
