@@ -3657,15 +3657,52 @@ char *qstr, char *tstr, char *tstr1, Correct_dumy* dumy, uint32_t rev, uint32_t 
         //     fprintf(stderr, "[qstr] %.*s\n", (int32_t)ql, q_string);
         // }
         // assert(dbg_e <= (int32_t)error);
-        bit_extz_t exz; 
-        ed_band_cal_extension_128_w(t_string+r_ts, t_end+1-r_ts, q_string, ql, thres, &exz);
-        assert(exz.err <= (int32_t)error);
+        bit_extz_t exz, exz64; init_bit_extz_t(&exz, thres); init_bit_extz_t(&exz64, thres);
+        
+        // if(!(exz.err <= (int32_t)error)) {
+        //     fprintf(stderr, "[M::%s::] error::%u, ed_extension::%d, ql::%ld, thres::%ld\n", 
+        //             __func__, error, exz.err, ql, thres);
+            
+        // }
+        // exit(1);
+        // 
+        // ed_band_cal_extension_256_w(t_string+r_ts, t_end+1-r_ts, q_string, ql, thres, &exz);
+        ed_band_cal_extension_infi0_w(t_string+r_ts, t_end+1-r_ts, q_string, ql, thres, NULL, &exz);
+        ed_band_cal_extension_64_w(t_string+r_ts, t_end+1-r_ts, q_string, ql, thres, &exz64);
+        
+        if(!(exz.err == exz64.err && exz.ps == exz64.ps && exz.pe == exz64.pe && exz.ts == exz64.ts && exz.te == exz64.te)) {
+            fprintf(stderr, "\n[M::%s::] ql::%ld, thres::%ld, exz.err::%d, exz64.err::%d, exz.ps::%d, exz64.ps::%d, exz.pe::%d, exz64.pe::%d, exz.ts::%d, exz64.ts::%d, exz.te::%d, exz64.te::%d\n", __func__, 
+            ql, thres, exz.err, exz64.err, exz.ps, exz64.ps, exz.pe, exz64.pe, exz.ts, exz64.ts, exz.te, exz64.te);
+        }
+        assert(exz.err <= (int32_t)error && exz.err >= 0); 
+        assert(exz.err == exz64.err && exz.ps == exz64.ps && exz.pe == exz64.pe && exz.ts == exz64.ts && exz.te == exz64.te);
+        
+        ed_band_cal_extension_infi1_w(t_string+r_ts, t_end+1-r_ts, q_string, ql, thres, NULL, &exz);
+        assert(exz.err <= (int32_t)error); 
 
-        ed_band_cal_global_128_w(t_string+r_ts, t_end+1-r_ts, q_string, ql, thres, &exz);
-        assert(exz.err <= (int32_t)error);
+        // ed_band_cal_global_256_w(t_string+r_ts, t_end+1-r_ts, q_string, ql, thres, &exz);
+        ed_band_cal_global_infi_w(t_string+r_ts, t_end+1-r_ts, q_string, ql, thres, NULL, &exz);
+        ed_band_cal_global_64_w(t_string+r_ts, t_end+1-r_ts, q_string, ql, thres, &exz64);
+        // if(!(exz.err == exz64.err && exz.ps == exz64.ps && exz.pe == exz64.pe && exz.ts == exz64.ts && exz.te == exz64.te)) {
+        //     fprintf(stderr, "\n[M::%s::] ql::%ld, thres::%ld, exz.err::%d, exz64.err::%d, exz.ps::%d, exz64.ps::%d, exz.pe::%d, exz64.pe::%d, exz.ts::%d, exz64.ts::%d, exz.te::%d, exz64.te::%d\n", __func__, 
+        //     ql, thres, exz.err, exz64.err, exz.ps, exz64.ps, exz.pe, exz64.pe, exz.ts, exz64.ts, exz.te, exz64.te);
+        // }
+        assert(exz.err <= (int32_t)error && exz.err >= 0); 
+        assert(exz.err == exz64.err && exz.ps == exz64.ps && exz.pe == exz64.pe && exz.ts == exz64.ts && exz.te == exz64.te);
 
-        ed_band_cal_semi_128_w(t_string, aln_l, q_string, ql, thres, &exz);
-        assert(exz.err == (int32_t)error);
+
+        // ed_band_cal_semi_256_w(t_string, aln_l, q_string, ql, thres, &exz);
+        ed_band_cal_semi_infi_w(t_string, aln_l, q_string, ql, thres, NULL, &exz);
+        ed_band_cal_semi_64_w(t_string, aln_l, q_string, ql, thres, &exz64);
+        // if((!(exz.err == exz64.err && exz.ps == exz64.ps && exz.pe == exz64.pe && exz.ts == exz64.ts && exz.te == exz64.te)) || (exz.err != (int32_t)error)) {
+        //     fprintf(stderr, "\n[M::%s::semi] error::%u, ql::%ld, thres::%ld, exz.err::%d, exz64.err::%d, exz.ps::%d, exz64.ps::%d, exz.pe::%d, exz64.pe::%d, exz.ts::%d, exz64.ts::%d, exz.te::%d, exz64.te::%d\n", __func__, 
+        //     error, ql, thres, exz.err, exz64.err, exz.ps, exz64.ps, exz.pe, exz64.pe, exz.ts, exz64.ts, exz.te, exz64.te);
+        //     fprintf(stderr, "[tstr] %.*s\n", (int32_t)aln_l, t_string);
+        //     fprintf(stderr, "[qstr] %.*s\n", (int32_t)ql, q_string);
+        // }
+        assert(exz.err <= (int32_t)error && exz.err >= 0); 
+        assert(exz.err == exz64.err && exz.ps == exz64.ps && exz.pe == exz64.pe && exz.ts == exz64.ts && exz.te == exz64.te);
+        destroy_bit_extz_t(&exz); destroy_bit_extz_t(&exz64);
 
         // if(exz.err > (int32_t)error && ql == 1) {
         //     fprintf(stderr, "[M::%s::] error::%u, ed_extension::%d, ql::%ld, thres::%ld\n", 
