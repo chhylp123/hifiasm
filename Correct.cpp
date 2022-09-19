@@ -1787,7 +1787,7 @@ inline int move_gap_greedy(char* path, int path_i, int path_length, char* x, int
     char oper = path[path_i];
     
 
-    if(oper == 3)
+    if(oper == 3)///there are more x
     {
         path_i++;
         y_i--;
@@ -1817,7 +1817,7 @@ inline int move_gap_greedy(char* path, int path_i, int path_length, char* x, int
             
         }
     }
-    else if(oper == 2)
+    else if(oper == 2)///there are more y
     {
         path_i++;
         x_i--;
@@ -1925,11 +1925,11 @@ inline void generate_cigar(char* path, int path_length, window_list *idx, window
         else if(path[i] == 1) {
             x_i++; y_i++;
         }
-        else if(path[i] == 2) {
+        else if(path[i] == 2) {///there are more y
             move_gap_greedy(path, i, path_length, x, x_i, y, y_i, old_error);
             y_i++;
         }
-        else if(path[i] == 3) {
+        else if(path[i] == 3) {///there are more x
             move_gap_greedy(path, i, path_length, x, x_i, y, y_i, old_error);
             x_i++;
         }
@@ -3623,6 +3623,12 @@ int32_t y_strand, int32_t y_id)
     return 0;
 }
 
+void gen_rev_str(char *in, char **out, uint32_t len)
+{
+    char *r; uint32_t k; MALLOC(r, len); (*out) = r;
+    for (k = 0; k < len; k++) r[k] = in[len-k-1];
+}
+
 inline uint32_t gen_backtrace_adv(window_list *p, overlap_region *z, All_reads *rref, hpc_t *hpc_g, const ul_idx_t *uref, 
 char *qstr, char *tstr, char *tstr1, Correct_dumy* dumy, uint32_t rev, uint32_t id)
 {
@@ -3650,58 +3656,146 @@ char *qstr, char *tstr, char *tstr1, Correct_dumy* dumy, uint32_t rev, uint32_t 
 
     // assert(error != (unsigned int)-1);
     if(error != (unsigned int)-1) {
-        // int32_t dbg_e = ed_band_cal_global(t_string+r_ts, t_end+1-r_ts, q_string, ql, thres);
-        // if(dbg_e != (int32_t)error && dbg_e <= 4) {
-        //     fprintf(stderr, "\n[M::%s::] error::%u, ed_global::%d\n", __func__, error, dbg_e);
-        //     fprintf(stderr, "[tstr] %.*s\n", t_end+1-r_ts, t_string+r_ts);
-        //     fprintf(stderr, "[qstr] %.*s\n", (int32_t)ql, q_string);
-        // }
-        // assert(dbg_e <= (int32_t)error);
+        /**
         bit_extz_t exz, exz64; init_bit_extz_t(&exz, thres); init_bit_extz_t(&exz64, thres);
-        
-        // if(!(exz.err <= (int32_t)error)) {
-        //     fprintf(stderr, "[M::%s::] error::%u, ed_extension::%d, ql::%ld, thres::%ld\n", 
-        //             __func__, error, exz.err, ql, thres);
-            
-        // }
-        // exit(1);
-        // 
-        // ed_band_cal_extension_256_w(t_string+r_ts, t_end+1-r_ts, q_string, ql, thres, &exz);
-        ed_band_cal_extension_infi0_w(t_string+r_ts, t_end+1-r_ts, q_string, ql, thres, NULL, &exz);
-        ed_band_cal_extension_64_w(t_string+r_ts, t_end+1-r_ts, q_string, ql, thres, &exz64);
-        
-        if(!(exz.err == exz64.err && exz.ps == exz64.ps && exz.pe == exz64.pe && exz.ts == exz64.ts && exz.te == exz64.te)) {
-            fprintf(stderr, "\n[M::%s::] ql::%ld, thres::%ld, exz.err::%d, exz64.err::%d, exz.ps::%d, exz64.ps::%d, exz.pe::%d, exz64.pe::%d, exz.ts::%d, exz64.ts::%d, exz.te::%d, exz64.te::%d\n", __func__, 
-            ql, thres, exz.err, exz64.err, exz.ps, exz64.ps, exz.pe, exz64.pe, exz.ts, exz64.ts, exz.te, exz64.te);
-        }
+                
+        ed_band_cal_extension_64_0_w(t_string+r_ts, t_end+1-r_ts, q_string, ql, thres, &exz64);
+        ed_band_cal_extension_64_0_w_trace(t_string+r_ts, t_end+1-r_ts, q_string, ql, thres, &exz64);
+        cigar_check(t_string+r_ts, q_string, &(exz64));
+        exz64.err = INT32_MAX;
+        ed_band_cal_extension_64_0_w_trace(t_string+r_ts, t_end+1-r_ts, q_string, ql, thres, &exz64);
+        cigar_check(t_string+r_ts, q_string, &(exz64));
+
+        ed_band_cal_extension_infi_0_w(t_string+r_ts, t_end+1-r_ts, q_string, ql, thres, NULL, &exz);
+        ed_band_cal_extension_infi_0_w_trace(t_string+r_ts, t_end+1-r_ts, q_string, ql, thres, NULL, &exz);
+        cigar_check(t_string+r_ts, q_string, &exz);
+        exz.err = INT32_MAX;
+        ed_band_cal_extension_infi_0_w_trace(t_string+r_ts, t_end+1-r_ts, q_string, ql, thres, NULL, &exz);
+        cigar_check(t_string+r_ts, q_string, &exz);
         assert(exz.err <= (int32_t)error && exz.err >= 0); 
         assert(exz.err == exz64.err && exz.ps == exz64.ps && exz.pe == exz64.pe && exz.ts == exz64.ts && exz.te == exz64.te);
         
-        ed_band_cal_extension_infi1_w(t_string+r_ts, t_end+1-r_ts, q_string, ql, thres, NULL, &exz);
-        assert(exz.err <= (int32_t)error); 
+        ed_band_cal_extension_256_0_w(t_string+r_ts, t_end+1-r_ts, q_string, ql, thres, &exz);
+        ed_band_cal_extension_256_0_w_trace(t_string+r_ts, t_end+1-r_ts, q_string, ql, thres, &exz);
+        cigar_check(t_string+r_ts, q_string, &exz);
+        exz.err = INT32_MAX;
+        ed_band_cal_extension_256_0_w_trace(t_string+r_ts, t_end+1-r_ts, q_string, ql, thres, &exz);
+        cigar_check(t_string+r_ts, q_string, &exz);
+        assert(exz.err <= (int32_t)error && exz.err >= 0); 
+        assert(exz.err == exz64.err && exz.ps == exz64.ps && exz.pe == exz64.pe && exz.ts == exz64.ts && exz.te == exz64.te);
 
-        // ed_band_cal_global_256_w(t_string+r_ts, t_end+1-r_ts, q_string, ql, thres, &exz);
-        ed_band_cal_global_infi_w(t_string+r_ts, t_end+1-r_ts, q_string, ql, thres, NULL, &exz);
-        ed_band_cal_global_64_w(t_string+r_ts, t_end+1-r_ts, q_string, ql, thres, &exz64);
         // if(!(exz.err == exz64.err && exz.ps == exz64.ps && exz.pe == exz64.pe && exz.ts == exz64.ts && exz.te == exz64.te)) {
         //     fprintf(stderr, "\n[M::%s::] ql::%ld, thres::%ld, exz.err::%d, exz64.err::%d, exz.ps::%d, exz64.ps::%d, exz.pe::%d, exz64.pe::%d, exz.ts::%d, exz64.ts::%d, exz.te::%d, exz64.te::%d\n", __func__, 
         //     ql, thres, exz.err, exz64.err, exz.ps, exz64.ps, exz.pe, exz64.pe, exz.ts, exz64.ts, exz.te, exz64.te);
         // }
+        
+        
+        
+        
+        char *qr, *tr;
+        gen_rev_str(q_string, &qr, ql); gen_rev_str(t_string+r_ts, &tr, t_end+1-r_ts); 
+
+        ed_band_cal_extension_64_1_w(tr, t_end+1-r_ts, qr, ql, thres, &exz64);
+        ed_band_cal_extension_64_1_w_trace(tr, t_end+1-r_ts, qr, ql, thres, &exz64);
+        cigar_check(tr, qr, &exz64);
+        exz64.err = INT32_MAX;
+        ed_band_cal_extension_64_1_w_trace(tr, t_end+1-r_ts, qr, ql, thres, &exz64);
+        cigar_check(tr, qr, &exz64);
+        assert(exz.err == exz64.err && exz.ps == (exz64.pl-exz64.pe-1) && exz.pe == (exz64.pl-exz64.ps-1) && exz.ts == (exz64.tl-exz64.te-1) && exz.te == (exz64.tl-exz64.ts-1));
+
+        ed_band_cal_extension_infi_1_w(tr, t_end+1-r_ts, qr, ql, thres, NULL, &exz);
+        ed_band_cal_extension_infi_1_w_trace(tr, t_end+1-r_ts, qr, ql, thres, NULL, &exz);
+        cigar_check(tr, qr, &exz);
+        exz.err = INT32_MAX;
+        ed_band_cal_extension_infi_1_w_trace(tr, t_end+1-r_ts, qr, ql, thres, NULL, &exz);
+        cigar_check(tr, qr, &exz);
+        assert(exz.err == exz64.err && exz.ps == exz64.ps && exz.pe == exz64.pe && exz.ts == exz64.ts && exz.te == exz64.te);
+
+        ed_band_cal_extension_256_1_w(tr, t_end+1-r_ts, qr, ql, thres, &exz);
+        ed_band_cal_extension_256_1_w_trace(tr, t_end+1-r_ts, qr, ql, thres, &exz);
+        cigar_check(tr, qr, &exz);
+        exz.err = INT32_MAX;
+        ed_band_cal_extension_256_1_w_trace(tr, t_end+1-r_ts, qr, ql, thres, &exz);
+        cigar_check(tr, qr, &exz);
+        assert(exz.err == exz64.err && exz.ps == exz64.ps && exz.pe == exz64.pe && exz.ts == exz64.ts && exz.te == exz64.te);
+
+        free(qr); free(tr);
+
+
+        ed_band_cal_global_64_w(t_string+r_ts, t_end+1-r_ts, q_string, ql, thres, &exz64);
+        ed_band_cal_global_64_w_trace(t_string+r_ts, t_end+1-r_ts, q_string, ql, thres, &exz64);
+        cigar_check(t_string+r_ts, q_string, &(exz64));
+        exz64.err = INT32_MAX;
+        ed_band_cal_global_64_w_trace(t_string+r_ts, t_end+1-r_ts, q_string, ql, thres, &exz64);
+        cigar_check(t_string+r_ts, q_string, &(exz64));
+
+        // if(!cigar_check(t_string+r_ts, t_end+1-r_ts, q_string, ql, &(exz64.cigar), exz64.err) && ql <= 12) {
+        //         fprintf(stderr, "\n[M::%s::] ql::%ld, thres::%ld, exz.err::%d, exz64.err::%d, exz.ps::%d, exz64.ps::%d, exz.pe::%d, exz64.pe::%d, exz.ts::%d, exz64.ts::%d, exz.te::%d, exz64.te::%d\n", __func__, 
+        //     ql, thres, exz.err, exz64.err, exz.ps, exz64.ps, exz.pe, exz64.pe, exz.ts, exz64.ts, exz.te, exz64.te);
+        //     fprintf(stderr, "[tstr] %.*s\n", (int32_t)(t_end+1-r_ts), t_string+r_ts);
+        //     fprintf(stderr, "[qstr] %.*s\n", (int32_t)ql, q_string);
+        // }
+        ed_band_cal_global_infi_w(t_string+r_ts, t_end+1-r_ts, q_string, ql, thres, NULL, &exz);
+        ed_band_cal_global_infi_w_trace(t_string+r_ts, t_end+1-r_ts, q_string, ql, thres, NULL, &exz);
+        cigar_check(t_string+r_ts, q_string, &exz);
+        exz.err = INT32_MAX;
+        ed_band_cal_global_infi_w_trace(t_string+r_ts, t_end+1-r_ts, q_string, ql, thres, NULL, &exz);
+        cigar_check(t_string+r_ts, q_string, &exz);
         assert(exz.err <= (int32_t)error && exz.err >= 0); 
         assert(exz.err == exz64.err && exz.ps == exz64.ps && exz.pe == exz64.pe && exz.ts == exz64.ts && exz.te == exz64.te);
 
+        ed_band_cal_global_256_w(t_string+r_ts, t_end+1-r_ts, q_string, ql, thres, &exz);
+        ed_band_cal_global_256_w_trace(t_string+r_ts, t_end+1-r_ts, q_string, ql, thres, &exz);
+        cigar_check(t_string+r_ts, q_string, &exz);
+        exz.err = INT32_MAX;
+        ed_band_cal_global_256_w_trace(t_string+r_ts, t_end+1-r_ts, q_string, ql, thres, &exz);
+        cigar_check(t_string+r_ts, q_string, &exz);
+        assert(exz.err <= (int32_t)error && exz.err >= 0); 
+        assert(exz.err == exz64.err && exz.ps == exz64.ps && exz.pe == exz64.pe && exz.ts == exz64.ts && exz.te == exz64.te);
 
-        // ed_band_cal_semi_256_w(t_string, aln_l, q_string, ql, thres, &exz);
-        ed_band_cal_semi_infi_w(t_string, aln_l, q_string, ql, thres, NULL, &exz);
+        // if(!(exz.err == exz64.err && exz.ps == exz64.ps && exz.pe == exz64.pe && exz.ts == exz64.ts && exz.te == exz64.te)) {
+        //     fprintf(stderr, "\n[M::%s::] ql::%ld, thres::%ld, exz.err::%d, exz64.err::%d, exz.ps::%d, exz64.ps::%d, exz.pe::%d, exz64.pe::%d, exz.ts::%d, exz64.ts::%d, exz.te::%d, exz64.te::%d\n", __func__, 
+        //     ql, thres, exz.err, exz64.err, exz.ps, exz64.ps, exz.pe, exz64.pe, exz.ts, exz64.ts, exz.te, exz64.te);
+        // }
+        
         ed_band_cal_semi_64_w(t_string, aln_l, q_string, ql, thres, &exz64);
+        ed_band_cal_semi_64_w_trace(t_string, aln_l, q_string, ql, thres, &exz64);
+        cigar_check(t_string, q_string, &(exz64));
+        exz64.err = INT32_MAX;
+        ed_band_cal_semi_64_w_trace(t_string, aln_l, q_string, ql, thres, &exz64);
+        cigar_check(t_string, q_string, &(exz64));
+
+        // if(!cigar_check(t_string, q_string, &(exz64)) && ql <= 4) {
+        //     fprintf(stderr, "\n[M::%s::] ql::%ld, thres::%ld, exz64.err::%d, exz64.ps::%d, exz64.pe::%d, exz64.ts::%d, exz64.te::%d\n", __func__, 
+        //     ql, thres, exz64.err, exz64.ps, exz64.pe, exz64.ts, exz64.te);
+        //     fprintf(stderr, "[tstr] %.*s\n", (int32_t)aln_l, t_string);
+        //     fprintf(stderr, "[qstr] %.*s\n", (int32_t)ql, q_string);
+        // }
+
+        ed_band_cal_semi_infi_w(t_string, aln_l, q_string, ql, thres, NULL, &exz);
+        ed_band_cal_semi_infi_w_trace(t_string, aln_l, q_string, ql, thres, NULL, &exz);
+        cigar_check(t_string, q_string, &exz);
+        exz.err = INT32_MAX;
+        ed_band_cal_semi_infi_w_trace(t_string, aln_l, q_string, ql, thres, NULL, &exz);
+        cigar_check(t_string, q_string, &exz);
+        assert(exz.err <= (int32_t)error && exz.err >= 0); 
+        assert(exz.err == exz64.err && exz.pe == exz64.pe && exz.ts == exz64.ts && exz.te == exz64.te);
+
+        ed_band_cal_semi_256_w(t_string, aln_l, q_string, ql, thres, &exz);
+        ed_band_cal_semi_256_w_trace(t_string, aln_l, q_string, ql, thres, &exz);
+        cigar_check(t_string, q_string, &exz);
+        exz.err = INT32_MAX;
+        ed_band_cal_semi_256_w_trace(t_string, aln_l, q_string, ql, thres, &exz);
+        cigar_check(t_string, q_string, &exz);
+        assert(exz.err <= (int32_t)error && exz.err >= 0); 
+        assert(exz.err == exz64.err && exz.pe == exz64.pe && exz.ts == exz64.ts && exz.te == exz64.te);
+
         // if((!(exz.err == exz64.err && exz.ps == exz64.ps && exz.pe == exz64.pe && exz.ts == exz64.ts && exz.te == exz64.te)) || (exz.err != (int32_t)error)) {
         //     fprintf(stderr, "\n[M::%s::semi] error::%u, ql::%ld, thres::%ld, exz.err::%d, exz64.err::%d, exz.ps::%d, exz64.ps::%d, exz.pe::%d, exz64.pe::%d, exz.ts::%d, exz64.ts::%d, exz.te::%d, exz64.te::%d\n", __func__, 
         //     error, ql, thres, exz.err, exz64.err, exz.ps, exz64.ps, exz.pe, exz64.pe, exz.ts, exz64.ts, exz.te, exz64.te);
         //     fprintf(stderr, "[tstr] %.*s\n", (int32_t)aln_l, t_string);
         //     fprintf(stderr, "[qstr] %.*s\n", (int32_t)ql, q_string);
         // }
-        assert(exz.err <= (int32_t)error && exz.err >= 0); 
-        assert(exz.err == exz64.err && exz.ps == exz64.ps && exz.pe == exz64.pe && exz.ts == exz64.ts && exz.te == exz64.te);
         destroy_bit_extz_t(&exz); destroy_bit_extz_t(&exz64);
 
         // if(exz.err > (int32_t)error && ql == 1) {
@@ -3713,6 +3807,7 @@ char *qstr, char *tstr, char *tstr1, Correct_dumy* dumy, uint32_t rev, uint32_t 
         
         // assert(ed_band_cal_global(t_string+r_ts, t_end+1-r_ts, q_string, ql, thres) == 
         //                 ed_band_cal_global_128bit(t_string+r_ts, t_end+1-r_ts, q_string, ql, thres));
+        **/
         
         ///this condition is always wrong
         ///in best case, r_ts = threshold, t_end = aln_l - thres - 1
@@ -11908,12 +12003,22 @@ void ul_lalign_hpc(overlap_region_alloc* ol, Candidates_list *cl, const ul_idx_t
     **/
 }
 
+// void ul_phase(overlap_region *oa, int64_t on, uint64_t *idx, uint64_t *buf)
+// {
+//     int64_t i, oi; overlap_region *z;
+//     for (i = 0; i < on; i++) {
+//         oi = (uint32_t)idx[i]; z = &(oa[oi]);
+//         if(z->is_match != 1) continue;
+//     }
+// }
+
 void ul_lalign(overlap_region_alloc* ol, Candidates_list *cl, const ul_idx_t *uref, char *qstr, 
                         uint64_t ql, UC_Read* qu, UC_Read* tu, Correct_dumy* dumy, 
                         haplotype_evdience_alloc* hap, kvec_t_u64_warp* v_idx,   
                         double e_rate, int64_t wl, uint64_t is_base, void *km)
 {
-    uint64_t i, bs, k, ovl; Window_Pool w; double err; overlap_region t; overlap_region *z;
+    uint64_t i, bs, k, ovl/**, on**/; Window_Pool w; double err; 
+    /**int64_t sc;**/ overlap_region t; overlap_region *z; 
     ol->mapped_overlaps_length = 0;
     if(ol->length <= 0) return;
 
@@ -11962,6 +12067,24 @@ void ul_lalign(overlap_region_alloc* ol, Candidates_list *cl, const ul_idx_t *ur
     } else {
         // fprintf(stderr, "-[M::%s] on::%lu\n", __func__, ol->length);
         if(ol->length <= 1) return;
+        // for (i = 0; (i < ol->length) && (ol->list[i].is_match == 1); i++); on = i;
+        // if(on <= 1) return;
+        // kv_resize(uint64_t, v_idx->a, (on<<1)); v_idx->a.n = on;
+        // for (i = 0; i < on; i++) {
+        //     sc = ol->list[i].x_pos_e+1-ol->list[i].x_pos_s;
+        //     sc -= ((int64_t)(ol->list[i].non_homopolymer_errors*ERROR_RATE));
+        //     if(sc < 0) sc = 0;
+        //     v_idx->a.a[i] = sc; v_idx->a.a[i] <<= 32; v_idx->a.a[i] += i;
+        // }
+        // radix_sort_bc64(v_idx->a.a, v_idx->a.a+on);
+        // for (i = 0; i < on; i++) {
+        //     ol->list[i].non_homopolymer_errors = 0;
+        //     k = ((uint32_t)v_idx->a.a[i]);
+        //     v_idx->a.a[k]<<=32; v_idx->a.a[k]>>=32; v_idx->a.a[k]|=i;
+        // }
+        // ul_phase(ol->list, on, v_idx->a.a, v_idx->a.a+on);
+
+
         for (i = 0; i < ol->length; i++) {
             z = &(ol->list[i]); ovl = z->x_pos_e+1-z->x_pos_s; z->is_match = 1;
             for (k = 0; k < z->w_list.n; k++) {

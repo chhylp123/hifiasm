@@ -5376,7 +5376,7 @@ int64_t filter_sec(overlap_region_alloc *ol, ul_ov_t *idx, int64_t idx_n, ul_ov_
 			set_w_e(&(ol->list[a[z].qn]), w_idx, wl, ql);
 			// fprintf(stderr, "[M::%s::utg%.6dl]\n", __func__, (int32_t)a[z].tn+1);
 		}
-		on_contain += (((idx[k].te-idx[k].ts)==1)?1:0);
+		on_contain += (((idx[k].te-idx[k].ts)==1)?1:0); 
 	}
 	if(on_contain == idx_n) {///each primary chain only has one alignment 
 		on_contain = 0;
@@ -5413,6 +5413,8 @@ int64_t filter_sec(overlap_region_alloc *ol, ul_ov_t *idx, int64_t idx_n, ul_ov_
 	}
 	// fprintf(stderr, "-[M::%s] oln::%ld\n", __func__, ol->length);
 	if(alt_occ == 0 || ol->length == 1) return 1;//if all alignments are primary or there is only one alignment
+	// for (k = ol->length; k < on; k++) ol->list[k].is_match = 2;//reover trans alignments
+	// ol->length = on;
 	return 0;
 }
 
@@ -5441,9 +5443,12 @@ int64_t gl_chain_flter(overlap_region_alloc* olist, Correct_dumy* dumy, st_mt_t 
 	kv_resize(uint64_t, *sps, idx->n);
 	kv_resize(ul_ov_t, ll->tk, idx->n);
 
-	occ = ed_dp_c(olist, idx, ll->tk.a, uref, uopt, G_CHAIN_BW, N_GCHAIN_RATE, ql, 75, dumy->overlapID, ll->srt.a.a, sps->a, 1.25, 0, NULL, uref->ug);
+	occ = ed_dp_c(olist, idx, ll->tk.a, uref, uopt, G_CHAIN_BW, N_GCHAIN_RATE, ql, 75, dumy->overlapID, ll->srt.a.a, sps->a, ERROR_RATE, 0, NULL, uref->ug);
 	if((!occ) || (!idx->n)) return 0;
 	idx_n = idx->n; p = &(idx->a[idx_n-1]);
+	if(idx_n <= 1) {//one chain; nothing to do
+		(*need_phase) = 0; return 1;
+	}
 	// fprintf(stderr, "[M::%s] qs::%u, qe::%u, ql::%ld, occ::%u\n", __func__, p->qs, p->qe, ql, p->te - p->ts);
 	if(p->qe-p->qs <= (ql*0.25)) return 0;///primary chain is too short
 	i = idx_n-1; occ = p->te - p->ts;
@@ -5462,8 +5467,9 @@ int64_t gl_chain_flter(overlap_region_alloc* olist, Correct_dumy* dumy, st_mt_t 
 		i++;
 	} 
 
-	// fprintf(stderr, "[M::%s] i::%ld, idx_n::%ld\n", __func__, i, ((int64_t)idx->n));
-	if(occ == (int64_t)olist->length) return 1;
+	if(occ == (int64_t)olist->length) {//all alignments are primary chains; nothing to do
+		(*need_phase) = 0; return 1;
+	}
 	// if(i >= ((int64_t)idx->n)) return 0;
 	nw = get_num_wins(0, ql, wl); kv_resize(uint64_t, ll->srt.a, (uint64_t)nw);
 	if(filter_sec(olist, idx->a+i, idx->n-i, ll->tk.a, ll->srt.a.a, nw, wl, ql)) {

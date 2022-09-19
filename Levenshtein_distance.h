@@ -512,27 +512,49 @@ inline int32_t ed_band_cal_global(char *pstr, int32_t pn, char *tstr, int32_t tn
     return INT32_MAX;
 }
 
+#define EAC_M 0
+#define MIS_M 1 
+#define MOR_YP 2
+#define MOR_XT 3
 
-// typedef uint64_t w_sig;
-// typedef struct {w_sig *a;} w128_t;
-// #define bitw (6)
-// #define bitwbit (64)
-// #define bitz (63)
+inline void push_trace(asg16_v *res, uint16_t c, uint32_t len)
+{
+    uint16_t p; c <<= 14; 
+	while (len >= (0x3fff)) {
+		p = (c + (0x3fff)); kv_push(uint16_t, *res, p); len -= (0x3fff);
+	}
+	if(len) {
+		p = (c + len); kv_push(uint16_t, *res, p);
+	}
+}
+
+inline uint32_t pop_trace(asg16_v *res, uint32_t i, uint16_t *c, uint32_t *len)
+{
+	(*c) = (res->a[i]>>14); (*len) = (res->a[i]&(0x3fff));
+	for (i++; (i < res->n) && ((*c) == (res->a[i]>>14)); i++) {
+		(*len) += (res->a[i]&(0x3fff));
+	}
+	return i;
+}
+
+
+typedef uint64_t w_sig;
+#define bitw (6)
+#define bitwbit (64)
+#define bitz (63)
 // typedef uint32_t w_sig;
-// typedef struct {w_sig a[3];} w128_t;
 // #define bitw (5)
 // #define bitwbit (32)
 // #define bitz (31)
 // typedef uint16_t w_sig;
-// typedef struct {w_sig *a;} w128_t;
 // #define bitw (4)
 // #define bitwbit (16)
 // #define bitz (15)
-typedef uint8_t w_sig;
+// typedef uint8_t w_sig;
+// #define bitw (3)
+// #define bitwbit (8)
+// #define bitz (7)
 typedef struct {w_sig *a;} w128_t;
-#define bitw (3)
-#define bitwbit (8)
-#define bitz (7)
 typedef struct {size_t n, m; w_sig *a;} w64_trace_t;
 typedef struct {
 	int32_t done_cigar, cigar_n, done_path, path_n;
@@ -540,8 +562,58 @@ typedef struct {
 	int32_t thre, err, nword, mword;
 	uint32_t m, mm_thres; w_sig *a;
 	w128_t Peq[5], mm, VP, VN, X, D0, HN, HP;
-	// asg16_v cigar; w64_trace_t path; 
+	asg16_v cigar; w64_trace_t path; 
 } bit_extz_t;
+
+inline uint32_t cigar_check(char *pstr, char *tstr, bit_extz_t *ez)
+{
+	int32_t pi = ez->ps, ti = ez->ts, err = 0; uint32_t ci = 0, cl, k; uint16_t c;
+	while (ci < ez->cigar.n) {
+		ci = pop_trace(&(ez->cigar), ci, &c, &cl);
+		// fprintf(stderr, "# %u = %u\n", c, cl); 
+		if(c == 0) {
+			for (k=0;(k<cl)&&(pstr[pi]==tstr[ti]);k++,pi++,ti++);
+			if(k!=cl) {
+				fprintf(stderr, "ERROR-d-0\n"); 
+				return 0;
+			}
+		} else {
+			err += cl;
+			if(c == 1) {
+				for (k=0;(k<cl)&&(pstr[pi]!=tstr[ti]);k++,pi++,ti++);
+				if(k!=cl) {
+					fprintf(stderr, "ERROR-d-1\n"); 
+					return 0;
+				}
+			} else if(c == 2) {///more p
+				pi+=cl;
+			} else if(c == 3) {
+				ti+=cl;
+			}
+		}
+	}
+	if(err != ez->err) {
+		fprintf(stderr, "ERROR-err\n"); 
+		return 0;
+	}
+	return 1;
+}
+
+inline int32_t dbg_ext_err(int32_t i, int32_t thre, int32_t err, int32_t pe, w128_t *VP, w128_t *VN)
+{
+	int32_t poff = i-thre, tmp_e = INT32_MAX, k, bd, k_bd;
+	if((poff) + (thre<<1) >= (pe)) { 
+		tmp_e = err;
+		for ((k) = 0; (poff) < (pe); (poff)++) {
+			bd = (k>>bitw); k_bd = (k&bitz);
+			(tmp_e) += ((VP->a[bd]>>k_bd)&((w_sig)1)); 
+			(tmp_e) -= ((VN->a[bd]>>k_bd)&((w_sig)1));
+			(k)++;
+		}
+	}
+	return tmp_e;
+}
+
 
 inline void print_bits(w_sig *az, int64_t w, const char *cmd)
 {
@@ -602,8 +674,93 @@ inline void init_bit_extz_t(bit_extz_t *ex, uint64_t thres) {
 }
 
 inline void destroy_bit_extz_t(bit_extz_t *ex) {
-	free((*ex).a);
+	free((*ex).a); free((*ex).path.a); free((*ex).cigar.a);
 }
+
+
+inline void gen_trace(bit_extz_t *ez, int32_t ptrim, int32_t reverse)///ptrim = thre for global and extension; = 0 for semi
+{
+	ez->cigar.n = 0;
+	int32_t V, H, D, min, cur, tn = (ez->te+1-ez->ts), pn = tn + (ez->thre<<1), bd = (ez->thre<<1)+1;
+	int32_t bs = ez->path.n/tn, bbs = bs/5, poff = ez->pe, sft = bd - (pn - ez->pe - ptrim);
+	int32_t i = tn, low = bd-1, wi, wm, d = 0, pd = -1, pdn = 0; cur = ez->err;
+	w_sig *D0, *VP, *VN, *HP, *HN;
+
+	// fprintf(stderr, "\n[M::%s::] bs::%d, bbs::%d, cur::%d, poff::%d, sft::%d\n", __func__, bs, bbs, cur, poff, sft);
+
+	while (i > 0 && cur > 0) {
+		D0 = ez->path.a + ((i-1)*bs); VP = D0 + bbs; VN = VP + bbs; HP = VN + bbs; HN = HP + bbs;
+
+		wi = (sft>>bitw); wm = sft&bitz;
+		D = cur - ((~(D0[wi]>>wm))&(1ULL)); d = 0; min = D;
+		H = V = INT32_MAX;
+		if(sft!=low) {
+            H = cur + ((HN[wi]>> wm)&(1ULL)) - ((HP[wi]>> wm)&(1ULL)); 
+            if ((H+1) == cur && H <= min) {//prefer indels
+                min = H; d = 3;
+            }
+		}
+		if(sft!=0) {
+			wi = ((sft-1)>>bitw); wm = (sft-1)&bitz;
+			V = cur + ((VN[wi]>> wm)&(1ULL)) - ((VP[wi]>> wm)&(1ULL)); 
+			if ((V+1) == cur && V <= min) {//prefer indels
+				min = V; d = 2;
+			}
+		}
+		// fprintf(stderr, "[M::%s::] cur::%d, D::%d, V::%d, H::%d, poff::%d, toff::%d, d::%d\n", __func__, cur, D, V, H, poff, i, d);
+		if(d == 0) {
+			if(D != cur) d = 1;
+			i--; poff--;
+		} else if(d == 2) {//more pstr
+			sft--; poff--;
+		} else if(d == 3) {///more tstr
+			i--; sft++;
+		}
+
+		if(d == pd) {
+			pdn++;
+		} else {
+			if(pdn > 0) push_trace(&(ez->cigar), pd, pdn);
+			pd = d; pdn = 1;
+		}
+		cur = min;
+	}
+
+	if (i > 0) {
+        d = 0; poff -= i;
+		if(d == pd) {
+			pdn += i;
+		} else {
+			if(pdn > 0) push_trace(&(ez->cigar), pd, pdn);
+			pd = d; pdn = i;
+		}
+    }
+
+	poff++;
+	// fprintf(stderr, "[M::%s::] poff::%d, ez->ps::%d\n", __func__, poff, ez->ps);
+	if(ez->ps < 0 || ez->ps >= ez->pl) {//ps is unavailable
+		ez->ps = poff;
+	} else if(poff > ez->ps){
+		d = 2; i = poff - ez->ps;
+		if(d == pd) {
+			pdn += i;
+		} else {
+			if(pdn > 0) push_trace(&(ez->cigar), pd, pdn);
+			pd = d; pdn = i;
+		}
+	}
+	if(pdn > 0) push_trace(&(ez->cigar), pd, pdn);
+
+	if(reverse) {
+		uint16_t t; pdn = ez->cigar.n>>1; 
+		for (i = 0; i < pdn; i++) {
+			t = ez->cigar.a[i]; 
+			ez->cigar.a[i] = ez->cigar.a[ez->cigar.n-i-1]; 
+			ez->cigar.a[ez->cigar.n-i-1] = t;
+		}
+	}
+}
+
 
 
 #define init_base_ed(ez, thre, pn, tn) {\
@@ -617,6 +774,8 @@ inline void destroy_bit_extz_t(bit_extz_t *ex) {
 
 /***********************2 words***********************/
 #define w_128_clear(x) ((x).a[0]=(x).a[1]=0)
+
+#define w_128_word (2)
 
 #define w_128_self_not(x) ((x).a[0]=~(x).a[0], \
 									(x).a[1]=~(x).a[1])
@@ -654,6 +813,8 @@ inline void destroy_bit_extz_t(bit_extz_t *ex) {
 
 /***********************3 words***********************/
 #define w_192_clear(x) ((x).a[0]=(x).a[1]=(x).a[2]=0)
+
+#define w_192_word (3)
 
 #define w_192_self_not(x) ((x).a[0]=~(x).a[0],\
 									(x).a[1]=~(x).a[1],\
@@ -701,6 +862,8 @@ inline void destroy_bit_extz_t(bit_extz_t *ex) {
 
 /***********************4 words***********************/
 #define w_256_clear(x) ((x).a[0]=(x).a[1]=(x).a[2]=(x).a[3]=0)
+
+#define w_256_word (4)
 
 #define w_256_self_not(x) ((x).a[0]=~(x).a[0],\
 									(x).a[1]=~(x).a[1],\
@@ -904,8 +1067,7 @@ inline void ed_band_cal_global_##sf##_w(char *pstr, int32_t pn, char *tstr, int3
 {\
 	init_base_ed(*ez, thre, pn, tn); ez->ps = ez->ts = 0;\
 	if((pn > tn + thre) || (tn > pn + thre)) return;\
-	/**if((pn < thre + 1) || (tn < thre + 1)) return;**/\
-	int32_t i, err, tn0 = tn - 1, cut = thre+(thre<<1), bd, i_bd; w_sig c;\
+	int32_t i, err, tn0 = tn - 1, cut = thre+(thre<<1), bd, i_bd, Peq_i; w_sig c, Peq_m;\
 	w_##sf##_clear(ez->Peq[0]); w_##sf##_clear(ez->Peq[1]); w_##sf##_clear(ez->Peq[2]); w_##sf##_clear(ez->Peq[3]); w_##sf##_clear(ez->Peq[4]);\
 	\
 	bd = thre+1; bd = ((bd<=pn)?bd:pn); i_bd = thre;\
@@ -922,7 +1084,7 @@ inline void ed_band_cal_global_##sf##_w(char *pstr, int32_t pn, char *tstr, int3
 	/**should make Peq[4] = 0 if N is always an error**/\
 	i = 0; \
 	/**for the incoming char/last char**/\
-	w_##sf##_clear(ez->mm); w_bit(ez->mm, (thre<<1)); /**mm = ((Word)1 << (thre<<1));**/\
+	Peq_i = (((thre<<1))>>bitw); Peq_m = (((w_sig)1)<<(((thre<<1))&bitz));\
     while (i < tn0) {\
 		ed_core(_##sf##_, ez->Peq, ez->VP, ez->VN, ez->X, ez->D0, ez->HN, ez->HP, (uint8_t)tstr[i], c);\
         if (!(ez->D0.a[0]&(1ULL))) {\
@@ -931,12 +1093,10 @@ inline void ed_band_cal_global_##sf##_w(char *pstr, int32_t pn, char *tstr, int3
 		/** Peq[0] >>= 1; Peq[1] >>= 1; Peq[2] >>= 1; Peq[3] >>= 1;**/\
 		w_##sf##_self_rsft_1(ez->Peq[0]); w_##sf##_self_rsft_1(ez->Peq[1]);\
 		w_##sf##_self_rsft_1(ez->Peq[2]); w_##sf##_self_rsft_1(ez->Peq[3]);\
-        ++i; ++i_bd;\
-        if(i_bd < pn) {\
-			c = seq_nt4_table[(uint8_t)pstr[i_bd]];\
-			/**if(c < 4) Peq[c] |= mm;**/\
-			if(c < 4) w_##sf##_self_or(ez->Peq[c], ez->mm);\
-		}\
+		\
+		++i; ++i_bd; c = 4;\
+        if(i_bd < pn) c = seq_nt4_table[(uint8_t)pstr[i_bd]];\
+        if(c < 4) ez->Peq[c].a[Peq_i]|=Peq_m;\
     }\
 	ed_core(_##sf##_, ez->Peq, ez->VP, ez->VN, ez->X, ez->D0, ez->HN, ez->HP, (uint8_t)tstr[i], c);\
 	if (!(ez->D0.a[0]&(1ULL))) {\
@@ -944,11 +1104,10 @@ inline void ed_band_cal_global_##sf##_w(char *pstr, int32_t pn, char *tstr, int3
 	}\
 	\
     int32_t site = tn - 1 - thre;/**up bound**/\
-	for (cut = pn - 1; site < cut; site++) {\
-		/**err += ((VP >> i)&(1ULL));**/\ 
-		err += ez->VP.a[0]&(1ULL); w_##sf##_self_rsft_1(ez->VP); \
-		/**err -= ((VN >> i)&(1ULL));**/\
-		err -= ez->VN.a[0]&(1ULL); w_##sf##_self_rsft_1(ez->VN); \
+	for (cut = pn - 1, i = 0; site < cut; site++, i++) {\
+		bd = (i>>bitw); i_bd = (i&bitz);\
+        err += (((*ez).VP.a[bd]>>i_bd)&((w_sig)1));\
+        err -= (((*ez).VN.a[bd]>>i_bd)&((w_sig)1));\
 	}\
 	\
 	if (site == cut && err <= thre) {\
@@ -960,20 +1119,24 @@ inline void ed_band_cal_global_##sf##_w(char *pstr, int32_t pn, char *tstr, int3
 inline void ed_band_cal_semi_##sf##_w(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t thre, bit_extz_t *ez)\
 {\
 	init_base_ed(*ez, thre, pn, tn); ez->ps = ez->pe = -1; ez->ts = 0; ez->te = tn-1;\
-	w_##sf##_clear(ez->VP); w_##sf##_clear(ez->VN);\
-	w_##sf##_clear(ez->Peq[0]); w_##sf##_clear(ez->Peq[1]); w_##sf##_clear(ez->Peq[2]); w_##sf##_clear(ez->Peq[3]); w_##sf##_clear(ez->Peq[4]);\
-	int32_t bd, i, err = 0, i_bd, last_high = (thre<<1), tn0 = tn - 1;\
-	int32_t cut = thre+last_high; w_sig c;\
+	int32_t bd, i, err = 0, i_bd, cut = thre+(thre<<1), tn0 = tn - 1, Peq_i; w_sig c, Peq_m;\
+	\
+	w_##sf##_clear(ez->Peq[0]);\
+	w_##sf##_clear(ez->Peq[1]);\
+	w_##sf##_clear(ez->Peq[2]);\
+	w_##sf##_clear(ez->Peq[3]);\
+	w_##sf##_clear(ez->Peq[4]);\
+	w_##sf##_clear(ez->VP);\
+	w_##sf##_clear(ez->VN);\
 	\
 	bd = (thre<<1)+1; bd = ((bd<=pn)?bd:pn); i_bd = 0;\
 	ed_init_core(i, bd, i_bd, pstr, ez->Peq);\
 	bd = (thre<<1)+1, i_bd = (thre<<1);\
-	/** Peq[4] = 0;**/\
-	w_##sf##_clear(ez->Peq[4]);\
-	/**mm = ((Word)1 << (thre<<1));///for the incoming char/last char**/\
-	w_##sf##_clear(ez->mm); w_bit(ez->mm, (thre<<1));\
 	\
+	w_##sf##_clear(ez->Peq[4]);\
 	i = 0;\
+	/**for the incoming char/last char; mm = ((Word)1 << (thre<<1))**/\
+    Peq_i = (((thre<<1))>>bitw); Peq_m = (((w_sig)1)<<(((thre<<1))&bitz));\
     while (i < tn0) {\
 		ed_core(_##sf##_, ez->Peq, ez->VP, ez->VN, ez->X, ez->D0, ez->HN, ez->HP, (uint8_t)tstr[i], c);\
 		if (!(ez->D0.a[0]&(1ULL))) {\
@@ -982,10 +1145,9 @@ inline void ed_band_cal_semi_##sf##_w(char *pstr, int32_t pn, char *tstr, int32_
 		/** Peq[0] >>= 1; Peq[1] >>= 1; Peq[2] >>= 1; Peq[3] >>= 1;**/\
 		w_##sf##_self_rsft_1(ez->Peq[0]); w_##sf##_self_rsft_1(ez->Peq[1]);\
 		w_##sf##_self_rsft_1(ez->Peq[2]); w_##sf##_self_rsft_1(ez->Peq[3]);\
-        ++i; ++i_bd; \
-		/** Peq[seq_nt4_table[(uint8_t)pstr[i_bd]]] |= mm; Peq[4] = 0;**/\
-		c = seq_nt4_table[(uint8_t)pstr[i_bd]]; \
-		if(c < 4) w_##sf##_self_or(ez->Peq[c], ez->mm);\
+        ++i; ++i_bd; c = 4;\
+        if(i_bd < pn) c = seq_nt4_table[(uint8_t)pstr[i_bd]];\
+        if(c < 4) ez->Peq[c].a[Peq_i]|=Peq_m;\
     }\
 	ed_core(_##sf##_, ez->Peq, ez->VP, ez->VN, ez->X, ez->D0, ez->HN, ez->HP, (uint8_t)tstr[i], c);\
 	if (!(ez->D0.a[0]&(1ULL))) {\
@@ -998,13 +1160,12 @@ inline void ed_band_cal_semi_##sf##_w(char *pstr, int32_t pn, char *tstr, int32_
     if ((err <= thre) && (err <= ez->err)) {\
         ez->err = err; ez->pe = site;\
     }\
-    i = 0;\
 	\
+    i = 0;\
     while (i < ai) {\
-        /** err += ((VP >> i)&(1ULL)); **/\
-		err += ez->VP.a[0]&(1ULL); w_##sf##_self_rsft_1(ez->VP); \
-		/** err -= ((VN >> i)&(1ULL)); **/\
-		err -= ez->VN.a[0]&(1ULL); w_##sf##_self_rsft_1(ez->VN); \
+        bd = (i>>bitw); i_bd = (i&bitz);\
+        err += (((*ez).VP.a[bd]>>i_bd)&((w_sig)1));\
+        err -= (((*ez).VN.a[bd]>>i_bd)&((w_sig)1));\
 		++i;\
         if ((err <= thre) && (err <= ez->err)) {\
             ez->err = err; ez->pe = site + i;\
@@ -1015,18 +1176,24 @@ inline void ed_band_cal_semi_##sf##_w(char *pstr, int32_t pn, char *tstr, int32_
     if((uge <= thre) && (uge == ez->err)) ez->pe = site + thre;\
 }\
 /**require:: (pn >= tn - thre && pn <= tn + thre)**/\
-inline void ed_band_cal_extension_##sf##_w(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t thre, bit_extz_t *ez)\
+inline void ed_band_cal_extension_##sf##_0_w(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t thre, bit_extz_t *ez)\
 {\
+	init_base_ed(*ez, thre, pn, tn); ez->ps = ez->ts = 0; ez->pe = ez->te = -1;\
 	if(pn > tn + thre) pn = tn + thre;\
 	else if(tn > pn + thre) tn = pn + thre;\
-	init_base_ed(*ez, thre, pn, tn); ez->ps = ez->ts = 0; ez->pe = ez->te = -1;\
-	int32_t i, err, tn0 = tn - 1, cut = thre+(thre<<1), bd, i_bd; w_sig c;\
-	int32_t poff, pe = pn-1, tmp_e, k;\
-	w_##sf##_clear(ez->Peq[0]); w_##sf##_clear(ez->Peq[1]); w_##sf##_clear(ez->Peq[2]); w_##sf##_clear(ez->Peq[3]); w_##sf##_clear(ez->Peq[4]);\
+	int32_t i, err, tn0 = tn - 1, cut = thre+(thre<<1), bd, i_bd, k_bd, Peq_i; w_sig c, Peq_m;\
+	int32_t poff, pe = pn-1, tmp_e = INT32_MAX, k;\
+	\
+	w_##sf##_clear(ez->Peq[0]);\
+	w_##sf##_clear(ez->Peq[1]);\
+	w_##sf##_clear(ez->Peq[2]);\
+	w_##sf##_clear(ez->Peq[3]);\
+	w_##sf##_clear(ez->Peq[4]);\
 	\
 	bd = thre+1; bd = ((bd<=pn)?bd:pn); i_bd = thre;\
 	ed_init_core(i, bd, i_bd, pstr, ez->Peq);\
 	bd = thre+1, i_bd = thre;\
+	\
 	w_##sf##_clear(ez->Peq[4]);\
 	err = thre;\
 	w_##sf##_set_bit_lsub(ez->VN, thre); /**VN = (((Word)1)<<(thre))-1; **/\
@@ -1036,46 +1203,56 @@ inline void ed_band_cal_extension_##sf##_w(char *pstr, int32_t pn, char *tstr, i
 	/** print_bits(ez->VP.a, (thre<<1)+1, "-VP");**/\
 	/**should make Peq[4] = 0 if N is always an error**/\
 	i = 0; \
-	/**for the incoming char/last char**/\
-	w_##sf##_clear(ez->mm); w_bit(ez->mm, (thre<<1)); /**mm = ((Word)1 << (thre<<1));**/\
+	/**for the incoming char/last char; mm = ((Word)1 << (thre<<1))**/\
+    Peq_i = (((thre<<1))>>bitw); Peq_m = (((w_sig)1)<<(((thre<<1))&bitz));\
     while (i < tn0) {\
 		ed_core(_##sf##_, ez->Peq, ez->VP, ez->VN, ez->X, ez->D0, ez->HN, ez->HP, (uint8_t)tstr[i], c);\
 		if (!(ez->D0.a[0]&(1ULL))) {\
             ++err; if (err>cut) return;\
         }\
 		\
-		{\
-			poff = i-thre; tmp_e = err; /**poff:[i-thre, i+thre]**/\
-			if((poff) + (((*ez).thre)<<1) >= (pe)) { \
-				for ((k) = 0; (poff) < (pe); (poff)++) {\
-					(tmp_e) += w_get_bit((*ez).VP, (k));\
-					(tmp_e) -= w_get_bit((*ez).VN, (k));\
-					(k)++;}\
-				if((tmp_e) <= (*ez).thre && (tmp_e) < (*ez).err) {\
-					(*ez).err = tmp_e; (*ez).pe = poff; (*ez).te = i;}\
-			}\
-		}\
+        {\
+            poff = i-thre; k = i+thre-pe;/**poff:[i-thre, i+thre]**/\
+            if(k >= 0) {\
+                if(k == 0) {\
+                    tmp_e = err;\
+                    for ((k) = 0; (poff) < (pe); (poff)++, (k)++) {\
+                        bd = (k>>bitw); k_bd = (k&bitz);\
+                        (tmp_e) += (((*ez).VP.a[bd]>>k_bd)&((w_sig)1));\
+                        (tmp_e) -= (((*ez).VN.a[bd]>>k_bd)&((w_sig)1));\
+                    }\
+                } else {\
+                    k = (thre<<1) - k;\
+                    if(k >= 0) {\
+                        bd = (k>>bitw); k_bd = (k&bitz);\
+                        (tmp_e) += (((*ez).HP.a[bd]>>k_bd)&((w_sig)1));\
+                        (tmp_e) -= (((*ez).HN.a[bd]>>k_bd)&((w_sig)1));\
+                    }\
+                }\
+                if((tmp_e) <= (*ez).thre && (tmp_e) < (*ez).err) {\
+                    (*ez).err = tmp_e; (*ez).pe = pe; (*ez).te = i;\
+                }\
+            }\
+            /**if(dbg_ext_err(i, thre, err, pe, &((*ez).VP), &((*ez).VN))!=tmp_e)**/\
+        }\
 		\
 		/** Peq[0] >>= 1; Peq[1] >>= 1; Peq[2] >>= 1; Peq[3] >>= 1;**/\
 		w_##sf##_self_rsft_1(ez->Peq[0]); w_##sf##_self_rsft_1(ez->Peq[1]);\
 		w_##sf##_self_rsft_1(ez->Peq[2]); w_##sf##_self_rsft_1(ez->Peq[3]);\
-        ++i; ++i_bd;\
-        if(i_bd < pn) {\
-			c = seq_nt4_table[(uint8_t)pstr[i_bd]]; \
-			if(c < 4) w_##sf##_self_or(ez->Peq[c], ez->mm);\
-		}\
+        ++i; ++i_bd; c = 4;\
+        if(i_bd < pn) c = seq_nt4_table[(uint8_t)pstr[i_bd]];\
+        if(c < 4) ez->Peq[c].a[Peq_i]|=Peq_m;\
     }\
 	ed_core(_##sf##_, ez->Peq, ez->VP, ez->VN, ez->X, ez->D0, ez->HN, ez->HP, (uint8_t)tstr[i], c);\
 	if (!(ez->D0.a[0]&(1ULL))) {\
 		++err; if (err>cut) return;\
 	}\
-	/**i = tn - 1**/\
+	\
     int32_t site = tn - 1 - thre;/**up bound; site:[tn - 1 - thre, tn - 1 + thre]**/\
-	for (cut = pn - 1; site < cut; ) {\
-		/** err += ((VP >> i)&(1ULL)); **/\
-		err += ez->VP.a[0]&(1ULL); w_##sf##_self_rsft_1(ez->VP); \
-		/** err -= ((VN >> i)&(1ULL));**/\
-		err -= ez->VN.a[0]&(1ULL); w_##sf##_self_rsft_1(ez->VN); \
+	for (cut = pn - 1, i = 0; site < cut; i++) {\
+		bd = (i>>bitw); i_bd = (i&bitz);\
+        err += (((*ez).VP.a[bd]>>i_bd)&((w_sig)1));\
+        err -= (((*ez).VN.a[bd]>>i_bd)&((w_sig)1));\
 		site++;\
 		if(err <= thre && err < ez->err) {\
 			ez->err = err; ez->pe = site; ez->te = tn-1;\
@@ -1085,7 +1262,491 @@ inline void ed_band_cal_extension_##sf##_w(char *pstr, int32_t pn, char *tstr, i
 		ez->err = err; ez->pe = site; ez->te = tn-1;\
 	}\
     return;\
-}
+}\
+/**require:: (pn >= tn - thre && pn <= tn + thre)**/\
+inline void ed_band_cal_extension_##sf##_1_w(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t thre, bit_extz_t *ez)\
+{\
+	init_base_ed(*ez, thre, pn, tn); ez->ps = ez->ts = INT32_MAX; ez->pe = pn-1; ez->te = tn-1;\
+	if(pn > tn + thre) pn = tn + thre;\
+	else if(tn > pn + thre) tn = pn + thre;\
+	int32_t i, err, tn0 = tn - 1, cut = thre+(thre<<1), bd, i_bd, k_bd, Peq_i; w_sig c, Peq_m;\
+	int32_t poff, pe = pn-1, tmp_e = INT32_MAX, k, pidx = ez->pe, tidx = ez->te;\
+	\
+	w_##sf##_clear(ez->Peq[0]);\
+	w_##sf##_clear(ez->Peq[1]);\
+	w_##sf##_clear(ez->Peq[2]);\
+	w_##sf##_clear(ez->Peq[3]);\
+	w_##sf##_clear(ez->Peq[4]);\
+	\
+	bd = thre+1; bd = ((bd<=pn)?bd:pn); i_bd = thre;\
+	for (i = 0; i < bd; i++, i_bd++) {\
+        w_bit((ez->Peq)[seq_nt4_table[(uint8_t)(pstr)[pidx-i]]], (i_bd));\
+    }\
+	bd = thre+1, i_bd = thre;\
+	\
+	w_##sf##_clear(ez->Peq[4]);\
+	err = thre;\
+	w_##sf##_set_bit_lsub(ez->VN, thre); /**VN = (((Word)1)<<(thre))-1; **/\
+	w_##sf##_set_bit_lsub(ez->VP, (thre<<1)+1); /**VP = (((Word)1)<<((thre<<1)+1))-1;**/\
+	w_##sf##_self_xor(ez->VP, ez->VN); /**VP ^= VN;**/\
+	\
+	/** print_bits(ez->VP.a, (thre<<1)+1, "-VP");**/\
+	/**should make Peq[4] = 0 if N is always an error**/\
+	i = 0; \
+	/**for the incoming char/last char; mm = ((Word)1 << (thre<<1))**/\
+    Peq_i = (((thre<<1))>>bitw); Peq_m = (((w_sig)1)<<(((thre<<1))&bitz));\
+    while (i < tn0) {\
+		ed_core(_##sf##_, ez->Peq, ez->VP, ez->VN, ez->X, ez->D0, ez->HN, ez->HP, (uint8_t)tstr[tidx-i], c);\
+		if (!(ez->D0.a[0]&(1ULL))) {\
+            ++err; if (err>cut) return;\
+        }\
+		\
+        {\
+            poff = i-thre; k = i+thre-pe;/**poff:[i-thre, i+thre]**/\
+            if(k >= 0) {\
+                if(k == 0) {\
+                    tmp_e = err;\
+                    for ((k) = 0; (poff) < (pe); (poff)++, (k)++) {\
+                        bd = (k>>bitw); k_bd = (k&bitz);\
+                        (tmp_e) += (((*ez).VP.a[bd]>>k_bd)&((w_sig)1));\
+                        (tmp_e) -= (((*ez).VN.a[bd]>>k_bd)&((w_sig)1));\
+                    }\
+                } else {\
+                    k = (thre<<1) - k;\
+                    if(k >= 0) {\
+                        bd = (k>>bitw); k_bd = (k&bitz);\
+                        (tmp_e) += (((*ez).HP.a[bd]>>k_bd)&((w_sig)1));\
+                        (tmp_e) -= (((*ez).HN.a[bd]>>k_bd)&((w_sig)1));\
+                    }\
+                }\
+                if((tmp_e) <= (*ez).thre && (tmp_e) < (*ez).err) {\
+                    (*ez).err = tmp_e; (*ez).ps = pidx - pe; (*ez).ts = tidx-i;\
+                }\
+            }\
+            /**if(dbg_ext_err(i, thre, err, pe, &((*ez).VP), &((*ez).VN))!=tmp_e)**/\
+        }\
+		\
+		/** Peq[0] >>= 1; Peq[1] >>= 1; Peq[2] >>= 1; Peq[3] >>= 1;**/\
+		w_##sf##_self_rsft_1(ez->Peq[0]); w_##sf##_self_rsft_1(ez->Peq[1]);\
+		w_##sf##_self_rsft_1(ez->Peq[2]); w_##sf##_self_rsft_1(ez->Peq[3]);\
+        ++i; ++i_bd; c = 4;\
+        if(i_bd < pn) c = seq_nt4_table[(uint8_t)pstr[pidx-i_bd]];\
+        if(c < 4) ez->Peq[c].a[Peq_i]|=Peq_m;\
+    }\
+	ed_core(_##sf##_, ez->Peq, ez->VP, ez->VN, ez->X, ez->D0, ez->HN, ez->HP, (uint8_t)tstr[tidx-i], c);\
+	if (!(ez->D0.a[0]&(1ULL))) {\
+		++err; if (err>cut) return;\
+	}\
+	\
+    int32_t site = tn - 1 - thre;/**up bound; site:[tn - 1 - thre, tn - 1 + thre]**/\
+	for (cut = pn - 1, i = 0; site < cut; i++) {\
+		bd = (i>>bitw); i_bd = (i&bitz);\
+        err += (((*ez).VP.a[bd]>>i_bd)&((w_sig)1));\
+        err -= (((*ez).VN.a[bd]>>i_bd)&((w_sig)1));\
+		site++;\
+		if(err <= thre && err < ez->err) {\
+			ez->err = err; ez->ps = pidx-site; ez->ts = tidx+1-tn;\
+		}\
+	}\
+	if(err <= thre && err < ez->err) {\
+		ez->err = err; ez->ps = pidx-site; ez->ts = tidx+1-tn;\
+	}\
+    return;\
+}\
+inline void ed_band_cal_global_##sf##_w_trace(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t thre, bit_extz_t *ez)\
+{\
+	ez->cigar.n = 0; ez->nword = w_##sf##_word;\
+	if(ez->err > thre) {\
+		init_base_ed(*ez, thre, pn, tn); ez->ps = ez->ts = 0;\
+	} else if(ez->err == 0) {\
+        push_trace(&(ez->cigar), 0, ez->te+1-ez->ts); return;\
+    }\
+	if((pn > tn + thre) || (tn > pn + thre)) return;\
+	int32_t i, err, tn0 = tn - 1, cut = thre+(thre<<1), bd, i_bd, ws, Peq_i; w_sig c, Peq_m;\
+	w_##sf##_clear(ez->Peq[0]); w_##sf##_clear(ez->Peq[1]); w_##sf##_clear(ez->Peq[2]); w_##sf##_clear(ez->Peq[3]); w_##sf##_clear(ez->Peq[4]);\
+	\
+	bd = thre+1; bd = ((bd<=pn)?bd:pn); i_bd = thre;\
+	ed_init_core(i, bd, i_bd, pstr, ez->Peq);\
+	bd = thre+1, i_bd = thre;\
+	\
+	w_##sf##_clear(ez->Peq[4]);\
+	err = thre;\
+	w_##sf##_set_bit_lsub(ez->VN, thre); /**VN = (((Word)1)<<(thre))-1;**/\ 
+	w_##sf##_set_bit_lsub(ez->VP, (thre<<1)+1); /**VP = (((Word)1)<<((thre<<1)+1))-1;**/\
+	w_##sf##_self_xor(ez->VP, ez->VN); /**VP ^= VN;**/\
+	\
+	/** print_bits(VP.a, (thre<<1)+1, "-VP");**/\
+	/**should make Peq[4] = 0 if N is always an error**/\
+	i = 0; ws = sizeof(*(ez->a))*(ez->nword);\
+	ez->path.n=(ez->nword*tn*5);\
+    kv_resize(w_sig, ez->path, ez->path.n); ez->path.n=0;\
+	\
+	/**for the incoming char/last char**/\
+	Peq_i = (((thre<<1))>>bitw); Peq_m = (((w_sig)1)<<(((thre<<1))&bitz));\
+    while (i < tn0) {\
+		ed_core(_##sf##_, ez->Peq, ez->VP, ez->VN, ez->X, ez->D0, ez->HN, ez->HP, (uint8_t)tstr[i], c);\
+        if (!(ez->D0.a[0]&(1ULL))) {\
+            ++err; if (err>cut) return;\
+        }\
+		/** Peq[0] >>= 1; Peq[1] >>= 1; Peq[2] >>= 1; Peq[3] >>= 1;**/\
+		w_##sf##_self_rsft_1(ez->Peq[0]); w_##sf##_self_rsft_1(ez->Peq[1]);\
+		w_##sf##_self_rsft_1(ez->Peq[2]); w_##sf##_self_rsft_1(ez->Peq[3]);\
+		\
+		++i; ++i_bd; c = 4;\
+        if(i_bd < pn) c = seq_nt4_table[(uint8_t)pstr[i_bd]];\
+        if(c < 4) ez->Peq[c].a[Peq_i]|=Peq_m;\
+		\
+		memcpy(ez->path.a+ez->path.n, ez->D0.a, ws); ez->path.n += ez->nword;\
+        memcpy(ez->path.a+ez->path.n, ez->VP.a, ws); ez->path.n += ez->nword;\
+        memcpy(ez->path.a+ez->path.n, ez->VN.a, ws); ez->path.n += ez->nword;\
+        memcpy(ez->path.a+ez->path.n, ez->HP.a, ws); ez->path.n += ez->nword;\
+        memcpy(ez->path.a+ez->path.n, ez->HN.a, ws); ez->path.n += ez->nword;\
+    }\
+	ed_core(_##sf##_, ez->Peq, ez->VP, ez->VN, ez->X, ez->D0, ez->HN, ez->HP, (uint8_t)tstr[i], c);\
+	if (!(ez->D0.a[0]&(1ULL))) {\
+		++err; if (err>cut) return;\
+	}\
+	memcpy(ez->path.a+ez->path.n, ez->D0.a, ws); ez->path.n += ez->nword;\
+	memcpy(ez->path.a+ez->path.n, ez->VP.a, ws); ez->path.n += ez->nword;\
+	memcpy(ez->path.a+ez->path.n, ez->VN.a, ws); ez->path.n += ez->nword;\
+	memcpy(ez->path.a+ez->path.n, ez->HP.a, ws); ez->path.n += ez->nword;\
+	memcpy(ez->path.a+ez->path.n, ez->HN.a, ws); ez->path.n += ez->nword;\
+	\
+    int32_t site = tn - 1 - thre;/**up bound**/\
+	if(ez->err > thre) {\
+		for (cut = pn - 1, i = 0; site < cut; site++, i++) {\
+			bd = (i>>bitw); i_bd = (i&bitz);\
+			err += (((*ez).VP.a[bd]>>i_bd)&((w_sig)1));\
+			err -= (((*ez).VN.a[bd]>>i_bd)&((w_sig)1));\
+		}\
+		\
+		if (site == cut && err <= thre) {\
+			ez->err = err; \
+			ez->pe = pn-1; ez->te = tn-1;\
+		}\
+	}\
+    gen_trace(ez, thre, 1);\
+    return;\
+}\
+inline void ed_band_cal_semi_##sf##_w_trace(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t thre, bit_extz_t *ez)\
+{\
+	ez->cigar.n = 0; ez->nword = w_##sf##_word;\
+	if(ez->err > thre) {\
+		init_base_ed(*ez, thre, pn, tn); ez->ps = ez->pe = -1; ez->ts = 0; ez->te = tn-1;\
+	}	else if(ez->err == 0) {\
+        push_trace(&(ez->cigar), 0, ez->te+1-ez->ts);\
+        ez->ps = ez->pe - (ez->te-ez->ts);\
+        return;\
+    }\
+	int32_t bd, i, err = 0, i_bd, cut = thre+(thre<<1), tn0 = tn - 1, Peq_i, ws; w_sig c, Peq_m;\
+	\
+	w_##sf##_clear(ez->Peq[0]);\
+	w_##sf##_clear(ez->Peq[1]);\
+	w_##sf##_clear(ez->Peq[2]);\
+	w_##sf##_clear(ez->Peq[3]);\
+	w_##sf##_clear(ez->Peq[4]);\
+	w_##sf##_clear(ez->VP);\
+	w_##sf##_clear(ez->VN);\
+	\
+	bd = (thre<<1)+1; bd = ((bd<=pn)?bd:pn); i_bd = 0;\
+	ed_init_core(i, bd, i_bd, pstr, ez->Peq);\
+	bd = (thre<<1)+1, i_bd = (thre<<1);\
+	\
+	w_##sf##_clear(ez->Peq[4]);\
+	i = 0; ws = sizeof(*(ez->a))*(ez->nword);\
+	ez->path.n=(ez->nword*tn*5);\
+    kv_resize(w_sig, ez->path, ez->path.n); ez->path.n=0;\
+	/**for the incoming char/last char; mm = ((Word)1 << (thre<<1))**/\
+    Peq_i = (((thre<<1))>>bitw); Peq_m = (((w_sig)1)<<(((thre<<1))&bitz));\
+    while (i < tn0) {\
+		ed_core(_##sf##_, ez->Peq, ez->VP, ez->VN, ez->X, ez->D0, ez->HN, ez->HP, (uint8_t)tstr[i], c);\
+		if (!(ez->D0.a[0]&(1ULL))) {\
+            ++err; if (err>cut) return;\
+        }\
+		/** Peq[0] >>= 1; Peq[1] >>= 1; Peq[2] >>= 1; Peq[3] >>= 1;**/\
+		w_##sf##_self_rsft_1(ez->Peq[0]); w_##sf##_self_rsft_1(ez->Peq[1]);\
+		w_##sf##_self_rsft_1(ez->Peq[2]); w_##sf##_self_rsft_1(ez->Peq[3]);\
+        ++i; ++i_bd; c = 4;\
+        if(i_bd < pn) c = seq_nt4_table[(uint8_t)pstr[i_bd]];\
+        if(c < 4) ez->Peq[c].a[Peq_i]|=Peq_m;\
+		\
+		memcpy(ez->path.a+ez->path.n, ez->D0.a, ws); ez->path.n += ez->nword;\
+		memcpy(ez->path.a+ez->path.n, ez->VP.a, ws); ez->path.n += ez->nword;\
+		memcpy(ez->path.a+ez->path.n, ez->VN.a, ws); ez->path.n += ez->nword;\
+		memcpy(ez->path.a+ez->path.n, ez->HP.a, ws); ez->path.n += ez->nword;\
+		memcpy(ez->path.a+ez->path.n, ez->HN.a, ws); ez->path.n += ez->nword;\
+    }\
+	ed_core(_##sf##_, ez->Peq, ez->VP, ez->VN, ez->X, ez->D0, ez->HN, ez->HP, (uint8_t)tstr[i], c);\
+	if (!(ez->D0.a[0]&(1ULL))) {\
+		++err; if (err>cut) return;\
+	}\
+	memcpy(ez->path.a+ez->path.n, ez->D0.a, ws); ez->path.n += ez->nword;\
+	memcpy(ez->path.a+ez->path.n, ez->VP.a, ws); ez->path.n += ez->nword;\
+	memcpy(ez->path.a+ez->path.n, ez->VN.a, ws); ez->path.n += ez->nword;\
+	memcpy(ez->path.a+ez->path.n, ez->HP.a, ws); ez->path.n += ez->nword;\
+	memcpy(ez->path.a+ez->path.n, ez->HN.a, ws); ez->path.n += ez->nword;\
+	\
+    int32_t site = tn - 1;/**up bound**/\
+    /**in most cases, ai = (thre<<1)**/\
+    int32_t ai = pn - tn, uge = INT32_MAX;\
+	if(ez->err > thre) {\
+		if ((err <= thre) && (err <= ez->err)) {\
+			ez->err = err; ez->pe = site;\
+		}\
+		\
+		i = 0;\
+		while (i < ai) {\
+			bd = (i>>bitw); i_bd = (i&bitz);\
+			err += (((*ez).VP.a[bd]>>i_bd)&((w_sig)1));\
+			err -= (((*ez).VN.a[bd]>>i_bd)&((w_sig)1));\
+			++i;\
+			if ((err <= thre) && (err <= ez->err)) {\
+				ez->err = err; ez->pe = site + i;\
+			}\
+			if(i == thre) uge = err;\
+		}\
+		\
+		if((uge <= thre) && (uge == ez->err)) ez->pe = site + thre;\
+	}\
+    gen_trace(ez, 0, 1);\
+}\
+inline void ed_band_cal_extension_##sf##_0_w_trace(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t thre, bit_extz_t *ez)\
+{\
+	int32_t done = 1;\
+	ez->cigar.n = 0; ez->nword = w_##sf##_word;\
+	if(ez->err > thre) {\
+		init_base_ed(*ez, thre, pn, tn); ez->ps = ez->ts = 0; ez->pe = ez->te = -1;\
+		if(pn > tn + thre) pn = tn + thre;\
+		else if(tn > pn + thre) tn = pn + thre;\
+		done = 0;\
+	} else if(ez->err == 0) {\
+        push_trace(&(ez->cigar), 0, ez->te+1-ez->ts); return;\
+    } else {\
+        pn = ez->pe + 1 - ez->ps; tn = ez->te + 1 - ez->ts;\
+    }\
+	int32_t i, err, tn0 = tn - 1, cut = thre+(thre<<1), bd, i_bd, k_bd, Peq_i, ws; w_sig c, Peq_m;\
+	int32_t poff, pe = pn-1, tmp_e = INT32_MAX, k;\
+	\
+	w_##sf##_clear(ez->Peq[0]);\
+	w_##sf##_clear(ez->Peq[1]);\
+	w_##sf##_clear(ez->Peq[2]);\
+	w_##sf##_clear(ez->Peq[3]);\
+	w_##sf##_clear(ez->Peq[4]);\
+	\
+	bd = thre+1; bd = ((bd<=pn)?bd:pn); i_bd = thre;\
+	ed_init_core(i, bd, i_bd, pstr, ez->Peq);\
+	bd = thre+1, i_bd = thre;\
+	\
+	w_##sf##_clear(ez->Peq[4]);\
+	err = thre;\
+	w_##sf##_set_bit_lsub(ez->VN, thre); /**VN = (((Word)1)<<(thre))-1; **/\
+	w_##sf##_set_bit_lsub(ez->VP, (thre<<1)+1); /**VP = (((Word)1)<<((thre<<1)+1))-1;**/\
+	w_##sf##_self_xor(ez->VP, ez->VN); /**VP ^= VN;**/\
+	\
+	/** print_bits(ez->VP.a, (thre<<1)+1, "-VP");**/\
+	/**should make Peq[4] = 0 if N is always an error**/\
+	i = 0; ws = sizeof(*(ez->a))*(ez->nword);\
+	ez->path.n=(ez->nword*tn*5);\
+    kv_resize(w_sig, ez->path, ez->path.n); ez->path.n=0;\
+	/**for the incoming char/last char; mm = ((Word)1 << (thre<<1))**/\
+    Peq_i = (((thre<<1))>>bitw); Peq_m = (((w_sig)1)<<(((thre<<1))&bitz));\
+    while (i < tn0) {\
+		ed_core(_##sf##_, ez->Peq, ez->VP, ez->VN, ez->X, ez->D0, ez->HN, ez->HP, (uint8_t)tstr[i], c);\
+		if (!(ez->D0.a[0]&(1ULL))) {\
+            ++err; if (err>cut) return;\
+        }\
+		\
+        if(!done) {\
+            poff = i-thre; k = i+thre-pe;/**poff:[i-thre, i+thre]**/\
+            if(k >= 0) {\
+                if(k == 0) {\
+                    tmp_e = err;\
+                    for ((k) = 0; (poff) < (pe); (poff)++, (k)++) {\
+                        bd = (k>>bitw); k_bd = (k&bitz);\
+                        (tmp_e) += (((*ez).VP.a[bd]>>k_bd)&((w_sig)1));\
+                        (tmp_e) -= (((*ez).VN.a[bd]>>k_bd)&((w_sig)1));\
+                    }\
+                } else {\
+                    k = (thre<<1) - k;\
+                    if(k >= 0) {\
+                        bd = (k>>bitw); k_bd = (k&bitz);\
+                        (tmp_e) += (((*ez).HP.a[bd]>>k_bd)&((w_sig)1));\
+                        (tmp_e) -= (((*ez).HN.a[bd]>>k_bd)&((w_sig)1));\
+                    }\
+                }\
+                if((tmp_e) <= (*ez).thre && (tmp_e) < (*ez).err) {\
+                    (*ez).err = tmp_e; (*ez).pe = pe; (*ez).te = i;\
+                }\
+            }\
+            /**if(dbg_ext_err(i, thre, err, pe, &((*ez).VP), &((*ez).VN))!=tmp_e)**/\
+        }\
+		\
+		/** Peq[0] >>= 1; Peq[1] >>= 1; Peq[2] >>= 1; Peq[3] >>= 1;**/\
+		w_##sf##_self_rsft_1(ez->Peq[0]); w_##sf##_self_rsft_1(ez->Peq[1]);\
+		w_##sf##_self_rsft_1(ez->Peq[2]); w_##sf##_self_rsft_1(ez->Peq[3]);\
+        ++i; ++i_bd; c = 4;\
+        if(i_bd < pn) c = seq_nt4_table[(uint8_t)pstr[i_bd]];\
+        if(c < 4) ez->Peq[c].a[Peq_i]|=Peq_m;\
+		\
+		memcpy(ez->path.a+ez->path.n, ez->D0.a, ws); ez->path.n += ez->nword;\
+		memcpy(ez->path.a+ez->path.n, ez->VP.a, ws); ez->path.n += ez->nword;\
+		memcpy(ez->path.a+ez->path.n, ez->VN.a, ws); ez->path.n += ez->nword;\
+		memcpy(ez->path.a+ez->path.n, ez->HP.a, ws); ez->path.n += ez->nword;\
+		memcpy(ez->path.a+ez->path.n, ez->HN.a, ws); ez->path.n += ez->nword;\
+    }\
+	ed_core(_##sf##_, ez->Peq, ez->VP, ez->VN, ez->X, ez->D0, ez->HN, ez->HP, (uint8_t)tstr[i], c);\
+	if (!(ez->D0.a[0]&(1ULL))) {\
+		++err; if (err>cut) return;\
+	}\
+	memcpy(ez->path.a+ez->path.n, ez->D0.a, ws); ez->path.n += ez->nword;\
+	memcpy(ez->path.a+ez->path.n, ez->VP.a, ws); ez->path.n += ez->nword;\
+	memcpy(ez->path.a+ez->path.n, ez->VN.a, ws); ez->path.n += ez->nword;\
+	memcpy(ez->path.a+ez->path.n, ez->HP.a, ws); ez->path.n += ez->nword;\
+	memcpy(ez->path.a+ez->path.n, ez->HN.a, ws); ez->path.n += ez->nword;\
+	\
+    int32_t site = tn - 1 - thre;/**up bound; site:[tn - 1 - thre, tn - 1 + thre]**/\
+	if(!done) {\
+		for (cut = pn - 1, i = 0; site < cut; i++) {\
+			bd = (i>>bitw); i_bd = (i&bitz);\
+			err += (((*ez).VP.a[bd]>>i_bd)&((w_sig)1));\
+			err -= (((*ez).VN.a[bd]>>i_bd)&((w_sig)1));\
+			site++;\
+			if(err <= thre && err < ez->err) {\
+				ez->err = err; ez->pe = site; ez->te = tn-1;\
+			}\
+		}\
+		if(err <= thre && err < ez->err) {\
+			ez->err = err; ez->pe = site; ez->te = tn-1;\
+		}\
+	}\
+	\
+	if((ez->te-ez->ts+1) != tn) {\
+        ez->path.n /= tn; ez->path.n *= (ez->te+1-ez->ts);\
+    }\
+    gen_trace(ez, thre, 1);\
+    return;\
+}\
+inline void ed_band_cal_extension_##sf##_1_w_trace(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t thre, bit_extz_t *ez)\
+{\
+	int32_t done = 1;\
+	ez->cigar.n = 0; ez->nword = w_##sf##_word;\
+	if(ez->err > thre) {\
+		init_base_ed(*ez, thre, pn, tn); ez->ps = ez->ts = INT32_MAX; ez->pe = pn-1; ez->te = tn-1;\
+		if(pn > tn + thre) pn = tn + thre;\
+		else if(tn > pn + thre) tn = pn + thre;\
+		done = 0;\
+    } else if(ez->err == 0) {\
+        push_trace(&(ez->cigar), 0, ez->te+1-ez->ts); return;\
+    } else {\
+        pn = ez->pe + 1 - ez->ps; tn = ez->te + 1 - ez->ts;\
+    }\
+	int32_t i, err, tn0 = tn - 1, cut = thre+(thre<<1), bd, i_bd, k_bd, Peq_i, ws; w_sig c, Peq_m;\
+	int32_t poff, pe = pn-1, tmp_e = INT32_MAX, k, pidx = ez->pe, tidx = ez->te;\
+	\
+	w_##sf##_clear(ez->Peq[0]);\
+	w_##sf##_clear(ez->Peq[1]);\
+	w_##sf##_clear(ez->Peq[2]);\
+	w_##sf##_clear(ez->Peq[3]);\
+	w_##sf##_clear(ez->Peq[4]);\
+	\
+	bd = thre+1; bd = ((bd<=pn)?bd:pn); i_bd = thre;\
+	for (i = 0; i < bd; i++, i_bd++) {\
+        w_bit((ez->Peq)[seq_nt4_table[(uint8_t)(pstr)[pidx-i]]], (i_bd));\
+    }\
+	bd = thre+1, i_bd = thre;\
+	\
+	w_##sf##_clear(ez->Peq[4]);\
+	err = thre;\
+	w_##sf##_set_bit_lsub(ez->VN, thre); /**VN = (((Word)1)<<(thre))-1; **/\
+	w_##sf##_set_bit_lsub(ez->VP, (thre<<1)+1); /**VP = (((Word)1)<<((thre<<1)+1))-1;**/\
+	w_##sf##_self_xor(ez->VP, ez->VN); /**VP ^= VN;**/\
+	\
+	/** print_bits(ez->VP.a, (thre<<1)+1, "-VP");**/\
+	/**should make Peq[4] = 0 if N is always an error**/\
+	i = 0; ws = sizeof(*(ez->a))*(ez->nword);\
+	ez->path.n=(ez->nword*tn*5);\
+    kv_resize(w_sig, ez->path, ez->path.n); ez->path.n=0;\
+	/**for the incoming char/last char; mm = ((Word)1 << (thre<<1))**/\
+    Peq_i = (((thre<<1))>>bitw); Peq_m = (((w_sig)1)<<(((thre<<1))&bitz));\
+    while (i < tn0) {\
+		ed_core(_##sf##_, ez->Peq, ez->VP, ez->VN, ez->X, ez->D0, ez->HN, ez->HP, (uint8_t)tstr[tidx-i], c);\
+		if (!(ez->D0.a[0]&(1ULL))) {\
+            ++err; if (err>cut) return;\
+        }\
+		\
+        if(!done) {\
+            poff = i-thre; k = i+thre-pe;/**poff:[i-thre, i+thre]**/\
+            if(k >= 0) {\
+                if(k == 0) {\
+                    tmp_e = err;\
+                    for ((k) = 0; (poff) < (pe); (poff)++, (k)++) {\
+                        bd = (k>>bitw); k_bd = (k&bitz);\
+                        (tmp_e) += (((*ez).VP.a[bd]>>k_bd)&((w_sig)1));\
+                        (tmp_e) -= (((*ez).VN.a[bd]>>k_bd)&((w_sig)1));\
+                    }\
+                } else {\
+                    k = (thre<<1) - k;\
+                    if(k >= 0) {\
+                        bd = (k>>bitw); k_bd = (k&bitz);\
+                        (tmp_e) += (((*ez).HP.a[bd]>>k_bd)&((w_sig)1));\
+                        (tmp_e) -= (((*ez).HN.a[bd]>>k_bd)&((w_sig)1));\
+                    }\
+                }\
+                if((tmp_e) <= (*ez).thre && (tmp_e) < (*ez).err) {\
+                    (*ez).err = tmp_e; (*ez).ps = pidx - pe; (*ez).ts = tidx-i;\
+                }\
+            }\
+            /**if(dbg_ext_err(i, thre, err, pe, &((*ez).VP), &((*ez).VN))!=tmp_e)**/\
+        }\
+		\
+		/** Peq[0] >>= 1; Peq[1] >>= 1; Peq[2] >>= 1; Peq[3] >>= 1;**/\
+		w_##sf##_self_rsft_1(ez->Peq[0]); w_##sf##_self_rsft_1(ez->Peq[1]);\
+		w_##sf##_self_rsft_1(ez->Peq[2]); w_##sf##_self_rsft_1(ez->Peq[3]);\
+        ++i; ++i_bd; c = 4;\
+        if(i_bd < pn) c = seq_nt4_table[(uint8_t)pstr[pidx-i_bd]];\
+        if(c < 4) ez->Peq[c].a[Peq_i]|=Peq_m;\
+		\
+		memcpy(ez->path.a+ez->path.n, ez->D0.a, ws); ez->path.n += ez->nword;\
+		memcpy(ez->path.a+ez->path.n, ez->VP.a, ws); ez->path.n += ez->nword;\
+		memcpy(ez->path.a+ez->path.n, ez->VN.a, ws); ez->path.n += ez->nword;\
+		memcpy(ez->path.a+ez->path.n, ez->HP.a, ws); ez->path.n += ez->nword;\
+		memcpy(ez->path.a+ez->path.n, ez->HN.a, ws); ez->path.n += ez->nword;\
+    }\
+	ed_core(_##sf##_, ez->Peq, ez->VP, ez->VN, ez->X, ez->D0, ez->HN, ez->HP, (uint8_t)tstr[tidx-i], c);\
+	if (!(ez->D0.a[0]&(1ULL))) {\
+		++err; if (err>cut) return;\
+	}\
+	memcpy(ez->path.a+ez->path.n, ez->D0.a, ws); ez->path.n += ez->nword;\
+	memcpy(ez->path.a+ez->path.n, ez->VP.a, ws); ez->path.n += ez->nword;\
+	memcpy(ez->path.a+ez->path.n, ez->VN.a, ws); ez->path.n += ez->nword;\
+	memcpy(ez->path.a+ez->path.n, ez->HP.a, ws); ez->path.n += ez->nword;\
+	memcpy(ez->path.a+ez->path.n, ez->HN.a, ws); ez->path.n += ez->nword;\
+	\
+    int32_t site = tn - 1 - thre;/**up bound; site:[tn - 1 - thre, tn - 1 + thre]**/\
+	if(!done) {\
+		for (cut = pn - 1, i = 0; site < cut; i++) {\
+			bd = (i>>bitw); i_bd = (i&bitz);\
+			err += (((*ez).VP.a[bd]>>i_bd)&((w_sig)1));\
+			err -= (((*ez).VN.a[bd]>>i_bd)&((w_sig)1));\
+			site++;\
+			if(err <= thre && err < ez->err) {\
+				ez->err = err; ez->ps = pidx-site; ez->ts = tidx+1-tn;\
+			}\
+		}\
+		if(err <= thre && err < ez->err) {\
+			ez->err = err; ez->ps = pidx-site; ez->ts = tidx+1-tn;\
+		}\
+	}\
+	\
+	if((ez->te-ez->ts+1) != tn) {\
+        ez->path.n /= tn; ez->path.n *= (ez->te+1-ez->ts);\
+    }\
+	\
+    poff = ez->ps; ez->ps = pidx - ez->pe; ez->pe = pidx - poff;\
+    gen_trace(ez, thre, 0);\
+    poff = ez->ps; ez->ps = pidx - ez->pe; ez->pe = pidx - poff;\
+    return;\
+}\
 
 HA_ED_INIT(128)
 HA_ED_INIT(192)
@@ -1279,13 +1940,13 @@ inline void ed_band_cal_semi_infi_w(char *pstr, int32_t pn, char *tstr, int32_t 
     if((uge <= thre) && (uge == ez->err)) ez->pe = site + thre;
 }
 
-inline void ed_band_cal_extension_infi0_w(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t thre, int32_t *nword, bit_extz_t *ez)
+inline void ed_band_cal_extension_infi_0_w(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t thre, int32_t *nword, bit_extz_t *ez)
 {
     init_base_ed(*ez, thre, pn, tn); ez->ps = ez->ts = 0; ez->pe = ez->te = -1;
 	if(pn > tn + thre) pn = tn + thre;
     else if(tn > pn + thre) tn = pn + thre;
     int32_t i, err, tn0 = tn - 1, cut = thre+(thre<<1), bd, i_bd, k_bd, wz, wz1, Peq_i; w_sig c, ad, Peq_m;
-    int32_t poff, pe = pn-1, tmp_e, k;
+    int32_t poff, pe = pn-1, tmp_e = INT32_MAX, k;
 	if(nword) {
         ez->nword = (*nword);
     } else {
@@ -1326,16 +1987,30 @@ inline void ed_band_cal_extension_infi0_w(char *pstr, int32_t pn, char *tstr, in
         }
 
 		{
-            poff = i-thre; tmp_e = err; /**poff:[i-thre, i+thre]**/
-            if((poff) + (((*ez).thre)<<1) >= (pe)) { 
-                for ((k) = 0; (poff) < (pe); (poff)++) {
-					bd = (k>>bitw); k_bd = (k&bitz);
-                    (tmp_e) += (((*ez).VP.a[bd]>>k_bd)&((w_sig)1)); 
-                    (tmp_e) -= (((*ez).VN.a[bd]>>k_bd)&((w_sig)1));
-                    (k)++;}
-                if((tmp_e) <= (*ez).thre && (tmp_e) < (*ez).err) {
-                    (*ez).err = tmp_e; (*ez).pe = poff; (*ez).te = i;}
-            }
+            poff = i-thre; k = i+thre-pe;/**poff:[i-thre, i+thre]**/
+			if(k >= 0) {
+				if(k == 0) {
+					tmp_e = err;
+					for ((k) = 0; (poff) < (pe); (poff)++, (k)++) {
+						bd = (k>>bitw); k_bd = (k&bitz);
+						(tmp_e) += (((*ez).VP.a[bd]>>k_bd)&((w_sig)1)); 
+						(tmp_e) -= (((*ez).VN.a[bd]>>k_bd)&((w_sig)1));
+					} 
+				} else {
+					k = (thre<<1) - k; 
+					if(k >= 0) {
+						bd = (k>>bitw); k_bd = (k&bitz);
+						(tmp_e) += (((*ez).HP.a[bd]>>k_bd)&((w_sig)1)); 
+						(tmp_e) -= (((*ez).HN.a[bd]>>k_bd)&((w_sig)1));
+					}
+				}
+				if((tmp_e) <= (*ez).thre && (tmp_e) < (*ez).err) {
+                    (*ez).err = tmp_e; (*ez).pe = pe; (*ez).te = i;
+				}
+			}
+			// if(dbg_ext_err(i, thre, err, pe, &((*ez).VP), &((*ez).VN))!=tmp_e) {
+			// 	fprintf(stderr, "i::%d, tmp_e::%d, dbg_ext_err::%d\n", i, tmp_e, dbg_ext_err(i, thre, err, pe, &((*ez).VP), &((*ez).VN)));
+			// }
         }
 
         ed_infi_post_Peq(ez->Peq, wz, wz1, ez->nword);
@@ -1364,13 +2039,13 @@ inline void ed_band_cal_extension_infi0_w(char *pstr, int32_t pn, char *tstr, in
     return;
 }
 
-inline void ed_band_cal_extension_infi1_w(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t thre, int32_t *nword, bit_extz_t *ez)
+inline void ed_band_cal_extension_infi_1_w(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t thre, int32_t *nword, bit_extz_t *ez)
 {
 	init_base_ed(*ez, thre, pn, tn); ez->ps = ez->ts = INT32_MAX; ez->pe = pn-1; ez->te = tn-1;
 	if(pn > tn + thre) pn = tn + thre;
     else if(tn > pn + thre) tn = pn + thre;
 	int32_t i, err, tn0 = tn - 1, cut = thre+(thre<<1), bd, i_bd, k_bd, wz, wz1, Peq_i; 
-    int32_t poff, pe = pn-1, tmp_e, k, pidx = ez->pe, tidx = ez->te; w_sig c, ad, Peq_m;
+    int32_t poff, pe = pn-1, tmp_e = INT32_MAX, k, pidx = ez->pe, tidx = ez->te; w_sig c, ad, Peq_m;
 	if(nword) {
         ez->nword = (*nword);
     } else {
@@ -1406,17 +2081,31 @@ inline void ed_band_cal_extension_infi1_w(char *pstr, int32_t pn, char *tstr, in
         }
 
 		{
-            poff = i-thre; tmp_e = err; /**poff:[i-thre, i+thre]**/
-            if((poff) + (((*ez).thre)<<1) >= (pe)) { 
-                for ((k) = 0; (poff) < (pe); (poff)++) {
-					bd = (k>>bitw); k_bd = (k&bitz);
-                    (tmp_e) += (((*ez).VP.a[bd]>>k_bd)&((w_sig)1)); 
-                    (tmp_e) -= (((*ez).VN.a[bd]>>k_bd)&((w_sig)1));
-                    (k)++;}
-                if((tmp_e) <= (*ez).thre && (tmp_e) < (*ez).err) {
-                    (*ez).err = tmp_e; (*ez).pe = pidx-poff; (*ez).te = tidx-i;}
-            }
+            poff = i-thre; k = i+thre-pe;/**poff:[i-thre, i+thre]**/
+			if(k >= 0) {
+				if(k == 0) {
+					tmp_e = err;
+					for ((k) = 0; (poff) < (pe); (poff)++, (k)++) {
+						bd = (k>>bitw); k_bd = (k&bitz);
+						(tmp_e) += (((*ez).VP.a[bd]>>k_bd)&((w_sig)1)); 
+						(tmp_e) -= (((*ez).VN.a[bd]>>k_bd)&((w_sig)1));
+					} 
+				} else {
+					k = (thre<<1) - k; 
+					if(k >= 0) {
+						bd = (k>>bitw); k_bd = (k&bitz);
+						(tmp_e) += (((*ez).HP.a[bd]>>k_bd)&((w_sig)1)); 
+						(tmp_e) -= (((*ez).HN.a[bd]>>k_bd)&((w_sig)1));
+					}
+				}
+				if((tmp_e) <= (*ez).thre && (tmp_e) < (*ez).err) {
+                    (*ez).err = tmp_e; (*ez).ps = pidx - pe; (*ez).ts = tidx-i;
+				}
+			}
         }
+		// if(dbg_ext_err(i, thre, err, pe, &((*ez).VP), &((*ez).VN))!=tmp_e) {
+		// 	fprintf(stderr, "i::%d, tmp_e::%d, dbg_ext_err::%d\n", i, tmp_e, dbg_ext_err(i, thre, err, pe, &((*ez).VP), &((*ez).VN)));
+		// }
 
         ed_infi_post_Peq(ez->Peq, wz, wz1, ez->nword);
         ++i; ++i_bd; c = 4;
@@ -1435,14 +2124,447 @@ inline void ed_band_cal_extension_infi1_w(char *pstr, int32_t pn, char *tstr, in
         err -= (((*ez).VN.a[bd]>>i_bd)&((w_sig)1));
         site++;
         if(err <= thre && err < ez->err) {
-            ez->err = err; ez->pe = pidx-site; ez->te = tidx+1-tn;
+            ez->err = err; ez->ps = pidx-site; ez->ts = tidx+1-tn;
         }
     }
     if(err <= thre && err < ez->err) {
-        ez->err = err; ez->pe = pidx-site; ez->te = tidx+1-tn;
+        ez->err = err; ez->ps = pidx-site; ez->ts = tidx+1-tn;
     }
     return;
 }
+
+inline void ed_band_cal_global_infi_w_trace(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t thre, int32_t *nword, bit_extz_t *ez)
+{
+	ez->cigar.n = 0;//diff
+	if(ez->err > thre) {//diff
+		init_base_ed(*ez, thre, pn, tn); ez->ps = ez->ts = 0;
+	} else if(ez->err == 0) {//diff
+        push_trace(&(ez->cigar), 0, ez->te+1-ez->ts); return;//diff
+    }
+	if((pn > tn + thre) || (tn > pn + thre)) return;
+	int32_t i, err, tn0 = tn - 1, cut = thre+(thre<<1), bd, i_bd, wz, wz1, Peq_i, ws; w_sig c, ad, Peq_m;
+	if(nword) {
+		ez->nword = (*nword);
+	} else {
+		bd = (((thre)<<1)+1); ez->nword = ((bd>>bitw)+(!!(bd&bitz)));
+	}
+	resize_bit_extz_t((*ez), (thre)); 
+	wz = ws = sizeof(*(ez->a))*(ez->nword);//diff
+	memset((ez->Peq[0]).a, 0, wz);
+	memset((ez->Peq[1]).a, 0, wz);
+	memset((ez->Peq[2]).a, 0, wz);
+	memset((ez->Peq[3]).a, 0, wz);
+	memset((ez->Peq[4]).a, 0, wz);
+
+	bd = thre+1; bd = ((bd<=pn)?bd:pn); i_bd = thre;
+	ed_init_core(i, bd, i_bd, pstr, ez->Peq);
+	bd = thre+1, i_bd = thre;
+	
+	memset((ez->Peq[4]).a, 0, wz);
+	err = thre;
+	w_infi_set_bit_lsub(ez->VN, thre, ez->nword); /**VN = (((Word)1)<<(thre))-1;**/ 
+	w_infi_set_bit_lsub(ez->VP, (thre<<1)+1, ez->nword); /**VP = (((Word)1)<<((thre<<1)+1))-1;**/
+	w_infi_self_xor(ez->VP, ez->VN, ez->nword, wz) /**VP ^= VN;**/
+
+	ez->path.n=(ez->nword*tn*5);//diff
+    kv_resize(w_sig, ez->path, ez->path.n); ez->path.n=0;//diff
+	
+	i = 0; 
+	/**for the incoming char/last char; mm = ((Word)1 << (thre<<1))**/
+	Peq_i = (((thre<<1))>>bitw); Peq_m = (((w_sig)1)<<(((thre<<1))&bitz));
+    while (i < tn0) {
+		// fprintf(stderr, "\ni::%d\n", i);
+		// prt_bit_extz_t((*ez), (((thre<<1))+1));
+		ed_infi_core(ez->Peq, ez->VP, ez->VN, ez->X, ez->D0, ez->HN, ez->HP, (uint8_t)tstr[i], c, ad, wz, ez->nword);
+        if (!(ez->D0.a[0]&(1ULL))) {
+            ++err; if (err>cut) return;
+        }
+
+		ed_infi_post_Peq(ez->Peq, wz, wz1, ez->nword);
+		++i; ++i_bd; c = 4;
+		if(i_bd < pn) c = seq_nt4_table[(uint8_t)pstr[i_bd]];
+		if(c < 4) ez->Peq[c].a[Peq_i]|=Peq_m;
+		// fprintf(stderr, "c::%u\n", c);
+		// print_bits(ez->Peq[c].a, (((thre<<1))+1), "Peq[c]");
+
+		memcpy(ez->path.a+ez->path.n, ez->D0.a, ws); ez->path.n += ez->nword;//diff
+		memcpy(ez->path.a+ez->path.n, ez->VP.a, ws); ez->path.n += ez->nword;//diff
+		memcpy(ez->path.a+ez->path.n, ez->VN.a, ws); ez->path.n += ez->nword;//diff
+		memcpy(ez->path.a+ez->path.n, ez->HP.a, ws); ez->path.n += ez->nword;//diff
+		memcpy(ez->path.a+ez->path.n, ez->HN.a, ws); ez->path.n += ez->nword;//diff
+    }
+	ed_infi_core(ez->Peq, ez->VP, ez->VN, ez->X, ez->D0, ez->HN, ez->HP, (uint8_t)tstr[i], c, ad, wz, ez->nword);
+	if (!(ez->D0.a[0]&(1ULL))) {
+		++err; if (err>cut) return;
+	}
+	memcpy(ez->path.a+ez->path.n, ez->D0.a, ws); ez->path.n += ez->nword;//diff
+	memcpy(ez->path.a+ez->path.n, ez->VP.a, ws); ez->path.n += ez->nword;//diff
+	memcpy(ez->path.a+ez->path.n, ez->VN.a, ws); ez->path.n += ez->nword;//diff
+	memcpy(ez->path.a+ez->path.n, ez->HP.a, ws); ez->path.n += ez->nword;//diff
+	memcpy(ez->path.a+ez->path.n, ez->HN.a, ws); ez->path.n += ez->nword;//diff
+	
+    int32_t site = tn - 1 - thre;/**up bound**/
+	if(ez->err > thre) {//diff
+		for (cut = pn - 1, i = 0; site < cut; site++, i++) {
+			bd = (i>>bitw); i_bd = (i&bitz);
+			err += (((*ez).VP.a[bd]>>i_bd)&((w_sig)1));
+			err -= (((*ez).VN.a[bd]>>i_bd)&((w_sig)1));
+		}
+		
+		if (site == cut && err <= thre) {
+			ez->err = err; 
+			ez->pe = pn-1; ez->te = tn-1;
+		}
+	}
+	gen_trace(ez, thre, 1);//diff
+    return;
+}
+
+inline void ed_band_cal_semi_infi_w_trace(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t thre, int32_t *nword, bit_extz_t *ez)
+{
+	ez->cigar.n = 0;//diff
+	if(ez->err > thre) {//diff
+		init_base_ed(*ez, thre, pn, tn); ez->ps = ez->pe = -1; ez->ts = 0; ez->te = tn-1;
+	} else if(ez->err == 0) {//diff
+        push_trace(&(ez->cigar), 0, ez->te+1-ez->ts); //diff
+        ez->ps = ez->pe - (ez->te-ez->ts);//diff
+        return;//diff
+    }
+	int32_t bd, i, err = 0, i_bd, cut = thre+(thre<<1), tn0 = tn - 1, wz, wz1, ws, Peq_i; w_sig c, ad, Peq_m;
+	if(nword) {
+        ez->nword = (*nword);
+    } else {
+        bd = (((thre)<<1)+1); ez->nword = ((bd>>bitw)+(!!(bd&bitz)));
+    }
+    resize_bit_extz_t((*ez), (thre)); 
+	wz = ws = sizeof(*(ez->a))*(ez->nword);//diff
+	memset((ez->Peq[0]).a, 0, wz);
+	memset((ez->Peq[1]).a, 0, wz);
+	memset((ez->Peq[2]).a, 0, wz);
+	memset((ez->Peq[3]).a, 0, wz);
+	memset((ez->Peq[4]).a, 0, wz);
+	memset((ez->VP).a, 0, wz);
+	memset((ez->VN).a, 0, wz);
+
+	bd = (thre<<1)+1; bd = ((bd<=pn)?bd:pn); i_bd = 0;
+    ed_init_core(i, bd, i_bd, pstr, ez->Peq);
+    bd = (thre<<1)+1, i_bd = (thre<<1);
+
+	memset((ez->Peq[4]).a, 0, wz);
+
+	ez->path.n=(ez->nword*tn*5);//diff
+    kv_resize(w_sig, ez->path, ez->path.n); ez->path.n=0;//diff
+
+	i = 0; 
+    /**for the incoming char/last char; mm = ((Word)1 << (thre<<1))**/
+    Peq_i = (((thre<<1))>>bitw); Peq_m = (((w_sig)1)<<(((thre<<1))&bitz));
+	while (i < tn0) {
+        ed_infi_core(ez->Peq, ez->VP, ez->VN, ez->X, ez->D0, ez->HN, ez->HP, (uint8_t)tstr[i], c, ad, wz, ez->nword);
+        if (!(ez->D0.a[0]&(1ULL))) {
+            ++err; if (err>cut) return;
+        }
+        
+        ed_infi_post_Peq(ez->Peq, wz, wz1, ez->nword);
+        ++i; ++i_bd; c = 4;
+        if(i_bd < pn) c = seq_nt4_table[(uint8_t)pstr[i_bd]];
+        if(c < 4) ez->Peq[c].a[Peq_i]|=Peq_m;
+
+		memcpy(ez->path.a+ez->path.n, ez->D0.a, ws); ez->path.n += ez->nword;//diff
+        memcpy(ez->path.a+ez->path.n, ez->VP.a, ws); ez->path.n += ez->nword;//diff
+        memcpy(ez->path.a+ez->path.n, ez->VN.a, ws); ez->path.n += ez->nword;//diff
+        memcpy(ez->path.a+ez->path.n, ez->HP.a, ws); ez->path.n += ez->nword;//diff
+        memcpy(ez->path.a+ez->path.n, ez->HN.a, ws); ez->path.n += ez->nword;//diff
+    }
+	ed_infi_core(ez->Peq, ez->VP, ez->VN, ez->X, ez->D0, ez->HN, ez->HP, (uint8_t)tstr[i], c, ad, wz, ez->nword);
+    if (!(ez->D0.a[0]&(1ULL))) {
+        ++err; if (err>cut) return;
+    }
+	memcpy(ez->path.a+ez->path.n, ez->D0.a, ws); ez->path.n += ez->nword;//diff
+	memcpy(ez->path.a+ez->path.n, ez->VP.a, ws); ez->path.n += ez->nword;//diff
+	memcpy(ez->path.a+ez->path.n, ez->VN.a, ws); ez->path.n += ez->nword;//diff
+	memcpy(ez->path.a+ez->path.n, ez->HP.a, ws); ez->path.n += ez->nword;//diff
+	memcpy(ez->path.a+ez->path.n, ez->HN.a, ws); ez->path.n += ez->nword;//diff
+
+	int32_t site = tn - 1;/**up bound**/
+	/**in most cases, ai = (thre<<1)**/
+    int32_t ai = pn - tn, uge = INT32_MAX;
+	if(ez->err > thre) {//diff
+		if ((err <= thre) && (err <= ez->err)) {
+			ez->err = err; ez->pe = site;
+		}
+
+		i = 0;
+		while (i < ai) {
+			bd = (i>>bitw); i_bd = (i&bitz);
+			err += (((*ez).VP.a[bd]>>i_bd)&((w_sig)1));
+			err -= (((*ez).VN.a[bd]>>i_bd)&((w_sig)1));
+			++i;
+			if ((err <= thre) && (err <= ez->err)) {
+				ez->err = err; ez->pe = site + i;
+			}
+			if(i == thre) uge = err;
+		}
+		if((uge <= thre) && (uge == ez->err)) ez->pe = site + thre;
+	}
+	gen_trace(ez, 0, 1);//diff
+}
+
+inline void ed_band_cal_extension_infi_0_w_trace(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t thre, int32_t *nword, bit_extz_t *ez)
+{
+	int32_t done = 1;//diff
+	ez->cigar.n = 0; //diff
+	if(ez->err > thre) {//diff
+		init_base_ed(*ez, thre, pn, tn); ez->ps = ez->ts = 0; ez->pe = ez->te = -1;
+		if(pn > tn + thre) pn = tn + thre;
+		else if(tn > pn + thre) tn = pn + thre;
+		done = 0;//diff
+	} else if(ez->err == 0) {//diff
+        push_trace(&(ez->cigar), 0, ez->te+1-ez->ts); return;//diff
+    } else {
+        pn = ez->pe + 1 - ez->ps; tn = ez->te + 1 - ez->ts; //diff
+    }
+    int32_t i, err, tn0 = tn - 1, cut = thre+(thre<<1), bd, i_bd, k_bd, wz, wz1, ws, Peq_i; w_sig c, ad, Peq_m;
+    int32_t poff, pe = pn-1, tmp_e = INT32_MAX, k;
+	if(nword) {
+        ez->nword = (*nword);
+    } else {
+        bd = (((thre)<<1)+1); ez->nword = ((bd>>bitw)+(!!(bd&bitz)));
+    }
+    resize_bit_extz_t((*ez), (thre)); 
+	wz = ws = sizeof(*(ez->a))*(ez->nword);//diff
+    memset((ez->Peq[0]).a, 0, wz);
+    memset((ez->Peq[1]).a, 0, wz);
+    memset((ez->Peq[2]).a, 0, wz);
+    memset((ez->Peq[3]).a, 0, wz);
+    memset((ez->Peq[4]).a, 0, wz);
+
+	bd = thre+1; bd = ((bd<=pn)?bd:pn); i_bd = thre;
+    ed_init_core(i, bd, i_bd, pstr, ez->Peq);
+    bd = thre+1, i_bd = thre;
+
+	memset((ez->Peq[4]).a, 0, wz);
+    err = thre;
+	w_infi_set_bit_lsub(ez->VN, thre, ez->nword); /**VN = (((Word)1)<<(thre))-1;**/ 
+    w_infi_set_bit_lsub(ez->VP, (thre<<1)+1, ez->nword); /**VP = (((Word)1)<<((thre<<1)+1))-1;**/
+    w_infi_self_xor(ez->VP, ez->VN, ez->nword, wz) /**VP ^= VN;**/
+
+	ez->path.n=(ez->nword*tn*5);//diff
+    kv_resize(w_sig, ez->path, ez->path.n); ez->path.n=0;//diff
+
+	i = 0;
+	/**for the incoming char/last char; mm = ((Word)1 << (thre<<1))**/
+    Peq_i = (((thre<<1))>>bitw); Peq_m = (((w_sig)1)<<(((thre<<1))&bitz));
+	//for debug
+	// memset((ez->X).a, 0, sizeof(*(ez->a))*(ez->nword));
+	// memset((ez->D0).a, 0, sizeof(*(ez->a))*(ez->nword));
+	// memset((ez->HN).a, 0, sizeof(*(ez->a))*(ez->nword));
+	// memset((ez->HP).a, 0, sizeof(*(ez->a))*(ez->nword));
+	while (i < tn0) {
+		// fprintf(stderr, "i::%d\n", i);
+		// prt_bit_extz_t((*ez), ((thre<<1)+1));
+        ed_infi_core(ez->Peq, ez->VP, ez->VN, ez->X, ez->D0, ez->HN, ez->HP, (uint8_t)tstr[i], c, ad, wz, ez->nword);
+        if (!(ez->D0.a[0]&(1ULL))) {
+            ++err; if (err>cut) return;
+        }
+
+		if(!done) {//diff
+            poff = i-thre; k = i+thre-pe;/**poff:[i-thre, i+thre]**/
+			if(k >= 0) {
+				if(k == 0) {
+					tmp_e = err;
+					for ((k) = 0; (poff) < (pe); (poff)++, (k)++) {
+						bd = (k>>bitw); k_bd = (k&bitz);
+						(tmp_e) += (((*ez).VP.a[bd]>>k_bd)&((w_sig)1)); 
+						(tmp_e) -= (((*ez).VN.a[bd]>>k_bd)&((w_sig)1));
+					} 
+				} else {
+					k = (thre<<1) - k; 
+					if(k >= 0) {
+						bd = (k>>bitw); k_bd = (k&bitz);
+						(tmp_e) += (((*ez).HP.a[bd]>>k_bd)&((w_sig)1)); 
+						(tmp_e) -= (((*ez).HN.a[bd]>>k_bd)&((w_sig)1));
+					}
+				}
+				if((tmp_e) <= (*ez).thre && (tmp_e) < (*ez).err) {
+                    (*ez).err = tmp_e; (*ez).pe = pe; (*ez).te = i;
+				}
+			}
+			// if(dbg_ext_err(i, thre, err, pe, &((*ez).VP), &((*ez).VN))!=tmp_e) {
+			// 	fprintf(stderr, "i::%d, tmp_e::%d, dbg_ext_err::%d\n", i, tmp_e, dbg_ext_err(i, thre, err, pe, &((*ez).VP), &((*ez).VN)));
+			// }
+        }
+
+        ed_infi_post_Peq(ez->Peq, wz, wz1, ez->nword);
+        ++i; ++i_bd; c = 4;
+        if(i_bd < pn) c = seq_nt4_table[(uint8_t)pstr[i_bd]];
+        if(c < 4) ez->Peq[c].a[Peq_i]|=Peq_m;
+
+		memcpy(ez->path.a+ez->path.n, ez->D0.a, ws); ez->path.n += ez->nword;//diff
+        memcpy(ez->path.a+ez->path.n, ez->VP.a, ws); ez->path.n += ez->nword;//diff
+        memcpy(ez->path.a+ez->path.n, ez->VN.a, ws); ez->path.n += ez->nword;//diff
+        memcpy(ez->path.a+ez->path.n, ez->HP.a, ws); ez->path.n += ez->nword;//diff
+        memcpy(ez->path.a+ez->path.n, ez->HN.a, ws); ez->path.n += ez->nword;//diff
+    }
+    ed_infi_core(ez->Peq, ez->VP, ez->VN, ez->X, ez->D0, ez->HN, ez->HP, (uint8_t)tstr[i], c, ad, wz, ez->nword);
+    if (!(ez->D0.a[0]&(1ULL))) {
+        ++err; if (err>cut) return;
+    }
+	memcpy(ez->path.a+ez->path.n, ez->D0.a, ws); ez->path.n += ez->nword;//diff
+	memcpy(ez->path.a+ez->path.n, ez->VP.a, ws); ez->path.n += ez->nword;//diff
+	memcpy(ez->path.a+ez->path.n, ez->VN.a, ws); ez->path.n += ez->nword;//diff
+	memcpy(ez->path.a+ez->path.n, ez->HP.a, ws); ez->path.n += ez->nword;//diff
+	memcpy(ez->path.a+ez->path.n, ez->HN.a, ws); ez->path.n += ez->nword;//diff
+
+    int32_t site = tn - 1 - thre;/**up bound; site:[tn - 1 - thre, tn - 1 + thre]**/
+	if(!done) {//diff
+		for (cut = pn - 1, i = 0; site < cut; i++) {
+			bd = (i>>bitw); i_bd = (i&bitz);
+			err += (((*ez).VP.a[bd]>>i_bd)&((w_sig)1));
+			err -= (((*ez).VN.a[bd]>>i_bd)&((w_sig)1));
+			site++;
+			if(err <= thre && err < ez->err) {
+				ez->err = err; ez->pe = site; ez->te = tn-1;
+			}
+		}
+		if(err <= thre && err < ez->err) {
+			ez->err = err; ez->pe = site; ez->te = tn-1;
+		}
+	}
+
+	if((ez->te-ez->ts+1) != tn) {//diff
+        ez->path.n /= tn; ez->path.n *= (ez->te+1-ez->ts);//diff
+    }//diff
+    gen_trace(ez, thre, 1);//diff
+    return;
+}
+
+inline void ed_band_cal_extension_infi_1_w_trace(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t thre, int32_t *nword, bit_extz_t *ez)
+{
+	int32_t done = 1;//diff
+    ez->cigar.n = 0;//diff
+	if(ez->err > thre) {//diff
+		init_base_ed(*ez, thre, pn, tn); ez->ps = ez->ts = INT32_MAX; ez->pe = pn-1; ez->te = tn-1;
+		if(pn > tn + thre) pn = tn + thre;
+		else if(tn > pn + thre) tn = pn + thre;
+		done = 0;//diff
+    } else if(ez->err == 0) {//diff
+        push_trace(&(ez->cigar), 0, ez->te+1-ez->ts); return;//diff
+    } else {
+        pn = ez->pe + 1 - ez->ps; tn = ez->te + 1 - ez->ts; //diff
+    }
+	int32_t i, err, tn0 = tn - 1, cut = thre+(thre<<1), bd, i_bd, k_bd, wz, wz1, ws, Peq_i; 
+    int32_t poff, pe = pn-1, tmp_e = INT32_MAX, k, pidx = ez->pe, tidx = ez->te; w_sig c, ad, Peq_m;
+	if(nword) {
+        ez->nword = (*nword);
+    } else {
+        bd = (((thre)<<1)+1); ez->nword = ((bd>>bitw)+(!!(bd&bitz)));
+    }
+    resize_bit_extz_t((*ez), (thre)); 
+	wz = ws = sizeof(*(ez->a))*(ez->nword);//diff
+    memset((ez->Peq[0]).a, 0, wz);
+    memset((ez->Peq[1]).a, 0, wz);
+    memset((ez->Peq[2]).a, 0, wz);
+    memset((ez->Peq[3]).a, 0, wz);
+    memset((ez->Peq[4]).a, 0, wz);
+
+	bd = thre+1; bd = ((bd<=pn)?bd:pn); i_bd = thre;
+	for (i = 0; i < bd; i++, i_bd++) { 
+		w_bit((ez->Peq)[seq_nt4_table[(uint8_t)(pstr)[pidx-i]]], (i_bd));
+	}
+    bd = thre+1, i_bd = thre;
+
+	memset((ez->Peq[4]).a, 0, wz);
+    err = thre;
+	w_infi_set_bit_lsub(ez->VN, thre, ez->nword); /**VN = (((Word)1)<<(thre))-1;**/ 
+    w_infi_set_bit_lsub(ez->VP, (thre<<1)+1, ez->nword); /**VP = (((Word)1)<<((thre<<1)+1))-1;**/
+    w_infi_self_xor(ez->VP, ez->VN, ez->nword, wz) /**VP ^= VN;**/
+
+	ez->path.n=(ez->nword*tn*5);//diff
+    kv_resize(w_sig, ez->path, ez->path.n); ez->path.n=0;//diff
+
+	i = 0;
+	/**for the incoming char/last char; mm = ((Word)1 << (thre<<1))**/
+    Peq_i = (((thre<<1))>>bitw); Peq_m = (((w_sig)1)<<(((thre<<1))&bitz));
+	while (i < tn0) {
+        ed_infi_core(ez->Peq, ez->VP, ez->VN, ez->X, ez->D0, ez->HN, ez->HP, (uint8_t)tstr[tidx-i], c, ad, wz, ez->nword);
+        if (!(ez->D0.a[0]&(1ULL))) {
+            ++err; if (err>cut) return;
+        }
+
+		if(!done) {//diff
+            poff = i-thre; k = i+thre-pe;/**poff:[i-thre, i+thre]**/
+			if(k >= 0) {
+				if(k == 0) {
+					tmp_e = err;
+					for ((k) = 0; (poff) < (pe); (poff)++, (k)++) {
+						bd = (k>>bitw); k_bd = (k&bitz);
+						(tmp_e) += (((*ez).VP.a[bd]>>k_bd)&((w_sig)1)); 
+						(tmp_e) -= (((*ez).VN.a[bd]>>k_bd)&((w_sig)1));
+					} 
+				} else {
+					k = (thre<<1) - k; 
+					if(k >= 0) {
+						bd = (k>>bitw); k_bd = (k&bitz);
+						(tmp_e) += (((*ez).HP.a[bd]>>k_bd)&((w_sig)1)); 
+						(tmp_e) -= (((*ez).HN.a[bd]>>k_bd)&((w_sig)1));
+					}
+				}
+				if((tmp_e) <= (*ez).thre && (tmp_e) < (*ez).err) {
+                    (*ez).err = tmp_e; (*ez).ps = pidx - pe; (*ez).ts = tidx-i;
+				}
+			}
+        }
+		// if(dbg_ext_err(i, thre, err, pe, &((*ez).VP), &((*ez).VN))!=tmp_e) {
+		// 	fprintf(stderr, "i::%d, tmp_e::%d, dbg_ext_err::%d\n", i, tmp_e, dbg_ext_err(i, thre, err, pe, &((*ez).VP), &((*ez).VN)));
+		// }
+
+        ed_infi_post_Peq(ez->Peq, wz, wz1, ez->nword);
+        ++i; ++i_bd; c = 4;
+        if(i_bd < pn) c = seq_nt4_table[(uint8_t)pstr[pidx-i_bd]];
+        if(c < 4) ez->Peq[c].a[Peq_i]|=Peq_m;
+
+		memcpy(ez->path.a+ez->path.n, ez->D0.a, ws); ez->path.n += ez->nword;//diff
+        memcpy(ez->path.a+ez->path.n, ez->VP.a, ws); ez->path.n += ez->nword;//diff
+        memcpy(ez->path.a+ez->path.n, ez->VN.a, ws); ez->path.n += ez->nword;//diff
+        memcpy(ez->path.a+ez->path.n, ez->HP.a, ws); ez->path.n += ez->nword;//diff
+        memcpy(ez->path.a+ez->path.n, ez->HN.a, ws); ez->path.n += ez->nword;//diff
+    }
+    ed_infi_core(ez->Peq, ez->VP, ez->VN, ez->X, ez->D0, ez->HN, ez->HP, (uint8_t)tstr[tidx-i], c, ad, wz, ez->nword);
+    if (!(ez->D0.a[0]&(1ULL))) {
+        ++err; if (err>cut) return;
+    }
+	memcpy(ez->path.a+ez->path.n, ez->D0.a, ws); ez->path.n += ez->nword;//diff
+	memcpy(ez->path.a+ez->path.n, ez->VP.a, ws); ez->path.n += ez->nword;//diff
+	memcpy(ez->path.a+ez->path.n, ez->VN.a, ws); ez->path.n += ez->nword;//diff
+	memcpy(ez->path.a+ez->path.n, ez->HP.a, ws); ez->path.n += ez->nword;//diff
+	memcpy(ez->path.a+ez->path.n, ez->HN.a, ws); ez->path.n += ez->nword;//diff
+
+    int32_t site = tn - 1 - thre;/**up bound; site:[tn - 1 - thre, tn - 1 + thre]**/
+	if(!done) {//diff
+		for (cut = pn - 1, i = 0; site < cut; i++) {
+			bd = (i>>bitw); i_bd = (i&bitz);
+			err += (((*ez).VP.a[bd]>>i_bd)&((w_sig)1));
+			err -= (((*ez).VN.a[bd]>>i_bd)&((w_sig)1));
+			site++;
+			if(err <= thre && err < ez->err) {
+				ez->err = err; ez->ps = pidx-site; ez->ts = tidx+1-tn;
+			}
+		}
+		if(err <= thre && err < ez->err) {
+			ez->err = err; ez->ps = pidx-site; ez->ts = tidx+1-tn;
+		}
+	}
+
+    if((ez->te-ez->ts+1) != tn) {//diff
+        ez->path.n /= tn; ez->path.n *= (ez->te+1-ez->ts);//diff
+    }//diff
+
+    poff = ez->ps; ez->ps = pidx - ez->pe; ez->pe = pidx - poff;//diff
+    gen_trace(ez, thre, 0);//diff
+    poff = ez->ps; ez->ps = pidx - ez->pe; ez->pe = pidx - poff;//diff
+    return;
+}
+
 
 #define ed_core_64(Peq, VP, VN, X, D0, HN, HP, z) {	\
 		/**X = Peq[seq_nt4_table[(uint8_t)tstr[i]]] | VN;**/\
@@ -1551,12 +2673,12 @@ inline void ed_band_cal_semi_64_w(char *pstr, int32_t pn, char *tstr, int32_t tn
     if((uge <= thre) && (uge == ez->err)) ez->pe = site + thre;
 }
 
-inline void ed_band_cal_extension_64_w(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t thre, bit_extz_t *ez)
+inline void ed_band_cal_extension_64_0_w(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t thre, bit_extz_t *ez)
 {
+	init_base_ed(*ez, thre, pn, tn); ez->ps = ez->ts = 0; ez->pe = ez->te = -1;
 	if(pn > tn + thre) pn = tn + thre;
     else if(tn > pn + thre) tn = pn + thre;
-    init_base_ed(*ez, thre, pn, tn); ez->ps = ez->ts = 0; ez->pe = ez->te = -1;
-	int32_t i, err, tn0 = tn - 1, cut = thre+(thre<<1), bd, i_bd, poff, pe = pn-1, tmp_e, k;
+	int32_t i, err, tn0 = tn - 1, cut = thre+(thre<<1), bd, i_bd, poff, pe = pn-1, tmp_e = INT32_MAX, k;
 	Word c, Peq[5] = {0}, VP, VN, X, D0, HN, HP, mm;
 
 	bd = thre+1; bd = ((bd<=pn)?bd:pn); i_bd = thre;
@@ -1577,16 +2699,25 @@ inline void ed_band_cal_extension_64_w(char *pstr, int32_t pn, char *tstr, int32
 		}
 
 		{
-            poff = i-thre; tmp_e = err; /**poff:[i-thre, i+thre]**/
-            if(poff + (((*ez).thre)<<1) >= pe) { 
-                for (k = 0; poff < pe; poff++) {
-                    tmp_e += ((VP>>k)&(1ULL)); tmp_e -= ((VN>>k)&(1ULL)); (k)++;
-				}
+			poff = i-thre; k = i+thre-pe;/**poff:[i-thre, i+thre]**/
+            if(k >= 0) {
+                if(k == 0) {
+                    tmp_e = err;
+                    for (k = 0; poff < pe; poff++, (k)++) {
+                        tmp_e += ((VP>>k)&(1ULL)); tmp_e -= ((VN>>k)&(1ULL));
+                    } 
+                } else {
+                    k = (thre<<1) - k; 
+                    if(k >= 0) {
+                        tmp_e += ((HP>>k)&(1ULL)); tmp_e -= ((HN>>k)&(1ULL)); 
+                    }
+                }
                 if(tmp_e <= (*ez).thre && tmp_e < (*ez).err) {
-                    (*ez).err = tmp_e; (*ez).pe = poff; (*ez).te = i;
-				}
+					(*ez).err = tmp_e; (*ez).pe = pe; (*ez).te = i;
+                }
             }
         }
+		// fprintf(stderr, "i::%d, tmp_e::%d, err::%d\n", i, tmp_e, err);
 
 		Peq[0] >>= 1; Peq[1] >>= 1; Peq[2] >>= 1; Peq[3] >>= 1;
 		++i; ++i_bd;
@@ -1613,6 +2744,429 @@ inline void ed_band_cal_extension_64_w(char *pstr, int32_t pn, char *tstr, int32
     }
     return;
 }
+
+inline void ed_band_cal_extension_64_1_w(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t thre, bit_extz_t *ez)
+{
+	init_base_ed(*ez, thre, pn, tn); ez->ps = ez->ts = INT32_MAX; ez->pe = pn-1; ez->te = tn-1;
+    if(pn > tn + thre) pn = tn + thre;
+    else if(tn > pn + thre) tn = pn + thre;
+	int32_t i, err, tn0 = tn - 1, cut = thre+(thre<<1), bd, i_bd;
+	int32_t poff, pe = pn-1, tmp_e = INT32_MAX, k, pidx = ez->pe, tidx = ez->te;
+	Word c, Peq[5] = {0}, VP, VN, X, D0, HN, HP, mm;
+
+	bd = thre+1; bd = ((bd<=pn)?bd:pn); i_bd = thre;
+	for (i = 0, mm = (((Word)1)<<i_bd); i < bd; i++) {
+        Peq[seq_nt4_table[(uint8_t)pstr[pidx-i]]] |= mm; mm <<= 1;
+    }	
+	bd = thre+1, i_bd = thre; Peq[4] = 0; err = thre;
+	VN = (((Word)1)<<(thre))-1; VP = (((Word)1)<<((thre<<1)+1))-1; VP ^= VN;
+
+	i = 0; mm = ((Word)1 << (thre<<1));
+	// X = D0 = HN = HP = mm = 0;//for debug
+	while (i < tn0) {
+		// fprintf(stderr, "i::%d\n", i);
+		// prt_vector(Peq, VP, VN, X, D0, HN, HP, ((thre<<1)+1));
+		ed_core_64(Peq, VP, VN, X, D0, HN, HP, (uint8_t)tstr[tidx-i]);
+		if (!(D0&(1ULL))) {
+			++err; if (err>cut) return;
+		}
+
+		{
+			poff = i-thre; k = i+thre-pe;/**poff:[i-thre, i+thre]**/
+            if(k >= 0) {
+                if(k == 0) {
+                    tmp_e = err;
+                    for (k = 0; poff < pe; poff++, (k)++) {
+                        tmp_e += ((VP>>k)&(1ULL)); tmp_e -= ((VN>>k)&(1ULL));
+                    } 
+                } else {
+                    k = (thre<<1) - k; 
+                    if(k >= 0) {
+                        tmp_e += ((HP>>k)&(1ULL)); tmp_e -= ((HN>>k)&(1ULL)); 
+                    }
+                }
+                if(tmp_e <= (*ez).thre && tmp_e < (*ez).err) {
+					(*ez).err = tmp_e; (*ez).ps = pidx - pe; (*ez).ts = tidx-i;
+                }
+            }
+        }
+		// fprintf(stderr, "i::%d, tmp_e::%d, err::%d\n", i, tmp_e, err);
+
+		Peq[0] >>= 1; Peq[1] >>= 1; Peq[2] >>= 1; Peq[3] >>= 1;
+		++i; ++i_bd;
+        if(i_bd < pn) {
+            c = seq_nt4_table[(uint8_t)pstr[pidx-i_bd]]; 
+            if(c < 4) Peq[c] |= mm;
+        }
+	}
+	ed_core_64(Peq, VP, VN, X, D0, HN, HP, (uint8_t)tstr[tidx-i]);
+	if (!(D0&(1ULL))) {
+		++err; if (err>cut) return;
+	}
+
+	int32_t site = tn - 1 - thre;/**up bound; site:[tn - 1 - thre, tn - 1 + thre]**/\
+    for (cut = pn - 1; site < cut; ) {
+		err += VP&(1ULL); VP >>= 1; err -= VN&(1ULL); VN >>= 1; 
+        site++;
+        if(err <= thre && err < ez->err) {
+            ez->err = err; ez->ps = pidx-site; ez->ts = tidx+1-tn;
+        }
+    }
+    if(err <= thre && err < ez->err) {
+        ez->err = err; ez->ps = pidx-site; ez->ts = tidx+1-tn;
+    }
+    return;
+}
+
+inline void ed_band_cal_global_64_w_trace(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t thre, bit_extz_t *ez)
+{	
+	ez->cigar.n = 0; ez->nword = 1;//diff
+	if(ez->err > thre) {//diff
+		init_base_ed(*ez, thre, pn, tn); ez->ps = ez->ts = 0;//diff
+	} else if(ez->err == 0) {//diff
+		push_trace(&(ez->cigar), 0, ez->te+1-ez->ts); return;//diff
+	}
+	if((pn > tn + thre) || (tn > pn + thre)) return;
+	int32_t i, err, tn0 = tn - 1, cut = thre+(thre<<1), bd, i_bd; 
+	w_sig c, Peq[5] = {0}, VP, VN, X, D0, HN, HP, mm;
+
+	bd = thre+1; bd = ((bd<=pn)?bd:pn); i_bd = thre;
+	for (i = 0, mm = (((w_sig)1)<<i_bd); i < bd; i++) {
+        Peq[seq_nt4_table[(uint8_t)pstr[i]]] |= mm; mm <<= 1;
+    }	
+	bd = thre+1, i_bd = thre; Peq[4] = 0; err = thre;
+	VN = (((w_sig)1)<<(thre))-1; VP = (((w_sig)1)<<((thre<<1)+1))-1; VP ^= VN;
+
+	ez->path.n=(ez->nword*tn*5);//diff
+	kv_resize(w_sig, ez->path, ez->path.n); ez->path.n=0;//diff
+
+	i = 0; mm = ((w_sig)1 << (thre<<1));///for the incoming char/last char
+	while (i < tn0) {
+		// fprintf(stderr, "\ni::%d\n", i);
+		// prt_vector(Peq, VP, VN, X, D0, HN, HP, (((thre<<1))+1));
+		ed_core_64(Peq, VP, VN, X, D0, HN, HP, (uint8_t)tstr[i]);
+		if (!(D0&(1ULL))) {
+			++err; if (err>cut) return;
+		}
+
+		Peq[0] >>= 1; Peq[1] >>= 1; Peq[2] >>= 1; Peq[3] >>= 1;
+		++i; ++i_bd;
+		if(i_bd < pn) {
+			c = seq_nt4_table[(uint8_t)pstr[i_bd]];
+			if(c < 4) Peq[c] |= mm;
+		}
+		ez->path.a[ez->path.n++] = D0;//diff
+		ez->path.a[ez->path.n++] = VP;//diff
+		ez->path.a[ez->path.n++] = VN;//diff
+		ez->path.a[ez->path.n++] = HP;//diff
+		ez->path.a[ez->path.n++] = HN;//diff
+	}
+	ed_core_64(Peq, VP, VN, X, D0, HN, HP, (uint8_t)tstr[i]);
+	if (!(D0&(1ULL))) {
+		++err; if (err>cut) return;
+	}
+	ez->path.a[ez->path.n++] = D0;//diff
+	ez->path.a[ez->path.n++] = VP;//diff
+	ez->path.a[ez->path.n++] = VN;//diff
+	ez->path.a[ez->path.n++] = HP;//diff
+	ez->path.a[ez->path.n++] = HN;//diff
+
+	int32_t site = tn - 1 - thre;/**up bound**/\
+	if(ez->err > thre) {//diff
+		for (cut = pn - 1; site < cut; site++) {
+			err += VP&(1ULL); VP >>= 1; err -= VN&(1ULL); VN >>= 1; 
+		}
+
+		if (site == cut && err <= thre) {
+			ez->err = err; 
+			ez->pe = pn-1; ez->te = tn-1;
+		}
+	}
+	///should update ez->path.n for extension
+	gen_trace(ez, thre, 1);//diff
+    return;
+}
+
+inline void ed_band_cal_semi_64_w_trace(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t thre, bit_extz_t *ez)
+{
+	ez->cigar.n = 0; ez->nword = 1;//diff
+	if(ez->err > thre) {//diff
+		init_base_ed(*ez, thre, pn, tn); ez->ps = ez->pe = -1; ez->ts = 0; ez->te = tn-1;//diff
+	} else if(ez->err == 0) {//diff
+		push_trace(&(ez->cigar), 0, ez->te+1-ez->ts); //diff
+		ez->ps = ez->pe - (ez->te-ez->ts);//diff
+		return;//diff
+	}
+	Word c, Peq[5] = {0}, VP = 0, VN = 0, X, D0, HN, HP, mm;
+	int32_t bd, i, err = 0, i_bd, last_high = (thre<<1), tn0 = tn - 1, cut = thre+last_high;
+
+	bd = (thre<<1)+1; bd = ((bd<=pn)?bd:pn); 
+	for (i = 0, mm = 1; i < bd; i++) {
+        Peq[seq_nt4_table[(uint8_t)pstr[i]]] |= mm; mm <<= 1;
+    }
+	bd = (thre<<1)+1, i_bd = (thre<<1);
+
+	ez->path.n=(ez->nword*tn*5);//diff
+    kv_resize(w_sig, ez->path, ez->path.n); ez->path.n=0;//diff
+
+	i = 0; Peq[4] = 0; mm = ((Word)1 << (thre<<1));///for the incoming char/last char**
+	while (i < tn0) {
+		ed_core_64(Peq, VP, VN, X, D0, HN, HP, (uint8_t)tstr[i]);
+		if (!(D0&(1ULL))) {
+            ++err; if (err>cut) return;
+        }
+
+		Peq[0] >>= 1; Peq[1] >>= 1; Peq[2] >>= 1; Peq[3] >>= 1;
+		++i; ++i_bd; c = seq_nt4_table[(uint8_t)pstr[i_bd]];
+		if(c < 4) Peq[c] |= mm; 
+
+		ez->path.a[ez->path.n++] = D0;//diff
+        ez->path.a[ez->path.n++] = VP;//diff
+        ez->path.a[ez->path.n++] = VN;//diff
+        ez->path.a[ez->path.n++] = HP;//diff
+        ez->path.a[ez->path.n++] = HN;//diff
+	}
+	ed_core_64(Peq, VP, VN, X, D0, HN, HP, (uint8_t)tstr[i]);
+	if (!(D0&(1ULL))) {
+		++err; if (err>cut) return;
+	}
+	ez->path.a[ez->path.n++] = D0;//diff
+	ez->path.a[ez->path.n++] = VP;//diff
+	ez->path.a[ez->path.n++] = VN;//diff
+	ez->path.a[ez->path.n++] = HP;//diff
+	ez->path.a[ez->path.n++] = HN;//diff
+
+	int32_t site = tn - 1;/**up bound**/
+    /**in most cases, ai = (thre<<1)**/
+    int32_t ai = pn - tn, uge = INT32_MAX;
+	if(ez->err > thre) {//diff
+		if ((err <= thre) && (err <= ez->err)) {
+			ez->err = err; ez->pe = site;
+		}
+
+		i = 0;
+		while (i < ai) {
+			err += ((VP >> i)&(1ULL)); err -= ((VN >> i)&(1ULL)); ++i;
+			if ((err <= thre) && (err <= ez->err)) {
+				ez->err = err; ez->pe = site + i;
+			}
+			if(i == thre) uge = err;
+		}
+		if((uge <= thre) && (uge == ez->err)) ez->pe = site + thre;
+	}
+    ///should update ez->path.n for extension
+    gen_trace(ez, 0, 1);//diff
+}
+
+inline void ed_band_cal_extension_64_0_w_trace(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t thre, bit_extz_t *ez)
+{
+	int32_t done = 1;//diff
+	ez->cigar.n = 0; ez->nword = 1;//diff
+    if(ez->err > thre) {//diff
+		init_base_ed(*ez, thre, pn, tn); ez->ps = ez->ts = 0; ez->pe = ez->te = -1;
+		if(pn > tn + thre) pn = tn + thre;
+    	else if(tn > pn + thre) tn = pn + thre;
+		done = 0;//diff
+	} else if(ez->err == 0) {//diff
+        push_trace(&(ez->cigar), 0, ez->te+1-ez->ts); return;//diff
+    } else {
+		pn = ez->pe + 1 - ez->ps; tn = ez->te + 1 - ez->ts; //diff
+	}
+	int32_t i, err, tn0 = tn - 1, cut = thre+(thre<<1), bd, i_bd, poff, pe = pn-1, tmp_e = INT32_MAX, k;
+	Word c, Peq[5] = {0}, VP, VN, X, D0, HN, HP, mm;
+
+	bd = thre+1; bd = ((bd<=pn)?bd:pn); i_bd = thre;
+	for (i = 0, mm = (((Word)1)<<i_bd); i < bd; i++) {
+        Peq[seq_nt4_table[(uint8_t)pstr[i]]] |= mm; mm <<= 1;
+    }	
+	bd = thre+1, i_bd = thre; Peq[4] = 0; err = thre;
+	VN = (((Word)1)<<(thre))-1; VP = (((Word)1)<<((thre<<1)+1))-1; VP ^= VN;
+
+	ez->path.n=(ez->nword*tn*5);//diff
+    kv_resize(w_sig, ez->path, ez->path.n); ez->path.n=0;//diff
+
+	i = 0; mm = ((Word)1 << (thre<<1));
+	// X = D0 = HN = HP = mm = 0;//for debug
+	while (i < tn0) {
+		// fprintf(stderr, "i::%d\n", i);
+		// prt_vector(Peq, VP, VN, X, D0, HN, HP, ((thre<<1)+1));
+		ed_core_64(Peq, VP, VN, X, D0, HN, HP, (uint8_t)tstr[i]);
+		if (!(D0&(1ULL))) {
+			++err; if (err>cut) return;
+		}
+
+		if(!done) {//diff
+			poff = i-thre; k = i+thre-pe;/**poff:[i-thre, i+thre]**/
+            if(k >= 0) {
+                if(k == 0) {
+                    tmp_e = err;
+                    for (k = 0; poff < pe; poff++, (k)++) {
+                        tmp_e += ((VP>>k)&(1ULL)); tmp_e -= ((VN>>k)&(1ULL));
+                    } 
+                } else {
+                    k = (thre<<1) - k; 
+                    if(k >= 0) {
+                        tmp_e += ((HP>>k)&(1ULL)); tmp_e -= ((HN>>k)&(1ULL)); 
+                    }
+                }
+                if(tmp_e <= (*ez).thre && tmp_e < (*ez).err) {
+					(*ez).err = tmp_e; (*ez).pe = pe; (*ez).te = i;
+                }
+            }
+        }
+		// fprintf(stderr, "i::%d, tmp_e::%d, err::%d\n", i, tmp_e, err);
+
+		Peq[0] >>= 1; Peq[1] >>= 1; Peq[2] >>= 1; Peq[3] >>= 1;
+		++i; ++i_bd;
+        if(i_bd < pn) {
+            c = seq_nt4_table[(uint8_t)pstr[i_bd]]; 
+            if(c < 4) Peq[c] |= mm;
+        }
+
+		ez->path.a[ez->path.n++] = D0;//diff
+        ez->path.a[ez->path.n++] = VP;//diff
+        ez->path.a[ez->path.n++] = VN;//diff
+        ez->path.a[ez->path.n++] = HP;//diff
+        ez->path.a[ez->path.n++] = HN;//diff
+	}
+	ed_core_64(Peq, VP, VN, X, D0, HN, HP, (uint8_t)tstr[i]);
+	if (!(D0&(1ULL))) {
+		++err; if (err>cut) return;
+	}
+	ez->path.a[ez->path.n++] = D0;//diff
+	ez->path.a[ez->path.n++] = VP;//diff
+	ez->path.a[ez->path.n++] = VN;//diff
+	ez->path.a[ez->path.n++] = HP;//diff
+	ez->path.a[ez->path.n++] = HN;//diff
+
+	int32_t site = tn - 1 - thre;/**up bound; site:[tn - 1 - thre, tn - 1 + thre]**/
+	if(!done) {//diff
+		for (cut = pn - 1; site < cut; ) {
+			err += VP&(1ULL); VP >>= 1; err -= VN&(1ULL); VN >>= 1; 
+			site++;
+			if(err <= thre && err < ez->err) {
+				ez->err = err; ez->pe = site; ez->te = tn-1;
+			}
+		}
+		if(err <= thre && err < ez->err) {
+			ez->err = err; ez->pe = site; ez->te = tn-1;
+		}
+	}
+
+	if((ez->te-ez->ts+1) != tn) {//diff
+		ez->path.n /= tn; ez->path.n *= (ez->te+1-ez->ts);//diff
+	}//diff
+	gen_trace(ez, thre, 1);//diff
+    return;
+}
+
+inline void ed_band_cal_extension_64_1_w_trace(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t thre, bit_extz_t *ez)
+{
+	int32_t done = 1;//diff
+	ez->cigar.n = 0; ez->nword = 1;//diff
+	if(ez->err > thre) {//diff
+		init_base_ed(*ez, thre, pn, tn); ez->ps = ez->ts = INT32_MAX; ez->pe = pn-1; ez->te = tn-1;
+		if(pn > tn + thre) pn = tn + thre;
+		else if(tn > pn + thre) tn = pn + thre;
+		done = 0;//diff
+	} else if(ez->err == 0) {//diff
+        push_trace(&(ez->cigar), 0, ez->te+1-ez->ts); return;//diff
+    } else {
+        pn = ez->pe + 1 - ez->ps; tn = ez->te + 1 - ez->ts; //diff
+    }
+
+	int32_t i, err, tn0 = tn - 1, cut = thre+(thre<<1), bd, i_bd;
+	int32_t poff, pe = pn-1, tmp_e = INT32_MAX, k, pidx = ez->pe, tidx = ez->te;
+	Word c, Peq[5] = {0}, VP, VN, X, D0, HN, HP, mm;
+
+	bd = thre+1; bd = ((bd<=pn)?bd:pn); i_bd = thre;
+	for (i = 0, mm = (((Word)1)<<i_bd); i < bd; i++) {
+        Peq[seq_nt4_table[(uint8_t)pstr[pidx-i]]] |= mm; mm <<= 1;
+    }	
+	bd = thre+1, i_bd = thre; Peq[4] = 0; err = thre;
+	VN = (((Word)1)<<(thre))-1; VP = (((Word)1)<<((thre<<1)+1))-1; VP ^= VN;
+
+	ez->path.n=(ez->nword*tn*5);//diff
+    kv_resize(w_sig, ez->path, ez->path.n); ez->path.n=0;//diff
+
+	i = 0; mm = ((Word)1 << (thre<<1));
+	// X = D0 = HN = HP = mm = 0;//for debug
+	while (i < tn0) {
+		// fprintf(stderr, "i::%d\n", i);
+		// prt_vector(Peq, VP, VN, X, D0, HN, HP, ((thre<<1)+1));
+		ed_core_64(Peq, VP, VN, X, D0, HN, HP, (uint8_t)tstr[tidx-i]);
+		if (!(D0&(1ULL))) {
+			++err; if (err>cut) return;
+		}
+
+		if(!done) {//diff
+			poff = i-thre; k = i+thre-pe;/**poff:[i-thre, i+thre]**/
+            if(k >= 0) {
+                if(k == 0) {
+                    tmp_e = err;
+                    for (k = 0; poff < pe; poff++, (k)++) {
+                        tmp_e += ((VP>>k)&(1ULL)); tmp_e -= ((VN>>k)&(1ULL));
+                    } 
+                } else {
+                    k = (thre<<1) - k; 
+                    if(k >= 0) {
+                        tmp_e += ((HP>>k)&(1ULL)); tmp_e -= ((HN>>k)&(1ULL)); 
+                    }
+                }
+                if(tmp_e <= (*ez).thre && tmp_e < (*ez).err) {
+					(*ez).err = tmp_e; (*ez).ps = pidx - pe; (*ez).ts = tidx-i;
+                }
+            }
+        }
+		// fprintf(stderr, "i::%d, tmp_e::%d, err::%d\n", i, tmp_e, err);
+
+		Peq[0] >>= 1; Peq[1] >>= 1; Peq[2] >>= 1; Peq[3] >>= 1;
+		++i; ++i_bd;
+        if(i_bd < pn) {
+            c = seq_nt4_table[(uint8_t)pstr[pidx-i_bd]]; 
+            if(c < 4) Peq[c] |= mm;
+        }
+
+		ez->path.a[ez->path.n++] = D0;//diff
+        ez->path.a[ez->path.n++] = VP;//diff
+        ez->path.a[ez->path.n++] = VN;//diff
+        ez->path.a[ez->path.n++] = HP;//diff
+        ez->path.a[ez->path.n++] = HN;//diff
+	}
+	ed_core_64(Peq, VP, VN, X, D0, HN, HP, (uint8_t)tstr[tidx-i]);
+	if (!(D0&(1ULL))) {
+		++err; if (err>cut) return;
+	}
+	ez->path.a[ez->path.n++] = D0;//diff
+	ez->path.a[ez->path.n++] = VP;//diff
+	ez->path.a[ez->path.n++] = VN;//diff
+	ez->path.a[ez->path.n++] = HP;//diff
+	ez->path.a[ez->path.n++] = HN;//diff
+
+	int32_t site = tn - 1 - thre;/**up bound; site:[tn - 1 - thre, tn - 1 + thre]**/\
+	if(!done) {//diff
+		for (cut = pn - 1; site < cut; ) {
+			err += VP&(1ULL); VP >>= 1; err -= VN&(1ULL); VN >>= 1; 
+			site++;
+			if(err <= thre && err < ez->err) {
+				ez->err = err; ez->ps = pidx-site; ez->ts = tidx+1-tn;
+			}
+		}
+		if(err <= thre && err < ez->err) {
+			ez->err = err; ez->ps = pidx-site; ez->ts = tidx+1-tn;
+		}
+	}
+
+	if((ez->te-ez->ts+1) != tn) {//diff
+        ez->path.n /= tn; ez->path.n *= (ez->te+1-ez->ts);//diff
+    }//diff
+
+	poff = ez->ps; ez->ps = pidx - ez->pe; ez->pe = pidx - poff;//diff
+	gen_trace(ez, thre, 0);//diff
+	poff = ez->ps; ez->ps = pidx - ez->pe; ez->pe = pidx - poff;//diff
+    return;
+}
+
 
 
 /**
@@ -2545,22 +4099,6 @@ inline int Reserve_Banded_BPM_4_SSE_only(char *pattern1, char *pattern2, char *p
 	return 1;
 }
 
-
-#define EAC_M 0
-#define MIS_M 1 
-#define MOR_YP 2
-#define MOR_XT 3
-
-inline void push_trace(asg16_v *res, uint16_t c, uint32_t len)
-{
-    uint16_t p; c <<= 14; 
-	while (len >= (0x3fff)) {
-		p = (c + (0x3fff)); kv_push(uint16_t, *res, p); len -= (0x3fff);
-	}
-	if(len) {
-		p = (c + len); kv_push(uint16_t, *res, p);
-	}
-}
 
 // void move_trace_gap(uint16_t *trace, int32_t trace_n, int32_t trace_i, 
 // char *pstr, int32_t pi, char *tstr, int32_t ti, int32_t *err)
