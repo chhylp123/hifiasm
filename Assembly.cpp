@@ -467,6 +467,7 @@ ha_ovec_buf_t *ha_ovec_init(int is_final, int save_ov, int is_ug)
     kv_init(b->r_buf.a);
     kv_init(b->k_flag.a);
     kv_init(b->sp);
+    init_bit_extz_t(&(b->exz), 31);
 	if(!is_ug) b->ab = ha_abuf_init();
     else b->abl = ha_abufl_init();
 	if (!b->is_final) {
@@ -495,6 +496,7 @@ void ha_ovec_destroy(ha_ovec_buf_t *b)
     kv_destroy(b->r_buf.a);
     kv_destroy(b->k_flag.a);
     kv_destroy(b->sp);
+    destroy_bit_extz_t(&(b->exz));
 	if (!b->is_final) {
 		destory_Cigar_record(&b->cigar1);
 		destory_Graph(&b->POA_Graph);

@@ -15,13 +15,19 @@ int main(int argc, char *argv[])
 	/**
 	bit_extz_t exz, exz64; init_bit_extz_t(&exz, 2); init_bit_extz_t(&exz64, 2);
 	
-	char *pstr = "GTGTGG", *tsrt = "CTGT"; int32_t thre = 1;
-	ed_band_cal_semi_infi_w((char*)pstr, strlen(pstr), (char*)tsrt, strlen(tsrt), thre, NULL, &exz);
-	ed_band_cal_semi_64_w((char*)pstr, strlen(pstr), (char*)tsrt, strlen(tsrt), thre, &exz64);
-	fprintf(stderr, "\n[M::%s::] exz.err::%d, exz64.err::%d, exz.ps::%d, exz64.ps::%d, exz.pe::%d, exz64.pe::%d, exz.ts::%d, exz64.ts::%d, exz.te::%d, exz64.te::%d\n", __func__, 
-            exz.err, exz64.err, exz.ps, exz64.ps, exz.pe, exz64.pe, exz.ts, exz64.ts, exz.te, exz64.te);
-	ed_band_cal_semi_64_w_trace((char*)pstr, strlen(pstr), (char*)tsrt, strlen(tsrt), thre, &exz64);
-	cigar_check((char*)pstr, (char*)tsrt, &(exz64));
+	char *pstr = "AAATATT", *tsrt = "AATATTTT"; int32_t thre = 1;
+	ed_band_cal_semi_64_w_absent_diag((char*)pstr, strlen(pstr), (char*)tsrt, strlen(tsrt), thre, 0, &exz);
+	fprintf(stderr, "\n[M::%s::] exz.err::%d, exz.ps::%d, exz.pe::%d, exz.ts::%d, exz.te::%d\n", __func__, 
+            exz.err, exz.ps, exz.pe, exz.ts, exz.te);
+	ed_band_cal_extension_64_0_w((char*)pstr, strlen(pstr), (char*)tsrt, strlen(tsrt), thre, &exz);
+	fprintf(stderr, "\n[M::%s::] exz.err::%d, exz.ps::%d, exz.pe::%d, exz.ts::%d, exz.te::%d\n", __func__, 
+            exz.err, exz.ps, exz.pe, exz.ts, exz.te);
+	// ed_band_cal_semi_infi_w((char*)pstr, strlen(pstr), (char*)tsrt, strlen(tsrt), thre, NULL, &exz);
+	// ed_band_cal_semi_64_w((char*)pstr, strlen(pstr), (char*)tsrt, strlen(tsrt), thre, &exz64);
+	// fprintf(stderr, "\n[M::%s::] exz.err::%d, exz64.err::%d, exz.ps::%d, exz64.ps::%d, exz.pe::%d, exz64.pe::%d, exz.ts::%d, exz64.ts::%d, exz.te::%d, exz64.te::%d\n", __func__, 
+    //         exz.err, exz64.err, exz.ps, exz64.ps, exz.pe, exz64.pe, exz.ts, exz64.ts, exz.te, exz64.te);
+	// ed_band_cal_semi_64_w_trace((char*)pstr, strlen(pstr), (char*)tsrt, strlen(tsrt), thre, &exz64);
+	// cigar_check((char*)pstr, (char*)tsrt, &(exz64));
 	
 	
 	// char *pstr = "TGT", *tsrt = "CTGT"; int32_t thre = 1;
@@ -43,6 +49,7 @@ int main(int argc, char *argv[])
 	// fprintf(stderr, "ed_extension::%d, pe::%d, te::%d\n", exz.err, exz.pe, exz.te);
 	exit(1);
 	**/
+	
 	
 
 	// fprintf(stderr, "[M::%s::] ed_global::%d, ed_global_128bit::%d\n", __func__, 
