@@ -18,6 +18,7 @@
 #define INSERTION 2
 #define DELETION 3
 #define ERROR_RATE 1.25
+#define UL_TOPN 50
 
 #define WINDOW_MAX_SIZE (WINDOW + (int)(1.0 / HA_MIN_OV_DIFF) + 3) // TODO: why 1/max_ov_diff?
 
@@ -1134,7 +1135,7 @@ void correct_ul_overlap(overlap_region_alloc* overlap_list, const ul_idx_t *uref
 void ul_lalign(overlap_region_alloc* ol, Candidates_list *cl, const ul_idx_t *uref, char *qstr, 
                         uint64_t ql, UC_Read* qu, UC_Read* tu, Correct_dumy* dumy, bit_extz_t *exz,
                         haplotype_evdience_alloc* hap, kvec_t_u64_warp* v_idx,   
-                        double e_rate, int64_t wl, uint64_t is_base, int64_t sid, void *km);
+                        double e_rate, int64_t wl, kv_ul_ov_t *aln, int64_t sid, void *km);
 
 void ul_lalign_old_ed(overlap_region_alloc* ol, Candidates_list *cl, const ul_idx_t *uref, char *qstr, 
                         uint64_t ql, UC_Read* qu, UC_Read* tu, Correct_dumy* dumy, 
@@ -1278,6 +1279,51 @@ inline void push_cigar_cell(window_list_alloc *res, uint8_t c, uint32_t len)
     kv_push(uint16_t, res->c, p);
 }
 int64_t get_num_wins(int64_t s, int64_t e, int64_t block_s);
+void append_unmatched_wins(overlap_region *z, int64_t block_s);
+
+///[w_s, w_e]
+inline int64_t get_win_id_by_s(overlap_region *z, int64_t w_s, int64_t block_s, int64_t *w_e)
+{
+    int64_t n_s = ((z->x_pos_s/block_s)*block_s), wid = (w_s-n_s)/block_s;
+    if(w_e) {
+        (*w_e) = n_s + (wid+1)*block_s - 1;        
+        if((*w_e) > z->x_pos_e) (*w_e) = z->x_pos_e;
+    }
+    return wid;
+}
+
+///[w_s, w_e]
+inline int64_t get_win_id_by_e(overlap_region *z, int64_t w_e, int64_t block_s, int64_t *w_s)
+{
+    int64_t n_s = ((z->x_pos_s/block_s)*block_s), wid = (w_e-n_s)/block_s;
+    if(w_s) {
+        (*w_s) = n_s + wid*block_s;        
+        if((*w_s) < z->x_pos_s) (*w_s) = z->x_pos_s;
+    }
+    return wid;
+}
+
+///[w_s, w_e]
+inline void get_win_se_by_normalize_xs(overlap_region *z, int64_t norm_w_s, int64_t block_s, int64_t *w_s, int64_t *w_e)
+{
+    int64_t n_s = ((z->x_pos_s/block_s)*block_s), wid = (norm_w_s-n_s)/block_s;
+    if(w_s) {
+        (*w_s) = n_s + wid*block_s;        
+        if((*w_s) < z->x_pos_s) (*w_s) = z->x_pos_s;
+    }
+    if(w_e) {
+        (*w_e) = n_s + (wid+1)*block_s - 1;        
+        if((*w_e) > z->x_pos_e) (*w_e) = z->x_pos_e;
+    }
+}
+
+void inline resize_UC_Read(UC_Read *z, int64_t s)
+{
+    if(z->size < s) {
+        REALLOC(z->seq, s); z->size = s;
+    }
+}
+
 
 #define FORWARD_KSW 0
 #define BACKWARD_KSW 1
