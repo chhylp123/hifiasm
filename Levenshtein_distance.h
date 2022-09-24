@@ -537,6 +537,9 @@ inline uint32_t pop_trace(asg16_v *res, uint32_t i, uint16_t *c, uint32_t *len)
 	return i;
 }
 
+///511 -> 16 64-bits
+#define MAX_E 511
+#define MAX_L 2500
 
 typedef uint64_t w_sig;
 #define bitw (6)
@@ -3354,7 +3357,9 @@ inline void ed_band_cal_extension_64_0_w_trace(char *pstr, int32_t pn, char *tst
             c = seq_nt4_table[(uint8_t)pstr[i_bd]]; 
             if(c < 4) Peq[c] |= mm;
         }
-
+		// if(((ez->path.n+5)>(ez->nword*tn*5))||((ez->path.n+5)>(ez->path.m))) {
+		// 	fprintf(stderr, "[M::%s::] pn::%d, tn::%d\n", __func__, pn, tn);
+		// }
 		ez->path.a[ez->path.n++] = D0;//diff
         ez->path.a[ez->path.n++] = VP;//diff
         ez->path.a[ez->path.n++] = VN;//diff
@@ -3365,6 +3370,9 @@ inline void ed_band_cal_extension_64_0_w_trace(char *pstr, int32_t pn, char *tst
 	if (!(D0&(1ULL))) {
 		++err; if (err>cut) return;
 	}
+	// if(((ez->path.n+5)>(ez->nword*tn*5))||((ez->path.n+5)>(ez->path.m))) {
+	// 	fprintf(stderr, "[M::%s::] pn::%d, tn::%d\n", __func__, pn, tn);
+	// }
 	ez->path.a[ez->path.n++] = D0;//diff
 	ez->path.a[ez->path.n++] = VP;//diff
 	ez->path.a[ez->path.n++] = VN;//diff

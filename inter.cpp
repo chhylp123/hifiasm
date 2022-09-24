@@ -5776,7 +5776,8 @@ void filter_topN(overlap_region_alloc* ol, kv_ul_ov_t *aln, uint64_t ql, uint64_
 
 uint64_t get_win_info(overlap_region *z, uint64_t wid, int64_t *ys, int64_t *ye, int64_t *err)
 {
-	if((wid > 0) && (z->w_list.a[wid].y_end != -1) && (z->w_list.a[wid-1].y_end != -1)) {
+	(*err) = -2;
+	if((wid > 0) && (z->w_list.a[wid].y_end != -1) && (z->w_list.a[wid-1].y_end != -1) && (z->w_list.a[wid].y_end > z->w_list.a[wid-1].y_end)) {
 		(*ys) = z->w_list.a[wid-1].y_end+1; 
 		(*ye) = z->w_list.a[wid].y_end; 
 		(*err) = z->w_list.a[wid].error;
@@ -5872,10 +5873,10 @@ uint64_t *buf, uint64_t dp, char *str0, char *str1, kv_ul_ov_t *aln)///[s, e)
 }
 
 void update_shared_intervals(overlap_region_alloc* ol, const ul_idx_t *uref, const ug_opt_t *uopt, 
-All_reads *rref, UC_Read* tu, kvec_t_u64_warp* idx, st_mt_t *sps, int64_t ql, int64_t wl, kv_ul_ov_t *aln)
+All_reads *rref, UC_Read* tu, kvec_t_u64_warp* idx, st_mt_t *sps, int64_t ql, int64_t wl, kv_ul_ov_t *aln, uint64_t rid)
 {
 	if(!aln->n) return;
-	uint64_t i, k, j, own, srt_n; int64_t dp, old_dp, beg, end; overlap_region *z;
+	uint64_t i, k, own, srt_n; int64_t dp, old_dp, beg, end; overlap_region *z;
     for (i = 0; i < ol->length; i++) {
 		z = &(ol->list[i]); append_unmatched_wins(z, wl); 
 		own = z->w_list.n; z->align_length = (uint32_t)-1;
@@ -5904,8 +5905,10 @@ All_reads *rref, UC_Read* tu, kvec_t_u64_warp* idx, st_mt_t *sps, int64_t ql, in
 			kv_push(uint64_t, idx->a, ((uint32_t)idx->a.a[i]));
 		}
 		///[beg, end)
-		// fprintf(stderr, "[M::%s::input] beg::%ld, end::%ld, old_dp::%ld, dp::%ld, aln->n::%lu, aln_n::%lu\n", 
-		// __func__, beg, end, old_dp, dp, (uint64_t)aln->n, aln_n);
+		// if(rid == 92) {
+		// 	fprintf(stderr, "[M::%s::input] beg::%ld, end::%ld, old_dp::%ld, dp::%ld\n", 
+		// 	__func__, beg, end, old_dp, dp);
+		// }
 		if((end > beg) && (end - beg > wl) && (old_dp >= 2) ) {
 			idx->a.n = srt_n + 
 					gen_commen_win(rref, uref, ol, idx->a.a+srt_n, idx->a.n-srt_n, beg, end, ql, wl, sps->a, old_dp, tu->seq, tu->seq+wl, aln);
@@ -6068,7 +6071,7 @@ static void worker_for_ul_rescall_alignment(void *data, long i, int tid) // call
     // if(s->id+i!=41927 && s->id+i!=47072 && s->id+i!=67641 && s->id+i!=90305 && s->id+i!=698342 && s->id+i!=329421) {
 	// 	return;
 	// }
-	// if((s->id+i!=49) /**&& (s->id+i!=44) && (s->id+i!=948)**/) return;
+	// if((s->id+i!=2936) /**&& (s->id+i!=44) && (s->id+i!=948)**/) return;
 
     // fprintf(stderr, "\n[M::%s] rid::%ld, len::%lu, name::%.*s\n", __func__, s->id+i, s->len[i],
 	// (int32_t)UL_INF.nid.a[s->id+i].n, UL_INF.nid.a[s->id+i].a);
@@ -6098,11 +6101,11 @@ static void worker_for_ul_rescall_alignment(void *data, long i, int tid) // call
 	gl_chain_flter(&b->olist, &b->correct, &(s->sps[tid]), bl, s->uu, s->opt->diff_ec_ul, winLen, s->len[i], s->uopt, &phase);
 
 	if(phase) {
-		fprintf(stderr, "\n[M::%s] rid::%ld, len::%lu, name::%.*s\n", __func__, s->id+i, s->len[i],
-			(int32_t)UL_INF.nid.a[s->id+i].n, UL_INF.nid.a[s->id+i].a);
+		// fprintf(stderr, "\n[M::%s] rid::%ld, len::%lu, name::%.*s\n", __func__, s->id+i, s->len[i],
+		// 		(int32_t)UL_INF.nid.a[s->id+i].n, UL_INF.nid.a[s->id+i].a);
 		if(gen_shared_intervals(&b->olist, s->uu, s->uopt, winLen, &b->r_buf, &(bl->lo))) {
 			filter_topN(&b->olist, &(bl->lo), s->len[i], winLen, UL_TOPN, bl);
-			update_shared_intervals(&b->olist, s->uu, s->uopt, NULL, &b->ovlp_read, &b->r_buf, &(s->sps[tid]), s->len[i], winLen, &(bl->lo));
+			update_shared_intervals(&b->olist, s->uu, s->uopt, NULL, &b->ovlp_read, &b->r_buf, &(s->sps[tid]), s->len[i], winLen, &(bl->lo), s->id+i);
 			ul_lalign(&b->olist, &b->clist, s->uu, s->seq[i], s->len[i], &b->self_read, &b->ovlp_read,
 							&b->correct, &b->exz, &b->hap, &b->r_buf, s->opt->diff_ec_ul, winLen, &(bl->lo), s->id+i, NULL);
 			// ul_lalign_old_ed(&b->olist, &b->clist, s->uu, s->seq[i], s->len[i], &b->self_read, &b->ovlp_read,
