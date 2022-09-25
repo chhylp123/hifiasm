@@ -1324,6 +1324,10 @@ void inline resize_UC_Read(UC_Read *z, int64_t s)
     }
 }
 
+void update_sketch_trace(overlap_region_alloc* ol, const ul_idx_t *uref, const ug_opt_t *uopt, 
+All_reads *rref, UC_Read* tu, asg64_v* idx, asg64_v *b0, asg64_v *b1, int64_t ql, int64_t wl, kv_ul_ov_t *aln, uint64_t rid);
+
+#define copy_asg_arr(des, src) ((des).a = (src).a, (des).n = (src).n, (des).m = (src).m)
 
 #define FORWARD_KSW 0
 #define BACKWARD_KSW 1
