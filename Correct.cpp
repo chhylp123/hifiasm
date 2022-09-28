@@ -12626,21 +12626,45 @@ int64_t qs, int64_t qe, int64_t thre, int64_t *ts, int64_t *te, int64_t *aux_beg
     return 1;
 }
 
-int64_t cal_exz_infi(overlap_region *z, const ul_idx_t *uref, hpc_t *hpc_g, All_reads *rref, bit_extz_t *exz, char* qstr, UC_Read *tu, int64_t qs, int64_t qe, int64_t ts, int64_t te, int64_t thre, int64_t mode)
+
+void adjust_ext_offset(int64_t *qs, int64_t *qe, int64_t *ts, int64_t *te, int64_t ql, int64_t tl, int64_t thre, int64_t mode)
+{
+    int64_t qoff, toff;
+    if(mode == 1) {///forward extension
+        qoff = ql - (*qs); toff = tl - (*ts);
+        if(qoff <= toff) {
+            (*qe) = ql; (*te) = (*ts) + qoff + thre;
+        } else {
+            (*te) = tl; (*qe) = (*qs) + toff + thre;
+        }
+    } else if(mode == 2) {///backward extension
+        qoff = (*qe); toff = (*te);
+        if(qoff <= toff) {
+            (*qs) = 0; (*ts) = (*te) - qoff - thre;
+        } else {
+            (*ts) = 0; (*qs) = (*qe) - toff - thre;
+        }
+    }
+    if((*qs) < 0) (*qs) = 0;
+    if((*ts) < 0) (*ts) = 0;
+    if((*qe) > ql) (*qe) = ql;
+    if((*te) > tl) (*te) = tl;
+}
+
+int64_t cal_exz_infi(overlap_region *z, const ul_idx_t *uref, hpc_t *hpc_g, All_reads *rref, bit_extz_t *exz, char* qstr, UC_Read *tu, int64_t qs, int64_t qe, int64_t ts, int64_t te, int64_t thre, int64_t q_tot_l, int64_t mode)
 {
     int64_t aux_beg = 0, bd = (((thre)<<1)+1), ql, tl, t_tot_l = -1; int32_t nword = ((bd>>bitw)+(!!(bd&bitz)));
     char *q_string, *t_string; int32_t rev = z->y_pos_strand, id = z->y_id; ql = qe - qs;
+    if(hpc_g) t_tot_l = hpc_len(*hpc_g, id);
+    else if(uref) t_tot_l = uref->ug->u.a[id].len;
+    else t_tot_l = Get_READ_LENGTH((*rref), id);
+
     if(mode == 3) {
         update_semi_coord(uref, hpc_g, rref, z, qs, qe, thre, &ts, &te, &aux_beg);
-    } else if(mode == 2) {
-        ts = te - ql - thre; if(ts < 0) ts = 0;
-    } else if(mode == 1) {
-        te = ts + ql + thre; 
-        if(hpc_g) t_tot_l = hpc_len(*hpc_g, id);
-        else if(uref) t_tot_l = uref->ug->u.a[id].len;
-        else t_tot_l = Get_READ_LENGTH((*rref), id);
-        if(te > t_tot_l) te = t_tot_l;
+    } else if(mode == 1 || mode == 2) {
+        adjust_ext_offset(&qs, &qe, &ts, &te, q_tot_l, t_tot_l, thre, mode);
     }
+    
     if((qe > qs) && (te > ts) && (ts != -1) && (te != -1)) {
         ql = qe - qs; q_string = qstr + qs;
         tl = te - ts; resize_UC_Read(tu, tl);
@@ -12697,16 +12721,16 @@ int64_t cal_exz_infi(overlap_region *z, const ul_idx_t *uref, hpc_t *hpc_g, All_
 
 void hc_aln_exz(overlap_region *z, const ul_idx_t *uref, hpc_t *hpc_g, All_reads *rref, 
 char* qstr, UC_Read *tu, int64_t qs, int64_t qe, int64_t ts, int64_t te, int64_t estimate_err,
-int64_t mode, int64_t wl, bit_extz_t *exz, double e_rate)
+int64_t mode, int64_t wl, bit_extz_t *exz, int64_t q_tot, double e_rate)
 {
     int64_t thre, ql = qe - qs, thre0; 
     if(((ts == -1) && (te == -1))) mode = 3;///set to semi-global
     // fprintf(stderr, "[M::%s::ql::%ld] qs::%ld, qe::%ld, ts::%ld, te::%ld, mode::%ld, estimate_err::%ld, e_rate::%f", 
     //                                                     __func__, ql, qs, qe, ts, te, mode, estimate_err, e_rate);
     
-    if(ql <= MAX_L) {
+    if(ql <= MAX_L && (estimate_err*1.2) <= MAX_E) {
         thre = scale_ed_thre(estimate_err); if(thre > ql) thre = ql;
-        if(cal_exz_infi(z, uref, hpc_g, rref, exz, qstr, tu, qs, qe, ts, te, thre, mode)) {
+        if(cal_exz_infi(z, uref, hpc_g, rref, exz, qstr, tu, qs, qe, ts, te, thre, q_tot, mode)) {
             // fprintf(stderr, ", err::%d, thre::%d, scale::%ld(+)\n", exz->err, exz->thre, thre);
             return;
         }
@@ -12714,7 +12738,7 @@ int64_t mode, int64_t wl, bit_extz_t *exz, double e_rate)
         thre0 = thre; thre = ql*e_rate;
         thre = scale_ed_thre(thre); if(thre > ql) thre = ql;
         if(thre > thre0) {
-            if(cal_exz_infi(z, uref, hpc_g, rref, exz, qstr, tu, qs, qe, ts, te, thre, mode)) {
+            if(cal_exz_infi(z, uref, hpc_g, rref, exz, qstr, tu, qs, qe, ts, te, thre, q_tot, mode)) {
                 // fprintf(stderr, ", err::%d, thre::%d, scale::%ld(-)\n", exz->err, exz->thre, thre);
                 return;
             }
@@ -12723,7 +12747,7 @@ int64_t mode, int64_t wl, bit_extz_t *exz, double e_rate)
         thre0 = thre; thre <<= 1;
         thre = scale_ed_thre(thre); if(thre > ql) thre = ql;
         if(thre > thre0) {
-            if(cal_exz_infi(z, uref, hpc_g, rref, exz, qstr, tu, qs, qe, ts, te, thre, mode)) {
+            if(cal_exz_infi(z, uref, hpc_g, rref, exz, qstr, tu, qs, qe, ts, te, thre, q_tot, mode)) {
                 // fprintf(stderr, ", err::%d, thre::%d, scale::%ld(-)\n", exz->err, exz->thre, thre);
                 return;
             }
@@ -12732,19 +12756,19 @@ int64_t mode, int64_t wl, bit_extz_t *exz, double e_rate)
         thre0 = thre; thre = ql*0.51;
         thre = scale_ed_thre(thre); if(thre > ql) thre = ql;
         if(thre > thre0) {
-            if(cal_exz_infi(z, uref, hpc_g, rref, exz, qstr, tu, qs, qe, ts, te, thre, mode)) {
-                // fprintf(stderr, ", err::%d, thre::%d, scale::%ld(-)\n", exz->err, exz->thre, thre);
+            if(cal_exz_infi(z, uref, hpc_g, rref, exz, qstr, tu, qs, qe, ts, te, thre, q_tot, mode)) {
+                // fprintf(stderr, ", err::%d, thre::%d, scale::%ld(*)\n", exz->err, exz->thre, thre);
                 return;
             }
         }
-
-        // fprintf(stderr, ", err::%d, thre::%d\n", INT32_MAX, exz->thre);
     }
+    // fprintf(stderr, ", err::%d, thre::%d\n", INT32_MAX, exz->thre);
     
 }
 
 void sub_ciagar_gen(overlap_region *z, uint64_t s, uint64_t e, uint64_t wl, 
-const ul_idx_t *uref, hpc_t *hpc_g, All_reads *rref, char* qstr, UC_Read *tu, bit_extz_t *exz, double e_rate)
+const ul_idx_t *uref, hpc_t *hpc_g, All_reads *rref, char* qstr, UC_Read *tu, bit_extz_t *exz, double e_rate,
+int64_t ql, uint64_t rid)
 {
     uint64_t qs, qe, sid, eid, k, l, m, tot_e, c_e; int64_t q[2], t[2], mode;
     qs = (s/wl)*wl; if(qs < z->x_pos_s) qs = z->x_pos_s; if(qs > z->x_pos_e) return;
@@ -12813,7 +12837,7 @@ const ul_idx_t *uref, hpc_t *hpc_g, All_reads *rref, char* qstr, UC_Read *tu, bi
                 //     fprintf(stderr, "[M::%s::ql::%lu] qs::%lu, qe::%lu, ts::%lu, te::%lu, mode::%ld, tot_e::%lu\n", 
                 //                                         __func__, q[1]-q[0], q[0], q[1], t[0], t[1], mode, tot_e);
                 // }
-                hc_aln_exz(z, uref, hpc_g, rref, qstr, tu, q[0], q[1], t[0], t[1], tot_e, mode, wl, exz, e_rate); 
+                hc_aln_exz(z, uref, hpc_g, rref, qstr, tu, q[0], q[1], t[0], t[1], tot_e, mode, wl, exz, ql, e_rate); 
                 
             }
             l = k;
@@ -12822,26 +12846,247 @@ const ul_idx_t *uref, hpc_t *hpc_g, All_reads *rref, char* qstr, UC_Read *tu, bi
 }
 
 void cigar_gen(overlap_region *z, ul_ov_t *ov, uint64_t on, uint64_t qn, uint64_t wl,  
-const ul_idx_t *uref, hpc_t *hpc_g, All_reads *rref, char* qstr, UC_Read *tu, bit_extz_t *exz, double e_rate)
+const ul_idx_t *uref, hpc_t *hpc_g, All_reads *rref, char* qstr, UC_Read *tu, bit_extz_t *exz, double e_rate, int64_t ql, uint64_t rid)
 {
-    uint64_t i;
+    uint64_t i, qs = (uint64_t)-1, qe = (uint64_t)-1;
     for (i = 0; i < on && ov[i].qn == qn; i++) {
-        sub_ciagar_gen(z, ov[i].qs, ov[i].qe, wl, uref, hpc_g, rref, qstr, tu, exz, e_rate);
+        assert((i<=0)||(ov[i].qs >= ov[i-1].qe));
+        if(ov[i].qs <= qe && qe != (uint64_t)-1) {
+            qe = ov[i].qe;
+        } else {
+            if(qs != (uint64_t)-1) sub_ciagar_gen(z, qs, qe, wl, uref, hpc_g, rref, qstr, tu, exz, e_rate, ql, rid);
+            qs = ov[i].qs; qe = ov[i].qe;
+        }
     }
-    
+    if(qs != (uint64_t)-1) sub_ciagar_gen(z, qs, qe, wl, uref, hpc_g, rref, qstr, tu, exz, e_rate, ql, rid);
 }
 
 void ul_gap_filling(overlap_region_alloc* ol, kv_ul_ov_t *aln, uint64_t wl, 
-const ul_idx_t *uref, hpc_t *hpc_g, All_reads *rref, char* qstr, UC_Read *tu, bit_extz_t *exz, double e_rate)
+const ul_idx_t *uref, hpc_t *hpc_g, All_reads *rref, char* qstr, UC_Read *tu, bit_extz_t *exz, 
+double e_rate, int64_t ql, uint64_t rid)
 {
     int64_t i, on = ol->length;
     for (i = 0; i < on; i++) {
         if(ol->list[i].align_length == (uint32_t)-1) continue;
         cigar_gen(&(ol->list[i]), aln->a+ol->list[i].align_length, aln->n-ol->list[i].align_length, i, wl, 
-        uref, hpc_g, rref, qstr, tu, exz, e_rate);
+        uref, hpc_g, rref, qstr, tu, exz, e_rate, ql, rid);
     }
 }
 
+
+///[ys, ye)
+uint64_t get_win_aln(overlap_region *z, uint64_t wid, int64_t *ys, int64_t *ye, int64_t *err)
+{
+	(*err) = -2;
+	if((wid > 0) && (z->w_list.a[wid].y_end != -1) && (z->w_list.a[wid-1].y_end != -1) && (z->w_list.a[wid].y_end > z->w_list.a[wid-1].y_end)) {
+		(*ys) = z->w_list.a[wid-1].y_end+1; 
+		(*ye) = z->w_list.a[wid].y_end+1; 
+		(*err) = z->w_list.a[wid].error;
+		return 1;
+	}
+	return 0;
+}
+
+char* retrive_str_piece_exz(All_reads *rref, const ul_idx_t *uref, char *buf, int64_t s, int64_t l, int64_t rev, int64_t id)
+{
+	if(rref) recover_UC_Read_sub_region(buf, s, l, rev, rref, id); 
+	else if(uref) retrieve_u_seq(NULL, buf, &(uref->ug->u.a[id]), rev, s, l, NULL); 
+	else return NULL;
+	return buf;
+}
+
+uint64_t dp_commen_sketch(kv_ul_ov_t *aln, overlap_region_alloc* ol, uint64_t *id_a, int64_t id_n, 
+uint64_t *win_a, int64_t win_n, uint64_t *dp, int64_t n_skip, int64_t wl)
+{
+    if(!win_n) return 0;
+    int64_t k, ws, ws0, i, m, wid, wid0, s, e, err, s0, e0, err0, sc, max_sc, p, long_sc, long_idx; 
+    overlap_region *z; s = e = err = s0 = e0 = err0 = -1;
+    if(n_skip < win_n) {
+        long_sc = long_idx = -1;
+        for (k = 0; k < n_skip; k++) {
+            dp[k] = ((k>0)?(k-1):((uint32_t)-1)); dp[k] <<= 32; dp[k] |= k+1; max_sc = k+1;
+            if(long_sc < max_sc) {
+                long_sc = max_sc; long_idx = k;
+            }
+        }
+
+        for (; k < win_n; k++) {
+            ws = win_a[k]; sc = 1; p = -1; max_sc = sc;
+            for (m = k-1; m >= 0; m--) {
+                ws0 = win_a[m];
+                for (i = 0; i < id_n; i++) {
+                    z = &(ol->list[aln->a[(uint32_t)id_a[i]].qn]);
+                    wid = get_win_id_by_s(z, ws, wl, NULL);
+                    wid0 = get_win_id_by_s(z, ws0, wl, NULL);
+
+                    get_win_aln(z, wid, &s, &e, &err);
+                    get_win_aln(z, wid0, &s0, &e0, &err0);
+                    if(e0 > s) break;
+                }
+                if((i >= id_n) && ((sc + ((uint32_t)dp[m])) > max_sc)) {
+                    max_sc = (sc + ((uint32_t)dp[m])); p = m;
+                }
+            }
+            dp[k] = ((p>=0)?(p):((uint32_t)-1)); dp[k] <<= 32; dp[k] |= max_sc;
+            if(long_sc < max_sc) {
+                long_sc = max_sc; long_idx = k;
+            }
+        }
+
+        k = long_idx; 
+        while (k >= 0) {
+            win_a[k] |= ((uint64_t)0x8000000000000000); 
+            k = ((dp[k]>>32)!=((uint32_t)-1))?(dp[k]>>32):(-1);
+        }
+
+        for (k = 0, m = 0; k < win_n; k++) {
+            if(!(win_a[k]&((uint64_t)0x8000000000000000))) continue;
+            win_a[m++] = win_a[k];
+        }
+        win_n = m;
+    }
+
+    for (k = 0; k < win_n; k++) {
+        ws = win_a[k];
+        for (i = 0; i < id_n; i++) {
+            z = &(ol->list[aln->a[(uint32_t)id_a[i]].qn]);
+            wid = get_win_id_by_s(z, ws, wl, NULL);
+            z->w_list.a[wid].extra_end = -1; 
+            get_win_aln(z, wid, &s, &e, &err);
+            if(z->align_length < (uint32_t)e) z->align_length = e;///for conliner
+        }
+    }
+    return win_n;
+}
+
+uint64_t gen_commen_sketch(All_reads *rref, const ul_idx_t *uref, overlap_region_alloc* ol, uint64_t *id_a, uint64_t id_n, uint64_t s, uint64_t e, uint64_t ql, uint64_t wl,
+uint64_t *buf, uint64_t dp, char *str0, char *str1, kv_ul_ov_t *aln, asg64_v *trace)///[s, e)
+{
+    if(!id_n) return id_n;
+    uint64_t i, m, k, rm_n = 0, buf_n = 0, qs, qe, wid, co, occ; char *qstring, *tstring;
+    overlap_region *z; uint64_t ws, we; int64_t r_y[2], r_err, p_y[2], p_err;
+    ///shrink [qs, qe)
+    qs = (s/wl)*wl; if(qs < s) qs += wl; if(qs >= ql) return id_n;
+    qe = (e/wl)*wl; if(qe >= ql) qe = ql;
+    if(qs >= qe) return id_n;
+    //idx_a[] is sorted by aln[].qs
+    for (k = 0; k < id_n; k++) {
+        if(aln->a[id_a[k]].qs<=qs && aln->a[id_a[k]].qe>=qe) {
+            buf[buf_n++] = id_a[k];
+        }
+        if(aln->a[id_a[k]].qe < e) rm_n++;
+    }
+    assert(buf_n == dp && buf_n > 1);
+
+    if(buf_n > 0) {
+        ///fs = fe = (uint64_t)-1;
+        co = 1; trace->n = occ = 0;
+        for (k = qs; k < qe; k += wl) {
+            ws = k; we = ws + wl; if(we > qe) we = qe;//[ws, we)
+            ///first overlap
+            z = &(ol->list[aln->a[(uint32_t)buf[0]].qn]);
+            wid = get_win_id_by_s(z, ws, wl, NULL);
+            if(!get_win_aln(z, wid, &(r_y[0]), &(r_y[1]), &r_err)) continue;
+            if(r_y[0] < z->align_length) continue;///not co-linear
+            qstring = tstring = NULL;
+            for (i = 1; i < buf_n; i++) {
+                z = &(ol->list[aln->a[(uint32_t)buf[i]].qn]);
+                wid = get_win_id_by_s(z, ws, wl, NULL);
+                if(!get_win_aln(z, wid, &(p_y[0]), &(p_y[1]), &p_err)) break;
+                if(p_y[0] < z->align_length) continue;///not co-linear
+
+                if(((r_y[1]-r_y[0]) != (p_y[1]-p_y[0])) || (r_err != p_err)) break;
+                if(r_err == 0) continue;
+                if(!qstring) {
+                    qstring = retrive_str_piece_exz(rref, uref, str0, r_y[0], r_y[1]-r_y[0], 
+                                                ol->list[aln->a[(uint32_t)buf[0]].qn].y_pos_strand, ol->list[aln->a[(uint32_t)buf[0]].qn].y_id);
+                }
+                tstring = retrive_str_piece_exz(rref, uref, str1, p_y[0], p_y[1]-p_y[0], z->y_pos_strand, z->y_id);
+                if(memcmp(str0, str1, (p_y[1]-p_y[0]))) {
+                    // fprintf(stderr, "[M::%s::] qs::%ld, qe::%lu, ts::%ld, te::%lu, err::%ld, rts::%ld, rte::%lu, err::%ld\n", 
+                    // __func__, ws, we, p_y[0], p_y[1], r_err, r_y[0], r_y[1], p_err);
+                    // fprintf(stderr, "str0::%.*s\n", (int32_t)(r_y[1]-r_y[0]), str0);
+                    // fprintf(stderr, "str1::%.*s\n", (int32_t)(p_y[1]-p_y[0]), str1);
+                    break;
+                }
+            }
+            if(i < buf_n) continue;
+            for (i = 0, p_y[0] = p_y[1] = -1; i < buf_n; i++) {
+                z = &(ol->list[aln->a[(uint32_t)buf[i]].qn]);
+                wid = get_win_id_by_s(z, ws, wl, NULL);
+
+                if(co) {
+                    get_win_aln(z, wid, &(p_y[0]), &(p_y[1]), &p_err);
+                    if((buf[i]>>32) > (uint64_t)p_y[0]) co = 0;
+                    m = p_y[1]; m <<= 32; m |= (uint32_t)buf[i]; buf[i] = m;
+                }
+            }
+            if(co) occ++;
+            kv_push(uint64_t, *trace, ws);
+        }
+
+        if(trace->n) {
+            if(!co) kv_resize(uint64_t, *trace, trace->n<<1);
+            trace->n = dp_commen_sketch(aln, ol, buf, buf_n, trace->a, trace->n, trace->a + trace->n, occ, wl);
+        }
+    }
+    if(rm_n) {
+        for (i = m = 0; i < id_n; i++) {
+            if(aln->a[id_a[i]].qe < e) continue;
+            id_a[m++] = id_a[i];
+        }
+        id_n = m;
+    }
+    return id_n;
+}
+
+void update_sketch_trace(overlap_region_alloc* ol, const ul_idx_t *uref, const ug_opt_t *uopt, 
+All_reads *rref, UC_Read* tu, asg64_v* idx, asg64_v *b0, asg64_v *b1, int64_t ql, int64_t wl, kv_ul_ov_t *aln, uint64_t rid)
+{
+	if(!aln->n) return;
+	uint64_t i, k, own, srt_n; int64_t dp, old_dp, beg, end; overlap_region *z;
+    for (i = 0; i < ol->length; i++) {
+		z = &(ol->list[i]); append_unmatched_wins(z, wl); 
+		own = z->w_list.n; z->align_length = (uint32_t)-1;
+		for (k = 0; k < own; k++) {
+			if(z->w_list.a[k].extra_end < 0) z->w_list.a[k].extra_end = 0;
+		}		
+    }
+
+    kv_resize(uint64_t, *idx, (aln->n<<1)); kv_resize(uint64_t, *b0, aln->n);
+    for (i = srt_n = 0; i < aln->n; i++) {
+		// if(i == 0 || aln->a[i].qn != aln->a[i-1].qn) ol->list[aln->a[i].qn].align_length = i;
+        ol->list[aln->a[i].qn].align_length = 0;///for co-linear
+        idx->a[srt_n] = aln->a[i].qs<<1; idx->a[srt_n] <<= 32; idx->a[srt_n] += i; srt_n++;
+        idx->a[srt_n] = ((aln->a[i].qe-1)<<1)+1; idx->a[srt_n] <<= 32; idx->a[srt_n] += i; srt_n++;
+		aln->a[i].el = 1;
+    }
+
+    radix_sort_bc64(idx->a, idx->a+srt_n); idx->n = srt_n; resize_UC_Read(tu, (wl<<1));
+    for (i = 0, dp = 0, beg = 0, end = -1; i < srt_n; ++i) {///[beg, end]
+		old_dp = dp;
+        ///if idx->a.a[] is qe
+        if ((idx->a[i]>>32)&1) {
+			--dp; end = (idx->a[i]>>33)+1;
+		}else {
+			//meet a new overlap; the overlaps are pushed by the x_pos_s
+			++dp; end = (idx->a[i]>>33);
+			kv_push(uint64_t, *idx, ((uint32_t)idx->a[i]));
+		}
+		
+		if((end > beg) && (end - beg > wl) && (old_dp >= 2) ) {
+			idx->n = srt_n + 
+					gen_commen_sketch(rref, uref, ol, idx->a+srt_n, idx->n-srt_n, beg, end, ql, wl, b0->a, old_dp, tu->seq, tu->seq+wl, aln, b1);
+		}
+        beg = end;
+	}
+
+    for (i = srt_n = 0; i < aln->n; i++) {
+		if(i == 0 || aln->a[i].qn != aln->a[i-1].qn) ol->list[aln->a[i].qn].align_length = i;
+    }
+
+	return;
+}
 
 
 void ul_lalign(overlap_region_alloc* ol, Candidates_list *cl, const ul_idx_t *uref, char *qstr, 
@@ -12898,7 +13143,7 @@ void ul_lalign(overlap_region_alloc* ol, Candidates_list *cl, const ul_idx_t *ur
     } else {
         // fprintf(stderr, "-[M::%s] on::%lu\n", __func__, ol->length);
         if(ol->length <= 1) return;
-        ul_gap_filling(ol, aln, wl, uref, NULL, NULL, qu->seq, tu, exz, err);
+        ul_gap_filling(ol, aln, wl, uref, NULL, NULL, qu->seq, tu, exz, err, ql, sid);
         // for (i = 0; (i < ol->length) && (ol->list[i].is_match == 1); i++); on = i;
         // if(on <= 1) return;
         // kv_resize(uint64_t, v_idx->a, (on<<1)); v_idx->a.n = on;

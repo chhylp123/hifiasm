@@ -538,8 +538,12 @@ inline uint32_t pop_trace(asg16_v *res, uint32_t i, uint16_t *c, uint32_t *len)
 }
 
 ///511 -> 16 64-bits
-#define MAX_E 511
-#define MAX_L 2500
+// #define MAX_E 511
+// #define MAX_L 2500
+
+///511 -> 32 64-bits
+#define MAX_E 1023
+#define MAX_L 8192
 
 typedef uint64_t w_sig;
 #define bitw (6)

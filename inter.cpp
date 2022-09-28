@@ -5872,6 +5872,7 @@ uint64_t *buf, uint64_t dp, char *str0, char *str1, kv_ul_ov_t *aln)///[s, e)
 	return id_n;
 }
 
+
 void update_shared_intervals(overlap_region_alloc* ol, const ul_idx_t *uref, const ug_opt_t *uopt, 
 All_reads *rref, UC_Read* tu, kvec_t_u64_warp* idx, st_mt_t *sps, int64_t ql, int64_t wl, kv_ul_ov_t *aln, uint64_t rid)
 {
@@ -5916,30 +5917,6 @@ All_reads *rref, UC_Read* tu, kvec_t_u64_warp* idx, st_mt_t *sps, int64_t ql, in
         beg = end;
 	}
 
-
-
-
-	// for (i = 1, j = 0; i <= aln->n; i++) {
-    //     if (i == aln->n || aln->a[i].qn != aln->a[j].qn) {
-	// 		z = &(ol->list[aln->a[j].qn]); own = z->w_list.n; dp = old_dp = 0;
-	// 		for (k = j; k < i; k++) {
-	// 			old_dp += aln->a[k].qe-aln->a[k].qs;
-	// 			assert(k <= j || aln->a[k].qs >= aln->a[k-1].qe);
-	// 		}
-	// 		for (k = 0; k < own; k++) {
-	// 			if(z->w_list.a[k].extra_end < 0) dp += z->w_list.a[k].x_end+1-z->w_list.a[k].x_start;
-	// 		}  
-	// 		fprintf(stderr, "[M::%s::utg%.6dl] pre_len::%ld, cur_len::%ld\n", __func__, (int32_t)z->y_id+1, old_dp, dp);
-    //         j = i;
-    //     }
-    // }
-
-	// if(aln->n > aln_n) {///this function works
-	// 	idx->a.n = aln->n - aln_n; kv_resize(uint64_t, idx->a, idx->a.n);
-	// 	for (i = aln_n; i < aln->n; i++) {
-	// 		fprintf(stderr, "***[M::%s::shared] q[%u, %u)\n", __func__, aln->a[i].qs, aln->a[i].qe);
-	// 	}		
-	// }
 	return;
 }
 
@@ -6054,6 +6031,7 @@ static void worker_for_ul_scall_alignment(void *data, long i, int tid) // callba
 }
 
 
+
 static void worker_for_ul_rescall_alignment(void *data, long i, int tid) // callback for kt_for()
 {
     utepdat_t *s = (utepdat_t*)data;
@@ -6061,6 +6039,7 @@ static void worker_for_ul_rescall_alignment(void *data, long i, int tid) // call
     glchain_t *bl = &(s->ll[tid]);
     int64_t /**rid = s->id+i,**/ winLen = MIN((((double)THRESHOLD_MAX_SIZE)/s->opt->diff_ec_ul), WINDOW), ton = 0;
 	uint32_t high_occ = 2, phase = 1;
+	asg64_v b0, b1, b2;
     // uint64_t align = 0;
     
 	// if(UL_INF.a[s->id+i].rlen != s->len[i]) {
@@ -6071,7 +6050,7 @@ static void worker_for_ul_rescall_alignment(void *data, long i, int tid) // call
     // if(s->id+i!=41927 && s->id+i!=47072 && s->id+i!=67641 && s->id+i!=90305 && s->id+i!=698342 && s->id+i!=329421) {
 	// 	return;
 	// }
-	// if((s->id+i!=2936) /**&& (s->id+i!=44) && (s->id+i!=948)**/) return;
+	// if((s->id+i!=230) /**&& (s->id+i!=44) && (s->id+i!=948)**/) return;
 
     // fprintf(stderr, "\n[M::%s] rid::%ld, len::%lu, name::%.*s\n", __func__, s->id+i, s->len[i],
 	// (int32_t)UL_INF.nid.a[s->id+i].n, UL_INF.nid.a[s->id+i].a);
@@ -6105,7 +6084,13 @@ static void worker_for_ul_rescall_alignment(void *data, long i, int tid) // call
 		// 		(int32_t)UL_INF.nid.a[s->id+i].n, UL_INF.nid.a[s->id+i].a);
 		if(gen_shared_intervals(&b->olist, s->uu, s->uopt, winLen, &b->r_buf, &(bl->lo))) {
 			filter_topN(&b->olist, &(bl->lo), s->len[i], winLen, UL_TOPN, bl);
-			update_shared_intervals(&b->olist, s->uu, s->uopt, NULL, &b->ovlp_read, &b->r_buf, &(s->sps[tid]), s->len[i], winLen, &(bl->lo), s->id+i);
+			// update_shared_intervals(&b->olist, s->uu, s->uopt, NULL, &b->ovlp_read, &b->r_buf, &(s->sps[tid]), s->len[i], winLen, &(bl->lo), s->id+i);
+			
+			copy_asg_arr(b0, b->r_buf.a); copy_asg_arr(b1, s->sps[tid]); copy_asg_arr(b2, b->hap.snp_srt);
+			// update_shared_intervals(&b->olist, s->uu, s->uopt, NULL, &b->ovlp_read, &b0, &b1, &b2, s->len[i], winLen, &(bl->lo), s->id+i);
+			update_sketch_trace(&b->olist, s->uu, s->uopt, NULL, &b->ovlp_read, &b0, &b1, &b2, s->len[i], winLen, &(bl->lo), s->id+i);
+			copy_asg_arr(b->r_buf.a, b0); copy_asg_arr(s->sps[tid], b1); copy_asg_arr(b->hap.snp_srt, b2);
+			
 			ul_lalign(&b->olist, &b->clist, s->uu, s->seq[i], s->len[i], &b->self_read, &b->ovlp_read,
 							&b->correct, &b->exz, &b->hap, &b->r_buf, s->opt->diff_ec_ul, winLen, &(bl->lo), s->id+i, NULL);
 			// ul_lalign_old_ed(&b->olist, &b->clist, s->uu, s->seq[i], s->len[i], &b->self_read, &b->ovlp_read,
