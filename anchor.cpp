@@ -891,6 +891,32 @@ void inline reverse_k_mer_hit(k_mer_hit *a, uint64_t a_n, uint64_t xl, uint64_t 
 	}
 }
 
+
+void inline reset_k_mer_hit(k_mer_hit *a, uint64_t a_n, uint64_t xl, uint64_t yl, uint64_t rev, uint64_t *nid)
+{
+	uint64_t z, han = a_n>>1; k_mer_hit *ai, *aj, ka;
+	if(rev) {
+		for (z = 0; z < han; z++) {
+			ai = &(a[z]); aj = &(a[a_n-z-1]); 
+			ka = (*ai); (*ai) = (*aj); (*aj) = ka;
+
+			ai->self_offset = xl-ai->self_offset-1;
+			ai->offset = yl-ai->offset-1;
+
+			aj->self_offset = xl-aj->self_offset-1;
+			aj->offset = yl-aj->offset-1;
+			if(nid) ai->readID = aj->readID = (*nid);
+		}
+		if(a_n&1) {
+			a[z].self_offset = xl-a[z].self_offset-1;
+			a[z].offset = yl-a[z].offset-1;
+			if(nid) a[z].readID = (*nid);
+		}
+	} else if(nid) {
+		for (z = 0; z < a_n; z++) a[z].readID = (*nid);
+	}
+}
+
 void lchain_gen(Candidates_list* cl, overlap_region_alloc* ol, uint32_t rid, uint64_t rl, All_reads* rdb, 
 				const ul_idx_t *udb, uint32_t apend_be, overlap_region* tf, uint64_t max_n_chain,
 				int64_t max_skip, int64_t max_iter, int64_t max_dis, double chn_pen_gap, double chn_pen_skip, double bw_rate, int64_t quick_check, uint32_t gen_off)
@@ -913,10 +939,11 @@ void lchain_gen(Candidates_list* cl, overlap_region_alloc* ol, uint32_t rid, uin
               	rl, rdb?Get_READ_LENGTH((*rdb), (*tf).y_id):udb->ug->u.a[(*tf).y_id].len, quick_check);
 				// assert(sm > 0);
 				if(ovlp_chain_gen(ol, tf, rl, rdb?Get_READ_LENGTH((*rdb), (*tf).y_id):udb->ug->u.a[(*tf).y_id].len, apend_be, cl->list+m, sm)) {
-					r = &(ol->list[ol->length-1]); r->non_homopolymer_errors = m;
-					if(r->y_pos_strand) {
-						reverse_k_mer_hit(cl->list+m, sm, rl, rdb?Get_READ_LENGTH((*rdb), r->y_id):udb->ug->u.a[r->y_id].len);
-					}
+					r = &(ol->list[ol->length-1]); r->non_homopolymer_errors = m; 
+					// if(r->y_pos_strand) {
+					// 	reverse_k_mer_hit(cl->list+m, sm, rl, rdb?Get_READ_LENGTH((*rdb), r->y_id):udb->ug->u.a[r->y_id].len);
+					// }
+					reset_k_mer_hit(cl->list+m, sm, rl, rdb?Get_READ_LENGTH((*rdb), r->y_id):udb->ug->u.a[r->y_id].len, r->y_pos_strand, &(ol->length));
 					if(gen_off) gen_fake_cigar(&(r->f_cigar), r, apend_be, cl->list+m, sm);
 					m += sm;
 				}

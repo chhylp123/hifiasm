@@ -196,4 +196,17 @@ void gen_fake_cigar(Fake_Cigar* z, overlap_region *o, int64_t apend_be, k_mer_hi
 int append_utg_inexact_overlap_region_alloc(overlap_region_alloc* list, overlap_region* tmp, 
                                         ma_utg_v *ua, int add_beg_end, void *km);
 
+#define kv_pushp_cl(type, v, p) do {									\
+		if ((v).length == (v).size) {										\
+			(v).size = (v).size? (v).size<<1 : 2;							\
+			(v).list = (type*)realloc((v).list, sizeof(type) * (v).size);	\
+		}															\
+		*(p) = &((v).list[(v).length++]); \
+	} while (0)
+
+#define is_alnw(a) (((a).readID) == ((uint32_t)(0x7fffffff)))
+#define is_pri_aln(a) ((((a).readID) == ((uint32_t)(0x7fffffff)))||((a).cnt >= (a).readID))
+
+uint64_t lchain_dp_trace(k_mer_hit* a, int64_t a_n, int64_t max_lgap, double sgap_rate, int64_t sgap);
+
 #endif

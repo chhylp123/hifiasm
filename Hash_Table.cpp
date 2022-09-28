@@ -1623,3 +1623,81 @@ uint64_t lchain_dp(k_mer_hit* a, int64_t a_n, k_mer_hit* des, Chain_Data* dp, ov
     for (i = 0; i < cL; i++) des[i] = a[t[cL-i-1]];
     return cL;
 }
+
+
+inline int64_t hit_long_gap(k_mer_hit *a, k_mer_hit *b, int64_t max_lgap, double small_bw_rate, int64_t min_small_bw)
+{
+    int64_t dq, dr, dd, dm;
+    dq = b->self_offset-a->self_offset;
+    dr = b->offset-a->offset;
+	dd = dq>=dr? ((dq)-(dr)): ((dr)-(dq));
+    if(max_lgap>=0) {
+        if(dd <= max_lgap) return 1;
+        return 0;
+    } else {
+        dm = dq>=dr?dr:dq;
+        if((dd > (dm*small_bw_rate)) && (dd > min_small_bw)) return 0;
+        return 1;
+    }
+}
+
+int64_t filter_bad_seed_dp(k_mer_hit *sk, k_mer_hit *ek, k_mer_hit* a, int64_t a_n, int64_t max_lgap, double small_bw_rate, int64_t min_small_bw)
+{
+    int64_t k = 0; k_mer_hit *z; double bw_r; int64_t bw, mmgap, occ = 0;
+    bw_r = small_bw_rate; bw = min_small_bw; mmgap = max_lgap;
+    if(sk) {
+        for (k = 0; k < a_n; k++) {
+            z = &(a[k]); 
+            if(z->cnt < z->readID) continue;
+            mmgap = max_lgap;
+            if(z->cnt <= 1) mmgap = -1;
+            if((sk && (!hit_long_gap(sk, z, mmgap, bw_r, bw))) || 
+                                (ek && (!hit_long_gap(z, ek, mmgap, bw_r, bw)))) {
+                z->offset = z->self_offset = (uint32_t)-1; occ++;
+            } else {
+                break;
+            }
+        }
+    }
+
+    if(ek && k < a_n) {
+        for (k = a_n-1; k >= 0; k--) {
+            z = &(a[k]); 
+            if(z->cnt < z->readID) continue;
+            mmgap = max_lgap;
+            if(z->cnt <= 1) mmgap = -1;
+            if((sk && (!hit_long_gap(sk, z, mmgap, bw_r, bw))) || 
+                                (ek && (!hit_long_gap(z, ek, mmgap, bw_r, bw)))) {
+                z->offset = z->self_offset = (uint32_t)-1; occ++;
+            } else {
+                break;
+            }
+        }
+    }
+
+    return occ;    
+}
+
+uint64_t lchain_dp_trace(k_mer_hit* a, int64_t a_n, int64_t max_lgap, double sgap_rate, int64_t sgap)
+{
+    if(a_n <= 0) return 0;
+    int64_t i, st, occ = 0; 
+
+    for (i = 1, st = 0; i <= a_n; ++i) {
+        if((i == a_n) || (is_alnw(a[i]))) {///[st, i)
+            if(i > st) {
+                occ += filter_bad_seed_dp((st>0)?&(a[st-1]):NULL, (i<a_n)?&(a[i]):NULL, a, a_n, max_lgap, sgap_rate, sgap);
+            }
+            st = i+1;
+        }
+    }
+
+    if(occ) {
+        for (i = occ = 0; i < a_n; ++i) {
+            if(a[i].self_offset == ((uint32_t)-1)) continue;
+            a[occ++] = a[i];
+        }
+        a_n = occ;
+    }
+    return a_n;
+}
