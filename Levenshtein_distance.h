@@ -542,8 +542,14 @@ inline uint32_t pop_trace(asg16_v *res, uint32_t i, uint16_t *c, uint32_t *len)
 // #define MAX_L 2500
 
 ///511 -> 32 64-bits
-#define MAX_E 1023
-#define MAX_L 5120
+#define MAX_CNS_E 1023
+#define MAX_CNS_L 3072
+#define FORCE_CNS_L 256
+
+
+#define MAX_SIN_E 2047
+#define MAX_SIN_L 10000
+#define FORCE_SIN_L 512
 
 typedef uint64_t w_sig;
 #define bitw (6)
@@ -1226,7 +1232,7 @@ inline void ed_band_cal_extension_##sf##_0_w(char *pstr, int32_t pn, char *tstr,
         {\
             poff = i-thre; k = i+thre-pe;/**poff:[i-thre, i+thre]**/\
             if(k >= 0) {\
-                if(k == 0) {\
+                if(tmp_e == INT32_MAX) {\
                     tmp_e = err;\
                     for ((k) = 0; (poff) < (pe); (poff)++, (k)++) {\
                         bd = (k>>bitw); k_bd = (k&bitz);\
@@ -1316,7 +1322,7 @@ inline void ed_band_cal_extension_##sf##_1_w(char *pstr, int32_t pn, char *tstr,
         {\
             poff = i-thre; k = i+thre-pe;/**poff:[i-thre, i+thre]**/\
             if(k >= 0) {\
-                if(k == 0) {\
+                if(tmp_e == INT32_MAX) {\
                     tmp_e = err;\
                     for ((k) = 0; (poff) < (pe); (poff)++, (k)++) {\
                         bd = (k>>bitw); k_bd = (k&bitz);\
@@ -1572,7 +1578,7 @@ inline void ed_band_cal_extension_##sf##_0_w_trace(char *pstr, int32_t pn, char 
         if(!done) {\
             poff = i-thre; k = i+thre-pe;/**poff:[i-thre, i+thre]**/\
             if(k >= 0) {\
-                if(k == 0) {\
+                if(tmp_e == INT32_MAX) {\
                     tmp_e = err;\
                     for ((k) = 0; (poff) < (pe); (poff)++, (k)++) {\
                         bd = (k>>bitw); k_bd = (k&bitz);\
@@ -1690,7 +1696,7 @@ inline void ed_band_cal_extension_##sf##_1_w_trace(char *pstr, int32_t pn, char 
         if(!done) {\
             poff = i-thre; k = i+thre-pe;/**poff:[i-thre, i+thre]**/\
             if(k >= 0) {\
-                if(k == 0) {\
+                if(tmp_e == INT32_MAX) {\
                     tmp_e = err;\
                     for ((k) = 0; (poff) < (pe); (poff)++, (k)++) {\
                         bd = (k>>bitw); k_bd = (k&bitz);\
@@ -2157,7 +2163,7 @@ inline void ed_band_cal_extension_infi_0_w(char *pstr, int32_t pn, char *tstr, i
 		{
             poff = i-thre; k = i+thre-pe;/**poff:[i-thre, i+thre]**/
 			if(k >= 0) {
-				if(k == 0) {
+				if(tmp_e == INT32_MAX) {
 					tmp_e = err;
 					for ((k) = 0; (poff) < (pe); (poff)++, (k)++) {
 						bd = (k>>bitw); k_bd = (k&bitz);
@@ -2251,7 +2257,7 @@ inline void ed_band_cal_extension_infi_1_w(char *pstr, int32_t pn, char *tstr, i
 		{
             poff = i-thre; k = i+thre-pe;/**poff:[i-thre, i+thre]**/
 			if(k >= 0) {
-				if(k == 0) {
+				if(tmp_e == INT32_MAX) {
 					tmp_e = err;
 					for ((k) = 0; (poff) < (pe); (poff)++, (k)++) {
 						bd = (k>>bitw); k_bd = (k&bitz);
@@ -2540,7 +2546,7 @@ inline void ed_band_cal_extension_infi_0_w_trace(char *pstr, int32_t pn, char *t
 		if(!done) {//diff
             poff = i-thre; k = i+thre-pe;/**poff:[i-thre, i+thre]**/
 			if(k >= 0) {
-				if(k == 0) {
+				if(tmp_e == INT32_MAX) {
 					tmp_e = err;
 					for ((k) = 0; (poff) < (pe); (poff)++, (k)++) {
 						bd = (k>>bitw); k_bd = (k&bitz);
@@ -2664,7 +2670,7 @@ inline void ed_band_cal_extension_infi_1_w_trace(char *pstr, int32_t pn, char *t
 		if(!done) {//diff
             poff = i-thre; k = i+thre-pe;/**poff:[i-thre, i+thre]**/
 			if(k >= 0) {
-				if(k == 0) {
+				if(tmp_e == INT32_MAX) {
 					tmp_e = err;
 					for ((k) = 0; (poff) < (pe); (poff)++, (k)++) {
 						bd = (k>>bitw); k_bd = (k&bitz);
@@ -3038,7 +3044,7 @@ inline void ed_band_cal_extension_64_0_w(char *pstr, int32_t pn, char *tstr, int
 		{
 			poff = i-thre; k = i+thre-pe;/**poff:[i-thre, i+thre]**/
             if(k >= 0) {
-                if(k == 0) {
+                if(tmp_e == INT32_MAX) {
                     tmp_e = err;
                     for (k = 0; poff < pe; poff++, (k)++) {
                         tmp_e += ((VP>>k)&(1ULL)); tmp_e -= ((VN>>k)&(1ULL));
@@ -3111,7 +3117,7 @@ inline void ed_band_cal_extension_64_1_w(char *pstr, int32_t pn, char *tstr, int
 		{
 			poff = i-thre; k = i+thre-pe;/**poff:[i-thre, i+thre]**/
             if(k >= 0) {
-                if(k == 0) {
+                if(tmp_e == INT32_MAX) {
                     tmp_e = err;
                     for (k = 0; poff < pe; poff++, (k)++) {
                         tmp_e += ((VP>>k)&(1ULL)); tmp_e -= ((VN>>k)&(1ULL));
@@ -3337,7 +3343,7 @@ inline void ed_band_cal_extension_64_0_w_trace(char *pstr, int32_t pn, char *tst
 		if(!done) {//diff
 			poff = i-thre; k = i+thre-pe;/**poff:[i-thre, i+thre]**/
             if(k >= 0) {
-                if(k == 0) {
+                if(tmp_e == INT32_MAX) {
                     tmp_e = err;
                     for (k = 0; poff < pe; poff++, (k)++) {
                         tmp_e += ((VP>>k)&(1ULL)); tmp_e -= ((VN>>k)&(1ULL));
@@ -3351,9 +3357,10 @@ inline void ed_band_cal_extension_64_0_w_trace(char *pstr, int32_t pn, char *tst
                 if(tmp_e <= (*ez).thre && tmp_e < (*ez).err) {
 					(*ez).err = tmp_e; (*ez).pe = pe; (*ez).te = i;
                 }
+				// fprintf(stderr, "i::%d, (*ez).err::%d, (*ez).pe::%d, (*ez).te::%d, thre::%d, err::%d, tmp_e::%d, poff::%d, k::%d, pe::%d\n", 
+				// i, (*ez).err, (*ez).pe, (*ez).te, thre, err, tmp_e, i-thre, i+thre-pe, pe);
             }
         }
-		// fprintf(stderr, "i::%d, tmp_e::%d, err::%d\n", i, tmp_e, err);
 
 		Peq[0] >>= 1; Peq[1] >>= 1; Peq[2] >>= 1; Peq[3] >>= 1;
 		++i; ++i_bd;
@@ -3446,7 +3453,7 @@ inline void ed_band_cal_extension_64_1_w_trace(char *pstr, int32_t pn, char *tst
 		if(!done) {//diff
 			poff = i-thre; k = i+thre-pe;/**poff:[i-thre, i+thre]**/
             if(k >= 0) {
-                if(k == 0) {
+                if(tmp_e == INT32_MAX) {
                     tmp_e = err;
                     for (k = 0; poff < pe; poff++, (k)++) {
                         tmp_e += ((VP>>k)&(1ULL)); tmp_e -= ((VN>>k)&(1ULL));

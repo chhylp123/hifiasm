@@ -20,7 +20,7 @@
 #define ERROR_RATE 1.25
 #define UL_TOPN 50
 #define SGAP 16
-#define MAX_LGAP(ql) ((((ql)*0.33)>2000)?((ql)*0.33):2000)
+#define MAX_LGAP(ql) ((((ql)*0.2)<256)?((ql)*0.2):256)
 
 #define WINDOW_MAX_SIZE (WINDOW + (int)(1.0 / HA_MIN_OV_DIFF) + 3) // TODO: why 1/max_ov_diff?
 
@@ -1136,7 +1136,7 @@ void correct_ul_overlap(overlap_region_alloc* overlap_list, const ul_idx_t *uref
                         double max_ov_diff_ec, long long winLen, void *km);
 void ul_lalign(overlap_region_alloc* ol, Candidates_list *cl, const ul_idx_t *uref, char *qstr, 
                         uint64_t ql, UC_Read* qu, UC_Read* tu, Correct_dumy* dumy, bit_extz_t *exz,
-                        haplotype_evdience_alloc* hap, kvec_t_u64_warp* v_idx,   
+                        bit_extz_t *exz1, haplotype_evdience_alloc* hap, kvec_t_u64_warp* v_idx,   
                         double e_rate, int64_t wl, kv_ul_ov_t *aln, int64_t sid, uint64_t hpc_k, void *km);
 
 void ul_lalign_old_ed(overlap_region_alloc* ol, Candidates_list *cl, const ul_idx_t *uref, char *qstr, 

@@ -6050,7 +6050,7 @@ static void worker_for_ul_rescall_alignment(void *data, long i, int tid) // call
     // if(s->id+i!=41927 && s->id+i!=47072 && s->id+i!=67641 && s->id+i!=90305 && s->id+i!=698342 && s->id+i!=329421) {
 	// 	return;
 	// }
-	if((s->id+i!=1) /**&& (s->id+i!=44) && (s->id+i!=948)**/) return;
+	// if((s->id+i!=291) /**&& (s->id+i!=44) && (s->id+i!=948)**/) return;
 
     // fprintf(stderr, "\n[M::%s] rid::%ld, len::%lu, name::%.*s\n", __func__, s->id+i, s->len[i],
 	// (int32_t)UL_INF.nid.a[s->id+i].n, UL_INF.nid.a[s->id+i].a);
@@ -6073,7 +6073,7 @@ static void worker_for_ul_rescall_alignment(void *data, long i, int tid) // call
 	// memset(&b->self_read, 0, sizeof(b->self_read));
 
 	ul_lalign(&b->olist, &b->clist, s->uu, s->seq[i], s->len[i], &b->self_read, &b->ovlp_read,
-                        &b->correct, &b->exz, &b->hap, &b->r_buf, s->opt->diff_ec_ul, winLen, NULL, s->id+i, s->opt->k, NULL);
+                        &b->correct, &b->exz, &b->exz1, &b->hap, &b->r_buf, s->opt->diff_ec_ul, winLen, NULL, s->id+i, s->opt->k, NULL);
 	// ul_lalign_old_ed(&b->olist, &b->clist, s->uu, s->seq[i], s->len[i], &b->self_read, &b->ovlp_read,
     //                     &b->correct, &b->hap, &b->r_buf, s->opt->diff_ec_ul, winLen, 1, NULL);
 	ton = b->olist.length;//all alignments pass similary check
@@ -6092,7 +6092,7 @@ static void worker_for_ul_rescall_alignment(void *data, long i, int tid) // call
 			copy_asg_arr(b->hap.snp_srt, b0); copy_asg_arr(s->sps[tid], b1); copy_asg_arr(b->r_buf.a, b2); 
 			
 			ul_lalign(&b->olist, &b->clist, s->uu, s->seq[i], s->len[i], &b->self_read, &b->ovlp_read,
-							&b->correct, &b->exz, &b->hap, &b->r_buf, s->opt->diff_ec_ul, winLen, &(bl->lo), s->id+i, s->opt->k, NULL);
+							&b->correct, &b->exz, &b->exz1, &b->hap, &b->r_buf, s->opt->diff_ec_ul, winLen, &(bl->lo), s->id+i, s->opt->k, NULL);
 			// ul_lalign_old_ed(&b->olist, &b->clist, s->uu, s->seq[i], s->len[i], &b->self_read, &b->ovlp_read,
 			//                 &b->correct, &b->hap, &b->r_buf, s->opt->diff_ec_ul, winLen, 0, NULL);
 		}

@@ -17,8 +17,11 @@ typedef struct { // this struct is not strictly necessary; we can use k_mer_pos 
 
 #define an_key1(a) ((a).srt)
 #define an_key2(a) ((a).self_off)
+#define an_key3(a) ((a).other_off)
 KRADIX_SORT_INIT(ha_an1, anchor1_t, an_key1, 8)
 KRADIX_SORT_INIT(ha_an2, anchor1_t, an_key2, 4)
+KRADIX_SORT_INIT(ha_an3, anchor1_t, an_key3, 4)
+
 
 #define oreg_xs_lt(a, b) (((uint64_t)(a).x_pos_s<<32|(a).x_pos_e) < ((uint64_t)(b).x_pos_s<<32|(b).x_pos_e))
 KSORT_INIT(or_xs, overlap_region, oreg_xs_lt)
@@ -872,6 +875,102 @@ void *ha_flt_tab, ha_pt_t *ha_idx, kvec_t_u64_warp* dbg_ct, st_mt_t *sp, uint32_
 	cl->length = ab->n_a;
 }
 
+
+void minimizers_qgen(ha_abufl_t *ab, char* rs, int64_t rl, uint64_t mz_w, uint64_t mz_k, Candidates_list *cl, kvec_t_u8_warp* k_flag, 
+void *ha_flt_tab, ha_pt_t *ha_idx, All_reads* rdb, const ul_idx_t *udb, kvec_t_u64_warp* dbg_ct, st_mt_t *sp, uint32_t *high_occ, 
+uint32_t *low_occ)
+{
+	// fprintf(stderr, "+[M::%s]\n", __func__);
+	uint64_t i, k, l, max_cnt = UINT32_MAX, min_cnt = 0; int n, j; ha_mzl_t *z; seedl_t *s; 
+	if(high_occ) {
+		max_cnt = (*high_occ);
+		if(max_cnt < 2) max_cnt = 2;
+	}
+	if(low_occ) {
+		min_cnt = (*low_occ);
+		if(min_cnt < 2) min_cnt = 2;
+	}
+	clear_Candidates_list(cl); ab->mz.n = 0, ab->n_a = 0;
+	
+	// get the list of anchors
+	mz2_ha_sketch(rs, rl, mz_w, mz_k, 0, !(asm_opt.flag & HA_F_NO_HPC), &ab->mz, ha_flt_tab, asm_opt.mz_sample_dist, k_flag, dbg_ct, NULL, -1, asm_opt.dp_min_len, -1, sp, asm_opt.mz_rewin, 0, NULL);
+
+	// minimizer of queried read
+	if (ab->mz.m > ab->old_mz_m) {
+		ab->old_mz_m = ab->mz.m;
+		REALLOC(ab->seed, ab->old_mz_m);
+	}
+
+	for (i = 0, ab->n_a = 0; i < ab->mz.n; ++i) {
+		ab->seed[i].a = ha_ptl_get(ha_idx, ab->mz.a[i].x, &n);
+		ab->seed[i].n = n;
+		ab->n_a += n;
+	}
+
+	if (ab->n_a > ab->m_a) {
+		ab->m_a = ab->n_a;
+		REALLOC(ab->a, ab->m_a);
+	}
+
+	for (i = 0, k = 0; i < ab->mz.n; ++i) {
+		///z is one of the minimizer
+		z = &ab->mz.a[i]; s = &ab->seed[i];
+		for (j = 0; j < s->n; ++j) {
+			const ha_idxposl_t *y = &s->a[j];
+			anchor1_t *an = &ab->a[k++];
+			uint8_t rev = z->rev == y->rev? 0 : 1;
+			an->other_off = rev?((uint32_t)-1)-1-(y->pos+1-y->span):y->pos;
+			an->self_off = z->pos;
+			///an->cnt: cnt<<8|span
+			an->cnt = s->n; if(an->cnt > ((uint32_t)(0xffffffu))) an->cnt = 0xffffffu;
+			an->cnt <<= 8; an->cnt |= ((z->span <= ((uint32_t)(0xffu)))?z->span:((uint32_t)(0xffu)));
+			an->srt = (uint64_t)y->rid<<33 | (uint64_t)rev<<32 | an->self_off;
+		}
+	}
+
+	// copy over to _cl_
+	if (ab->m_a >= (uint64_t)cl->size) {
+		cl->size = ab->m_a;
+		REALLOC(cl->list, cl->size);
+	}
+
+	k_mer_hit *p; uint64_t tid = (uint64_t)-1, tl = (uint64_t)-1;
+	radix_sort_ha_an1(ab->a, ab->a + ab->n_a);
+	for (k = 1, l = 0; k <= ab->n_a; ++k) {
+		if (k == ab->n_a || ab->a[k].srt != ab->a[l].srt) {
+			if (k-l>1) radix_sort_ha_an3(ab->a+l, ab->a+k);
+			if((ab->a[l].srt>>33)!=tid) {
+				tid = ab->a[l].srt>>33;
+				tl = rdb?Get_READ_LENGTH((*rdb), tid):udb->ug->u.a[tid].len;
+			} 
+			for (i = l; i < k; i++) {
+				p = &cl->list[i];
+				p->readID = ab->a[i].srt>>33;
+				p->strand = (ab->a[i].srt>>32)&1;
+				if(!(p->strand)) {
+					p->offset = ab->a[i].other_off;
+				} else {
+					p->offset = ((uint32_t)-1)-ab->a[i].other_off;
+					p->offset = tl-p->offset;
+				}
+				p->self_offset = ab->a[i].self_off;
+				if(((ab->a[i].cnt>>8) < max_cnt) && ((ab->a[i].cnt>>8) > min_cnt)){
+					p->cnt = 1;
+				} else if((ab->a[i].cnt>>8) <= min_cnt) {
+					p->cnt = 2;
+				} else{
+					p->cnt = 1 + (((ab->a[i].cnt>>8) + (max_cnt<<1) - 1)/(max_cnt<<1));
+					p->cnt = pow(p->cnt, 1.1);
+				}
+				if(p->cnt > ((uint32_t)(0xffffffu))) p->cnt = 0xffffffu;
+				p->cnt <<= 8; p->cnt |= (((uint32_t)(0xffu))&(ab->a[i].cnt));
+			}
+			l = k;
+		}
+	}
+	cl->length = ab->n_a;
+}
+
 void inline reverse_k_mer_hit(k_mer_hit *a, uint64_t a_n, uint64_t xl, uint64_t yl)
 {
 	uint64_t z, han = a_n>>1; k_mer_hit *ai, *aj, ka;
@@ -1009,6 +1108,81 @@ void lchain_gen(Candidates_list* cl, overlap_region_alloc* ol, uint32_t rid, uin
 	ks_introsort_or_xs(ol->length, ol->list);
 }
 
+void lchain_qgen(Candidates_list* cl, overlap_region_alloc* ol, uint32_t rid, uint64_t rl, All_reads* rdb, 
+				const ul_idx_t *udb, uint32_t apend_be, overlap_region* tf, uint64_t max_n_chain,
+				int64_t max_skip, int64_t max_iter, int64_t max_dis, double chn_pen_gap, double chn_pen_skip, double bw_rate, int64_t quick_check, uint32_t gen_off)
+{
+	// fprintf(stderr, "+[M::%s]\n", __func__);
+	uint64_t i, k, l, m, sm, cn = cl->length; overlap_region *r; ///srt = 0
+	clear_overlap_region_alloc(ol);
+	clear_fake_cigar(&(tf->f_cigar));
+
+	for (l = 0, k = 1, m = 0; k <= cn; k++) {
+		if((k == cn) || (cl->list[k].readID != cl->list[l].readID) 
+													|| (cl->list[k].strand != cl->list[l].strand)) {
+			if(cl->list[l].readID != rid) {
+				tf->x_id = rid; 
+				tf->x_pos_strand = cl->list[l].strand;
+				tf->y_id = cl->list[l].readID; 
+				tf->y_pos_strand = 0;///always 0
+				// fprintf(stderr, "+[M::%s] l::%lu, k::%lu\n", __func__, l, k);
+				sm = lchain_qdp(cl->list+l, k-l, cl->list+m, &(cl->chainDP), tf, max_skip, max_iter, max_dis, chn_pen_gap, chn_pen_skip, bw_rate, 
+              	rl, rdb?Get_READ_LENGTH((*rdb), (*tf).y_id):udb->ug->u.a[(*tf).y_id].len, quick_check);
+				// assert(sm > 0);
+				if(ovlp_chain_qgen(ol, tf, rl, rdb?Get_READ_LENGTH((*rdb), (*tf).y_id):udb->ug->u.a[(*tf).y_id].len, apend_be, cl->list+m, sm)) {
+					r = &(ol->list[ol->length-1]); r->non_homopolymer_errors = m; 
+					// if(tf->y_id == 66 || tf->y_id == 66) {
+					// 	fprintf(stderr, "\n[M::%s::] utg%.6dl(%c), i::%lu\n", 
+        			// 			__func__, (int32_t)tf->y_id+1, "+-"[tf->x_pos_strand], m);
+					// }
+					// reset_k_mer_hit(cl->list+m, sm, rl, rdb?Get_READ_LENGTH((*rdb), r->y_id):udb->ug->u.a[r->y_id].len, r->y_pos_strand, &(ol->length));
+					for (i = 0; i < sm; i++) {
+						cl->list[m+i].readID = ol->length;
+						// if(tf->y_id == 126) fprintf(stderr, "[M::%s::qoff->%u::toff->%u]\n", __func__, cl->list[m+i].self_offset, cl->list[m+i].offset);
+					}
+					if(gen_off) gen_fake_cigar(&(r->f_cigar), r, apend_be, cl->list+m, sm);
+					m += sm;
+				}
+			}
+			l = k;
+		}
+	}
+	cl->length = m;
+
+
+	k = ol->length;
+	if (ol->length > max_n_chain) {
+		int32_t w, n[4], s[4]; overlap_region t;
+		n[0] = n[1] = n[2] = n[3] = 0, s[0] = s[1] = s[2] = s[3] = 0;
+		ks_introsort_or_ss(ol->length, ol->list); ///srt = 1;
+		for (i = 0; i < ol->length; ++i) {
+			r = &(ol->list[i]);
+			w = ha_ov_type(r, rl);
+			++n[w];
+			if (((uint64_t)n[w]) == max_n_chain) s[w] = r->shared_seed;
+		}
+		if (s[0] > 0 || s[1] > 0 || s[2] > 0 || s[3] > 0) {
+			// n[0] = n[1] = n[2] = n[3] = 0;
+			for (i = 0, k = 0; i < ol->length; ++i) {
+				r = &(ol->list[i]);
+				w = ha_ov_type(r, rl);
+				// ++n[w];
+				// if (((int)n[w] <= max_n_chain) || (r->shared_seed >= s[w] && s[w] >= (asm_opt.k_mer_length<<1))) {
+				if (r->shared_seed >= s[w]) {
+					if (k != i) {
+						t = ol->list[k];
+						ol->list[k] = ol->list[i];
+						ol->list[i] = t;
+					}
+					++k;
+				}
+			}
+			ol->length = k;
+		}
+	}
+	ks_introsort_or_xs(ol->length, ol->list);
+}
+
 void set_lchain_dp_op(uint32_t is_accurate, uint32_t mz_k, int64_t *max_skip, int64_t *max_iter, int64_t *max_dis, double *chn_pen_gap, double *chn_pen_skip, int64_t *quick_check)
 {
 	double div, pen_gap, pen_skip, tmp;
@@ -1031,7 +1205,9 @@ void ul_map_lchain(ha_abufl_t *ab, uint32_t rid, char* rs, uint64_t rl, uint64_t
 	extern ha_pt_t *ha_idx;
 	int64_t max_skip, max_iter, max_dis, quick_check; double chn_pen_gap, chn_pen_skip;
 	set_lchain_dp_op(is_accurate, mz_k, &max_skip, &max_iter, &max_dis, &chn_pen_gap, &chn_pen_skip, &quick_check);
-	minimizers_gen(ab, rs, rl, mz_w, mz_k, cl, k_flag, ha_flt_tab, ha_idx, dbg_ct, sp, high_occ, low_occ);
-	lchain_gen(cl, overlap_list, rid, rl, NULL, uref, apend_be, f_cigar, max_n_chain, max_skip, max_iter, max_dis, chn_pen_gap, chn_pen_skip, bw_thres, quick_check, gen_off);
+	// minimizers_gen(ab, rs, rl, mz_w, mz_k, cl, k_flag, ha_flt_tab, ha_idx, dbg_ct, sp, high_occ, low_occ);
+	minimizers_qgen(ab, rs, rl, mz_w, mz_k, cl, k_flag, ha_flt_tab, ha_idx, NULL, uref, dbg_ct, sp, high_occ, low_occ);
+	// lchain_gen(cl, overlap_list, rid, rl, NULL, uref, apend_be, f_cigar, max_n_chain, max_skip, max_iter, max_dis, chn_pen_gap, chn_pen_skip, bw_thres, quick_check, gen_off);
+	lchain_qgen(cl, overlap_list, rid, rl, NULL, uref, apend_be, f_cigar, max_n_chain, max_skip, max_iter, max_dis, chn_pen_gap, chn_pen_skip, bw_thres, quick_check, gen_off);
 	///no need to sort here, overlap_list has been sorted at lchain_gen
 }

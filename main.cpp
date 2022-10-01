@@ -12,16 +12,18 @@ int main(int argc, char *argv[])
 	yak_reset_realtime();
     init_opt(&asm_opt);
     if (!CommandLine_process(argc, argv, &asm_opt)) return 0;
-	/**
-	bit_extz_t exz, exz64; init_bit_extz_t(&exz, 2); init_bit_extz_t(&exz64, 2);
 	
-	char *pstr = "AAATATT", *tsrt = "AATATTTT"; int32_t thre = 1;
-	ed_band_cal_semi_64_w_absent_diag((char*)pstr, strlen(pstr), (char*)tsrt, strlen(tsrt), thre, 0, &exz);
-	fprintf(stderr, "\n[M::%s::] exz.err::%d, exz.ps::%d, exz.pe::%d, exz.ts::%d, exz.te::%d\n", __func__, 
-            exz.err, exz.ps, exz.pe, exz.ts, exz.te);
-	ed_band_cal_extension_64_0_w((char*)pstr, strlen(pstr), (char*)tsrt, strlen(tsrt), thre, &exz);
-	fprintf(stderr, "\n[M::%s::] exz.err::%d, exz.ps::%d, exz.pe::%d, exz.ts::%d, exz.te::%d\n", __func__, 
-            exz.err, exz.ps, exz.pe, exz.ts, exz.te);
+	// bit_extz_t exz, exz64; init_bit_extz_t(&exz, 2); init_bit_extz_t(&exz64, 2);
+	
+	// char *pstr = "GACCCAG", *tsrt = "GTTGTTAATTCCAT"; int32_t thre = 14; clear_align(exz); clear_align(exz64);
+	// ed_band_cal_extension_64_0_w_trace((char*)pstr, strlen(pstr), (char*)tsrt, strlen(tsrt), thre, &exz);
+	// // // ed_band_cal_semi_64_w_absent_diag((char*)pstr, strlen(pstr), (char*)tsrt, strlen(tsrt), thre, 0, &exz);
+	// fprintf(stderr, "\n[M::%s::] exz.err::%d, exz.ps::%d, exz.pe::%d, exz.ts::%d, exz.te::%d\n", __func__, 
+    //         exz.err, exz.ps, exz.pe, exz.ts, exz.te);
+	// cigar_check((char*)pstr, (char*)tsrt, &(exz));
+	// ed_band_cal_extension_64_0_w((char*)pstr, strlen(pstr), (char*)tsrt, strlen(tsrt), thre, &exz);
+	// fprintf(stderr, "\n[M::%s::] exz.err::%d, exz.ps::%d, exz.pe::%d, exz.ts::%d, exz.te::%d\n", __func__, 
+    //         exz.err, exz.ps, exz.pe, exz.ts, exz.te);
 	// ed_band_cal_semi_infi_w((char*)pstr, strlen(pstr), (char*)tsrt, strlen(tsrt), thre, NULL, &exz);
 	// ed_band_cal_semi_64_w((char*)pstr, strlen(pstr), (char*)tsrt, strlen(tsrt), thre, &exz64);
 	// fprintf(stderr, "\n[M::%s::] exz.err::%d, exz64.err::%d, exz.ps::%d, exz64.ps::%d, exz.pe::%d, exz64.pe::%d, exz.ts::%d, exz64.ts::%d, exz.te::%d, exz64.te::%d\n", __func__, 
@@ -47,8 +49,7 @@ int main(int argc, char *argv[])
 	// ed_band_cal_extension_128bit((char *)"AAGTTTA", 7, (char *)"CCTTTTTT", 8, 4, &exz);
 	// ed_band_cal_extension_128bit((char *)"AA", 2, (char *)"ACTTTTTT", 8, 1, &exz);
 	// fprintf(stderr, "ed_extension::%d, pe::%d, te::%d\n", exz.err, exz.pe, exz.te);
-	exit(1);
-	**/
+	// exit(1);
 	
 	
 

@@ -208,5 +208,10 @@ int append_utg_inexact_overlap_region_alloc(overlap_region_alloc* list, overlap_
 #define is_pri_aln(a) ((((a).readID) == ((uint32_t)(0x7fffffff)))||((a).cnt >= (a).readID))
 
 uint64_t lchain_dp_trace(k_mer_hit* a, int64_t a_n, int64_t max_lgap, double sgap_rate, int64_t sgap);
-
+uint64_t lchain_qdp(k_mer_hit* a, int64_t a_n, k_mer_hit* des, Chain_Data* dp, overlap_region* res, 
+              int64_t max_skip, int64_t max_iter, int64_t max_dis, double chn_pen_gap, double chn_pen_skip, double bw_rate, 
+              int64_t xl, int64_t yl, int64_t quick_check);
+int ovlp_chain_qgen(overlap_region_alloc* ol, overlap_region* t, int64_t xl, int64_t yl, int64_t apend_be, k_mer_hit* hit, int64_t n_hit);
+uint64_t lchain_refine(k_mer_hit* a, int64_t a_n, k_mer_hit* des, Chain_Data* dp, 
+                                    int64_t max_skip, int64_t max_iter, int64_t max_dis, int64_t long_gap);
 #endif

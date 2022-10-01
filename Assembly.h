@@ -40,7 +40,7 @@ typedef struct {
     overlap_region tmp_region;
     ma_utg_v *ua;
     st_mt_t sp;
-	bit_extz_t exz;
+	bit_extz_t exz, exz1;
 } ha_ovec_buf_t;
 
 int ha_assemble(void);
