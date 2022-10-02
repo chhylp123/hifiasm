@@ -6040,7 +6040,6 @@ overlap_region *gen_aux_ovlp(overlap_region_alloc* ol)
         /// need to set new space to be 0
         memset(ol->list + sl, 0, sizeof(overlap_region)*(ol->size - sl));
 	}
-	memset((&(ol->list[ol->length+1])), 0, sizeof(overlap_region));
 	return &(ol->list[ol->length+1]);
 }
 
@@ -6063,7 +6062,7 @@ static void worker_for_ul_rescall_alignment(void *data, long i, int tid) // call
     // if(s->id+i!=41927 && s->id+i!=47072 && s->id+i!=67641 && s->id+i!=90305 && s->id+i!=698342 && s->id+i!=329421) {
 	// 	return;
 	// }
-	// if((s->id+i!=6) /**&& (s->id+i!=44) && (s->id+i!=948)**/) return;
+	// if((s->id+i!=25) /**&& (s->id+i!=44) && (s->id+i!=948)**/) return;
 
     // fprintf(stderr, "\n[M::%s] rid::%ld, len::%lu, name::%.*s\n", __func__, s->id+i, s->len[i],
 	// (int32_t)UL_INF.nid.a[s->id+i].n, UL_INF.nid.a[s->id+i].a);
