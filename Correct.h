@@ -1331,6 +1331,9 @@ All_reads *rref, UC_Read* tu, asg64_v* idx, asg64_v *b0, asg64_v *b1, int64_t ql
 kv_ul_ov_t *aln, uint64_t rid, int64_t max_lgap, double sgap_rate);
 
 #define copy_asg_arr(des, src) ((des).a = (src).a, (des).n = (src).n, (des).m = (src).m)
+#define is_ualn_win(a) (((a).error==INT16_MAX)&&((a).clen==0)&&((a).extra_end<0))
+#define is_exact_aln(a) (((a).error<INT16_MAX)&&((a).clen>0))
+#define is_est_aln(a) (((a).error<INT16_MAX)&&((a).clen==0))
 
 #define FORWARD_KSW 0
 #define BACKWARD_KSW 1

@@ -35,8 +35,14 @@ KRADIX_SORT_INIT(window_list_xs_srt, window_list, window_list_xs_key, member_siz
 #define uov_qs_key(p) ((p).qs)
 KRADIX_SORT_INIT(uov_srt_qs, ul_ov_t, uov_qs_key, member_size(ul_ov_t, qs))
 
-int ha_ov_type(const overlap_region *r, uint32_t len);
+#define k_mer_hit_self_key(p) ((p).self_offset)
+KRADIX_SORT_INIT(k_mer_hit_self, k_mer_hit, k_mer_hit_self_key, member_size(k_mer_hit, self_offset))
 
+#define k_mer_hit_off_key(p) ((p).offset)
+KRADIX_SORT_INIT(k_mer_hit_off, k_mer_hit, k_mer_hit_off_key, member_size(k_mer_hit, offset))
+
+int ha_ov_type(const overlap_region *r, uint32_t len);
+void set_lchain_dp_op(uint32_t is_accurate, uint32_t mz_k, int64_t *max_skip, int64_t *max_iter, int64_t *max_dis, double *chn_pen_gap, double *chn_pen_skip, int64_t *quick_check);
 
 void clear_Round2_alignment(Round2_alignment* h)
 {
@@ -13797,17 +13803,18 @@ void append_wcigar(window_list *idx, window_list_alloc *res, bit_extz_t *exz)
 
 void push_alnw(overlap_region *aux_o, bit_extz_t *exz)
 {
-    window_list *p = NULL;
+    window_list *p = NULL; int64_t t;
     if(aux_o->w_list.n > 0) {
         p = &(aux_o->w_list.a[aux_o->w_list.n-1]);
         // fprintf(stderr, "+[M::%s::wn->%d] px::[%d, %d], py::[%d, %d], pe::%d, exz->t::[%u, %u], exz->p::[%u, %u], exz->e::%d, clen::%u\n", 
         //     __func__, (int32_t)(aux_o->w_list.n), p->x_start, p->x_end, p->y_start, p->y_end, p->error, 
         //     exz->ts, exz->te, exz->ps, exz->pe, exz->err, p->clen);
-        assert((p->x_end<exz->ts)&&(p->y_end<exz->ps));
+        // assert((p->x_end<exz->ts)&&(p->y_end<exz->ps));
         
         if(p->clen > 0) {
-            if(((p->x_end+1) == exz->ts) && ((p->y_end+1) == exz->ps) 
-                                                    && ((p->error+exz->err) <= INT16_MAX)) {
+            t = ((int64_t)p->error) + ((int64_t)exz->err);
+            ///note: t cannot be equal to INT16_MAX; otherwise it is unable to distiguish unaligned regions
+            if(((p->x_end+1) == exz->ts) && ((p->y_end+1) == exz->ps) && (t < INT16_MAX)) {
                 p->x_end = exz->te; p->y_end = exz->pe; p->error += exz->err;
                 append_wcigar(p, &(aux_o->w_list), exz);
             //     fprintf(stderr, "-[M::%s::wn->%d] px::[%d, %d], py::[%d, %d], pe::%d, exz->t::[%u, %u], exz->p::[%u, %u], exz->e::%d, clen::%u\n", 
@@ -13822,7 +13829,7 @@ void push_alnw(overlap_region *aux_o, bit_extz_t *exz)
     kv_pushp(window_list, aux_o->w_list, &p);
     p->x_start = exz->ts; p->x_end = exz->te;
     p->y_start = exz->ps; p->y_end = exz->pe;
-    p->error_threshold = 0; p->error = exz->err;
+    p->error_threshold = 0; p->error = exz->err;///single round of alignment cannot have INT16_MAX errors
     push_wcigar(p, &(aux_o->w_list), exz);
 }
 
@@ -13954,7 +13961,7 @@ int64_t estimate_err, overlap_region *aux_o)
         }
 
         if(ql <= force_l) {
-            thre = maxe;
+            thre = maxe; 
             if(cal_exz_infi_adv(z, uref, hpc_g, rref, exz, qstr, tu, qs, qe, ts, te, &pts, &pte, thre, &pthre, q_tot, mode)) {
                 // ref_cigar_check(qstr, tu, uref, hpc_g, rref, z->y_id, z->y_pos_strand, exz);
                 // fprintf(stderr, ", err::%d, thre::%d, scale::%ld(*)\n", exz->err, exz->thre, thre);
@@ -14259,7 +14266,7 @@ int64_t fusion_chain_ovlp(overlap_region *z, k_mer_hit *ch_a, int64_t ch_n, ul_o
 
 // }
 
-int64_t ovlp_base_aln_all(overlap_region *z, Chain_Data *dp, k_mer_hit *ch_a, int64_t ch_n, 
+int64_t ovlp_base_aln_all(overlap_region *z, k_mer_hit *ch_a, int64_t ch_n, 
 int64_t soff, int64_t eoff, const ul_idx_t *uref, hpc_t *hpc_g, All_reads *rref, 
 char* qstr, UC_Read *tu, ul_ov_t *ov, int64_t ql, int64_t tl, int64_t wl, bit_extz_t *exz, 
 overlap_region *aux_o, double e_rate)
@@ -14306,7 +14313,7 @@ overlap_region *aux_o, double e_rate)
     return 0;
 }
 
-void ovlp_base_aln(overlap_region *z, Chain_Data *dp, k_mer_hit *ch_a, int64_t ch_n, 
+void ovlp_base_aln(overlap_region *z, k_mer_hit *ch_a, int64_t ch_n, 
 ul_ov_t *ov, int64_t wl, const ul_idx_t *uref, hpc_t *hpc_g, All_reads *rref, char* qstr, UC_Read *tu, 
 bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t ql, int64_t tl, uint64_t rid)
 {
@@ -14341,8 +14348,7 @@ bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t ql, int64_t tl, u
             } else {
                 mode = 3;///no primary hit within [ibeg, iend] 
             }
-            // fprintf(stderr, "000000[M::%s::] utg%.6dl(%c), q::[%ld, %ld), t::[%ld, %ld), mode::%ld, l::%ld, i::%ld, ch_n::%ld\n", 
-            //             __func__, (int32_t)z->y_id+1, "+-"[z->y_pos_strand], q[0], q[1], t[0], t[1], mode, l, i, ch_n);
+            
             if((mode == 0) && is_alnw(ch_a[l]) && is_alnw(ch_a[i]) 
                                             && (ch_a[l].strand == 0) && (ch_a[i].strand == 1)) {
                 is_done = 1;
@@ -14356,26 +14362,383 @@ bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t ql, int64_t tl, u
                 //         __func__, (int32_t)z->y_id+1, "+-"[z->y_pos_strand], q[0], q[1], t[0], t[1], mode);
                 is_done = hc_aln_exz_adv(z, uref, hpc_g, rref, qstr, tu, q[0], q[1], t[0], t[1], mode, wl, exz, ql, e_rate, MAX_CNS_L, MAX_CNS_E, FORCE_CNS_L, -1, aux_o);
             }
-
+            
             if(!is_done) {///postprocess
                 // fprintf(stderr, ">[M::%s::] utg%.6dl(%c), q::[%ld, %ld), t::[%ld, %ld), mode::%ld\n", 
                 //         __func__, (int32_t)z->y_id+1, "+-"[z->y_pos_strand], q[0], q[1], t[0], t[1], mode);
-                is_done = ovlp_base_aln_all(z, dp, ch_a, ch_n, l, i, uref, hpc_g, rref, qstr, tu, ov, ql, tl, wl, exz, aux_o, e_rate);
+                is_done = ovlp_base_aln_all(z, ch_a, ch_n, l, i, uref, hpc_g, rref, qstr, tu, ov, ql, tl, wl, exz, aux_o, e_rate);
             }
+            // if(rid == (uint64_t)-1) {
+            //     fprintf(stderr, "-is_done::%ld[M::%s::] utg%.6dl(%c), q::[%ld, %ld), t::[%ld, %ld), mode::%ld, l::%ld, i::%ld, ch_n::%ld\n", 
+            //             is_done, __func__, (int32_t)z->y_id+1, "+-"[z->y_pos_strand], q[0], q[1], t[0], t[1], mode, l, i, ch_n);
+            // }
+            // if(rid == (uint64_t)-1) {
+            //     fprintf(stderr, "+is_done::%ld[M::%s::] utg%.6dl(%c), q::[%ld, %ld), t::[%ld, %ld), mode::%ld, l::%ld, i::%ld, ch_n::%ld\n", 
+            //             is_done, __func__, (int32_t)z->y_id+1, "+-"[z->y_pos_strand], q[0], q[1], t[0], t[1], mode, l, i, ch_n);
+            // }
             l = i;
         }
     }
 
 }
 
+inline void push_khit(Candidates_list *res, int32_t xs, int32_t ys, uint32_t len, uint32_t h_khit, uint32_t *ic)
+{
+    uint32_t p, c; k_mer_hit *z;
+    c = ((len >= h_khit)?1:2); if(ic) c = *ic; c <<= 8;
+    if(len > 0) {
+        while (len >= (0xffu)) {
+            p = (c + (0xffu)); 
+            kv_pushp_cl(k_mer_hit, (*res), &z); 
+            memset(z, 0, sizeof((*z)));
+            z->self_offset = xs; z->offset = ys; z->cnt = p;
+            len -= (0xffu);
+        }
+        if(len) {
+            p = (c + len); 
+            kv_pushp_cl(k_mer_hit, (*res), &z); 
+            memset(z, 0, sizeof((*z)));
+            z->self_offset = xs; z->offset = ys; z->cnt = p;
+        }
+    } else {
+        p = (c + len); 
+        kv_pushp_cl(k_mer_hit, (*res), &z); 
+        memset(z, 0, sizeof((*z)));
+        z->self_offset = xs; z->offset = ys; z->cnt = p;
+    }
+}
+
+uint32_t extract_exact_cigar(asg16_v *ez, int32_t ps, int32_t ts, int32_t pmin, int32_t pmax, 
+int32_t tmin, int32_t tmax, Candidates_list *res, int32_t minl, int64_t min_w_l, int64_t h_khit)
+{
+    uint32_t ci = 0, cl, occ = 0; uint16_t c; 
+    int32_t pi = ps, ti = ts, p[2], t[2], poff, toff, maxl;
+    int32_t pos, poe, tos, toe, l; poff = toff = maxl = -1;
+    while (ci < ez->n && pi < pmax && ti < tmax) {
+        ci = pop_trace(ez, ci, &c, &cl);
+        if(c == 0) {
+            p[0] = pi; p[1] = pi + cl;
+            t[0] = ti; t[1] = ti + cl;
+            pos = MAX(p[0], pmin); poe = MIN(p[1], pmax);
+            tos = MAX(t[0], tmin); toe = MIN(t[1], tmax);
+            if((poe > pos) && (toe > tos)) {
+                l = poe - pos;
+                if(l == (toe - tos)) {
+                    poe--; toe--;
+                    if(l > maxl) {
+                        poff = poe; toff = toe; maxl = l;
+                    }
+                    if(l >= minl) {
+                        push_khit(res, toe, poe, l, h_khit, NULL); occ++;
+                    }
+                }
+            }
+            pi+=cl; ti+=cl;
+        } else if(c == 1) {
+            pi+=cl; ti+=cl;
+        } else if(c == 2) {///more p
+            pi+=cl;
+        } else if(c == 3) {
+            ti+=cl;
+        }
+    }
+    ///(ts >= tmin) && (ti >= (min_w_l + ts)): here is a whole window
+    if(maxl > 0 && maxl < minl && (ts >= tmin) && (ti >= (min_w_l + ts))) {
+        uint32_t w = 3;
+        push_khit(res, toff, poff, maxl, h_khit, &w); occ++;
+    }
+    return occ;
+}
+
+int64_t debug_k_mer_hit_retrive(k_mer_hit *z, hpc_t *hpc_g, All_reads *rref, const ul_idx_t *uref, 
+char* qstr, UC_Read *tu, int64_t id, int64_t rev)
+{
+    int64_t qs, qe, ts, te; char *q_string, *t_string;
+    qe = z->self_offset+1; qs = qe - (z->cnt&(0xffu));
+    te = z->offset+1; ts = te - (z->cnt&(0xffu));
+    if(qe == qs) return 1;
+    q_string = qstr + qs; 
+    t_string = retrieve_str_seq_exz(tu, ts, te-ts, -1, -1, rev, uref, hpc_g, rref, id);
+    fprintf(stderr, "[M::%s::] q_string::%.*s\n", __func__, (int32_t)(qe-qs), q_string);
+    fprintf(stderr, "[M::%s::] t_string::%.*s\n", __func__, (int32_t)(te-ts), t_string);
+    if(memcmp(q_string, t_string, qe-qs)) {
+        fprintf(stderr, "[M::%s::] qsite::%u, tsite::%u\n", __func__, z->self_offset, z->offset);
+        return 0;
+    }
+    return 1;
+}
+
+int64_t gen_single_khit(Candidates_list *cl, int64_t ch_n, int64_t h_khit, int64_t mode, int64_t qs, int64_t qe, int64_t ts, int64_t te, int64_t max_skip, int64_t max_iter)
+{
+    // if(ch_n != 3 || mode != 0 || qs != 171728 || qe != 172258) return 0;
+    k_mer_hit *ch_a = cl->list + cl->length; int64_t k, i, j, occ, m, ncn, prefix, suffix, srt = 1;
+    prefix = suffix = 0;
+    if(mode == 0 || mode == 2) suffix = 1;
+    if(mode == 0 || mode == 1) prefix = 1;
+    // fprintf(stderr, "\n[M::%s::mode->%ld] ch_n::%ld, q::[%ld, %ld), t::[%ld, %ld)\n", 
+    //         __func__, mode, ch_n, qs, qe, ts, te);
+    for (k = occ = 0; k < ch_n; k++) {
+        // fprintf(stderr, "+i::%ld[M::%s::] x::[%u, %u), y::[%u, %u)\n", k, __func__, 
+        //     ch_a[k].self_offset+1-(ch_a[k].cnt&((uint32_t)(0xffu))), ch_a[k].self_offset+1,
+        //     ch_a[k].offset+1-(ch_a[k].cnt&((uint32_t)(0xffu))), ch_a[k].offset+1);
+        if(!(ch_a[k].cnt&(0xffu))) continue;
+        occ++;
+        if((ch_a[k].cnt&(0xffu)) > 1) occ++;
+    }
+    occ += prefix + suffix;
+
+    ncn = occ + cl->length;
+    if(cl->size < ncn) {
+        cl->size = ncn;
+        cl->list = (k_mer_hit*)realloc(cl->list, (sizeof((*(cl->list)))*cl->length));
+    }
+    ch_a = cl->list + cl->length; assert((cl->length+occ)<= cl->size);
+
+    k_mer_hit cht;
+    ///global or backward
+    if(suffix) {
+        cht.self_offset = qe;
+        cht.offset = te;
+        cht.cnt = 1; cht.readID = 1;//make it as primary chain
+        cht.strand = 0;
+        ch_a[--occ] = cht;
+        // fprintf(stderr, "occ::%ld[M::%s::] x::%u, y::%u, cnt::%u, cov::%u\n", occ, __func__, 
+        //     cht.self_offset, cht.offset, cht.cnt, cht.readID);
+    }
+    for (k = ch_n-1; k >= 0; k--) {
+        if(!(ch_a[k].cnt&(0xffu))) continue;
+        ///end
+        cht.self_offset = ch_a[k].self_offset+1;
+        cht.offset = ch_a[k].offset+1;
+        cht.strand = 0;
+        cht.cnt = cht.readID = (ch_a[k].cnt&(0xffu));
+        //make it as non-primary chain
+        if((ch_a[k].cnt&(0xffu)) < h_khit) cht.readID = cht.cnt + 1;
+        ch_a[--occ] = cht;
+        // fprintf(stderr, "occ::%ld[M::%s::] x::%u, y::%u, cnt::%u, cov::%u\n", occ, __func__, 
+        //     cht.self_offset, cht.offset, cht.cnt, cht.readID);
+
+        if((ch_a[k].cnt&(0xffu)) > 1) {
+            ///start
+            cht.self_offset = ch_a[k].self_offset+1-(ch_a[k].cnt&(0xffu));
+            cht.offset = ch_a[k].offset+1-(ch_a[k].cnt&(0xffu));
+            cht.strand = 0;
+            cht.cnt = cht.readID = (ch_a[k].cnt&(0xffu));
+            //make it as non-primary chain
+            if((ch_a[k].cnt&(0xffu)) < h_khit) cht.readID = cht.cnt + 1;
+            ch_a[--occ] = cht;
+            // fprintf(stderr, "occ::%ld[M::%s::] x::%u, y::%u, cnt::%u, cov::%u\n", occ, __func__, 
+            // cht.self_offset, cht.offset, cht.cnt, cht.readID);
+        }
+    }
+    
+    if(prefix) { ///global or forward
+        cht.self_offset = qs;
+        cht.offset = ts;
+        cht.cnt = 1; cht.readID = 1;//make it as primary chain
+        cht.strand = 0;
+        ch_a[--occ] = cht;
+        // fprintf(stderr, "occ::%ld[M::%s::] x::%u, y::%u, cnt::%u, cov::%u\n", occ, __func__, 
+        //     cht.self_offset, cht.offset, cht.cnt, cht.readID);
+    }
+    assert(occ == 0);
+    ch_n = occ = ncn - cl->length;
+    uint64_t q[2], t[2]; 
+    q[0] = q[1] = t[0] = t[1] = (uint64_t)-1;
+    if(prefix) {
+        q[0] = qs; t[0] = ts;
+    }
+    if(suffix) {
+        q[1] = qe; t[1] = te;
+    }
+
+    // for (k = 0; k < ch_n; k++) {
+    //     fprintf(stderr, "<i::%ld[M::%s::] x::%u, y::%u, cnt::%u, cov::%u\n", k, __func__, 
+    //         ch_a[k].self_offset, ch_a[k].offset, ch_a[k].cnt, ch_a[k].readID);
+    // }
+    for (k = m = occ = 0; k < ch_n; k++) {
+        if((k>0) && (ch_a[k].self_offset==q[0]) && (ch_a[k].offset=t[0])) continue;
+        if(((k+1)<ch_n) && (ch_a[k].self_offset==q[1]) && (ch_a[k].offset=t[1])) continue;
+        if(m>0) {
+            if((ch_a[k].self_offset>ch_a[m-1].self_offset) && (ch_a[k].offset>ch_a[m-1].offset)) {
+                occ++;
+            }
+            if(ch_a[k].self_offset<=ch_a[m-1].self_offset) srt = 0;
+        } else {
+            occ++;
+        }
+        ch_a[m++] = ch_a[k];
+    }
+    ch_n = m;
+    if(occ == ch_n) return ch_n;///already colinear
+    if(!srt) {
+        radix_sort_k_mer_hit_self(ch_a, ch_a + ch_n);
+        for (i = 1, j = 0; i <= ch_n; i++) {
+            if (i == ch_n || ch_a[i].self_offset != ch_a[j].self_offset) {
+                if(i - j > 1) radix_sort_k_mer_hit_off(ch_a+j, ch_a+i);
+                j = i;
+            }
+        }
+    }
+
+    // for (k = 0; k < ch_n; k++) {
+    //     fprintf(stderr, ">i::%ld[M::%s::] x::%u, y::%u, cnt::%u, cov::%u\n", k, __func__, 
+    //         ch_a[k].self_offset, ch_a[k].offset, ch_a[k].cnt, ch_a[k].readID);
+    // }
+    occ = ch_n;
+    ch_n = lchain_simple(ch_a+prefix, ch_n-prefix-suffix, ch_a+prefix, &(cl->chainDP), max_skip, max_iter);
+    ch_n += prefix + suffix; if(suffix) ch_a[ch_n-1] = ch_a[occ-1];
+    // for (k = 0; k < ch_n; k++) {
+    //     fprintf(stderr, "-i::%ld[M::%s::] x::%u, y::%u, cnt::%u, cov::%u\n", k, __func__, 
+    //         ch_a[k].self_offset, ch_a[k].offset, ch_a[k].cnt, ch_a[k].readID);
+    // }
+    
+    return ch_n;
+}
+
+///[qs, qe) && [ts, te)
+int64_t gen_win_chain(overlap_region *z, Candidates_list *cl, int64_t qs, int64_t qe, int64_t ts, int64_t te, 
+int64_t wl, const ul_idx_t *uref, hpc_t *hpc_g, All_reads *rref, char* qstr, UC_Read *tu, bit_extz_t *exz, 
+int64_t ql, int64_t tl, double e_rate, int64_t h_khit, int64_t mode)
+{
+    assert(mode < 3);
+    int64_t k, ws, wsk, we, wek, rcn = cl->length, ncn, occ = 0; asg16_v ez; uint32_t w = 1;
+    ws = qs; if(ws < z->x_pos_s) ws = z->x_pos_s; 
+    we = qe-1; if(we > z->x_pos_e) we = z->x_pos_e; 
+    wsk = get_win_id_by_s(z, ((ws/wl)*wl), wl, NULL); 
+    assert((ws>=z->w_list.a[wsk].x_start) && (ws<=z->w_list.a[wsk].x_end));
+    wek = get_win_id_by_e(z, ((we/wl)*wl), wl, NULL);
+    assert((we>=z->w_list.a[wek].x_start) && (we<=z->w_list.a[wek].x_end));
+    ///global or forward
+    if(mode == 0 || mode == 1) push_khit(cl, qs, ts, 0, 0, &w);
+    //[ws, we] && [wsk, wek]; [qs, qe) && [ts, te)
+    for (k = wsk; k <= wek; k++) {
+        if(z->w_list.a[k].y_end == -1) continue;
+        if(!(z->w_list.a[k].clen)) {
+            gen_backtrace_adv_exz(&(z->w_list.a[k]), z, NULL, NULL, uref, qstr, tu->seq, exz, z->y_pos_strand, z->y_id);
+        }
+        ez.a = z->w_list.c.a + z->w_list.a[k].cidx; 
+        ez.n = ez.m = z->w_list.a[k].clen; 
+        occ += extract_exact_cigar(&ez, z->w_list.a[k].y_start, z->w_list.a[k].x_start, ts, te, qs, qe, cl, 10, wl, h_khit);
+    }
+    ///global or backward
+    if(mode == 0 || mode == 2) push_khit(cl, qe-1, te-1, 0, 0, &w);
+    // fprintf(stderr, "[M::%s::] rcn::%ld, cl->length::%lld\n", __func__, rcn, cl->length);
+    if(!occ) {
+        cl->length = rcn; return 0;
+    }
+    ncn = cl->length; cl->length = rcn;
+    k_mer_hit *ch_a = cl->list + rcn; int64_t ch_n0 = ncn - rcn, ch_n;
+    int64_t max_skip, max_iter, max_dis, quick_check; double chn_pen_gap, chn_pen_skip;
+	set_lchain_dp_op(0, h_khit, &max_skip, &max_iter, &max_dis, &chn_pen_gap, &chn_pen_skip, &quick_check);
+    max_dis = MAX_SIN_L>>1;
+    // for (k = 0; k < ch_n0; k++) {
+    //     assert(debug_k_mer_hit_retrive(&(ch_a[k]), hpc_g, rref, uref, qstr, tu, z->y_id, z->y_pos_strand));
+    // }
+    ch_n = lchain_qdp_fix(ch_a, ch_n0, &(cl->chainDP), max_skip, max_iter, max_dis, chn_pen_gap, chn_pen_skip, 
+                e_rate, ql, tl, 1, ((mode==0)||(mode==1))?1:0,  ((mode==0)||(mode==2))?1:0);
+    // fprintf(stderr, "[M::%s::] ch_n0::%ld, ch_n::%ld, mode::%ld, ql::%ld, tl::%ld\n", 
+    // __func__, ch_n0, ch_n, mode, qe-qs, te-ts);
+    for (k = occ = 0; k < ch_n; k++) {
+        ch_a[k] = ch_a[cl->chainDP.tmp[k]];
+        if((ch_a[k].cnt&(0xffu))) occ++;
+        // assert(debug_k_mer_hit_retrive(&(ch_a[k]), hpc_g, rref, uref, qstr, tu, z->y_id, z->y_pos_strand));
+    }
+    if(occ <= 0) return 0;
+    ch_n = gen_single_khit(cl, ch_n, h_khit, mode, qs, qe, ts, te, max_skip, max_iter);
+    return ch_n;
+}
+
+
+void rechain_aln(overlap_region *z, Candidates_list *cl, overlap_region *aux_o, int64_t aux_i, int64_t wl, 
+const ul_idx_t *uref, hpc_t *hpc_g, All_reads *rref, char* qstr, UC_Read *tu, bit_extz_t *exz, double e_rate, 
+int64_t ql, int64_t tl, int64_t h_khit, int64_t rid)
+{
+    int64_t rcn = cl->length, ch_n, qs, qe, ts, te, mode, an0, an, todo; 
+    k_mer_hit *ch_a; ul_ov_t idx; uint8_t q[2], t[2];
+    ///[qs, qe) && [ts, te)
+    qs = aux_o->w_list.a[aux_i].x_start; qe = aux_o->w_list.a[aux_i].x_end+1;
+    ts = aux_o->w_list.a[aux_i].y_start; te = aux_o->w_list.a[aux_i].y_end+1;
+    mode = aux_o->w_list.a[aux_i].error_threshold;
+    ch_n = gen_win_chain(z, cl, qs, qe, ts, te, wl, uref, hpc_g, rref, qstr, tu, exz, ql, tl, e_rate, h_khit, mode);
+    ch_a = cl->list + rcn;
+    if(ch_n) {
+        idx.ts = idx.te = (uint32_t)-1; idx.qs = 0; idx.qe = ql; todo = 1;
+        if(mode == 0) {//global
+            idx.qn = 0; idx.tn = ch_n - 1;
+            idx.qs = ch_a[idx.qn].self_offset;
+            idx.ts = ch_a[idx.qn].offset;
+            idx.qe = ch_a[idx.tn].self_offset;
+            idx.te = ch_a[idx.tn].offset;
+            assert(ch_a[0].self_offset == qs && ch_a[0].offset == ts);
+            assert(ch_a[ch_n-1].self_offset == qe && ch_a[ch_n-1].offset == te);
+            if(ch_n <= 2) todo = 0;
+        } else if(mode == 1) {//forward ext
+            idx.qn = 0; idx.tn = ch_n;
+            idx.qs = ch_a[idx.qn].self_offset;
+            idx.ts = ch_a[idx.qn].offset;
+            idx.qe = ql; 
+            assert(ch_a[0].self_offset == qs && ch_a[0].offset == ts);
+            if(ch_n <= 1) todo = 0;
+        } else if(mode == 2) {///backward ext
+            idx.qn = (uint32_t)-1; idx.tn = ch_n-1;
+            idx.qs = 0; 
+            idx.qe = ch_a[idx.tn].self_offset;
+            idx.te = ch_a[idx.tn].offset;
+            assert(ch_a[ch_n-1].self_offset == qe && ch_a[ch_n-1].offset == te);
+            if(ch_n <= 1) todo = 0;
+        }
+        if(todo) {
+            an0 = aux_o->w_list.n;
+            ovlp_base_aln(z, ch_a, ch_n, &idx, wl, uref, hpc_g, rref, qstr, tu, exz, aux_o, e_rate, ql, tl, (uint64_t)-1);
+            an = aux_o->w_list.n; q[0] = q[1] = t[0] = t[1] = 0; todo = 0;
+            // fprintf(stderr, "[M::%s::] awn0::%ld, awn::%lu\n", __func__, an0, an);
+            ///old unaligned window could be replaced by the new aligned window
+            if((an == (an0 + 1)) && (!(is_ualn_win(aux_o->w_list.a[an-1])))) {
+                if(aux_o->w_list.a[aux_i].x_start == aux_o->w_list.a[an-1].x_start) q[0] = 1;
+                if(aux_o->w_list.a[aux_i].x_end == aux_o->w_list.a[an-1].x_end) q[1] = 1;
+                if(aux_o->w_list.a[aux_i].y_start == aux_o->w_list.a[an-1].y_start) t[0] = 1;
+                if(aux_o->w_list.a[aux_i].y_end == aux_o->w_list.a[an-1].y_end) t[1] = 1;
+                if((mode == 0) && q[0] && q[1] && t[0] && t[1]) todo = 1;
+                if((mode == 1) && q[0] && t[0]) todo = 1;
+                if((mode == 2) && q[1] && t[1]) todo = 1;
+                if(todo) {
+                    aux_o->w_list.a[aux_i] = aux_o->w_list.a[an-1]; aux_o->w_list.n--;
+                }
+            }
+            // if(an > an0) {///should always > 0 as there are unmapped windows
+            // }
+            // aux_o->w_list.n = an0;
+        }
+    }
+    cl->length = rcn;///must reset!!!!
+}
+
+void debug_overlap_region(overlap_region *au, char* qstr, UC_Read *tu, const ul_idx_t *uref, hpc_t *hpc_g, All_reads *rref)
+{
+    int64_t wn = au->w_list.n, k; bit_extz_t ez;
+    for (k = 0; k < wn; k++) {
+        assert((k<=0)||((au->w_list.a[k].x_start>au->w_list.a[k-1].x_end)
+                                        &&(au->w_list.a[k].y_start>au->w_list.a[k-1].y_end)));
+        assert(au->w_list.a[k].x_end>au->w_list.a[k].x_start);
+        assert(au->w_list.a[k].y_end>au->w_list.a[k].y_start);
+        if(is_ualn_win(au->w_list.a[k]) || is_est_aln(au->w_list.a[k])) continue;
+        ez.cigar.a = au->w_list.c.a + au->w_list.a[k].cidx; 
+        ez.cigar.n = ez.cigar.m = au->w_list.a[k].clen;
+        ez.ts = au->w_list.a[k].x_start; ez.te = au->w_list.a[k].x_end;
+        ez.ps = au->w_list.a[k].y_start; ez.pe = au->w_list.a[k].y_end;
+        ez.err = au->w_list.a[k].error;
+        ref_cigar_check(qstr, tu, uref, hpc_g, rref, au->y_id, au->y_pos_strand, &ez);
+    }
+}
+
 void cigar_gen_by_chain_adv(overlap_region *z, Candidates_list *cl, int64_t ch_idx, int64_t ch_n,
-ul_ov_t *ov, int64_t on, uint64_t wl, const ul_idx_t *uref, hpc_t *hpc_g, All_reads *rref, 
-char* qstr, UC_Read *tu, bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t ql, uint64_t rid)
+ul_ov_t *ov, int64_t on, uint64_t wl, const ul_idx_t *uref, hpc_t *hpc_g, All_reads *rref, char* qstr, 
+UC_Read *tu, bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t ql, uint64_t rid, int64_t h_khit)
 {
     if(on <= 0) return;
-    int64_t i, tl, id = z->y_id; 
+    int64_t i, tl, id = z->y_id, m; 
     k_mer_hit *ch_a = cl->list + ch_idx;
-    Chain_Data *dp = &(cl->chainDP);
     if(hpc_g) tl = hpc_len(*hpc_g, id);
     else if(uref) tl = uref->ug->u.a[id].len;
     else tl = Get_READ_LENGTH((*rref), id);
@@ -14392,19 +14755,35 @@ char* qstr, UC_Read *tu, bit_extz_t *exz, overlap_region *aux_o, double e_rate, 
         //                             ov->qs, ov->qe, ov->ts, ov->te,
         //                             (ov->qn!=((uint32_t)-1))?(int32_t)ov->qn:-1, (int32_t)ov->tn);
         assert((i<=0)||(ov[i].qs>ov[i-1].qe));
-        ovlp_base_aln(z, dp, ch_a, ch_n, &(ov[i]), wl, uref, hpc_g, rref, qstr, tu, exz, aux_o, e_rate, ql, tl, rid);
+        ovlp_base_aln(z, ch_a, ch_n, &(ov[i]), wl, uref, hpc_g, rref, qstr, tu, exz, aux_o, e_rate, ql, tl, rid);
     }
 
     int64_t aux_n = aux_o->w_list.n;
     for (i = 0; i < aux_n; i++) {
-        // fprintf(stderr, "[aln::i->%ld::ql->%d] q::[%d, %d), t::[%d, %d), err::%d, clen::%u\n", i, 
-        //             aux_o->w_list.a[i].x_end+1-aux_o->w_list.a[i].x_start,
-        //             aux_o->w_list.a[i].x_start, aux_o->w_list.a[i].x_end+1, 
-        //             aux_o->w_list.a[i].y_start, aux_o->w_list.a[i].y_end+1, 
-        //             aux_o->w_list.a[i].error, aux_o->w_list.a[i].clen);
+        if(!(is_ualn_win(aux_o->w_list.a[i]))) continue;
+        // if((aux_o->w_list.a[i].x_end+1-aux_o->w_list.a[i].x_start) <= FORCE_CNS_L) {
+            // fprintf(stderr, "[aln::i->%ld::ql->%d] q::[%d, %d), t::[%d, %d), err::%d, clen::%u, mode::%d\n", i, 
+            //             aux_o->w_list.a[i].x_end+1-aux_o->w_list.a[i].x_start,
+            //             aux_o->w_list.a[i].x_start, aux_o->w_list.a[i].x_end+1, 
+            //             aux_o->w_list.a[i].y_start, aux_o->w_list.a[i].y_end+1, 
+            //             aux_o->w_list.a[i].error, aux_o->w_list.a[i].clen, aux_o->w_list.a[i].error_threshold);
+        // }
+        //will overwrite ch_a; does not matter
+        rechain_aln(z, cl, aux_o, i, wl, uref, hpc_g, rref, qstr, tu, exz, e_rate, ql, tl, h_khit, rid);
+    }
+    if(((int64_t)aux_o->w_list.n) > aux_n) {
+        for (i = m = 0; i < ((int64_t)aux_o->w_list.n); i++) {
+            if((i < aux_n) && (is_ualn_win(aux_o->w_list.a[i]))) continue;
+            aux_o->w_list.a[m++] = aux_o->w_list.a[i];
+        }
+        aux_o->w_list.n = m;
+        radix_sort_window_list_xs_srt(aux_o->w_list.a, aux_o->w_list.a+aux_o->w_list.n);
     }
 
-    ch_a = cl->list + ch_idx; //update
+    // debug_overlap_region(aux_o, qstr, tu, uref, hpc_g, rref);
+
+
+    // ch_a = cl->list + ch_idx; //update
     // for (i = 0; i < wn; i++) z->w_list.a[i].clen = 0;///clean cigar
     // if(on > 1) {
     //     fprintf(stderr, "[M::%s::] rid::%lu, on::%ld\n", __func__, rid, on);
@@ -14434,7 +14813,7 @@ int64_t max_lgap)
             if(ch_n) {
                 ///ch_a = cl->list + cl->length;
                 // cigar_gen_by_chain(z, &(cl->chainDP), ch_a, ch_n, aln->a+l, k-l, wl, uref, hpc_g, rref, qstr, tu, exz, e_rate, ql, rid);
-                cigar_gen_by_chain_adv(z, cl, cl->length, ch_n, aln->a+l, k-l, wl, uref, hpc_g, rref, qstr, tu, exz, aux_o, e_rate, ql, rid);
+                cigar_gen_by_chain_adv(z, cl, cl->length, ch_n, aln->a+l, k-l, wl, uref, hpc_g, rref, qstr, tu, exz, aux_o, e_rate, ql, rid, khit);
                 // m = fusion_coordinates(z, ch_a, ch_n, aln->a+l, k-l);
             }
             // m += cigar_gen_cns(z, cl, aln->a+l, k-l, i, wl, uref, hpc_g, rref, qstr, tu, exz, e_rate, ql, rid, aln->a+m);
@@ -14541,7 +14920,7 @@ int64_t max_lgap, double sgap_rate, int64_t sgap)///[s, e)
 {
     if(!id_n) return id_n;
     uint64_t i, m, k, rm_n = 0, buf_n = 0, qs, qe, wid, co, occ; char *qstring, *tstring;
-    overlap_region *z; uint64_t ws, we; int64_t r_y[2], r_err, p_y[2], p_err;
+    overlap_region *z; uint64_t ws, we; int64_t r_y[2], r_err, p_y[2], p_err, rxl, ryl, pxl;
     ///shrink [qs, qe)
     qs = (s/wl)*wl; if(qs < s) qs += wl; if(qs >= ql) return id_n;
     qe = (e/wl)*wl; if(qe >= ql) qe = ql;
@@ -14566,13 +14945,17 @@ int64_t max_lgap, double sgap_rate, int64_t sgap)///[s, e)
             wid = get_win_id_by_s(z, ws, wl, NULL);
             if(!get_win_aln(z, wid, &(r_y[0]), &(r_y[1]), &r_err)) continue;
             if(!ovlp_win_check(z, z->align_length, wid, max_lgap, sgap_rate, sgap)) continue;///not co-linear
+            rxl = z->w_list.a[wid].x_end+1-z->w_list.a[wid].x_start;
+            ryl = r_y[1]-r_y[0];
+            if(rxl > 1 && ryl > 1) continue;///length of window should be longer than 1
             qstring = tstring = NULL;
             for (i = 1; i < buf_n; i++) {
                 z = &(ol->list[aln->a[(uint32_t)buf[i]].qn]);
                 wid = get_win_id_by_s(z, ws, wl, NULL);
                 if(!get_win_aln(z, wid, &(p_y[0]), &(p_y[1]), &p_err)) break;
-                if(!ovlp_win_check(z, z->align_length, wid, max_lgap, sgap_rate, sgap)) continue;///not co-linear
-
+                if(!ovlp_win_check(z, z->align_length, wid, max_lgap, sgap_rate, sgap)) break;///not co-linear
+                pxl = z->w_list.a[wid].x_end+1-z->w_list.a[wid].x_start;
+                if(pxl != rxl) break;
                 if(((r_y[1]-r_y[0]) != (p_y[1]-p_y[0])) || (r_err != p_err)) break;
                 if(r_err == 0) continue;
                 if(!qstring) {

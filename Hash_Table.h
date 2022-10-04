@@ -214,4 +214,11 @@ uint64_t lchain_qdp(k_mer_hit* a, int64_t a_n, k_mer_hit* des, Chain_Data* dp, o
 int ovlp_chain_qgen(overlap_region_alloc* ol, overlap_region* t, int64_t xl, int64_t yl, int64_t apend_be, k_mer_hit* hit, int64_t n_hit);
 uint64_t lchain_refine(k_mer_hit* a, int64_t a_n, k_mer_hit* des, Chain_Data* dp, 
                                     int64_t max_skip, int64_t max_iter, int64_t max_dis, int64_t long_gap);
+uint64_t lchain_qdp_fix(k_mer_hit* a, int64_t a_n, Chain_Data* dp, int64_t max_skip, 
+                int64_t max_iter, int64_t max_dis, double chn_pen_gap, double chn_pen_skip, 
+                double bw_rate, int64_t xl, int64_t yl, int64_t quick_check, 
+                int64_t left_fix, int64_t right_fix);
+uint64_t lchain_simple(k_mer_hit* a, int64_t a_n, k_mer_hit* des, Chain_Data* dp, 
+                                                        int64_t max_skip, int64_t max_iter);
+
 #endif
