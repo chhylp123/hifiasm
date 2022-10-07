@@ -1134,10 +1134,10 @@ void correct_ul_overlap(overlap_region_alloc* overlap_list, const ul_idx_t *uref
                         kvec_t_u64_warp* v_idx, window_list_alloc* win_ciagr_buf, 
                         int force_repeat, int is_consensus, int* fully_cov, int* abnormal, 
                         double max_ov_diff_ec, long long winLen, void *km);
-void ul_lalign(overlap_region_alloc* ol, Candidates_list *cl, const ul_idx_t *uref, char *qstr, 
+void ul_lalign(overlap_region_alloc* ol, Candidates_list *cl, const ul_idx_t *uref, const ug_opt_t *uopt, char *qstr, 
                         uint64_t ql, UC_Read* qu, UC_Read* tu, Correct_dumy* dumy, bit_extz_t *exz,
                         haplotype_evdience_alloc* hap, kvec_t_u64_warp* v_idx, overlap_region *aux_o,   
-                        double e_rate, int64_t wl, kv_ul_ov_t *aln, int64_t sid, uint64_t hpc_k, void *km);
+                        double e_rate, int64_t wl, kv_ul_ov_t *aln, int64_t sid, uint64_t hpc_k, st_mt_t *stb, void *km);
 
 void ul_lalign_old_ed(overlap_region_alloc* ol, Candidates_list *cl, const ul_idx_t *uref, char *qstr, 
                         uint64_t ql, UC_Read* qu, UC_Read* tu, Correct_dumy* dumy, 
@@ -1329,6 +1329,12 @@ void inline resize_UC_Read(UC_Read *z, int64_t s)
 void update_sketch_trace(overlap_region_alloc* ol, const ul_idx_t *uref, const ug_opt_t *uopt, 
 All_reads *rref, UC_Read* tu, asg64_v* idx, asg64_v *b0, asg64_v *b1, int64_t ql, int64_t wl, 
 kv_ul_ov_t *aln, uint64_t rid, int64_t max_lgap, double sgap_rate);
+
+int64_t infer_rovlp(ul_ov_t *li, ul_ov_t *lj, uc_block_t *bi, uc_block_t *bj, All_reads *ridx, ma_ug_t *ug);
+void convert_ul_ov_t(ul_ov_t *des, overlap_region *src, const ul_idx_t *uref);
+uint64_t check_connect_ug(const ul_idx_t *uref, uint32_t v, uint32_t w, int64_t bw, double diff_ec_ul, int64_t dq);
+uint64_t check_connect_rg(const ul_idx_t *uref, const ug_opt_t *uopt, uint32_t uv, uint32_t uw, int64_t bw, double diff_ec_ul, int64_t dq);
+uint32_t govlp_check(const ul_idx_t *uref, const ug_opt_t *uopt, int64_t bw, double diff_ec_ul, ul_ov_t *li, ul_ov_t *lj);
 
 #define copy_asg_arr(des, src) ((des).a = (src).a, (des).n = (src).n, (des).m = (src).m)
 #define is_ualn_win(a) (((a).error==INT16_MAX)&&((a).clen==0)&&((a).extra_end<0))

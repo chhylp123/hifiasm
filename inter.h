@@ -13,6 +13,11 @@
 #define G_CHAIN_GAP 0.1
 #define UG_SKIP 5
 #define RG_SKIP 25
+#define UG_SKIP_GRAPH_N 50
+#define UG_SKIP_N 100
+#define UG_ITER_N 5000
+#define UG_DIS_N 50000
+#define UG_TRANS_W 2
 #define G_CHAIN_TRANS_RATE 0.25
 #define G_CHAIN_TRANS_WEIGHT -1
 #define G_CHAIN_INDEL 128

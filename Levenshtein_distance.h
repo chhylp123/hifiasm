@@ -537,6 +537,15 @@ inline uint32_t pop_trace(asg16_v *res, uint32_t i, uint16_t *c, uint32_t *len)
 	return i;
 }
 
+inline int32_t pop_trace_back(asg16_v *res, int32_t i, uint16_t *c, uint32_t *len)
+{
+	(*c) = (res->a[i]>>14); (*len) = (res->a[i]&(0x3fff));
+	for (i--; (i >= 0) && ((*c) == (res->a[i]>>14)); i--) {
+		(*len) += (res->a[i]&(0x3fff));
+	}
+	return i;
+}
+
 ///511 -> 16 64-bits
 // #define MAX_E 511
 // #define MAX_L 2500
