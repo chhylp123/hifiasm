@@ -15342,7 +15342,7 @@ int64_t max_lgap)
     for (k = 1, l = 0, pqn = 0; k <= a_n; k++) {
         if(k == a_n || aln->a[l].qn != aln->a[k].qn) {
             z = &(ol->list[aln->a[l].qn]); assert(z->align_length == l);  
-
+            // fprintf(stderr, "[M::%s::] oid::[%lu, %u)\n", __func__, pqn, aln->a[l].qn);
             for (pk = pqn; pk < aln->a[l].qn; pk++) ol->list[pk].w_list.n = 0;
             pqn = aln->a[l].qn+1;  
             

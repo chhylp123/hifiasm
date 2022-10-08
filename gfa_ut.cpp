@@ -11835,7 +11835,7 @@ ul2ul_idx_t *gen_ul2ul(ul_resolve_t *uidx, ug_opt_t *uopt, ulg_opt_t *ulopt, uin
     remove_integert_containment(uidx, keep_raw_utg);
     kt_for(uidx->str_b.n_thread, worker_integert_debug_sym, uidx, z->tot);///all ul + ug
     print_integert_ovlp_stat(z);
-    // print_uls_seq(uidx, asm_opt.output_file_name);
+    print_uls_seq(uidx, asm_opt.output_file_name);
     // print_uls_ovs(uidx, asm_opt.output_file_name);
     
     z->i_g = integer_sg_gen(uidx, uopt->min_ovlp);
