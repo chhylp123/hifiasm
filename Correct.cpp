@@ -14973,6 +14973,8 @@ uint64_t query_gen_gov_idx(asg64_v *ovidx, uint64_t v, uint64_t w)
 ///[s, e)
 uint64_t gen_region_phase(overlap_region* ol, uint64_t *id_a, uint64_t id_n, uint64_t s, uint64_t e, uint64_t dp, ul_ov_t *c_idx, uint64_t *buf, asg64_v *ovidx)
 {
+    #define id_mm ((uint64_t)0x7fffffffffffffff)
+    #define id_set ((uint64_t)0x8000000000000000)
     if(!id_n) return id_n;
     uint64_t k, m, mn, q[2], buf_n, rm_n, i; int64_t err, msc, msc_k, msc_n;
     overlap_region *z; ul_ov_t *p; 
@@ -15031,14 +15033,47 @@ uint64_t gen_region_phase(overlap_region* ol, uint64_t *id_a, uint64_t id_n, uin
             buf[k] = ovlp_id((c_idx[(uint32_t)buf[k]]));
             // if(k < mn) fprintf(stderr, "d::bst::[M::%s::utg%.6dl]\n", __func__, (int32_t)ol[buf[k]].y_id+1);
         }
+
+        for (k = 0; k < mn; k++) {
+            if(buf[k]&id_set) continue;
+            for (i = 0; i < k; i++) {
+                if(query_gen_gov_idx(ovidx, buf[k]&id_mm, buf[i]&id_mm)) break;
+            }
+            if(i < k) {
+                if(!(buf[k]&id_set)) {
+                    ol[buf[k]&id_mm].overlapLen -= e - s;
+                    ol[buf[k]&id_mm].align_length -= e - s;
+                }
+                buf[k] |= id_set;
+
+                if(!(buf[i]&id_set)) {
+                    ol[buf[i]&id_mm].overlapLen -= e - s;
+                    ol[buf[i]&id_mm].align_length -= e - s;
+                }
+                buf[i] |= id_set;
+            }
+        }
+        
+
+
         for (k = mn; k < buf_n; k++) {
-            z = &(ol[buf[k]]); 
+            z = &(ol[buf[k]&id_mm]); 
             z->align_length -= e - s;
             for (i = 0; i < mn; i++) {
-                if(query_gen_gov_idx(ovidx, buf[k], buf[i])) break;
+                if(query_gen_gov_idx(ovidx, buf[k]&id_mm, buf[i]&id_mm)) break;
             }
             if(i < mn) {
                 z->align_length += e - s;
+                if(!(buf[k]&id_set)) {
+                    ol[buf[k]&id_mm].overlapLen -= e - s;
+                    ol[buf[k]&id_mm].align_length -= e - s;
+                }
+                buf[k] |= id_set;
+                if(!(buf[i]&id_set)) {
+                    ol[buf[i]&id_mm].overlapLen -= e - s;
+                    ol[buf[i]&id_mm].align_length -= e - s;
+                }
+                buf[i] |= id_set;
                 // fprintf(stderr, "i::bst::[M::%s::utg%.6dl]\n", __func__, (int32_t)ol[buf[k]].y_id+1);
             }
         }
@@ -15328,7 +15363,12 @@ void region_phase(overlap_region_alloc* ol, const ul_idx_t *uref, const ug_opt_t
     }
     ///hap->length
 
-
+    // for (k = 0; k < on; k++) {
+    //     z = &(ol->list[k]); 
+    //     if(z->align_length == z->overlapLen) {///prefer alignments without any trans hit
+    //         z->align_length = z->overlapLen = z->x_pos_e+1-z->x_pos_s;
+    //     }
+    // }
 }
 
 void ul_gap_filling_adv(overlap_region_alloc* ol, Candidates_list *cl, kv_ul_ov_t *aln, uint64_t wl, 

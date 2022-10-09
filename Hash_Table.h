@@ -204,6 +204,14 @@ int append_utg_inexact_overlap_region_alloc(overlap_region_alloc* list, overlap_
 		*(p) = &((v).list[(v).length++]); \
 	} while (0)
 
+#define kv_resize_cl(type, v, s) do { \
+		if ((v).size < (s)) { \
+			(v).size = (s); \
+			kv_roundup32((v).size); \
+			(v).list = (type*)realloc((v).list, sizeof(type) * (v).size); \
+		} \
+	} while (0)
+
 #define is_alnw(a) (((a).readID) == ((uint32_t)(0x7fffffff)))
 #define is_pri_aln(a) ((((a).readID) == ((uint32_t)(0x7fffffff)))||((a).cnt >= (a).readID))
 
@@ -220,5 +228,10 @@ uint64_t lchain_qdp_fix(k_mer_hit* a, int64_t a_n, Chain_Data* dp, int64_t max_s
                 int64_t left_fix, int64_t right_fix);
 uint64_t lchain_simple(k_mer_hit* a, int64_t a_n, k_mer_hit* des, Chain_Data* dp, 
                                                         int64_t max_skip, int64_t max_iter);
+uint64_t lchain_qdp_mcopy(Candidates_list *cl, int64_t a_idx, int64_t a_n, int64_t des_idx, 
+              Chain_Data* dp, overlap_region_alloc* res, int64_t max_skip, int64_t max_iter, 
+              int64_t max_dis, double chn_pen_gap, double chn_pen_skip, double bw_rate, 
+              uint32_t xid, int64_t xl, int64_t yl, int64_t quick_check, uint32_t apend_be, 
+              int64_t gen_cigar);
 
 #endif
