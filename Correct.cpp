@@ -14970,13 +14970,15 @@ uint64_t query_gen_gov_idx(asg64_v *ovidx, uint64_t v, uint64_t w)
     return 0;
 }
 
+// #define id_mm ((uint64_t)0x7fffffffffffffff)
+#define id_set ((uint64_t)0x8000000000000000)
+#define id_get(a) ((uint32_t)(a))
+#define err_get(a) (((a)&((uint64_t)0x7fffffffffffffff))>>32)
 ///[s, e)
 uint64_t gen_region_phase(overlap_region* ol, uint64_t *id_a, uint64_t id_n, uint64_t s, uint64_t e, uint64_t dp, ul_ov_t *c_idx, uint64_t *buf, asg64_v *ovidx)
 {
-    #define id_mm ((uint64_t)0x7fffffffffffffff)
-    #define id_set ((uint64_t)0x8000000000000000)
     if(!id_n) return id_n;
-    uint64_t k, m, mn, q[2], buf_n, rm_n, i; int64_t err, msc, msc_k, msc_n;
+    uint64_t k, m, mn, q[2], buf_n, rm_n, i, oid; int64_t err, msc, msc_k, msc_n;
     overlap_region *z; ul_ov_t *p; 
     for (k = buf_n = rm_n = 0; k < id_n; k++) {
         p = &(c_idx[id_a[k]]);
@@ -15030,25 +15032,26 @@ uint64_t gen_region_phase(overlap_region* ol, uint64_t *id_a, uint64_t id_n, uin
         }
         // fprintf(stderr, "[M::%s] buf_n::%ld, msc_n::%ld, mn::%lu\n", __func__, buf_n, msc_n, mn);
         for (k = 0; k < buf_n; k++) {
-            buf[k] = ovlp_id((c_idx[(uint32_t)buf[k]]));
+            oid = ovlp_id((c_idx[(uint32_t)buf[k]]));
+            buf[k] >>= 32; buf[k] <<= 32; buf[k] |= oid;
             // if(k < mn) fprintf(stderr, "d::bst::[M::%s::utg%.6dl]\n", __func__, (int32_t)ol[buf[k]].y_id+1);
         }
 
         for (k = 0; k < mn; k++) {
             if(buf[k]&id_set) continue;
             for (i = 0; i < k; i++) {
-                if(query_gen_gov_idx(ovidx, buf[k]&id_mm, buf[i]&id_mm)) break;
+                if(query_gen_gov_idx(ovidx, id_get(buf[k]), id_get(buf[i]))) break;
             }
             if(i < k) {
                 if(!(buf[k]&id_set)) {
-                    ol[buf[k]&id_mm].overlapLen -= e - s;
-                    ol[buf[k]&id_mm].align_length -= e - s;
+                    ol[id_get(buf[k])].overlapLen -= e - s;
+                    ol[id_get(buf[k])].align_length -= e - s;
                 }
                 buf[k] |= id_set;
 
                 if(!(buf[i]&id_set)) {
-                    ol[buf[i]&id_mm].overlapLen -= e - s;
-                    ol[buf[i]&id_mm].align_length -= e - s;
+                    ol[id_get(buf[i])].overlapLen -= e - s;
+                    ol[id_get(buf[i])].align_length -= e - s;
                 }
                 buf[i] |= id_set;
             }
@@ -15057,24 +15060,27 @@ uint64_t gen_region_phase(overlap_region* ol, uint64_t *id_a, uint64_t id_n, uin
 
 
         for (k = mn; k < buf_n; k++) {
-            z = &(ol[buf[k]&id_mm]); 
+            z = &(ol[id_get(buf[k])]); 
             z->align_length -= e - s;
             for (i = 0; i < mn; i++) {
-                if(query_gen_gov_idx(ovidx, buf[k]&id_mm, buf[i]&id_mm)) break;
+                if(query_gen_gov_idx(ovidx, id_get(buf[k]), id_get(buf[i]))) break;
             }
             if(i < mn) {
                 z->align_length += e - s;
                 if(!(buf[k]&id_set)) {
-                    ol[buf[k]&id_mm].overlapLen -= e - s;
-                    ol[buf[k]&id_mm].align_length -= e - s;
+                    ol[id_get(buf[k])].overlapLen -= e - s;
+                    ol[id_get(buf[k])].align_length -= e - s;
                 }
                 buf[k] |= id_set;
                 if(!(buf[i]&id_set)) {
-                    ol[buf[i]&id_mm].overlapLen -= e - s;
-                    ol[buf[i]&id_mm].align_length -= e - s;
+                    ol[id_get(buf[i])].overlapLen -= e - s;
+                    ol[id_get(buf[i])].align_length -= e - s;
                 }
                 buf[i] |= id_set;
                 // fprintf(stderr, "i::bst::[M::%s::utg%.6dl]\n", __func__, (int32_t)ol[buf[k]].y_id+1);
+            } else {
+                assert(err_get(buf[i]) > (uint64_t)msc);
+                z->non_homopolymer_errors += err_get(buf[i])-msc;
             }
         }
     }
@@ -15287,7 +15293,7 @@ void region_phase(overlap_region_alloc* ol, const ul_idx_t *uref, const ug_opt_t
     kv_resize(ul_ov_t, *c_idx, ol->length);
     for (k = idx->n = c_idx->n = 0; k < on; k++) {
         z = &(ol->list[k]); zwn = z->w_list.n; 
-        z->align_length = z->overlapLen = z->x_pos_e+1-z->x_pos_s;
+        z->align_length = z->overlapLen = z->x_pos_e+1-z->x_pos_s; z->non_homopolymer_errors = 0;
         if(!zwn) continue;
         q[0] = q[1] = t[0] = t[1] = w[0] = w[1] = INT32_MIN;
         for (i = 0; i < zwn; i++) {

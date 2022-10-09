@@ -5073,17 +5073,17 @@ int64_t debug_i, int64_t tid, void *km)
 }
 
 // #define aln_sc(a, w) (((int64_t)((a).sec))-((int64_t)(((a).qe-(a).qs-(a).sec)*(w))))
-#define aln_sc(a, w) (((int64_t)((a).align_length))-((int64_t)(((a).overlapLen-(a).align_length)*(w))))
+#define aln_sc(a, w) (((int64_t)((a).align_length))-((int64_t)(((a).overlapLen-(a).align_length)*(w)))-(((int64_t)((a).non_homopolymer_errors))*UG_TRANS_ERR_W))
 
 void gen_gl_aln(overlap_region_alloc* olist, const ul_idx_t *uref, kv_ul_ov_t *res)
 {
 	uint64_t k; ul_ov_t *p = NULL;
 	res->n = 0; kv_resize(ul_ov_t, *res, olist->length);
 	for (k = 0; k < olist->length; k++) {
-		// fprintf(stderr, "+++[M::%s::utg%.6dl] q[%d, %d), t[%d, %d), tot::%u, cis::%u\n", __func__, 
+		// fprintf(stderr, "+++[M::%s::utg%.6dl] q[%d, %d), t[%d, %d), tot::%u, cis::%u, err::%u\n", __func__, 
         // (int32_t)olist->list[k].y_id+1, olist->list[k].x_pos_s, olist->list[k].x_pos_e+1,
 		// olist->list[k].y_pos_s, olist->list[k].y_pos_e+1,
-		// olist->list[k].overlapLen, olist->list[k].align_length);
+		// olist->list[k].overlapLen, olist->list[k].align_length, olist->list[k].non_homopolymer_errors);
 		p = &(res->a[res->n++]); assert(olist->list[k].overlapLen >= olist->list[k].align_length);
 		p->qn = k; p->qs = olist->list[k].x_pos_s; p->qe = olist->list[k].x_pos_e+1;
 		p->tn = olist->list[k].y_id; p->sec = olist->list[k].align_length; 
@@ -6001,8 +6001,10 @@ uint32_t ck_w_err(overlap_region *z, uint64_t *w_idx, int64_t wl, int64_t ql)
 	// fprintf(stderr, "[M::%s::utg%.6dl] x::[%u, %u), ol::%ld, e[0]::%ld, e[1]::%ld\n", 
 	// __func__, (int32_t)z->y_id+1, z->x_pos_s, z->x_pos_e+1, ol, e[0], e[1]);
 	if(e[1] > (e[0]+64)) {
-		if(e[1] > (e[0]+(ol*0.01))) return 0;
-		if(e[1] > (e[0]+(e[0]*0.03))) return 0;
+		if((e[1] > (e[0]+(ol*0.01)))||(e[1] > (e[0]+(e[0]*0.03)))) {
+			z->non_homopolymer_errors = e[1] - e[0];
+			return 0;
+		}
 	}
 	// if((e[1] > (e[0]+16)) && (e[1] > (e[0]+(ol*0.01)))) return 0;
 	return 1;
@@ -6667,6 +6669,7 @@ static void worker_for_ul_rescall_alignment(void *data, long i, int tid) // call
 		for (k = 0; k < b->olist.length; k++) {
 			b->olist.list[k].align_length = b->olist.list[k].overlapLen = 
 										b->olist.list[k].x_pos_e+1-b->olist.list[k].x_pos_s;
+			b->olist.list[k].non_homopolymer_errors = 0;
 		}
 	}
 	
