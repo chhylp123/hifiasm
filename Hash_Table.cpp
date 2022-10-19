@@ -1933,6 +1933,32 @@ int64_t filter_non_ovlp_chains(overlap_region *a, int64_t a_n, int64_t *n_v)
 	return n_mchain;
 }
 
+int64_t filter_non_ovlp_xchains(overlap_region *a, int64_t a_n, int64_t *n_v)
+{
+    int64_t k, i, n_mchain, omx, opx, ovx, os, oe; overlap_region *m, *p, t;
+    for (k = n_mchain = (*n_v) = 0; k < a_n; k++) {
+		m = &(a[k]); 
+        omx = m->x_pos_e + 1 - m->x_pos_s;
+		for (i = 0; i < n_mchain; i++) {
+			p = &(a[i]);
+            opx = p->x_pos_e + 1 - p->x_pos_s;
+
+            os = ((m->x_pos_s>=p->x_pos_s)? m->x_pos_s:p->x_pos_s);
+            oe = ((m->x_pos_e<=p->x_pos_e)? m->x_pos_e:p->x_pos_e) + 1;
+			ovx = oe>os?oe-os:0;
+            if((ovx > omx*0.1) || (ovx > opx*0.1)) break;
+		}
+		if(i < n_mchain) continue;
+
+        if (n_mchain != k) {
+            t = a[k]; a[k] = a[n_mchain]; a[n_mchain] = t;
+        }
+        (*n_v) += a[n_mchain].align_length;
+		n_mchain++;
+	}
+	return n_mchain;
+}
+
 uint64_t lchain_qdp_mcopy(Candidates_list *cl, int64_t a_idx, int64_t a_n, int64_t des_idx, 
               Chain_Data* dp, overlap_region_alloc* res, int64_t max_skip, int64_t max_iter, 
               int64_t max_dis, double chn_pen_gap, double chn_pen_skip, double bw_rate, 
@@ -2040,7 +2066,7 @@ uint64_t lchain_qdp_mcopy(Candidates_list *cl, int64_t a_idx, int64_t a_n, int64
         }
 
         ks_introsort_or_sss(n_u, res->list + n_u0); 
-        res->length = n_u0 + filter_non_ovlp_chains(res->list + n_u0, n_u, &n_v);
+        res->length = n_u0 + filter_non_ovlp_xchains(res->list + n_u0, n_u, &n_v);
         n_u = res->length;
 
         kv_resize_cl(k_mer_hit, (*cl), (n_v+cl->length));
@@ -2291,12 +2317,9 @@ uint64_t lchain_refine(k_mer_hit* a, int64_t a_n, k_mer_hit* des, Chain_Data* dp
         sc = f[j] - dd;
         if (sc > max_f) {
             max_f = sc, max_j = j;
-            if (n_skip > 0) --n_skip;
-        } else if (t[j] == (int32_t)i) {
-            if (++n_skip > max_skip)
-                break;
-        }
+        } 
         if (p[j] >= 0) t[p[j]] = i;
+        
         ///[st, i-2]
         for (--j; (j >= st) && (a[i].self_offset <= (max_dis + a[j].self_offset)); --j) {
             dq = (int64_t)(a[i].self_offset) - (int64_t)(a[j].self_offset);

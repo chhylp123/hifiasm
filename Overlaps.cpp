@@ -14820,7 +14820,8 @@ const char* command)
 uint32_t print_debug_gfa(asg_t *read_g, ma_ug_t *ug, ma_sub_t* coverage_cut, const char* output_file_name, 
 ma_hit_t_alloc* sources, R_to_U* ruIndex, int max_hang, int min_ovlp, int is_update_ou, int is_check_alter_lable, int is_seq)
 {
-    kvec_asg_arc_t_warp new_rtg_edges;
+    kvec_asg_arc_t_warp new_rtg_edges; 
+    uint32_t free_ug = ((ug == NULL)?1:0);
     kv_init(new_rtg_edges.a);
 
     if(ug == NULL) {
@@ -14865,9 +14866,10 @@ ma_hit_t_alloc* sources, R_to_U* ruIndex, int max_hang, int min_ovlp, int is_upd
     fclose(output_file);
 
     free(gfa_name);
-    ma_ug_destroy(ug);
+    if(free_ug) ma_ug_destroy(ug);
     kv_destroy(new_rtg_edges.a);
-    exit(0);
+    // exit(0);
+    return 1;
 }
 
 

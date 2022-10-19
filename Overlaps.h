@@ -67,6 +67,25 @@ typedef struct {
 	size_t n, m;
 } kv_ul_ov_t;
 
+typedef struct {
+	///off: start idx in mg128_t * a[];
+	///cnt: how many eles in this chain
+	///a[off, off+cnt) saves the eles in this chain
+	int32_t off, cnt:31, inner_pre:1;
+	///ref_id|rev
+	uint32_t v;
+	///chain in ref: [rs, re)
+	///chain in query: [qs, qe)
+	int32_t rs, re, qs, qe;
+	///score: chain score
+	int32_t score, dist_pre;
+	uint32_t hash_pre;
+} mg_lchain_t;
+
+typedef struct {
+	mg_lchain_t *a;
+	size_t n, m;
+}vec_mg_lchain_t;
 
 ///query is the read itself
 typedef struct {

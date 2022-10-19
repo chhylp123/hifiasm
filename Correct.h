@@ -1103,7 +1103,16 @@ void init_Round2_alignment(Round2_alignment* h);
 void destory_Round2_alignment(Round2_alignment* h);
 void clear_Round2_alignment(Round2_alignment* h);
 
+typedef struct {
+	int32_t c_qs, c_qe, c_ts, c_te; //[c_qs, c_qe) && [c_ts, c_te)
+    int32_t c_wsid, c_weid, c_wsii, c_weii;//[c_wsid, c_weid] && [c_wsii, c_weii)
+    int32_t rev, sfx_e, pfx_e, mid_e, oid;
+} rtrace_t;
 
+typedef struct {
+	rtrace_t *a;
+	size_t n, m;
+} kv_rtrace_t;
 
 void correct_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF, 
                         UC_Read* g_read, Correct_dumy* dumy, UC_Read* overlap_read, Graph* g, Graph* DAGCon, 
@@ -1335,6 +1344,9 @@ void convert_ul_ov_t(ul_ov_t *des, overlap_region *src, const ul_idx_t *uref);
 uint64_t check_connect_ug(const ul_idx_t *uref, uint32_t v, uint32_t w, int64_t bw, double diff_ec_ul, int64_t dq);
 uint64_t check_connect_rg(const ul_idx_t *uref, const ug_opt_t *uopt, uint32_t uv, uint32_t uw, int64_t bw, double diff_ec_ul, int64_t dq);
 uint32_t govlp_check(const ul_idx_t *uref, const ug_opt_t *uopt, int64_t bw, double diff_ec_ul, ul_ov_t *li, ul_ov_t *lj);
+void ul_rid_lalign_adv(overlap_region_alloc* ol, Candidates_list *cl, const ul_idx_t *uref, const ug_opt_t *uopt, 
+        char *qstr, uint64_t ql, UC_Read* qu, UC_Read* tu, bit_extz_t *exz, overlap_region *aux_o, double e_rate, 
+        int64_t wl, kv_ul_ov_t *aln, kv_ul_ov_t *cln, kv_rtrace_t *trace, int64_t sid, uint64_t khit, void *km);
 
 #define copy_asg_arr(des, src) ((des).a = (src).a, (des).n = (src).n, (des).m = (src).m)
 #define is_ualn_win(a) (((a).error==INT16_MAX)&&((a).clen==0)&&((a).extra_end<0))
@@ -1349,4 +1361,24 @@ uint32_t govlp_check(const ul_idx_t *uref, const ug_opt_t *uopt, int64_t bw, dou
 #define GAP_EXT_KSW 2
 #define Z_DROP_KSW 400
 #define BAND_KSW 500
+
+#define set_bit_extz_t(x, z, id) do {\
+        (x).cigar.a = (z).w_list.c.a+(z).w_list.a[(id)].cidx;\
+		(x).cigar.n = (x).cigar.m = (z).w_list.a[(id)].clen;\
+        (x).ts = (z).w_list.a[(id)].x_start;\
+        (x).te = (z).w_list.a[(id)].x_end;\
+        (x).ps = (z).w_list.a[(id)].y_start;\
+        (x).pe = (z).w_list.a[(id)].y_end;\
+        (x).err = (z).w_list.a[(id)].error;\
+        (x).thre = (z).w_list.a[(id)].error;\
+	} while (0)
+
+typedef struct {
+	int64_t k, q[2], t[2], cq[2], ct[2], ci[2], werr, werr0, cerr;
+	int64_t qoff, f, toff, coff, cur_qoff;
+} rtrace_iter;
+int64_t get_rid_backward_cigar_err(rtrace_iter *it, ul_ov_t *aln, kv_rtrace_t *trace, rtrace_t *tc,
+const ul_idx_t *uref, char* qstr, UC_Read *tu, overlap_region_alloc *ol, overlap_region *o, 
+bit_extz_t *exz, double e_rate, int64_t qs);
+
 #endif

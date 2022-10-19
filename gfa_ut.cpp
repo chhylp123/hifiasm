@@ -11933,5 +11933,6 @@ double max_ovlp_drop_ratio, int64_t max_tip, bub_label_t *b_mask_t, uint32_t is_
 
     // free(r_het); destory_bubbles(bub); free(bub);
     print_debug_gfa(sg, uidx->uovl.hybrid_ug, uopt->coverage_cut, "hybrid_ug", uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 0, 0, 0);
-    // print_debug_gfa(sg, init_ug, uopt->coverage_cut, "UL.debug", uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 0, 0, 0);
+    print_debug_gfa(sg, init_ug, uopt->coverage_cut, "UL.debug", uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 0, 0, 0);
+    exit(0);
 }
