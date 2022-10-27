@@ -2695,6 +2695,43 @@ int max_hang, int min_ovlp)
 
 
 
+asg_t *ma_sg_gen_ul(ma_hit_t_alloc* sources, int64_t n_read, const ma_sub_t *coverage_cut, 
+R_to_U* ruIndex, int64_t max_hang, int64_t min_ovlp, int64_t ul_occ)
+{
+	int64_t i, j, r; asg_arc_t t, *p; const ma_hit_t *h; 
+	asg_t *g = asg_init(); 
+	for (i = 0; i < n_read; ++i) {
+		asg_seq_set(g, i, coverage_cut[i].e - coverage_cut[i].s, coverage_cut[i].del);
+        g->seq[i].c = coverage_cut[i].c;
+	}
+    CALLOC(g->seq_vis, (g->n_seq<<1));
+    // fprintf(stderr, "[M::%s::] n_read::%ld\n", __func__, n_read);
+    recover_contain_g(g, sources, ruIndex, max_hang, min_ovlp, ul_occ);
+
+    for (i = 0; i < n_read; ++i) {
+        if(g->seq[i].del) continue;
+        for (j = 0; j < sources[i].length; j++) {
+		    h = &(sources[i].buffer[j]);
+            if(h->del) continue;
+		    r = ma_hit2arc(h, (coverage_cut[Get_qn(*h)].e-coverage_cut[Get_qn(*h)].s), 
+                    (coverage_cut[Get_tn(*h)].e-coverage_cut[Get_tn(*h)].s), max_hang, asm_opt.max_hang_rate, min_ovlp, &t);
+            assert(r >= 0);
+            p = asg_arc_pushp(g); *p = t; 
+            p->ou = ((h->bl>OU_MASK)?OU_MASK:h->bl);
+            // if(Get_qn(*h) == 10498 && Get_tn(*h) == 10505) {
+            //     fprintf(stderr, "[M::%s::] qn::%u, tn::%u, p->ou::%u, h->bl::%u\n", __func__, 
+            //     Get_qn(*h), Get_tn(*h), p->ou, h->bl);
+            // }
+        }
+    }
+
+    asg_cleanup(g);
+    g->r_seq = g->n_seq;
+	return g;
+}
+
+
+
 
 // pop bubbles from vertex v0; the graph MJUST BE symmetric: if u->v present, v'->u' must be present as well
 //note!!!!!!!! here we don't exculde the deleted edges
@@ -5151,6 +5188,94 @@ int asg_arc_del_trans(asg_t *g, int fuzz)
     {
         fprintf(stderr, "[M::%s] takes %0.2f s\n\n", __func__, Get_T()-startTime);
     }
+	return n_reduced;
+}
+
+
+int asg_arc_del_trans_ul(asg_t *g, int fuzz)
+{
+	uint32_t v, n_vtx = g->n_seq<<1, n_reduced = 0, L, i, nv;
+    uint8_t *mark; asg_arc_t *av; CALLOC(mark, n_vtx);
+    uint32_t w, j, nw; asg_arc_t *aw;
+
+	for (v = 0; v < n_vtx; ++v) {
+		nv = asg_arc_n(g, v); av = asg_arc_a(g, v);
+		if (nv == 0) continue; // no hits		
+		if (g->seq[v>>1].del)  {
+			for (i = 0; i < nv; ++i) av[i].del = 1, ++n_reduced;
+			continue;
+		}
+        /**
+        p->ul: |____________31__________|__________1___________|______________32_____________|
+                            qns            direction of overlap       length of this node (not overlap length)
+                                            (in the view of query)
+        p->v : |___________31___________|__________1___________|
+                            tns             reverse direction of overlap
+                                        (in the view of target)
+        p->ol: overlap length
+        **/
+
+
+		//all outnode of v should be set to "not reduce"
+		for (i = 0; i < nv; ++i) mark[av[i].v] = 1;
+
+		///length of node (not overlap length)
+		///av[nv-1] is longest out-dege
+		/**
+		 * v---------------
+		 *   w1---------------
+		 *      w2--------------
+		 *         w3--------------
+		 *            w4--------------
+		 *               w5-------------
+		 * for v, the longest out-edge is v->w5
+		 **/
+		L = asg_arc_len(av[nv-1]) + fuzz;
+
+
+		for (i = 0; i < nv; ++i) {
+			//w is an out-node of v
+			w = av[i].v;
+			nw = asg_arc_n(g, w); aw = asg_arc_a(g, w);
+			///if w has already been reduced
+			if (mark[av[i].v] != 1) continue;
+
+			for (j = 0; j < nw && asg_arc_len(aw[j]) + asg_arc_len(av[i]) <= L; ++j)
+				if (mark[aw[j].v]) mark[aw[j].v] = 2;
+		}
+
+        // for (i = 0; i < nv; ++i) {
+        //     if((av[i].del) || (mark[av[i].v] != 1)) continue;
+        //     w = av[i].v;
+		// 	nw = asg_arc_n(g, w); aw = asg_arc_a(g, w);
+        //     for (j = 0; j < nw && asg_arc_len(aw[j]) + asg_arc_len(av[i]) <= L; ++j) {
+        //         if(v == 20996 && w == 21011) {
+        //             fprintf(stderr, "(0):v->%u, ou->%u\n", aw[j].v, aw[j].ou);
+        //         }
+                
+        //         if (mark[aw[j].v] == 2) {
+        //             if((((uint32_t)av[i].ou) + ((uint32_t)aw[j].ou)) <= OU_MASK) {
+        //                 av[i].ou = av[i].ou + aw[j].ou;
+        //             } else {
+        //                 av[i].ou = OU_MASK;
+        //             }
+        //         }
+        //     }
+        // }
+        //remove edges
+		for (i = 0; i < nv; ++i) {
+			if (mark[av[i].v] == 2) {
+                av[i].del = 1, ++n_reduced;
+            }
+			mark[av[i].v] = 0;
+		}
+	}
+	free(mark);
+    asg_cleanup(g);
+    asg_symm(g);
+    // prt_specfic_sge(g, 10498, 10505, __func__);
+    // normalize_gou(g);
+    
 	return n_reduced;
 }
 
@@ -31463,8 +31588,16 @@ ma_hit_t_alloc* src, uint64_t* readLen, R_to_U* ruIndex, bub_label_t *b_mask_t, 
     ma_hit_cut(src, n_read, readLen, mini_overlap_length, cov);
     ma_hit_flt(src, n_read, *cov, max_hang_length, mini_overlap_length);
     ma_hit_contained_advance(src, n_read, *cov, ruIndex, max_hang_length, mini_overlap_length);
-    sg = ma_sg_gen(src, n_read, *cov, max_hang_length, mini_overlap_length);
-    asg_arc_del_trans(sg, gap_fuzz);
+    if(!ul) {
+        sg = ma_sg_gen(src, n_read, *cov, max_hang_length, mini_overlap_length);
+        asg_arc_del_trans(sg, gap_fuzz);
+    } else {
+        sg = ma_sg_gen_ul(src, n_read, *cov, ruIndex, max_hang_length, mini_overlap_length, UL_COV_THRES);
+        // prt_specfic_sge(sg, 10498, 10505, "--*--");
+        asg_arc_del_trans_ul(sg, gap_fuzz);
+        // prt_specfic_sge(sg, 10498, 10505, "--#--");
+    }
+    
     init_bub_label_t(b_mask_t, MIN(10, asm_opt.thread_num), sg->n_seq);
     asm_opt.coverage = get_coverage(src, *cov, n_read);
     return sg;
@@ -31553,7 +31686,7 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
     gen_ug_opt_t(&uopt, sources, reverse_sources, max_hang_length, mini_overlap_length, gap_fuzz, min_dp, readLen, coverage_cut, ruIndex, 
             (asm_opt.max_short_tip*2), 0.15, 3, 0.05, 0.9, &b_mask_t);
     ul_clean_gfa(&uopt, sg, sources, reverse_sources, ruIndex, clean_round, min_ovlp_drop_ratio, max_ovlp_drop_ratio, 
-    0.6, asm_opt.max_short_tip, &b_mask_t, !!asm_opt.ar, ha_opt_triobin(&asm_opt), UL_COV_THRES, o_file);
+    0.6, asm_opt.max_short_tip, gap_fuzz, &b_mask_t, !!asm_opt.ar, ha_opt_triobin(&asm_opt), UL_COV_THRES, o_file);
 
     if (asm_opt.flag & HA_F_VERBOSE_GFA) {
         write_debug_graph(sg, sources, coverage_cut, output_file_name, reverse_sources, ruIndex, &UL_INF);

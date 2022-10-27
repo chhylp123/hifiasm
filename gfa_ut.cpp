@@ -22,6 +22,7 @@ KRADIX_SORT_INIT(srt64, uint64_t, generic_key, 8)
 #define ASG_ET_MULTI_NEI 3
 #define UL_TRAV_HERATE 0.2
 #define UL_TRAV_FT_RATE 0.8
+#define is_contain_r(ri, z) (((z)<(ri).len)&&((ri).index[(z)]!=(uint32_t)(-1))&&(!((ri).index[(z)]>>31)))
 
 KDQ_INIT(uint64_t)
 
@@ -161,6 +162,10 @@ KRADIX_SORT_INIT(ul2ul_srt, ul2ul_t, ul2ul_srt_key, member_size(ul2ul_t, hid))
 typedef struct {
 	asg_t *g; 
 	ma_hit_t_alloc *src;
+    R_to_U* ruIndex;
+    int64_t max_hang; 
+    int64_t min_ovlp; 
+    int64_t ul_occ;
 } sset_aux;
 
 
@@ -446,6 +451,25 @@ uint32_t get_arcs(asg_t *g, uint32_t v, uint32_t* idx, uint32_t idx_n)
     return kv;
 }
 
+#define flex_arcs0(res, fg, id) ((res) = ((!((id)&(((uint32_t)(0x80000000)))))?(&((fg).g->arc[(id)])):(&((fg).a[(id)]))));
+
+uint32_t get_flex_arcs(flex_asg_t *fg, uint32_t v, uint32_t* idx, uint32_t idx_n)
+{
+    asg_t *g = fg->g; uint32_t i, kv = 0;
+    uint32_t an = asg_arc_n(g, v), beg = g->idx[v]>>32;
+    for (i = 0, kv = 0; i < an; i++) {
+        if(g->arc[beg+i].del) continue;
+        if(idx && kv<idx_n) idx[kv] = beg+i;
+        kv++;
+    }
+    for(i = fg->idx[v]; i != ((uint32_t)-1); i = fg->pi.a[i]) {
+        if(fg->a[i].del) continue;
+        if(idx && kv<idx_n) idx[kv] = (i)|((uint32_t)(0x80000000));
+        kv++;
+    }
+    return kv;
+}
+
 uint32_t follow_limit_path(asg_t *g, uint32_t s, uint32_t *e, uint32_t *occ, asg64_v *b, uint32_t lim)
 {
     
@@ -507,10 +531,10 @@ static inline int asg_end(const asg_t *g, uint32_t v, uint64_t *lw, uint32_t *ou
 	return ASG_ET_MERGEABLE;
 }
 
-uint32_t asg_arc_cut_tips(asg_t *g, uint32_t max_ext, asg64_v *in, uint32_t is_ou)
+uint32_t asg_arc_cut_tips(asg_t *g, uint32_t max_ext, asg64_v *in, uint32_t is_ou, R_to_U *ru)
 {
     asg64_v tx = {0,0,0}, *b = NULL;
-    uint32_t n_vtx = g->n_seq<<1, v, w, i, k, cnt = 0, nv, kv, pb, ou, mm_ou;
+    uint32_t n_vtx = g->n_seq<<1, v, w, i, k, cnt = 0, nv, kv, pb, ou, mm_ou, rr, is_u;
     asg_arc_t *av = NULL; uint64_t lw;
 	if(in) b = in;
     else b = &tx;
@@ -563,6 +587,37 @@ uint32_t asg_arc_cut_tips(asg_t *g, uint32_t max_ext, asg64_v *in, uint32_t is_o
         }
         b->n = pb; 
     }
+
+    if(ru && is_ou) {
+        for (v = b->n = 0; v < n_vtx; ++v) {
+            if (g->seq[v>>1].del) continue;
+            av = asg_arc_a(g, v^1); nv = asg_arc_n(g, v^1);
+            for (i = kv = 0; i < nv; i++) {
+                if (av[i].del) continue;
+                kv++; break;
+            }
+            if(kv) continue;
+
+
+            get_R_to_U(ru, v>>1, &rr, &is_u);
+            if(rr == (uint32_t)-1 || is_u == 1) continue;
+            kv_push(uint64_t, *b, v); 
+
+            for (i = 0, w = v; i < max_ext; i++) {
+                if(asg_end(g, w^1, &lw, NULL)!=0) break;
+                w = (uint32_t)lw; 
+
+                get_R_to_U(ru, lw>>1, &rr, &is_u);
+                if(rr == (uint32_t)-1 || is_u == 1) break;
+                kv_push(uint64_t, *b, lw);
+            }
+
+            for (i = 0; i < b->n; i++) {
+                asg_seq_del(g, ((uint32_t)b->a[i])>>1);
+            }
+            if(b->n) cnt++;
+        }
+    }
     
 
     /**
@@ -594,6 +649,72 @@ uint32_t asg_arc_cut_tips(asg_t *g, uint32_t max_ext, asg64_v *in, uint32_t is_o
     if (cnt > 0) asg_cleanup(g);
 
     return cnt;
+}
+
+static void update_sg_contain(void *data, long i, int tid)
+{
+    sset_aux *sl = (sset_aux *)data; ma_hit_t *h, *z; asg_arc_t t;
+	ma_hit_t_alloc *src = sl->src; asg_t *g = sl->g; int64_t r, idx;
+    R_to_U *ridx = sl->ruIndex; uint32_t k, rr, qn, tn, is_u;
+    g->seq_vis[i] = 0; 
+    if(!(g->seq[i].del)) return;
+    get_R_to_U(ridx, i, &rr, &is_u);
+    if(rr == (uint32_t)-1 || is_u == 1) return;
+    ma_hit_t_alloc *x = &(src[i]);
+    for (k = 0; k < x->length; k++) {
+        h = &(x->buffer[k]);
+		qn = Get_qn((*h)); tn = Get_tn((*h));
+        if(h->bl < sl->ul_occ) continue;
+        if(g->seq[tn].del) {
+            get_R_to_U(ridx, tn, &rr, &is_u);
+            if(rr == (uint32_t)-1 || is_u == 1) continue;
+        }
+        r = ma_hit2arc(h, g->seq[qn].len, g->seq[tn].len, sl->max_hang, asm_opt.max_hang_rate, sl->min_ovlp, &t);
+        if(r < 0) continue;
+        idx = get_specific_overlap(&(src[tn]), tn, qn);
+        z = &(src[tn].buffer[idx]);
+        assert(z->bl == h->bl);
+		r = ma_hit2arc(z, g->seq[tn].len, g->seq[qn].len, sl->max_hang, asm_opt.max_hang_rate, sl->min_ovlp, &t);
+        if(r < 0) continue;
+        h->del = 0; if(!(g->seq[tn].del)) z->del = 0;
+        g->seq_vis[i] = 1;
+    }
+}
+
+void recover_contain_g(asg_t *g, ma_hit_t_alloc *src, R_to_U* ruIndex, int64_t max_hang, int64_t min_ovlp, int64_t ul_occ)
+{
+    sset_aux s; s.g = g; s.src = src; s.ruIndex = ruIndex;
+    s.max_hang = max_hang; s.min_ovlp = min_ovlp; s.ul_occ = ul_occ;
+    kt_for(asm_opt.thread_num, update_sg_contain, &s, g->n_seq);
+    uint32_t k;
+    for (k = 0; k < g->n_seq; k++) {
+        if(g->seq_vis[k]) g->seq[k].del = 0;
+    }
+    memset(g->seq_vis, 0, (sizeof(*(g->seq_vis))*(g->n_seq<<1)));
+}
+
+static void normalize_gou0(void *data, long i, int tid)
+{
+    sset_aux *sl = (sset_aux *)data;
+    asg_t *g = sl->g;
+    asg_arc_t *e = &(g->arc[i]);
+    if(e->v > (e->ul>>32)) return;
+    uint32_t k, v = e->v^1, w = (e->ul>>32)^1, ou;
+    uint32_t nv = asg_arc_n(g, v);
+    asg_arc_t *av = asg_arc_a(g, v);
+    for (k = 0; k < nv; ++k) {
+        if (av[k].v == w) {
+            ou = MAX(av[k].ou, e->ou);
+            av[k].ou = e->ou = ou;
+            break;
+        }
+    }
+}
+
+void normalize_gou(asg_t *g)
+{
+    sset_aux s; s.g = g; 
+    kt_for(asm_opt.thread_num, normalize_gou0, &s, g->n_arc);
 }
 
 static void update_sg_uo_t(void *data, long i, int tid)
@@ -776,7 +897,7 @@ void asg_arc_cut_chimeric(asg_t *g, ma_hit_t_alloc* src, asg64_v *in, uint32_t o
     if (cnt > 0) asg_cleanup(g);
 }
 
-void asg_arc_cut_inexact(asg_t *g, ma_hit_t_alloc* src, asg64_v *in, int32_t max_ext, uint32_t is_ou, uint32_t is_trio/**, asg64_v *dbg**/)
+void asg_arc_cut_inexact(asg_t *g, ma_hit_t_alloc* src, asg64_v *in, int32_t max_ext, uint32_t is_ou, uint32_t is_trio, float ou_rat/**, asg64_v *dbg**/)
 {
     asg64_v tx = {0,0,0}, *b = NULL;
     uint32_t v, w, i, k, n_vtx = g->n_seq<<1;
@@ -845,7 +966,7 @@ void asg_arc_cut_inexact(asg_t *g, ma_hit_t_alloc* src, asg64_v *in, int32_t max
         if (kv < 1) continue;
         if (kv >= 2) {
             if (mm_ol >= ol_max) continue;
-            if (is_ou && mm_ou >= ou_max) continue;
+            if (is_ou && mm_ou > ou_max*ou_rat) continue;
         }
         
         for (i = kw = ol_max = ou_max = 0; i < nw; ++i) {
@@ -861,7 +982,7 @@ void asg_arc_cut_inexact(asg_t *g, ma_hit_t_alloc* src, asg64_v *in, int32_t max
         if (kw < 1) continue;
         if (kw >= 2) {
             if (mm_ol >= ol_max) continue;
-            if (is_ou && mm_ou >= ou_max) continue;
+            if (is_ou && mm_ou > ou_max*ou_rat) continue;
         }
         if (kv <= 1 && kw <= 1) continue;
 
@@ -1215,6 +1336,374 @@ uint32_t is_topo, ma_hit_t_alloc *rev, R_to_U* rI, uint32_t *max_drop_len)
     // stats_sysm(g);
     if(!in) free(tx.a);
     if (cnt > 0) asg_cleanup(g);
+}
+
+asg_arc_t *iter_flex_asg(flex_asg_t *fg, flex_asg_e_retrive_t *rr, uint32_t v)
+{
+    asg_arc_t *av; uint32_t nv; asg_arc_t *z;
+    av = asg_arc_a(fg->g, v); nv = asg_arc_n(fg->g, v);
+    while(rr->i[0] < nv) {
+        return &(av[rr->i[0]++]);
+    }
+
+    if(rr->i[0] >= nv && rr->i[0] != ((uint32_t)-1)) {
+        rr->i[0] = ((uint32_t)-1); rr->i[1] = fg->idx[v];
+    }
+    while (rr->i[1] != ((uint32_t)-1)) {
+        z = &(fg->a[rr->i[1]]); rr->i[1] = fg->pi.a[rr->i[1]];
+        return z;
+    }
+    return NULL;
+}
+
+uint32_t detect_tip2(flex_asg_t *fg, uint32_t id, asg64_v *st)
+{
+    uint32_t v, w, kw; asg_arc_t *sv, *sw;
+    flex_asg_e_retrive_t rv, rw;
+    v = id<<1; rv.i[0] = 0; rv.i[1] = (uint32_t)-1;
+    while(1) {
+        sv = iter_flex_asg(fg, &rv, v);
+        if(!sv) break;
+        if(sv->del) continue;
+        w = sv->v^1;
+        if(fg->g->seq_vis[w]&128) continue;
+        if(fg->g->seq_vis[w>>1]&2) continue;
+        
+        rw.i[0] = 0; rw.i[1] = (uint32_t)-1; kw = 0;
+        while(1) {
+            sw = iter_flex_asg(fg, &rw, w);
+            if(!sw) break;
+            if(sw->del) continue;
+            if(fg->g->seq_vis[sw->v>>1]&2) continue;
+            kw++;
+        }
+        if(kw < 1) return 1;
+        fg->g->seq_vis[w] |= 128; kv_push(uint64_t, *st, w);
+    }
+
+    v = (id<<1)+1; rv.i[0] = 0; rv.i[1] = (uint32_t)-1;
+    while(1) {
+        sv = iter_flex_asg(fg, &rv, v);
+        if(!sv) break;
+        if(sv->del) continue;
+        w = sv->v^1;
+        if(fg->g->seq_vis[w]&128) continue;
+        if(fg->g->seq_vis[w>>1]&2) continue;
+        
+        rw.i[0] = 0; rw.i[1] = (uint32_t)-1; kw = 0;
+        while(1) {
+            sw = iter_flex_asg(fg, &rw, w);
+            if(!sw) break;
+            if(sw->del) continue;
+            if(fg->g->seq_vis[sw->v>>1]&2) continue;
+            kw++;
+        }
+        if(kw < 1) return 1;
+        fg->g->seq_vis[w] |= 128; kv_push(uint64_t, *st, w);
+    }
+
+    // av = asg_arc_a(g, v); nv = asg_arc_n(g, v);
+    // for (i = 0; i < nv; ++i) {
+    //     if(av[i].del) continue;
+    //     w = av[i].v^1;
+    //     if(g->seq_vis[w]&128) continue;
+    //     if((g->seq_vis[w>>1]&3)==2) continue;
+    //     aw = asg_arc_a(g, w); nw = asg_arc_n(g, w);
+    //     for (k = kw = 0; k < nw && kw < 1; k++) {
+    //         if(aw[k].del) continue;
+    //         if((g->seq_vis[aw[k].v>>1]&3)==2) continue;
+    //         kw++;
+    //     }
+    //     if(kw < 1) return 1;
+    //     g->seq_vis[w] |= 128; kv_push(uint64_t, *st, w);
+    // }
+
+
+    // v = (id<<1)+1;
+    // av = asg_arc_a(g, v); nv = asg_arc_n(g, v);
+    // for (i = 0; i < nv; ++i) {
+    //     if(av[i].del) continue;
+    //     w = av[i].v^1;
+    //     if(g->seq_vis[w]&128) continue;
+    //     if((g->seq_vis[w>>1]&3)==2) continue;
+    //     aw = asg_arc_a(g, w); nw = asg_arc_n(g, w);
+    //     for (k = kw = 0; k < nw && kw < 1; k++) {
+    //         if(aw[k].del) continue;
+    //         if((g->seq_vis[aw[k].v>>1]&3)==2) continue;
+    //         kw++;
+    //     }
+    //     if(kw < 1) return 1;
+    //     g->seq_vis[w] |= 128; kv_push(uint64_t, *st, w);
+    // }
+
+    return 0;
+}
+
+uint32_t trans_check(flex_asg_t *fg, asg_arc_t *z, asg64_v *b)
+{
+    flex_asg_e_retrive_t rv, rw; asg_arc_t *sv, *sw; 
+    uint32_t v = z->ul>>32, w;
+
+    rv.i[0] = 0; rv.i[1] = (uint32_t)-1;
+    while(1) {
+        sv = iter_flex_asg(fg, &rv, v);
+        if(!sv) break;
+        if(sv->del) continue;
+        if(sv->v == z->v) return 0;
+        w = sv->v;
+        // if((z->ul>>33) == 8340 && (z->v>>1) == 8352) {
+        //     fprintf(stderr, "+[M::%s] v>>1::%u(%c), w>>1::%u(%c), sv->v::%u\n", 
+        //     __func__, (z->ul>>33), "+-"[(z->ul>>32)&1], (z->v>>1), "+-"[z->v&1], sv->v);
+        // }
+
+        rw.i[0] = 0; rw.i[1] = (uint32_t)-1;
+        while (1) {
+            sw = iter_flex_asg(fg, &rw, w);
+            if(!sw) break;
+            if(sw->del) continue;
+            if(sw->v == z->v) return 0;
+        }
+    }
+
+
+    uint32_t bn = b->n; uint64_t vl, d, L = asg_arc_len((*z)) + fg->gap_fuzz;
+    kv_push(uint64_t, *b, v);
+    while (b->n > bn) {
+        vl = kv_pop(*b); v = (uint32_t)vl; vl >>= 32;
+        rv.i[0] = 0; rv.i[1] = (uint32_t)-1;
+         while(1) {
+            sv = iter_flex_asg(fg, &rv, v);
+            if(!sv) break;
+            if(sv->del) continue;
+            d = vl + asg_arc_len((*sv));
+            if(d > L) continue;
+            if(sv->v == z->v) {
+                b->n = bn;
+                return 0;
+            }
+            d <<= 32; d |= sv->v;
+            kv_push(uint64_t, *b, d); 
+         }
+    }
+
+    b->n = bn;
+    return 1;
+}
+
+void push_flex_asg_t(flex_asg_t *fg, asg_arc_t *z)
+{
+    asg_arc_t *av; uint32_t nv, k, v = z->ul>>32;
+    av = asg_arc_a(fg->g, v); nv = asg_arc_n(fg->g, v);
+    for (k = 0; k < nv; k++) {
+        if(av[k].del) {
+            av[k] = *z; 
+            if(!(fg->need_srt)) {
+                if(k > 0 && av[k].ul < av[k-1].ul) fg->need_srt = 1;
+                if(k+1 < nv && av[k].ul > av[k+1].ul) fg->need_srt = 1;
+            }
+            return;
+        }
+    }
+
+    k = fg->n; fg->need_srt = 1;
+    kv_push(asg_arc_t, *fg, *z); 
+    kv_push(uint32_t, fg->pi, fg->idx[v]); fg->idx[v] = k;
+}
+
+void append_notrans_e(flex_asg_t *fg, uint64_t *a, uint64_t a_n, asg64_v *b)
+{
+    ma_hit_t_alloc* src = fg->src; int32_t idx, r; 
+    uint32_t i, k, v, w; ma_hit_t_alloc *z; asg_arc_t t0, t1; 
+    for (i = 0; i < a_n; i++) {
+        v = a[i]; 
+        z = &(src[v>>1]);
+        for (k = i + 1; k < a_n; k++) {
+            w = a[k]^1;
+            idx = get_specific_overlap(z, v>>1, w>>1);
+            if(idx < 0 || z->buffer[idx].del) continue;
+            r = ma_hit2arc(&(z->buffer[idx]), Get_READ_LENGTH(R_INF, v>>1), Get_READ_LENGTH(R_INF, w>>1),
+						fg->max_hang, fg->max_hang_rate, fg->min_ovlp, &t0);
+			if(r < 0) continue;
+            if((t0.ul>>32) != v || t0.v != w) continue;
+            t0.ou = ((z->buffer[idx].bl>OU_MASK)?OU_MASK:z->buffer[idx].bl);
+            // if((v>>1) == 8340 && (w>>1) == 8352) {
+            //     fprintf(stderr, "[M::%s] v>>1::%u(%c), w>>1::%u(%c), t0.ou::%u\n", 
+            //     __func__, (v>>1), "+-"[v&1], (w>>1), "+-"[w&1], t0.ou);
+            // }
+
+
+            idx = get_specific_overlap(&(src[w>>1]), w>>1, v>>1);
+            if(idx < 0 || src[w>>1].buffer[idx].del) continue;
+            r = ma_hit2arc(&(src[w>>1].buffer[idx]), Get_READ_LENGTH(R_INF, w>>1), Get_READ_LENGTH(R_INF, v>>1),
+						fg->max_hang, fg->max_hang_rate, fg->min_ovlp, &t1);
+            if(r < 0) continue;
+            if((t1.ul>>32) != (w^1) || t1.v != (v^1)) continue;
+            t1.ou = ((src[w>>1].buffer[idx].bl>OU_MASK)?OU_MASK:src[w>>1].buffer[idx].bl);
+            // if((v>>1) == 8340 && (w>>1) == 8352) {
+            //     fprintf(stderr, "[M::%s] v>>1::%u(%c), w>>1::%u(%c), t1.ou::%u\n", 
+            //     __func__, (v>>1), "+-"[v&1], (w>>1), "+-"[w&1], t1.ou);
+            // }
+
+            if(trans_check(fg, &t0, b) && trans_check(fg, &t1, b)) {
+                push_flex_asg_t(fg, &t0); push_flex_asg_t(fg, &t1);
+            }
+        }
+    }
+}
+
+uint32_t iter_contain_g(R_to_U* rI, flex_asg_t *fg, uint32_t v0, asg64_v *b, asg64_v *st)
+{
+    uint32_t v, w = (uint32_t)-1, x, i, kv, kw, ulen, cnt = 0, st_n, m, is_purge; 
+    asg_arc_t *s; flex_asg_e_retrive_t rr;
+    b->n = st->n = ulen = 0; kv_push(uint64_t, *st, v0);
+    while (st->n) {
+        v = kv_pop(*st); kv = kw = (uint32_t)-1; ulen = 0;
+        if(fg->g->seq_vis[v>>1]) continue;
+        while ((!(fg->g->seq_vis[v>>1])) && (is_contain_r((*rI), (v>>1)))) {
+            kv = get_flex_arcs(fg, v, &w, 1); ulen++;
+            kv_push(uint64_t, *b, v); 
+            if(kv == 1) {
+                flex_arcs0(s, (*fg), w);
+                w = s->v;
+                kw = get_flex_arcs(fg, w^1, NULL, 0);
+                if(kw == 1) v = w;
+                else break;
+            } else {
+                break;
+            }
+        }
+        // if((v0>>1) == 12321 || (v0>>1) == 12334) {
+        //     fprintf(stderr, "0[M::%s] v0>>1::%u(%c), b->n::%u, ulen::%u\n", 
+        //     __func__, (v0>>1), "+-"[v0&1], (uint32_t)b->n, ulen);
+        // }   
+        if((!ulen) || (fg->g->seq_vis[v>>1]) || (!(is_contain_r((*rI), (v>>1))))) {
+            for (i = b->n - ulen; i < b->n; i++) {
+                fg->g->seq_vis[b->a[i]>>1] = 1; b->a[i] |= ((uint64_t)0x100000000);
+            }
+            continue;
+        }
+        // fprintf(stderr, "1[M::%s] v0>>1::%u(%c), b->n::%u, ulen::%u\n", 
+        //     __func__, (v0>>1), "+-"[v0&1], (uint32_t)b->n, ulen);
+        
+        for (i = 0; i < b->n; i++) {
+            if(b->a[i]&(0x100000000)) continue;
+            fg->g->seq_vis[b->a[i]>>1] = 2;
+        }
+        // fprintf(stderr, "2[M::%s] v0>>1::%u(%c), b->n::%u, ulen::%u\n", 
+        //     __func__, (v0>>1), "+-"[v0&1], (uint32_t)b->n, ulen);
+        for (i = 0, st_n = st->n; i < b->n; i++) {
+            if(b->a[i]&(0x100000000)) continue;
+            if(detect_tip2(fg, b->a[i]>>1, st)) break;
+        }
+        if(i >= b->n) is_purge = 1;
+        else is_purge = 0;
+        // fprintf(stderr, "3[M::%s] v0>>1::%u(%c), b->n::%u, ulen::%u\n", 
+        //     __func__, (v0>>1), "+-"[v0&1], (uint32_t)b->n, ulen);
+        for (i = m = st_n; i < st->n; i++) {
+            if(fg->g->seq_vis[st->a[i]]&128) fg->g->seq_vis[st->a[i]] -= 128;
+            if(is_contain_r((*rI), (st->a[i]>>1))) continue;
+            // if((v0>>1) == 12321 || (v0>>1) == 12334) {
+            //     fprintf(stderr, "bridge::[M::%s] v>>1::%lu(%c)\n", __func__, (st->a[i]>>1), "+-"[st->a[i]&1]);
+            // }
+            st->a[m++] = st->a[i];
+        }
+        st->n = m;
+        // if((v0>>1) == 12321 || (v0>>1) == 12334) {
+        //     fprintf(stderr, "4[M::%s] v0>>1::%u(%c), b->n::%u, i::%u\n", 
+        //         __func__, (v0>>1), "+-"[v0&1], (uint32_t)b->n, i);
+        // }
+        if(is_purge) {
+            for (i = 0; i < b->n; i++) {
+                x = ((uint32_t)b->a[i])>>1;
+                // if((v0>>1) == 12321 || (v0>>1) == 12334) {
+                //     fprintf(stderr, "del::[M::%s] x::%u, seq_vis::%u\n", __func__, x, fg->g->seq_vis[x]);
+                // }
+                if(fg->g->seq_vis[x]&2) {
+                    asg_seq_del(fg->g, x); cnt++;
+                }
+                fg->g->seq_vis[x] = 0;
+            }
+            append_notrans_e(fg, st->a + st_n, st->n-st_n, b);
+            st->n = st_n;
+            return cnt;
+        }
+        for (i = 0; i < b->n; i++) {
+            if(b->a[i]&(0x100000000)) continue;
+            fg->g->seq_vis[b->a[i]>>1] = 1;
+        }
+        st->n = st_n;
+
+        rr.i[0] = 0; rr.i[1] = (uint32_t)-1;
+        while(1) {
+            s = iter_flex_asg(fg, &rr, v);
+            if(!s) break;
+            if(s->del) continue;
+            if(fg->g->seq_vis[s->v>>1]) continue;
+            if(!is_contain_r((*rI), (s->v>>1))) continue;
+            kv_push(uint64_t, *st, s->v); 
+        }
+    }
+    for (i = 0; i < b->n; i++) fg->g->seq_vis[((uint32_t)b->a[i])>>1] = 0;
+    return cnt;
+}
+
+void flex_asg_t_cleanup(flex_asg_t *fg)
+{
+    asg_arc_t *p; uint32_t i;
+    if(fg->n) {
+        for (i = 0; i < fg->n; i++) {
+            if(fg->a[i].del) continue;
+            p = asg_arc_pushp(fg->g);
+            *p = fg->a[i];
+        }
+        free(fg->g->idx);
+        fg->g->idx = 0;
+        fg->g->is_srt = 0;
+    } else if(fg->need_srt){
+        fg->g->is_srt = 0;
+    }
+    asg_cleanup(fg->g);
+}
+
+void asg_arc_cut_contain(flex_asg_t *fg, asg64_v *in, asg64_v *in0, R_to_U* rI)
+{
+    // fprintf(stderr, "+[M::%s]\n", __func__);
+    asg64_v tx = {0,0,0}, tx0 = {0,0,0}, *b = NULL, *b0 = NULL; 
+    uint32_t v, w = (uint32_t)-1, n_vtx = fg->g->n_seq<<1, cnt = 0; asg_arc_t *s;
+    b = in?in:&tx; b0 = in0?in0:&tx0; b->n = b0->n = 0; 
+    fg->pi.n = fg->n = 0; memset(fg->idx, -1, (fg->g->n_seq<<1)*sizeof(*(fg->idx)));
+    fg->need_srt = 0;
+
+    memset(fg->g->seq_vis, 0, sizeof(*(fg->g->seq_vis))*n_vtx);
+    for (v = 0; v < n_vtx; ++v) {
+        // if((v>>1) == 6236) {
+        //     fprintf(stderr, "[M::%s] v>>1::%u(%c), del::%u, contain::%u, get_arcs(v)::%u, get_arcs(v^1)::%u\n", 
+        //     __func__, (v>>1), "+-"[v&1], g->seq[v>>1].del, is_contain_r((*rI), (v>>1)), 
+        //     get_arcs(g, v, NULL, 0), get_arcs(g, v^1, NULL, 0));
+        // }  
+        // fprintf(stderr, "+[M::%s] v>>1::%u(%c), del::%u, contain::%u, fg->n::%u, fg->need_srt::%u\n", 
+        // __func__, (v>>1), "+-"[v&1], fg->g->seq[v>>1].del, is_contain_r((*rI), (v>>1)), (uint32_t)fg->n, (uint32_t)fg->need_srt);
+        if (fg->g->seq[v>>1].del) continue;
+        if(!is_contain_r((*rI), (v>>1))) continue;
+        if(get_flex_arcs(fg, v^1, &w, 1) == 1) {
+            flex_arcs0(s, (*fg), w);
+            if(get_flex_arcs(fg, s->v^1, NULL, 0) == 1) continue;
+        }
+        // if((v>>1) == 12321 || (v>>1) == 12334) {
+        //     fprintf(stderr, "-[M::%s] v>>1::%u(%c), del::%u, contain::%u, fg->n::%u, fg->need_srt::%u\n", 
+        //     __func__, (v>>1), "+-"[v&1], fg->g->seq[v>>1].del, is_contain_r((*rI), (v>>1)), (uint32_t)fg->n, (uint32_t)fg->need_srt);
+        // }
+        
+        cnt += iter_contain_g(rI, fg, v, b, b0);
+        // if((v>>1) == 12321 || (v>>1) == 12334) {
+        //     fprintf(stderr, "*[M::%s] v>>1::%u(%c), del::%u, contain::%u, fg->n::%u, fg->need_srt::%u\n", 
+        //     __func__, (v>>1), "+-"[v&1], fg->g->seq[v>>1].del, is_contain_r((*rI), (v>>1)), (uint32_t)fg->n, (uint32_t)fg->need_srt);
+        // }
+    }
+    // stats_sysm(g);
+    if(!in) free(tx.a); if(!in0) free(tx0.a);
+    if(cnt > 0) flex_asg_t_cleanup(fg);
+    // fprintf(stderr, "-[M::%s]\n", __func__);
 }
 
 uint32_t if_false_bub_links(uint32_t v, asg_t *g, buf_t *x, asg64_v *b, uint32_t bs, int32_t check_dist)
@@ -1763,8 +2252,51 @@ void filter_sg_by_ug(asg_t *rg, ma_ug_t *ug, ug_opt_t *uopt)
     /*******************************for debug************************************/
 }
 
+void prt_specfic_sge(asg_t *g, uint32_t src, uint32_t dst, const char* cmd)
+{
+    uint32_t k, v, w, nv; asg_arc_t *av;
+    fprintf(stderr, "[M::%s::%s] src::%.*s(id::%u), dst::%.*s(id::%u)\n", __func__, cmd, 
+    (int)Get_NAME_LENGTH(R_INF, src), Get_NAME(R_INF, src), src, 
+    (int)Get_NAME_LENGTH(R_INF, dst), Get_NAME(R_INF, dst), dst);
+    v = src<<1; 
+    nv = asg_arc_n(g, v); av = asg_arc_a(g, v);
+    for (k = 0; k < nv; ++k) {
+        if ((av[k].v>>1) == dst) {
+            w = av[k].v;
+            fprintf(stderr, "[M::%s::]\t%.*s(%c)\t%.*s(%c)\tou::%u\n", __func__,
+					(int)Get_NAME_LENGTH(R_INF, (v>>1)), Get_NAME(R_INF, (v>>1)), "+-"[v&1],
+					(int)Get_NAME_LENGTH(R_INF, (w>>1)), Get_NAME(R_INF, (w>>1)), "+-"[w&1], av[k].ou);
+        }
+    }
+
+    v = (src<<1)+1; 
+    nv = asg_arc_n(g, v); av = asg_arc_a(g, v);
+    for (k = 0; k < nv; ++k) {
+        if ((av[k].v>>1) == dst) {
+            w = av[k].v;
+            fprintf(stderr, "[M::%s::]\t%.*s(%c)\t%.*s(%c)\tou::%u\n", __func__,
+					(int)Get_NAME_LENGTH(R_INF, (v>>1)), Get_NAME(R_INF, (v>>1)), "+-"[v&1],
+					(int)Get_NAME_LENGTH(R_INF, (w>>1)), Get_NAME(R_INF, (w>>1)), "+-"[w&1], av[k].ou);
+        }
+    }
+}
+
+flex_asg_t *init_flex_asg_t(asg_t *g, ma_hit_t_alloc* src, int64_t min_ovlp, int64_t max_hang, int64_t max_hang_rate, int64_t gap_fuzz)
+{
+    flex_asg_t *z; CALLOC(z, 1);
+    z->g = g; z->src = src; z->min_ovlp = min_ovlp; z->gap_fuzz = gap_fuzz;
+    z->max_hang = max_hang; z->max_hang_rate = max_hang_rate; 
+    MALLOC(z->idx, (z->g->n_seq<<1)); memset(z->idx, -1, (z->g->n_seq<<1)*sizeof(*(z->idx)));
+    return z;
+}
+
+void des_flex_asg_t(flex_asg_t *z)
+{
+    free(z->idx); free(z->pi.a); free(z->a);
+}
+
 void ul_clean_gfa(ug_opt_t *uopt, asg_t *sg, ma_hit_t_alloc *src, ma_hit_t_alloc *rev, R_to_U* rI, int64_t clean_round, double min_ovlp_drop_ratio, double max_ovlp_drop_ratio, 
-double ou_drop_rate, int64_t max_tip, bub_label_t *b_mask_t, int32_t is_ou, int32_t is_trio, uint32_t ou_thres, char *o_file)
+double ou_drop_rate, int64_t max_tip, int64_t gap_fuzz, bub_label_t *b_mask_t, int32_t is_ou, int32_t is_trio, uint32_t ou_thres, char *o_file)
 {
     #define HARD_OU_DROP 0.75
     #define HARD_OL_DROP 0.6
@@ -1773,41 +2305,54 @@ double ou_drop_rate, int64_t max_tip, bub_label_t *b_mask_t, int32_t is_ou, int3
     double step = 
         (clean_round==1?max_ovlp_drop_ratio:((max_ovlp_drop_ratio-min_ovlp_drop_ratio)/(clean_round-1)));
     double drop = min_ovlp_drop_ratio;
-    int64_t i; asg64_v bu = {0,0,0}; uint32_t l_drop = 2000;
-	if(is_ou) update_sg_uo(sg, src);
+    int64_t i; asg64_v bu = {0,0,0}, ba = {0,0,0}; uint32_t l_drop = 2000; flex_asg_t *fg = NULL;
+    if(is_ou) fg = init_flex_asg_t(sg, uopt->sources, uopt->min_ovlp, uopt->max_hang, asm_opt.max_hang_rate, gap_fuzz);
+	// if(is_ou) update_sg_uo(sg, src);///do not do it here
+    // print_debug_gfa(sg, NULL, uopt->coverage_cut, "UL.dirty.debug", uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 1, 0, 0);
+    // exit(1);
 
     // debug_info_of_specfic_node("m64012_190921_234837/111673711/ccs", sg, rI, "beg");
     // debug_info_of_specfic_node("m64011_190830_220126/95028102/ccs", sg, rI, "beg");
 
-	asg_arc_cut_tips(sg, max_tip, &bu, is_ou);
+	asg_arc_cut_tips(sg, max_tip, &bu, is_ou, is_ou?rI:NULL);
     // fprintf(stderr, "[M::%s] count_edges_v_w(sg, 49778, 49847)->%ld\n", __func__, count_edges_v_w(sg, 49778, 49847));
     
     for (i = 0; i < clean_round; i++, drop += step) {
         if(drop > max_ovlp_drop_ratio) drop = max_ovlp_drop_ratio;
         // fprintf(stderr, "(0):i->%ld, drop->%f\n", i, drop);
+        // prt_specfic_sge(sg, 10531, 10519, "--0--");
+
         // print_vw_edge(sg, 34156, 34090, "0");
         // stats_chimeric(sg, src, &bu);
         if(!is_ou) asg_iterative_semi_circ(sg, src, &bu, max_tip, 1);
 
         asg_arc_identify_simple_bubbles_multi(sg, b_mask_t, 1);
         asg_arc_cut_chimeric(sg, src, &bu, is_ou?ou_thres:(uint32_t)-1);
-        asg_arc_cut_tips(sg, max_tip, &bu, is_ou);
+        asg_arc_cut_tips(sg, max_tip, &bu, is_ou, is_ou?rI:NULL);
+        // prt_specfic_sge(sg, 10531, 10519, "--1--");
 
         asg_arc_identify_simple_bubbles_multi(sg, b_mask_t, 0);
-        asg_arc_cut_inexact(sg, src, &bu, max_tip, is_ou, is_trio/**, NULL**//**&dbg**/);
+        asg_arc_cut_inexact(sg, src, &bu, max_tip, is_ou, is_trio, ou_drop_rate/**, NULL**//**&dbg**/);
         // debug_edges(&dbg, d, 2);
-        asg_arc_cut_tips(sg, max_tip, &bu, is_ou);
+        asg_arc_cut_tips(sg, max_tip, &bu, is_ou, is_ou?rI:NULL);
+        // prt_specfic_sge(sg, 10531, 10519, "--2--");
 
         asg_arc_identify_simple_bubbles_multi(sg, b_mask_t, 1);
         asg_arc_cut_length(sg, &bu, max_tip, drop, ou_drop_rate, is_ou, is_trio, 1, NULL, NULL, NULL);
-        asg_arc_cut_tips(sg, max_tip, &bu, is_ou);
+        asg_arc_cut_tips(sg, max_tip, &bu, is_ou, is_ou?rI:NULL);
+
+        // prt_specfic_sge(sg, 10531, 10519, "--3--");
+        if(is_ou) asg_arc_cut_contain(fg, &bu, &ba, rI);
 
         asg_arc_identify_simple_bubbles_multi(sg, b_mask_t, 1);
         asg_arc_cut_bub_links(sg, &bu, HARD_OL_DROP, HARD_OL_SEC_DROP, HARD_OU_DROP, is_ou, asm_opt.large_pop_bubble_size, rev, rI, max_tip);
-        
+        // prt_specfic_sge(sg, 10531, 10519, "--4--");
+
         asg_arc_identify_simple_bubbles_multi(sg, b_mask_t, 1);
         asg_arc_cut_complex_bub_links(sg, &bu, HARD_OL_DROP, HARD_OU_DROP, is_ou, b_mask_t);
-        asg_arc_cut_tips(sg, max_tip, &bu, is_ou);
+        asg_arc_cut_tips(sg, max_tip, &bu, is_ou, is_ou?rI:NULL);
+        // prt_specfic_sge(sg, 10531, 10519, "--5--");
+        
 
         if(is_ou) {
             if(ul_refine_alignment(uopt, sg)) update_sg_uo(sg, src);
@@ -1820,19 +2365,18 @@ double ou_drop_rate, int64_t max_tip, bub_label_t *b_mask_t, int32_t is_ou, int3
 
     asg_arc_identify_simple_bubbles_multi(sg, b_mask_t, 0);
     asg_cut_large_indel(sg, &bu, max_tip, HARD_OU_DROP, is_ou);///shoule we ignore ou here?
-    asg_arc_cut_tips(sg, max_tip, &bu, is_ou);
+    asg_arc_cut_tips(sg, max_tip, &bu, is_ou, is_ou?rI:NULL);
 
     ///asg_arc_del_triangular_directly might be unnecessary
     asg_arc_identify_simple_bubbles_multi(sg, b_mask_t, 0);
     asg_arc_cut_length(sg, &bu, max_tip, HARD_ORTHOLOGY_DROP/**min_ovlp_drop_ratio**/, ou_drop_rate, is_ou, 0/**is_trio**/, 0, rev, rI, NULL);
-    asg_arc_cut_tips(sg, max_tip, &bu, is_ou);
+    asg_arc_cut_tips(sg, max_tip, &bu, is_ou, is_ou?rI:NULL);
 
     asg_arc_identify_simple_bubbles_multi(sg, b_mask_t, 0);
     asg_arc_cut_length(sg, &bu, max_tip, min_ovlp_drop_ratio, ou_drop_rate, is_ou, 0/**is_trio**/, 0, rev, rI, &l_drop);
-    asg_arc_cut_tips(sg, max_tip, &bu, is_ou);
+    asg_arc_cut_tips(sg, max_tip, &bu, is_ou, is_ou?rI:NULL);
 
     if(!is_ou) asg_cut_semi_circ(sg, LIM_LEN, 1);
-
 
     rescue_contained_reads_aggressive(NULL, sg, src, uopt->coverage_cut, rI, uopt->max_hang, uopt->min_ovlp, 10, 1, 0, NULL, NULL, b_mask_t);
     rescue_missing_overlaps_aggressive(NULL, sg, src, uopt->coverage_cut, rI, uopt->max_hang, uopt->min_ovlp, 1, 0, NULL, b_mask_t);
@@ -1852,10 +2396,14 @@ double ou_drop_rate, int64_t max_tip, bub_label_t *b_mask_t, int32_t is_ou, int3
     if(is_ou) {
         update_sg_uo(sg, src);
     }
-    
+    if(is_ou) {
+        des_flex_asg_t(fg); free(fg);
+    }
+    print_debug_gfa(sg, NULL, uopt->coverage_cut, "UL.debug", uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 1, 0, 0);
+    exit(1);
     // print_node(sg, 17078); //print_node(sg, 8311); print_node(sg, 8294);
     
-    free(bu.a); 
+    free(bu.a); free(ba.a);
 }
 
 

@@ -212,6 +212,20 @@ typedef struct {
 	ma_utg_t* F_seq;
 } asg_t;
 
+typedef struct {
+	ma_hit_t_alloc* src;
+	int64_t min_ovlp, max_hang, max_hang_rate, need_srt, gap_fuzz;
+	asg_t *g;
+	uint32_t *idx;
+	kvec_t(uint32_t) pi;
+	asg_arc_t *a;
+	size_t n, m;
+} flex_asg_t;
+
+typedef struct {
+	uint32_t i[2];
+}flex_asg_e_retrive_t;
+
 asg_t *asg_init(void);
 void asg_destroy(asg_t *g);
 void asg_arc_sort(asg_t *g);
