@@ -924,7 +924,7 @@ void normalize_ma_hit_t_single_side_advance(ma_hit_t_alloc* sources, long long n
         }
     }
 
-    if(VERBOSE >= 1)
+    // if(VERBOSE >= 1)
     {
         fprintf(stderr, "[M::%s] takes %0.2fs\n\n", __func__, Get_T()-startTime);
     }
