@@ -2693,7 +2693,13 @@ int max_hang, int min_ovlp)
 	return g;
 }
 
-
+void prt_specific_overlap(ma_hit_t_alloc *src, uint64_t qn, uint64_t tn, const char *cmd)
+{
+    int64_t idx = get_specific_overlap(&(src[qn]), qn, tn);
+    const ma_hit_t *h = &(src[qn].buffer[idx]);
+    fprintf(stderr, "%s::idx::%ld[M::%s::] qn::%u, tn::%u, del::%u, bl::%u, ml::%u\n", cmd, idx, __func__, 
+    Get_qn(*h), Get_tn(*h), h->del, h->bl, h->ml);
+}
 
 asg_t *ma_sg_gen_ul(ma_hit_t_alloc* sources, int64_t n_read, const ma_sub_t *coverage_cut, 
 R_to_U* ruIndex, int64_t max_hang, int64_t min_ovlp, int64_t ul_occ)
@@ -2705,6 +2711,9 @@ R_to_U* ruIndex, int64_t max_hang, int64_t min_ovlp, int64_t ul_occ)
         g->seq[i].c = coverage_cut[i].c;
 	}
     CALLOC(g->seq_vis, (g->n_seq<<1));
+
+    // prt_specific_overlap(sources, 22233, 22235, "+");
+    // prt_specific_overlap(sources, 22235, 22233, "+");
     // fprintf(stderr, "[M::%s::] n_read::%ld\n", __func__, n_read);
     recover_contain_g(g, sources, ruIndex, max_hang, min_ovlp, ul_occ);
 
@@ -2712,6 +2721,11 @@ R_to_U* ruIndex, int64_t max_hang, int64_t min_ovlp, int64_t ul_occ)
         if(g->seq[i].del) continue;
         for (j = 0; j < sources[i].length; j++) {
 		    h = &(sources[i].buffer[j]);
+            // if((Get_qn(*h) == 22233 && Get_tn(*h) == 22235)||
+            //             (Get_qn(*h) == 22235 && Get_tn(*h) == 22233)) {
+            //     fprintf(stderr, "[M::%s::] qn::%u, tn::%u, del::%u, bl::%u\n", __func__, Get_qn(*h), Get_tn(*h), 
+            //         h->del, h->bl);
+            // }
             if(h->del) continue;
 		    r = ma_hit2arc(h, (coverage_cut[Get_qn(*h)].e-coverage_cut[Get_qn(*h)].s), 
                     (coverage_cut[Get_tn(*h)].e-coverage_cut[Get_tn(*h)].s), max_hang, asm_opt.max_hang_rate, min_ovlp, &t);
@@ -10177,8 +10191,52 @@ int asg_cut_internal(asg_t *g, int max_ext)
 	return cnt;
 }
 
+uint32_t reset_weak_ovlp(ma_hit_t_alloc *sc, uint32_t src, uint32_t dst)
+{
+    ma_hit_t_alloc *x = &(sc[src]); uint32_t k, tn; int32_t idx;
+    for (k = 0; k < x->length; k++) {
+        if((x->buffer[k].bl&((uint32_t)0x40000000))) continue;
+        if((x->buffer[k].del)) continue;
+        tn = Get_tn(x->buffer[k]);
+        if((Get_ts(x->buffer[k]) == 0) && (Get_te(x->buffer[k]) == Get_READ_LENGTH(R_INF, tn))) {
+            idx = get_specific_overlap(&(sc[tn]), tn, dst);
+            if((idx >= 0) && (!(sc[tn].buffer[idx].del)) && (!(sc[tn].buffer[idx].bl&((uint32_t)0x40000000)))) {
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
 
-
+static void update_weak_by_contain(void *data, long i, int tid)
+{
+    sset_aux *sl = (sset_aux *)data;
+    ma_hit_t_alloc *x = &(sl->src[i]);
+    uint32_t k, qn, tn; int32_t idx;
+    if(sl->ul_occ == 0) {
+        for (k = 0; k < x->length; k++) {
+            if(x->buffer[k].bl&((uint32_t)0x40000000)) x->buffer[k].del = 1;
+        }
+    } else if(sl->ul_occ == 1) {
+        for (k = 0; k < x->length; k++) {
+            qn = Get_qn(x->buffer[k]);
+            tn = Get_tn(x->buffer[k]);
+            if(qn > tn) continue;
+            if((x->buffer[k].del) && (x->buffer[k].bl&((uint32_t)0x40000000))) {
+                if(reset_weak_ovlp(sl->src, qn, tn)) {
+                    idx = get_specific_overlap(&(sl->src[tn]), tn, qn);
+                    sl->src[tn].buffer[idx].del = x->buffer[k].del = 0;
+                }
+            }            
+        }
+    } else {
+        for (k = 0; k < x->length; k++) {
+            if(x->buffer[k].bl&((uint32_t)0x40000000)) {
+                x->buffer[k].bl -= ((uint32_t)0x40000000);
+            }
+        }
+    }
+}
 
 
 void clean_weak_ma_hit_t(ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, long long num_sources, uint32_t ou_thres)
@@ -10215,26 +10273,35 @@ void clean_weak_ma_hit_t(ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_source
         }
     }
 
+    sset_aux s; s.src = sources; s.ul_occ = 0;
+    kt_for(asm_opt.thread_num, update_weak_by_contain, &s, num_sources);
 
-
-    for (i = 0; i < num_sources; i++)
-    {
-        
-        for (j = 0; j < sources[i].length; j++)
-        {
-            if(sources[i].buffer[j].del) continue;
-
-            if(sources[i].buffer[j].bl&((uint32_t)0x40000000))
-            {
-                sources[i].buffer[j].del = 1;
-                sources[i].buffer[j].bl -= ((uint32_t)0x40000000);
-            }
-            else
-            {
-                sources[i].buffer[j].del = 0;
-            }
-        }
+    if(ou_thres != ((uint32_t)-1)) {
+        s.ul_occ = 1;
+        kt_for(asm_opt.thread_num, update_weak_by_contain, &s, num_sources);
     }
+
+    s.ul_occ = 2;
+    kt_for(asm_opt.thread_num, update_weak_by_contain, &s, num_sources);
+
+    // for (i = 0; i < num_sources; i++)
+    // {
+        
+    //     for (j = 0; j < sources[i].length; j++)
+    //     {
+    //         if(sources[i].buffer[j].del) continue;
+
+    //         if(sources[i].buffer[j].bl&((uint32_t)0x40000000))
+    //         {
+    //             sources[i].buffer[j].del = 1;
+    //             sources[i].buffer[j].bl -= ((uint32_t)0x40000000);
+    //         }
+    //         else
+    //         {
+    //             sources[i].buffer[j].del = 0;
+    //         }
+    //     }
+    // }
 
     if(VERBOSE >= 1)
     {
@@ -31581,13 +31648,15 @@ void rescue_src_ul(ma_hit_t_alloc* src, uint64_t n_read, uint64_t occ)
 asg_t *gen_init_sg(int32_t min_dp, uint64_t n_read, int64_t mini_overlap_length, int64_t max_hang_length, int64_t gap_fuzz,
 ma_hit_t_alloc* src, uint64_t* readLen, R_to_U* ruIndex, bub_label_t *b_mask_t, ma_sub_t** cov, all_ul_t *ul)
 {
-    asg_t *sg = NULL;
+    asg_t *sg = NULL; 
+    // prt_specific_overlap(src, 22233, 22235, "1");
     if(ul) rescue_src_ul(src, n_read, UL_COV_THRES);
     ma_hit_sub(min_dp, src, n_read, readLen, mini_overlap_length, cov);
     detect_chimeric_reads(src, n_read, readLen, *cov, asm_opt.max_ov_diff_final*2.0, ul, UL_COV_THRES);
     ma_hit_cut(src, n_read, readLen, mini_overlap_length, cov);
     ma_hit_flt(src, n_read, *cov, max_hang_length, mini_overlap_length);
     ma_hit_contained_advance(src, n_read, *cov, ruIndex, max_hang_length, mini_overlap_length);
+
     if(!ul) {
         sg = ma_sg_gen(src, n_read, *cov, max_hang_length, mini_overlap_length);
         asg_arc_del_trans(sg, gap_fuzz);
@@ -31647,12 +31716,17 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
     //     debug_gfa:;
     // }
     ///should recover edges from sources by using UL alignments
+    // prt_specific_overlap(sources, 22233, 22235, "0-a");
+    // prt_specific_overlap(sources, 22235, 22233, "0-a");
     if(asm_opt.ar) {
         create_ul_info(sources, reverse_sources, max_hang_length, mini_overlap_length, gap_fuzz, min_dp, readLen, coverage_cut, ruIndex, 
         (asm_opt.max_short_tip*2), 0.15, 3, 0.05, 0.9, &b_mask_t);
-    }
-    
+    } 
+    // prt_specific_overlap(sources, 22233, 22235, "0-b");
+    // prt_specific_overlap(sources, 22235, 22233, "0-b");
     clean_weak_ma_hit_t(sources, reverse_sources, n_read, asm_opt.ar?UL_COV_THRES:(uint32_t)-1);
+    // prt_specific_overlap(sources, 22233, 22235, "0-c");
+    // prt_specific_overlap(sources, 22235, 22233, "0-c");
     sg = gen_init_sg(min_dp, n_read, mini_overlap_length, max_hang_length, gap_fuzz, sources, readLen, ruIndex, 
     &b_mask_t, &coverage_cut, asm_opt.ar?&UL_INF:NULL);
     // if(asm_opt.ar) exit(1);

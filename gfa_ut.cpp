@@ -160,16 +160,6 @@ typedef struct {
 KRADIX_SORT_INIT(ul2ul_srt, ul2ul_t, ul2ul_srt_key, member_size(ul2ul_t, hid))
 
 typedef struct {
-	asg_t *g; 
-	ma_hit_t_alloc *src;
-    R_to_U* ruIndex;
-    int64_t max_hang; 
-    int64_t min_ovlp; 
-    int64_t ul_occ;
-} sset_aux;
-
-
-typedef struct {
     kvec_t(uint64_t) ref;
     kvec_t(uint64_t) pat;
     kvec_t(uint64_t) pat_cor;
@@ -1611,10 +1601,8 @@ uint32_t iter_contain_g(R_to_U* rI, flex_asg_t *fg, uint32_t v0, asg64_v *b, asg
         //     __func__, (v0>>1), "+-"[v0&1], (uint32_t)b->n, ulen);
         for (i = m = st_n; i < st->n; i++) {
             if(fg->g->seq_vis[st->a[i]]&128) fg->g->seq_vis[st->a[i]] -= 128;
-            if(is_contain_r((*rI), (st->a[i]>>1))) continue;
-            // if((v0>>1) == 12321 || (v0>>1) == 12334) {
-            //     fprintf(stderr, "bridge::[M::%s] v>>1::%lu(%c)\n", __func__, (st->a[i]>>1), "+-"[st->a[i]&1]);
-            // }
+            ///append edges to all nodes, instead of non-contained only
+            // if(is_contain_r((*rI), (st->a[i]>>1))) continue;
             st->a[m++] = st->a[i];
         }
         st->n = m;
@@ -1715,6 +1703,65 @@ void asg_arc_cut_contain(flex_asg_t *fg, asg64_v *in, asg64_v *in0, R_to_U* rI, 
     if(cnt > 0) flex_asg_t_cleanup(fg);
     // fprintf(stderr, "-[M::%s]\n", __func__);
 }
+
+void label_contain_dup(asg_t *g, R_to_U* rI, uint32_t v0, asg64_v *b, asg64_v *dump)
+{
+    asg_arc_t *av; uint32_t nv, v, i;
+    if(!is_contain_r((*rI), (v0>>1))) return;
+    b->n = 0; kv_push(uint64_t, *b, v0);
+    while (b->n) {
+        v = kv_pop(*b);
+        if(g->seq_vis[v]&1) continue;
+        kv_push(uint64_t, *dump, v);
+        g->seq_vis[v] |= 1;
+        av = asg_arc_a(g, v); 
+        nv = asg_arc_n(g, v);
+        for (i = 0; i < nv; ++i) {
+            if(av[i].del || (g->seq_vis[av[i].v]&1) || (!is_contain_r((*rI), (av[i].v>>1)))) continue;
+            kv_push(uint64_t, *b, av[i].v);
+        }
+    }
+}
+
+/**
+void asg_arc_contain_trans_del(asg_t *g, asg64_v *in, asg64_v *in0, R_to_U* rI, float ou_rat)
+{
+    uint64_t n_vtx = g->n_seq<<1, i, k, v, w, nv, kv; asg_arc_t *av;
+    memset(g->seq_vis, 0, sizeof((*g->seq_vis))*n_vtx);
+    for (v = 0; v < n_vtx; ++v) {
+        av = asg_arc_a(g, v); nv = asg_arc_n(g, v);
+        for (i = kv = 0; i < nv; i++) {
+            if(av[i].del) continue;
+            if(is_contain_r((*rI), (av[i].v>>1))) kv++;
+            g->seq_vis[av[i].v] = 1;
+        }
+        if(kv <= 0) {
+            for (i = 0; i < nv; i++) {
+                if(av[i].del) continue;
+                g->seq_vis[av[i].v] = 0;
+            }
+            continue;
+        }
+        for (i = 0; i < nv; i++) {
+            if(av[i].del) continue;
+            if(!(is_contain_r((*rI), (av[i].v>>1)))) continue;
+
+        }
+
+        
+
+        if ((g->seq[v>>1].del) || (g->seq_vis[v]&1)) continue;
+        if(!is_contain_r((*rI), (v>>1))) continue;
+        // if(get_arcs(g, v, &w, 1) == 1) {
+        //     w = g->arc[w].v;
+        //     if(get_arcs(g, w^1, NULL, 0) == 1) continue;
+        // }
+        in0->n = 0;
+        label_contain_dup(g, rI, v, in, in0);
+        label_contain_dup(g, rI, v^1, in, in0);
+    }
+}
+**/
 
 uint32_t if_false_bub_links(uint32_t v, asg_t *g, buf_t *x, asg64_v *b, uint32_t bs, int32_t check_dist)
 {
@@ -2317,7 +2364,7 @@ double ou_drop_rate, int64_t max_tip, int64_t gap_fuzz, bub_label_t *b_mask_t, i
     double drop = min_ovlp_drop_ratio;
     int64_t i; asg64_v bu = {0,0,0}, ba = {0,0,0}; uint32_t l_drop = 2000; flex_asg_t *fg = NULL;
     if(is_ou) fg = init_flex_asg_t(sg, uopt->sources, uopt->min_ovlp, uopt->max_hang, asm_opt.max_hang_rate, gap_fuzz);
-	// if(is_ou) update_sg_uo(sg, src);///do not do it here
+    // if(is_ou) update_sg_uo(sg, src);///do not do it here
     // print_debug_gfa(sg, NULL, uopt->coverage_cut, "UL.dirty.debug", uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 1, 0, 0);
     // exit(1);
 
@@ -2352,7 +2399,8 @@ double ou_drop_rate, int64_t max_tip, int64_t gap_fuzz, bub_label_t *b_mask_t, i
         asg_arc_cut_tips(sg, max_tip, &bu, is_ou, is_ou?rI:NULL);
 
         // prt_specfic_sge(sg, 10531, 10519, "--3--");
-        if(is_ou) asg_arc_cut_contain(fg, &bu, &ba, rI, ((i+1)<clean_round)?ou_drop_rate:-1);
+        // if(is_ou) asg_arc_cut_contain(fg, &bu, &ba, rI, ((i+1)<clean_round)?ou_drop_rate:-1);
+        if(is_ou) asg_arc_cut_contain(fg, &bu, &ba, rI, ou_drop_rate);
 
         asg_arc_identify_simple_bubbles_multi(sg, b_mask_t, 1);
         asg_arc_cut_bub_links(sg, &bu, HARD_OL_DROP, HARD_OL_SEC_DROP, HARD_OU_DROP, is_ou, asm_opt.large_pop_bubble_size, rev, rI, max_tip);
