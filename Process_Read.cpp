@@ -1111,7 +1111,18 @@ void determine_chain_distance(ul_ov_t *o, int64_t on, ul_vec_t *p, ma_hit_t_allo
 				}
 			}
 			// if(t>=x->length) {
-			// 	fprintf(stderr, "m->%ld, i->%ld, rid->%ld, on->%ld\n", m, i, rid, on);
+			// 	fprintf(stderr, "m->%ld(id::%u), i->%ld(id::%u), rid->%ld, on->%ld\n", 
+			// 	m, (o[m].tn<<1)>>1, i, (o[i].tn<<1)>>1, rid, on);
+			// 	// fprintf(stderr, "[i::%ld]id::%u\t\tq::[%u, %u)\tt::[%u, %u)\n", 
+			// 	// 	i, o[i].tn, o[i].qs, o[i].qe, o[i].ts, o[i].te);
+			// 	// fprintf(stderr, "[m::%ld]id::%u\t\tq::[%u, %u)\tt::[%u, %u)\n", 
+			// 	// 	m, o[m].tn, o[m].qs, o[m].qe, o[m].ts, o[m].te);
+			// 	fprintf(stderr, "[i::%ld]id::%u\t%.*s\t%c\tq::[%u, %u)\tt::[%u, %u)\n", 
+			// 		i, (o[i].tn<<1)>>1, (int)Get_NAME_LENGTH(R_INF, ((o[i].tn<<1)>>1)), Get_NAME(R_INF, ((o[i].tn<<1)>>1)), 
+			// 		"+-"[o[i].rev], o[i].qs, o[i].qe, o[i].ts, o[i].te);
+			// 	fprintf(stderr, "[m::%ld]id::%u\t%.*s\t%c\tq::[%u, %u)\tt::[%u, %u)\n", 
+			// 		m, (o[m].tn<<1)>>1, (int)Get_NAME_LENGTH(R_INF, ((o[m].tn<<1)>>1)), Get_NAME(R_INF, ((o[m].tn<<1)>>1)), 
+			// 		"+-"[o[m].rev], o[m].qs, o[m].qe, o[m].ts, o[m].te);
 			// 	exit(1);
 			// }
 			assert(t<x->length);

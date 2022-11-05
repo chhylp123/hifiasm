@@ -5102,6 +5102,36 @@ void gen_gg_aln(overlap_region_alloc* olist, const ul_idx_t *uref, int64_t trans
 	}
 }
 
+int64_t get_overlap_region_sub_err_debug(overlap_region *o, int64_t qs, int64_t *sec_err)
+{
+	(*sec_err) = 0;
+	if(o->w_list.n <= 0) return 0;
+	int64_t k; double rr; int64_t terr, dd;
+	for (k = o->w_list.n-1, terr = 0; k >= 0 && qs < o->w_list.a[k].x_end; k--) {
+		if(qs >= o->w_list.a[k].x_start && qs < o->w_list.a[k].x_end) {
+			// if(qs == 102178) {
+			// 	fprintf(stderr, "[M::%s::qs->%ld] k::%ld, wn::%u, x::[%d, %d), clen::%u, terr::%ld, sec_err::%ld\n", 
+			// 	__func__, qs, k, (uint32_t)o->w_list.n, o->w_list.a[k].x_start, o->w_list.a[k].x_end, 
+			// 	o->w_list.a[k].clen, terr, (*sec_err));
+			// }
+            if(o->w_list.a[k].clen > 0) {
+                rr = ((double)(o->w_list.a[k].x_end-qs))/
+							((double)(o->w_list.a[k].x_end-o->w_list.a[k].x_start));
+				dd = o->w_list.a[k].clen*rr;
+                (*sec_err) += (dd>0?dd:1);
+            }
+
+            terr += ((o->w_list.a[k].clen > 0)?(o->w_list.a[k].x_end-qs):(0));
+            return terr;
+		}
+		if(o->w_list.a[k].clen > 0) {
+			(*sec_err) += o->w_list.a[k].clen;
+			terr += o->w_list.a[k].x_end-o->w_list.a[k].x_start;
+		}
+	}
+	return terr;
+}
+
 int64_t get_overlap_region_sub_err(overlap_region *o, rtrace_iter *it, int64_t qs, int64_t *sec_err)
 {
 	if(o->w_list.n <= 0) {
@@ -5129,7 +5159,7 @@ int64_t get_overlap_region_sub_err(overlap_region *o, rtrace_iter *it, int64_t q
 				rr = ((double)(o->w_list.a[it->k].x_end-qs))/
 								((double)(o->w_list.a[it->k].x_end-o->w_list.a[it->k].x_start));
 				(*sec_err) = rr*o->w_list.a[it->k].clen;
-				if((*sec_err) == 0) (*sec_err) = 1;
+				// if((*sec_err) == 0) (*sec_err) = 1;
 			}
 			(*sec_err) += it->werr0;
 
@@ -5156,6 +5186,15 @@ const ul_idx_t *uref, const ug_opt_t *uopt, int64_t bw, double diff_ec_ul, uint6
 	int64_t qo = infer_rovlp(li, lj, NULL, NULL, ridx, ug), trans_l = 0, sec_err = 0, sc; ///overlap length in query (UL read)
 	if(li_v != lj_v && get_ecov_adv(uref, uopt, li_v^1, lj_v^1, bw, diff_ec_ul, qo, mode, NULL)) {
 		trans_l = get_overlap_region_sub_err(&(ol[li->qn]), tc, lj->qe, &sec_err);
+
+		// int64_t trans_l_debug, sec_err_debug;
+		// trans_l_debug = get_overlap_region_sub_err_debug(&(ol[li->qn]), lj->qe, &sec_err_debug);
+		// if(!(trans_l_debug == trans_l && sec_err_debug == sec_err)) {
+		// 	fprintf(stderr, "[M::%s::qs->%u] trans_l::%ld, trans_l_debug::%ld, sec_err::%ld, sec_err_debug::%ld\n", 
+		// 	__func__, lj->qe, trans_l, trans_l_debug, sec_err, sec_err_debug);
+		// }
+		// assert(trans_l_debug == trans_l && sec_err_debug == sec_err);
+
 		sc = (li->qe - lj->qe) - (trans_l*trans_sc) - (sec_err*sec_sec);
 		// if(li->tn == 308 || li->tn == 311 || lj->tn == 305 || lj->tn == 304) {
 		// 	fprintf(stderr, "[M::%s::utg%.6dl] utg%.6dl, liq::[%u, %u), ljq::[%u, %u), trans_l::%ld, sec_err::%ld, sc::%ld\n", __func__, 
@@ -5723,6 +5762,15 @@ rtrace_iter *tc, int64_t trans_sc, int64_t sec_sec)
 	// else sc = (int32_t)((double)(li->qe - lj->qe) / (li->qe - li->qs) * li->score + .499); // dealing with overlap on query
 	int64_t trans_l = 0, sec_err = 0;
 	trans_l = get_overlap_region_sub_err(&(ol[li->off]), tc, lc[dj->meta].qe, &sec_err);
+
+	// int64_t trans_l_debug, sec_err_debug;
+	// trans_l_debug = get_overlap_region_sub_err_debug(&(ol[li->off]), lc[dj->meta].qe, &sec_err_debug);
+	// if(!(trans_l_debug == trans_l && sec_err_debug == sec_err)) {
+	// 	fprintf(stderr, "[M::%s::] trans_l::%ld, trans_l_debug::%ld, sec_err::%ld, sec_err_debug::%ld\n", 
+	// 	__func__, trans_l, trans_l_debug, sec_err, sec_err_debug);
+	// }
+	// assert(trans_l_debug == trans_l && sec_err_debug == sec_err);
+
 	sc = (li->qe - lc[dj->meta].qe) - (trans_l*trans_sc) - (sec_err*sec_sec);
 	// sc = li->score;
 	//sc += dj->mlen; // TODO: is this line the right thing to do?
@@ -6568,6 +6616,7 @@ const ul_idx_t *uref, double diff_ec_ul, int64_t wl, int64_t ql, const ug_opt_t 
 }
 
 
+
 uint64_t gen_shared_trace(overlap_region_alloc* ol, uint64_t *id_a, uint64_t id_n, uint64_t s, uint64_t e, 
 const ul_idx_t *uref, const ug_opt_t *uopt, int64_t bw, double diff_ec_ul, int64_t *is_srt, kv_ul_ov_t *res)///[s, e]
 {
@@ -7219,16 +7268,16 @@ void collapse_contain(ul_ov_t *a, int64_t a_n, int64_t i, int64_t *mm_idx, int64
 
 }
 
-#define rch_connect(x, i) ((((x)>>2)==(i))&&(((x)&2)!=3))
+#define rch_connect(x, i) ((((x)>>2)==(i))&&(((x)&3)!=3))
 
 int64_t connect_detect(ul_ov_t *a, int64_t a_n, int64_t ai, int64_t aj, All_reads *ridx, int32_t *rch, 
 const ul_idx_t *uref, const ug_opt_t *uopt, int64_t bw, double diff, int64_t *p, int32_t *f, rtrace_iter *tc,
 kv_rtrace_t *trace, char* qstr, UC_Read *tu, overlap_region_alloc* ol, bit_extz_t *exz, double e_rate, 
-int64_t trans_sc)
+int64_t trans_sc, uint32_t *is_fc)
 {
 	ul_ov_t *li = &(a[ai]), *lj = &(a[aj]), *lk;
-	uint32_t li_v, lj_v, lk_v; int64_t qo, is_c, ak, afk, err, sc = INT32_MIN;
-	li_v = (li->tn<<1)|li->rev; lj_v = (lj->tn<<1)|lj->rev;
+	uint32_t li_v, lj_v, lk_v, lqs = INT32_MAX; int64_t qo, is_c, ak, afk, err, sc = INT32_MIN, wsc;
+	li_v = (li->tn<<1)|li->rev; lj_v = (lj->tn<<1)|lj->rev; (*is_fc) = 0;
 	if(li_v == lj_v) return INT32_MIN;
 	//even this pair has a overlap, its length will be very small; just ignore
 	if(lj->qe <= li->qs) return INT32_MIN;
@@ -7259,6 +7308,7 @@ int64_t trans_sc)
 	// fprintf(stderr, "+[j::%ld] %.*s\tis_c::%ld\n", aj,
     //                 (int)Get_NAME_LENGTH(R_INF, a[aj].tn), Get_NAME(R_INF, a[aj].tn), is_c);
 	if(is_c) {
+		lqs = a[aj].qs;
 		for (ak = p[aj]; ak >= 0; ak = p[ak]) {
 			if((rch[ak]>>2) != ai) {
 				rch[ak] = (ak<<2); rch[ak] += 3; 
@@ -7270,37 +7320,44 @@ int64_t trans_sc)
 				rch[ak] = (ai<<2); rch[ak] += is_c;
 			}
 			if(!rch_connect(rch[ak], ai)) break;
+			if(lqs > a[ak].qs) lqs = a[ak].qs;
 			is_c = rch[ak]&1; if(is_c == 0) break;
 		}
 
 		afk = ak;
-		if(ak >= 0) {
-			if(!rch_connect(rch[ak], ai)) return INT32_MIN;///go to a disconnected node
-			for (ak = p[ak]; ak >= 0 && a[afk].qe <= a[ak].qe + 256; ak = p[ak]) {
-				if((rch[ak]>>2) != ai) {
-					rch[ak] = (ak<<2); rch[ak] += 3; 
-					lk = &(a[ak]); lk_v = (lk->tn<<1)|lk->rev;
-					if(li_v == lk_v) return INT32_MIN;
-					if(lk->qe <= li->qs) return INT32_MIN;
-					qo = infer_rovlp(li, lk, NULL, NULL, ridx, NULL); ///overlap length in query (UL read)
-					if(!get_ecov_contain_adv(uref, uopt, li_v^1, lk_v^1, bw, diff, qo, &is_c)) return INT32_MIN;
-					rch[ak] = (ai<<2); rch[ak] += is_c;
-				}
-				if(!rch_connect(rch[ak], ai)) return INT32_MIN;
-			}
-		}
+		if((ak >= 0) && (!rch_connect(rch[ak], ai))) return INT32_MIN;///go to a disconnected node
+		// if(ak >= 0) {
+		// 	if(!rch_connect(rch[ak], ai)) return INT32_MIN;///go to a disconnected node
+		// 	for (ak = p[ak]; ak >= 0 && a[afk].qe <= a[ak].qe + 256; ak = p[ak]) {
+		// 		if((rch[ak]>>2) != ai) {
+		// 			rch[ak] = (ak<<2); rch[ak] += 3; 
+		// 			lk = &(a[ak]); lk_v = (lk->tn<<1)|lk->rev;
+		// 			if(li_v == lk_v) return INT32_MIN;
+		// 			if(lk->qe <= li->qs) return INT32_MIN;
+		// 			qo = infer_rovlp(li, lk, NULL, NULL, ridx, NULL); ///overlap length in query (UL read)
+		// 			if(!get_ecov_contain_adv(uref, uopt, li_v^1, lk_v^1, bw, diff, qo, &is_c)) return INT32_MIN;
+		// 			rch[ak] = (ai<<2); rch[ak] += is_c;
+		// 		}
+		// 		if(!rch_connect(rch[ak], ai)) return INT32_MIN;
+		// 	}
+		// }
 	}
-	// if(li->tn == 20171) {
-	// 	fprintf(stderr, "-[j::%ld] %.*s\tis_c::%ld\n", aj,
-	// 					(int)Get_NAME_LENGTH(R_INF, a[aj].tn), Get_NAME(R_INF, a[aj].tn), is_c);
+	// if(li->tn == 6317) {
+	// 	fprintf(stderr, "[M::%s::] [j::%ld] %.*s\tis_c::%ld\tafk::%ld\tlqs::%u\n", __func__, aj,
+	// 					(int)Get_NAME_LENGTH(R_INF, a[aj].tn), Get_NAME(R_INF, a[aj].tn), is_c, afk, lqs);
 	// }
-
-	if(afk >= 0) {///reach to one non-contained read
+	///afk >=0: reach to one non-contained read, lqs should <= li->qs
+	///afk < 0: all reads are contained, lqs >= li->qs
+	if((afk >= 0) || (lqs <= li->qs)) {
 		lj = &(a[aj]);
 		err = get_rid_backward_cigar_err(tc, li, trace, NULL, uref, qstr, tu, ol, NULL, exz, e_rate, lj->qe);
-		sc = f[aj] + (li->qe - lj->qe) - (err*trans_sc);
+		sc = f[aj] + (li->qe - lj->qe) - (err*trans_sc); (*is_fc) = 0;
+		if(afk < 0) {
+			wsc = li->qe - li->qs; wsc -= (((int64_t)li->sec)*trans_sc);
+			if(sc < wsc) sc = wsc;
+		}
 	} else {
-		sc = li->qe - li->qs; sc -= (((int64_t)li->sec)*trans_sc);
+		sc = li->qe - li->qs; sc -= (((int64_t)li->sec)*trans_sc); (*is_fc) = 1;
 	}
 	return sc;
 }
@@ -7335,6 +7392,491 @@ int64_t max_ovlp_src_contain(const ug_opt_t *uopt, uint32_t v)
 
 	return o;
 }
+
+int64_t quick_rechain_sc(ul_ov_t *a, overlap_region_alloc* ol, const ul_idx_t *uref, const ug_opt_t *uopt, 
+int64_t bw, double diff, All_reads *ridx, kv_rtrace_t *trace, char* qstr, UC_Read *tu, rtrace_iter *tc,
+double e_rate, bit_extz_t *exz, int64_t trans_sc, int32_t *f, int64_t ai, int64_t aj)
+{
+	ul_ov_t *li = &(a[ai]), *lj = &(a[aj]);
+	uint32_t li_v, lj_v; int64_t qo, is_c, err, sc = INT32_MIN;
+	li_v = (li->tn<<1)|li->rev; lj_v = (lj->tn<<1)|lj->rev;
+	if(li_v == lj_v) return INT32_MIN;
+	if(lj->qe <= li->qs) return INT32_MIN;
+	if(lj->qs > li->qs) return INT32_MIN;
+	qo = infer_rovlp(li, lj, NULL, NULL, ridx, NULL);
+	if(get_ecov_contain_adv(uref, uopt, li_v^1, lj_v^1, bw, diff, qo, &is_c)) {
+		if(is_c == 0) {
+			err = get_rid_backward_cigar_err(tc, li, trace, NULL, uref, qstr, tu, ol, NULL, exz, e_rate, lj->qe);
+			sc = f[aj] + (li->qe - lj->qe) - (err*trans_sc);
+		}
+	}
+	return sc;
+}
+
+uint32_t if_qchain_cnn(const ul_idx_t *uref, const ug_opt_t *uopt, All_reads *ridx, int64_t bw, double diff, ul_ov_t *li, ul_ov_t *lj, int64_t *is_c, int64_t *arc_len);
+void quick_rechain_propagate_transitive_reduction(const ul_idx_t *uref, const ug_opt_t *uopt, All_reads *ridx, int64_t bw, double diff, 
+ul_ov_t *a, int32_t a_n, int64_t ai, int32_t *rch, int32_t *f, int64_t *p, int32_t *c_n, int64_t *t, int64_t *mm_sc, 
+int64_t *mm_idx, int64_t *mm_n)
+{
+	if((*mm_idx) < 0) return;
+	int64_t mm_idx0 = (*mm_idx), j, k, is_c, sn;
+	for (j = mm_idx0 + 1; j < a_n; j++) {
+		t[j] = mm_idx0 - 1;
+		if(p[j] < 0) continue;
+		// if(a[ai].tn == 23989) {
+		// 	fprintf(stderr, "+chain[i::%ld] (id::%u)%.*s\t%c\tj::%ld\t%.*s\tconnect::%u\n", ai, a[ai].tn,
+		// 		(int)Get_NAME_LENGTH(R_INF, a[ai].tn), Get_NAME(R_INF, a[ai].tn), 
+		// 		"+-"[a[ai].rev], j, (int)Get_NAME_LENGTH(R_INF, a[ai].tn), Get_NAME(R_INF, a[ai].tn), rch_connect(rch[j], ai));
+		// }
+		if((rch[j]>>2) != ai) {
+			rch[j] = (ai<<2); rch[j] += 3;
+			if((a[j].el) && (if_qchain_cnn(uref, uopt, ridx, bw, diff, &(a[ai]), &(a[j]), &is_c, NULL))) {
+				rch[j] = (ai<<2); rch[j] += is_c;
+			}
+		}
+		// if(a[ai].tn == 23989) {
+		// 	fprintf(stderr, "-chain[i::%ld] (id::%u)%.*s\t%c\tj::%ld\t%.*s\tconnect::%u\n", ai, a[ai].tn,
+		// 		(int)Get_NAME_LENGTH(R_INF, a[ai].tn), Get_NAME(R_INF, a[ai].tn), 
+		// 		"+-"[a[ai].rev], j, (int)Get_NAME_LENGTH(R_INF, a[ai].tn), Get_NAME(R_INF, a[ai].tn), rch_connect(rch[j], ai));
+		// }
+		if(!rch_connect(rch[j], ai)) continue;
+		for (k = p[j]; k >= 0 && k > mm_idx0; k = p[k]) {
+			if(t[k] == mm_idx0) {
+				k = mm_idx0; break;
+			} else {
+				k = mm_idx0-1; break;
+			}
+		}
+		if (k != mm_idx0) continue;
+		t[j] = mm_idx0;//a[j] could reach mm_idx0;
+		if(p[j] != k) {
+			if(!(if_qchain_cnn(uref, uopt, ridx, bw, diff, &(a[j]), &(a[k]), &is_c, NULL))) continue;
+		}
+		sn = c_n[j] + 1;
+		if(sn >= (*mm_n)) {//must >=
+			(*mm_n) = sn; (*mm_idx) = j;
+		}
+	}
+	return;
+}
+
+
+
+int64_t quick_rechain(overlap_region_alloc* ol, ul_ov_t *a, int64_t a_n, kv_rtrace_t *trace, const ul_idx_t *uref, const ug_opt_t *uopt, 
+int64_t bw, double diff_ec_ul, int64_t qlen, int64_t max_skip, int64_t max_iter, int64_t max_dis, 
+bit_extz_t *exz, int64_t trans_sc, All_reads *ridx, char* qstr, UC_Read *tu, double e_rate, 
+int32_t *f, int32_t *c_n, int32_t *c_sc, int32_t *rch, int64_t *p, int64_t *t)
+{
+	int64_t mm_ovlp, x, i, j, sc, csc, mm_sc, mm_idx, mm_n, sn, n_skip, end_j; 
+	ul_ov_t *li, *lj; rtrace_iter tc; int64_t st, max_ii, max, max_n; uint32_t li_v;
+	memset(t, 0, (a_n*sizeof((*t)))); 
+
+	for (i = st = 0, max_ii = -1; i < a_n; ++i) {
+        li = &(a[i]); li_v = (li->tn<<1)|li->rev; rch[i] = INT32_MAX;
+		csc = li->qe - li->qs; csc -= (((int64_t)li->sec)*trans_sc);
+        mm_sc = INT32_MIN; mm_idx = -1; mm_n = 0; 
+        n_skip = 0; end_j = -1; tc.k = INT32_MAX;
+		// if((i>=15) && (rch_connect(rch[15], 18))) {
+		// 	fprintf(stderr, ">>>[i::%ld] (id::%u)%.*s\t%c\trch[i]::%d\n", i, li->tn,
+		// 				(int)Get_NAME_LENGTH(R_INF, a[i].tn), Get_NAME(R_INF, a[i].tn), 
+		// 				"+-"[a[i].rev], rch[15]);
+		// }
+		if(li->el) {
+			mm_ovlp = max_ovlp_src_contain(uopt, li_v^1);        
+			x = (li->qs + mm_ovlp)*diff_ec_ul; 
+			if(x < bw) x = bw; 
+			x += li->qs + mm_ovlp;
+			if (x > qlen+1) x = qlen+1;
+			x = find_ul_ov_max(i, a, x+G_CHAIN_INDEL); 
+			if ((x-st) > max_iter) st = x-max_iter;
+			for (j = x; j >= st; --j) { // collect potential destination vertices
+				lj = &(a[j]); 
+				rch[j] = (i<<2); rch[j] += 3;//set it to unaviable
+				// if((i>=15) && (rch_connect(rch[15], 18))) {
+				// 	fprintf(stderr, "**j::%ld**[i::%ld] (id::%u)%.*s\t%c\trch[i]::%d\n", j, i, li->tn,
+				// 				(int)Get_NAME_LENGTH(R_INF, a[i].tn), Get_NAME(R_INF, a[i].tn), 
+				// 				"+-"[a[i].rev], rch[15]);
+				// }
+				if(!(lj->el)) continue;
+				if(lj->qe <= li->qs) break;//even this pair has a overlap, its length will be very small; just ignore
+				if(lj->qs > li->qs) continue;///no contain
+				sc = quick_rechain_sc(a, ol, uref, uopt, bw, diff_ec_ul, ridx, trace, qstr, tu, 
+				&tc, e_rate, exz, trans_sc, f, i, j);
+				if(sc == INT32_MIN) continue;
+				// if(li->tn == 23989) {
+				// 	fprintf(stderr, "*[i::%ld] (id::%u)%.*s\t%c\tj::%ld\t%.*s\n", i, li->tn,
+				// 		(int)Get_NAME_LENGTH(R_INF, a[i].tn), Get_NAME(R_INF, a[i].tn), 
+				// 		"+-"[a[i].rev], j, (int)Get_NAME_LENGTH(R_INF, lj->tn), Get_NAME(R_INF, lj->tn));
+				// }
+				rch[j] = (i<<2);//set it to aviable
+				sn = c_n[j] + 1;
+				if((sc > mm_sc) || ((sc == mm_sc) && (sn > mm_n))) {
+					mm_sc = sc, mm_idx = j; mm_n = sn; 
+					if (n_skip > 0) --n_skip;
+				} else if (t[j] == i) {
+					if (++n_skip > max_skip)
+						break;
+				}
+				if (p[j] >= 0) t[p[j]] = i;
+			}
+			// if((i>=15) && (rch_connect(rch[15], 18))) {
+			// 	fprintf(stderr, ">>>1[i::%ld] (id::%u)%.*s\t%c\trch[i]::%d\n", i, li->tn,
+			// 				(int)Get_NAME_LENGTH(R_INF, a[i].tn), Get_NAME(R_INF, a[i].tn), 
+			// 				"+-"[a[i].rev], rch[15]);
+			// }
+
+			end_j = j;
+			if (max_ii < 0 || (a[i].qe>(a[max_ii].qe+max_dis))) {//too long
+				max = INT32_MIN; max_n = INT32_MIN; max_ii = -1;
+				for (j = i - 1; (j >= st) && (a[i].qe<=(max_dis+a[j].qe)); --j) {
+					if ((max < f[j]) || ((max == f[j]) && (max_n < c_n[j]))) {
+						max = f[j]; max_n = c_n[j]; max_ii = j;
+					}
+				}
+			}
+			// if((i>=15) && (rch_connect(rch[15], 18))) {
+			// 	fprintf(stderr, ">>>2[i::%ld] (id::%u)%.*s\t%c\trch[i]::%d\n", i, li->tn,
+			// 				(int)Get_NAME_LENGTH(R_INF, a[i].tn), Get_NAME(R_INF, a[i].tn), 
+			// 				"+-"[a[i].rev], rch[15]);
+			// }
+
+			if (max_ii >= 0 && max_ii < end_j) {///just have a try with a[i]<->a[max_ii]
+				lj = &(a[max_ii]); 
+				if((lj->el) && (lj->qe > li->qs) && (lj->qs <= li->qs)) {
+					sc = quick_rechain_sc(a, ol, uref, uopt, bw, diff_ec_ul, ridx, trace, qstr, tu, 
+					&tc, e_rate, exz, trans_sc, f, i, max_ii);
+					///as max_ii < end_j, get_rid_backward_cigar_err still works
+					if(sc != INT32_MIN) {
+						sn = c_n[max_ii] + 1;
+						if((sc > mm_sc) || ((sc == mm_sc) && (sn > mm_n))) {
+							mm_sc = sc; mm_idx = max_ii; mm_n = sn; 
+						}
+					}
+				}
+			}
+			// if((i>=15) && (rch_connect(rch[15], 18))) {
+			// 	fprintf(stderr, ">>>3[i::%ld] (id::%u)%.*s\t%c\trch[i]::%d\n", i, li->tn,
+			// 				(int)Get_NAME_LENGTH(R_INF, a[i].tn), Get_NAME(R_INF, a[i].tn), 
+			// 				"+-"[a[i].rev], rch[15]);
+			// }
+			sc = csc; sn = 1;///for i itself
+			if((sc > mm_sc) || ((sc == mm_sc) && (sn > mm_n))) {
+				mm_sc = sc, mm_idx = -1; mm_n = sn; 
+			}
+
+			if(mm_sc < 0) {
+				mm_sc = csc; mm_idx = -1; mm_n = 1;
+			}
+			// if(li->tn == 23989) {
+			// 	fprintf(stderr, "+[i::%ld] (id::%u)%.*s\t%c\tj::%ld\t%.*s\n", i, li->tn,
+			// 		(int)Get_NAME_LENGTH(R_INF, a[i].tn), Get_NAME(R_INF, a[i].tn), 
+			// 		"+-"[a[i].rev], mm_idx, mm_idx>=0?((int)Get_NAME_LENGTH(R_INF, a[mm_idx].tn)):(1), 
+			// 		mm_idx>=0?(Get_NAME(R_INF, a[mm_idx].tn)):("*"));
+			// }
+			if(mm_idx >= 0) {
+				///mo meed to update mm_sc and is_fc
+				quick_rechain_propagate_transitive_reduction(uref, uopt, ridx, bw, diff_ec_ul, a, x+1, i, rch, f, p, c_n, t, &mm_sc, &mm_idx, &mm_n);
+			}
+			// if(li->tn == 23989) {
+			// 	fprintf(stderr, "-[i::%ld] (id::%u)%.*s\t%c\tj::%ld\t%.*s\n", i, li->tn,
+			// 		(int)Get_NAME_LENGTH(R_INF, a[i].tn), Get_NAME(R_INF, a[i].tn), 
+			// 		"+-"[a[i].rev], mm_idx, mm_idx>=0?((int)Get_NAME_LENGTH(R_INF, a[mm_idx].tn)):(1), 
+			// 		mm_idx>=0?(Get_NAME(R_INF, a[mm_idx].tn)):("*"));
+			// }
+		}
+		f[i] = mm_sc; p[i] = mm_idx; c_n[i] = mm_n; 
+		if ((max_ii < 0) || ((a[i].qe<=max_dis+a[max_ii].qe) && (f[max_ii]<f[i]))) {
+			max_ii = i;
+		}
+	}
+
+	int64_t cl = 0; i = a_n-1; 
+	while (i >= 0) {
+		// fprintf(stderr, "i::%ld[M::%s] (id::%u)%.*s\t%c\tq::[%u, %u)\tt::[%u, %u)\tc::%u\n", 
+		// i, __func__, a[i].tn, (int)Get_NAME_LENGTH(R_INF, a[i].tn), Get_NAME(R_INF, a[i].tn), 
+		// 			"+-"[a[i].rev], a[i].qs, a[i].qe, a[i].ts, a[i].te, !a[i].el);
+        t[cl++] = i; i = p[i];
+    }
+	return cl;
+}
+
+///ai is smaller than aj
+int64_t push_trans_aln(const ul_idx_t *uref, const ug_opt_t *uopt, int64_t bw, double diff_ec_ul, 
+All_reads *ridx, ul_ov_t *a, int64_t ai0, int64_t aj, int64_t *vis, int32_t *c_n)
+{
+	int64_t k, qo, is_c, ai = ai0, m = 0; ul_ov_t *li, *lj; uint32_t li_v, lj_v;
+	for (k = ai + 1; k < aj; k++) {
+		if(vis[k]&1) continue;
+		if(!(a[k].el)) continue;
+		// if(a[ai0].tn == 1053 || a[aj].tn == 1053) {
+		// 	fprintf(stderr, "**0**[k::%ld] ai0::%ld, ai::%ld, aj::%ld, (id::%u)%.*s\t%c\n", 
+		// 		k, ai0, ai, aj, a[k].tn, (int)Get_NAME_LENGTH(R_INF, a[k].tn), Get_NAME(R_INF, a[k].tn), 
+		// 		"+-"[a[k].rev]);
+		// }
+		lj = &(a[ai]); li = &(a[k]); 
+		li_v = (li->tn<<1)|li->rev; 
+		lj_v = (lj->tn<<1)|lj->rev;
+		if(lj->qe <= li->qs) continue;//even this pair has a overlap, its length will be very small; just ignore
+		if(lj->qs > li->qs) continue;///no contain
+		if(li_v == lj_v) continue;
+		qo = infer_rovlp(li, lj, NULL, NULL, ridx, NULL); ///overlap length in query (UL read)
+		if(!get_ecov_contain_adv(uref, uopt, li_v^1, lj_v^1, bw, diff_ec_ul, qo, &is_c)) continue;
+		// if(a[ai0].tn == 1053 || a[aj].tn == 1053) {
+		// 	fprintf(stderr, "**1**[k::%ld] ai0::%ld, ai::%ld, aj::%ld, (id::%u)%.*s\t%c\n", 
+		// 		k, ai0, ai, aj, a[k].tn, (int)Get_NAME_LENGTH(R_INF, a[k].tn), Get_NAME(R_INF, a[k].tn), 
+		// 		"+-"[a[k].rev]);
+		// }
+		if(is_c)  continue;
+		// if(a[ai0].tn == 1053 || a[aj].tn == 1053) {
+		// 	fprintf(stderr, "**2**[k::%ld] ai0::%ld, ai::%ld, aj::%ld, (id::%u)%.*s\t%c\n", 
+		// 		k, ai0, ai, aj, a[k].tn, (int)Get_NAME_LENGTH(R_INF, a[k].tn), Get_NAME(R_INF, a[k].tn), 
+		// 		"+-"[a[k].rev]);
+		// }
+			
+
+		lj = &(a[k]); li = &(a[aj]);
+		li_v = (li->tn<<1)|li->rev; 
+		lj_v = (lj->tn<<1)|lj->rev;
+		if(lj->qe <= li->qs) continue;//even this pair has a overlap, its length will be very small; just ignore
+		if(lj->qs > li->qs) continue;///no contain
+		if(li_v == lj_v) continue;
+		qo = infer_rovlp(li, lj, NULL, NULL, ridx, NULL); ///overlap length in query (UL read)
+		// if(a[ai0].tn == 1053 || a[aj].tn == 1053) {
+		// 	fprintf(stderr, "**2-a**[k::%ld] ai0::%ld, ai::%ld, aj::%ld, (id::%u)%.*s\t%c, qo::%ld\n", 
+		// 		k, ai0, ai, aj, a[k].tn, (int)Get_NAME_LENGTH(R_INF, a[k].tn), Get_NAME(R_INF, a[k].tn), 
+		// 		"+-"[a[k].rev], qo);
+		// }
+		if(!get_ecov_contain_adv(uref, uopt, li_v^1, lj_v^1, bw, diff_ec_ul, qo, &is_c)) continue;
+		// if(a[ai0].tn == 1053 || a[aj].tn == 1053) {
+		// 	fprintf(stderr, "**3**[k::%ld] ai0::%ld, ai::%ld, aj::%ld, (id::%u)%.*s\t%c\n", 
+		// 		k, ai0, ai, aj, a[k].tn, (int)Get_NAME_LENGTH(R_INF, a[k].tn), Get_NAME(R_INF, a[k].tn), 
+		// 		"+-"[a[k].rev]);
+		// }
+		if(is_c)  continue;
+		// if(a[ai0].tn == 1053 || a[aj].tn == 1053) 
+		// {
+		// 	fprintf(stderr, "**4**[k::%ld] ai0::%ld, ai::%ld, aj::%ld, (id::%u)%.*s\t%c\n", 
+		// 		k, ai0, ai, aj, a[k].tn, (int)Get_NAME_LENGTH(R_INF, a[k].tn), Get_NAME(R_INF, a[k].tn), 
+		// 		"+-"[a[k].rev]);
+		// }
+
+		// res[m] = a[k]; vis[k] |= 1;
+		// if(res[m].qs < idx->qs) idx->qs = res[m].qs;
+		// if(res[m].qe > idx->qe) idx->qe = res[m].qe;
+		// if(res[m].tn == 1032)  {
+		// 	fprintf(stderr, "**5**[k::%ld] ai0::%ld, ai::%ld, aj::%ld, (id::%u)%.*s\t%c\n", 
+		// 		k, ai0, ai, aj, a[k].tn, (int)Get_NAME_LENGTH(R_INF, a[k].tn), Get_NAME(R_INF, a[k].tn), 
+		// 		"+-"[a[k].rev]);
+		// }
+		// m++; ai = k;
+		c_n[m++] = k; vis[k] |= 1; ai = k;
+	}
+	return m;
+}
+
+int64_t flat_contain_adv(overlap_region_alloc* ol, All_reads *ridx, const ul_idx_t *uref, 
+const ug_opt_t *uopt, int64_t bw, double diff_ec_ul, int64_t qlen, int64_t max_skip, int64_t max_iter, 
+int64_t max_dis, bit_extz_t *exz, int64_t trans_sc, char* qstr, UC_Read *tu, double e_rate, 
+kv_rtrace_t *trace, ul_ov_t *a, int64_t a_n, int32_t *f0, int32_t *c_n0, int32_t *c_sc0, 
+int32_t *rch0, int32_t *ssc0, int64_t *p0, int64_t *t0, ul_ov_t *ori_a, uint64_t *flag, 
+uint64_t rechain_w, int64_t *vis, ul_ov_t *idx)
+{
+	if(a_n <= 0) return 0;
+	int32_t *t = f0, *c_n = c_n0; int64_t *p = p0, *f = t0, rech = 0, nf = 0, ori_i, ori_j, ncl; uint64_t qs;
+	int64_t mm_ovlp, x, i, j, st, max_ii, mm_sc, mm_n, mm_idx, n_skip, end_j, qo, sc, sn, is_c, cl, csc, cl1; 
+	uint32_t li_v, lj_v; ul_ov_t *li, *lj; int64_t max, max_n, tot_sc = INT32_MIN, tot_n = INT32_MIN, tot_i = -1;
+	for (i = 1, j = 0; i <= a_n; i++) {
+		if (i == a_n || a[i].qe != a[j].qe) {
+			if(i - j > 1) radix_sort_ul_ov_srt_qs(a+j, a+i);
+			j = i;
+		}
+	}
+	// fprintf(stderr, "\n[M::%s::] sc::%u\n", __func__, idx->qn);
+	memset(t, 0, (a_n*sizeof((*t)))); 
+	for (i = st = 0, max_ii = -1; i < a_n; ++i) {
+        li = &(a[i]); li_v = (li->tn<<1)|li->rev; 
+		flag[i] = li->sec; li->sec = ori_a[li->sec>>1].sec; 
+		
+		csc = ((li->el)?(li->qe-li->qs):(0));
+		mm_sc = csc; mm_n = 1; mm_idx = -1; n_skip = 0; end_j = -1; 
+		if(flag[i]&1) {//low prority
+			rech++; f[i] = INT32_MIN; p[i] = mm_idx; c_n[i] = 0; continue;
+		}
+		// fprintf(stderr, "[i::%ld] (id::%u)\n", i, li->tn);
+		// fprintf(stderr, "[i::%ld] (id::%u)%.*s\t%c\tq::[%u, %u)\tt::[%u, %u)\tc::%u\n", i, li->tn,
+        //             (int)Get_NAME_LENGTH(R_INF, a[i].tn), Get_NAME(R_INF, a[i].tn), 
+		// 			"+-"[a[i].rev], a[i].qs, a[i].qe, a[i].ts, a[i].te, !a[i].el);
+		mm_ovlp = max_ovlp_src(uopt, li_v^1);        
+		x = (li->qs + mm_ovlp)*diff_ec_ul; 
+		if(x < bw) x = bw; 
+		x += li->qs + mm_ovlp;
+		if (x > qlen+1) x = qlen+1;
+		x = find_ul_ov_max(i, a, x+G_CHAIN_INDEL); 
+		
+		if ((x-st) > max_iter) st = x-max_iter;
+		for (j = x; j >= st; --j) { // collect potential destination vertices
+			lj = &(a[j]); lj_v = (lj->tn<<1)|lj->rev;
+			if(flag[j]&1) continue;//low prority
+			if(lj->qe <= li->qs) break;//even this pair has a overlap, its length will be very small; just ignore
+			// if(lj->qs >= li->qs) continue;///no contain
+			if(lj->qs > li->qs) continue;///no contain, must be > instad of >=
+			qo = infer_rovlp(li, lj, NULL, NULL, ridx, NULL); ///overlap length in query (UL read)
+			if(li_v != lj_v && get_ecov_contain_adv(uref, uopt, li_v^1, lj_v^1, bw, diff_ec_ul, qo, &is_c)) {
+				if(is_c == 0) {
+					sc = f[j] + csc; sn = c_n[j] + 1;
+					// if(li->tn == 6312) {
+					// 	fprintf(stderr, "***[i::%ld] (id::%u)%.*s\t%c\tj::%ld\t%.*s\tsc::%ld\tsn::%ld\n", i, li->tn,
+					// 		(int)Get_NAME_LENGTH(R_INF, a[i].tn), Get_NAME(R_INF, a[i].tn), 
+					// 		"+-"[a[i].rev], j, (int)Get_NAME_LENGTH(R_INF, a[j].tn), Get_NAME(R_INF, a[j].tn),
+					// 		sc, sn);
+					// }
+					if((sc > mm_sc) || ((sc == mm_sc) && (sn > mm_n))) {
+						mm_sc = sc, mm_idx = j; mm_n = sn;
+						if (n_skip > 0) --n_skip;
+					} else if (t[j] == i) {
+						if (++n_skip > max_skip)
+							break;
+					}
+					if (p[j] >= 0) t[p[j]] = i;
+				}
+			}
+		}
+
+		end_j = j;
+		if (max_ii < 0 || ((a[i].qe) > (a[max_ii].qe+max_dis))) {//too long
+			max = INT32_MIN; max_n = INT32_MIN; max_ii = -1;
+			for (j = i - 1; (j >= st) && (a[i].qe<=(max_dis+a[j].qe)); --j) {
+				if ((max < f[j]) || ((max == f[j]) && (max_n < c_n[j]))) {
+					max = f[j]; max_n = c_n[j]; max_ii = j;
+				}
+			}
+		}
+		
+		if (max_ii >= 0 && max_ii < end_j) {///just have a try with a[i]<->a[max_ii]
+			lj = &(a[max_ii]); lj_v = (lj->tn<<1)|lj->rev;
+			if((lj->qe > li->qs) && (lj->qs <= li->qs) && (!(flag[max_ii]&1))) {
+				qo = infer_rovlp(li, lj, NULL, NULL, ridx, NULL); ///overlap length in query (UL read)
+				if(li_v != lj_v && get_ecov_contain_adv(uref, uopt, li_v^1, lj_v^1, bw, diff_ec_ul, qo, &is_c)) {
+					if(is_c == 0) {
+						sc = f[max_ii] + csc; sn = c_n[max_ii] + 1;
+						if((sc > mm_sc) || ((sc == mm_sc) && (sn > mm_n))) {
+							mm_sc = sc; mm_idx = max_ii; mm_n = sn;
+						}
+					}
+				}
+			}
+		}
+
+		f[i] = mm_sc; p[i] = mm_idx; c_n[i] = mm_n; 
+		if ((max_ii < 0) || ((a[i].qe<=max_dis+a[max_ii].qe) && (f[max_ii]<f[i]))) {
+			max_ii = i;
+		}
+
+		if((tot_sc < f[i]) || ((tot_sc == f[i]) && (tot_n < c_n[i]))) {
+			tot_sc = f[i]; tot_n = c_n[i]; tot_i = i;
+		}
+	}
+	// fprintf(stderr, "+++[i::%ld] (id::%u)\n", i, li->tn);
+	cl = 0; i = tot_i; t = NULL;
+	while (i >= 0) {
+        flag[cl] |= (((uint64_t)i)<<32); 
+		i = p[i]; cl++;
+    }
+	// fprintf(stderr, "+++[i::%ld] (cl::%ld)\n", i, cl);
+
+	st = flag[cl-1]>>32; qs = a[st].qs; cl1 = 0;
+	// fprintf(stderr, "[M::%s] qs::%lu\trechain_w::%lu\trech::%ld\tcl::%ld\n", 
+	// 	__func__, qs, rechain_w, rech, cl);
+	if((qs <= rechain_w) && (rech > 0)) {
+		for (i = nf = 0; i < cl; i++) {
+			st = flag[cl-i-1]>>32;
+			if(a[st].el) break;
+			if((a[st].ts == 0) && (a[st].te == Get_READ_LENGTH(R_INF, a[st].tn))) nf++;
+		}
+		if(i < cl && a[st].qs > qs && nf > 0) {
+			
+			cl1 = quick_rechain(ol, a, st+1, trace, uref, uopt, bw, diff_ec_ul, qlen, max_skip, max_iter, max_dis, 
+			exz, trans_sc, ridx, qstr, tu, e_rate, f0, c_n0, c_sc0, rch0, p0, t0);
+			// fprintf(stderr, "st::%ld\tcl1::%ld[M::%s]\t(id::%u)\t%.*s\t%c\tq::[%u, %u)\tt::[%u, %u)\tc::%u\n", 
+			// st, cl1, __func__, a[st].tn, (int)Get_NAME_LENGTH(R_INF, a[st].tn), Get_NAME(R_INF, a[st].tn), 
+			// 		"+-"[a[st].rev], a[st].qs, a[st].qe, a[st].ts, a[st].te, !a[st].el);
+			
+			// fprintf(stderr, "i::%ld\t[M::%s]\t(id::%u)\t%.*s\t%c\tq::[%u, %u)\tt::[%u, %u)\tc::%u\n", 
+			// i, __func__, a[t0[cl1-1]].tn, (int)Get_NAME_LENGTH(R_INF, a[t0[cl1-1]].tn), 
+			// 		Get_NAME(R_INF, a[t0[cl1-1]].tn), "+-"[a[t0[cl1-1]].rev], a[t0[cl1-1]].qs, a[t0[cl1-1]].qe, 
+			// 		a[t0[cl1-1]].ts, a[t0[cl1-1]].te, !a[t0[cl1-1]].el);
+
+			if(cl1 > 0 && a[t0[cl1-1]].qs <= qs) {
+				cl = cl-i-1; assert(st == t0[0]);
+				for (i = 0; i < cl1; i++) {
+					flag[cl] <<= 32; flag[cl] >>= 32; 
+					flag[cl] |= ((uint64_t)t0[i])<<32; cl++;
+				}
+			}
+		}
+	}
+	// fprintf(stderr, "---[i::%ld] (cl::%ld)\n", i, cl);
+	for (i = 0; i < cl; i++) {
+		// fprintf(stderr, "[i::%ld] flag[cl-i-1]>>32::%lu\n", i, flag[cl-i-1]>>32);
+		t0[i] = flag[cl-i-1]>>32; 
+		vis[((uint32_t)flag[t0[i]])>>1] |= 1;///set as used 
+		// fprintf(stderr, "[i::%ld]\t%.*s\traw_i::%u\n", i, 
+		// (int)Get_NAME_LENGTH(R_INF, a[t0[i]].tn), Get_NAME(R_INF, a[t0[i]].tn), ((uint32_t)flag[t0[i]])>>1);
+		// flag[cl-i-1] = (uint32_t)flag[cl-i-1];
+	}
+
+	i = 0; ncl = 0;
+	if(cl1 > 1) {
+		// for (i = 0; i < cl; i++) vis[((uint32_t)flag[t0[i]])>>1] |= 1;///set as used 
+		for (i = 0; i < cl1; i++) {
+			if(flag[t0[i]]&1) flag[t0[i]]-=1; 
+			vis[((uint32_t)flag[t0[i]])>>1] |= 1;
+			c_n[ncl++] = ((uint32_t)flag[t0[i]])>>1;
+
+			// a[ncl] = a[t0[i]];
+			// if(a[ncl].qs < idx->qs) idx->qs = a[ncl].qs;
+			// if(a[ncl].qe > idx->qe) idx->qe = a[ncl].qe;
+			// fprintf(stderr, "[ncl::%ld]\t%.*s\n", ncl, 
+			// (int)Get_NAME_LENGTH(R_INF, a[ncl].tn), Get_NAME(R_INF, a[ncl].tn));
+			// ncl++;
+
+			if(i < cl1 - 1) {
+				ori_i = ((uint32_t)flag[t0[i]])>>1; 
+				ori_j = ((uint32_t)flag[t0[i+1]])>>1; 
+				ncl += push_trans_aln(uref, uopt, bw, diff_ec_ul, ridx, ori_a, ori_i, ori_j, vis, c_n+ncl);
+			}
+		}
+	}
+
+
+	for (; i < cl; i++) {
+		///t0[i] -> idx of a; (uint32_t)flag[t0[i]] -> idx of ori_a
+		if(flag[t0[i]]&1) flag[t0[i]]-=1;
+		vis[((uint32_t)flag[t0[i]])>>1] |= 1;
+		c_n[ncl++] = ((uint32_t)flag[t0[i]])>>1;
+		// a[ncl] = a[t0[i]];
+		// if(a[ncl].qs < idx->qs) idx->qs = a[ncl].qs;
+		// if(a[ncl].qe > idx->qe) idx->qe = a[ncl].qe;
+		// fprintf(stderr, "[ncl::%ld]\t%.*s\n", ncl, 
+		// 	(int)Get_NAME_LENGTH(R_INF, a[ncl].tn), Get_NAME(R_INF, a[ncl].tn));
+		// ncl++;
+		// fprintf(stderr, "[M::%s] (id::%u)%.*s\t%c\tq::[%u, %u)\tt::[%u, %u)\tc::%u\n", 
+		// __func__, a[i].tn, (int)Get_NAME_LENGTH(R_INF, a[i].tn), Get_NAME(R_INF, a[i].tn), 
+		// 			"+-"[a[i].rev], a[i].qs, a[i].qe, a[i].ts, a[i].te, !a[i].el);
+	}
+	assert(ncl >= cl);
+	if(ncl <= 0) return ncl;
+
+	idx->qs = ori_a[c_n[0]].qs; 
+	idx->qe = ori_a[c_n[0]].qe;
+	for (i = 0; i < ncl; i++) {
+		a[i] = ori_a[c_n[i]];
+		if(a[i].qs < idx->qs) idx->qs = a[i].qs;
+		if(a[i].qe > idx->qe) idx->qe = a[i].qe;
+	}
+	return ncl;
+}
+
 
 int64_t flat_contain(All_reads *ridx, const ul_idx_t *uref, const ug_opt_t *uopt, int64_t bw, 
 double diff_ec_ul, int64_t qlen, int64_t max_skip, int64_t max_iter, int64_t max_dis, 
@@ -7436,8 +7978,9 @@ ul_ov_t *a, int64_t a_n, int32_t *t, int32_t *c_n, int64_t *p, int64_t *f, ul_ov
 	return cl;
 }
 
+
 ///li is the suffix
-uint32_t if_qchain_cnn(const ul_idx_t *uref, const ug_opt_t *uopt, All_reads *ridx, int64_t bw, double diff, ul_ov_t *li, ul_ov_t *lj, int64_t *is_c)
+uint32_t if_qchain_cnn(const ul_idx_t *uref, const ug_opt_t *uopt, All_reads *ridx, int64_t bw, double diff, ul_ov_t *li, ul_ov_t *lj, int64_t *is_c, int64_t *arc_len)
 {
 	uint32_t li_v = (li->tn<<1)|li->rev, lj_v = (lj->tn<<1)|lj->rev; int64_t qo;
 	if((li_v == lj_v) || (lj->qe <= li->qs)) return 0;
@@ -7457,7 +8000,7 @@ int64_t *mm_idx, int64_t *mm_n)
 		if(p[j] < 0) continue;
 		if((rch[j]>>2) != ai) {
 			rch[j] = (ai<<2); rch[j] += 3;
-			if(if_qchain_cnn(uref, uopt, ridx, bw, diff, &(a[ai]), &(a[j]), &is_c)) {
+			if(if_qchain_cnn(uref, uopt, ridx, bw, diff, &(a[ai]), &(a[j]), &is_c, NULL)) {
 				rch[j] = (ai<<2); rch[j] += is_c;
 			}
 		}
@@ -7472,7 +8015,7 @@ int64_t *mm_idx, int64_t *mm_n)
 		if (k != mm_idx0) continue;
 		t[j] = mm_idx0;//a[j] could reach mm_idx0;
 		if(p[j] != k) {
-			if(!(if_qchain_cnn(uref, uopt, ridx, bw, diff, &(a[j]), &(a[k]), &is_c))) continue;
+			if(!(if_qchain_cnn(uref, uopt, ridx, bw, diff, &(a[j]), &(a[k]), &is_c, NULL))) continue;
 		}
 		sn = c_n[j] + 1;
 		if(sn >= (*mm_n)) {//must >=
@@ -7482,12 +8025,13 @@ int64_t *mm_idx, int64_t *mm_n)
 	return;
 }
 
+
 int64_t gl_rchain_lin_contain(overlap_region_alloc* ol, kv_ul_ov_t *res, ul_ov_t *ex, kv_rtrace_t *trace, const ul_idx_t *uref, const ug_opt_t *uopt, int64_t bw, 
-double diff_ec_ul, int64_t qlen, int64_t max_skip, int64_t max_iter, int64_t max_dis, Chain_Data* dp, bit_extz_t *exz,
+double diff_ec_ul, int64_t qlen, int64_t max_skip, int64_t max_iter, int64_t max_dis, Chain_Data* dp, bit_extz_t *exz, uint64_t *a,
 int64_t trans_sc, All_reads *ridx, char* qstr, UC_Read *tu, int64_t rid, double e_rate, int64_t need_srt)
 {
 	if(res->n == 0) return 0;
-    uint32_t li_v, rev_n; int32_t *f, *c_n, *c_sc, *rch, *ssc; int64_t *p, *t, res_n = res->n, st, max_ii, max, max_n; 
+    uint32_t li_v, rev_n, is_fc, cc; int32_t *f, *c_n, *c_sc, *rch, *ssc; int64_t *p, *t, res_n = res->n, st, max_ii, max, max_n; 
     int64_t mm_ovlp, x, i, j, k, sc, csc, mm_sc, mm_idx, mm_n, sn, n_skip, end_j, plus; ul_ov_t *li, *lj, rev_t; rtrace_iter tc;
     resize_Chain_Data(dp, res_n, NULL);
     t = dp->tmp; f = dp->score; p = dp->pre; c_n = dp->occ; 
@@ -7506,7 +8050,7 @@ int64_t trans_sc, All_reads *ridx, char* qstr, UC_Read *tu, int64_t rid, double 
 	memset(t, 0, (res_n*sizeof((*t)))); 
 	for (i = st = plus = 0, max_ii = -1; i < res_n; ++i) {
         li = &(res->a[i]); li_v = (li->tn<<1)|li->rev; li->qs = ((uint32_t)-1)-li->qs;
-		rch[i] = INT32_MAX; ssc[i] = INT32_MIN;
+		rch[i] = INT32_MAX; ssc[i] = INT32_MIN; a[i] = ((uint64_t)-1); 
         mm_ovlp = max_ovlp_src_contain(uopt, li_v^1);        
         x = (li->qs + mm_ovlp)*diff_ec_ul; 
         if(x < bw) x = bw; 
@@ -7526,23 +8070,30 @@ int64_t trans_sc, All_reads *ridx, char* qstr, UC_Read *tu, int64_t rid, double 
 		// 			!res->a[i].el, x);
 		// }
         csc = li->qe - li->qs; csc -= (((int64_t)li->sec)*trans_sc);
-        mm_sc = csc; mm_idx = -1; mm_n = 1;
+        // mm_sc = csc; mm_idx = -1; mm_n = 1;
+		mm_sc = INT32_MIN; mm_idx = -1; mm_n = 0; is_fc = 0;
         n_skip = 0; end_j = -1; tc.k = INT32_MAX;
         if ((x-st) > max_iter) st = x-max_iter;
         for (j = x; j >= st; --j) { // collect potential destination vertices
             lj = &(res->a[j]); 
 			if(lj->qe <= li->qs) break;//even this pair has a overlap, its length will be very small; just ignore
 			sc = connect_detect(res->a, res->n, i, j, ridx, rch, uref, uopt, bw, diff_ec_ul, p, f, &tc,
-																trace, qstr, tu, ol, exz, e_rate, trans_sc);
+																trace, qstr, tu, ol, exz, e_rate, trans_sc, &cc);
 			if(sc == INT32_MIN) continue;
 			sn = c_n[j] + 1;
+			// if(li->tn == 6312 || li->tn == 6322 || li->tn == 6317 || li->tn == 6319/** && lj->tn == 6329**/) {
+			// 	fprintf(stderr, "(id::%u)%.*s\t%c\t(id::%u)%.*s\t%c\tsc::%ld\tsn::%ld\tc_n[j]::%d\tmsc::%ld\ti::%ld\tj::%ld\tm_idx::%ld\n", 
+			// 		li->tn,	(int)Get_NAME_LENGTH(R_INF, li->tn), Get_NAME(R_INF, li->tn), "+-"[li->rev],
+			// 		lj->tn,	(int)Get_NAME_LENGTH(R_INF, lj->tn), Get_NAME(R_INF, lj->tn), "+-"[lj->rev], 
+			// 		sc, sn, c_n[j], mm_sc, i, j, mm_idx);
+			// }
 			// if(li->tn == 20209) {
 			// 	fprintf(stderr, "[i::%ld] (id::%u)%.*s\t%c\tj::%ld\tsc::%ld\tsn::%ld\n", i, li->tn,
             //         (int)Get_NAME_LENGTH(R_INF, res->a[i].tn), Get_NAME(R_INF, res->a[i].tn), 
 			// 		"+-"[res->a[i].rev], j, sc, sn);
 			// }
 			if((sc > mm_sc) || ((sc == mm_sc) && (sn > mm_n))) {
-				mm_sc = sc, mm_idx = j; mm_n = sn;
+				mm_sc = sc, mm_idx = j; mm_n = sn; is_fc = cc;
 				if (n_skip > 0) --n_skip;
 			} else if (t[j] == i) {
 				if (++n_skip > max_skip)
@@ -7550,7 +8101,7 @@ int64_t trans_sc, All_reads *ridx, char* qstr, UC_Read *tu, int64_t rid, double 
 			}
 			if (p[j] >= 0) t[p[j]] = i;
         }
-    
+
         end_j = j;
         if (max_ii < 0 || (res->a[i].qe>(res->a[max_ii].qe+max_dis))) {//too long
             max = INT32_MIN; max_n = INT32_MIN; max_ii = -1;
@@ -7560,33 +8111,54 @@ int64_t trans_sc, All_reads *ridx, char* qstr, UC_Read *tu, int64_t rid, double 
                 }
             }
         }
-        
+
         if (max_ii >= 0 && max_ii < end_j) {///just have a try with a[i]<->a[max_ii]
             lj = &(res->a[max_ii]); 
             if(lj->qe > li->qs/** && lj->qs < li->qs**/) {
 				///as max_ii < end_j, get_rid_backward_cigar_err still works
 				sc = connect_detect(res->a, res->n, i, max_ii, ridx, rch, uref, uopt, bw, diff_ec_ul, p, f, &tc,
-																trace, qstr, tu, ol, exz, e_rate, trans_sc);
+																trace, qstr, tu, ol, exz, e_rate, trans_sc, &cc);
 				if(sc != INT32_MIN) {
 					sn = c_n[max_ii] + 1;
+					// if(li->tn == 6312 || li->tn == 6322 || li->tn == 6317 || li->tn == 6319/** && lj->tn == 6329**/) {
+					// 	fprintf(stderr, "(id::%u)%.*s\t%c\t(id::%u)%.*s\t%c\tsc::%ld\tsn::%ld\tc_n[j]::%d\tmsc::%ld\ti::%ld\tmax_ii::%ld\tm_idx::%ld\n", 
+					// 		li->tn,	(int)Get_NAME_LENGTH(R_INF, li->tn), Get_NAME(R_INF, li->tn), "+-"[li->rev],
+					// 		lj->tn,	(int)Get_NAME_LENGTH(R_INF, lj->tn), Get_NAME(R_INF, lj->tn), "+-"[lj->rev], 
+					// 		sc, sn, c_n[j], mm_sc, i, max_ii, mm_idx);
+					// }
 					if((sc > mm_sc) || ((sc == mm_sc) && (sn > mm_n))) {
-                        mm_sc = sc; mm_idx = max_ii; mm_n = sn;
+                        mm_sc = sc; mm_idx = max_ii; mm_n = sn; is_fc = cc;
                     }
 				}
             }
         }
+
+		sc = csc; sn = 1;///for i itself
+		if((sc > mm_sc) || ((sc == mm_sc) && (sn > mm_n))) {
+			mm_sc = sc, mm_idx = -1; mm_n = sn; is_fc = 0;
+		}
+
         if(mm_sc < 0) {
             mm_sc = csc; mm_idx = -1; mm_n = 1;
         }
 
+		// if(li->tn == 6317) {
+		// 	fprintf(stderr, "+(id::%u)%.*s\t%c\tmm_idx::%ld\tmm_sc::%ld\tmm_n::%ld\n", 
+		// 		li->tn,	(int)Get_NAME_LENGTH(R_INF, li->tn), Get_NAME(R_INF, li->tn), "+-"[li->rev], mm_idx, mm_sc, mm_n);
+		// }
+
 		if(mm_idx >= 0) {
-			// propagate_transitive_reduction(res->a, x+1, i, rch, f, p, c_n, &mm_sc, &mm_idx, &mm_n);
+			///mo meed to update mm_sc and is_fc
 			propagate_transitive_reduction(uref, uopt, ridx, bw, diff_ec_ul, res->a, x+1, i, rch, f, p, c_n, t, &mm_sc, &mm_idx, &mm_n);
 		}
+		// if(li->tn == 6317) {
+		// 	fprintf(stderr, "-(id::%u)%.*s\t%c\tmm_idx::%ld\tmm_sc::%ld\tmm_n::%ld\n", 
+		// 		li->tn,	(int)Get_NAME_LENGTH(R_INF, li->tn), Get_NAME(R_INF, li->tn), "+-"[li->rev], mm_idx, mm_sc, mm_n);
+		// }
 		// collapse_contain(res->a, res_n, i, &mm_idx, &mm_sc, p, c_sc, end_j);
 
         f[i] = mm_sc; p[i] = mm_idx; c_n[i] = mm_n; 
-		if(mm_idx < 0 || ssc[mm_idx] < mm_sc) ssc[i] = mm_sc;
+		if(mm_idx < 0 || ((ssc[mm_idx] < mm_sc) && (is_fc == 0))) ssc[i] = mm_sc;
 		else ssc[i] = ssc[mm_idx];
 
         if ((max_ii < 0) || ((res->a[i].qe<=max_dis+res->a[max_ii].qe) && (f[max_ii]<f[i]))) {
@@ -7637,6 +8209,345 @@ int64_t trans_sc, All_reads *ridx, char* qstr, UC_Read *tu, int64_t rid, double 
 		// flat_contain(ex+n_v0, n_v-n_v0);
 		res->a[k].te = res->a[k].ts + flat_contain(ridx, uref, uopt, bw, diff_ec_ul, qlen, max_skip, max_iter, max_dis, 
 		ex + res->a[k].ts, res->a[k].te - res->a[k].ts, f, ssc, p, t, &(res->a[k]));
+    }
+    res->n = n_u; 
+    radix_sort_ul_ov_srt_qn(res->a, res->a + res->n);//sort by score
+
+	// if(res->n > 0) {
+	// 	fprintf(stderr, "[M::%s::rid->%ld] qlen::%ld, q::[%u, %u), sc::%u\n", 
+	// 	__func__, rid, qlen, res->a[res->n-1].qs, res->a[res->n-1].qe, res->a[res->n-1].qn);
+	// }
+    return n_v;
+}
+
+
+int64_t gen_trans_aln(overlap_region_alloc* ol, All_reads *ridx, const ul_idx_t *uref, 
+const ug_opt_t *uopt, int64_t bw, double diff_ec_ul, int64_t qlen, uint64_t *id, int64_t idn, 
+ul_ov_t *a, int64_t a_n, uint64_t qs, uint64_t qe, int64_t *vis, int32_t *f0, int32_t *c_n0, 
+int32_t *c_sc0, int32_t *rch0, int32_t *ssc0, int64_t *p0, int64_t *t0, int64_t max_skip, 
+int64_t max_iter, int64_t max_dis, bit_extz_t *exz, int64_t trans_sc, char* qstr, UC_Read *tu, 
+double e_rate, kv_rtrace_t *trace, uint32_t rechain_w, ul_ov_t *res, ul_ov_t *rr)
+{
+	if(idn == 0) return 0;
+	int64_t k, l, i, j, z, nv = 0, qo, is_c, nf; 
+	ul_ov_t *li, *lj; uint32_t li_v, lj_v, update, tipl = 0, mm = ((uint32_t)(0x20000000U));
+	// for (i = 0; i < idn; i++) {
+	// 	li = &(a[id[i]]);
+	// 	fprintf(stderr, "[i::%ld] (id::%u)%.*s\t%c\tq::[%u, %u)\tt::[%u, %u)\tc::%u\n", 
+	// 			i, li->tn,
+    //                 (int)Get_NAME_LENGTH(R_INF, li->tn), Get_NAME(R_INF, li->tn), 
+	// 				"+-"[li->rev], li->qs, li->qe, li->ts, li->te, !li->el);
+	// }
+	for (i = nf = 0; i < idn; i++) {
+		if(a[id[i]].el) break;
+		if((a[id[i]].ts == 0) && (a[id[i]].te == Get_READ_LENGTH(R_INF, a[id[i]].tn))) nf++;
+	}
+	if(i < idn && nf > 0) {
+		if((a[id[i]].qs > qs) && (qs <= rechain_w)) {
+			tipl = qs; ///there are contained chains beforehand
+		}
+	}
+
+	for (i = 0, k = l = -1; i < idn; i++) {
+		k = id[i]; 
+		if(k - l > 1) {
+			if(l < 0) {
+				for (l = k-1; l >= 0 && a[l].qe > qs; l--);
+			}
+
+			for (z = l + 1; z < k; z++) {
+				li = &(a[z]); li_v = (li->tn<<1)|li->rev;
+				if((!(li->el))||(vis[z]&1)) continue;
+				if(!(((li->qs + tipl) >= qs) && (li->qe < qe))) continue;
+				for (j = i-1, update = 1; j >= 0; --j) {
+					lj = &(a[id[j]]); lj_v = (lj->tn<<1)|lj->rev;
+            		if(lj->qe <= li->qs) break;
+					qo = infer_rovlp(li, lj, NULL, NULL, ridx, NULL); ///overlap length in query (UL read)
+            		if((li_v == lj_v) || (!get_ecov_contain_adv(uref, uopt, li_v^1, lj_v^1, 
+																			bw, diff_ec_ul, qo, &is_c))) {
+						update = 0; break;
+					}
+				}
+				// if(li->tn == 6312) {
+				// 	fprintf(stderr, "[z::%ld] (id::%u)%.*s\t%c\tq::[%u, %u)\tt::[%u, %u)\tc::%u\tnf::%ld\ttipl::%u\tl::%ld\tk::%ld\tupdate::%u\n", z, li->tn,
+                //     (int)Get_NAME_LENGTH(R_INF, li->tn), Get_NAME(R_INF, li->tn), 
+				// 	"+-"[li->rev], li->qs, li->qe, li->ts, li->te, !li->el, nf, tipl, l, k, update);
+				// }
+				if(update) {
+					res[nv] = a[z]; res[nv].sec = (z<<1) + ((li->qs>=qs)?0:1); nv++;
+				}
+			}
+		}
+		l = k; 
+
+		li = &(a[k]); li_v = (li->tn<<1)|li->rev;
+		for (j = nv-1; j >= 0; --j) {
+			lj = &(res[j]); lj_v = (lj->tn<<1)|lj->rev;
+			if(lj->qe <= li->qs) break;
+			if(lj->qn == (uint32_t)-1) continue;//deleted
+			if((lj->sec&mm)) continue;//could not be deleted
+			qo = infer_rovlp(li, lj, NULL, NULL, ridx, NULL); ///overlap length in query (UL read)
+			if((li_v == lj_v) || (!get_ecov_contain_adv(uref, uopt, li_v^1, lj_v^1, 
+																	bw, diff_ec_ul, qo, &is_c))) {
+				// if(lj->tn == 6312) {
+				// 	fprintf(stderr, "delete::(id::%u)%.*s\t%c\tq::[%u, %u)\tt::[%u, %u)\tc::%u\n", 
+				// 	li->tn, (int)Get_NAME_LENGTH(R_INF, li->tn), Get_NAME(R_INF, li->tn), 
+				// 	"+-"[li->rev], li->qs, li->qe, li->ts, li->te, !li->el);
+				// }
+				res[j].qn = res[j].tn = (uint32_t)-1;
+			}
+		}
+		res[nv] = a[k]; res[nv].sec = k; res[nv].sec<<=1; res[nv].sec |= mm; nv++;
+	}
+
+	k = a_n; i = idn;
+	if(k - l > 1) {
+		for (z = l + 1; z < k; z++) {
+			li = &(a[z]); li_v = (li->tn<<1)|li->rev;
+			if((!(li->el))||(vis[z]&1)) continue;
+			if(!(((li->qs + tipl) >= qs) && (li->qe < qe))) continue;
+			for (j = i-1, update = 1; j >= 0; --j) {
+				lj = &(a[id[j]]); lj_v = (lj->tn<<1)|lj->rev;
+				if(lj->qe <= li->qs) break;
+				qo = infer_rovlp(li, lj, NULL, NULL, ridx, NULL); ///overlap length in query (UL read)
+				if((li_v == lj_v) || (!get_ecov_contain_adv(uref, uopt, li_v^1, lj_v^1, 
+																		bw, diff_ec_ul, qo, &is_c))) {
+					update = 0; break;
+				}
+			}
+			if(update) {
+				res[nv] = a[z]; res[nv].sec = (z<<1) + ((li->qs>=qs)?0:1); nv++;
+			}
+		}
+	}
+	// fprintf(stderr, "\n[M::%s::] old_n::%ld, new_n::%ld\n", __func__, idn, nv);
+	for (i = k = 0; i < nv; i++) {
+		if(res[i].qn == (uint32_t)-1) continue;
+		res[k] = res[i]; 
+		if(res[k].sec&mm) res[k].sec -= mm; k++;
+		// res[k] = res[i]; 
+		// id[k] = res[k].sec; 
+		// if(id[k]&mm) id[k] -= mm; 
+		// id[k] >>= 1;
+		// if(res[k].sec&1) id[k] |= ((uint64_t)(0x100000000U));///low prority
+		// // if(res[k].sec&mm) id[k] |= ((uint64_t)(0x200000000U));//orignal alignments
+		// k++;
+
+		// fprintf(stderr, "[k::%ld] (id::%u)%.*s\t%c\tq::[%u, %u)\tt::[%u, %u)\tc::%u\tnew::%u\n", k, 
+		// 			res[k].tn,(int)Get_NAME_LENGTH(R_INF, res[k].tn), Get_NAME(R_INF, res[k].tn), 
+		// 			"+-"[res[k].rev], res[k].qs, res[k].qe, res[k].ts, res[k].te, !res[k].el, 
+		// 			(res[k].sec != SEC_MODE));
+		// if(res[k].sec != SEC_MODE) vis[res[k].sec>>1] |= 1;
+		// res[k].sec = SEC_MODE; k++;
+	}
+	nv = idn = k;
+	nv = flat_contain_adv(ol, ridx, uref, uopt, bw, diff_ec_ul, qlen, max_skip, max_iter, max_dis, 
+        exz, trans_sc, qstr, tu, e_rate, trace, res, nv, f0, c_n0, c_sc0, rch0, ssc0, p0, t0, a, id, 
+		rechain_w, vis, rr);
+		// f, ssc, p, t, &(res->a[k]));
+	// for (k = 0; k < idn; k++) {
+	// 	if(((uint32_t)id[k])&1) continue;
+	// 	vis[((uint32_t)id[k])>>1] |= 1;
+	// }
+	return nv;
+}
+
+int64_t gl_rchain_lin_contain_adv(overlap_region_alloc* ol, kv_ul_ov_t *res, ul_ov_t *ex, kv_rtrace_t *trace, const ul_idx_t *uref, const ug_opt_t *uopt, int64_t bw, 
+double diff_ec_ul, int64_t qlen, int64_t max_skip, int64_t max_iter, int64_t max_dis, Chain_Data* dp, bit_extz_t *exz, uint64_t *id,
+int64_t trans_sc, All_reads *ridx, char* qstr, UC_Read *tu, int64_t rid, double e_rate, int64_t need_srt)
+{
+	if(res->n == 0) return 0;
+    uint32_t li_v, rev_n, is_fc, cc, idn, mqs, mqe; int32_t *f, *c_n, *c_sc, *rch, *ssc; int64_t *p, *t, res_n = res->n, st, max_ii, max, max_n; 
+    int64_t mm_ovlp, x, i, j, k, sc, csc, mm_sc, mm_idx, mm_n, sn, n_skip, end_j, plus; ul_ov_t *li, *lj, rr, mrr; rtrace_iter tc; uint64_t ovlp;
+    resize_Chain_Data(dp, res_n<<1, NULL);///res_n<<1
+    t = dp->tmp; f = dp->score; p = dp->pre; c_n = dp->occ; 
+	c_sc = rch = dp->self_length; ssc = dp->indels;
+	if(need_srt) {
+        radix_sort_ul_ov_srt_qe(res->a, res->a + res_n);
+        for (i = 1, j = 0; i <= res_n; i++) {
+			res->a[i-1].qs = ((uint32_t)-1)-res->a[i-1].qs;
+            if (i == res_n || res->a[i].qe != res->a[j].qe) {
+                if(i - j > 1) radix_sort_ul_ov_srt_qs(res->a+j, res->a+i);
+                j = i;
+            }
+        }
+    }
+
+	memset(t, 0, (res_n*sizeof((*t)))); 
+	for (i = st = plus = 0, max_ii = -1; i < res_n; ++i) {
+        li = &(res->a[i]); li_v = (li->tn<<1)|li->rev; li->qs = ((uint32_t)-1)-li->qs;
+		rch[i] = INT32_MAX; ssc[i] = INT32_MIN; 
+        mm_ovlp = max_ovlp_src_contain(uopt, li_v^1);        
+        x = (li->qs + mm_ovlp)*diff_ec_ul; 
+        if(x < bw) x = bw; 
+        x += li->qs + mm_ovlp;
+        if (x > qlen+1) x = qlen+1;
+		// if(li->tn == 20171 || li->tn == 20209 || li->tn == 20204) {
+		// 	fprintf(stderr, "\n[i::%ld] (id::%u)%.*s\t%c\tq::[%u, %u)\tt::[%u, %u)\tc::%u\tmax_d::%ld\n", i, li->tn,
+        //             (int)Get_NAME_LENGTH(R_INF, res->a[i].tn), Get_NAME(R_INF, res->a[i].tn), 
+		// 			"+-"[res->a[i].rev], res->a[i].qs, res->a[i].qe, res->a[i].ts, res->a[i].te,
+		// 			!res->a[i].el, x+G_CHAIN_INDEL);
+		// }
+        x = find_ul_ov_max(i, res->a, x+G_CHAIN_INDEL); 
+		// if(li->tn == 6312) {
+		// 	fprintf(stderr, "[i::%ld] (id::%u)%.*s\t%c\tq::[%u, %u)\tt::[%u, %u)\tc::%u\tmax_j::%ld\n", i, li->tn,
+        //             (int)Get_NAME_LENGTH(R_INF, res->a[i].tn), Get_NAME(R_INF, res->a[i].tn), 
+		// 			"+-"[res->a[i].rev], res->a[i].qs, res->a[i].qe, res->a[i].ts, res->a[i].te,
+		// 			!res->a[i].el, x);
+		// }
+        csc = li->qe - li->qs; csc -= (((int64_t)li->sec)*trans_sc);
+        // mm_sc = csc; mm_idx = -1; mm_n = 1;
+		mm_sc = INT32_MIN; mm_idx = -1; mm_n = 0; is_fc = 0;
+        n_skip = 0; end_j = -1; tc.k = INT32_MAX;
+        if ((x-st) > max_iter) st = x-max_iter;
+        for (j = x; j >= st; --j) { // collect potential destination vertices
+            lj = &(res->a[j]); 
+			if(lj->qe <= li->qs) break;//even this pair has a overlap, its length will be very small; just ignore
+			sc = connect_detect(res->a, res->n, i, j, ridx, rch, uref, uopt, bw, diff_ec_ul, p, f, &tc,
+																trace, qstr, tu, ol, exz, e_rate, trans_sc, &cc);
+			if(sc == INT32_MIN) continue;
+			sn = c_n[j] + 1;
+			// if(li->tn == 6312) {
+			// 	fprintf(stderr, "(id::%u)%.*s\t%c\t(id::%u)%.*s\t%c\tsc::%ld\tsn::%ld\tc_n[j]::%d\tmsc::%ld\ti::%ld\tj::%ld\tm_idx::%ld\n", 
+			// 		li->tn,	(int)Get_NAME_LENGTH(R_INF, li->tn), Get_NAME(R_INF, li->tn), "+-"[li->rev],
+			// 		lj->tn,	(int)Get_NAME_LENGTH(R_INF, lj->tn), Get_NAME(R_INF, lj->tn), "+-"[lj->rev], 
+			// 		sc, sn, c_n[j], mm_sc, i, j, mm_idx);
+			// }
+			// if(li->tn == 20209) {
+			// 	fprintf(stderr, "[i::%ld] (id::%u)%.*s\t%c\tj::%ld\tsc::%ld\tsn::%ld\n", i, li->tn,
+            //         (int)Get_NAME_LENGTH(R_INF, res->a[i].tn), Get_NAME(R_INF, res->a[i].tn), 
+			// 		"+-"[res->a[i].rev], j, sc, sn);
+			// }
+			if((sc > mm_sc) || ((sc == mm_sc) && (sn > mm_n))) {
+				mm_sc = sc, mm_idx = j; mm_n = sn; is_fc = cc;
+				if (n_skip > 0) --n_skip;
+			} else if (t[j] == i) {
+				if (++n_skip > max_skip)
+					break;
+			}
+			if (p[j] >= 0) t[p[j]] = i;
+        }
+
+        end_j = j;
+        if (max_ii < 0 || (res->a[i].qe>(res->a[max_ii].qe+max_dis))) {//too long
+            max = INT32_MIN; max_n = INT32_MIN; max_ii = -1;
+            for (j = i - 1; (j >= st) && (res->a[i].qe<=(max_dis+res->a[j].qe)); --j) {
+                if ((max < f[j]) || ((max == f[j]) && (max_n < c_n[j]))) {
+                    max = f[j]; max_n = c_n[j]; max_ii = j;
+                }
+            }
+        }
+
+        if (max_ii >= 0 && max_ii < end_j) {///just have a try with a[i]<->a[max_ii]
+            lj = &(res->a[max_ii]); 
+            if(lj->qe > li->qs/** && lj->qs < li->qs**/) {
+				///as max_ii < end_j, get_rid_backward_cigar_err still works
+				sc = connect_detect(res->a, res->n, i, max_ii, ridx, rch, uref, uopt, bw, diff_ec_ul, p, f, &tc,
+																trace, qstr, tu, ol, exz, e_rate, trans_sc, &cc);
+				if(sc != INT32_MIN) {
+					sn = c_n[max_ii] + 1;
+					// if(li->tn == 6312 || li->tn == 6322 || li->tn == 6317 || li->tn == 6319/** && lj->tn == 6329**/) {
+					// 	fprintf(stderr, "(id::%u)%.*s\t%c\t(id::%u)%.*s\t%c\tsc::%ld\tsn::%ld\tc_n[j]::%d\tmsc::%ld\ti::%ld\tmax_ii::%ld\tm_idx::%ld\n", 
+					// 		li->tn,	(int)Get_NAME_LENGTH(R_INF, li->tn), Get_NAME(R_INF, li->tn), "+-"[li->rev],
+					// 		lj->tn,	(int)Get_NAME_LENGTH(R_INF, lj->tn), Get_NAME(R_INF, lj->tn), "+-"[lj->rev], 
+					// 		sc, sn, c_n[j], mm_sc, i, max_ii, mm_idx);
+					// }
+					if((sc > mm_sc) || ((sc == mm_sc) && (sn > mm_n))) {
+                        mm_sc = sc; mm_idx = max_ii; mm_n = sn; is_fc = cc;
+                    }
+				}
+            }
+        }
+
+		sc = csc; sn = 1;///for i itself
+		if((sc > mm_sc) || ((sc == mm_sc) && (sn > mm_n))) {
+			mm_sc = sc, mm_idx = -1; mm_n = sn; is_fc = 0;
+		}
+
+        if(mm_sc < 0) {
+            mm_sc = csc; mm_idx = -1; mm_n = 1;
+        }
+
+		// if(li->tn == 6317) {
+		// 	fprintf(stderr, "+(id::%u)%.*s\t%c\tmm_idx::%ld\tmm_sc::%ld\tmm_n::%ld\n", 
+		// 		li->tn,	(int)Get_NAME_LENGTH(R_INF, li->tn), Get_NAME(R_INF, li->tn), "+-"[li->rev], mm_idx, mm_sc, mm_n);
+		// }
+
+		if(mm_idx >= 0) {
+			///mo meed to update mm_sc and is_fc
+			propagate_transitive_reduction(uref, uopt, ridx, bw, diff_ec_ul, res->a, x+1, i, rch, f, p, c_n, t, &mm_sc, &mm_idx, &mm_n);
+		}
+		// if(li->tn == 6317) {
+		// 	fprintf(stderr, "-(id::%u)%.*s\t%c\tmm_idx::%ld\tmm_sc::%ld\tmm_n::%ld\n", 
+		// 		li->tn,	(int)Get_NAME_LENGTH(R_INF, li->tn), Get_NAME(R_INF, li->tn), "+-"[li->rev], mm_idx, mm_sc, mm_n);
+		// }
+		// collapse_contain(res->a, res_n, i, &mm_idx, &mm_sc, p, c_sc, end_j);
+
+        f[i] = mm_sc; p[i] = mm_idx; c_n[i] = mm_n; 
+		if(mm_idx < 0 || ((ssc[mm_idx] < mm_sc) && (is_fc == 0))) ssc[i] = mm_sc;
+		else ssc[i] = ssc[mm_idx];
+
+        if ((max_ii < 0) || ((res->a[i].qe<=max_dis+res->a[max_ii].qe) && (f[max_ii]<f[i]))) {
+            max_ii = i;
+        }
+        if(ssc[i] < plus) plus = ssc[i];//minmun negative
+		// if(li->tn == 20171 || li->tn == 20209 || li->tn == 20204) {
+		// 	fprintf(stderr, "[i::%ld]\tf::%d\tp::%ld\n", i, f[i], p[i]);
+		// }
+        
+    }
+
+	for (i = 0; i < res_n; ++i) {///make all f[] positive
+        ssc[i] -= plus; t[i] = ((uint64_t)ssc[i])<<32; t[i] += (i<<1);
+    }
+
+	int64_t n_v, n_u, n_v0; mrr.qn = (uint32_t)-1; mrr.qe = mrr.qs = 0;
+	int32_t *f0, *c_n0, *c_sc0, *rch0, *ssc0; int64_t *p0, *t0;
+	f0 = f + res_n; c_n0 = c_n + res_n; c_sc0 = c_sc + res_n;
+	rch0 = rch + res_n; ssc0 = ssc + res_n; p0 = p + res_n; t0 = t + res_n;
+    radix_sort_gfa64i(t, t + res_n); plus = 0; mqs = UINT32_MAX; mqe = 0;
+    for (k = res_n-1, n_v = n_u = 0; k >= 0; --k) {
+        n_v0 = n_v; idn = 0;
+        for (i = ((uint32_t)t[k])>>1; i >= 0 && (t[i]&1) == 0; ) {
+			if(res->a[i].qs < mqs) mqs = res->a[i].qs;
+			if(res->a[i].qe > mqe) mqe = res->a[i].qe;
+            // ex[n_v] = res->a[i]; ex[n_v].sec = i;
+			id[idn++] = i; t[i] |= 1; i = p[i]; n_v++;
+        }
+        if(n_v0 == n_v) continue;
+        sc = (i<0?(t[k]>>32):((t[k]>>32)-f[i]));
+
+
+		if((mrr.qn != (uint32_t)-1) && (sc < (c_sc[mrr.qn]*0.98))) {
+			ovlp = ((MIN(mrr.qe, mqe) > MAX(mrr.qs, mqs))? (MIN(mrr.qe, mqe) - MAX(mrr.qs, mqs)):0);
+			if(ovlp >= ((mqe-mqs)*0.95)) {
+				n_v = n_v0; continue;
+			}
+		}
+
+		rev_n = idn>>1;
+		for (i = 0; i < rev_n; i++) {
+			st = id[i]; id[i] = id[idn-i-1]; id[idn-i-1] = st;
+		}
+		n_v = n_v0 + gen_trans_aln(ol, ridx, uref, uopt, bw, diff_ec_ul, qlen, id, idn, res->a, res_n, mqs, mqe, t, 
+		f0, c_n0, c_sc0, rch0, ssc0, p0, t0, max_skip, max_iter, max_dis, exz, trans_sc, qstr, tu, e_rate, trace, 1000, ex + n_v0, &rr);
+		assert(n_v > n_v0);
+        c_n[n_u] = n_v-n_v0; c_sc[n_u] = sc; n_u++; if(sc < plus) plus = sc;
+		if((mrr.qn == (uint32_t)-1) || (sc > c_sc[mrr.qn]) || 
+						((sc == c_sc[mrr.qn]) && ((rr.qe - rr.qs) > (mrr.qe - mrr.qs)))) {
+			mrr = rr; mrr.qn = n_u - 1;
+		}
+    }
+
+    // fprintf(stderr, "---[M::%s] n_u:%ld, n_v:%ld\n", __func__, n_u, n_v);
+    for (k = 0, n_v = n_v0 = 0; k < n_u; k++) {
+        n_v0 = n_v; n_v += c_n[k];
+        res->a[k].qn = c_sc[k]-plus;//score
+        res->a[k].ts = n_v0; res->a[k].te = n_v;///idx
+		res->a[k].qs = ex[n_v0].qs; res->a[k].qe = ex[n_v-1].qe;
+        // fprintf(stderr, "[M::%s] k:%ld, c_sc:%d\n", __func__, k, c_sc[k]);
+		// res->a[k].te = res->a[k].ts + flat_contain(ridx, uref, uopt, bw, diff_ec_ul, qlen, max_skip, max_iter, max_dis, 
+		// ex + res->a[k].ts, res->a[k].te - res->a[k].ts, f, ssc, p, t, &(res->a[k]));
     }
     res->n = n_u; 
     radix_sort_ul_ov_srt_qn(res->a, res->a + res->n);//sort by score
@@ -7783,14 +8694,16 @@ int64_t rid, ha_ovec_buf_t *bb, int64_t max_chain)
 	res_a = res->a + cha_idx; res_n = res->n - cha_idx;
 	kv_resize(ul_ov_t, *idx, res_n); idx->n = res_n;
 	memcpy(idx->a, res_a, res_n*sizeof(*(res->a)));
+	kv_resize(uint64_t, ll->srt.a, res_n);
 	// fprintf(stderr, "\n+[M::%s] rid::%ld, name::%.*s\n", __func__, rid, 
     //      (int32_t)UL_INF.nid.a[rid].n, UL_INF.nid.a[rid].a);
-	res_n = gl_rchain_lin_contain(ol, idx, res_a, &(ll->tc), uref, uopt, G_CHAIN_BW, N_GCHAIN_RATE, qlen, ((max_chain>UG_SKIP_N)?max_chain:UG_SKIP_N), UG_ITER_N, UG_DIS_N, dp, exz, tran_sc, &R_INF, qstr, tu, rid, diff_ec_ul, 1);
+	// res_n = gl_rchain_lin_contain(ol, idx, res_a, &(ll->tc), uref, uopt, G_CHAIN_BW, N_GCHAIN_RATE, qlen, ((max_chain>UG_SKIP_N)?max_chain:UG_SKIP_N), UG_ITER_N, UG_DIS_N, dp, exz, ll->srt.a.a, tran_sc, &R_INF, qstr, tu, rid, diff_ec_ul, 1);
+	res_n = gl_rchain_lin_contain_adv(ol, idx, res_a, &(ll->tc), uref, uopt, G_CHAIN_BW, N_GCHAIN_RATE, qlen, ((max_chain>UG_SKIP_N)?max_chain:UG_SKIP_N), UG_ITER_N, UG_DIS_N, dp, exz, ll->srt.a.a, tran_sc, &R_INF, qstr, tu, rid, diff_ec_ul, 1);
 	// fprintf(stderr, "-[M::%s] rid::%ld, name::%.*s\n", __func__, rid, 
     //      (int32_t)UL_INF.nid.a[rid].n, UL_INF.nid.a[rid].a);
 
 	// prt_all_chain(idx, res_a, qlen);
-
+	
 	copy_asg_arr(b64, ll->srt.a);
 	res_n = select_clean_chain(idx, res_a, res_n, ulid_local, &b64);
 	copy_asg_arr(ll->srt.a, b64);
@@ -7799,6 +8712,7 @@ int64_t rid, ha_ovec_buf_t *bb, int64_t max_chain)
 	if((idx->n) && (idx->a[0].qe - idx->a[0].qs) >= (qlen*0.95)) {
 		bb->num_read_base++;
 	} 
+	
 	// else {
 	// 	// idx->n = 1;
 	// 	prt_rid_raw_chain(idx, rid, qlen);
@@ -7817,7 +8731,8 @@ static void worker_for_ul_scall_alignment(void *data, long i, int tid) // callba
 	glchain_t *bl = &(s->ll[tid]);
 	int64_t /**rid = s->id+i,**/ winLen = MIN((((double)THRESHOLD_MAX_SIZE)/s->opt->diff_ec_ul), WINDOW), cha_idx;
 	uint32_t high_occ = 2; overlap_region *aux_o = NULL;
-	// if(s->id+i != 3046) return;
+	// if(s->id+i != 901) return;
+	// if(s->id+i != 1052) return;
 	// fprintf(stderr, "[0M::%s] rid::%ld, len::%lu, name::%.*s\n", __func__, s->id+i, s->len[i],
     //      (int32_t)UL_INF.nid.a[s->id+i].n, UL_INF.nid.a[s->id+i].a);
 	// if (memcmp(UL_INF.nid.a[s->id+i].a, "d0aab024-b3a7-40fb-83cc-22c3d6d951f8", UL_INF.nid.a[s->id+i].n-1)) return;
@@ -13465,45 +14380,6 @@ void destroy_ul_idx_t(ul_idx_t *uu)
 	free(uu);
 }
 
-void print_raw_u2rgfa_seq(all_ul_t *aln, ul_idx_t *uu, uint32_t is_detail)
-{
-	uint64_t id, a_n, k, z; uc_block_t *a = NULL; 
-	kvec_t(uint8_t) ff; kv_init(ff);
-	for (id = 0; id < aln->n; id++) {
-		a = aln->a[id].bb.a; a_n = aln->a[id].bb.n;
-		if(a_n == 0) continue;
-		fprintf(stderr,"\n%.*s\tid::%lu\trlen::%u", (int32_t)aln->nid.a[id].n, aln->nid.a[id].a, id, aln->a[id].rlen);
-		kv_resize(uint8_t, ff, a_n); memset(ff.a, 0, a_n*sizeof((*(ff.a))));
-		if(is_detail) {
-			fprintf(stderr, "\n");
-			for (k = 0; k < a_n; k++) {
-				if(ff.a[k]) continue;
-				for (z = k; z != (uint32_t)-1; z = a[z].aidx) {
-					fprintf(stderr, "%.*s\t%c\tq::[%u, %u)\tt::[%u, %u)\tid::%u\ttl::%lu\n", 
-					(int)Get_NAME_LENGTH(R_INF, a[z].hid), Get_NAME(R_INF, a[z].hid), "+-"[a[z].rev],
-					a[z].qs, a[z].qe, a[z].ts, a[z].te, a[z].hid, Get_READ_LENGTH(R_INF, a[z].hid));
-					assert(ff.a[z] == 0);
-					ff.a[z] = 1;
-				}
-				fprintf(stderr, "************\n");
-			}
-		} else {
-			fprintf(stderr, "\t");
-			for (k = 0; k < a_n; k++) {
-				if(ff.a[k]) continue;
-				for (z = k; z != (uint32_t)-1; z = a[z].aidx) {
-					fprintf(stderr, "%.*s\t", 
-					(int)Get_NAME_LENGTH(R_INF, a[z].hid), Get_NAME(R_INF, a[z].hid));
-					assert(ff.a[z] == 0);
-					ff.a[z] = 1;
-				}
-				fprintf(stderr, "\n");
-			}
-		}
-	}
-	kv_destroy(ff);
-}
-
 
 void gen_UL_ovlps(uldat_t *sl, int32_t cutoff)
 {
@@ -13680,7 +14556,7 @@ void ul_load(const ug_opt_t *uopt)
 
 	if(!load_all_ul_t(&UL_INF, asm_opt.output_file_name, &R_INF, NULL)) {
 		gen_UL_ovlps(&sl, cutoff);
-		// write_all_ul_t(&UL_INF, asm_opt.output_file_name, NULL);
+		write_all_ul_t(&UL_INF, asm_opt.output_file_name, NULL);
 		// exit(1);
 	}
 	// detect_outlier_len("ul_load");
@@ -13767,10 +14643,10 @@ ma_ug_t *ul_realignment(const ug_opt_t *uopt, asg_t *sg, uint32_t double_check_c
 	// detect_outlier_len("ul_realignment");
 	clear_all_ul_t(&UL_INF);
 	///for debug interval
-	if(/**!load_all_ul_t(&UL_INF, gfa_name, &R_INF, ug)**/1) {
+	if(!load_all_ul_t(&UL_INF, gfa_name, &R_INF, ug)) {
 		gen_UL_reovlps(&sl, ug, sg, gfa_name, cutoff);
 		// exit(1);
-		// write_all_ul_t(&UL_INF, gfa_name, ug);
+		write_all_ul_t(&UL_INF, gfa_name, ug);
 	} else if(double_check_cache){
 		if(drenew_UL_reovlps(&sl, ug, sg, gfa_name, cutoff)) {
 			write_all_ul_t(&UL_INF, gfa_name, ug);

@@ -2352,6 +2352,48 @@ void des_flex_asg_t(flex_asg_t *z)
     free(z->idx); free(z->pi.a); free(z->a);
 }
 
+
+void print_raw_u2rgfa_seq(all_ul_t *aln, R_to_U* rI, uint32_t is_detail)
+{
+	uint64_t id, a_n, k, z; uc_block_t *a = NULL; 
+	kvec_t(uint8_t) ff; kv_init(ff);
+	for (id = 0; id < aln->n; id++) {
+		a = aln->a[id].bb.a; a_n = aln->a[id].bb.n;
+		if(a_n == 0) continue;
+		fprintf(stderr,"\n%.*s\tid::%lu\trlen::%u", (int32_t)aln->nid.a[id].n, aln->nid.a[id].a, id, aln->a[id].rlen);
+		kv_resize(uint8_t, ff, a_n); memset(ff.a, 0, a_n*sizeof((*(ff.a))));
+		if(is_detail) {
+			fprintf(stderr, "\n");
+			for (k = 0; k < a_n; k++) {
+				if(ff.a[k]) continue;
+				for (z = k; z != (uint32_t)-1; z = a[z].aidx) {
+					fprintf(stderr, "%.*s\t%c\tq::[%u, %u)\tt::[%u, %u)\tid::%u\ttl::%lu\tc::%u\n", 
+					(int)Get_NAME_LENGTH(R_INF, a[z].hid), Get_NAME(R_INF, a[z].hid), "+-"[a[z].rev],
+					a[z].qs, a[z].qe, a[z].ts, a[z].te, a[z].hid, Get_READ_LENGTH(R_INF, a[z].hid),
+                    rI?is_contain_r((*rI), a[z].hid):0);
+					assert(ff.a[z] == 0);
+					ff.a[z] = 1;
+				}
+				fprintf(stderr, "************\n");
+			}
+		} else {
+			fprintf(stderr, "\t");
+			for (k = 0; k < a_n; k++) {
+				if(ff.a[k]) continue;
+				for (z = k; z != (uint32_t)-1; z = a[z].aidx) {
+					fprintf(stderr, "%.*s\t", 
+					(int)Get_NAME_LENGTH(R_INF, a[z].hid), Get_NAME(R_INF, a[z].hid));
+					assert(ff.a[z] == 0);
+					ff.a[z] = 1;
+				}
+				fprintf(stderr, "\n");
+			}
+		}
+	}
+	kv_destroy(ff);
+}
+
+
 void ul_clean_gfa(ug_opt_t *uopt, asg_t *sg, ma_hit_t_alloc *src, ma_hit_t_alloc *rev, R_to_U* rI, int64_t clean_round, double min_ovlp_drop_ratio, double max_ovlp_drop_ratio, 
 double ou_drop_rate, int64_t max_tip, int64_t gap_fuzz, bub_label_t *b_mask_t, int32_t is_ou, int32_t is_trio, uint32_t ou_thres, char *o_file)
 {
@@ -2367,7 +2409,20 @@ double ou_drop_rate, int64_t max_tip, int64_t gap_fuzz, bub_label_t *b_mask_t, i
     // if(is_ou) update_sg_uo(sg, src);///do not do it here
     // print_debug_gfa(sg, NULL, uopt->coverage_cut, "UL.dirty.debug", uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 1, 0, 0);
     // exit(1);
+    // print_raw_u2rgfa_seq(&UL_INF, rI, 1);
+    // exit(1);
 
+
+    // fprintf(stderr, "%.*s\tid::%u\tis_c::%u\n", 
+    //                 (int)Get_NAME_LENGTH(R_INF, 10785), Get_NAME(R_INF, 10785), 10785, is_contain_r((*rI), 10785));
+    // fprintf(stderr, "%.*s\tid::%u\tis_c::%u\n", 
+    //             (int)Get_NAME_LENGTH(R_INF, 10790), Get_NAME(R_INF, 10790), 10790, is_contain_r((*rI), 10790));
+    // fprintf(stderr, "%.*s\tid::%u\tis_c::%u\n", 
+    //         (int)Get_NAME_LENGTH(R_INF, 10805), Get_NAME(R_INF, 10805), 10805, is_contain_r((*rI), 10805));
+    // fprintf(stderr, "%.*s\tid::%u\tis_c::%u\n", 
+    //         (int)Get_NAME_LENGTH(R_INF, 10809), Get_NAME(R_INF, 10809), 10809, is_contain_r((*rI), 10809));
+    // fprintf(stderr, "%.*s\tid::%u\tis_c::%u\n", 
+    //         (int)Get_NAME_LENGTH(R_INF, 10819), Get_NAME(R_INF, 10819), 10819, is_contain_r((*rI), 10819));
     // debug_info_of_specfic_node("m64012_190921_234837/111673711/ccs", sg, rI, "beg");
     // debug_info_of_specfic_node("m64011_190830_220126/95028102/ccs", sg, rI, "beg");
 
@@ -11794,7 +11849,7 @@ void u2g_hybrid_clean(ul_resolve_t *uidx, ulg_opt_t *ulopt, usg_t *ng, asg64_v *
     debug_sysm_usg_t(ng, __func__);
 
     /******for debug******/
-    prt_usg_t(uidx, ng, "ng1");
+    // prt_usg_t(uidx, ng, "ng1");
     /******for debug******/
 
     // u2g_hybrid_extend(ng, NULL, b, ub);
@@ -11994,7 +12049,7 @@ void u2g_threading(ul_resolve_t *uidx, ulg_opt_t *ulopt, uint64_t cov_cutoff, as
     idx->h_usg = ng;
 
     /******for debug******/
-    prt_usg_t(uidx, ng, "ng0");
+    // prt_usg_t(uidx, ng, "ng0");
     /******for debug******/
 
 

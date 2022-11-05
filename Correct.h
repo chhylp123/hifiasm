@@ -17,7 +17,7 @@
 #define MISMATCH 1
 #define INSERTION 2
 #define DELETION 3
-#define ERROR_RATE 1.25
+#define ERROR_RATE 1.5
 #define UL_TOPN 50
 #define SGAP 16
 #define MAX_LGAP(ql) ((((ql)*0.2)<256)?((ql)*0.2):256)

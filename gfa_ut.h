@@ -28,5 +28,6 @@ double max_ovlp_drop_ratio, int64_t max_tip, bub_label_t *b_mask_t, uint32_t is_
 void recover_contain_g(asg_t *g, ma_hit_t_alloc *src, R_to_U* ruIndex, int64_t max_hang, int64_t min_ovlp, int64_t ul_occ);
 void normalize_gou(asg_t *g);
 void prt_specfic_sge(asg_t *g, uint32_t src, uint32_t dst, const char* cmd);
+// void print_raw_u2rgfa_seq(all_ul_t *aln, R_to_U* rI, uint32_t is_detail);
 
 #endif

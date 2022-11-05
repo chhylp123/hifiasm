@@ -10238,7 +10238,6 @@ static void update_weak_by_contain(void *data, long i, int tid)
     }
 }
 
-
 void clean_weak_ma_hit_t(ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, long long num_sources, uint32_t ou_thres)
 {
     double startTime = Get_T();

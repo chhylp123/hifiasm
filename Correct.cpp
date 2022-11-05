@@ -15213,6 +15213,75 @@ UC_Read *tu, bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t ql, 
 #define ovlp_cur_xoff(x) ((x).qs)
 #define ovlp_cur_coff(x) ((x).qe)
 
+int64_t retrieve_cigar_err_debug(bit_extz_t *ez, int64_t s, int64_t e)
+{
+    if(!ez->cigar.n) return 0;
+    int64_t err = 0, xk = ez->ts; int64_t ws, we, os, oe, ovlp;
+    uint32_t ck = 0, cl; uint16_t op;
+
+    os = MAX(s, ez->ts); oe = MIN(e, ez->te+1);
+    ovlp = ((oe>os)? (oe-os):0); 
+    if(!ovlp) {
+        fprintf(stderr, "[M::%s::] s::%ld, e::%ld, ez->ts::%u, ez->te::%u\n", 
+        __func__, s, e, ez->ts, ez->te);
+    }
+    assert(ovlp);
+
+    //some cigar will span s or e
+    while (ck < ez->cigar.n && xk < e) {//[s, e)
+        ws = xk; 
+        ck = pop_trace(&(ez->cigar), ck, &op, &cl);
+        if(op!=2) xk += cl;
+        we = xk;
+        os = MAX(s, ws); oe = MIN(e, we);
+        ovlp = ((oe>os)? (oe-os):0);
+        if((op==2) && (ws>=s) && (ws<e)) {
+            ovlp = cl;
+        }
+        if((!ovlp) || (!op)) continue;
+        err += ovlp;
+    }
+    return err;
+} 
+
+///[s, e)
+int64_t extract_sub_cigar_err_debug(overlap_region *z, int64_t s, int64_t e)
+{
+    int64_t wk = 0, wn = z->w_list.n, ws, we, os, oe, ovlp; 
+    window_list *m; int64_t xl, yl, werr, err; bit_extz_t ez;
+    for (wk = err = 0; wk < wn; wk++) {
+        m = &(z->w_list.a[wk]); 
+        ws = m->x_start; we = m->x_end+1;
+        if(ws >= e) break;
+        os = MAX(s, ws); oe = MIN(e, we);
+        ovlp = ((oe>os)? (oe-os):0);
+        if(ovlp) {
+            xl = m->x_end+1-m->x_start;
+            yl = m->y_end+1-m->y_start;
+            if((is_ualn_win((*m))) || (is_est_aln((*m)))) {
+                if(is_ualn_win((*m))) { //unmapped
+                    werr = gen_err_unaligned(xl, yl);
+                } else {
+                    werr = m->error;//shared window
+                }
+                if(ovlp < xl) {
+                    werr = (((double)ovlp)/((double)xl))*((double)werr);
+                }
+                //skip the whole window
+                err += werr; 
+            } else {
+                if(ovlp == xl) {
+                    //skip the whole window
+                    err += m->error; 
+                } else {
+                    set_bit_extz_t(ez, (*z), wk); 
+                    err += retrieve_cigar_err_debug(&ez, os, oe);
+                }                
+            }
+        }
+    }
+    return err;
+}
 
 int64_t retrieve_cigar_err(bit_extz_t *ez, int64_t s, int64_t e, int64_t *xk, int64_t *ck)
 {
@@ -15243,6 +15312,13 @@ int64_t retrieve_cigar_err(bit_extz_t *ez, int64_t s, int64_t e, int64_t *xk, in
         if((!ovlp) || (!op)) continue;
         err += ovlp;
     }
+
+    // int64_t debug_err = retrieve_cigar_err_debug(ez, s, e);
+    // if(!(err == debug_err)) {
+    //     fprintf(stderr, "[M::%s::] err::%ld, debug_err::%ld, s::%ld, e::%ld, ez->ts::%u, ez->te::%u\n", 
+    //     __func__, err, debug_err, s, e, ez->ts, ez->te);
+    // }
+    // assert(err == debug_err);
     return err;
 } 
 ///[s, e)
@@ -15401,6 +15477,10 @@ uint64_t gen_region_phase(overlap_region* ol, uint64_t *id_a, uint64_t id_n, uin
             // fprintf(stderr, "+++[M::%s::utg%.6dl] wid::%u, xoff::%u, coff::%u\n", __func__, 
             //     (int32_t)ol[ovlp_id(*p)].y_id+1, ovlp_cur_wid(*p), ovlp_cur_xoff(*p), ovlp_cur_coff(*p));
             err = extract_sub_cigar_err(z, s, e, p);
+            // int64_t debug_err = extract_sub_cigar_err_debug(z, s, e);
+            // assert(err == debug_err);
+            // fprintf(stderr, "[M::%s::] err::%ld, debug_err::%ld\n", __func__, err, debug_err);
+
             // fprintf(stderr, "---[M::%s::utg%.6dl] wid::%u, xoff::%u, coff::%u, err::%ld\n", __func__, 
             //     (int32_t)ol[ovlp_id(*p)].y_id+1, ovlp_cur_wid(*p), ovlp_cur_xoff(*p), ovlp_cur_coff(*p), err);
             assert(err >= 0);  
