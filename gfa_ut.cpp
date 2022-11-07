@@ -441,7 +441,7 @@ uint32_t get_arcs(asg_t *g, uint32_t v, uint32_t* idx, uint32_t idx_n)
     return kv;
 }
 
-#define flex_arcs0(res, fg, id) ((res) = ((!((id)&(((uint32_t)(0x80000000)))))?(&((fg).g->arc[(id)])):(&((fg).a[(id)]))));
+#define flex_arcs0(res, fg, id) ((res) = ((!((id)&(((uint32_t)(0x80000000)))))?(&((fg).g->arc[(id)])):(&((fg).a[(id)-(((uint32_t)(0x80000000)))]))));
 
 uint32_t get_flex_arcs(flex_asg_t *fg, uint32_t v, uint32_t* idx, uint32_t idx_n)
 {
@@ -682,6 +682,38 @@ void recover_contain_g(asg_t *g, ma_hit_t_alloc *src, R_to_U* ruIndex, int64_t m
     }
     memset(g->seq_vis, 0, (sizeof(*(g->seq_vis))*(g->n_seq<<1)));
 }
+
+// static void update_norm_arc(void *data, long i, int tid)
+// {
+//     sset_aux *sl = (sset_aux *)data; ma_hit_t *h, *z; asg_arc_t t;
+// 	ma_hit_t_alloc *src = sl->src; int64_t r, idx; 
+//     uint32_t k, rr, qn, tn, is_u;
+//     ma_hit_t_alloc *x = &(src[i]);
+//     for (k = 0; k < x->length; k++) {
+//         h = &(x->buffer[k]);
+// 		qn = Get_qn((*h)); tn = Get_tn((*h));
+//         if(h->bl < sl->ul_occ) continue;
+//         if(g->seq[tn].del) {
+//             get_R_to_U(ridx, tn, &rr, &is_u);
+//             if(rr == (uint32_t)-1 || is_u == 1) continue;
+//         }
+//         r = ma_hit2arc(h, g->seq[qn].len, g->seq[tn].len, sl->max_hang, asm_opt.max_hang_rate, sl->min_ovlp, &t);
+//         if(r < 0) continue;
+//         idx = get_specific_overlap(&(src[tn]), tn, qn);
+//         z = &(src[tn].buffer[idx]);
+//         assert(z->bl == h->bl);
+// 		r = ma_hit2arc(z, g->seq[tn].len, g->seq[qn].len, sl->max_hang, asm_opt.max_hang_rate, sl->min_ovlp, &t);
+//         if(r < 0) continue;
+//         h->del = 0; if(!(g->seq[tn].del)) z->del = 0;
+//         g->seq_vis[i] = 1;
+//     }
+// }
+
+// void normalize_ma_hit_t_mul(ma_hit_t_alloc *src, uint32_t n_src)
+// {
+//     sset_aux s; s.src = src;
+//     kt_for(asm_opt.thread_num, update_norm_arc, &s, n_src);
+// }
 
 static void normalize_gou0(void *data, long i, int tid)
 {
@@ -9982,6 +10014,7 @@ int usg_naive_topocut_aux_sec(usg_t *g, uint32_t v0, int max_ext)
             kv++; 
         }
         if(kv != 1) break;
+        if(v == v0) return 0;///circle, it is ok to remove it
     }
     
     v = v0^1;
@@ -10007,6 +10040,7 @@ int usg_naive_topocut_aux_sec(usg_t *g, uint32_t v0, int max_ext)
             kv++; 
         }
         if(kv != 1) break;
+        if(v == (v0^1)) return 0;///circle, it is ok to remove it
     }
 
     n_ext -= g->a[v0>>1].occ;
@@ -10021,12 +10055,14 @@ int usg_naive_topocut_aux_sec(usg_t *g, uint32_t v0, int max_ext)
 void usg_arc_cut_length(usg_t *g, asg64_v *in_0, asg64_v *in_1, int32_t max_ext, float len_rat, uint32_t is_trio, 
 uint32_t is_topo, uint32_t *max_drop_len)
 {
-    // fprintf(stderr, "+[M::%s::] max_ext::%d, len_rat::%f\n", __func__, max_ext, len_rat);
+    // if(len_rat > 0.7) {
+    //     fprintf(stderr, "+[M::%s::] max_ext::%d, len_rat::%f\n", __func__, max_ext, len_rat);
+    // }
     asg64_v tx = {0,0,0}, tz = {0,0,0}, *b = NULL, *ub = NULL;
     uint32_t i, k, v, w, n_vtx = g->n<<1, nv, nw, kv, kw, /**trioF = (uint32_t)-1, ntrioF = (uint32_t)-1,**/ ol_max, ou_max, to_del, cnt = 0, mm_ol;
     usg_arc_t *av, *aw, *ve, *we; uint64_t x, kocc[2], ou; uint8_t *f; CALLOC(f, g->n);
     b = ((in_0)?(in_0):(&tx)); ub = ((in_1)?(in_1):(&tz));
-
+    
     for (v = 0, b->n = ub->n = 0; v < n_vtx; ++v) {
         if (g->a[v>>1].del) continue;
         av = usg_arc_a(g, v); nv = usg_arc_n(g, v);
@@ -10050,6 +10086,10 @@ uint32_t is_topo, uint32_t *max_drop_len)
             kv_push(uint64_t, *ub, ((((uint64_t)(v))<<32)|((uint64_t)(i))));   
         }
     }
+    // if(len_rat > 0.7) {
+    //     fprintf(stderr, "[M::%s::] max_ext::%d, len_rat::%f, b->n::%u, ub->n::%u\n", 
+    //     __func__, max_ext, len_rat, (uint32_t)b->n, (uint32_t)ub->n);
+    // }
 
     radix_sort_srt64(b->a, b->a + b->n);
     for (k = 0; k < b->n; k++) {
@@ -10099,6 +10139,10 @@ uint32_t is_topo, uint32_t *max_drop_len)
         }
 
         if (kv <= 1 && kw <= 1) continue;
+        // if(len_rat > 0.7) {
+        //     fprintf(stderr, "0[M::%s::] v>>1::%u(%c), w>>1::%u(%c), kv::%u, kw::%u\n", 
+        //                             __func__, v>>1, "+-"[v&1], w>>1, "+-"[w&1], kv, kw);
+        // }
 
         to_del = 1;
         if(is_topo) {
@@ -10111,6 +10155,10 @@ uint32_t is_topo, uint32_t *max_drop_len)
                 if (usg_naive_topocut_aux(g, v^1, max_ext, f, b, ub) < max_ext) to_del = 1;
             }
         } 
+        // if(len_rat > 0.7) {
+        //     fprintf(stderr, "1[M::%s::] v>>1::%u(%c), w>>1::%u(%c), kv::%u, kw::%u, to_del::%u\n", 
+        //                             __func__, v>>1, "+-"[v&1], w>>1, "+-"[w&1], kv, kw, to_del);
+        // }
 
         if (to_del) {
             ve->del = we->del = 1; 
@@ -10130,6 +10178,10 @@ uint32_t is_topo, uint32_t *max_drop_len)
             }
             
         }
+        // if(len_rat > 0.7) {
+        //     fprintf(stderr, "2[M::%s::] v>>1::%u(%c), w>>1::%u(%c), kv::%u, kw::%u, to_del::%u\n", 
+        //                             __func__, v>>1, "+-"[v&1], w>>1, "+-"[w&1], kv, kw, to_del);
+        // }
     }
 
     if(in_0) free(tx.a); if(in_1) free(tz.a);
@@ -10836,7 +10888,7 @@ void integer_realign_g(ul_resolve_t *uidx, usg_t *ng, uinfo_srt_warp_t *seq, uin
                 for (t = 0; t < zt->n; t++) {
                     j = l + t - zt->n;
                     vj = (zt->a[t]<<1)|(seq->a[z-1].v&1);
-                    if(check_hybrid_connect(ng, seq_id, vj, z-1, vi, z)) {
+                    if(check_hybrid_connect(ng, seq_id, vj, z-1, vi, z)) {///seq_id:: integer contig id
                         sc = csc + (((uint32_t)-1) - (track[j]>>32));
                         if(sc > mm_sc) {
                             mm_sc = sc; mm_idx = j;
@@ -10915,7 +10967,9 @@ void integer_realign_g(ul_resolve_t *uidx, usg_t *ng, uinfo_srt_warp_t *seq, uin
     }
     buf->u.n = n_u; buf->res_dump.n = l;
     for (k = 0; k < buf->u.n; k++) {
-        t = (uint32_t)-1; t <<= 32; t |= (((uint32_t)buf->u.a[k])-(buf->u.a[k]>>32));
+        // t = (uint32_t)-1; t <<= 32; 
+        t = seq_id; t <<= 32; t |= ((uint64_t)0x8000000000000000);
+        t |= (((uint32_t)buf->u.a[k])-(buf->u.a[k]>>32));
         kv_push(uint64_t, buf->res_dump, t);
         n_v0 = buf->u.a[k]>>32; n_v = (uint32_t)buf->u.a[k];
         for (z = n_v0; z < n_v; z++) {
@@ -10951,7 +11005,7 @@ uint64_t get_ug_occ_v(uint32_t i_ug_occ)
     return v;
 }
 
-
+///this function might be wrong
 uint32_t usg_unique_arcs_cluster(asg64_v *b64, uint64_t a_n, uint64_t *idx, uint64_t *integ_seq)
 {
     uint64_t bn = b64->n, k, v; 
@@ -10959,17 +11013,22 @@ uint32_t usg_unique_arcs_cluster(asg64_v *b64, uint64_t a_n, uint64_t *idx, uint
     memset(b64->a + bn, -1, sizeof((*(b64->a)))*a_n);
     uint64_t *cidx = b64->a + bn, s, e, i, zs, ze, z;
 
+    ///b64.a[0, a_n]:: all resolvable paths with unique beg && end
+    ///b64.a[a_n, bn]:: (raw unitig/non-unqiue node id)|(resolvable path id)
+    ///idx:: the idx for b64.a[a_n, bn]
     for (i = 0; i < a_n; i++) {///available interval with beg/end with unique arcs
         s = b64->a[i]>>32; e = (uint32_t)(b64->a[i]); assert(e > s);
         if(cidx[i] != (uint64_t)-1) continue;
         for (k = s + 1; k < e; k++) {///note: here is [s, e]
-            v = integ_seq[k];
+            v = integ_seq[k];///v is the raw unitig id
             zs = (idx[v]<<1)>>33; ze = (uint32_t)idx[v];
             for (z = zs; z < ze; z++) {
                 // if((b64->a[z]>>32)!=v) {
                 //     fprintf(stderr, "[M::%s::] v::%lu, b64->a[z]::%lu, zs::%lu, ze::%lu, a_n::%lu\n", 
                 //                                     __func__, v, b64->a[z]>>32, zs, ze, a_n);
                 // }
+                ///(b64->a[z]>>32):: raw unitig id
+                ///(uint32_t)b64->a[z]:: available interval id
                 assert((b64->a[z]>>32)==v);
                 cidx[((uint32_t)b64->a[z])] = (i<<32)|((uint32_t)b64->a[z]);
             }
@@ -11001,12 +11060,111 @@ uint32_t usg_unique_arcs_cluster(asg64_v *b64, uint64_t a_n, uint64_t *idx, uint
         if(k == a_n || (cidx[i]>>32) != (cidx[k]>>32)) {
             for (z = i; z < k; z++) {
                 assert(cidx[z] != (uint64_t)-1);
-                b64->a[b64->n++] = (v<<32)|((uint32_t)cidx[z]);///cluest integer seqs-> (cluster id)|(integer seq id) 
+                ///cluest integer seqs-> (cluster id)|(available interval id) 
+                b64->a[b64->n++] = (v<<32)|((uint32_t)cidx[z]);
             }
             i = k; v++;
         }
     }
 
+    assert(b64->n == (a_n<<1));
+    return v;///how many cluster
+}
+
+void iter_unique_arcs(asg64_v *buf, asg64_v *b64, uint64_t a_n, uint64_t *idx, uint64_t *integ_seq, uint64_t *cidx, uint64_t i0)
+{
+    uint64_t s, e, x, k, v, zs, ze, z;
+    buf->n = 0;
+    kv_push(uint64_t, *buf, i0);
+    while(buf->n) {
+        x = kv_pop(*buf);
+        if(cidx[x] != (uint64_t)-1) continue;
+        cidx[x] = (i0<<32)|(x);
+        s = b64->a[x]>>32; e = (uint32_t)(b64->a[x]); assert(e > s);
+        for (k = s + 1; k < e; k++) {///note: here is [s, e]
+            v = integ_seq[k];///v is the raw unitig id
+            zs = (idx[v]<<1)>>33; ze = (uint32_t)idx[v];
+            for (z = zs; z < ze; z++) {
+                ///(b64->a[z]>>32):: raw unitig id
+                ///(uint32_t)b64->a[z]:: available interval id
+                assert((b64->a[z]>>32)==v);
+                if(cidx[((uint32_t)b64->a[z])] != (uint64_t)-1) {
+                    assert((cidx[((uint32_t)b64->a[z])]>>32)==i0);
+                    continue;
+                }
+                // cidx[((uint32_t)b64->a[z])] = (i0<<32)|((uint32_t)b64->a[z]);
+                kv_push(uint64_t, *buf, ((uint32_t)b64->a[z]));
+            }
+
+            v = integ_seq[k]^1;
+            zs = (idx[v]<<1)>>33; ze = (uint32_t)idx[v];
+            for (z = zs; z < ze; z++) {
+                ///(b64->a[z]>>32):: raw unitig id
+                ///(uint32_t)b64->a[z]:: available interval id
+                assert((b64->a[z]>>32)==v);
+                if(cidx[((uint32_t)b64->a[z])] != (uint64_t)-1) {
+                    assert((cidx[((uint32_t)b64->a[z])]>>32)==i0);
+                    continue;
+                }
+                // cidx[((uint32_t)b64->a[z])] = (i0<<32)|((uint32_t)b64->a[z]);
+                kv_push(uint64_t, *buf, ((uint32_t)b64->a[z]));
+            }
+        }
+
+        v = integ_seq[s];
+        zs = (idx[v]<<1)>>33; ze = (uint32_t)idx[v];
+        for (z = zs; z < ze; z++) {
+            assert((b64->a[z]>>32)==v);
+            if(cidx[((uint32_t)b64->a[z])] != (uint64_t)-1) {
+                assert((cidx[((uint32_t)b64->a[z])]>>32)==i0);
+                continue;
+            }
+            // cidx[((uint32_t)b64->a[z])] = (i0<<32)|((uint32_t)b64->a[z]);
+            kv_push(uint64_t, *buf, ((uint32_t)b64->a[z]));
+        }
+
+        v = integ_seq[e]^1;
+        zs = (idx[v]<<1)>>33; ze = (uint32_t)idx[v];
+        for (z = zs; z < ze; z++) {
+            assert((b64->a[z]>>32)==v);
+            if(cidx[((uint32_t)b64->a[z])] != (uint64_t)-1) {
+                assert((cidx[((uint32_t)b64->a[z])]>>32)==i0);
+                continue;
+            }
+            // cidx[((uint32_t)b64->a[z])] = (i0<<32)|((uint32_t)b64->a[z]);
+            kv_push(uint64_t, *buf, ((uint32_t)b64->a[z]));
+        }
+    }
+}
+
+uint32_t usg_unique_arcs_cluster_adv(asg64_v *b64, uint64_t a_n, uint64_t *idx, uint64_t *integ_seq, asg64_v *buf)
+{
+    uint64_t bn = b64->n, k, z, v; buf->n = 0;
+    kv_resize(uint64_t, *b64, b64->n + a_n); b64->n += a_n; 
+    memset(b64->a + bn, -1, sizeof((*(b64->a)))*a_n);
+    uint64_t *cidx = b64->a + bn, i;
+
+    ///b64.a[0, a_n]:: all resolvable paths with unique beg && end
+    ///b64.a[a_n, bn]:: (raw unitig/non-unqiue node id)|(resolvable path id)
+    ///idx:: the idx for b64.a[a_n, bn]
+    for (i = 0; i < a_n; i++) {///available interval with beg/end with unique arcs
+        if(cidx[i] != (uint64_t)-1) continue;
+        iter_unique_arcs(buf, b64, a_n, idx, integ_seq, cidx, i);
+    }
+
+    radix_sort_srt64(cidx, cidx + a_n); b64->n = a_n;
+    for (i = 0, k = 1, v = 0; k <= a_n; k++) {
+        if(k == a_n || (cidx[i]>>32) != (cidx[k]>>32)) {
+            for (z = i; z < k; z++) {
+                assert(cidx[z] != (uint64_t)-1);
+                ///cluest integer seqs-> (cluster id)|(available interval id) 
+                b64->a[b64->n++] = (v<<32)|((uint32_t)cidx[z]);
+            }
+            i = k; v++;
+        }
+    }
+
+    buf->n = 0;
     assert(b64->n == (a_n<<1));
     return v;///how many cluster
 }
@@ -11030,14 +11188,15 @@ uint32_t ava_pass_unique_bridge(uint64_t *idx, uint64_t *integer_seq, uint64_t s
 uint32_t ava_pass_unique_bridge_tips(usg_t *g, asg64_v *b64, uint64_t g_s, uint64_t g_e, uint64_t *integer_seq, uint8_t *f, uint64_t max_ext)
 {
     uint64_t i, k, z, s, e, v, nv, bn = b64->n, kv, n_ext = 0; usg_arc_t *av;
-    for (i = g_s; i < g_e; i++) {
+    for (i = g_s; i < g_e; i++) {///available intervals within the same cluster
         s = b64->a[((uint32_t)b64->a[i])]>>32; e = ((uint32_t)b64->a[((uint32_t)b64->a[i])]); assert(s < e);
         for (k = s + 1; k < e; k++) {///note: here is [s, e]
             f[integer_seq[k]] = f[integer_seq[k]^1] = 1;
         }
         f[integer_seq[s]] = f[integer_seq[e]^1] = 1;
     }
-    
+
+    ///collect nodes within raw unitig graph that are linked by the clusters but not in the cluster
     for (i = g_s; i < g_e; i++) {
         s = b64->a[((uint32_t)b64->a[i])]>>32; e = ((uint32_t)b64->a[((uint32_t)b64->a[i])]); assert(s < e);
         for (k = s + 1; k < e; k++) {///note: here is [s, e]
@@ -11233,7 +11392,7 @@ void update_usg_t_threading_0(usg_t *ng, uint64_t *a, uint64_t a_n, uint32_t *oc
 void update_usg_t_threading(ul_resolve_t *uidx, usg_t *ng, uint64_t *arcs, uint64_t *arcs_g, uint64_t arcs_gn, uint64_t *integ_seq, uint32_t *occ, asg64_v *b)
 {
     uint64_t i, k, s, e, nvtx = ng->n<<1; memset(occ, 0, sizeof((*occ))*nvtx);
-    for (i = 0; i < arcs_gn; i++) {
+    for (i = 0; i < arcs_gn; i++) {///set cluster
         s = arcs[((uint32_t)arcs_g[i])]>>32; e = ((uint32_t)arcs[((uint32_t)arcs_g[i])]); assert(s < e);
         for (k = s + 1; k < e; k++) {///note: here is [s, e]
             occ[integ_seq[k]]++; occ[integ_seq[k]^1]++; 
@@ -11525,10 +11684,43 @@ ma_ug_t *ma_ug_hybrid_gen(usg_t *g)
 
 
 
+void prt_thread_info(uint64_t *interval, uint64_t interval_n, uint64_t *cluster, uint64_t cluster_n, 
+const char *nn)
+{
+    char* gfa_name = NULL; MALLOC(gfa_name, strlen(nn)+70);
+    sprintf(gfa_name, "%s.thread_info.log", nn);
+    FILE* fp = fopen(gfa_name, "w"); free(gfa_name);
+    if (!fp) return;
+    uint64_t k;
+    if(interval) {
+        for (k = 0; k < interval_n; k++) fprintf(fp,"it_val::[%lu, %u)\n", interval[k]>>32, (uint32_t)interval[k]);
+    }
+    if(cluster) {
+        for (k = 0; k < cluster_n; k++) fprintf(fp,"cluster::%lu\tit_id::%u)\n", cluster[k]>>32, (uint32_t)cluster[k]);
+    }
+    fclose(fp);
+}
+
+void prt_intg_info(uint64_t *int_idx, uint64_t int_idx_n, uint64_t *int_a, const char *nn)
+{
+    char* gfa_name = NULL; MALLOC(gfa_name, strlen(nn)+70);
+    sprintf(gfa_name, "%s.intg_info.log", nn);
+    FILE* fp = fopen(gfa_name, "w"); free(gfa_name);
+    if (!fp) return;
+    uint64_t k, i, s, e;
+    for (i = 0; i < int_idx_n; i++) {///scan all integer contigs
+        s = int_idx[i]>>32; e = s + ((uint32_t)int_idx[i]); 
+        assert(e > s + 1);//the length is at least 2
+        fprintf(fp,"idx::[%lu, %lu)\n", s, e);
+        for (k = s; k < e; k++) {
+            fprintf(fp,"%lu\n", int_a[k]);
+        }
+    }
+    fclose(fp);
+}
 
 
-
-
+void prt_usg_t(ul_resolve_t *uidx, usg_t *ng, const char *cmd);
 
 uint64_t gen_unique_g_adv(ul_resolve_t *uidx, usg_t *ng, uint64_t *int_idx, uint64_t int_idx_n, uint64_t *int_a, uint32_t max_ext)
 {
@@ -11548,6 +11740,8 @@ uint64_t gen_unique_g_adv(ul_resolve_t *uidx, usg_t *ng, uint64_t *int_idx, uint
     }
 
     ma_ug_t *un_g = ma_ug_hybrid_gen(ng); ma_utg_t *u;
+    // print_debug_gfa(uidx->sg, un_g, uidx->uopt->coverage_cut, "iig0", uidx->uopt->sources, 
+    // uidx->uopt->ruIndex, uidx->uopt->max_hang, uidx->uopt->min_ovlp, 0, 0, 0);
     int32_t ui, un;
     for (k = 0; k < un_g->u.n; k++) {///all unitigs of raw utg 
         u = &(un_g->u.a[k]); 
@@ -11570,7 +11764,7 @@ uint64_t gen_unique_g_adv(ul_resolve_t *uidx, usg_t *ng, uint64_t *int_idx, uint
     ma_ug_destroy(un_g);
     
     // fprintf(stderr, ">>>>>>[M::%s::] int_idx[0]::%lu, int_idx[1]::%lu\n", __func__, int_idx[0], int_idx[1]);
-
+    // prt_intg_info(int_idx, int_idx_n, int_a, "intg");
     for (i = b64.n = ua_n = a_n = 0; i < int_idx_n; i++) {///scan all integer contigs
         s = int_idx[i]>>32; e = s + ((uint32_t)int_idx[i]); 
         assert(e > s + 1);//the length is at least 2
@@ -11603,12 +11797,13 @@ uint64_t gen_unique_g_adv(ul_resolve_t *uidx, usg_t *ng, uint64_t *int_idx, uint
         }
     }
     assert(a_n + ua_n == b64.n);
+    // prt_thread_info(b64.a, a_n+ua_n, NULL, 0, "tt_minus");
     // fprintf(stderr, "**0**[M::%s::] a_n::%lu, ua_n::%lu\n", __func__, a_n, ua_n);
 
     uint64_t *i_idx, n_clus; CALLOC(i_idx, ng->n<<1);
     radix_sort_srt64(b64.a, b64.a + b64.n);///keeps the coordinates within int_a[]
 
-
+    // prt_thread_info(b64.a, a_n, NULL, 0, "tt0");
     /*********debugging*********/
     // for (i = 0; i < a_n; i++) { ///available intervals
     //     s = b64.a[i]>>32; e = (uint32_t)b64.a[i];
@@ -11641,6 +11836,7 @@ uint64_t gen_unique_g_adv(ul_resolve_t *uidx, usg_t *ng, uint64_t *int_idx, uint
         i_idx[int_a[s]] |= ((uint64_t)0x8000000000000000);
         i_idx[int_a[e]^1] |= ((uint64_t)0x8000000000000000);
     }
+    // prt_thread_info(b64.a, a_n, NULL, 0, "tt1");
     ///unavailable intervals are useless
     b64.n = a_n; assert(ua_n == 0);
     for (i = 0; i < a_n; i++) { ///available intervals
@@ -11648,7 +11844,7 @@ uint64_t gen_unique_g_adv(ul_resolve_t *uidx, usg_t *ng, uint64_t *int_idx, uint
         assert(!(b64.a[i]&((uint64_t)0x8000000000000000)));
         for (k = s + 1; k < e; k++) {///note: here is [s, e]; s && e are unique, but [s+1, e-1] are not unique
             kv_pushp(uint64_t, b64, &pz); //i_idx[int_a[k]]++;
-            (*pz) = int_a[k]; (*pz) <<= 32; (*pz) |= i;///(raw unitig node id)|(integer contig id)
+            (*pz) = int_a[k]; (*pz) <<= 32; (*pz) |= i;///(raw unitig/non-unqiue node id)|(integer contig id)
 
             kv_pushp(uint64_t, b64, &pz); //i_idx[int_a[k]^1]++;
             (*pz) = int_a[k]^1; (*pz) <<= 32; (*pz) |= i;
@@ -11659,23 +11855,31 @@ uint64_t gen_unique_g_adv(ul_resolve_t *uidx, usg_t *ng, uint64_t *int_idx, uint
         kv_pushp(uint64_t, b64, &pz); //i_idx[int_a[e]^1]++;
         (*pz) = int_a[e]^1; (*pz) <<= 32; (*pz) |= i;
     }
+    // prt_thread_info(b64.a, a_n, NULL, 0, "tt2");
     // fprintf(stderr, "**1**[M::%s::] a_n::%lu, ua_n::%lu\n", __func__, a_n, ua_n);
     ///index
-    radix_sort_srt64(b64.a + a_n, b64.a + b64.n);
+    radix_sort_srt64(b64.a + a_n, b64.a + b64.n);///(raw unitig node id)|(integer contig id)
     for (k = a_n + 1, i = a_n; k <= b64.n; k++) {
         if(k == b64.n || (b64.a[k]>>32) != (b64.a[i]>>32)) {
-            i_idx[b64.a[i]>>32] |= (((uint64_t)i)<<32)|((uint64_t)k);
+            i_idx[b64.a[i]>>32] |= (((uint64_t)i)<<32)|((uint64_t)k);///b64.a[i]>>32 appear once (unique ends)/multipe times
             i = k;
         }
     }
+    // prt_thread_info(b64.a, a_n, NULL, 0, "tt3");
     // fprintf(stderr, "**2**[M::%s::] a_n::%lu, ua_n::%lu\n", __func__, a_n, ua_n);
-    n_clus = usg_unique_arcs_cluster(&b64, a_n, i_idx, int_a);
+    ///b64.a[0, a_n]:: all resolvable paths with unique beg && end
+    ///b64.a[a_n, b64.n]:: (raw unitig/non-unqiue node id)|(resolvable path id)
+    // n_clus = usg_unique_arcs_cluster(&b64, a_n, i_idx, int_a);///this function might be wrong
+    n_clus = usg_unique_arcs_cluster_adv(&b64, a_n, i_idx, int_a, &ub64);
+
     // fprintf(stderr, "**3**[M::%s::] a_n::%lu, n_clus::%lu\n", __func__, a_n, n_clus);
+    // prt_thread_info(b64.a, a_n, NULL, 0, "tt4");
     assert(b64.n == (a_n<<1));
     for (k = a_n + 1, i = a_n, mm = a_n; k <= b64.n; k++) {
         if(k == b64.n || (b64.a[k]>>32) != (b64.a[i]>>32)) {
             for (z = i; z < k; z++) {///all intger seqs within the same cluster
                 s = b64.a[((uint32_t)b64.a[z])]>>32; e = ((uint32_t)b64.a[((uint32_t)b64.a[z])]); assert(e > s);
+                ///[s, e]:: available interval
                 if(!ava_pass_unique_bridge(i_idx, int_a, s, e)) break;
             }
             if(z >= k) {///all arcs in this cluster is fine -> each of arch is reliable
@@ -11685,6 +11889,7 @@ uint64_t gen_unique_g_adv(ul_resolve_t *uidx, usg_t *ng, uint64_t *int_idx, uint
         }
     }
     assert(n_clus == 0);
+    // prt_thread_info(b64.a, a_n, NULL, 0, "tt5");
     // fprintf(stderr, "**4**[M::%s::] a_n::%lu, n_clus::%lu\n", __func__, a_n, n_clus);
     b64.n = mm; n_clus = 0;
     for (k = a_n + 1, i = a_n, mm = a_n; k <= b64.n; k++) {
@@ -11696,9 +11901,10 @@ uint64_t gen_unique_g_adv(ul_resolve_t *uidx, usg_t *ng, uint64_t *int_idx, uint
             i = k; 
         }
     }
+    // prt_thread_info(b64.a, a_n, NULL, 0, "tt6");
     b64.n = mm;
     // fprintf(stderr, "**5**[M::%s::] a_n::%lu, n_clus::%lu, ng->n::%lu\n", __func__, a_n, n_clus, ng->n);
-
+    // prt_thread_info(b64.a, a_n, b64.a + a_n, b64.n - a_n, "thred");
     if(n_clus > 0) {
         update_usg_t_threading(uidx, ng, b64.a, b64.a + a_n, b64.n - a_n, int_a, ng_occ, &ub64);
     }
@@ -11711,23 +11917,67 @@ uint64_t gen_unique_g_adv(ul_resolve_t *uidx, usg_t *ng, uint64_t *int_idx, uint
 
 void u2g_hybrid_detan(ul_resolve_t *uidx, usg_t *ng, uint32_t max_ext, asg64_v *in, asg64_v *ib)
 {
-    uint64_t k, i, x; asg64_v tx = {0,0,0}, tb = {0,0,0}, *ob = NULL, *ub = NULL; 
+    uint64_t k, i, x, m, *tmp, sn; asg64_v tx = {0,0,0}, tb = {0,0,0}, *ob = NULL, *ub = NULL; 
     ob = (in?(in):(&tx)); ub = (ib?(ib):(&tb)); ob->n = ub->n = 0;
 
     for (k = 0; k < uidx->str_b.n_thread; k++) {
         uidx->str_b.buf[k].res_dump.n = uidx->str_b.buf[k].u.n = uidx->str_b.buf[k].o.n = 0;
     }
     kt_for(uidx->str_b.n_thread, worker_integer_realign_g, uidx, uidx->uovl.i_ug->u.n);
-    for (k = ob->n = ub->n = 0; k < uidx->str_b.n_thread; k++) {
+
+    for (k = ob->n = ub->n = m = 0; k < uidx->str_b.n_thread; k++) {
         for (i = 0; i < uidx->str_b.buf[k].res_dump.n; i++) {
-            if((uidx->str_b.buf[k].res_dump.a[i]>>32)==((uint32_t)-1)) {
-                x = ob->n; x <<= 32; x |= ((uint32_t)uidx->str_b.buf[k].res_dump.a[i]);
-                kv_push(uint64_t, *ub, x);
+            x = uidx->str_b.buf[k].res_dump.a[i];
+            kv_push(uint64_t, *ob, x);//aln details
+            if(x&((uint64_t)0x8000000000000000)) {
+                x -= ((uint64_t)0x8000000000000000); x >>= 32; x <<= 32;//seq_id
+                x |= ob->n;//offset
+                kv_push(uint64_t, *ub, x);///idx:: seq_id|offset_in_ob
             } else {
-                kv_push(uint64_t, *ob, uidx->str_b.buf[k].res_dump.a[i]);
+                m++;
             }
-        }        
+        }
     }
+
+    radix_sort_srt64(ub->a, ub->a + ub->n);
+    kv_resize(uint64_t, *ub, ub->n+m); tmp = ub->a + ub->n; m = 0;
+    for (k = 0; k < ub->n; k++) {
+        sn = ((uint32_t)(ob->a[((uint32_t)ub->a[k])-1]));
+        memcpy(tmp + m, ob->a + ((uint32_t)ub->a[k]), sn*sizeof((*tmp))); 
+        ub->a[k] = m; ub->a[k] <<= 32; ub->a[k] |= sn;//offset_in_ob|occ
+        m += sn;
+    }
+    assert(m <= ob->n);
+    memcpy(ob->a, tmp, m*sizeof((*tmp))); ob->n = m;
+
+
+    // for (k = 0, p = NULL; k < ub->n; k++) {
+    //     p = &(ob->a[((uint32_t)ub->a[k])-1]);
+    //     x = ub->a[k]<<32;//offset
+    //     x |= ((uint32_t)(*p));///occ
+    //     ub->a[k] = x;
+    //     (*p) >>= 32; (*p) <<= 32; (*p) |= k; 
+    // }
+    // for (k = m = 0; k < ob->n; k++) {
+    //     if(ob->a[k]&((uint64_t)0x8000000000000000)) {
+    //         x = m; x <<= 32; x |= ((uint32_t)ub->a[(uint32_t)ob->a[k]]);
+    //         ub->a[(uint32_t)ob->a[k]] = x;
+    //     } else {
+    //         ob->a[m++] = ob->a[k];
+    //     }
+    // }
+    // ob->n = m;
+
+    // for (k = ob->n = ub->n = 0; k < uidx->str_b.n_thread; k++) {
+    //     for (i = 0; i < uidx->str_b.buf[k].res_dump.n; i++) {
+    //         if((uidx->str_b.buf[k].res_dump.a[i]>>32)==((uint32_t)-1)) {
+    //             x = ob->n; x <<= 32; x |= ((uint32_t)uidx->str_b.buf[k].res_dump.a[i]);
+    //             kv_push(uint64_t, *ub, x);///idx:: offset_in_ob|occ
+    //         } else {
+    //             kv_push(uint64_t, *ob, uidx->str_b.buf[k].res_dump.a[i]);//aln details
+    //         }
+    //     }        
+    // }
 
     /*********debugging*********/
     fprintf(stderr, "[M::%s::] # iug::%u, # gchain::%u\n", __func__, (uint32_t)uidx->uovl.i_ug->u.n, (uint32_t)ub->n);
@@ -11747,6 +11997,7 @@ void u2g_hybrid_detan(ul_resolve_t *uidx, usg_t *ng, uint32_t max_ext, asg64_v *
     // u_ug = gen_unique_g(uidx, ng, ng_occ, ub->a, ub->n, ob->a);//ma_ug_hybrid_gen(ng);
     ///debug
     debug_sysm_usg_t(ng, __func__);
+    // prt_usg_t(uidx, ng, "ng4");
     if(gen_unique_g_adv(uidx, ng, ub->a, ub->n, ob->a, max_ext)) {
         // usg_arc_t *z = get_usg_arc(ng, 2, 576), *q = get_usg_arc(ng, 577, 3);
         // fprintf(stderr, "xxxx0xxx[M::%s::] p->del::%u, q->del::%u\n", 
@@ -11762,6 +12013,7 @@ void u2g_hybrid_detan(ul_resolve_t *uidx, usg_t *ng, uint32_t max_ext, asg64_v *
         debug_sysm_usg_t(ng, __func__);
         // fprintf(stderr, "-[M::%s::] ng->n::%u\n", __func__, (uint32_t)ng->n);
     }
+    // prt_usg_t(uidx, ng, "ng_dbg");
     if(!in) free(tx.a); if(!ib) free(tb.a);
 }
 
@@ -11825,31 +12077,65 @@ void u2g_hybrid_clean(ul_resolve_t *uidx, ulg_opt_t *ulopt, usg_t *ng, asg64_v *
                         ((ulopt->max_ovlp_drop_ratio-ulopt->min_ovlp_drop_ratio)/(ulopt->clean_round-1)));
     double drop = ulopt->min_ovlp_drop_ratio; ///CALLOC(iug->g->seq_vis, iug->g->n_seq*2);
     fprintf(stderr, "\n[M::%s::] Starting hybrid clean, mm_tip::%ld\n", __func__, mm_tip);
-
-    
+    // prt_usg_t(uidx, ng, "ng0");
     usg_arc_cut_tips(ng, mm_tip, 0, b);
+    // prt_usg_t(uidx, ng, "ng1");
+    // char sb[1000]; 
 
     for (ss = 1; ss <= 1/**6**/; ss++) {
         mm_tip = ulopt->max_tip_hifi*ss;
+        fprintf(stderr, "\n[M::%s::] ss::%ld, mm_tip::%ld, ulopt->clean_round::%ld\n", 
+        __func__, ss, mm_tip, ulopt->clean_round);
         for (i = 0, drop = ulopt->min_ovlp_drop_ratio; i < ulopt->clean_round; i++, drop += step) {
             if(drop > ulopt->max_ovlp_drop_ratio) drop = ulopt->max_ovlp_drop_ratio;
+            // fprintf(stderr, "-0-[M::%s::] i::%ld, drop::%f\n", __func__, i, drop);
+            // sprintf(sb, "ng_ss::%ld_i::%ld_drop::%f_a", ss, i, drop);
+            // prt_usg_t(uidx, ng, sb);
             usg_arc_cut_length(ng, b, ub, mm_tip>>1, drop, ulopt->is_trio, 1, NULL);
+            // fprintf(stderr, "-1-[M::%s::] i::%ld, drop::%f\n", __func__, i, drop);
+            // sprintf(sb, "ng_ss::%ld_i::%ld_drop::%f_b", ss, i, drop);
+            // prt_usg_t(uidx, ng, sb);
             usg_arc_cut_tips(ng, mm_tip, 0, b);
+            // fprintf(stderr, "-2-[M::%s::] i::%ld, drop::%f\n", __func__, i, drop);
+            // sprintf(sb, "ng_ss::%ld_i::%ld_drop::%f_c", ss, i, drop);
+            // prt_usg_t(uidx, ng, sb);
             usg_arc_cut_length(ng, b, ub, mm_tip, drop, ulopt->is_trio, 1, NULL);
+            // fprintf(stderr, "-3-[M::%s::] i::%ld, drop::%f\n", __func__, i, drop);
+            // sprintf(sb, "ng_ss::%ld_i::%ld_drop::%f_d", ss, i, drop);
+            // prt_usg_t(uidx, ng, sb);
             usg_arc_cut_tips(ng, mm_tip, 1, b);
+            // sprintf(sb, "ng_ss::%ld_i::%ld_drop::%f_e", ss, i, drop);
+            // prt_usg_t(uidx, ng, sb);
+            // fprintf(stderr, "-4-[M::%s::] i::%ld, drop::%f\n", __func__, i, drop);
         }
 
         drop = 1;
+        // fprintf(stderr, "-0-[M::%s::] i::%ld, drop::%f\n", __func__, i, drop);
+        // sprintf(sb, "ng_ss::%ld_i::%ld_drop::%f_a", ss, i, drop);
+        // prt_usg_t(uidx, ng, sb);
         usg_arc_cut_length(ng, b, ub, mm_tip>>1, drop, ulopt->is_trio, 1, NULL);
+        // fprintf(stderr, "-1-[M::%s::] i::%ld, drop::%f\n", __func__, i, drop);
+        // sprintf(sb, "ng_ss::%ld_i::%ld_drop::%f_b", ss, i, drop);
+        // prt_usg_t(uidx, ng, sb);
         usg_arc_cut_tips(ng, mm_tip, 0, b);
+        // fprintf(stderr, "-2-[M::%s::] i::%ld, drop::%f\n", __func__, i, drop);
+        // sprintf(sb, "ng_ss::%ld_i::%ld_drop::%f_c", ss, i, drop);
+        // prt_usg_t(uidx, ng, sb);
         usg_arc_cut_length(ng, b, ub, mm_tip, drop, ulopt->is_trio, 1, NULL);
+        // fprintf(stderr, "-3-[M::%s::] i::%ld, drop::%f\n", __func__, i, drop);
+        // sprintf(sb, "ng_ss::%ld_i::%ld_drop::%f_d", ss, i, drop);
+        // prt_usg_t(uidx, ng, sb);
         usg_arc_cut_tips(ng, mm_tip, 1, b);
+        // sprintf(sb, "ng_ss::%ld_i::%ld_drop::%f_e", ss, i, drop);
+        // prt_usg_t(uidx, ng, sb);
+        // fprintf(stderr, "-4-[M::%s::] i::%ld, drop::%f\n", __func__, i, drop);
     }
+    // prt_usg_t(uidx, ng, "ng2");
     ///debug
     debug_sysm_usg_t(ng, __func__);
 
     /******for debug******/
-    // prt_usg_t(uidx, ng, "ng1");
+    prt_usg_t(uidx, ng, "ng_dbg");
     /******for debug******/
 
     // u2g_hybrid_extend(ng, NULL, b, ub);
@@ -11928,9 +12214,9 @@ ma_ug_t *gen_hybrid_ug(ul_resolve_t *uidx, usg_t *ng)
         ug->g->seq[i].c = PRIMARY_LABLE;
         u = &(ug->u.a[i]);
         if(u->m == 0) continue;
-        fprintf(stderr, "+[M::%s::] i::%u\n", __func__, i);
+        // fprintf(stderr, "+[M::%s::] i::%u\n", __func__, i);
         merge_hybrid_utg_content(u, uidx->l1_ug, uidx->sg, ng, &e);
-        fprintf(stderr, "-[M::%s::] i::%u\n", __func__, i);
+        // fprintf(stderr, "-[M::%s::] i::%u\n", __func__, i);
         ug->g->seq[i].len = u->len;
     }
     kv_destroy(e.a);
@@ -12690,6 +12976,7 @@ double max_ovlp_drop_ratio, int64_t max_tip, bub_label_t *b_mask_t, uint32_t is_
     print_raw_uls_seq(uidx, asm_opt.output_file_name);
     ul_re_correct(uidx, 3); 
     init_ulg_opt_t(&uu, uopt, clean_round, min_ovlp_drop_ratio, max_ovlp_drop_ratio, 0.55, max_tip, max_tip<<1, b_mask_t, is_trio);
+    print_debug_gfa(sg, init_ug, uopt->coverage_cut, "UL.debug0", uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 0, 0, 1);
     /**ul2ul_idx_t *u2o = **/gen_ul2ul(uidx, uopt, &uu, 0);
     // print_ul_alignment(init_ug, &UL_INF, 47072, "after-3");
 
