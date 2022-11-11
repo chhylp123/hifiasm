@@ -15508,6 +15508,24 @@ void push_sec_aln(overlap_region *z, int64_t s, int64_t e, int64_t sec_err)
     p->x_start = s; p->x_end = e; p->clen += sec_err;
 }
 
+void push_sec_aln_robust(overlap_region *z, int64_t s, int64_t e, int64_t sec_err)
+{
+    window_list *p;
+    if(z->align_length > 0) {
+        p = z->w_list.a + z->w_list.n + z->align_length - 1;
+        if((p->x_end == s) && (p->clen == 0) && ((!!(p->clen)) == (!!sec_err))) {
+            p->x_end = e; p->clen += sec_err;
+            return;
+        }
+    }
+    if((z->w_list.n+z->align_length)==z->w_list.m) {
+        z->w_list.m = z->w_list.m? z->w_list.m<<1 : 2; 
+        z->w_list.a = (window_list*)realloc(z->w_list.a, sizeof(window_list)*z->w_list.m); 
+    }
+    p = &(z->w_list.a[z->w_list.n+z->align_length]); z->align_length++; memset(p, 0, sizeof((*p)));
+    p->x_start = s; p->x_end = e; p->clen += sec_err;
+}
+
 // #define id_mm ((uint64_t)0x7fffffffffffffff)
 #define id_set ((uint64_t)0x8000000000000000)
 #define id_get(a) ((uint32_t)(a))
@@ -15564,6 +15582,8 @@ uint64_t gen_region_phase(overlap_region* ol, uint64_t *id_a, uint64_t id_n, uin
 
             // fprintf(stderr, "---[M::%s::utg%.6dl] wid::%u, xoff::%u, coff::%u, err::%ld\n", __func__, 
             //     (int32_t)ol[ovlp_id(*p)].y_id+1, ovlp_cur_wid(*p), ovlp_cur_xoff(*p), ovlp_cur_coff(*p), err);
+            fprintf(stderr, "---[M::%s::utg%.6dl] xoff::[%lu, %lu), err::%ld\n", __func__, 
+                (int32_t)ol[ovlp_id(*p)].y_id+1, s, e, err);
             assert(err >= 0);  
             if(err < msc) {
                 msc = err; msc_k = k; msc_n = 1;
@@ -15604,7 +15624,7 @@ uint64_t gen_region_phase(overlap_region* ol, uint64_t *id_a, uint64_t id_n, uin
             //                         (int32_t)ol[oid].y_id+1, s, e);
         }
 
-        for (k = 0; k < mn; k++) {
+        for (k = 0; k < mn; k++) {///best alignment
             z = &(ol[id_get(buf->a[k])]); 
             reassign_sec_err(ol, ovidx, buf, k);
             push_sec_aln(z, s, e, 0);
@@ -15618,6 +15638,111 @@ uint64_t gen_region_phase(overlap_region* ol, uint64_t *id_a, uint64_t id_n, uin
         for (k = 0; k < buf_n; k++) {
             ol[id_get(buf->a[k])].overlapLen = (uint32_t)-1;
         }
+    }
+
+
+    if(rm_n) {
+        for (k = m = 0; k < id_n; k++) {
+            p = &(c_idx[id_a[k]]);
+            q[1] = ol[ovlp_id(*p)].w_list.a[ovlp_max_wid(*p)].x_end+1;
+            if(q[1] < e) continue;
+            id_a[m++] = id_a[k];
+        }
+        id_n = m;
+    }
+    return id_n;
+}
+
+
+///[s, e)
+uint64_t gen_region_phase_robust(overlap_region* ol, uint64_t *id_a, uint64_t id_n, uint64_t s, uint64_t e, uint64_t dp, ul_ov_t *c_idx, asg64_v *buf)
+{
+    if(!id_n) return id_n;
+    uint64_t k, m, mn, q[2], buf_n, rm_n, oid; int64_t err, msc, msc_k, msc_n;
+    overlap_region *z; ul_ov_t *p; buf->n = 0; kv_resize(uint64_t, *buf, dp);
+    for (k = buf_n = rm_n = 0; k < id_n; k++) {
+        p = &(c_idx[id_a[k]]);
+        q[0] = ol[ovlp_id(*p)].w_list.a[ovlp_min_wid(*p)].x_start;
+        q[1] = ol[ovlp_id(*p)].w_list.a[ovlp_max_wid(*p)].x_end+1;
+        if(q[0]<=s && q[1]>=e) {
+            kv_push(uint64_t, *buf, id_a[k]);
+            // buf[buf_n++] = id_a[k];
+        }
+        if(q[1] < e) rm_n++;
+    }
+    buf_n = buf->n;
+    assert(buf_n == dp);//not right
+
+    if(buf_n > 0) {
+        for (k = 0, msc = INT32_MAX, msc_k = -1, msc_n = 0; k < buf_n; k++) {
+            p = &(c_idx[(uint32_t)buf->a[k]]); z = &(ol[ovlp_id(*p)]); 
+            // fprintf(stderr, "+++[M::%s::utg%.6dl] wid::%u, xoff::%u, coff::%u\n", __func__, 
+            //     (int32_t)ol[ovlp_id(*p)].y_id+1, ovlp_cur_wid(*p), ovlp_cur_xoff(*p), ovlp_cur_coff(*p));
+            err = extract_sub_cigar_err(z, s, e, p);
+            // int64_t debug_err = extract_sub_cigar_err_debug(z, s, e);
+            // assert(err == debug_err);
+            // fprintf(stderr, "[M::%s::] err::%ld, debug_err::%ld\n", __func__, err, debug_err);
+
+            // fprintf(stderr, "---[M::%s::utg%.6dl] wid::%u, xoff::%u, coff::%u, err::%ld\n", __func__, 
+            //     (int32_t)ol[ovlp_id(*p)].y_id+1, ovlp_cur_wid(*p), ovlp_cur_xoff(*p), ovlp_cur_coff(*p), err);
+            // fprintf(stderr, "---[M::%s::utg%.6dl] xoff::[%lu, %lu), err::%ld\n", __func__, 
+            //     (int32_t)ol[ovlp_id(*p)].y_id+1, s, e, err);
+            assert(err >= 0);  
+            if(err < msc) {
+                msc = err; msc_k = k; msc_n = 1;
+            } else if(err == msc) {
+                msc_n++;
+            }
+            buf->a[k] |= (((uint64_t)err)<<32);       
+        }
+
+        if(msc_n == 1) {
+            p = &(c_idx[(uint32_t)buf->a[msc_k]]);
+            z = &(ol[ovlp_id(*p)]); mn = 1;
+            if(msc_k != 0) {
+                m = buf->a[msc_k]; 
+                buf->a[msc_k] = buf->a[0]; 
+                buf->a[0] = m;
+            }
+        } else {
+            for (k = mn = 0; k < buf_n && (int64_t)mn < msc_n; k++) {
+                p = &(c_idx[(uint32_t)buf->a[k]]); 
+                z = &(ol[ovlp_id(*p)]); 
+                if((buf->a[k]>>32) == (uint64_t)msc) {
+                    if(mn != k) {
+                        m = buf->a[k]; 
+                        buf->a[k] = buf->a[mn]; 
+                        buf->a[mn] = m;
+                    }
+                    mn++;
+                }
+            }
+        }
+        // fprintf(stderr, "[M::%s] buf_n::%ld, msc_n::%ld, mn::%lu\n", __func__, buf_n, msc_n, mn);
+        for (k = 0; k < buf_n; k++) {
+            oid = ovlp_id((c_idx[(uint32_t)buf->a[k]]));
+            buf->a[k] >>= 32; buf->a[k] <<= 32; buf->a[k] |= oid;
+            // ol[oid].overlapLen = k;//no need to set 
+            // if(s == 158482) fprintf(stderr, "k->%ld::oid->%ld[M::%s::utg%.6dl] pos::[%lu, %lu)\n", k, oid, __func__,  
+            //                         (int32_t)ol[oid].y_id+1, s, e);
+        }
+
+        for (k = 0; k < mn; k++) {///best alignment
+            z = &(ol[id_get(buf->a[k])]); 
+            // reassign_sec_err(ol, ovidx, buf, k);
+            // push_sec_aln(z, s, e, 0);
+            push_sec_aln_robust(z, s, e, 0);
+        }
+
+        for (k = mn; k < buf_n; k++) {
+            z = &(ol[id_get(buf->a[k])]); 
+            // push_sec_aln(z, s, e, ((buf->a[k]&id_set)?(0):(err_get(buf->a[k])-msc)));
+            push_sec_aln_robust(z, s, e, (err_get(buf->a[k])-msc));
+        }
+
+        // for (k = 0; k < buf_n; k++) {
+        //     ol[id_get(buf->a[k])].overlapLen = (uint32_t)-1;
+        // }
     }
 
 
@@ -15830,7 +15955,7 @@ void gen_gov_idx(overlap_region_alloc* ol, const ul_idx_t *uref, const ug_opt_t 
     // }   
 }
 
-void prt_overlap_region_stat(overlap_region *z)
+void prt_overlap_region_stat(overlap_region *z, int64_t sid)
 {
     uint64_t k = 0, aln = 0, ualn = 0, err = 0;
     for (k = 0; k < z->w_list.n; k++) {
@@ -15841,21 +15966,20 @@ void prt_overlap_region_stat(overlap_region *z)
             err += z->w_list.a[k].error;
         }
     }
-    fprintf(stderr, "[M::%s::utg%.6dl::%c] q::[%d, %d), t::[%d, %d), aln::%lu, ualn::%lu, err::%lu, flen::%u, blen::%u, sec_err::%u\n", __func__, 
-        (int32_t)z->y_id+1, "+-"[z->y_pos_strand], z->x_pos_s, z->x_pos_e+1, z->y_pos_s, z->y_pos_e+1, aln, ualn, err,
-        z->overlapLen, z->align_length, z->non_homopolymer_errors);
+    fprintf(stderr, "[M::%s::utg%.6dl::%c] sid::%ld, q::[%d, %d), t::[%d, %d), aln::%lu, ualn::%lu, err::%lu\n", 
+        __func__, (int32_t)z->y_id+1, "+-"[z->y_pos_strand], sid, z->x_pos_s, z->x_pos_e+1, 
+        z->y_pos_s, z->y_pos_e+1, aln, ualn, err);
     
 }
 
 
-void prt_overlap_region_phase_stat(overlap_region *z)
+void prt_overlap_region_phase_stat(overlap_region *z, int64_t sid)
 {
     uint64_t k = 0;
-    fprintf(stderr, "[M::%s::utg%.6dl::%c] q::[%d, %d), t::[%d, %d), best::%u, sec::%u\n", __func__, 
-        (int32_t)z->y_id+1, "+-"[z->y_pos_strand], z->x_pos_s, z->x_pos_e+1, z->y_pos_s, z->y_pos_e+1,
-        z->align_length, z->non_homopolymer_errors);
+    fprintf(stderr, "[M::%s::utg%.6dl::%c] sid::%ld, q::[%d, %d), t::[%d, %d)\n", __func__, 
+        (int32_t)z->y_id+1, "+-"[z->y_pos_strand], sid, z->x_pos_s, z->x_pos_e+1, z->y_pos_s, z->y_pos_e+1);
     for (k = 0; k < z->w_list.n; k++) {
-        fprintf(stderr, "[k::%lu] q::[%d, %d), sec::%u\n", k, 
+        fprintf(stderr, "[k::%lu] sid::%ld, q::[%d, %d), sec::%u\n", k, sid,
         z->w_list.a[k].x_start, z->w_list.a[k].x_end, z->w_list.a[k].clen);
     }
 }
@@ -15868,6 +15992,7 @@ void region_phase(overlap_region_alloc* ol, const ul_idx_t *uref, const ug_opt_t
     kv_resize(ul_ov_t, *c_idx, ol->length);
     for (k = idx->n = c_idx->n = 0; k < on; k++) {
         z = &(ol->list[k]); zwn = z->w_list.n; 
+        // prt_overlap_region_stat(z, ulid);
         // if(ulid == 35437 && z->y_id == 109111) {
         //     fprintf(stderr, "+0+[M::%s::utg%.6dl::%c] ulid::%ld, all::%u, non-best::%ld, best::%u\n", __func__, 
         //     (int32_t)z->y_id+1, "+-"[z->y_pos_strand], ulid, z->overlapLen, zwn, z->align_length);
@@ -15927,7 +16052,8 @@ void region_phase(overlap_region_alloc* ol, const ul_idx_t *uref, const ug_opt_t
         // }
     }
     radix_sort_bc64(idx->a, idx->a+idx->n);
-    gen_gov_idx(ol, uref, uopt, G_CHAIN_BW, N_GCHAIN_RATE, buf1);
+    //this is used with gen_region_phase, now give up
+    //gen_gov_idx(ol, uref, uopt, G_CHAIN_BW, N_GCHAIN_RATE, buf1);
     // for (m = 0; m < c_idx->n; m++) {
     //     fprintf(stderr, "+++[M::%s::utg%.6dl] q[%d, %d), t[%d, %d), wn::%d\n", __func__, 
     //     (int32_t)ol->list[ovlp_id(c_idx->a[m])].y_id+1,
@@ -15954,7 +16080,8 @@ void region_phase(overlap_region_alloc* ol, const ul_idx_t *uref, const ug_opt_t
         if((end > beg) && (old_dp >= 2)) {
             // fprintf(stderr, "\n[M::%s::] beg::%ld, end::%ld, old_dp::%ld\n", __func__, beg, end, old_dp);
             // kv_resize(uint64_t, *buf, ((uint32_t)old_dp)<<1);
-            idx->n = srt_n + gen_region_phase(ol->list, idx->a+srt_n, idx->n-srt_n, beg, end, old_dp, c_idx->a, buf, buf1);            
+            // idx->n = srt_n + gen_region_phase(ol->list, idx->a+srt_n, idx->n-srt_n, beg, end, old_dp, c_idx->a, buf, buf1);   
+            idx->n = srt_n + gen_region_phase_robust(ol->list, idx->a+srt_n, idx->n-srt_n, beg, end, old_dp, c_idx->a, buf);
         }
         beg = end;
     }
@@ -15990,6 +16117,7 @@ void region_phase(overlap_region_alloc* ol, const ul_idx_t *uref, const ug_opt_t
         // }
         assert(zwn <= z->overlapLen);
         z->align_length = z->overlapLen - zwn;
+        // prt_overlap_region_phase_stat(z, ulid);
         // fprintf(stderr, "[M::%s::utg%.6dl::%c] all::%u, non-best::%ld, best::%u\n", __func__, 
         // (int32_t)z->y_id+1, "+-"[z->y_pos_strand], z->overlapLen, zwn, z->align_length);
         // prt_overlap_region_phase_stat(&(ol->list[k]));
@@ -16328,6 +16456,13 @@ void ul_lalign(overlap_region_alloc* ol, Candidates_list *cl, const ul_idx_t *ur
                     ol->list[i] = t;
                 }
                 ol->list[k].is_match = 1; ol->list[k].non_homopolymer_errors = re;
+                // fprintf(stderr, "+[M::%s] on::%lu\n", __func__, ol->length);
+                /****for debug****/
+                // z = &(ol->list[k]);
+                // fprintf(stderr, "[M::%s::utg%.6dl::%c] sid::%ld, q::[%d, %d), t::[%d, %d), err::%u\n", 
+                // __func__, (int32_t)z->y_id+1, "+-"[z->y_pos_strand], sid, z->x_pos_s, z->x_pos_e+1, z->y_pos_s, z->y_pos_e+1,
+                // z->non_homopolymer_errors);
+                /****for debug****/
                 k++;
             } 
         }

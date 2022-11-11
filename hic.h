@@ -90,6 +90,8 @@ int load_hc_links(hc_links* link, const char *fn);
 void write_hc_links(hc_links* link, const char *fn);
 void destory_bubbles(bubble_type* bub);
 void identify_bubbles(ma_ug_t* ug, bubble_type* bub, uint8_t *r_het_flag, kv_u_trans_t *ref);
+void identify_bubbles_recal(asg_t* sg, ma_ug_t* ug, bubble_type* bub, uint8_t *r_het_flag, ma_hit_t_alloc* sources, R_to_U* ruIndex,
+kv_u_trans_t *ref);
 void resolve_bubble_chain_tangle(ma_ug_t* ug, bubble_type* bub);
 uint32_t connect_bub_occ(bubble_type* bub, uint32_t root_id, uint32_t check_het);
 void get_bub_id(bubble_type* bub, uint32_t root, uint64_t* id0, uint64_t* id1, uint32_t check_het);

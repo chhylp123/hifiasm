@@ -1141,6 +1141,10 @@ int64_t count_edges_v_w(asg_t *g, uint32_t v, uint32_t w);
 void renew_utg(ma_ug_t **ug, asg_t* read_g, kvec_asg_arc_t_warp* edge);
 void merge_unitig_content(ma_utg_t* collection, ma_ug_t* ug, asg_t* read_g, kvec_asg_arc_t_warp* edge);
 
+// void break_ug_contig(ma_ug_t **ug, asg_t *read_g, All_reads *RNF, ma_sub_t *coverage_cut,
+// ma_hit_t_alloc* sources, R_to_U* ruIndex, kvec_asg_arc_t_warp* edge, int max_hang, int min_ovlp, 
+// int* b_low_cov, int* b_high_cov, double m_rate);
+
 #define JUNK_COV 5
 #define DISCARD_RATE 0.8
 

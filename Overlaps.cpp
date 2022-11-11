@@ -17798,6 +17798,7 @@ char *f_prefix, uint8_t *kpt_buf, kvec_asg_arc_t_warp *r_edges)
     return NULL;
 }
 
+
 void filter_set_kug(uint8_t* trio_flag, asg_t *rg, uint8_t *rf, kvec_asg_arc_t_warp *r_edges, float f_rate, ma_ug_t **ug)
 {
     asg_t* nsg = (*ug)->g; ma_utg_t *u = NULL;
@@ -24843,14 +24844,16 @@ int load_ruIndex(R_to_U* ruIndex, char* read_file_name)
     (ruIndex)->index = (uint32_t*)malloc(sizeof(uint32_t)*(ruIndex)->len);
     f_flag += fread((ruIndex)->index, sizeof((ruIndex)->index[0]), (ruIndex)->len, fp);
 
-    R_INF.trio_flag = (uint8_t*)malloc(sizeof(uint8_t)*(ruIndex)->len);
-    f_flag += fread(R_INF.trio_flag, sizeof(R_INF.trio_flag[0]), (ruIndex)->len, fp);
+    if(!(asm_opt.ar)) {
+        R_INF.trio_flag = (uint8_t*)malloc(sizeof(uint8_t)*(ruIndex)->len);
+        f_flag += fread(R_INF.trio_flag, sizeof(R_INF.trio_flag[0]), (ruIndex)->len, fp);
+    }
 
     // CALLOC(ruIndex->is_het, ruIndex->len);
     // f_flag += fread(ruIndex->is_het, 1, ruIndex->len, fp);
 
-    f_flag += fread(&(asm_opt.hom_global_coverage_set), sizeof(asm_opt.hom_global_coverage_set), 1, fp);
-    f_flag += fread(&(asm_opt.hom_global_coverage), sizeof(asm_opt.hom_global_coverage), 1, fp);
+    // f_flag += fread(&(asm_opt.hom_global_coverage_set), sizeof(asm_opt.hom_global_coverage_set), 1, fp);
+    // f_flag += fread(&(asm_opt.hom_global_coverage), sizeof(asm_opt.hom_global_coverage), 1, fp);
 
     free(index_name);    
     fflush(fp);
@@ -25187,7 +25190,7 @@ uint32_t is_collect_trans)
     MALLOC(x->pos_idx, x->n); memset(x->pos_idx, -1, x->n*sizeof(uint64_t));
     CALLOC(set, read_g->n_seq<<1);
     CALLOC(x->cov, x->n); 
-    for (i = 0; i < n_ux; i++)
+    for (i = 0; i < n_ux; i++)//get the coverage for each read
     {    
         if(ug->g->seq[i].del) continue;
         u = &(ug->u.a[i]);
@@ -31767,10 +31770,11 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
         debug_gfa:;
         gen_ug_opt_t(&uopt, sources, reverse_sources, max_hang_length, mini_overlap_length, gap_fuzz, min_dp, readLen, coverage_cut, ruIndex, 
                 (asm_opt.max_short_tip*2), 0.15, 3, 0.05, 0.9, &b_mask_t);
+        set_hom_global_coverage(&asm_opt, sg, coverage_cut, sources, reverse_sources, ruIndex, max_hang_length, mini_overlap_length);
     }
     if(asm_opt.ar) {
         ul_realignment_gfa(&uopt, sg, clean_round, min_ovlp_drop_ratio, max_ovlp_drop_ratio, 
-                                                                    asm_opt.max_short_tip, &b_mask_t, ha_opt_triobin(&asm_opt));
+                                                                    asm_opt.max_short_tip, &b_mask_t, ha_opt_triobin(&asm_opt), o_file);
     }
     // print_debug_gfa(sg, NULL, coverage_cut, "UL.debug", sources, ruIndex, max_hang_length, mini_overlap_length, 0, 0, 0);
     /**

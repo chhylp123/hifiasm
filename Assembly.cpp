@@ -1784,8 +1784,9 @@ int ha_assemble(void)
 			ha_extract_print_list(&R_INF, asm_opt.extract_iter, asm_opt.extract_list);
 			exit(0);
 		}
-		if (!(asm_opt.flag & HA_F_SKIP_TRIOBIN) && !(asm_opt.flag & HA_F_VERBOSE_GFA)) ha_triobin(&asm_opt);
-        ///if (!(asm_opt.flag & HA_F_SKIP_TRIOBIN)) ha_triobin(&asm_opt), ovlp_loaded = 2;
+		// if (!(asm_opt.flag & HA_F_SKIP_TRIOBIN) && !(asm_opt.flag & HA_F_VERBOSE_GFA)) ha_triobin(&asm_opt);
+        if (!(asm_opt.flag & HA_F_SKIP_TRIOBIN)) ha_triobin(&asm_opt);
+        // if (!(asm_opt.flag & HA_F_SKIP_TRIOBIN)) ha_triobin(&asm_opt), ovlp_loaded = 2;
 		if (asm_opt.flag & HA_F_WRITE_EC) Output_corrected_reads();
 		if (asm_opt.flag & HA_F_WRITE_PAF) Output_PAF();
         if (asm_opt.het_cov == -1024) hap_recalculate_peaks(asm_opt.output_file_name), ovlp_loaded = 2;
