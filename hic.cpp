@@ -16497,7 +16497,7 @@ void optimize_u_trans(kv_u_trans_t *ovlp, kvec_pe_hit* hits, ha_ug_index* idx)
         }
     }
     kt_u_trans_t_idx(&k_trans, idx->ug->g->n_seq);
-    mc_solve(NULL, NULL, &k_trans, idx->ug, idx->read_g, 0.8, R_INF.trio_flag, 1, NULL, 1, NULL, NULL, 1);
+    mc_solve(NULL, NULL, &k_trans, idx->ug, idx->read_g, 0.8, R_INF.trio_flag, 1, NULL, 1, NULL, NULL, 1, 0);
     for (i = m = 0; i < ovlp->n; i++){
         x = &(ovlp->a[i]);
         if(x->del) continue;
@@ -16524,7 +16524,7 @@ ha_ug_index* idx, uint64_t test_block_flip, uint64_t n_perturb)
     __func__, test_block_flip, n_perturb);
     renew_kv_u_trans(k_trans, link, &sl->hits, &(idx->t_ch->k_trans), idx, bub, s->s, NULL, 0);    
     mc_solve(NULL, NULL, k_trans, idx->ug, idx->read_g, 0.8, R_INF.trio_flag, 
-        (bub->round_id == 0? 1 : 0), s->s, 1, NULL, test_block_flip?&(idx->t_ch->k_trans):0, 0);
+        (bub->round_id == 0? 1 : 0), s->s, 1, NULL, test_block_flip?&(idx->t_ch->k_trans):0, 0, 0);
 
 }
 
@@ -16596,6 +16596,9 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, ug_o
     //     label_unitigs_sm(s->s, NULL, idx->ug);
     //     goto skip_flipping;
     // }
+    // print_debug_gfa(idx->read_g, idx->ug, opt->coverage_cut, "hic.phasing", opt->sources, opt->ruIndex, 
+    // opt->max_hang, opt->min_ovlp, 0, 0, 0);
+    
     s = init_ps_t(11, idx->ug->g->n_seq);
     // debug_round_test(s, 11, &bub, &k_trans, &link, &sl, idx, 1000, 10000);
     for (bub.round_id = 0; bub.round_id < bub.n_round; bub.round_id++)
@@ -16605,8 +16608,11 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, ug_o
         // if(bub.round_id == 0) init_phase(idx, &k_trans, &bub, s); 
         // update_trans_g(idx, &k_trans, &bub);
         /*******************************for debug************************************/
+        // mc_solve(NULL, NULL, &k_trans, idx->ug, idx->read_g, 0.8, R_INF.trio_flag, 
+        // (bub.round_id == 0? 1 : 0), s->s, 1, (asm_opt.ar)?(&bub):(NULL), &(idx->t_ch->k_trans), 0,
+        // (((bub.round_id+1) == bub.n_round)?1:0));
         mc_solve(NULL, NULL, &k_trans, idx->ug, idx->read_g, 0.8, R_INF.trio_flag, 
-        (bub.round_id == 0? 1 : 0), s->s, 1, /**&bub**/NULL, &(idx->t_ch->k_trans), 0);
+        (bub.round_id == 0? 1 : 0), s->s, 1, NULL, &(idx->t_ch->k_trans), 0, 0);
         /*******************************for debug************************************/
         label_unitigs_sm(s->s, NULL, idx->ug);
 
@@ -16639,9 +16645,8 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, ug_o
     ///print_hc_links(&link, 0, &hap);
     // print_kv_u_trans(&k_trans, &link, s->s);
 
-
-    ///print_bubbles(idx->ug, &bub, sl.hits.a.n?&sl.hits:NULL, idx->link, idx);
-    ///print_hits(idx, &sl.hits, fn1);
+    // print_bubbles(idx->ug, &bub, sl.hits.a.n?&sl.hits:NULL, NULL/**idx->link**/, idx);
+    // print_hits(idx, &sl.hits, fn1, fn2);
     
 
     ///print_debug_bubble_graph(&bub, idx->ug, asm_opt.output_file_name);

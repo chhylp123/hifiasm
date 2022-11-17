@@ -29,6 +29,14 @@ KDQ_INIT(uint64_t)
 typedef struct { size_t n, m; char *a; } asgc8_v;
 
 typedef struct {
+    asg64_v cnt;
+    asg64_v idx_a; 
+    uint64_t idx_n;
+    asg_t *ext;
+    uint64_t a_n;
+} asg_ext_t;
+
+typedef struct {
     uint32_t v, uid, off;
 } usg_arc_mm_t;
 
@@ -2426,6 +2434,20 @@ void print_raw_u2rgfa_seq(all_ul_t *aln, R_to_U* rI, uint32_t is_detail)
 }
 
 
+void post_rescue(ug_opt_t *uopt, asg_t *sg, ma_hit_t_alloc *src, ma_hit_t_alloc *rev, R_to_U* rI, bub_label_t *b_mask_t, long long no_trio_recover)
+{
+    rescue_contained_reads_aggressive(NULL, sg, src, uopt->coverage_cut, rI, uopt->max_hang, uopt->min_ovlp, 10, 1, 0, NULL, NULL, b_mask_t);
+    rescue_missing_overlaps_aggressive(NULL, sg, src, uopt->coverage_cut, rI, uopt->max_hang, uopt->min_ovlp, 1, 0, NULL, b_mask_t);
+    rescue_missing_overlaps_backward(NULL, sg, src, uopt->coverage_cut, rI, uopt->max_hang, uopt->min_ovlp, 10, 1, 0, b_mask_t);
+    // rescue_wrong_overlaps_to_unitigs(NULL, sg, sources, reverse_sources, coverage_cut, ruIndex, 
+    // max_hang_length, mini_overlap_length, bubble_dist, NULL);
+    // rescue_no_coverage_aggressive(sg, sources, reverse_sources, &coverage_cut, ruIndex, max_hang_length, 
+    // mini_overlap_length, bubble_dist, 10);
+    set_hom_global_coverage(&asm_opt, sg, uopt->coverage_cut, src, rev, rI, uopt->max_hang, uopt->min_ovlp);
+    rescue_bubble_by_chain(sg, uopt->coverage_cut, src, rev, (asm_opt.max_short_tip*2), 0.15, 3, rI, 0.05, 0.9, uopt->max_hang, 
+    uopt->min_ovlp, 10, uopt->gap_fuzz, b_mask_t, no_trio_recover);
+}
+
 void ul_clean_gfa(ug_opt_t *uopt, asg_t *sg, ma_hit_t_alloc *src, ma_hit_t_alloc *rev, R_to_U* rI, int64_t clean_round, double min_ovlp_drop_ratio, double max_ovlp_drop_ratio, 
 double ou_drop_rate, int64_t max_tip, int64_t gap_fuzz, bub_label_t *b_mask_t, int32_t is_ou, int32_t is_trio, uint32_t ou_thres, char *o_file)
 {
@@ -2522,7 +2544,7 @@ double ou_drop_rate, int64_t max_tip, int64_t gap_fuzz, bub_label_t *b_mask_t, i
     asg_arc_cut_tips(sg, max_tip, &bu, is_ou, is_ou?rI:NULL);
 
     if(!is_ou) asg_cut_semi_circ(sg, LIM_LEN, 1);
-    
+    /**
     rescue_contained_reads_aggressive(NULL, sg, src, uopt->coverage_cut, rI, uopt->max_hang, uopt->min_ovlp, 10, 1, 0, NULL, NULL, b_mask_t);
     rescue_missing_overlaps_aggressive(NULL, sg, src, uopt->coverage_cut, rI, uopt->max_hang, uopt->min_ovlp, 1, 0, NULL, b_mask_t);
     rescue_missing_overlaps_backward(NULL, sg, src, uopt->coverage_cut, rI, uopt->max_hang, uopt->min_ovlp, 10, 1, 0, b_mask_t);
@@ -2532,6 +2554,9 @@ double ou_drop_rate, int64_t max_tip, int64_t gap_fuzz, bub_label_t *b_mask_t, i
     // mini_overlap_length, bubble_dist, 10);
     set_hom_global_coverage(&asm_opt, sg, uopt->coverage_cut, src, rev, rI, uopt->max_hang, uopt->min_ovlp);
     rescue_bubble_by_chain(sg, uopt->coverage_cut, src, rev, (asm_opt.max_short_tip*2), 0.15, 3, rI, 0.05, 0.9, uopt->max_hang, uopt->min_ovlp, 10, uopt->gap_fuzz, b_mask_t);
+    **/
+    post_rescue(uopt, sg, src, rev, rI, b_mask_t, is_ou);
+
     output_unitig_graph(sg, uopt->coverage_cut, o_file, src, rI, uopt->max_hang, uopt->min_ovlp);
     // flat_bubbles(sg, ruIndex->is_het); free(ruIndex->is_het); ruIndex->is_het = NULL;
     flat_soma_v(sg, src, rI);
@@ -3381,7 +3406,7 @@ void init_ul_str_idx_t(ul_resolve_t *p)
         for (k = 0; k < x_n; k++) {
             if(x_a[k].base || (!x_a[k].el) || (!x_a[k].pchain)) continue;
             l = k; l <<= 32; l += (x_a[k].hid<<1); l += x_a[k].rev; str->idx.a[x_a[k].hid]++;
-            kv_push(uint64_t, str->str.a[i], l);
+            kv_push(uint64_t, str->str.a[i], l);///idx|hid|rev
         }
         str->str.a[i].cn = str->str.a[i].n; str->str.a[i].is_cir = 0;
     }
@@ -3757,7 +3782,7 @@ ma_ug_t *ug, ul_str_idx_t *str_idx, all_ul_t *ul_idx, ul_chain_t *res)
         }
     }
     // if(tid == 269 || tid == 276 || tid == 277 || tid == 278) fprintf(stderr, "tid->%u, i->%ld, an->%ld\n", tid, i, a_n);
-    if(i >= a_n) {
+    if(i >= a_n) {//the whole chain is co-inear
         sc += a[0].sc; 
         res->v = a[0].tn_rev_qk>>32; res->s = offset; res->e = offset + a_n; res->sc = sc; 
         return 1;
@@ -5737,6 +5762,7 @@ void integer_candidate(ul_resolve_t *uidx, integer_t *buf, uint32_t qid, uint32_
     b_n = buf->b.n; buf->sc.n = 0;
     for (k = 1, z = 0; k <= b_n; k++) {
         if(k == b_n || (buf->b.a[z].tn_rev_qk>>32) != (buf->b.a[k].tn_rev_qk>>32)) {
+            ///get the chain for <qn, tn>
             if(integer_chain(qid, buf->b.a + z, k - z, z, buf, ug, str_idx, uidx->idx, &sc) && sc.v != (uint32_t)-1) {
                 if((buf->sc.n > 0) && ((buf->sc.a[buf->sc.n-1].v>>1) == (sc.v>>1))) {
                     if(buf->sc.a[buf->sc.n-1].sc < sc.sc) {
@@ -9224,7 +9250,7 @@ asg64_v *b, asg64_v *ub, uint32_t *r_w_c, uint32_t *r_w_m)
 
 uint64_t ulg_pop_bubble(ul_resolve_t *uidx, ma_ug_t *ug, uint64_t* i_max_dist, uint32_t max_ext, uint32_t max_ext_hifi, uint32_t skip_hom, asg64_v *in, asg64_v *ib)
 {
-    fprintf(stderr, "[M::%s::] Starting...\n", __func__);
+    // fprintf(stderr, "[M::%s::] Starting...\n", __func__);
     asg_t *g = ug->g; 
     asg64_v tx = {0,0,0}, tb = {0,0,0}, *ob = NULL, *ub = NULL; 
     uint32_t v, w, n_vtx = g->n_seq<<1, n_arc, nv, i, wc[2], wm[2], mm_c, mm_m, mm_v;
@@ -9276,7 +9302,7 @@ uint64_t ulg_pop_bubble(ul_resolve_t *uidx, ma_ug_t *ug, uint64_t* i_max_dist, u
     free(b.a); free(b.S.a); free(b.T.a); free(b.b.a); free(b.e.a);
     if(n_pop) asg_cleanup(g);
     if(!in) free(tx.a); if(!ib) free(tb.a);
-    fprintf(stderr, "[M::%s::] Done...\n", __func__);
+    // fprintf(stderr, "[M::%s::] Done...\n", __func__);
     return n_pop;
 }
 
@@ -9640,7 +9666,7 @@ uint32_t skip_hom, uint32_t *max_drop_len, asg64_v *in, asg64_v *ib)
 
     if(!in) free(tx.a); if(!ib) free(tb.a);
     if (cnt > 0) asg_cleanup(g);
-    fprintf(stderr, "[M::%s::] cnt::%u\n", __func__, cnt);
+    // fprintf(stderr, "[M::%s::] cnt::%u\n", __func__, cnt);
     return cnt;
 }
 
@@ -11326,9 +11352,15 @@ void update_usg_t_threading_0(usg_t *ng, uint64_t *a, uint64_t a_n, uint32_t *oc
     assert(a_n > 1); 
     assert(occ[a[0]] == 1); 
     kv_pushp(uint64_t, *b, &p); (*p) = a[0]; (*p) <<= 32; (*p) |= a[0]; occ[a[0]]--; 
+    // fprintf(stderr, "[M::%s::] a_n::%lu\n", __func__, a_n);
+    // for (k = 0; k < a_n; k++) {
+    //     fprintf(stderr, "utg%.6dl(%c)\t", (int32_t)(a[k]>>1)+1, "+-"[a[k]&1]);
+    // }
+    // fprintf(stderr, "\n");
+
     for (k = 1; k + 1 < a_n; k++) {
         assert(occ[a[k]] == occ[a[k]^1]); assert(occ[a[k]] > 0);
-        if(occ[a[k]] > 1) {
+        if(occ[a[k]] > 1) {///copy a node
             nid = a[k]>>1; nnid = ng->n;
             kv_push(uint32_t, ng->mp.a[ng->a[nid].mm], nnid);
             s = push_usg_t_node(ng, nnid); 
@@ -11352,8 +11384,8 @@ void update_usg_t_threading_0(usg_t *ng, uint64_t *a, uint64_t a_n, uint32_t *oc
     
     for (k = 0; k < b->n; k += 2) {
         v = b->a[k]; w = b->a[k+1];
-        if(((v>>32) == ((uint32_t)v)) && ((w>>32) == ((uint32_t)w))) continue;
-        remap_gen_arcs(ng, v>>32, (w>>32)^1, ((uint32_t)v), ((uint32_t)w)^1);
+        if(((v>>32) == ((uint32_t)v)) && ((w>>32) == ((uint32_t)w))) continue;//no need arc
+        remap_gen_arcs(ng, v>>32, (w>>32)^1, ((uint32_t)v), ((uint32_t)w)^1);///v>>32: old id; ((uint32_t)v): new id
         remap_gen_arcs(ng, w>>32, (v>>32)^1, ((uint32_t)w), ((uint32_t)v)^1);
     }
 
@@ -11373,6 +11405,18 @@ void update_usg_t_threading_0(usg_t *ng, uint64_t *a, uint64_t a_n, uint32_t *oc
             } else if(av[i].del == 0) {
                 av[i].del = 1;
                 z = get_usg_arc(ng, av[i].v^1, (av[i].ul>>32)^1); 
+                // if(!(z && (!z->del))) {
+                //     fprintf(stderr, "[M::%s::] z::%u, z->del::%u\n", __func__, z?1:0, z?z->del:1);
+                //     fprintf(stderr, "[M::%s::arc] utg%.6dl(%c)->utg%.6dl(%c)\n", 
+                //                                     __func__, (int32_t)(av[i].ul>>33)+1, "+-"[(av[i].ul>>32)&1], 
+                //                                               (int32_t)(av[i].v>>1)+1, "+-"[(av[i].v)&1]);
+                //     fprintf(stderr, "[M::%s::new] utg%.6dl(%c)->utg%.6dl(%c)\n", 
+                //                                     __func__, (int32_t)(v1>>1)+1, "+-"[v1&1], 
+                //                                               (int32_t)(w1>>1)+1, "+-"[w1&1]);
+                //     fprintf(stderr, "[M::%s::old] utg%.6dl(%c)->utg%.6dl(%c)\n", 
+                //                                     __func__, (int32_t)(v0>>1)+1, "+-"[v0&1], 
+                //                                               (int32_t)(w0>>1)+1, "+-"[w0&1]);
+                // }
                 assert(z && (!z->del)); z->del = 1;
             }
         }
@@ -12042,14 +12086,15 @@ static void worker_unique_bridge_check_s(void *data, long i, int tid) // callbac
     unique_bridge_check_t *uaux = (unique_bridge_check_t *)data;
     uint64_t *integer_seq = uaux->integer_seq, s, e, v, w, nse, k;
     uint64_t *gidx = uaux->gidx, *interval = uaux->interval_idx;
-    bubble_type *bub = uaux->uidx->bub;
+    bubble_type *bub = uaux->uidx->bub; usg_t *ng = uaux->ng;
 
     s = interval[((uint32_t)gidx[i])]>>32; 
     e = ((uint32_t)interval[((uint32_t)gidx[i])]); 
     assert(s < e);
     for (k = s, v = w = (uint32_t)-1; k <= e; k++) {
         if(k > s) {
-            nse = get_arc_support(uaux->uidx, integer_seq[k-1], integer_seq[k]);
+            nse = get_arc_support(uaux->uidx, (ng->a[integer_seq[k-1]>>1].mm<<1)|(integer_seq[k-1]&1), 
+            (ng->a[integer_seq[k]>>1].mm<<1)|(integer_seq[k]&1));
             if(nse < unique_bridge_occ) {
                 // fprintf(stderr, "+utg%.6dl(%c)\tutg%.6dl(%c)\tnse::%lu\n", 
                 // ((int32_t)(integer_seq[k-1]>>1))+1, "+-"[integer_seq[k-1]&1], 
@@ -12058,7 +12103,7 @@ static void worker_unique_bridge_check_s(void *data, long i, int tid) // callbac
             }
         }
         if(IF_HOM((integer_seq[k]>>1), *bub)) continue;
-        w = integer_seq[k];
+        w = (ng->a[integer_seq[k]>>1].mm<<1)|(integer_seq[k]&1);
         if(v != (uint32_t)-1) {
             nse = get_arc_support(uaux->uidx, v, w);
             if(nse < unique_bridge_occ) {
@@ -12079,7 +12124,7 @@ uint32_t ava_pass_unique_bridge_cov(ul_resolve_t *uidx, usg_t *g, asg64_v *b64, 
 
     uaux.uidx = uidx; uaux.integer_seq = integer_seq; 
     uaux.gidx = b64->a + g_s; uaux.gidx_n = g_e - g_s;
-    uaux.interval_idx = b64->a;
+    uaux.interval_idx = b64->a; uaux.ng = g;
     kt_for(uidx->str_b.n_thread, worker_unique_bridge_check_s, (&uaux), g_e-g_s);///seq->n > 1
 
     for (i = g_s; i < g_e; i++) {///available intervals within the same cluster
@@ -12789,6 +12834,8 @@ void renew_usg_t_bub(ul_resolve_t *uidx, usg_t *ng, uint32_t *id_map, uint8_t *f
     kv_destroy(e.a);
 
     destory_bubbles(uidx->bub); free(uidx->bub); CALLOC(uidx->bub, 1);
+    // fprintf(stderr, "[M::%s] homozygous read coverage threshold: %d\n", __func__, asm_opt.hom_global_coverage_set?
+    //                         asm_opt.hom_global_coverage:(int)(((double)asm_opt.hom_global_coverage)/((double)HOM_PEAK_RATE)));
     // identify_bubbles(ug, uidx->bub, uidx->r_het, NULL);
     identify_bubbles_recal(uidx->sg, ug, uidx->bub, uidx->r_het, uidx->uopt->sources, uidx->uopt->ruIndex, NULL);
     // fprintf(stderr, "0[M::%s::] f[51]::%u\n", __func__, ff[51]);
@@ -13070,7 +13117,7 @@ void debug_prt_renew_aln(usg_t *ng, uint64_t *int_idx, uint64_t int_idx_n, uint6
 uint32_t ug_ext_free(asg64_v *ob, asg64_v *ub, ul_resolve_t *uidx, usg_t *ng, uint32_t max_ext, 
 uint8_t **ff, uint32_t **ng_occ, uint64_t **i_idx, asg64_v *b64, asg64_v *ub64, uint32_t rocc_cut)
 {
-    fprintf(stderr, "[M::%s::] rocc_cut::%u\n", __func__, rocc_cut);
+    // fprintf(stderr, "[M::%s::] rocc_cut::%u\n", __func__, rocc_cut);
     uint32_t k, n_vtx = ng->n<<1, a_n; unique_bridge_check_t u_aux;
     REALLOC((*ff), n_vtx); REALLOC((*ng_occ), n_vtx); REALLOC((*i_idx), n_vtx);
     renew_usg_t_bub(uidx, ng, *ng_occ, *ff, rocc_cut);
@@ -13105,7 +13152,7 @@ uint8_t **ff, uint32_t **ng_occ, uint64_t **i_idx, asg64_v *b64, asg64_v *ub64, 
 uint32_t ug_ext_strict(asg64_v *ob, asg64_v *ub, ul_resolve_t *uidx, usg_t *ng, uint32_t max_ext, 
 uint8_t **ff, uint32_t **ng_occ, uint64_t **i_idx, asg64_v *b64, asg64_v *ub64)
 {
-    fprintf(stderr, "[M::%s::]\n", __func__);
+    // fprintf(stderr, "[M::%s::]\n", __func__);
     uint32_t k, i, n_vtx = ng->n<<1, a_n;
     REALLOC((*ff), n_vtx); REALLOC((*ng_occ), n_vtx); REALLOC((*i_idx), n_vtx);
     u2g_hybrid_aln(uidx, ng, ob, ub); b64->n = ub64->n = 0; 
@@ -13173,6 +13220,405 @@ uint8_t **ff, uint32_t **ng_occ, uint64_t **i_idx, asg64_v *b64, asg64_v *ub64)
     // if(a_n) usg_cleanup(ng);
     return a_n;
 }
+/**
+typedef struct {
+    uint32_t nid, ulid;
+    uint32_t raw_sid, raw_eid;
+    uint32_t raw_sof, raw_eof;
+} usc_t;
+
+typedef struct {
+    usc_t *a;
+    size_t n, m;
+} usc_vec_t;
+
+typedef struct {
+    // ul_resolve_t *uidx;
+    usc_t *a;
+    uint64_t a_n;
+    ma_ug_t *ug;
+} scaf_mul_t;
+
+int64_t reload_uovl(all_ul_t *x, char* file_name)
+{
+    char* gfa_name = NULL; MALLOC(gfa_name, strlen(file_name)+100);
+    sprintf(gfa_name, "%s.%s.ul.ovlp.bin", file_name, HA_RE_UL_ID);
+    FILE* fp = fopen(gfa_name, "r"); free(gfa_name);
+    if (!fp) return 0;
+    uint64_t k, tn; size_t kn; ul_vec_t *p = NULL;
+
+    fseek(fp, sizeof(x->nid.n)*1, SEEK_CUR);
+	for (k = 0; k < x->nid.n; k++) {
+		fread(&tn, sizeof(tn), 1, fp); 
+        fseek(fp, sizeof((*(x->nid.a->a)))*tn, SEEK_CUR);
+	}
+
+    // free(x->ridx.idx.a); x->ridx.idx.a = NULL;
+    fread(&kn, sizeof(kn), 1, fp); 
+    fseek(fp, sizeof((*(x->ridx.idx.a)))*kn, SEEK_CUR);
+
+    // free(x->ridx.occ.a); x->ridx.occ.a = NULL;
+    fread(&kn, sizeof(kn), 1, fp); 
+    fseek(fp, sizeof((*(x->ridx.occ.a)))*kn, SEEK_CUR);
+
+    fread(&x->n, sizeof(x->n), 1, fp); 
+    if(x->n > x->m) kv_resize(ul_vec_t, *x, x->n);    
+    for (k = 0; k < x->n; k++) {
+        p = &(x->a[k]);
+        fread(&p->dd, sizeof(p->dd), 1, fp);
+        fread(&p->rlen, sizeof(p->rlen), 1, fp);
+
+        fread(&p->r_base.n, sizeof(p->r_base.n), 1, fp); 
+        if(p->r_base.n > p->r_base.m) kv_resize(uint8_t, p->r_base, p->r_base.n);        
+        fread(p->r_base.a, sizeof((*(p->r_base.a))), p->r_base.n, fp);
+
+        fread(&p->bb.n, sizeof(p->bb.n), 1, fp); 
+        if(p->bb.n > p->bb.m) kv_resize(uc_block_t, p->bb, p->bb.n);
+        fread(p->bb.a, sizeof((*(p->bb.a))), p->bb.n, fp);
+
+        fread(&p->N_site.n, sizeof(p->N_site.n), 1, fp); 
+        if(p->N_site.n > p->N_site.m) kv_resize(uint32_t, p->N_site, p->N_site.n);        
+        fread(p->N_site.a, sizeof((*(p->N_site.a))), p->N_site.n, fp);
+    }
+    fclose(fp);
+}
+
+static void gen_scaffold_id(void *data, long i, int tid) // callback for kt_for()
+{
+    scaf_mul_t *ss = (scaf_mul_t *)data;
+    ma_ug_t *ug = ss->ug;
+    usc_t *z = &(ss->a[i]);
+    uint32_t v = z->raw_sid, w = z->raw_eid, uv, uw, rev, id;
+    uint64_t *a, a_n, k; int64_t ql, mmql; 
+    uc_block_t *p, *n, *m0, *m1;
+    p = n = m0 = m1 = NULL;
+    a = UL_INF.ridx.occ.a + UL_INF.ridx.idx.a[v>>1];
+	a_n = UL_INF.ridx.idx.a[(v>>1)+1] - UL_INF.ridx.idx.a[v>>1]; 
+	for (k = 0, mmql = INT32_MAX; k < a_n; k++) {
+        p = &(UL_INF.a[a[k]>>32].bb.a[(uint32_t)(a[k])]); assert(p->hid == (v>>1));
+        if(UL_INF.a[a[k]>>32].dd != 3) continue;///dd = 3 is saved
+		if(p->base || (!p->el) || (!p->pchain)) continue;
+        uv = (((uint32_t)(p->hid))<<1)|((uint32_t)(p->rev));
+
+        if((uv == v) && (p->aidx != (uint32_t)-1)) {
+			n = &(UL_INF.a[a[k]>>32].bb.a[p->aidx]);
+			assert((!n->base)&&(n->el)&&(n->pchain)&&(n->pidx==((uint32_t)(a[k]))));
+			uw = (((uint32_t)(n->hid))<<1)|((uint32_t)(n->rev));
+			if(uw == w) {
+                ql = ((int64_t)n->qs) - ((int64_t)p->qe);
+                if(ql < INT32_MAX) {
+                    mmql = ql; rev = 0; m0 = p; m1 = n; id = a[k]>>32;
+                }
+            }
+		}
+
+		if(((uv^1) == v) && (p->pidx != (uint32_t)-1)) {
+			n = &(UL_INF.a[a[k]>>32].bb.a[p->pidx]);
+			assert((!n->base)&&(n->el)&&(n->pchain)&&(n->aidx==((uint32_t)(a[k]))));
+			uw = (((uint32_t)(n->hid))<<1)|((uint32_t)(n->rev)); uw ^= 1;
+			if(uw == w) {
+                ql = ((int64_t)p->qs) - ((int64_t)n->qe);
+                if(ql < INT32_MAX) {
+                    mmql = ql; rev = 1; m0 = n; m1 = p; id = a[k]>>32;
+                }
+            }
+		}
+    }
+
+    if(m0 && m1) {
+        z->ulid = (id<<1)|rev;
+        z->raw_sof = m0->qe;
+        z->raw_eof = m1->qs;
+    }
+}
+
+#define B4Lg(x) (((x)>>2)+(((x)&3)?1:0))
+uint32_t load_scaf_base(all_ul_t *x, char* file_name)
+{
+    char *gfa_name = (char*)malloc(strlen(file_name)+50);
+	sprintf(gfa_name, "%s.uidx.ucr.bin", file_name);
+    FILE *fp = fopen(gfa_name, "r"); free(gfa_name);
+    if (!fp) return 0;
+    uint64_t rid; uint32_t len; ul_vec_t ss, *z; memset(&ss, 0, sizeof(ss));
+    while(1) {
+        fread(&rid, sizeof(rid), 1, fp);
+        if(feof(fp)) break;
+        z = &(x->a[rid]);
+        fread(&len, sizeof(len), 1, fp); assert(z->rlen == len);
+        fread(&(ss.N_site.n), sizeof(ss.N_site.n), 1, fp);
+        kv_resize(uint32_t, ss.N_site, ss.N_site.n);
+        fread(ss.N_site.a, sizeof((*(ss.N_site.a))), ss.N_site.n, fp);
+        ss.r_base.n = B4Lg(len); kv_resize(uint8_t, ss.r_base, ss.r_base.n); 
+        fread(ss.r_base.a, sizeof((*(ss.r_base.a))), ss.r_base.n, fp);
+        if(z->dd != 4) continue;
+
+        
+        kv_resize(uint32_t, z->N_site, ss.N_site.n); z->N_site.n = ss.N_site.n;
+        memcpy(z->N_site.a, ss.N_site.a, sizeof((*(z->N_site.a)))*z->N_site.n);
+
+        kv_resize(uint8_t, z->r_base, ss.r_base.n); z->r_base.n = ss.r_base.n;
+        memcpy(z->r_base.a, ss.r_base.a, sizeof((*(z->r_base.a)))*z->r_base.n);
+    }
+    // load_compress_base_disk(fp, &rid, des.a, &ulen, &(sl->ucr_s->u));
+
+    fclose(fp); free(ss.N_site.a); free(ss.r_base.a);
+}   
+
+int64_t fill_scaffolds(usc_t *a, uint64_t a_n, ma_ug_t *raw_g)
+{   
+    scaf_mul_t ss; uint32_t k, occ = 0;
+    reload_uovl(&UL_INF, asm_opt.output_file_name);
+    filter_ul_ug(raw_g);
+    free(UL_INF.ridx.idx.a); UL_INF.ridx.idx.n = UL_INF.ridx.idx.m = 0;
+    free(UL_INF.ridx.occ.a); UL_INF.ridx.occ.n = UL_INF.ridx.occ.m = 0;
+    gen_ul_vec_rid_t(&UL_INF, NULL, raw_g);
+    ss.a = a; ss.a_n = a_n; ss.ug = raw_g;
+    kt_for(asm_opt.thread_num, gen_scaffold_id, &ss, a_n);
+    for (k = 0; k < a_n; k++) {
+        if(a[k].ulid == ((uint32_t)-1)) continue;
+        if(a[k].raw_eof <= a[k].raw_sof) continue;
+        UL_INF.a[a[k].ulid>>1].dd = 4;///load
+        occ++;
+    }
+
+    if(occ) load_scaf_base(&UL_INF, asm_opt.output_file_name);
+}
+
+uint64_t reset_scaf_node_uinfo_srt_t(usc_t *z, int64_t min_arc_len, int64_t scaf_len, int64_t *nlen)
+{
+    (*nlen) = scaf_len + (min_arc_len<<1);
+    if(z->ulid == ((uint32_t)-1)) return 0;///a scaffold node
+    if(z->raw_eof + min_arc_len <= z->raw_sof) {///has an overlap longer than min_arc_len
+        (*nlen) = scaf_len;
+        return 1;///a scaffold node; no need this node, could directly use existing nodes
+    }
+    int64_t s, e;
+    s = z->raw_sof; e = z->raw_eof; 
+    (*nlen) = (min_arc_len<<1) + (e - s);    
+    return 2;
+}
+
+
+int64_t push_scaf_bases(uint8_t *des, All_reads* rdb, usc_t *z, int64_t min_arc_len, int64_t scaf_len, int64_t nlen, UC_Read *g_read)
+{   
+    int64_t nlen0, ff;
+    ff = reset_scaf_node_uinfo_srt_t(z, min_arc_len, scaf_len, &nlen0); assert(nlen0 == nlen);
+    if(ff == 1) {///has an overlap longer than min_arc_len between z->raw_sid and z->raw_eid
+        memset(des, 0, sizeof((*(des))*(nlen/4+1)));
+        return ff;
+    }
+    if(z->raw_eof >= z->raw_sof) {
+
+    }
+    return ff;
+}
+
+void realloc_rdb_adv(All_reads* rdb, ma_sub_t **cov, R_to_U *ruI, uint64_t *rmap, uint64_t rid_n, 
+uint64_t scaf_len, char *scaf_id, asg_t *ng, ug_opt_t *uopt, usc_t *a)
+{
+    uint64_t i, rid_n0 = rdb->total_reads, tname, cname; usc_t *z; 
+    uint64_t scaf_id_len = strlen(scaf_id); char *des, *src; int64_t nlen, ff;
+    UC_Read g_read; init_UC_Read(&g_read);
+    rdb->total_reads = rid_n;
+    tname = rdb->name_index[rid_n0];
+    fprintf(stderr, "+[M::%s] rid_n0::%lu, rid_n::%lu\n", __func__, rid_n0, rid_n);
+    ///for read bases
+    REALLOC(rdb->N_site, rdb->total_reads);
+    REALLOC(rdb->read_length, rdb->total_reads);
+    REALLOC(rdb->read_size, rdb->total_reads);
+    REALLOC(rdb->read_sperate, rdb->total_reads);
+    REALLOC(rdb->trio_flag, rdb->total_reads);
+    REALLOC(rdb->name_index, rdb->total_reads+1);///total_reads+1
+    REALLOC((*cov), rdb->total_reads);
+    for (i = rid_n0; i < rdb->total_reads; i++) {
+        // fprintf(stderr, "[M::%s] i::%lu\n", __func__, i);
+        rdb->N_site[i] = NULL;
+        // rdb->read_length[i] = scaf_len;
+        // rdb->read_size[i] = scaf_len;
+        rdb->trio_flag[i] = AMBIGU;
+        (*cov)[i].c = (*cov)[i].del = 0; 
+        // (*cov)[i].s = 0; (*cov)[i].e = scaf_len;
+        cname = scaf_id_len;
+        if(rmap[i] != ((uint64_t)-1)) {///not a scaffold node
+            if(rdb->N_site[rmap[i]] != NULL) {
+                MALLOC(rdb->N_site[i], rdb->N_site[rmap[i]][0]+1);
+                memcpy(rdb->N_site[i], rdb->N_site[rmap[i]], 
+                    sizeof((*(rdb->N_site[i])))*(rdb->N_site[rmap[i]][0]+1));
+            }
+            rdb->read_length[i] = rdb->read_length[rmap[i]];
+            rdb->read_size[i] = rdb->read_length[rmap[i]];
+            (*cov)[i].s = (*cov)[rmap[i]].s; 
+            (*cov)[i].e = (*cov)[rmap[i]].e;
+            rdb->trio_flag[i] = rdb->trio_flag[rmap[i]];
+            (*cov)[i] = (*cov)[rmap[i]];
+            cname = Get_NAME_LENGTH((*rdb), (rmap[i]));
+        } else {
+            z = &(a[(i-ng->r_seq)]); assert(z->nid == i);
+            reset_scaf_node_uinfo_srt_t(z, uopt->min_ovlp, scaf_len, &nlen);
+            rdb->read_length[i] = nlen;
+            rdb->read_size[i] = nlen;
+            (*cov)[i].s = 0; (*cov)[i].e = nlen;
+            ng->seq[i].len = nlen;///update length
+        } 
+        rdb->name_index[i] = tname; tname += cname;
+        rdb->total_reads_bases += rdb->read_length[i];
+
+        MALLOC(rdb->read_sperate[i], (rdb->read_length[i]/4+1));
+        if(rmap[i] != ((uint64_t)-1)) {///not a scaffold node
+            memcpy(rdb->read_sperate[i], rdb->read_sperate[rmap[i]], 
+                sizeof((*(rdb->read_sperate[i])))*(rdb->read_length[i]/4+1));
+        } else {
+            ///set to A
+            z = &(a[(i-ng->r_seq)]); assert(z->nid == i);
+            ff = push_scaf_bases(rdb->read_sperate[i], rdb, z, uopt->min_ovlp, scaf_len, rdb->read_length[i], &g_read);
+            if(ff == 2) ng->seq[i].del = 1;
+            // memset(rdb->read_sperate[i], 0, sizeof((*(rdb->read_sperate[i])))*(rdb->read_length[i]/4+1));
+        }
+    }
+
+    rdb->index_size = rdb->total_reads;
+    rdb->name_index[i] = tname; 
+    rdb->total_name_length = tname; 
+    rdb->name_index_size = rdb->total_reads+1;
+    REALLOC(rdb->name, tname);
+    for (i = rid_n0; i < rdb->total_reads; i++) {
+        des = Get_NAME((*rdb), i); src = scaf_id; cname = scaf_id_len;
+        if(rmap[i] != ((uint64_t)-1)) {
+            src = Get_NAME((*rdb), rmap[i]); cname = Get_NAME_LENGTH((*rdb), (rmap[i]));
+        }
+        memcpy(des, src, sizeof((*(des)))*cname);
+    }
+
+    REALLOC(rdb->paf, rdb->total_reads); 
+    memset(rdb->paf+rid_n0, 0, (rdb->total_reads-rid_n0)*sizeof((*rdb->paf)));
+    REALLOC(rdb->reverse_paf, rdb->total_reads);
+    memset(rdb->reverse_paf+rid_n0, 0, (rdb->total_reads-rid_n0)*sizeof((*rdb->reverse_paf)));
+
+    ruI->len = rdb->total_reads;
+    REALLOC(ruI->index, ruI->len); 
+    memset(ruI->index, -1, sizeof((*(ruI->index)))*(ruI->len));
+
+    reset_bub_label_t(uopt->b_mask_t, ng, 0, 0);
+    uopt->coverage_cut = (*cov);
+    uopt->reverse_sources = rdb->reverse_paf;
+    uopt->sources = rdb->paf;
+    destory_UC_Read(&g_read);
+    fprintf(stderr, "-[M::%s] rid_n0::%lu, rid_n::%lu\n", __func__, rid_n0, rid_n);
+}
+
+asg_t *renew_ng(usg_t *tg, ma_ug_t *raw_g, asg_t *sg, ug_opt_t *uopt, ma_sub_t **cov, R_to_U *ruI, uint64_t scaffold_len)
+{
+    ma_utg_t *u; uint64_t i, v, w, m, h, z, raw_v, raw_w, nocc, nv, vx, wx; int32_t r;
+    asg_arc_t t, *p; usg_arc_t *av = NULL; uint64_t slen = scaffold_len + (uopt->min_ovlp*2);
+    asg_ext_t ext; memset(&ext, 0, sizeof(ext)); ext.ext = asg_init(); asg_t *ng = ext.ext;
+    usc_vec_t sa; memset(&sa, 0, sizeof(sa)); usc_t *psa;
+    ext.a_n = sg->n_seq; 
+    ext.cnt.n = ext.cnt.m = ext.a_n;
+    CALLOC(ext.cnt.a, ext.cnt.n);///count
+
+    ext.idx_a.n = ext.idx_a.m = sg->n_seq; 
+    MALLOC(ext.idx_a.a, ext.idx_a.n); 
+    memset(ext.idx_a.a, -1, sizeof(*(ext.idx_a.a))*ext.idx_a.n);//map
+
+    for (i = 0; i < tg->n; ++i) {
+        u = &(raw_g->u.a[tg->a[i].mm]);        
+        for (m = 0; m < u->n; m++) {
+            v = u->a[m]>>32;
+            ext.cnt.a[v>>1]++;
+            if(ext.cnt.a[v>>1] == 1) {
+                h = v>>1; ext.idx_a.a[h] = v>>1;
+            } else {
+                h = ext.idx_a.n; 
+                kv_push(uint64_t, ext.idx_a, (v>>1));
+            }
+
+            z = (h<<1)|(v&1); z <<= 32; z |= ((uint32_t)u->a[m]);
+            u->a[m] = z;
+        }
+    }
+
+    for (i = 0; i < sg->n_seq; ++i) {
+        asg_seq_set(ng, i, sg->seq[i].len, ext.idx_a.a[i]==((uint64_t)-1)?1:0);
+        ng->seq[i].c = 0;
+        if(ext.idx_a.a[i]!=((uint64_t)-1)) assert(ext.idx_a.a[i] == i);
+        ext.idx_a.a[i] = i;///set for delted read
+    }
+    for (; i < ext.idx_a.n; i++) {
+        asg_seq_set(ng, i, sg->seq[ext.idx_a.a[i]].len, 0);
+        ng->seq[i].c = 0; assert(!(ng->seq[ext.idx_a.a[i]].del));
+    }
+    ng->r_seq = ng->n_seq;
+    assert(ng->n_seq == ext.idx_a.n);
+
+
+    for (i = 0, nocc = ng->r_seq, sa.n = 0; i < tg->n; ++i) {
+        ///there shouldn't any scaffolding within the nodes
+        v = i<<1; nv = usg_arc_n(tg, v); av = usg_arc_a(tg, v);
+        for (m = 0; m < nv; m++) {
+            if(av[m].del) continue;
+            w = av[m].v;
+            vx = (v&1?((raw_g->u.a[tg->a[v>>1].mm].a[0]>>32)^1):
+                                (raw_g->u.a[tg->a[v>>1].mm].a[raw_g->u.a[tg->a[v>>1].mm].n-1]>>32));
+            wx = (w&1?((raw_g->u.a[tg->a[w>>1].mm].a[raw_g->u.a[tg->a[w>>1].mm].n-1]>>32)^1):
+                                (raw_g->u.a[tg->a[w>>1].mm].a[0]>>32));
+            raw_v = (ext.idx_a.a[vx>>1]<<1)|(vx&1);
+            raw_w = (ext.idx_a.a[wx>>1]<<1)|(wx&1);
+            assert((raw_v>>1) < sg->n_seq);
+            assert((raw_w>>1) < sg->n_seq);
+            if(vx > wx) continue;
+            if((vx == wx) && (vx&1)) continue;
+            if(gen_spec_edge(sg, uopt, raw_v, raw_w, &t) < 0) {
+                asg_seq_set(ng, nocc, slen, 0);
+                ng->seq[nocc].c = 0;
+                kv_push(uint64_t, ext.idx_a, ((uint64_t)-1));
+
+                kv_pushp(usc_t, sa, &psa); 
+                psa->ulid = (uint32_t)-1; psa->nid = nocc;
+                psa->raw_sid = (tg->a[v>>1].mm<<1)|(v&1);
+                psa->raw_eid = (tg->a[w>>1].mm<<1)|(w&1);
+                psa->raw_sof = psa->raw_eof = (uint32_t)-1;
+                nocc++;///a scaffold node
+            }
+        }
+
+        v = (i<<1)+1; nv = usg_arc_n(tg, v); av = usg_arc_a(tg, v);
+        for (m = 0; m < nv; m++) {
+            if(av[m].del) continue;
+            w = av[m].v;
+            vx = (v&1?((raw_g->u.a[tg->a[v>>1].mm].a[0]>>32)^1):
+                                (raw_g->u.a[tg->a[v>>1].mm].a[raw_g->u.a[tg->a[v>>1].mm].n-1]>>32));
+            wx = (w&1?((raw_g->u.a[tg->a[w>>1].mm].a[raw_g->u.a[tg->a[w>>1].mm].n-1]>>32)^1):
+                                (raw_g->u.a[tg->a[w>>1].mm].a[0]>>32));
+            raw_v = (ext.idx_a.a[vx>>1]<<1)|(vx&1);
+            raw_w = (ext.idx_a.a[wx>>1]<<1)|(wx&1);
+            assert((raw_v>>1) < sg->n_seq);
+            assert((raw_w>>1) < sg->n_seq);
+            if(vx > wx) continue;
+            if((vx == wx) && (vx&1)) continue;
+            if(gen_spec_edge(sg, uopt, raw_v, raw_w, &t) < 0) {
+                asg_seq_set(ng, nocc, slen, 0);
+                ng->seq[nocc].c = 0;
+                kv_push(uint64_t, ext.idx_a, ((uint64_t)-1));
+
+                kv_pushp(usc_t, sa, &psa); 
+                psa->ulid = (uint32_t)-1; psa->nid = nocc;
+                psa->raw_sid = (tg->a[v>>1].mm<<1)|(v&1);
+                psa->raw_eid = (tg->a[w>>1].mm<<1)|(w&1);
+                psa->raw_sof = psa->raw_eof = (uint32_t)-1;
+                nocc++;///a scaffold node
+            }
+        }
+    }
+
+    assert(ng->n_seq == ext.idx_a.n); 
+    CALLOC(ng->seq_vis, (ng->n_seq<<1));
+    ///# scaffolding nodes
+    if(sa.n > 0) fill_scaffolds(sa.a, sa.n, raw_g);
+    realloc_rdb_adv(&(R_INF), cov, ruI, ext.idx_a.a, ext.idx_a.n, slen, (char *)"scaf", ng, uopt, sa.a);
+
+    free(sa.a);
+}
+**/
 
 void u2g_hybrid_detan_iter(ul_resolve_t *uidx, usg_t *ng, uint32_t max_ext, uint32_t clean_round, asg64_v *in, asg64_v *ib)
 {
@@ -13192,7 +13638,7 @@ void u2g_hybrid_detan_iter(ul_resolve_t *uidx, usg_t *ng, uint32_t max_ext, uint
     }
     // // ug_ext_strict(ob, ub, uidx, ng, max_ext, &ff, &ng_occ, &i_idx, &b64, &ub64);
     // ncut += ug_ext_free(ob, ub, uidx, ng, max_ext, &ff, &ng_occ, &i_idx, &b64, &ub64, 50);
-    // // prt_usg_t(uidx, ng, "ng0");
+    // prt_usg_t(uidx, ng, "ng.db");
     // ncut += ug_ext_free(ob, ub, uidx, ng, max_ext, &ff, &ng_occ, &i_idx, &b64, &ub64, 10);
     // ncut += ug_ext_strict(ob, ub, uidx, ng, max_ext, &ff, &ng_occ, &i_idx, &b64, &ub64);
     if(ncut) {
@@ -13334,7 +13780,7 @@ void u2g_hybrid_clean(ul_resolve_t *uidx, ulg_opt_t *ulopt, usg_t *ng, asg64_v *
     double step = (ulopt->clean_round==1?ulopt->max_ovlp_drop_ratio:
                         ((ulopt->max_ovlp_drop_ratio-ulopt->min_ovlp_drop_ratio)/(ulopt->clean_round-1)));
     double drop = ulopt->min_ovlp_drop_ratio; ///CALLOC(iug->g->seq_vis, iug->g->n_seq*2);
-    fprintf(stderr, "\n[M::%s::] Starting hybrid clean, mm_tip::%ld\n", __func__, mm_tip);
+    // fprintf(stderr, "\n[M::%s::] Starting hybrid clean, mm_tip::%ld\n", __func__, mm_tip);
     // prt_usg_t(uidx, ng, "ng0");
     usg_arc_cut_tips(ng, mm_tip, 0, b);
     // prt_usg_t(uidx, ng, "ng1");
@@ -13465,9 +13911,9 @@ void merge_hybrid_utg_content(ma_utg_t* cc, ma_ug_t* raw, asg_t* rg, usg_t *ng, 
 
 ma_ug_t *gen_hybrid_ug(ul_resolve_t *uidx, usg_t *ng)
 {
-    fprintf(stderr, "[M::%s::] ng->n::%u\n", __func__, (uint32_t)ng->n);
+    // fprintf(stderr, "[M::%s::] ng->n::%u\n", __func__, (uint32_t)ng->n);
     ma_ug_t *ug = ma_ug_hybrid_gen(ng); 
-    fprintf(stderr, "[M::%s::] ug->g->n_seq::%u\n", __func__, (uint32_t)ug->g->n_seq);
+    // fprintf(stderr, "[M::%s::] ug->g->n_seq::%u\n", __func__, (uint32_t)ug->g->n_seq);
     uint32_t i; ma_utg_t *u; kvec_asg_arc_t_warp e; kv_init(e.a); e.i = 0;
     for (i = 0; i < ug->u.n; i++) {
         ug->g->seq[i].c = PRIMARY_LABLE;
@@ -13490,7 +13936,7 @@ void u2g_threading(ul_resolve_t *uidx, ulg_opt_t *ulopt, uint64_t cov_cutoff, as
     ul2ul_idx_t *idx = &(uidx->uovl); ma_ug_t *iug = idx->i_ug; ma_ug_t *raw = uidx->l1_ug;
     uint64_t k, z, i, t_s, t_e; uinfo_srt_warp_t *seq; 
     usg_t *ng; CALLOC(ng, 1); usg_seq_t *s; usg_arc_warp *sv; usg_arc_t *p; 
-    asg_arc_t *av; uint32_t nv, v, w; int64_t tt, tl, tm; 
+    asg_arc_t *av; uint32_t nv, v, w, vx, wx; int64_t tt, tl, tm; 
 
     ng->mp.n = ng->mp.m = raw->g->n_seq; MALLOC(ng->mp.a, ng->mp.n);
     for (k = 0; k < raw->g->n_seq; k++) {
@@ -13560,19 +14006,26 @@ void u2g_threading(ul_resolve_t *uidx, ulg_opt_t *ulopt, uint64_t cov_cutoff, as
                         p = get_usg_arc(ng, seq->a[i+1].v^1, seq->a[i].v^1);
                         if(p->ou < (uint64_t)tm) p->ou = tm;
                     } else {
-                        v = seq->a[i].v; w = seq->a[i+1].v; 
-                        kv_pushp(usg_arc_t, (ng->a[v>>1].arc[v&1]), &p); 
-                        p->del = 0; p->ou = tm; p->v = w; p->ol = 0; p->idx = 0;
-                        p->ul = (((uint64_t)v)<<32)|(raw->g->seq[v>>1].len);
+                        v = seq->a[i].v; w = seq->a[i+1].v; p = NULL;
+                        vx = (v&1?((raw->u.a[v>>1].a[0]>>32)^1):(raw->u.a[v>>1].a[raw->u.a[v>>1].n-1]>>32));
+                        wx = (w&1?((raw->u.a[w>>1].a[raw->u.a[w>>1].n-1]>>32)^1):(raw->u.a[w>>1].a[0]>>32));
+                        ///(v>>1) != (w>>1) or v == w, need to handle (v>>1) == (w>>1) && (v&1) != (w&1) later
+                        if(((v^w) != 1) && (uidx->sg->seq[vx>>1].len > uidx->uopt->min_ovlp) && 
+                                (uidx->sg->seq[wx>>1].len > uidx->uopt->min_ovlp)) {
+                            kv_pushp(usg_arc_t, (ng->a[v>>1].arc[v&1]), &p); 
+                            p->del = 0; p->ou = tm; p->v = w; p->ol = 0; p->idx = 0;
+                            p->ul = (((uint64_t)v)<<32)|(raw->g->seq[v>>1].len);
 
-                        v = seq->a[i+1].v^1; w = seq->a[i].v^1; 
-                        kv_pushp(usg_arc_t, (ng->a[v>>1].arc[v&1]), &p); 
-                        p->del = 0; p->ou = tm; p->v = w; p->ol = 0; p->idx = 0;
-                        p->ul = (((uint64_t)v)<<32)|(raw->g->seq[v>>1].len);
+                            v = seq->a[i+1].v^1; w = seq->a[i].v^1; 
+                            kv_pushp(usg_arc_t, (ng->a[v>>1].arc[v&1]), &p); 
+                            p->del = 0; p->ou = tm; p->v = w; p->ol = 0; p->idx = 0;
+                            p->ul = (((uint64_t)v)<<32)|(raw->g->seq[v>>1].len);
+                        }
                     }
-
-                    pushp_usg_arc_mm(ng, seq->a[i].v, seq->a[i+1].v, k, i); 
-                    pushp_usg_arc_mm(ng, seq->a[i+1].v^1, seq->a[i].v^1, k, i); 
+                    if(p) {
+                        pushp_usg_arc_mm(ng, seq->a[i].v, seq->a[i+1].v, k, i); 
+                        pushp_usg_arc_mm(ng, seq->a[i+1].v^1, seq->a[i].v^1, k, i); 
+                    }
                 }
             }
             t_s = ub->a[z] + 1;
@@ -13643,7 +14096,7 @@ void u2g_clean(ul_resolve_t *uidx, ulg_opt_t *ulopt, uint32_t keep_raw_utg)
                 cnt += ulg_arc_cut_supports(uidx, iug, mm_tip, ulopt->max_tip_hifi, drop, ulopt->is_trio, topo_level, 1, NULL, keep_raw_utg, &bu, &uu);
                 cnt += ulg_arc_cut_tips(uidx, iug, mm_tip, ulopt->max_tip_hifi, 0, &bu, &uu);
             }
-            fprintf(stderr, "[M::%s::] Done round-%ld, drop::%f\n", __func__, i, drop);
+            // fprintf(stderr, "[M::%s::] Done round-%ld, drop::%f\n", __func__, i, drop);
         }
 
         ulg_pop_bubble(uidx, iug, NULL, ((int64_t)0x7fffffff), ulopt->max_tip_hifi, 1, &bu, &uu);
@@ -14149,8 +14602,8 @@ ul2ul_idx_t *gen_ul2ul(ul_resolve_t *uidx, ug_opt_t *uopt, ulg_opt_t *ulopt, uin
 
     kt_for(uidx->str_b.n_thread, worker_integert_debug_sym, uidx, z->tot);///all ul + ug
     print_integert_ovlp_stat(z);
-    print_uls_seq(uidx, asm_opt.output_file_name);
-    print_uls_ovs(uidx, asm_opt.output_file_name);
+    // print_uls_seq(uidx, asm_opt.output_file_name);
+    // print_uls_ovs(uidx, asm_opt.output_file_name);
     
     z->i_g = integer_sg_gen(uidx, uopt->min_ovlp);
     asg_arc_del_trans(z->i_g, uopt->gap_fuzz);
@@ -14164,7 +14617,7 @@ ul2ul_idx_t *gen_ul2ul(ul_resolve_t *uidx, ug_opt_t *uopt, ulg_opt_t *ulopt, uin
     u2g_clean(uidx, ulopt, keep_raw_utg);
     // renew_ul2_utg(uidx);
 
-    output_integer_graph(uidx, z->i_ug, asm_opt.output_file_name, 0);
+    // output_integer_graph(uidx, z->i_ug, asm_opt.output_file_name, 0);
     return z;
 }
 
@@ -14265,13 +14718,436 @@ ma_ug_t* output_trio_unitig_graph_ul(ug_opt_t *uopt, ul_resolve_t *uidx, char* o
     return NULL;
 }
 
+
+
+void realloc_rdb(All_reads* rdb, ma_sub_t **cov, R_to_U *ruI, uint64_t *rmap, uint64_t rid_n, uint64_t scaf_len, char *scaf_id, 
+asg_t *ng, ug_opt_t *uopt)
+{
+    uint64_t i, rid_n0 = rdb->total_reads, tname, cname;
+    uint64_t scaf_id_len = strlen(scaf_id); char *des, *src;
+    rdb->total_reads = rid_n;
+    tname = rdb->name_index[rid_n0];
+    fprintf(stderr, "+[M::%s] rid_n0::%lu, rid_n::%lu\n", __func__, rid_n0, rid_n);
+    ///for read bases
+    REALLOC(rdb->N_site, rdb->total_reads);
+    REALLOC(rdb->read_length, rdb->total_reads);
+    REALLOC(rdb->read_size, rdb->total_reads);
+    REALLOC(rdb->read_sperate, rdb->total_reads);
+    REALLOC(rdb->trio_flag, rdb->total_reads);
+    REALLOC(rdb->name_index, rdb->total_reads+1);///total_reads+1
+    REALLOC((*cov), rdb->total_reads);
+	for (i = rid_n0; i < rdb->total_reads; i++) {
+        // fprintf(stderr, "[M::%s] i::%lu\n", __func__, i);
+        rdb->N_site[i] = NULL;
+        rdb->read_length[i] = scaf_len;
+        rdb->read_size[i] = scaf_len;
+        rdb->trio_flag[i] = AMBIGU;
+        (*cov)[i].c = (*cov)[i].del = 0; 
+        (*cov)[i].s = 0; (*cov)[i].e = scaf_len;
+        cname = scaf_id_len;
+        if(rmap[i] != ((uint64_t)-1)) {///not a scaffold node
+            if(rdb->N_site[rmap[i]] != NULL) {
+                MALLOC(rdb->N_site[i], rdb->N_site[rmap[i]][0]+1);
+                memcpy(rdb->N_site[i], rdb->N_site[rmap[i]], 
+                    sizeof((*(rdb->N_site[i])))*(rdb->N_site[rmap[i]][0]+1));
+            }
+            rdb->read_length[i] = rdb->read_length[rmap[i]];
+            rdb->read_size[i] = rdb->read_length[rmap[i]];
+            rdb->trio_flag[i] = rdb->trio_flag[rmap[i]];
+            (*cov)[i] = (*cov)[rmap[i]];
+            cname = Get_NAME_LENGTH((*rdb), (rmap[i]));
+        } 
+        rdb->name_index[i] = tname; tname += cname;
+        rdb->total_reads_bases += rdb->read_length[i];
+
+        MALLOC(rdb->read_sperate[i], (rdb->read_length[i]/4+1));
+        if(rmap[i] != ((uint64_t)-1)) {///not a scaffold node
+            memcpy(rdb->read_sperate[i], rdb->read_sperate[rmap[i]], 
+                sizeof((*(rdb->read_sperate[i])))*(rdb->read_length[i]/4+1));
+        } else {
+            ///set to A
+            memset(rdb->read_sperate[i], 0, sizeof((*(rdb->read_sperate[i])))*(rdb->read_length[i]/4+1));
+        }
+	}
+
+    rdb->index_size = rdb->total_reads;
+    rdb->name_index[i] = tname; 
+    rdb->total_name_length = tname; 
+    rdb->name_index_size = rdb->total_reads+1;
+    REALLOC(rdb->name, tname);
+    for (i = rid_n0; i < rdb->total_reads; i++) {
+        des = Get_NAME((*rdb), i); src = scaf_id; cname = scaf_id_len;
+        if(rmap[i] != ((uint64_t)-1)) {
+            src = Get_NAME((*rdb), rmap[i]); cname = Get_NAME_LENGTH((*rdb), (rmap[i]));
+        }
+        memcpy(des, src, sizeof((*(des)))*cname);
+    }
+
+    REALLOC(rdb->paf, rdb->total_reads); 
+    memset(rdb->paf+rid_n0, 0, (rdb->total_reads-rid_n0)*sizeof((*rdb->paf)));
+    REALLOC(rdb->reverse_paf, rdb->total_reads);
+    memset(rdb->reverse_paf+rid_n0, 0, (rdb->total_reads-rid_n0)*sizeof((*rdb->reverse_paf)));
+
+    ruI->len = rdb->total_reads;
+    REALLOC(ruI->index, ruI->len); 
+    memset(ruI->index, -1, sizeof((*(ruI->index)))*(ruI->len));
+
+    reset_bub_label_t(uopt->b_mask_t, ng, 0, 0);
+    uopt->coverage_cut = (*cov);
+    uopt->reverse_sources = rdb->reverse_paf;
+    uopt->sources = rdb->paf;
+    fprintf(stderr, "-[M::%s] rid_n0::%lu, rid_n::%lu\n", __func__, rid_n0, rid_n);
+}
+
+inline void update_qtn(ma_hit_t *z, uint64_t qn, uint64_t tn)
+{
+    z->qns <<= 32; z->qns >>= 32; z->qns |= (qn<<32); z->tn = tn;
+}
+
+void renew_paf0(ma_hit_t_alloc *paf, uint64_t *a0, uint64_t a0n, uint64_t *a1, uint64_t a1n)
+{
+    if(a0n <= 1 && a1n <= 1) return;
+    int64_t idx; uint64_t qn = ((uint32_t)a0[0]), tn = ((uint32_t)a1[0]), i, k;
+    ma_hit_t e01, e10;
+    idx = get_specific_overlap(&(paf[qn]), qn, tn);
+    if(idx < 0) return;
+    e01 = paf[qn].buffer[idx];
+    idx = get_specific_overlap(&(paf[tn]), tn, qn);
+    e10 = paf[tn].buffer[idx];
+
+    for (i = 0; i < a0n; i++) {
+        qn = ((uint32_t)a0[i]);
+        for (k = 0; k < a1n; k++) {
+            if(i == 0 && k == 0) continue;
+            tn = ((uint32_t)a1[k]);
+            update_qtn(&e01, qn, tn); add_ma_hit_t_alloc(&(paf[qn]), &e01);
+            update_qtn(&e10, tn, qn); add_ma_hit_t_alloc(&(paf[tn]), &e10);
+        }
+    }
+}
+
+void renew_paf1(ma_hit_t_alloc *paf, uint64_t *a, uint64_t an, uint64_t len)
+{
+    uint64_t i, k, qn, tn; ma_hit_t arc;
+    arc.qns = 0; arc.qe = len;
+    arc.tn = 0; arc.ts = 0; arc.te = len;
+    arc.rev = arc.el = arc.ml = arc.no_l_indel = arc.bl = 0;
+
+    for (i = 0; i < an; i++) {
+        qn = ((uint32_t)a[i]);
+        for (k = 0; k < an; k++) {
+            tn = ((uint32_t)a[k]);
+            update_qtn(&arc, qn, tn); 
+            add_ma_hit_t_alloc(&(paf[qn]), &arc);
+        }
+    }
+}
+
+void update_paf(ma_hit_t_alloc *src, ma_hit_t_alloc *r_src, uint64_t *rmap, uint64_t rid_n, uint64_t pre_gn, asg_t *ng)
+{
+    asg64_v clus; uint64_t k, l, dn = 0, j, qn, tn; 
+    uint64_t *idx; ma_hit_t_alloc *z; 
+    uint64_t *a0, *a1, a0n, a1n;
+    CALLOC(idx, pre_gn);
+    kv_init(clus); kv_resize(uint64_t, clus, rid_n);
+    for (k = 0; k < rid_n; k++) {
+        if(rmap[k] == ((uint64_t)-1)) continue;///scaffold
+        clus.a[clus.n++] = (rmap[k]<<32)|k;
+    }
+    radix_sort_srt64(clus.a, clus.a+clus.n);
+    for (k = 1, l = 0; k <= clus.n; k++) {
+       if(k == clus.n || (clus.a[k]>>32) != (clus.a[l]>>32)) {
+            idx[(clus.a[l]>>32)] = (l<<32)|k;
+            l = k; dn++;
+       }
+    }
+    assert(dn == pre_gn);
+    fprintf(stderr, "+[M::%s] dn::%lu\n", __func__, dn);
+
+    for (k = 0; k < dn; k++) {
+        a0 = clus.a + (idx[k]>>32); a0n = ((uint32_t)idx[k]) - (idx[k]>>32);
+        assert(a0n > 0 && ((uint32_t)a0[0]) == k);
+
+        z = &(src[k]);
+        for (j = 0; j < z->length; j++) {
+            qn = Get_qn(z->buffer[j]);
+            tn = Get_tn(z->buffer[j]);
+            if(tn >= dn) continue;
+            if(qn > tn) continue;
+            a1 = clus.a + (idx[tn]>>32); 
+            a1n = ((uint32_t)idx[tn]) - (idx[tn]>>32);
+            // fprintf(stderr, "+[M::%s] qn::%lu, tn::%lu, a0n::%lu, a1n::%lu\n", __func__, qn, tn, a0n, a1n);
+            assert(a1n > 0 && ((uint32_t)a1[0]) == tn);
+            renew_paf0(src, a0, a0n, a1, a1n);
+        }
+
+        z = &(r_src[k]);
+        for (j = 0; j < z->length; j++) {
+            qn = Get_qn(z->buffer[j]);
+            tn = Get_tn(z->buffer[j]);
+            if(tn >= dn) continue;
+            if(qn > tn) continue;
+            a1 = clus.a + (idx[tn]>>32); 
+            a1n = ((uint32_t)idx[tn]) - (idx[tn]>>32);
+            // fprintf(stderr, "-[M::%s] qn::%lu, tn::%lu, a0n::%lu, a1n::%lu\n", __func__, qn, tn, a0n, a1n);
+            assert(a1n > 0 && ((uint32_t)a1[0]) == tn);
+            renew_paf0(r_src, a0, a0n, a1, a1n);
+        }
+
+
+
+        // for (l = k; l < dn; l++) {
+        //     a1 = clus.a + (idx[l]>>32); a1n = ((uint32_t)idx[l]) - (idx[l]>>32);
+        //     fprintf(stderr, "[M::%s] k::%lu, l::%lu, a0n::%lu, a1n::%lu\n", __func__, k, l, a0n, a1n);
+        //     assert(a1n > 0 && ((uint32_t)a1[0]) == l);
+        //     renew_paf0(src, a0, a0n, a1, a1n);
+        //     renew_paf0(r_src, a0, a0n, a1, a1n);
+        // }
+        if(a0n > 1) renew_paf1(r_src, a0, a0n, ng->seq[k].len);
+    }
+    free(idx); free(clus.a);
+}
+
+void push_scaff_node(ma_hit_t_alloc *src, uint64_t v, uint64_t w, uint64_t ol, asg_t *ng)
+{
+    uint64_t vl = ng->seq[v>>1].len, wl = ng->seq[w>>1].len; 
+    ma_hit_t arc, arc1;
+
+    arc.qns = (v>>1)<<32; 
+    if(!(v&1)) {
+        arc.qns += vl - ol; arc.qe = vl;
+    } else {
+        arc.qns += 0; arc.qe = ol;
+    }
+    arc.tn = w>>1;
+    if(!(w&1)) {
+        arc.ts = 0; arc.te = ol;
+    } else {
+        arc.ts = wl - ol; arc.te = wl;
+    }
+
+    arc.rev = (v^w)&1; arc.el = 0;
+    arc.ml = arc.no_l_indel = arc.bl = 0;
+
+    add_ma_hit_t_alloc(&(src[v>>1]), &arc);
+    set_reverse_overlap(&arc1, &arc);
+    add_ma_hit_t_alloc(&(src[w>>1]), &arc1);
+}
+
+asg_t *gen_ng(ma_ug_t *ug, asg_t *sg, ug_opt_t *uopt, ma_sub_t **cov, R_to_U *ruI, 
+uint64_t scaffold_len)
+{
+    ma_utg_t *u; uint64_t i, v, w, m, h, z, raw_v, raw_w, nocc, nv, vx, wx; int32_t r;
+    asg_arc_t t, *p; asg_arc_t *av = NULL; uint64_t slen = scaffold_len + (uopt->min_ovlp*2);
+    asg_ext_t ext; memset(&ext, 0, sizeof(ext)); ext.ext = asg_init(); asg_t *ng = ext.ext;
+    ext.a_n = sg->n_seq; 
+    ext.cnt.n = ext.cnt.m = ext.a_n;
+    CALLOC(ext.cnt.a, ext.cnt.n);///count
+
+    ext.idx_a.n = ext.idx_a.m = sg->n_seq; 
+    MALLOC(ext.idx_a.a, ext.idx_a.n); 
+    memset(ext.idx_a.a, -1, sizeof(*(ext.idx_a.a))*ext.idx_a.n);//map
+    
+    for (i = 0; i < ug->g->n_seq; ++i) {
+        u = &(ug->u.a[i]);
+        for (m = 0; m < u->n; m++) {
+            v = u->a[m]>>32;
+            ext.cnt.a[v>>1]++;
+            if(ext.cnt.a[v>>1] == 1) {
+                h = v>>1; ext.idx_a.a[h] = v>>1;
+            } else {
+                h = ext.idx_a.n; 
+                kv_push(uint64_t, ext.idx_a, (v>>1));
+            }
+
+            z = (h<<1)|(v&1); z <<= 32; z |= ((uint32_t)u->a[m]);
+            u->a[m] = z;
+        }
+    }
+
+    for (i = 0; i < sg->n_seq; ++i) {
+        asg_seq_set(ng, i, sg->seq[i].len, ext.idx_a.a[i]==((uint64_t)-1)?1:0);
+        ng->seq[i].c = 0;
+        if(ext.idx_a.a[i]!=((uint64_t)-1)) assert(ext.idx_a.a[i] == i);
+        ext.idx_a.a[i] = i;///set for delted read
+    }
+    for (; i < ext.idx_a.n; i++) {
+        asg_seq_set(ng, i, sg->seq[ext.idx_a.a[i]].len, 0);
+        ng->seq[i].c = 0; assert(!(ng->seq[ext.idx_a.a[i]].del));
+    }
+    ng->r_seq = ng->n_seq;
+    // fprintf(stderr, "+[M::%s] ng->n_seq::%u, ext.idx_a.n::%u\n", 
+    // __func__, (uint32_t)ng->n_seq, (uint32_t)ext.idx_a.n);
+    assert(ng->n_seq == ext.idx_a.n); 
+
+    for (i = 0, nocc = ng->r_seq; i < ug->g->n_seq; ++i) {
+        u = &(ug->u.a[i]);
+        for (m = 1; m < u->n; m++) {
+            v = u->a[m-1]>>32; w = u->a[m]>>32;
+            raw_v = (ext.idx_a.a[v>>1]<<1)|(v&1);
+            raw_w = (ext.idx_a.a[w>>1]<<1)|(w&1);
+            assert((raw_v>>1) < sg->n_seq);
+            assert((raw_w>>1) < sg->n_seq);
+            if(gen_spec_edge(sg, uopt, raw_v, raw_w, &t) < 0) {
+                asg_seq_set(ng, nocc, slen, 0);
+                ng->seq[nocc].c = 0;
+                kv_push(uint64_t, ext.idx_a, ((uint64_t)-1));
+                nocc++;///a scaffold node
+            }
+        }
+
+        v = i<<1; nv = asg_arc_n(ug->g, v); av = asg_arc_a(ug->g, v);
+        for (m = 0; m < nv; m++) {
+            if(av[m].del) continue;
+            w = av[m].v;
+            vx = (v&1?((ug->u.a[v>>1].a[0]>>32)^1):(ug->u.a[v>>1].a[ug->u.a[v>>1].n-1]>>32));
+            wx = (w&1?((ug->u.a[w>>1].a[ug->u.a[w>>1].n-1]>>32)^1):(ug->u.a[w>>1].a[0]>>32));
+            raw_v = (ext.idx_a.a[vx>>1]<<1)|(vx&1);
+            raw_w = (ext.idx_a.a[wx>>1]<<1)|(wx&1);
+            assert((raw_v>>1) < sg->n_seq);
+            assert((raw_w>>1) < sg->n_seq);
+            if(vx > wx) continue;
+            if((vx == wx) && (vx&1)) continue;
+            if(gen_spec_edge(sg, uopt, raw_v, raw_w, &t) < 0) {
+                asg_seq_set(ng, nocc, slen, 0);
+                ng->seq[nocc].c = 0;
+                kv_push(uint64_t, ext.idx_a, ((uint64_t)-1));
+                nocc++;///a scaffold node
+            }
+        }
+
+        v = (i<<1)+1; nv = asg_arc_n(ug->g, v); av = asg_arc_a(ug->g, v);
+        for (m = 0; m < nv; m++) {
+            if(av[m].del) continue;
+            w = av[m].v;
+            vx = (v&1?((ug->u.a[v>>1].a[0]>>32)^1):(ug->u.a[v>>1].a[ug->u.a[v>>1].n-1]>>32));
+            wx = (w&1?((ug->u.a[w>>1].a[ug->u.a[w>>1].n-1]>>32)^1):(ug->u.a[w>>1].a[0]>>32));
+            raw_v = (ext.idx_a.a[vx>>1]<<1)|(vx&1);
+            raw_w = (ext.idx_a.a[wx>>1]<<1)|(wx&1);
+            assert((raw_v>>1) < sg->n_seq);
+            assert((raw_w>>1) < sg->n_seq);
+            if(vx > wx) continue;
+            if((vx == wx) && (vx&1)) continue;
+            if(gen_spec_edge(sg, uopt, raw_v, raw_w, &t) < 0) {
+                asg_seq_set(ng, nocc, slen, 0);
+                ng->seq[nocc].c = 0;
+                kv_push(uint64_t, ext.idx_a, ((uint64_t)-1));
+                nocc++;///a scaffold node
+            }
+        }
+    }
+    // fprintf(stderr, "+[M::%s] ng->n_seq::%u, ext.idx_a.n::%u\n", 
+    // __func__, (uint32_t)ng->n_seq, (uint32_t)ext.idx_a.n);
+    assert(ng->n_seq == ext.idx_a.n); 
+    CALLOC(ng->seq_vis, (ng->n_seq<<1));
+    realloc_rdb(&(R_INF), cov, ruI, ext.idx_a.a, ext.idx_a.n, slen, (char *)"scaf", ng, uopt);
+    update_paf(R_INF.paf, R_INF.reverse_paf, ext.idx_a.a, ext.idx_a.n, sg->n_seq, ng);
+
+
+    for (i = 0, nocc = ng->r_seq; i < ug->g->n_seq; ++i) {
+        u = &(ug->u.a[i]);
+        for (m = 1; m < u->n; m++) {
+            // fprintf(stderr, "[M::%s] i::%lu, m::%lu\n", __func__, i, m);
+            v = u->a[m-1]>>32; w = u->a[m]>>32;
+            r = gen_spec_edge(ng, uopt, v, w, &t);
+            if(r >= 0) {
+                p = asg_arc_pushp(ng); *p = t;
+                r = gen_spec_edge(ng, uopt, w^1, v^1, &t);
+                assert(r >= 0); p = asg_arc_pushp(ng); *p = t;
+            } else {
+                z = nocc<<1; nocc++;
+                push_scaff_node(R_INF.paf, v, z, uopt->min_ovlp, ng);
+                push_scaff_node(R_INF.paf, z, w, uopt->min_ovlp, ng);
+
+                r = gen_spec_edge(ng, uopt, v, z, &t);
+                assert(r >= 0); p = asg_arc_pushp(ng); *p = t;
+                r = gen_spec_edge(ng, uopt, z^1, v^1, &t);
+                assert(r >= 0); p = asg_arc_pushp(ng); *p = t;
+
+                r = gen_spec_edge(ng, uopt, z, w, &t);
+                assert(r >= 0); p = asg_arc_pushp(ng); *p = t;
+                r = gen_spec_edge(ng, uopt, w^1, z^1, &t);
+                assert(r >= 0); p = asg_arc_pushp(ng); *p = t;
+            }
+        }
+
+        v = i<<1; nv = asg_arc_n(ug->g, v); av = asg_arc_a(ug->g, v);
+        for (m = 0; m < nv; m++) {
+            if(av[m].del) continue;
+            w = av[m].v;
+            vx = (v&1?((ug->u.a[v>>1].a[0]>>32)^1):(ug->u.a[v>>1].a[ug->u.a[v>>1].n-1]>>32));
+            wx = (w&1?((ug->u.a[w>>1].a[ug->u.a[w>>1].n-1]>>32)^1):(ug->u.a[w>>1].a[0]>>32));
+            if(vx > wx) continue;
+            if((vx == wx) && (vx&1)) continue;///it is possible
+
+            r = gen_spec_edge(ng, uopt, vx, wx, &t);
+            if(r >= 0) {
+                p = asg_arc_pushp(ng); *p = t;
+                r = gen_spec_edge(ng, uopt, wx^1, vx^1, &t);
+                assert(r >= 0); p = asg_arc_pushp(ng); *p = t;
+            } else {
+                z = nocc<<1; nocc++;
+                push_scaff_node(R_INF.paf, vx, z, uopt->min_ovlp, ng);
+                push_scaff_node(R_INF.paf, z, wx, uopt->min_ovlp, ng);
+
+                r = gen_spec_edge(ng, uopt, vx, z, &t);
+                assert(r >= 0); p = asg_arc_pushp(ng); *p = t;
+                r = gen_spec_edge(ng, uopt, z^1, vx^1, &t);
+                assert(r >= 0); p = asg_arc_pushp(ng); *p = t;
+
+                r = gen_spec_edge(ng, uopt, z, wx, &t);
+                assert(r >= 0); p = asg_arc_pushp(ng); *p = t;
+                r = gen_spec_edge(ng, uopt, wx^1, z^1, &t);
+                assert(r >= 0); p = asg_arc_pushp(ng); *p = t;
+            }
+        }
+
+        v = (i<<1)+1; nv = asg_arc_n(ug->g, v); av = asg_arc_a(ug->g, v);
+        for (m = 0; m < nv; m++) {
+            if(av[m].del) continue;
+            w = av[m].v;
+            vx = (v&1?((ug->u.a[v>>1].a[0]>>32)^1):(ug->u.a[v>>1].a[ug->u.a[v>>1].n-1]>>32));
+            wx = (w&1?((ug->u.a[w>>1].a[ug->u.a[w>>1].n-1]>>32)^1):(ug->u.a[w>>1].a[0]>>32));
+            if(vx > wx) continue;
+            if((vx == wx) && (vx&1)) continue;///it is possible
+
+            r = gen_spec_edge(ng, uopt, vx, wx, &t);
+            if(r >= 0) {
+                p = asg_arc_pushp(ng); *p = t;
+                r = gen_spec_edge(ng, uopt, wx^1, vx^1, &t);
+                assert(r >= 0); p = asg_arc_pushp(ng); *p = t;
+            } else {
+                z = nocc<<1; nocc++;
+                push_scaff_node(R_INF.paf, vx, z, uopt->min_ovlp, ng);
+                push_scaff_node(R_INF.paf, z, wx, uopt->min_ovlp, ng);
+
+                r = gen_spec_edge(ng, uopt, vx, z, &t);
+                assert(r >= 0); p = asg_arc_pushp(ng); *p = t;
+                r = gen_spec_edge(ng, uopt, z^1, vx^1, &t);
+                assert(r >= 0); p = asg_arc_pushp(ng); *p = t;
+
+                r = gen_spec_edge(ng, uopt, z, wx, &t);
+                assert(r >= 0); p = asg_arc_pushp(ng); *p = t;
+                r = gen_spec_edge(ng, uopt, wx^1, z^1, &t);
+                assert(r >= 0); p = asg_arc_pushp(ng); *p = t;
+            }
+        }
+    }
+    asg_cleanup(ng); ng->r_seq = ng->n_seq;
+    free(ext.cnt.a); free(ext.idx_a.a); 
+    fprintf(stderr, "[M::%s] nocc::%lu, ng->n_seq::%u, sg->n_seq::%u\n", 
+    __func__, nocc, (uint32_t)ng->n_seq, (uint32_t)sg->n_seq);
+    assert(nocc == ng->n_seq);
+    return ng;
+}
+
 void gen_ul_trio_graph(ug_opt_t *uopt, ul_resolve_t *uidx, char *o_file)
 {
     output_trio_unitig_graph_ul(uopt, uidx, o_file, FATHER);
     output_trio_unitig_graph_ul(uopt, uidx, o_file, MOTHER);
 }
 
-void ul_realignment_gfa(ug_opt_t *uopt, asg_t *sg, int64_t clean_round, double min_ovlp_drop_ratio, 
+ma_ug_t *ul_realignment_gfa(ug_opt_t *uopt, asg_t *sg, int64_t clean_round, double min_ovlp_drop_ratio, 
 double max_ovlp_drop_ratio, int64_t max_tip, bub_label_t *b_mask_t, uint32_t is_trio, char *o_file)
 {
     uint64_t i; uint8_t *r_het = NULL; bubble_type *bub = NULL; ulg_opt_t uu;
@@ -14302,12 +15178,11 @@ double max_ovlp_drop_ratio, int64_t max_tip, bub_label_t *b_mask_t, uint32_t is_
     // resolve_dip_bub_chains(uidx);
 
     // free(r_het); destory_bubbles(bub); free(bub);
-    print_debug_gfa(sg, uidx->uovl.hybrid_ug, uopt->coverage_cut, "hybrid_ug", uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 0, 0, 1);
-    print_debug_gfa(sg, uidx->uovl.hybrid_ug, uopt->coverage_cut, "hybrid_ug", uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 0, 0, 0);
-    print_debug_gfa(sg, init_ug, uopt->coverage_cut, "UL.debug", uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 0, 0, 0);
+    // print_debug_gfa(sg, uidx->uovl.hybrid_ug, uopt->coverage_cut, "hybrid_ug", uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 0, 0, 1);
+    // print_debug_gfa(sg, uidx->uovl.hybrid_ug, uopt->coverage_cut, "hybrid_ug", uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 0, 0, 0);
+    // print_debug_gfa(sg, init_ug, uopt->coverage_cut, "UL.debug", uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 0, 0, 0);
     
-    if(is_trio) gen_ul_trio_graph(uopt, uidx, o_file);
-    
-    
-    exit(0);
+    // if(is_trio) gen_ul_trio_graph(uopt, uidx, o_file);    
+    // exit(0);
+    return uidx->uovl.hybrid_ug;
 }

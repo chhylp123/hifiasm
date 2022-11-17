@@ -4876,7 +4876,8 @@ void update_ul_vec_t_ug(const ul_idx_t *uref, ul_vec_t *rch, vec_mg_lchain_t *uc
 		rch->bb.a[rch->bb.a[k].pidx].aidx = k;
 	}
 	// fprintf(stderr, "+ulid->%ld\n", ulid);
-	uint32_t sp = (uint32_t)-1, ep = (uint32_t)-1; k = l/**a_n - 1**/;///start from the max chain
+	uint32_t sp = (uint32_t)-1, ep = (uint32_t)-1, ch_n = 0; 
+	k = l/**a_n - 1**/;///start from the max chain
 	for (l = 0; k >= 0; ) {
 		if(sp == (uint32_t)-1 || rch->bb.a[k].qe <= sp) {
             if(sp != (uint32_t)-1) l += ep - sp;
@@ -4886,6 +4887,7 @@ void update_ul_vec_t_ug(const ul_idx_t *uref, ul_vec_t *rch, vec_mg_lchain_t *uc
         }
 		if(rch->bb.a[k].pidx == (uint32_t)-1) k = -1;
 		else k = rch->bb.a[k].pidx;
+		ch_n++;
 	}
 	
 	rch->dd = 0;
@@ -4897,8 +4899,9 @@ void update_ul_vec_t_ug(const ul_idx_t *uref, ul_vec_t *rch, vec_mg_lchain_t *uc
 		rch->dd = 1;
 	} else if(l < ((int64_t)rch->rlen)*0.001) {
 		rch->dd = 2;
+	} else if(ch_n < rch->bb.n) {///multiple chain, might be useful for the scaffolding
+		rch->dd = 3;
 	}
-
 	// fprintf(stderr, "[M::%s::] rch->dd::%u, rch->bb.n::%u\n", 
 	// 						__func__, rch->dd, (uint32_t)rch->bb.n);
 }
@@ -8975,9 +8978,12 @@ static void worker_for_ul_rescall_alignment(void *data, long i, int tid) // call
     // b->num_correct_base += b->correct.corrected_base;
     // b->num_recorrect_base += b->round2.dumy.corrected_base;
     
-    if(UL_INF.a[s->id+i].dd) {
-        free(s->seq[i]); s->seq[i] = NULL; b->num_correct_base++;
+    if(UL_INF.a[s->id+i].dd == 1 || UL_INF.a[s->id+i].dd == 2) {
+        b->num_correct_base++;
     }
+	if(UL_INF.a[s->id+i].dd != 3) {
+		free(s->seq[i]); s->seq[i] = NULL; 
+	}
     s->hab[tid]->num_read_base++;
 	// fprintf(stderr, "[M::%s] rid:%ld, dd:%u\n", __func__, s->id+i, UL_INF.a[s->id+i].dd);
     // int64_t mem[6], mem_hab[6];
@@ -9364,9 +9370,9 @@ static void *worker_ul_scall_pipeline(void *data, int step, void *in) // callbac
 			// s->hab[i] = ha_ovec_buf_init(NULL, 0, 0, 1);
 			s->hab[i] = ha_ovec_init(0, 0, 1);
 		}
-		fprintf(stderr, "[M::%s::Start] ==> s->id: %lu, s->n:% d\n", __func__, s->id, s->n);
+		// fprintf(stderr, "[M::%s::Start] ==> s->id: %lu, s->n:% d\n", __func__, s->id, s->n);
 		kt_for(p->n_thread, worker_for_ul_scall_alignment, s, s->n);
-		fprintf(stderr, "[M::%s::Done] ==> s->id: %lu, s->n:% d\n", __func__, s->id, s->n);
+		// fprintf(stderr, "[M::%s::Done] ==> s->id: %lu, s->n:% d\n", __func__, s->id, s->n);
 		///debug
 		/**
 		uint64_t i;
@@ -9408,7 +9414,7 @@ static void *worker_ul_scall_pipeline(void *data, int step, void *in) // callbac
 		p->num_bases += s->num_bases;
 		p->num_corrected_bases += s->num_corrected_bases;
 		p->num_recorrected_bases += s->num_recorrected_bases;
-		fprintf(stderr, "[M::%s::dump_start] ==> s->id: %lu, s->n:% d\n", __func__, s->id, s->n);
+		// fprintf(stderr, "[M::%s::dump_start] ==> s->id: %lu, s->n:% d\n", __func__, s->id, s->n);
 		for (i = 0; i < p->n_thread; ++i) {
 			push_uc_block_t(s->uopt, &(s->ll[i].tk), s->seq, s->len, s->id);
 			free(s->ll[i].tk.a);
@@ -9420,7 +9426,7 @@ static void *worker_ul_scall_pipeline(void *data, int step, void *in) // callbac
 			} 
 			free(s->seq[i]); 
 		}
-		fprintf(stderr, "[M::%s::dump_done] ==> s->id: %lu, s->n:% d\n", __func__, s->id, s->n);
+		// fprintf(stderr, "[M::%s::dump_done] ==> s->id: %lu, s->n:% d\n", __func__, s->id, s->n);
 		/**
         for (i = 0; i < (uint64_t)s->n; ++i) {
 			///debug
@@ -9495,10 +9501,10 @@ static void *worker_ul_rescall_pipeline(void *data, int step, void *in) // callb
 		for (i = 0; i < p->n_thread; ++i) {
 			s->hab[i] = ha_ovec_init(0, 0, 1); s->buf[i] = mg_tbuf_init();
 		}
-		fprintf(stderr, "[M::%s::Start] ==> s->id: %lu, s->n:% d\n", __func__, s->id, s->n);
+		// fprintf(stderr, "[M::%s::Start] ==> s->id: %lu, s->n:% d\n", __func__, s->id, s->n);
 		kt_for(p->n_thread, worker_for_ul_rescall_alignment, s, s->n);
-		fprintf(stderr, "[M::%s::Done] ==> s->id: %lu, s->n:% d\n", __func__, s->id, s->n);
-		get_utepdat_t_mem(s, 1);
+		// fprintf(stderr, "[M::%s::Done] ==> s->id: %lu, s->n:% d\n", __func__, s->id, s->n);
+		// get_utepdat_t_mem(s, 1);
 
 		for (i = 0; i < p->n_thread; ++i) {
 			p->num_bases += s->hab[i]->num_read_base;
@@ -9514,10 +9520,10 @@ static void *worker_ul_rescall_pipeline(void *data, int step, void *in) // callb
 		return s;
     } else if (step == 2) { // step 3: dump
 		utepdat_t *s = (utepdat_t*)in; int64_t i, rid;
-		fprintf(stderr, "[M::%s::dump_start] ==> s->id: %lu, s->n:% d\n", __func__, s->id, s->n);
+		// fprintf(stderr, "[M::%s::dump_start] ==> s->id: %lu, s->n:% d\n", __func__, s->id, s->n);
 		for (i = 0; i < s->n; ++i) {
 			rid = s->id + i;
-			if(UL_INF.a[rid].dd == 0 && p->ucr_s && p->ucr_s->flag == 1) {
+			if(UL_INF.a[rid].dd == 3 && p->ucr_s && p->ucr_s->flag == 1) {///for the scaffolding
 				assert(s->seq[i]);
 				// if(s->seq[i] == NULL) fprintf(stderr, "[M::%s::]rid->%ld, len->%lu\n", __func__, rid, s->len[i]);
 				///for debug interval
@@ -9526,7 +9532,7 @@ static void *worker_ul_rescall_pipeline(void *data, int step, void *in) // callb
 			// if(UL_INF.a[rid].dd) fprintf(stderr, "rid->%ld\n", rid);
 			free(s->seq[i]);
 		}
-		fprintf(stderr, "[M::%s::dump_done] ==> s->id: %lu, s->n:% d\n", __func__, s->id, s->n);
+		// fprintf(stderr, "[M::%s::dump_done] ==> s->id: %lu, s->n:% d\n", __func__, s->id, s->n);
 		free(s->len); free(s->seq); free(s);
 	}
     return 0;
@@ -14752,7 +14758,7 @@ ma_ug_t *ul_realignment(const ug_opt_t *uopt, asg_t *sg, uint32_t double_check_c
 	mg_idxopt_t opt; uldat_t sl;
 	int32_t cutoff;
 	char* gfa_name = NULL; MALLOC(gfa_name, strlen(asm_opt.output_file_name)+50);
-	sprintf(gfa_name, "%s.re", asm_opt.output_file_name);
+	sprintf(gfa_name, "%s.%s", asm_opt.output_file_name, HA_RE_UL_ID);
 
 	init_aux_table(); ha_opt_update_cov(&asm_opt, asm_opt.hom_cov);
 	cutoff = REA_ALIGN_CUTOFF;

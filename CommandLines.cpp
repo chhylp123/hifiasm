@@ -143,6 +143,12 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "    --l-msjoin   INT\n");
     fprintf(stderr, "                 detect misjoined unitigs of >=INT in size; 0 to disable [%lu]\n", asm_opt->misjoin_len);
 
+    fprintf(stderr, "  Ultra-Long-integration (beta):\n");
+    fprintf(stderr, "    --ul FILEs   file names of Ultra-Long reads [r1.fq,r2.fq,...]\n");
+    fprintf(stderr, "    --ul-rate    FLOAT\n");
+    fprintf(stderr, "                 similarity threshold for UL-to-HiFi alignment [%.3g]\n", asm_opt->ul_error_rate);
+    
+
     fprintf(stderr, "Example: ./hifiasm -o NA12878.asm -t 32 NA12878.fq.gz\n");
     fprintf(stderr, "See `https://hifiasm.readthedocs.io/en/latest/' or `man ./hifiasm.1' for complete documentation.\n");
 }

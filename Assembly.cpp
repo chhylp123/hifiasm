@@ -1775,6 +1775,7 @@ int ha_assemble(void)
 {
     // debug_mc_g_t(MC_NAME);
     // debug_mc_gg_t(MC_NAME, 0, 0);
+    // quick_debug_phasing(MC_NAME);
 	extern void ha_extract_print_list(const All_reads *rs, int n_rounds, const char *o);
 	int r, hom_cov = -1, ovlp_loaded = 0;
 	if (asm_opt.load_index_from_disk && load_all_data_from_disk(&R_INF.paf, &R_INF.reverse_paf, asm_opt.output_file_name)) {

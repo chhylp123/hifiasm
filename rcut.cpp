@@ -634,7 +634,7 @@ mb_g_t *init_mb_g_t(mc_match_t* e, kv_u_trans_t *ref, uint32_t is_sys)
 			for (m = 0; m < n; m++)
 			{
 				tn = ma_y(o[m]);
-				tb = p->u->idx.a[tn]>>1;
+				tb = p->u->idx.a[tn]>>1;///tn is the unitig id; tb is the block id
 				if(tb == qb)
 				{
 					continue;
@@ -1901,7 +1901,7 @@ uint8_t *lock, bits_p *vis, uint64_t id, mc_bp_res* r)
 	reset_mc_bp_iter(bp, &i, id);
 	memset(vis->a, 0, vis->n);
 	max_bid = max_uid = (uint32_t)-1;
-	f_bid = i.bid; f_uid = i.uid;
+	f_bid = i.bid; f_uid = i.uid;///f_bid::bubble id, f_uid::unitig id
 
 	while (1)
 	{
@@ -2902,14 +2902,20 @@ void print_hap_s(int8_t *s, uint32_t sn)
 	}
 }
 
-void mc_solve(hap_overlaps_list* ovlp, trans_chain* t_ch, kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g, double f_rate, uint8_t* trio_flag, uint32_t renew_s, int8_t *s, uint32_t is_sys, bubble_type* bub, kv_u_trans_t *ref, int clean_ov)
+void dump_debug_phasing(const char* fn, kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g, double f_rate, 
+uint32_t renew_s, int8_t *s, uint32_t is_sys, bubble_type* bub, kv_u_trans_t *ref);
+void mc_solve(hap_overlaps_list* ovlp, trans_chain* t_ch, kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g, double f_rate, uint8_t* trio_flag, uint32_t renew_s, int8_t *s, uint32_t is_sys, bubble_type* bub, kv_u_trans_t *ref, int clean_ov, int is_dump)
 {
+	if(is_dump) {
+		dump_debug_phasing(MC_NAME, ta, ug, read_g, f_rate, renew_s, s, is_sys, bub, ref);
+	}
+	
 	mc_opt_t opt;
 	mc_opt_init(&opt, asm_opt.n_perturb, asm_opt.f_perturb, asm_opt.seed);
 	mc_g_t *mg = init_mc_g_t(ug, read_g, s, renew_s);
 	update_mc_edges(mg, ovlp, ta, t_ch, f_rate, is_sys);
 
-	// fprintf(stderr, "[M::%s:: # edges: %u]\n", __func__, (uint32_t)mg->e->ma.n);
+	fprintf(stderr, "[M::%s:: # edges: %u]\n", __func__, (uint32_t)mg->e->ma.n);
 	
 	mb_solve_core(&opt, mg, ref, is_sys);
 	///debug_mc_g_t(mg);
@@ -3788,4 +3794,222 @@ void mc_solve_general(kv_u_trans_t *ta, uint32_t un, kv_gg_status *s, uint16_t h
 	
 	destory_mc_gg_t(&mg);
 	if(write_dump) write_mc_gg_dump(ta, un, s, hapN, MC_NAME);
+}
+
+void dump_kv_u_trans_t(kv_u_trans_t *z, FILE *fp)
+{
+	fwrite(&(z->n), sizeof(z->n), 1, fp);
+    fwrite(z->a, sizeof((*(z->a))), z->n, fp);
+    fwrite(&z->idx.n, sizeof(z->idx.n), 1, fp);
+    fwrite(z->idx.a, sizeof((*(z->idx.a))), z->idx.n, fp);
+}
+
+void dump_asg_t(asg_t *g, FILE *fp)
+{
+	uint32_t tmp, Len;
+	tmp = g->n_arc;
+    fwrite(&tmp, sizeof(tmp), 1, fp);
+
+    tmp = g->is_srt;
+    fwrite(&tmp, sizeof(tmp), 1, fp);
+
+    tmp = g->n_seq;
+    fwrite(&tmp, sizeof(tmp), 1, fp);
+    
+    tmp = g->is_symm;
+    fwrite(&tmp, sizeof(tmp), 1, fp);
+
+    tmp = g->r_seq;
+    fwrite(&tmp, sizeof(tmp), 1, fp);
+
+
+    // Len = g->n_seq*2;
+    // fwrite(g->seq_vis, sizeof((*(g->seq_vis))), Len, fp);
+
+    Len = g->n_seq*2;
+    fwrite(g->idx, sizeof((*(g->idx))), Len, fp);
+    fwrite(g->arc, sizeof((*(g->arc))), g->n_arc, fp);
+    fwrite(g->seq, sizeof((*(g->seq))), g->n_seq, fp);
+}
+
+void dump_ma_ug_t(ma_ug_t *ug, FILE *fp)
+{
+	ma_utg_t *u = NULL; uint32_t t, i;
+    fwrite(&(ug->u.n), sizeof(ug->u.n), 1, fp);
+    for (i = 0; i < ug->u.n; i++) {
+        u = &(ug->u.a[i]);
+        t = u->len;
+        fwrite(&t, sizeof(t), 1, fp);
+        t = u->circ;
+        fwrite(&t, sizeof(t), 1, fp);
+        fwrite(&(u->start), sizeof(u->start), 1, fp);
+        fwrite(&(u->end), sizeof(u->end), 1, fp);
+        fwrite(&(u->n), sizeof(u->n), 1, fp);
+        fwrite(u->a, sizeof(uint64_t), u->n, fp);
+    }
+	dump_asg_t(ug->g, fp);
+}
+
+void dump_bubble_type(bubble_type* bub, FILE *fp)
+{
+	fwrite(&(bub->chain_weight.n), sizeof(bub->chain_weight.n), 1, fp);
+	fwrite(bub->chain_weight.a, sizeof((*(bub->chain_weight.a))), bub->chain_weight.n, fp);
+
+	fwrite(&(bub->list.n), sizeof(bub->list.n), 1, fp);
+	fwrite(bub->list.a, sizeof((*(bub->list.a))), bub->list.n, fp);
+
+	fwrite(&(bub->num.n), sizeof(bub->num.n), 1, fp);
+	fwrite(bub->num.a, sizeof((*(bub->num.a))), bub->num.n, fp);
+
+	fwrite(&(bub->pathLen.n), sizeof(bub->pathLen.n), 1, fp);
+	fwrite(bub->pathLen.a, sizeof((*(bub->pathLen.a))), bub->pathLen.n, fp);
+
+	dump_ma_ug_t(bub->b_ug, fp);
+	dump_asg_t(bub->b_g, fp);
+	dump_ma_ug_t(bub->ug, fp);
+}
+
+void dump_debug_phasing(const char* fn, kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g, double f_rate, 
+uint32_t renew_s, int8_t *s, uint32_t is_sys, bubble_type* bub, kv_u_trans_t *ref)
+{
+	fprintf(stderr, "\n[M::%s]\n", __func__);
+    char *buf = (char*)calloc(strlen(fn) + 50, 1);
+    sprintf(buf, "%s.hic.dbg.dump.bin", fn);
+    FILE *fp = fopen(buf, "w");
+
+	dump_kv_u_trans_t(ta, fp);///ta
+	dump_ma_ug_t(ug, fp);///ug
+	dump_asg_t(read_g, fp);///read_g
+	fwrite(&f_rate, sizeof(f_rate), 1, fp);///f_rate
+	fwrite(&renew_s, sizeof(renew_s), 1, fp);///renew_s
+	fwrite(s, sizeof((*s)), ug->g->n_seq, fp);///s
+	fwrite(&is_sys, sizeof(is_sys), 1, fp);///is_sys
+	dump_bubble_type(bub, fp);///bub
+	dump_kv_u_trans_t(ref, fp);///ta
+
+	fclose(fp);
+    free(buf);
+}
+
+void load_kv_u_trans_t(kv_u_trans_t *z, FILE *fp)
+{
+	fread(&(z->n), sizeof(z->n), 1, fp); 
+	z->m = z->n; MALLOC(z->a, z->n);
+    fread(z->a, sizeof((*(z->a))), z->n, fp);
+
+    fread(&z->idx.n, sizeof(z->idx.n), 1, fp);
+	z->idx.m = z->idx.n; MALLOC(z->idx.a, z->idx.n);
+    fread(z->idx.a, sizeof((*(z->idx.a))), z->idx.n, fp);
+}
+
+void load_asg_t(asg_t *g, FILE *fp)
+{
+	uint32_t tmp, Len;
+    fread(&tmp, sizeof(tmp), 1, fp);
+	g->n_arc = g->m_arc = tmp;
+
+    fread(&tmp, sizeof(tmp), 1, fp);
+	g->is_srt = tmp;
+
+    fread(&tmp, sizeof(tmp), 1, fp);
+	g->n_seq = g->m_seq = tmp;
+    
+    fread(&tmp, sizeof(tmp), 1, fp);
+	g->is_symm = tmp;
+
+    fread(&tmp, sizeof(tmp), 1, fp);
+	g->r_seq = tmp;
+
+    // Len = g->n_seq*2;
+    // fwrite(g->seq_vis, sizeof((*(g->seq_vis))), Len, fp);
+
+    Len = g->n_seq*2;
+	CALLOC(g->idx, Len); fread(g->idx, sizeof((*(g->idx))), Len, fp);
+	CALLOC(g->arc, g->n_arc); fread(g->arc, sizeof((*(g->arc))), g->n_arc, fp);
+	CALLOC(g->seq, g->n_seq); fread(g->seq, sizeof((*(g->seq))), g->n_seq, fp);
+}
+
+void load_ma_ug_t(ma_ug_t *ug, FILE *fp)
+{
+	ma_utg_t *u = NULL; uint32_t t, i;
+    fread(&(ug->u.n), sizeof(ug->u.n), 1, fp);
+	ug->u.m = ug->u.n; CALLOC(ug->u.a, ug->u.n);
+    for (i = 0; i < ug->u.n; i++) {
+        u = &(ug->u.a[i]);
+		fread(&t, sizeof(t), 1, fp); u->len = t;
+        fread(&t, sizeof(t), 1, fp); u->circ = t;
+        fread(&(u->start), sizeof(u->start), 1, fp);
+        fread(&(u->end), sizeof(u->end), 1, fp);
+        fread(&(u->n), sizeof(u->n), 1, fp);
+		u->m = u->n; MALLOC(u->a, u->n);
+        fread(u->a, sizeof((*(u->a))), u->n, fp);
+    }
+	CALLOC(ug->g, 1);
+	load_asg_t(ug->g, fp);
+}
+
+void load_bubble_type(bubble_type* bub, FILE *fp)
+{
+	fread(&(bub->chain_weight.n), sizeof(bub->chain_weight.n), 1, fp);
+	bub->chain_weight.m = bub->chain_weight.n; CALLOC(bub->chain_weight.a, bub->chain_weight.n);
+	fread(bub->chain_weight.a, sizeof((*(bub->chain_weight.a))), bub->chain_weight.n, fp);
+
+	fread(&(bub->list.n), sizeof(bub->list.n), 1, fp);
+	bub->list.m = bub->list.n; CALLOC(bub->list.a, bub->list.n);
+	fread(bub->list.a, sizeof((*(bub->list.a))), bub->list.n, fp);
+
+	fread(&(bub->num.n), sizeof(bub->num.n), 1, fp);
+	bub->num.m = bub->num.n; CALLOC(bub->num.a, bub->num.n);
+	fread(bub->num.a, sizeof((*(bub->num.a))), bub->num.n, fp);
+
+	fread(&(bub->pathLen.n), sizeof(bub->pathLen.n), 1, fp);
+	bub->pathLen.m = bub->pathLen.n; CALLOC(bub->pathLen.a, bub->pathLen.n);
+	fread(bub->pathLen.a, sizeof((*(bub->pathLen.a))), bub->pathLen.n, fp);
+
+	CALLOC(bub->b_ug, 1); load_ma_ug_t(bub->b_ug, fp);
+	CALLOC(bub->b_g, 1); load_asg_t(bub->b_g, fp);
+	CALLOC(bub->ug, 1); load_ma_ug_t(bub->ug, fp);
+}
+
+void load_debug_phasing(const char* fn, kv_u_trans_t **ta, ma_ug_t **ug, asg_t **read_g, double *f_rate, 
+uint32_t *renew_s, int8_t **s, uint32_t *is_sys, bubble_type **bub, kv_u_trans_t **ref)
+{
+	fprintf(stderr, "\n[M::%s]\n", __func__);
+    char *buf = (char*)calloc(strlen(fn) + 50, 1);
+    sprintf(buf, "%s.hic.dbg.dump.bin", fn);
+    FILE *fp = fopen(buf, "r");
+
+	CALLOC((*ta), 1); load_kv_u_trans_t(*ta, fp);///ta
+	CALLOC((*ug), 1); load_ma_ug_t(*ug, fp);///ug
+	CALLOC((*read_g), 1); load_asg_t((*read_g), fp);///read_g
+
+	fread(f_rate, sizeof((*f_rate)), 1, fp);///f_rate
+	fread(renew_s, sizeof((*renew_s)), 1, fp);///renew_s
+	CALLOC((*s), (*ug)->g->n_seq); fread(*s, sizeof((*(*s))), (*ug)->g->n_seq, fp);///s
+	fread(is_sys, sizeof((*is_sys)), 1, fp);///is_sys
+
+	CALLOC((*bub), 1); load_bubble_type(*bub, fp);///bub
+	CALLOC((*ref), 1); load_kv_u_trans_t(*ref, fp);///ta
+
+	fclose(fp);
+    free(buf);
+}
+
+
+void quick_debug_phasing(const char* fn)
+{
+	kv_u_trans_t *ta; ma_ug_t *ug; asg_t *read_g; double f_rate;
+	uint32_t renew_s; int8_t *s; uint32_t is_sys, k; bubble_type *bub; kv_u_trans_t *ref;
+	load_debug_phasing(fn, &ta, &ug, &read_g, &f_rate, &renew_s, &s, &is_sys, &bub, &ref);
+
+
+
+	mc_solve(NULL, NULL, ta, ug, read_g, f_rate, NULL, renew_s, s, is_sys, bub, ref, 0, 0);
+
+	for (k = 0; k < ug->g->n_seq; k++) {
+		fprintf(stderr, "utg%.6dl(len::%u)\n", (int32_t)(k)+1, ug->g->seq[k].len);
+	}
+	
+	
+	exit(1);
 }

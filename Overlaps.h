@@ -32,7 +32,7 @@
 // #define PRIMARY_LABLE 1
 // #define ALTER_LABLE 2
 // #define HAP_LABLE 4
-
+#define HA_RE_UL_ID "re"
 
 #define Get_qn(RECORD) ((uint32_t)((RECORD).qns>>32))
 #define Get_qs(RECORD) ((uint32_t)((RECORD).qns))
@@ -880,7 +880,7 @@ ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, int m
 void rescue_bubble_by_chain(asg_t *sg, ma_sub_t *coverage_cut, ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, 
 long long tipsLen, float tip_drop_ratio, long long stops_threshold, R_to_U* ruIndex, 
 float chimeric_rate, float drop_ratio, int max_hang, int min_ovlp, uint32_t chainLenThres, long long gap_fuzz, 
-bub_label_t* b_mask_t);
+bub_label_t* b_mask_t, long long no_trio_recover);
 
 typedef struct{
     double weight;
@@ -1140,7 +1140,8 @@ void hic_clean(asg_t* read_g);
 int64_t count_edges_v_w(asg_t *g, uint32_t v, uint32_t w);
 void renew_utg(ma_ug_t **ug, asg_t* read_g, kvec_asg_arc_t_warp* edge);
 void merge_unitig_content(ma_utg_t* collection, ma_ug_t* ug, asg_t* read_g, kvec_asg_arc_t_warp* edge);
-
+void reset_bub_label_t(bub_label_t* x, asg_t *g, uint64_t bub_dist, uint32_t check_cross);
+void set_reverse_overlap(ma_hit_t* dest, ma_hit_t* source);
 // void break_ug_contig(ma_ug_t **ug, asg_t *read_g, All_reads *RNF, ma_sub_t *coverage_cut,
 // ma_hit_t_alloc* sources, R_to_U* ruIndex, kvec_asg_arc_t_warp* edge, int max_hang, int min_ovlp, 
 // int* b_low_cov, int* b_high_cov, double m_rate);
