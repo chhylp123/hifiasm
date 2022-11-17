@@ -2598,6 +2598,12 @@ bubble_type *gen_bubble_chain(asg_t *sg, ma_ug_t *ug, ug_opt_t *uopt, uint8_t **
     identify_bubbles(ug, bub, (*ir_het), NULL);
 
     kv_destroy(new_rtg_edges.a); destory_hap_cov_t(&cov);
+    if(asm_opt.purge_level_primary == 0) {///all nodes are het
+        uint32_t k; 
+        for (k = 0; k < ug->g->n_seq; k++) {
+            if(IF_HOM(k, *bub)) bub->index[k] = bub->f_bub+1;
+        }
+    }
     return bub;
 }
 
@@ -12865,6 +12871,11 @@ void renew_usg_t_bub(ul_resolve_t *uidx, usg_t *ng, uint32_t *id_map, uint8_t *f
     // fprintf(stderr, "1[M::%s::] f[51]::%u\n", __func__, ff[51]);
     free(uidx->bub->index); MALLOC(uidx->bub->index, ng->n); 
     memcpy(uidx->bub->index, id_map, sizeof((*id_map))*ng->n);
+    if(asm_opt.purge_level_primary == 0) {///all nodes are het
+        for (k = 0; k < ug->g->n_seq; k++) {
+            if(IF_HOM(k, *(uidx->bub))) uidx->bub->index[k] = uidx->bub->f_bub+1;
+        }
+    }
     ma_ug_destroy(ug);
 }
 
@@ -13635,6 +13646,11 @@ void u2g_hybrid_detan_iter(ul_resolve_t *uidx, usg_t *ng, uint32_t max_ext, uint
         // prt_usg_t(uidx, ng, "ng0");
         ncut += ug_ext_free(ob, ub, uidx, ng, max_ext, &ff, &ng_occ, &i_idx, &b64, &ub64, 48);
         ncut += ug_ext_free(ob, ub, uidx, ng, max_ext, &ff, &ng_occ, &i_idx, &b64, &ub64, 16);
+
+        ///renew bubble for ug_ext_strict
+        n_vtx = ng->n<<1; 
+        REALLOC(ff, n_vtx); REALLOC(ng_occ, n_vtx); REALLOC(i_idx, n_vtx);
+        renew_usg_t_bub(uidx, ng, ng_occ, ff, 0);
     }
     // // ug_ext_strict(ob, ub, uidx, ng, max_ext, &ff, &ng_occ, &i_idx, &b64, &ub64);
     // ncut += ug_ext_free(ob, ub, uidx, ng, max_ext, &ff, &ng_occ, &i_idx, &b64, &ub64, 50);

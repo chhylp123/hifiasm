@@ -150,7 +150,7 @@ Hifiasm could integrate ultra-long ONT reads to improve the assembly quality:
 ```sh
 hifiasm -o NA12878.asm -t32 --ul ul.fq.gz HiFi-reads.fq.gz
 ```
-Please note that this mode is not stable right now.
+Please note that this mode is not stable right now. We have only tested with >=100kb UL reads.
 
 ### <a name="output"></a>Output files
 
