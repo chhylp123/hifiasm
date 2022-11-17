@@ -34,6 +34,7 @@ See [tutorial][tutorial] for more details.
   - [Assembling HiFi reads without additional data types](#hifionly)
   - [Hi-C integration](#hic)
   - [Trio binning](#trio)
+  - [Ultra-long ONT integration](#ul)
   - [Output files](#output)
 - [Results](#results)
 - [Getting Help](#help)
@@ -142,6 +143,14 @@ hifiasm -o NA12878.asm -t 32 NA12878.fq.gz 2> NA12878.asm.pri.log
 hifiasm -o NA12878.asm -t 32 -1 pat.yak -2 mat.yak /dev/null 2> NA12878.asm.trio.log
 ```
 The second command line will run much faster than the first.
+
+### <a name="ul"></a>Ultra-long ONT integration
+
+Hifiasm could integrate ultra-long ONT reads to improve the assembly quality:
+```sh
+hifiasm -o NA12878.asm -t32 --ul ul.fq.gz HiFi-reads.fq.gz
+```
+Please note that this mode is not stable right now.
 
 ### <a name="output"></a>Output files
 
