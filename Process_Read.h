@@ -29,7 +29,7 @@ extern uint8_t seq_nt6_table[256];
 extern char bit_t_seq_table[256][4];
 extern char bit_t_seq_table_rc[256][4];
 extern char s_H[5];
-extern char rc_Table[5];
+extern char rc_Table[6];
 
 
 #define RC_CHAR(x) rc_Table[seq_nt6_table[(uint8_t)x]]
@@ -156,6 +156,55 @@ typedef struct
     pthread_mutex_t OutputMutex;
 } Debug_reads;
 
+
+typedef struct
+{
+    uint32_t hid;
+    uint32_t qs, qe, ts, te; uint32_t pidx, pdis, aidx;///TODO: enable pdis
+    uint8_t pchain:5, rev:1, base:1, el:1;
+} uc_block_t;
+
+typedef struct
+{
+    uint32_t *a;
+    size_t n, m;
+} N_t;
+
+typedef struct
+{
+    char *a; uint32_t n;
+} nid_t;
+
+typedef struct
+{
+    kvec_t(uint8_t) r_base;
+    uint32_t rlen; 
+
+    kvec_t(uc_block_t) bb;
+    N_t N_site;
+
+    uint8_t dd;
+} ul_vec_t;
+
+typedef struct{
+    kvec_t(uint32_t) idx;
+    kvec_t(uint64_t) occ;
+} ul_vec_rid_t;
+
+typedef struct
+{
+    kvec_t(nid_t) nid;
+    ul_vec_rid_t ridx;
+    ul_vec_t *a;
+    size_t n, m;
+    All_reads *hR;
+    // uint32_t mm;
+} all_ul_t;
+
+extern all_ul_t UL_INF;
+extern all_ul_t ULG_INF;
+// extern uint32_t *het_cnt;
+
 void init_All_reads(All_reads* r);
 void malloc_All_reads(All_reads* r);
 void ha_insert_read_len(All_reads *r, int read_len, int name_len);
@@ -163,7 +212,7 @@ void ha_compress_base(uint8_t* dest, char* src, uint64_t src_l, uint64_t** N_sit
 void init_UC_Read(UC_Read* r);
 void recover_UC_Read(UC_Read* r, const All_reads *R_INF, uint64_t ID);
 void recover_UC_Read_RC(UC_Read* r, All_reads* R_INF, uint64_t ID);
-void recover_UC_Read_sub_region(char* r, long long start_pos, long long length, uint8_t strand, All_reads* R_INF, long long ID);
+void recover_UC_Read_sub_region(char* r, int64_t start_pos, int64_t length, uint8_t strand, All_reads* R_INF, int64_t ID);
 void destory_UC_Read(UC_Read* r);
 void reverse_complement(char* pattern, uint64_t length);
 void write_All_reads(All_reads* r, char* read_file_name);
@@ -173,4 +222,18 @@ int destory_read_bin(All_reads* r);
 void init_Debug_reads(Debug_reads* x, const char* file);
 void destory_Debug_reads(Debug_reads* x);
 void recover_UC_sub_Read(UC_Read* i_r, long long start_pos, long long length, uint8_t strand, All_reads* R_INF, long long ID);
+
+void init_all_ul_t(all_ul_t *x, All_reads *hR);
+void destory_all_ul_t(all_ul_t *x);
+void append_ul_t(all_ul_t *x, uint64_t *rid, char* id, int64_t id_l, char* str, int64_t str_l, ul_ov_t *o, int64_t on, float p_chain_rate, const ug_opt_t *uopt, uint32_t save_bases);
+void retrieve_ul_t(UC_Read* i_r, char *i_s, all_ul_t *ref, uint64_t ID, uint8_t strand, int64_t s, int64_t l);
+void retrieve_u_seq(UC_Read* i_r, char* i_s, ma_utg_t *u, uint8_t strand, int64_t s, int64_t l, void *km);
+void debug_retrieve_rc_sub(const ug_opt_t *uopt, all_ul_t *ref, const All_reads *R_INF, ul_idx_t *ul, uint32_t n_step);
+uint32_t retrieve_u_cov(const ul_idx_t *ul, uint64_t id, uint8_t strand, uint64_t pos, uint8_t dir, int64_t *pi);
+uint64_t retrieve_u_cov_region(const ul_idx_t *ul, uint64_t id, uint8_t strand, uint64_t s, uint64_t e, int64_t *pi);
+uint64_t retrieve_r_cov_region(const ul_idx_t *ul, uint64_t id, uint8_t strand, uint64_t s, uint64_t e, int64_t *pi);
+void append_ul_t_back(all_ul_t *x, uint64_t *rid, char* id, int64_t id_l, char* str, int64_t str_l, ul_ov_t *o, int64_t on, float p_chain_rate);
+void write_compress_base_disk(FILE *fp, uint64_t ul_rid, char *str, uint32_t len, ul_vec_t *buf);
+int64_t load_compress_base_disk(FILE *fp, uint64_t *ul_rid, char *dest, uint32_t *len, ul_vec_t *buf);
+
 #endif

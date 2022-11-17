@@ -968,7 +968,7 @@ pdq *pq_p, pdq *pq_a, uint8_t fp, uint8_t fa, long long *d)
     for (i = 0; i < ns; i++)
     {
         if(as[i].del || as[i].v == sv) continue;
-        nc = dfs_set(g, as[i].v, s>>1, stack, tt, vis, fa);
+        nc = dfs_set(g, as[i].v, s>>1, stack, tt, vis, fa);///nc > 0 means as[i].v and sv have common suffix
         if(nc && check_trans_relation_by_path(sv, as[i].v, pq_p, NULL, NULL, pq_a, NULL, NULL, g, 
         vis, fp+fa, nc, 0.45, d))
         {
@@ -1100,11 +1100,12 @@ int get_min_dec(clean_mul_t *cl, uint32_t positive_flag, uint32_t negative_flag,
     clean_t *p = NULL;
     (*v) = (uint32_t)-1;
     for (i = 0; i < cl->n; i++) cl->a[i].is_b = 0, cl->a[i].min_v = (uint32_t)-1;    
-    kt_for(cl->n, bub_iden_worker, cl, cl->g->n_seq<<1);
+    kt_for(cl->n, bub_iden_worker, cl, cl->g->n_seq<<1);///fast check if there are bubbles in graph
     for (i = 0; i < cl->n; i++)
     {
         if(cl->a[i].is_b) ///pop bubble
         {
+            ///pop all bubbles
             n_pop = asg_pop_bubble_primary_trio(cl->g, cl->ug, cl->bs_flag, &(cl->a[i].b),
             cl->max_dist, positive_flag, negative_flag, o);
             if(n_pop ==0) fprintf(stderr, "ERROR-n_pop\n");
@@ -1116,6 +1117,7 @@ int get_min_dec(clean_mul_t *cl, uint32_t positive_flag, uint32_t negative_flag,
     {
         if(cl->a[i].min_v == (uint32_t)-1) continue;
         // if(b->min_v == (uint32_t)-1 || (b->min_d > d) || (b->min_d == d && b->min_v < eid))
+        ///looks like select the minum node, and back
         if(!p || p->min_d > cl->a[i].min_d || 
         (p->min_d == cl->a[i].min_d && cl->g->seq[p->min_v>>1].len > cl->g->seq[cl->a[i].min_v>>1].len) ||
         (p->min_d == cl->a[i].min_d && cl->g->seq[p->min_v>>1].len == cl->g->seq[cl->a[i].min_v>>1].len && p->min_v > cl->a[i].min_v))

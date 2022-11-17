@@ -7,7 +7,7 @@ INCLUDES=
 OBJS=		CommandLines.o Process_Read.o Assembly.o Hash_Table.o \
 			POA.o Correct.o Levenshtein_distance.o Overlaps.o Trio.o kthread.o Purge_Dups.o \
 			htab.o hist.o sketch.o anchor.o extract.o sys.o ksw2_extz2_sse.o hic.o rcut.o horder.o \
-			tovlp.o inter.o
+			tovlp.o inter.o kalloc.o gfa_ut.o gchain_map.o
 EXE=		hifiasm
 LIBS=		-lz -lpthread -lm
 
@@ -76,4 +76,7 @@ hic.o: hic.h
 rcut.o: rcut.h
 horder.o: horder.h
 tovlp.o: tovlp.h
-inter.o: inter.h
+inter.o: inter.h Process_Read.h
+kalloc.o: kalloc.h
+gfa_ut.o: Overlaps.h
+gchain_map.o: gchain_map.h

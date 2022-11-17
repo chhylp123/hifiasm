@@ -431,7 +431,7 @@ uint64_t* get_Topo_Sort_Order(Node_alloc* list, int need_sort);
 void init_Graph(Graph* g);
 void addUnmatchedSeqToGraph(Graph* g, char* g_read_seq, long long g_read_length, long long* startID, long long* endID);
 void addmatchedSeqToGraph(Graph* backbone, long long currentNodeID, char* x_string, long long x_length, 
-        char* y_string, long long y_length, CIGAR* cigar, long long backbone_start, long long backbone_end);
+        char* y_string, long long y_length, window_list *cigar_idx, window_list_alloc *cigar_s, long long backbone_start, long long backbone_end);
 void destory_Graph(Graph* g);
 void clear_Graph(Graph* g);
 void Perform_POA(Graph* g, overlap_region_alloc* overlap_list, All_reads* R_INF, UC_Read* g_read);

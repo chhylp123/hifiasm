@@ -6,6 +6,7 @@
 #include "htab.h"
 #include "ksort.h"
 #include "Correct.h"
+#include "kalloc.h"
 
 #define MAX_HIGH_OCC     8   // TODO: don't hard code if we need to tune this parameter
 #define MAX_MAX_HIGH_OCC 16
@@ -157,7 +158,7 @@ void debug_pl(const char *str, int len, int w, int k, int is_hpc, ha_mz1_v *p, c
                 y = yak_hash64_64(kmer[z<<1|0]) + yak_hash64_64(kmer[z<<1|1]);
                 cnt = hf? ha_ft_cnt(hf, y) : 0;
 
-				for (dbi = 0; dbi < mt->n; dbi++)
+				for (dbi = 0; dbi < (int32_t)mt->n; dbi++)
 				{
 					if(p->a[dbi].x == y && p->a[dbi].rid == cnt && p->a[dbi].pos == i && p->a[dbi].rev == z && p->a[dbi].span == kmer_span)
 					{
@@ -169,9 +170,9 @@ void debug_pl(const char *str, int len, int w, int k, int is_hpc, ha_mz1_v *p, c
         } else l = 0, tq.count = tq.front = 0, kmer_span = 0;
 	}
 
-	if(dbcnt != mt->n) fprintf(stderr, "ERROR\n");
-	if(mt->n != (int)p->n) fprintf(stderr, "ERROR\n");
-	for (dbi = 1; dbi < mt->n; dbi++)
+	if(dbcnt != (int32_t)mt->n) fprintf(stderr, "ERROR\n");
+	if(mt->n != p->n) fprintf(stderr, "ERROR\n");
+	for (dbi = 1; dbi < (int32_t)mt->n; dbi++)
 	{
 		if(p->a[dbi].pos <= p->a[dbi-1].pos || (int)mt->a[dbi] <= (int)mt->a[dbi-1])
 		{
@@ -327,11 +328,11 @@ static void sf##_select_mz_h(VType *p, st_mt_t *mt, int len, int sample_dist, in
 			p->a[n++] = p->a[i];\
 	p->n = n;\
 }\
-void sf##_refine_select(VType *mz, int32_t sidx, int32_t eidx, int32_t sn, int32_t min_freq, st_mt_t *mm, int32_t *rsi, int32_t *rei)\
+void sf##_refine_select(VType *mz, int32_t sidx, int32_t eidx, int32_t sn, int32_t min_freq, st_mt_t *mm, int32_t *rsi, int32_t *rei, void *km)\
 {\
 	int32_t n = sn, m = eidx + 1 - sidx, i, k, t, mk=-1;\
 	uint64_t ix, kx, ks;\
-	kv_resize(uint64_t, *mm, mm->n+n*m);\
+	kv_resize_km(km, uint64_t, *mm, mm->n+n*m);\
 	HType *ma = mz->a + sidx;\
 	uint64_t *mmt = mm->a + mm->n;\
 	/**fprintf(stderr, "[M::%s::] ==> +n: %d, m: %d, sn: %d, sidx: %d, eidx: %d\n", __func__, n, m, sn, sidx, eidx);**/\
@@ -372,12 +373,12 @@ void sf##_refine_select(VType *mz, int32_t sidx, int32_t eidx, int32_t sn, int32
 	if(rsi) (*rsi) = ix + sidx;\
 	if(rei) (*rei) = kx + sidx;\
 }\
-void sf##_refine_sketch(VType *p, ha_pt_t *pt, int32_t rlen, int32_t dp_min_len, float er, int32_t min_freq, st_mt_t *mt)\
+void sf##_refine_sketch(VType *p, ha_pt_t *pt, int32_t rlen, int32_t dp_min_len, float er, int32_t min_freq, st_mt_t *mt, void *km)\
 {\
 	/**fprintf(stderr, "[M::%s::] ==> #########10#########, rlen: %d\n", __func__, rlen);**/\
 	int32_t i, n = p->n, bd, len = MIN(rlen, dp_min_len), sublen, cnt, ei, li, ri;\
 	int32_t sn =  len*er + 1;\
-	kv_resize(uint64_t, *mt, (int64_t)p->n);\
+	kv_resize_km(km, uint64_t, *mt, (int64_t)p->n);\
 	mt->n = p->n; memset(mt->a, 0, sizeof(uint64_t)*p->n);\
 	for (i = 0; i < n; i++) p->a[i].rid = ha_pt_cnt(pt, p->a[i].x);\
 	for (i = cnt = 0, bd = -1, ei = -1; i < n; i++){\
@@ -391,7 +392,7 @@ void sf##_refine_sketch(VType *p, ha_pt_t *pt, int32_t rlen, int32_t dp_min_len,
 		}\
 	}\
 	/**fprintf(stderr, "[M::%s::] ==> +cnt: %d, sn: %d, ei: %d, n: %d\n", __func__, cnt, sn, ei, n);**/\
-	if(cnt >= sn) sf##_refine_select(p, 0, ei, sn, min_freq, mt, NULL, &li);\
+	if(cnt >= sn) sf##_refine_select(p, 0, ei, sn, min_freq, mt, NULL, &li, km);\
 	else{\
 		li = i-1;\
 		for (i = 0; i <= li; i++) mt->a[i] = 1;\
@@ -408,7 +409,7 @@ void sf##_refine_sketch(VType *p, ha_pt_t *pt, int32_t rlen, int32_t dp_min_len,
 			}\
 		}\
 		/**fprintf(stderr, "[M::%s::] ==> -cnt: %d, sn: %d, ei: %d, n: %d\n", __func__, cnt, sn, ei, n);**/\
-		if(cnt >= sn) sf##_refine_select(p, ei, n-1, sn, min_freq, mt, &ri, NULL);\
+		if(cnt >= sn) sf##_refine_select(p, ei, n-1, sn, min_freq, mt, &ri, NULL, km);\
 		else {\
 			ri = i+1;\
 			for (i = ri; i <= n-1; i++) mt->a[i] = 1;\
@@ -425,7 +426,7 @@ void sf##_refine_sketch(VType *p, ha_pt_t *pt, int32_t rlen, int32_t dp_min_len,
 					if(cnt >= sn) break;\
 				}\
 			}\
-			if(cnt >= sn) sf##_refine_select(p, li, ri, sn, min_freq, mt, NULL, NULL);\
+			if(cnt >= sn) sf##_refine_select(p, li, ri, sn, min_freq, mt, NULL, NULL, km);\
 			else for (i = li; i <= ri; i++) mt->a[i] = 1;\
 		}\
 	}\
@@ -450,7 +451,7 @@ void sf##_refine_sketch(VType *p, ha_pt_t *pt, int32_t rlen, int32_t dp_min_len,
  * @param is_hpc homopolymer-compressed or not\
  * @param p      minimizers\
  */\
-void sf##_ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, VType *p, const void *hf, int sample_dist, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct, ha_pt_t *pt, int min_freq, int32_t dp_min_len, float dp_e, st_mt_t *mt, int32_t ws, int32_t is_unique)\
+void sf##_ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, VType *p, const void *hf, int sample_dist, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct, ha_pt_t *pt, int min_freq, int32_t dp_min_len, float dp_e, st_mt_t *mt, int32_t ws, int32_t is_unique, void *km)\
 {   /**in default, w = 51, k = 51, is_hpc = 1**/\
     extern void *ha_ct_table;\
     static const HType dummy = { UINT64_MAX, (((uint64_t)1)<<RidBits) - 1, 0, 0, 0};\
@@ -462,15 +463,15 @@ void sf##_ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is
     assert(len > 0 && (int64_t)(len) < (int64_t)((((uint64_t)1)<<PosBits)) && (int64_t)(rid) < (int64_t)((((uint64_t)1)<<RidBits)) && (w > 0 && w < 256) && (k > 0 && k <= 63));\
     if (dbg_ct != NULL) dbg_ct->a.n = 0;\
     if (k_flag != NULL) {\
-        kv_resize(uint8_t, k_flag->a, (uint64_t)len);\
+        kv_resize_km(km, uint8_t, k_flag->a, (uint64_t)len);\
         k_flag->a.n = len;\
         memset(k_flag->a.a, 0, k_flag->a.n);\
     }\
     memset(buf, 0xff, w * sizeof(HType));\
     memset(&tq, 0, sizeof(tiny_queue_t));\
     /**len/w is the evaluated minimizer numbers**/\
-    kv_resize(HType, *p, p->n + len/w);\
-    kv_resize(uint64_t, *mt, (int64_t)p->m); mt->n = p->n;\
+    kv_resize_km(km, HType, *p, p->n + len/w);\
+    kv_resize_km(km, uint64_t, *mt, (int64_t)p->m); mt->n = p->n;\
     for (i = l = tl = buf_pos = min_pos = 0; i < len; ++i) {\
         int c = seq_nt4_table[(uint8_t)str[i]];\
         HType info = dummy;\
@@ -511,7 +512,7 @@ void sf##_ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is
 					filtered = (cnt == 0);\
 					cnt = (cnt == 1? 0:cnt);\
 				}\
-                if (dbg_ct != NULL) kv_push(uint64_t, dbg_ct->a, ((((uint64_t)(query_ct_index(ha_ct_table, y))<<1)|filtered)<<32)|(uint64_t)(i));\
+                if (dbg_ct != NULL) kv_push_km(km, uint64_t, dbg_ct->a, ((((uint64_t)(query_ct_index(ha_ct_table, y))<<1)|filtered)<<32)|(uint64_t)(i));\
                 if (!filtered) info.x = y, info.rid = cnt, info.pos = i, info.rev = z, info.span = kmer_span; /** initially ha_mz1_t::rid keeps the k-mer count**/\
                 if (k_flag != NULL) k_flag->a.a[i]++;\
                 if (k_flag != NULL && filtered > 0) k_flag->a.a[i]++;\
@@ -522,12 +523,12 @@ void sf##_ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is
         if (l == w + k - 1 && min.x != UINT64_MAX) { /**special case for the first window - because identical k-mers are not stored yet**/\
 			for (j = buf_pos + 1; j < w; ++j){\
                 if (sf##_mzcmp(&min, &buf[j]) == 0 && buf[j].pos != min.pos){\
-                    kv_push(HType, *p, buf[j]); kv_push(uint64_t, *mt, buf_p[j]);\
+                    kv_push_km(km, HType, *p, buf[j]); kv_push_km(km, uint64_t, *mt, buf_p[j]);\
                 }\
             }\
             for (j = 0; j < buf_pos; ++j){\
                 if (sf##_mzcmp(&min, &buf[j]) == 0 && buf[j].pos != min.pos){\
-                    kv_push(HType, *p, buf[j]); kv_push(uint64_t, *mt, buf_p[j]);\
+                    kv_push_km(km, HType, *p, buf[j]); kv_push_km(km, uint64_t, *mt, buf_p[j]);\
                 }\
             }\
         }\
@@ -541,12 +542,12 @@ void sf##_ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is
         /**three cases: 1.**/\
         if (sf##_mzcmp(&min, &info) >= 0) { /**a new minimum; then write the old min**/\
             if (l >= w + k && min.x != UINT64_MAX){\
-                kv_push(HType, *p, min); kv_push(uint64_t, *mt, min_s);\
+                kv_push_km(km, HType, *p, min); kv_push_km(km, uint64_t, *mt, min_s);\
             }\
             min = info, min_pos = buf_pos, min_s = buf_p[buf_pos];\
         } else if (buf_pos == min_pos) { /**old min has moved outside the window**/\
             if (l >= w + k - 1 && min.x != UINT64_MAX){\
-                kv_push(HType, *p, min); kv_push(uint64_t, *mt, min_s);\
+                kv_push_km(km, HType, *p, min); kv_push_km(km, uint64_t, *mt, min_s);\
             }\
             /**buf_pos == min_pos, means current minimizer has moved outside the window\
             so for now we need to find a new minimizer at the current window (w k-mers)**/\
@@ -557,22 +558,22 @@ void sf##_ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is
             if (l >= w + k - 1 && min.x != UINT64_MAX) { /**write identical k-mers**/\
                 for (j = buf_pos + 1; j < w; ++j) /**these two loops make sure the output is sorted**/\
                     if (sf##_mzcmp(&min, &buf[j]) == 0 && min.pos != buf[j].pos){\
-                        kv_push(HType, *p, buf[j]); kv_push(uint64_t, *mt, buf_p[j]);\
+                        kv_push_km(km, HType, *p, buf[j]); kv_push_km(km, uint64_t, *mt, buf_p[j]);\
                     }\
                 for (j = 0; j <= buf_pos; ++j)\
                     if (sf##_mzcmp(&min, &buf[j]) == 0 && min.pos != buf[j].pos){\
-                        kv_push(HType, *p, buf[j]); kv_push(uint64_t, *mt, buf_p[j]);\
+                        kv_push_km(km, HType, *p, buf[j]); kv_push_km(km, uint64_t, *mt, buf_p[j]);\
                     }\
             }\
         }\
         if (++buf_pos == w) buf_pos = 0;\
     }\
     if (min.x != UINT64_MAX){\
-        kv_push(HType, *p, min); kv_push(uint64_t, *mt, min_s);\
+        kv_push_km(km, HType, *p, min); kv_push_km(km, uint64_t, *mt, min_s);\
     }\
 	/**debug_pl(str, len, w, k, is_hpc, p, hf, mt);**/\
     if (sample_dist > w) sf##_select_mz_h(p, mt, len, sample_dist, ws, k, tl);\
-    if (dp_min_len > 0 && pt && mt) sf##_refine_sketch(p, pt, len, dp_min_len, dp_e, min_freq, mt);\
+    if (dp_min_len > 0 && pt && mt) sf##_refine_sketch(p, pt, len, dp_min_len, dp_e, min_freq, mt, km);\
 	for (i = 0; i < (int)p->n; ++i) /**populate .rid as this was keeping counts**/\
 		p->a[i].rid = rid;\
 }

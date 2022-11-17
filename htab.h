@@ -6,7 +6,7 @@
 #include "CommandLines.h"
 
 typedef struct {
-	int n, m;
+	size_t n, m;
 	uint64_t *a;
 } st_mt_t;
 
@@ -72,11 +72,13 @@ extern void *ha_flt_tab_hp;
 extern ha_pt_t *ha_idx_hp;
 extern void *ha_ct_table;
 
+void *ha_ft_ul_gen(const hifiasm_opt_t *asm_opt, ma_utg_v *us, int k, int w, int cutoff);
 void *ha_ft_ug_gen(const hifiasm_opt_t *asm_opt, ma_utg_v *us, int is_HPC, int k, int w, int min_freq, int max_freq);
 void *ha_ft_gen(const hifiasm_opt_t *asm_opt, All_reads *rs, int *hom_cov, int is_hp_mode);
 int32_t ha_ft_cnt(const void *hh, uint64_t y);
 void ha_ft_destroy(void *h);
 
+ha_pt_t *ha_pt_ul_gen(const hifiasm_opt_t *asm_opt, const void *flt_tab, ma_utg_v *us, int k, int w, int cutoff);
 ha_pt_t *ha_pt_ug_gen(const hifiasm_opt_t *asm_opt, const void *flt_tab, ma_utg_v *us, int is_HPC, int k, int w, int min_freq);
 ha_pt_t *ha_pt_gen(const hifiasm_opt_t *asm_opt, const void *flt_tab, int read_from_store, int is_hp_mode, All_reads *rs, int *hom_cov, int *het_cov);
 void ha_pt_destroy(ha_pt_t *h);
@@ -86,10 +88,17 @@ const int ha_pt_cnt(const ha_pt_t *h, uint64_t hash);
 
 int write_pt_index(void *flt_tab, ha_pt_t *ha_idx, All_reads* r, hifiasm_opt_t* opt, char* file_name);
 int load_pt_index(void **r_flt_tab, ha_pt_t **r_ha_idx, All_reads* r, hifiasm_opt_t* opt, char* file_name);
+int uidx_write(void *flt_tab, ha_pt_t *ha_idx, char* file_name, ma_ug_t *ug);
+int uidx_load(void **r_flt_tab, ha_pt_t **r_ha_idx, char* file_name, ma_ug_t *ug);
 int write_ct_index(void *ct_idx, char* file_name);
 int load_ct_index(void **ct_idx, char* file_name);
 int query_ct_index(void* ct_idx, uint64_t hash);
 
+ha_abuf_t *ha_abuf_init_buf(void *km);
+ha_abufl_t *ha_abufl_init_buf(void *km);
+void ha_abuf_destroy_buf(void *km, ha_abuf_t *ab);
+void ha_abufl_destroy_buf(void *km, ha_abufl_t *ab);
+void ha_abufl_free_buf(void *km, ha_abufl_t *ab, int is_z);
 ha_abuf_t *ha_abuf_init(void);
 void ha_abuf_destroy(ha_abuf_t *ab);
 uint64_t ha_abuf_mem(const ha_abuf_t *ab);
@@ -105,9 +114,10 @@ double yak_peakrss_in_gb(void);
 double yak_cpu_usage(void);
 
 void ha_triobin(const hifiasm_opt_t *opt);
+uint32_t *ha_polybin_list(const hifiasm_opt_t *opt);
 
-void mz1_ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mz1_v *p, const void *hf, int sample_dist, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct, ha_pt_t *pt, int min_freq, int32_t dp_min_len, float dp_e, st_mt_t *mt, int32_t ws, int32_t is_unique);
-void mz2_ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mzl_v *p, const void *hf, int sample_dist, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct, ha_pt_t *pt, int min_freq, int32_t dp_min_len, float dp_e, st_mt_t *mt, int32_t ws, int32_t is_unique);
+void mz1_ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mz1_v *p, const void *hf, int sample_dist, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct, ha_pt_t *pt, int min_freq, int32_t dp_min_len, float dp_e, st_mt_t *mt, int32_t ws, int32_t is_unique, void *km);
+void mz2_ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mzl_v *p, const void *hf, int sample_dist, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct, ha_pt_t *pt, int min_freq, int32_t dp_min_len, float dp_e, st_mt_t *mt, int32_t ws, int32_t is_unique, void *km);
 int ha_analyze_count(int n_cnt, int start_cnt, int m_peak_hom, const int64_t *cnt, int *peak_het);
 int adj_m_peak_hom(int m_peak_hom, int max_i, int max2_i, int max3_i, int *peak_het);
 void print_hist_lines(int n_cnt, int start_cnt, const int64_t *cnt);
@@ -156,6 +166,7 @@ static inline uint64_t yak_hash_long(uint64_t x[4])
 #define CALLOC(ptr, len) ((ptr) = (__typeof__(ptr))calloc((len), sizeof(*(ptr))))
 #define MALLOC(ptr, len) ((ptr) = (__typeof__(ptr))malloc((len) * sizeof(*(ptr))))
 #define REALLOC(ptr, len) ((ptr) = (__typeof__(ptr))realloc((ptr), (len) * sizeof(*(ptr))))
+#define MEMCPY(dest, src, len) (memcpy((dest), (src), (len) * sizeof(*(src))))
 
 #ifndef kroundup32
 #define kroundup32(x) (--(x), (x)|=(x)>>1, (x)|=(x)>>2, (x)|=(x)>>4, (x)|=(x)>>8, (x)|=(x)>>16, ++(x))

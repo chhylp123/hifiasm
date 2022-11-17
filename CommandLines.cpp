@@ -46,6 +46,9 @@ static ko_longopt_t long_options[] = {
     { "hg-size",     ko_required_argument, 332},
     { "ul",     ko_required_argument, 333},
     { "unskew",     ko_no_argument, 334},
+    { "kpt-rate",     ko_required_argument, 335},
+    { "ul-rate",     ko_required_argument, 336},
+    { "dbg-het-cnt",     ko_no_argument, 337},
 	{ 0, 0, 0 }
 };
 
@@ -140,6 +143,12 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "    --l-msjoin   INT\n");
     fprintf(stderr, "                 detect misjoined unitigs of >=INT in size; 0 to disable [%lu]\n", asm_opt->misjoin_len);
 
+    fprintf(stderr, "  Ultra-Long-integration (beta):\n");
+    fprintf(stderr, "    --ul FILEs   file names of Ultra-Long reads [r1.fq,r2.fq,...]\n");
+    fprintf(stderr, "    --ul-rate    FLOAT\n");
+    fprintf(stderr, "                 similarity threshold for UL-to-HiFi alignment [%.3g]\n", asm_opt->ul_error_rate);
+    
+
     fprintf(stderr, "Example: ./hifiasm -o NA12878.asm -t 32 NA12878.fq.gz\n");
     fprintf(stderr, "See `https://hifiasm.readthedocs.io/en/latest/' or `man ./hifiasm.1' for complete documentation.\n");
 }
@@ -157,6 +166,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->hic_enzymes = NULL;
     asm_opt->hic_reads[0] = NULL;
     asm_opt->hic_reads[1] = NULL;
+    asm_opt->fn_bin_poy = NULL;
     asm_opt->ar = NULL;
     asm_opt->thread_num = 1;
     asm_opt->k_mer_length = 51;
@@ -225,6 +235,14 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->dp_min_len = 2000;
     asm_opt->dp_e = 0.0025;
     asm_opt->hg_size = -1;
+    asm_opt->kpt_rate = -1;
+    asm_opt->infor_cov = 3;
+    asm_opt->s_hap_cov = 3;
+    asm_opt->ul_error_rate = 0.2/**0.15**/;
+    asm_opt->ul_error_rate_low = 0.1;
+    asm_opt->ul_error_rate_hpc = 0.2;
+    asm_opt->ul_ec_round = 3;
+    asm_opt->is_dbg_het_cnt = 0;
 }
 
 void destory_enzyme(enzyme* f)
@@ -654,7 +672,7 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
 
     int c;
 
-    while ((c = ketopt(&opt, argc, argv, 1, "hvt:o:k:w:m:n:r:a:b:z:x:y:p:c:d:M:P:if:D:FN:1:2:3:4:l:s:O:eu", long_options)) >= 0) {
+    while ((c = ketopt(&opt, argc, argv, 1, "hvt:o:k:w:m:n:r:a:b:z:x:y:p:c:d:M:P:if:D:FN:1:2:3:4:5:l:s:O:eu", long_options)) >= 0) {
         if (c == 'h')
         {
             Print_H(asm_opt);
@@ -684,6 +702,7 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         else if (c == '2' || c == 'M') asm_opt->fn_bin_yak[1] = opt.arg;
         else if (c == '3') asm_opt->fn_bin_list[0] = opt.arg;
         else if (c == '4') asm_opt->fn_bin_list[1] = opt.arg;
+        else if (c == '5') asm_opt->fn_bin_poy = opt.arg;
         else if (c == 'x') asm_opt->max_drop_rate = atof(opt.arg);
         else if (c == 'y') asm_opt->min_drop_rate = atof(opt.arg);
         else if (c == 'p') asm_opt->small_pop_bubble_size = atoll(opt.arg);
@@ -738,6 +757,9 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         else if (c == 332) asm_opt->hg_size = inter_gsize(opt.arg);      
         else if (c == 333) get_hic_enzymes(opt.arg, &(asm_opt->ar), 0);
         else if (c == 334) asm_opt->flag |= HA_F_USKEW;
+        else if (c == 335) asm_opt->kpt_rate = atof(opt.arg);
+        else if (c == 336) asm_opt->ul_error_rate = atof(opt.arg);
+        else if (c == 337) asm_opt->is_dbg_het_cnt = 1;
         else if (c == 'l')
         {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
             asm_opt->purge_level_primary = asm_opt->purge_level_trio = atoi(opt.arg);
