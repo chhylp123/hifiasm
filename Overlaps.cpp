@@ -8561,6 +8561,7 @@ add_unitig:
 			q->ol = p->ol, q->del = 0;
 			q->ul = (uint64_t)u<<32 | l;
 			q->v = mark[p->v]; q->ou = 0;
+            q->el = p->el;
 		}
 	}
 	for (i = 0; i < ug->u.n; ++i)
@@ -8721,7 +8722,8 @@ add_unitig:
 			q = asg_arc_pushp(ug->g);
 			q->ol = p->ol, q->del = 0;
 			q->ul = (uint64_t)u<<32 | l;
-			q->v = mark[p->v];
+			q->v = mark[p->v]; q->ou = 0;
+            q->el = p->el;
 		}
 	}
 	for (i = 0; i < ug->u.n; ++i)

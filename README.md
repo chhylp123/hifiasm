@@ -226,3 +226,8 @@ If you use hifiasm in your work, please cite:
 > Haplotype-resolved de novo assembly using phased assembly graphs with
 > hifiasm. *Nat Methods*, **18**:170-175.
 > https://doi.org/10.1038/s41592-020-01056-5
+
+> Cheng, H., Jarvis, E.D., Fedrigo, O., Koepfli, K.P., Urban, L., Gemmell, N.J., Li, H. (2022)
+> Haplotype-resolved assembly of diploid genomes without parental data. 
+> *Nature Biotechnology*, **40**:1332–1335.
+> https://doi.org/10.1038/s41587-022-01261-x

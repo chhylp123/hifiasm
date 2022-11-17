@@ -79,6 +79,69 @@ KRADIX_SORT_INIT(uc_block_t_qe_srt, uc_block_t, uc_block_t_qe_key, member_size(u
 #define uc_block_t_qs_key(x) ((x).qs)
 KRADIX_SORT_INIT(uc_block_t_qs_srt, uc_block_t, uc_block_t_qs_key, member_size(uc_block_t, qs));
 
+typedef struct {
+    char *a;
+    size_t n, m;
+}mul_buf_t;
+
+typedef struct {
+    mul_buf_t *a;
+	size_t n, m;
+}mul_debug_prt_t;
+
+mul_debug_prt_t *init_mul_debug_prt_t(uint64_t n)
+{
+	mul_debug_prt_t *p; CALLOC(p, 1);
+	CALLOC(p->a, n); p->n = p->m = n;
+	return p;
+} 
+
+void print_mul_debug_prt_t(const char *nn, mul_debug_prt_t *p)
+{
+	char* gfa_name = NULL; MALLOC(gfa_name, strlen(nn)+70);
+    sprintf(gfa_name, "%s.ul.vlog", nn);
+    FILE* fp = fopen(gfa_name, "w"); free(gfa_name);
+    if (!fp) return;
+	uint32_t k;
+	for (k = 0; k < p->n; k++) {
+		if(p->a[k].n) {
+			kv_push(char, p->a[k], '\0');
+			fprintf(fp, "%s", p->a[k].a);
+		}
+	}
+    fclose(fp);
+}
+
+void print_raw_uls_seq_direct(const ma_ug_t *ug, all_ul_t *aln, const char *nn)
+{
+    char* gfa_name = NULL; MALLOC(gfa_name, strlen(nn)+70);
+    sprintf(gfa_name, "%s.init.raw.integer.seq.log", nn);
+    FILE* fp = fopen(gfa_name, "w"); free(gfa_name);
+    if (!fp) return;
+    uint64_t id; uc_block_t *a = NULL; int64_t k, a_n;
+    for (id = 0; id < aln->n; id++) {
+        a = aln->a[id].bb.a; a_n = aln->a[id].bb.n; k = 0;
+        if(a_n == 0) continue;
+        fprintf(fp,"%.*s\tid::%lu\t", (int32_t)aln->nid.a[id].n, aln->nid.a[id].a, id);
+        // for (k = 0; k < a_n && ug_occ_w(a[k].ts, a[k].te, &(ug->u.a[a[k].hid])) == 0; k++);
+        for (; k < a_n; k++) {
+            // if(ug_occ_w(a[k].ts, a[k].te, &(ug->u.a[a[k].hid])) == 0) break;
+            fprintf(fp, "utg%.6d%c(%c)\t", a[k].hid + 1, "lc"[ug->u.a[a[k].hid].circ], "+-"[a[k].rev]);
+        }
+        fprintf(fp,"\n");
+    }
+    fclose(fp);
+}
+
+void push_vlog(mul_buf_t *o, char *str)
+{
+	uint32_t str_l = strlen(str); 
+	kv_resize(char, *o, str_l+o->n);
+	memcpy(o->a+o->n, str, str_l); o->n += str_l;
+}
+
+// mul_debug_prt_t *overall_zdbg;
+
 mg_tbuf_t *mg_tbuf_init(void)
 {
 	mg_tbuf_t *b;
@@ -5221,7 +5284,7 @@ int64_t get_ecov_el(const ul_idx_t *uref, const ug_opt_t *uopt, uint32_t v, uint
 //ai > aj
 int64_t cal_gl_chain_lin_sc(ul_ov_t *a, int32_t ai, int32_t aj, rtrace_iter *tc, overlap_region *ol, All_reads *ridx, ma_ug_t *ug, 
 const ul_idx_t *uref, const ug_opt_t *uopt, int64_t bw, double diff_ec_ul, uint64_t mode, int64_t trans_sc, int64_t sec_sec, 
-int32_t *f)
+int32_t *f, int64_t debug_i)
 {
 	ul_ov_t *li = &(a[ai]), *lj = &(a[aj]); 
 	///li is the suffix of lj
@@ -5232,6 +5295,11 @@ int32_t *f)
 	if(get_ecov_el(uref, uopt, li_v^1, lj_v^1, bw, diff_ec_ul, qo, mode, &el)) {
 		trans_l = get_overlap_region_sub_err(&(ol[li->qn]), tc, lj->qe, &sec_err);
 		sc = f[aj] + ((int64_t)(li->qe - lj->qe)) - (trans_l*trans_sc) - (sec_err*sec_sec);
+
+		// char *as = NULL; 
+		// asprintf(&as, "+[M::utg%.6dl] utg%.6dl, liq::[%u, %u), ljq::[%u, %u), trans_l::%ld, sec_err::%ld, sc::%ld, f[aj]::%d\n", 
+		// (int32_t)li->tn+1, (int32_t)lj->tn+1, li->qs, li->qe, lj->qs, lj->qe, trans_l, sec_err, sc, f[aj]);
+		// push_vlog(&(overall_zdbg->a[debug_i]), as); free(as); as = NULL;
 		// fprintf(stderr, "+[M::utg%.6dl] utg%.6dl, liq::[%u, %u), ljq::[%u, %u), trans_l::%ld, sec_err::%ld, sc::%ld, f[aj]::%d\n", 
 		// 	(int32_t)li->tn+1, (int32_t)lj->tn+1, li->qs, li->qe, lj->qs, lj->qe, trans_l, sec_err, sc, f[aj]);
 		if((el == 0) && ((trans_l > 0) || (sec_err > 0)) && (lj->qe > li->qs)) {
@@ -5239,6 +5307,13 @@ int32_t *f)
 			sc = f[aj] + aln_sc(ol[(*li).qn], trans_sc, sec_sec);
 			trans_l = get_overlap_region_sub_err(&(ol[lj->qn]), &tr, li->qs, &sec_err);
 			sc -= (((int64_t)(lj->qe - li->qs)) - (trans_l*trans_sc) - (sec_err*sec_sec));
+
+
+			// char *as = NULL; 
+			// asprintf(&as, "-[M::utg%.6dl] utg%.6dl, liq::[%u, %u), ljq::[%u, %u), trans_l::%ld, sec_err::%ld, sc::%ld, f[aj]::%d\n", 
+			// (int32_t)li->tn+1, (int32_t)lj->tn+1, li->qs, li->qe, lj->qs, lj->qe, trans_l, sec_err, sc, f[aj]);
+			// push_vlog(&(overall_zdbg->a[debug_i]), as); free(as); as = NULL;
+
 			if(sc < sc0) sc = sc0;
 			// fprintf(stderr, "-[M::utg%.6dl] utg%.6dl, liq::[%u, %u), ljq::[%u, %u), trans_l::%ld, sec_err::%ld, sc::%ld, f[aj]::%d, aln_sc::%ld\n", 
 			// (int32_t)li->tn+1, (int32_t)lj->tn+1, li->qs, li->qe, lj->qs, lj->qe, trans_l, sec_err, sc, f[aj], aln_sc(ol[(*li).qn], trans_sc, sec_sec));
@@ -5261,7 +5336,7 @@ int32_t *f)
 
 int64_t gl_chain_lin(kv_ul_ov_t *res, overlap_region *ol, ul_ov_t *ex, const ul_idx_t *uref, const ug_opt_t *uopt, int64_t bw, 
 double diff_ec_ul, int64_t qlen, int64_t max_skip, int64_t max_iter, int64_t max_dis, Chain_Data* dp, int64_t trans_sc, 
-uint64_t mode, All_reads *ridx, ma_ug_t *ug, int64_t need_srt)
+uint64_t mode, All_reads *ridx, ma_ug_t *ug, int64_t need_srt, int64_t debug_i)
 {
 	if(res->n == 0) return 0;
 	uint32_t rev_n; int32_t *f, *c_n, *c_sc; int64_t *p, *t, res_n = res->n, st, max_ii, max; rtrace_iter tc;
@@ -5300,7 +5375,12 @@ uint64_t mode, All_reads *ridx, ma_ug_t *ug, int64_t need_srt)
 		for (j = x; j >= st; --j) { // collect potential destination vertices
 			lj = &(res->a[j]); 
 			if(lj->qe+G_CHAIN_INDEL <= li->qs) break;//even this pair has a overlap, its length will be very small; just ignore
-			sc = cal_gl_chain_lin_sc(res->a, i, j, &tc, ol, ridx, ug, uref, uopt, bw, diff_ec_ul, mode, trans_sc, UG_TRANS_ERR_W, f);
+			sc = cal_gl_chain_lin_sc(res->a, i, j, &tc, ol, ridx, ug, uref, uopt, bw, diff_ec_ul, mode, trans_sc, UG_TRANS_ERR_W, f, debug_i);
+			// char *as = NULL; 
+			// asprintf(&as, "-3-[M::%s::] i::%ld(utg%.6dl), j::%ld(utg%.6dl), sc::%ld\n", 
+			// __func__, i, (int32_t)li->tn+1, j, (int32_t)lj->tn+1, sc);
+			// push_vlog(&(overall_zdbg->a[debug_i]), as); free(as); as = NULL;
+
 			if(sc == INT32_MIN) continue;
 			if(sc > mm_sc) {
 				mm_sc = sc, mm_idx = j;
@@ -5325,7 +5405,7 @@ uint64_t mode, All_reads *ridx, ma_ug_t *ug, int64_t need_srt)
         if (max_ii >= 0 && max_ii < end_j) {///just have a try with a[i]<->a[max_ii]
 			lj = &(res->a[max_ii]); 
 			if(lj->qe+G_CHAIN_INDEL > li->qs && lj->qs < li->qs) {
-				sc = cal_gl_chain_lin_sc(res->a, i, max_ii, &tc, ol, ridx, ug, uref, uopt, bw, diff_ec_ul, mode, trans_sc, UG_TRANS_ERR_W, f);
+				sc = cal_gl_chain_lin_sc(res->a, i, max_ii, &tc, ol, ridx, ug, uref, uopt, bw, diff_ec_ul, mode, trans_sc, UG_TRANS_ERR_W, f, debug_i);
 				if(sc != INT32_MIN) {
 					if(sc > mm_sc) {
 						mm_sc = sc; mm_idx = max_ii;
@@ -5343,6 +5423,9 @@ uint64_t mode, All_reads *ridx, ma_ug_t *ug, int64_t need_srt)
 		if(mm_sc < plus) plus = mm_sc;//minmun negative
 		// fprintf(stderr, "-5-[M::%s::utg%.6dl] i::%ld, res_n::%ld, csc::%ld, f[i]::%d, p[i]::%ld, q::[%u, %u)\n", 
 		// 						__func__, (int32_t)li->tn+1, i, res_n, csc, f[i], p[i], li->qs, li->qe);
+		// char *as = NULL; 
+		// asprintf(&as, "-5-[M::%s::utg%.6dl] i::%ld, csc::%ld, f[i]::%d, p[i]::%ld, q::[%u, %u)\n", __func__, (int32_t)li->tn+1, i, csc, f[i], p[i], li->qs, li->qe);
+        // push_vlog(&(overall_zdbg->a[debug_i]), as); free(as); as = NULL;
 	}
 	for (i = 0; i < res_n; ++i) {///make all f[] positive
 		f[i] -= plus; t[i] = ((uint64_t)f[i])<<32; t[i] += (i<<1);
@@ -6201,6 +6284,34 @@ const asg_t *g, st_mt_t *dst_done, vec_sp_node_t *out, vec_mg_pathv_t *res, vec_
     return n_mchain;
 }
 
+// void prt_chains_vlog(ul_ov_t *l_idx, int64_t l_idx_n, ul_ov_t *l_a, uint64_t *g_idx, int64_t g_idx_n, vec_mg_lchain_t *g_a, int64_t ql, int64_t ulid)
+// {
+// 	int64_t k, i, s, e; char *as = NULL; 
+// 	if(l_idx && l_a) {
+// 		for (k = 0; k < l_idx_n; k++) {
+// 			s = l_idx[k].ts; e = l_idx[k].te;
+// 			asprintf(&as, "[M::%s::linear_chain] sc::%u, occ::%ld\n", __func__, l_idx[k].qn, e-s);
+//     		push_vlog(&(overall_zdbg->a[ulid]), as); free(as); as = NULL;
+// 			for (i = s; i < e; i++) {
+// 				asprintf(&as, "[M::%s::utg%.6dl] q::[%u, %u)\n", __func__, (int32_t)l_a[i].tn+1, l_a[i].qs, l_a[i].qe);
+// 				push_vlog(&(overall_zdbg->a[ulid]), as); free(as); as = NULL;
+// 			}
+// 		}
+// 	}
+
+// 	if(g_idx && g_a) {
+// 		for (k = s = e = 0; k < g_idx_n; ++k) {
+// 			s = e; e += ((uint32_t)g_idx[k]);
+// 			asprintf(&as, "[M::%s::grapn_chain] sc::%lu, occ::%ld\n", __func__, g_idx[k]>>32, e-s);
+//     		push_vlog(&(overall_zdbg->a[ulid]), as); free(as); as = NULL;
+// 			for (i = s; i < e; i++) {
+// 				asprintf(&as, "[M::%s::utg%.6dl] q::[%u, %u)\n", __func__, (int32_t)(g_a->a[i].v>>1)+1, g_a->a[i].qs, g_a->a[i].qe);
+// 				push_vlog(&(overall_zdbg->a[ulid]), as); free(as); as = NULL;
+// 			}
+//     	}
+// 	}
+// }
+
 int64_t gl_chain(mg_tbuf_t *b, ul_vec_t *rch, overlap_region_alloc* olist, 
 Chain_Data* dp, haplotype_evdience_alloc *hap, st_mt_t *sps, glchain_t *ll, 
 gdpchain_t *gdp, const ul_idx_t *uref, double diff_ec_ul, int64_t winLen, 
@@ -6214,8 +6325,10 @@ int64_t qlen, const ug_opt_t *uopt, int64_t debug_i, int64_t tid, void *km)
 	int64_t max_idx, occ = 0, f = 0;
 
 	kv_resize(ul_ov_t, ll->tk, idx->n);
-	occ = gl_chain_lin(idx, olist->list, ll->tk.a, uref, uopt, G_CHAIN_BW, N_GCHAIN_RATE, qlen, UG_SKIP_N, UG_ITER_N, UG_DIS_N, dp, UG_TRANS_W, 0, NULL, uref->ug, 0);
+	occ = gl_chain_lin(idx, olist->list, ll->tk.a, uref, uopt, G_CHAIN_BW, N_GCHAIN_RATE, qlen, UG_SKIP_N, UG_ITER_N, UG_DIS_N, dp, UG_TRANS_W, 0, NULL, uref->ug, 0, debug_i);
 	// prt_chains(idx->a, idx->n, ll->tk.a, NULL, 0, NULL, qlen);
+	// prt_chains_vlog(idx->a, idx->n, ll->tk.a, NULL, 0, NULL, qlen, debug_i);
+
 
 	if(occ) {
 		if(ff_chain(idx, qlen, 0.99/**P_CHAIN_COV**/, -1/**G_CHAIN_TRANS_RATE**/, ll->tk.a, NULL, NULL, NULL, diff_ec_ul, winLen, km)) {
@@ -6238,6 +6351,7 @@ int64_t qlen, const ug_opt_t *uopt, int64_t debug_i, int64_t tid, void *km)
 		max_idx = gl_chain_graph_adv(b->km, olist->list, uref, uref->ug, &(gdp->l), &(gdp->swap), &(gdp->dst), &(gdp->out),
 		&(gdp->path), rch->rlen, uopt, G_CHAIN_BW, diff_ec_ul, ll->srt.a.a, sps, dp, UG_SKIP_GRAPH_N, UG_ITER_N, UG_DIS_N, 0, UG_TRANS_W, UG_TRANS_ERR_W);
 		// prt_chains(NULL, 0, NULL, sps->a, sps->n, &(gdp->l), qlen);
+		// prt_chains_vlog(NULL, 0, NULL, sps->a, sps->n, &(gdp->l), qlen, debug_i);
 		// if(max_idx >= 0 && gen_max_gchain_adv(b->km, uref, debug_i, sps, &(gdp->l), &(ll->tk), NULL, rch->rlen, P_CHAIN_COV, 0.3/**P_FRAGEMENT_PRIMARY_CHAIN_COV**/, 
 		// 	0.1, PRIMARY_UL_CHAIN_MIN, uref->ug->g, &(gdp->dst_done), &(gdp->out), &(gdp->path), ll->srt.a.a, &(gdp->swap))) {
 		if(max_idx >= 0 && select_max_gchain(b->km, uref, debug_i, sps, &(gdp->l), &(ll->tk), uref->ug->g, &(gdp->dst_done), &(gdp->out), &(gdp->path), &(gdp->swap))){
@@ -8864,6 +8978,29 @@ static void worker_for_ul_scall_alignment(void *data, long i, int tid) // callba
     // }
 }
 
+// void prt_overlap_region_alloc_ol(overlap_region_alloc* ol, uint32_t ulid)
+// {
+// 	char *as = NULL; 
+// 	uint32_t i, k; overlap_region *z;
+// 	asprintf(&as, "[M::%s] ol->length::%lu\n", __func__, ol->length);
+//     push_vlog(&(overall_zdbg->a[ulid]), as); free(as); as = NULL;
+// 	for (i = 0; i < ol->length; i++) {
+// 		z = &(ol->list[i]);
+// 		asprintf(&as, "[name::utg%.6dl::%c]\tq::[%u, %u)\tt::[%u, %u)\talign_length::%u\tnon_homopolymer_errors::%u\tw_list.n::%u\n", 
+// 		(int32_t)z->y_id+1, "+-"[z->y_pos_strand], z->x_pos_s, z->x_pos_e+1, z->y_pos_s, z->y_pos_e+1, 
+// 		z->align_length, z->non_homopolymer_errors, (uint32_t)z->w_list.n);
+//     	push_vlog(&(overall_zdbg->a[ulid]), as); free(as); as = NULL;
+
+// 		for (k = 0; k < z->w_list.n; k++) {
+// 			asprintf(&as, "q::[%u, %u)\tclen::%u\n", 
+// 			z->w_list.a[k].x_start, z->w_list.a[k].x_end+1, z->w_list.a[k].clen);
+// 			push_vlog(&(overall_zdbg->a[ulid]), as); free(as); as = NULL;
+// 		}
+		
+// 	}
+	
+// }
+
 static void worker_for_ul_rescall_alignment(void *data, long i, int tid) // callback for kt_for()
 {
     utepdat_t *s = (utepdat_t*)data;
@@ -8889,8 +9026,10 @@ static void worker_for_ul_rescall_alignment(void *data, long i, int tid) // call
 	// 		&& (s->id+i != 680134) && (s->id+i != 766261) && (s->id+i != 794527)) {
 	// 	return;
 	// }
-
-    // fprintf(stderr, "\n[M::%s] rid::%ld, len::%lu, name::%.*s\n", __func__, s->id+i, s->len[i],
+	// char *as = NULL; 
+	// asprintf(&as, "\n[M::%s] rid::%ld, len::%lu, name::%.*s\n", __func__, s->id+i, s->len[i], (int32_t)UL_INF.nid.a[s->id+i].n, UL_INF.nid.a[s->id+i].a);
+    // push_vlog(&(overall_zdbg->a[s->id+i]), as); free(as); as = NULL;
+	// fprintf(stderr, "\n[M::%s] rid::%ld, len::%lu, name::%.*s\n", __func__, s->id+i, s->len[i],
 	// (int32_t)UL_INF.nid.a[s->id+i].n, UL_INF.nid.a[s->id+i].a);
 	// fprintf(stderr, ">%.*s\n%.*s\n", (int32_t)UL_INF.nid.a[s->id+i].n, UL_INF.nid.a[s->id+i].a, 
 	// (int32_t)s->len[i], s->seq[i]);
@@ -8959,6 +9098,8 @@ static void worker_for_ul_rescall_alignment(void *data, long i, int tid) // call
 			b->olist.list[k].non_homopolymer_errors = 0;
 		}
 	}
+	
+	// prt_overlap_region_alloc_ol(&(b->olist), s->id+i);
 	
 	
 	gl_chain(s->buf[tid], &(UL_INF.a[s->id+i]), &b->olist, &(b->clist.chainDP), &b->hap, &(s->sps[tid]), bl, &(s->gdp[tid]), s->uu, s->opt->diff_ec_ul, winLen, s->len[i], s->uopt, s->id+i, tid, NULL);
@@ -13131,6 +13272,8 @@ int rescall_ul_pipeline(uldat_t* sl, const enzyme *fn)
 {
     double index_time = yak_realtime();
     int32_t i; 
+	///debug
+	// overall_zdbg = init_mul_debug_prt_t(UL_INF.n);
 
     for (i = 0; i < fn->n; i++){
         gzFile fp;
@@ -13151,7 +13294,9 @@ int rescall_ul_pipeline(uldat_t* sl, const enzyme *fn)
 	// for (i = 0; i < UL_INF.n; i++) {
 	// 	fprintf(stderr, "[M::%s] rid::%d, dd::%u\n", __func__, i, UL_INF.a[i].dd);
 	// }
-	
+	// print_mul_debug_prt_t(asm_opt.output_file_name, overall_zdbg);
+	// print_raw_uls_seq_direct(sl->uu->ug, &UL_INF, asm_opt.output_file_name);
+
     return 1;
 }
 
