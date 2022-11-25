@@ -23,8 +23,8 @@ void asg_arc_cut_bub_links(asg_t *g, asg64_v *in, float len_rat, float sec_len_r
 void asg_arc_cut_complex_bub_links(asg_t *g, asg64_v *in, float len_rat, float ou_rat, uint32_t is_ou, bub_label_t *b_mask_t);
 uint32_t asg_cut_large_indel(asg_t *g, asg64_v *in, int32_t max_ext, float ou_rat, uint32_t is_ou);
 uint32_t asg_cut_semi_circ(asg_t *g, uint32_t lim_len, uint32_t is_clean);
-ma_ug_t *ul_realignment_gfa(ug_opt_t *uopt, asg_t *sg, int64_t clean_round, double min_ovlp_drop_ratio, 
-double max_ovlp_drop_ratio, int64_t max_tip, bub_label_t *b_mask_t, uint32_t is_trio, char *o_file);
+void ul_realignment_gfa(ug_opt_t *uopt, asg_t *sg, int64_t clean_round, double min_ovlp_drop_ratio, 
+double max_ovlp_drop_ratio, int64_t max_tip, bub_label_t *b_mask_t, uint32_t is_trio, char *o_file, ul_renew_t *ropt);
 void recover_contain_g(asg_t *g, ma_hit_t_alloc *src, R_to_U* ruIndex, int64_t max_hang, int64_t min_ovlp, int64_t ul_occ);
 void normalize_gou(asg_t *g);
 void prt_specfic_sge(asg_t *g, uint32_t src, uint32_t dst, const char* cmd);

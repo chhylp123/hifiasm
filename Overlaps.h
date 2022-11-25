@@ -1077,6 +1077,20 @@ typedef struct{
 	uint64_t* readLen;
 }ug_opt_t;
 
+typedef struct{
+	ma_hit_t_alloc **src;
+	ma_hit_t_alloc **r_src;
+	long long *n_read;
+	uint64_t **readLen;
+	asg_t **sg;
+	R_to_U *ruIndex;
+	ma_sub_t **cov;
+	bub_label_t *b_mask_t;
+	int64_t max_hang;
+	int64_t mini_ovlp;
+}ul_renew_t;
+
+
 void adjust_utg_by_trio(ma_ug_t **ug, asg_t* read_g, uint8_t flag, float drop_rate,
 ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, ma_sub_t* coverage_cut, 
 long long tipsLen, float tip_drop_ratio, long long stops_threshold, 
@@ -1145,6 +1159,8 @@ void set_reverse_overlap(ma_hit_t* dest, ma_hit_t* source);
 // void break_ug_contig(ma_ug_t **ug, asg_t *read_g, All_reads *RNF, ma_sub_t *coverage_cut,
 // ma_hit_t_alloc* sources, R_to_U* ruIndex, kvec_asg_arc_t_warp* edge, int max_hang, int min_ovlp, 
 // int* b_low_cov, int* b_high_cov, double m_rate);
+void ma_hit_contained_advance(ma_hit_t_alloc* sources, long long n_read, ma_sub_t *coverage_cut, 
+R_to_U* ruIndex, int max_hang, int min_ovlp);
 
 #define JUNK_COV 5
 #define DISCARD_RATE 0.8
