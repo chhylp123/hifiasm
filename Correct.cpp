@@ -14762,7 +14762,7 @@ char* qstr, UC_Read *tu, int64_t id, int64_t rev)
     return 1;
 }
 
-int64_t gen_single_khit(Candidates_list *cl, int64_t ch_n, int64_t h_khit, int64_t mode, int64_t qs, int64_t qe, int64_t ts, int64_t te, int64_t max_skip, int64_t max_iter)
+int64_t gen_single_khit(Candidates_list *cl, int64_t ch_n, int64_t h_khit, int64_t mode, int64_t qs, int64_t qe, int64_t ts, int64_t te, int64_t max_skip, int64_t max_iter, int64_t rid)
 {
     // if(ch_n != 3 || mode != 0 || qs != 171728 || qe != 172258) return 0;
     k_mer_hit *ch_a = cl->list + cl->length; int64_t k, i, j, occ, m, ncn, prefix, suffix, srt = 1;
@@ -14848,6 +14848,10 @@ int64_t gen_single_khit(Candidates_list *cl, int64_t ch_n, int64_t h_khit, int64
     // if(ch_n == 2 && mode == 2 && qe - qs == 2419 && te - ts == 2419) {
     //     fprintf(stderr, "-[M::%s::] occ::%ld\n", __func__, occ);
     // }
+    if(!(occ == 0)) {
+        fprintf(stderr, "[M::%s] rid::%ld, name::%.*s\n", __func__, rid,
+         (int32_t)UL_INF.nid.a[rid].n, UL_INF.nid.a[rid].a);
+    }
     assert(occ == 0);
     ch_n = occ = ncn - cl->length;
     uint64_t q[2], t[2]; 
@@ -14906,7 +14910,7 @@ int64_t gen_single_khit(Candidates_list *cl, int64_t ch_n, int64_t h_khit, int64
 ///[qs, qe) && [ts, te)
 int64_t gen_win_chain(overlap_region *z, Candidates_list *cl, int64_t qs, int64_t qe, int64_t ts, int64_t te, 
 int64_t wl, const ul_idx_t *uref, hpc_t *hpc_g, All_reads *rref, char* qstr, UC_Read *tu, bit_extz_t *exz, 
-int64_t ql, int64_t tl, double e_rate, int64_t h_khit, int64_t mode)
+int64_t ql, int64_t tl, double e_rate, int64_t h_khit, int64_t mode, int64_t rid)
 {
     assert(mode < 3);
     int64_t k, ws, we, os, oe, wsk, rcn = cl->length, ncn, occ = 0, ovlp, wn = z->w_list.n; asg16_v ez; uint32_t w = 1;
@@ -14958,7 +14962,7 @@ int64_t ql, int64_t tl, double e_rate, int64_t h_khit, int64_t mode)
         // assert(debug_k_mer_hit_retrive(&(ch_a[k]), hpc_g, rref, uref, qstr, tu, z->y_id, z->y_pos_strand));
     }
     if(occ <= 0) return 0;
-    ch_n = gen_single_khit(cl, ch_n, h_khit, mode, qs, qe, ts, te, max_skip, max_iter);
+    ch_n = gen_single_khit(cl, ch_n, h_khit, mode, qs, qe, ts, te, max_skip, max_iter, rid);
     return ch_n;
 }
 
@@ -14974,7 +14978,7 @@ int64_t ql, int64_t tl, int64_t h_khit, int64_t rid)
     ts = aux_o->w_list.a[aux_i].y_start; te = aux_o->w_list.a[aux_i].y_end+1;
     if(qe - qs < FORCE_SIN_L || te - ts < FORCE_SIN_L) return;
     mode = aux_o->w_list.a[aux_i].error_threshold;
-    ch_n = gen_win_chain(z, cl, qs, qe, ts, te, wl, uref, hpc_g, rref, qstr, tu, exz, ql, tl, e_rate, h_khit, mode);
+    ch_n = gen_win_chain(z, cl, qs, qe, ts, te, wl, uref, hpc_g, rref, qstr, tu, exz, ql, tl, e_rate, h_khit, mode, rid);
     ch_a = cl->list + rcn;
     if(ch_n) {
         idx.ts = idx.te = (uint32_t)-1; idx.qs = 0; idx.qe = ql; todo = 1;
