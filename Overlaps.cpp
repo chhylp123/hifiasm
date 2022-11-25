@@ -31706,17 +31706,24 @@ int64_t mini_overlap_length, int64_t max_hang_length,
 ug_opt_t *uopt, int64_t clean_round, double min_ovlp_drop_ratio, double max_ovlp_drop_ratio, 
 int64_t max_tip, bub_label_t *b_mask_t, uint32_t is_trio, char *o_file)
 {
-    ma_ug_t *iug = ul_realignment_gfa(uopt, *sg, clean_round, min_ovlp_drop_ratio, max_ovlp_drop_ratio, 
-                                                                    asm_opt.max_short_tip, b_mask_t, ha_opt_triobin(&asm_opt), o_file);
-    asg_t *ng = gen_ng(iug, *sg, uopt, coverage_cut, ruIndex, 256);
-    ma_ug_destroy(iug); asg_destroy(*sg);
-    (*sources) = R_INF.paf; 
-    (*reverse_sources) = R_INF.reverse_paf;
-    (*n_read) = R_INF.total_reads;
-    (*readLen) = R_INF.read_length;
-    (*sg) = ng; 
-    ma_hit_contained_advance(*sources, *n_read, *coverage_cut, ruIndex, max_hang_length, mini_overlap_length);
-    post_rescue(uopt, *sg, (*sources), (*reverse_sources), ruIndex, b_mask_t, 0);
+    ul_renew_t nopt; memset(&nopt, 0, sizeof(nopt));
+    nopt.src = sources; nopt.r_src = reverse_sources; nopt.ruIndex = ruIndex;
+    nopt.n_read = n_read; nopt.readLen = readLen; nopt.sg = sg;
+    nopt.cov = coverage_cut; nopt.b_mask_t = b_mask_t;
+    nopt.max_hang = max_hang_length; nopt.mini_ovlp = mini_overlap_length;
+    ul_realignment_gfa(uopt, *sg, clean_round, min_ovlp_drop_ratio, max_ovlp_drop_ratio, 
+                                                                    asm_opt.max_short_tip, b_mask_t, ha_opt_triobin(&asm_opt), o_file, &nopt);;
+    // ma_ug_t *iug = ul_realignment_gfa(uopt, *sg, clean_round, min_ovlp_drop_ratio, max_ovlp_drop_ratio, 
+    //                                                                 asm_opt.max_short_tip, b_mask_t, ha_opt_triobin(&asm_opt), o_file);
+    // asg_t *ng = gen_ng(iug, *sg, uopt, coverage_cut, ruIndex, 256);
+    // ma_ug_destroy(iug); asg_destroy(*sg);
+    // (*sources) = R_INF.paf; 
+    // (*reverse_sources) = R_INF.reverse_paf;
+    // (*n_read) = R_INF.total_reads;
+    // (*readLen) = R_INF.read_length;
+    // (*sg) = ng; 
+    // ma_hit_contained_advance(*sources, *n_read, *coverage_cut, ruIndex, max_hang_length, mini_overlap_length);
+    // post_rescue(uopt, *sg, (*sources), (*reverse_sources), ruIndex, b_mask_t, 0);
 }
 
 void clean_graph(
@@ -32015,7 +32022,7 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
 	*coverage_cut_ptr = coverage_cut;
 	*sg_ptr = sg;
     destory_bub_label_t(&b_mask_t);
-    free(o_file); if(asm_opt.ar) destory_all_ul_t(&UL_INF); 
+    free(o_file); ///if(asm_opt.ar) destory_all_ul_t(&UL_INF); 
     fprintf(stderr, "Inconsistency threshold for low-quality regions in BED files: %u%%\n", asm_opt.bed_inconsist_rate);
 }
 
