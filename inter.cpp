@@ -8927,7 +8927,7 @@ static void worker_for_ul_scall_alignment(void *data, long i, int tid) // callba
 	uint32_t high_occ = 2; overlap_region *aux_o = NULL;
 	// if(s->id+i != 901) return;
 	// if(s->id+i != 1052) return;
-	// fprintf(stderr, "[0M::%s] rid::%ld, len::%lu, name::%.*s\n", __func__, s->id+i, s->len[i],
+	// fprintf(stderr, "[M::%s] rid::%ld, len::%lu, name::%.*s\n", __func__, s->id+i, s->len[i],
     //      (int32_t)UL_INF.nid.a[s->id+i].n, UL_INF.nid.a[s->id+i].a);
 	// if (memcmp(UL_INF.nid.a[s->id+i].a, "d0aab024-b3a7-40fb-83cc-22c3d6d951f8", UL_INF.nid.a[s->id+i].n-1)) return;
 	// fprintf(stderr, "[M::%s::] ==> len: %lu\n", __func__, s->len[i]);
@@ -8938,10 +8938,6 @@ static void worker_for_ul_scall_alignment(void *data, long i, int tid) // callba
 			
 	clear_Cigar_record(&b->cigar1);
 	clear_Round2_alignment(&b->round2);
-
-	// void ul_rid_lalign_adv(overlap_region_alloc* ol, Candidates_list *cl, const ul_idx_t *uref, const ug_opt_t *uopt, 
-    //     char *qstr, uint64_t ql, UC_Read* qu, UC_Read* tu, bit_extz_t *exz, overlap_region *aux_o, double e_rate, 
-    //     int64_t wl, kv_ul_ov_t *aln, int64_t sid, uint64_t khit, void *km)
 	
 	ul_rid_lalign_adv(&b->olist, &b->clist, s->uu, s->uopt, s->seq[i], s->len[i], &b->self_read, &b->ovlp_read, 
 		&b->exz, NULL, s->opt->diff_ec_ul, winLen, NULL, NULL, NULL, s->id+i, s->opt->k, NULL);
