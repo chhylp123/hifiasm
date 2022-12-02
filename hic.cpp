@@ -15,6 +15,7 @@
 #include "kseq.h" // FASTA/Q parser
 #include "kdq.h"
 #include "horder.h"
+#include "gfa_ut.h"
 KSEQ_INIT(gzFile, gzread)
 KDQ_INIT(uint64_t)
 
@@ -16481,15 +16482,14 @@ void optimize_u_trans(kv_u_trans_t *ovlp, kvec_pe_hit* hits, ha_ug_index* idx)
         x = &(ovlp->a[i]);
         if(x->qn > x->tn) continue;
         if(x->f != RC_2 || x->del) continue;
-        occ = get_oe_occ(x->qn, x->tn, hits, idx) + get_oe_occ(x->tn, x->qn, hits, idx);
+        occ = get_oe_occ(x->qn, x->tn, hits, idx) + get_oe_occ(x->tn, x->qn, hits, idx);///how many UL bridging qn and tn
         kv_pushp(u_trans_t, k_trans, &p);
         (*p) = (*x); p->nw = (x->nw*(1-(((double)(occ<<1))/((double)(hits->occ.a[x->qn]+hits->occ.a[x->tn])))));
         if(p->nw < 0) fprintf(stderr, "ERROR-nw\n");
         if(p->nw == 0) p->nw = x->nw*0.005;
         if(p->nw == 0) {
             k_trans.n--;
-        }
-        else {
+        } else {
             kv_pushp(u_trans_t, k_trans, &p);
             (*p) = k_trans.a[k_trans.n-2];
             p->qn = k_trans.a[k_trans.n-2].tn; p->qs = k_trans.a[k_trans.n-2].ts; p->qe = k_trans.a[k_trans.n-2].te;
@@ -16538,6 +16538,179 @@ ha_ug_index* idx, uint64_t step, uint64_t total)
         round_test(s, seed, bub, k_trans, link, sl, idx, 1, i);
     }
     
+}
+
+void prt_hits_noid(ha_ug_index* idx, ma_ug_t* ug, kvec_pe_hit* hits, FILE *fn)
+{
+    uint64_t k, shif = 64 - idx->uID_bits;
+    char dir[2] = {'+', '-'};
+    for (k = 0; k < hits->a.n; ++k) { 
+        fprintf(fn, "r-%lu-th\t%c\trs-utg%.6d%c\t%lu\t%c\tre-utg%.6d%c\t%lu\n", 
+        hits->a.a[k].id,
+        dir[hits->a.a[k].s>>63], (int)((hits->a.a[k].s<<1)>>shif)+1, 
+        "lc"[ug->u.a[((hits->a.a[k].s<<1)>>shif)].circ], hits->a.a[k].s&idx->pos_mode,
+        dir[hits->a.a[k].e>>63], (int)((hits->a.a[k].e<<1)>>shif)+1, 
+        "lc"[ug->u.a[((hits->a.a[k].e<<1)>>shif)].circ], hits->a.a[k].e&idx->pos_mode);        
+    }
+}
+
+void prt_utg_trans(kv_u_trans_t *ta, ma_ug_t* ug, FILE *fn)
+{
+    uint32_t i;
+    u_trans_t *p = NULL;
+    for (i = 0; i < ta->n; i++) {
+        p = &(ta->a[i]);
+        fprintf(fn, "utg%.6u%c\t%u\t%u\t%u\t%c\tutg%.6u%c\t%u\t%u\t%u\tw(%f)\tf(%u)\n", 
+        p->qn+1, "lc"[ug->u.a[p->qn].circ], ug->u.a[p->qn].len, p->qs, p->qe, "+-"[p->rev],
+        p->tn+1, "lc"[ug->u.a[p->tn].circ], ug->u.a[p->tn].len, p->ts, p->te, p->nw, p->f);
+    }
+}
+
+
+void prt_kv_u_trans(kv_u_trans_t *ta, hc_links* lk, int8_t *s, FILE *fn)
+{
+    uint32_t i;
+    u_trans_t *p = NULL;
+    hc_edge *e = NULL;
+
+    for (i = 0; i < ta->n; i++) {
+        p = &(ta->a[i]);
+        e = get_hc_edge(lk, p->qn, p->tn, 0);
+        fprintf(fn, "s-utg%.6ul\tS(%d)\td-utg%.6ul\tS(%d)\trev(%u)\td(%lld)\ttw(%f)\n", 
+        p->qn+1, s[p->qn], p->tn+1, s[p->tn], p->rev, 
+        (e == NULL || e->dis == (uint64_t)-1)? -1 : (long long)(e->dis>>3), p->nw);
+    }
+}
+
+
+void prt_bubble_gfa_adv(FILE *fp, bubble_type *bub, const char* utg_pre, const char* bub_pre, const char* chain_pre)
+{
+    uint32_t i, k, m, *a, n, beg, sink, x; ma_utg_t *p; uint64_t occ;
+    ma_ug_t *b_ug = bub->b_ug; char name[32], bname[32]; uint8_t *f; CALLOC(f, bub->ug->u.n);
+    for (i = 0; i < b_ug->u.n; i++) {
+        p = &b_ug->u.a[i];
+        if(p->n == 0) continue;
+        for (k = occ = 0; k < p->n; k++){
+            x = p->a[k]>>33;
+            get_bubbles(bub, x, &beg, &sink, &a, &n, NULL);
+
+            for (m = 0; m < n; m++) {
+                occ += bub->ug->u.a[a[m]>>1].n; f[a[m]>>1] = 1;
+            }
+            if(beg != (uint32_t)-1 && f[beg>>1] == 0) {
+                occ += bub->ug->u.a[beg>>1].n; f[beg>>1] = 1;
+            }
+            if(sink != (uint32_t)-1 && f[sink>>1] == 0) {
+                occ += bub->ug->u.a[sink>>1].n; f[sink>>1] = 1;
+            }
+        }
+
+        sprintf(name, "%s%.6d%c", chain_pre, i + 1, "lc"[p->circ]);
+        fprintf(fp, "S\t%s\t*\tLN:i:%lu\n", name, occ);
+        for (k = 0; k < p->n; k++) {
+            x = p->a[k]>>33;
+            sprintf(bname, "%s%.6d", bub_pre, x + 1);
+            fprintf(fp, "B\t%s\t%c\tcid:i:%s\tsm:%c\n", bname, "+-"[(p->a[k]>>32)&1], name, "01"[x<bub->f_bub]);
+
+            get_bubbles(bub, x, &beg, &sink, &a, &n, NULL);
+            if(beg != (uint32_t)-1) {
+                fprintf(fp, "U\t%s%.6d%c\t%c\tcid:i:%s\tbid:b:%s\thom:%c\n", 
+                utg_pre, (beg>>1)+1, "lc"[bub->ug->u.a[(beg>>1)].circ], "+-"[beg&1], name, bname, "10"[IF_HOM((beg>>1), *bub)]);
+            }
+
+            if(sink != (uint32_t)-1) {
+                fprintf(fp, "U\t%s%.6d%c\t%c\tcid:i:%s\tbid:s:%s\thom:%c\n", 
+                utg_pre, (sink>>1)+1, "lc"[bub->ug->u.a[(sink>>1)].circ], "+-"[sink&1], name, bname, "10"[IF_HOM((sink>>1), *bub)]);
+            }
+            for (m = 0; m < n; m++) {
+                occ += bub->ug->u.a[a[m]>>1].n;
+                fprintf(fp, "U\t%s%.6d%c\t%c\tcid:i:%s\tbid:c:%s\thom:%c\n", 
+                utg_pre, (a[m]>>1)+1, "lc"[bub->ug->u.a[(a[m]>>1)].circ], "+-"[a[m]&1], name, bname, "10"[IF_HOM((a[m]>>1), *bub)]);
+            }
+        }
+    }
+
+    asg_arc_t* au = NULL;
+    uint32_t nu, u, v, j;
+    for (i = 0; i < b_ug->u.n; ++i) {
+        if(b_ug->u.a[i].m == 0) continue;
+        if(b_ug->u.a[i].circ)
+        {
+            fprintf(fp, "L\t%s%.6dc\t+\t%s%.6dc\t+\t%dM\tL1:i:%d\n", 
+            chain_pre, i+1, chain_pre, i+1, 0, 0);
+            fprintf(fp, "L\t%s%.6dc\t-\t%s%.6dc\t-\t%dM\tL1:i:%d\n", 
+            chain_pre, i+1, chain_pre, i+1, 0, 0);
+        } 
+        u = i<<1;
+        au = asg_arc_a(b_ug->g, u);
+        nu = asg_arc_n(b_ug->g, u);
+        for (j = 0; j < nu; j++)
+        {
+            if(au[j].del) continue;
+            v = au[j].v;
+            fprintf(fp, "L\t%s%.6d%c\t%c\t%s%.6d%c\t%c\t%dM\tL1:i:%d\n", 
+            chain_pre, (u>>1)+1, "lc"[b_ug->u.a[u>>1].circ], "+-"[u&1],
+            chain_pre, (v>>1)+1, "lc"[b_ug->u.a[v>>1].circ], "+-"[v&1], 0, 0);
+        }
+
+
+        u = (i<<1) + 1;
+        au = asg_arc_a(b_ug->g, u);
+        nu = asg_arc_n(b_ug->g, u);
+        for (j = 0; j < nu; j++)
+        {
+            if(au[j].del) continue;
+            v = au[j].v;
+            fprintf(fp, "L\t%s%.6d%c\t%c\t%s%.6d%c\t%c\t%dM\tL1:i:%d\n", 
+            chain_pre, (u>>1)+1, "lc"[b_ug->u.a[u>>1].circ], "+-"[u&1],
+            chain_pre, (v>>1)+1, "lc"[b_ug->u.a[v>>1].circ], "+-"[v&1], 0, 0);
+        }
+    }
+    
+    for (i = 0; i < bub->ug->u.n; i++) {
+        if(f[i]) continue;
+        fprintf(fp, "U\t%s%.6d%c\t+\tcid:i:*\tbid:c:*\thom:%c\n", 
+                utg_pre, i+1, "lc"[bub->ug->u.a[i].circ], "10"[IF_HOM(i, *bub)]);
+    }
+    free(f);
+}
+
+
+void prt_debug_hic(const char* o_n, ma_ug_t* ug, ha_ug_index* idx, ug_opt_t *opt, kvec_pe_hit* hits, 
+kv_u_trans_t *utg_trans, kv_u_trans_t *p_arcs, hc_links* lk, int8_t *s, bubble_type *bub)
+{
+    char* gfa_name = (char*)malloc(strlen(o_n)+100); FILE *fn = NULL;
+
+    sprintf(gfa_name, "%s.hic.dbg", o_n);
+    print_debug_gfa(idx->read_g, idx->ug, opt->coverage_cut, gfa_name, opt->sources, opt->ruIndex, 
+    opt->max_hang, opt->min_ovlp, 0, 0, 0);
+
+    if(hits) {
+        sprintf(gfa_name, "%s.hic.hits.log", o_n); fn = fopen(gfa_name, "w");
+        prt_hits_noid(idx, ug, hits, fn);
+        fclose(fn);
+    }
+
+    if(utg_trans) {
+        sprintf(gfa_name, "%s.hic.utg.trans.log", o_n); fn = fopen(gfa_name, "w");
+        prt_utg_trans(utg_trans, ug, fn);
+        fclose(fn);
+    }
+
+    if(p_arcs) {
+        sprintf(gfa_name, "%s.hic.parcs.log", o_n); fn = fopen(gfa_name, "w");
+        prt_kv_u_trans(p_arcs, lk, s, fn);
+        fclose(fn);
+    }
+    
+    if(bub) {
+        sprintf(gfa_name, "%s.bub.noseq.gfa", o_n); fn = fopen(gfa_name, "w");
+        prt_bubble_gfa_adv(fn, bub, "utg", "btg", "ctg");
+        fclose(fn);
+    }
+    
+    free(gfa_name);
+    fprintf(stderr, "[M::%s::] done\n", __func__);
 }
 
 int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, ug_opt_t *opt, kvec_pe_hit **rhits)
@@ -16608,11 +16781,15 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, ug_o
         // if(bub.round_id == 0) init_phase(idx, &k_trans, &bub, s); 
         // update_trans_g(idx, &k_trans, &bub);
         /*******************************for debug************************************/
-        // mc_solve(NULL, NULL, &k_trans, idx->ug, idx->read_g, 0.8, R_INF.trio_flag, 
-        // (bub.round_id == 0? 1 : 0), s->s, 1, (asm_opt.ar)?(&bub):(NULL), &(idx->t_ch->k_trans), 0,
-        // (((bub.round_id+1) == bub.n_round)?1:0));
         mc_solve(NULL, NULL, &k_trans, idx->ug, idx->read_g, 0.8, R_INF.trio_flag, 
-        (bub.round_id == 0? 1 : 0), s->s, 1, NULL, &(idx->t_ch->k_trans), 0, 0);
+        (bub.round_id == 0? 1 : 0), s->s, 1, &bub, 
+        &(idx->t_ch->k_trans), 0, 0/**(((bub.round_id+1) == bub.n_round)?1:0)**/);
+        // mc_solve(NULL, NULL, &k_trans, idx->ug, idx->read_g, 0.8, R_INF.trio_flag, 
+        // (bub.round_id == 0? 1 : 0), s->s, 1, NULL, &(idx->t_ch->k_trans), 0, 0);
+        // if((bub.round_id+1) == bub.n_round) {
+        //     prt_debug_hic(asm_opt.output_file_name, idx->ug, idx, opt, &sl.hits, 
+        //     &(idx->t_ch->k_trans), &k_trans, &link, s->s, &(bub));
+        // }
         /*******************************for debug************************************/
         label_unitigs_sm(s->s, NULL, idx->ug);
 
@@ -16642,15 +16819,15 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, ug_o
 
     // horder_t *ho = init_horder_t(&sl.hits, idx->uID_bits, idx->pos_mode, idx->read_g, idx->ug, &bub, &(idx->t_ch->k_trans), opt, 3);
 
-    ///print_hc_links(&link, 0, &hap);
+    // print_hc_links(&link, 0, &hap);
+    // print_hits_simp(idx, &sl.hits);
+    // print_kv_u_trans_t(&(idx->t_ch->k_trans));
     // print_kv_u_trans(&k_trans, &link, s->s);
-
     // print_bubbles(idx->ug, &bub, sl.hits.a.n?&sl.hits:NULL, NULL/**idx->link**/, idx);
     // print_hits(idx, &sl.hits, fn1, fn2);
-    
-
-    ///print_debug_bubble_graph(&bub, idx->ug, asm_opt.output_file_name);
+    // print_debug_bubble_graph(&bub, idx->ug, asm_opt.output_file_name);
     // print_bubble_chain(&bub);
+
     // destory_contig_partition(&hap);
     // destory_horder_t(&ho);
     kv_destroy(sl.hits.a); kv_destroy(sl.hits.idx); kv_destroy(sl.hits.occ);
