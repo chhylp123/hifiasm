@@ -1,6 +1,7 @@
 #ifndef __GFA_UT__
 #define __GFA_UT__
 #include "Overlaps.h"
+#include "hic.h"
 
 typedef struct {
 	asg_t *g; 
@@ -31,5 +32,7 @@ void prt_specfic_sge(asg_t *g, uint32_t src, uint32_t dst, const char* cmd);
 asg_t *gen_ng(ma_ug_t *ug, asg_t *sg, ug_opt_t *uopt, ma_sub_t **cov, R_to_U *ruI, uint64_t scaffold_len);
 void post_rescue(ug_opt_t *uopt, asg_t *sg, ma_hit_t_alloc *src, ma_hit_t_alloc *rev, R_to_U* rI, bub_label_t *b_mask_t, long long no_trio_recover);
 // void print_raw_u2rgfa_seq(all_ul_t *aln, R_to_U* rI, uint32_t is_detail);
+bubble_type *gen_bubble_chain(asg_t *sg, ma_ug_t *ug, ug_opt_t *uopt, uint8_t **ir_het);
+void filter_sg_by_ug(asg_t *rg, ma_ug_t *ug, ug_opt_t *uopt);
 
 #endif

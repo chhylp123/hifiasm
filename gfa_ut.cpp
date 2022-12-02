@@ -13127,15 +13127,17 @@ asg64_v *b0, asg64_v *b1, double cutoff)
         for (z = 0; z < zn && b0->a[z] == b1->a[z]; z++); ///z: first raw unitig that is different between two paths
         assert(z > 0); w0 = w1 = (uint64_t)-1;
         if(z < b0->n) get_integer_seq_ovlps(uidx, b0->a, b0->n, z - 1, 0, NULL, &w0);
+        else return 0;///b0 is contained
         if(z < b1->n) get_integer_seq_ovlps(uidx, b1->a, b1->n, z - 1, 0, NULL, &w1);
-        // if(is_debug) {
+        else continue;///b1 is contained
+        // if(((v>>1) == 8722) || ((v>>1) == 56768)) {
         //     prt_sub_integer_path(b0, it, w0, w1, zn, z);
         //     prt_sub_integer_path(b1, it, w0, w1, zn, z);
         // }
         if(w0 == (uint64_t)-1) w0 = 0;
         if(w1 == (uint64_t)-1) w1 = 0;
-        if(b0->n == zn) return 0;///b0 is shorter
-        if(b1->n == zn) continue;///b1 is shorter
+        // if(b0->n == zn) return 0;///b0 is shorter
+        // if(b1->n == zn) continue;///b1 is shorter
         if((min_w0 == (uint64_t)-1) || (z == zn) || (min_w0 > w0) || (min_w0 == w0 && min_w1 < w1)) {
             min_w0 = w0; min_w1 = w1;
         }
@@ -13163,9 +13165,17 @@ uint64_t *ridx, asg64_v *res)
         v = int_a[k]; 
         if((!f[v])&&(!f[v^1])) continue;
         if((pi != (uint64_t)-1) && (f[v^1])) {
-            // fprintf(stderr, "+[M::%s::] utg%.6dl(%c), f[v^1]::%u ,v^1::%lu\n", 
-            // __func__, (int32_t)(int_a[k]>>1)+1, "+-"[int_a[k]&1], f[v^1], v^1);
+            // if(((v>>1) == 8722) || ((v>>1) == 56768)) {
+            //     fprintf(stderr, "+[M::%s::ii[%lu, %lu)] utg%.6dl(%c), f[v^1]::%u, v^1::%lu, putg%.6dl(%c), f[pv]::%u, pv::%lu\n", 
+            //     __func__, s, e, (int32_t)(int_a[k]>>1)+1, "+-"[int_a[k]&1], f[v^1], v^1, 
+            //     (int32_t)(int_a[pi]>>1)+1, "+-"[int_a[pi]&1], f[int_a[pi]], int_a[pi]);
+            // }
             if(is_best_path(uidx, ng, int_idx, int_a, s, e, k, v^1, ridx_a, ridx, b0, b1, 0.51)) {
+                // if(((v>>1) == 8722) || ((v>>1) == 56768)) {
+                //     fprintf(stderr, "-[M::%s::ii[%lu, %lu)] utg%.6dl(%c), f[v^1]::%u, v^1::%lu, putg%.6dl(%c), f[pv]::%u, pv::%lu\n", 
+                //     __func__, s, e, (int32_t)(int_a[k]>>1)+1, "+-"[int_a[k]&1], f[v^1], v^1, 
+                //     (int32_t)(int_a[pi]>>1)+1, "+-"[int_a[pi]&1], f[int_a[pi]], int_a[pi]);
+                // }
                 // fprintf(stderr, "[M::%s::] utg%.6dl(%c)->utg%.6dl(%c)\n", __func__, 
                 //     (int32_t)(int_a[pi]>>1)+1, "+-"[int_a[pi]&1], (int32_t)(int_a[k]>>1)+1, "+-"[int_a[k]&1]);
                 pz = (res->n > res_n)? &(res->a[res->n-1]):(NULL);
@@ -16361,4 +16371,5 @@ ul_renew_t *ropt)
     ma_hit_contained_advance((*(ropt->src)), (*(ropt->n_read)), (*(ropt->cov)), ropt->ruIndex, ropt->max_hang, ropt->mini_ovlp);
     post_rescue(uopt, (*(ropt->sg)), (*(ropt->src)), (*(ropt->r_src)), ropt->ruIndex, ropt->b_mask_t, 0);
     // print_raw_uls_aln(uidx, asm_opt.output_file_name);
+    // exit(0);
 }

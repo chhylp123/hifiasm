@@ -1,6 +1,8 @@
 #define __STDC_LIMIT_MACROS
 #include <stdint.h>
 #include <stdlib.h>
+#include <math.h>
+#include "assert.h"
 #include "rcut.h"
 #include "Purge_Dups.h"
 #include "Correct.h"
@@ -93,6 +95,28 @@ typedef struct{
 	mc_match_t *ma;
 	bits_p *vis;
 }mc_bp_t;
+
+typedef struct{
+	kvec_t(uint32_t) nn;
+	kvec_t(uint64_t) ng;
+} nn_clus_t;
+
+typedef struct{
+	bits_p vis;
+	t_w_t w;
+	uint32_t off, occ;
+}clus_flip_aux;
+
+typedef struct{
+	nn_clus_t cc;
+	bubble_type* bub; 
+	const mc_opt_t *opt; 
+	mc_g_t *mg;
+	uint8_t *lock, lock_max, dbg;
+	uint32_t n, n_thread;
+	clus_flip_aux *aux;
+	mc_svaux_t *baux;
+} mc_clus_t;
 
 typedef struct {
 	uint64_t x; // RNG
@@ -1685,6 +1709,7 @@ static t_w_t mc_optimize_local(const mc_opt_t *opt, const mc_match_t *ma, mc_sva
 			if (b->z[k].z[0] == b->z[k].z[1]) continue;
 			s = b->z[k].z[0] > b->z[k].z[1]? -1 : 1;
 			if (b->s[k] != s) {
+				// fprintf(stderr, "utg%.6dl, s[k]::%d, s::%d\n", (int32_t)(k)+1, b->s[k], s);
 				mc_set_spin(ma, b, k, s);///no need to change the score of k itself
 				++n_flip;
 			}
@@ -2209,6 +2234,517 @@ uint32_t mc_solve_cc(const mc_opt_t *opt, const mc_g_t *mg, mc_svaux_t *b, uint3
 	return n_iter;
 }
 
+#define clus_a(b, id) (((b)).cc.nn.a+(((b)).cc.ng.a[(id)]>>32))
+#define clus_n(b, id) (((uint32_t)((((b)).cc.ng.a[(id)]))))
+
+
+void reorder_bub(const mc_match_t *ma, uint32_t *a, uint32_t a_n, uint8_t *ff, uint8_t lf, uint8_t rf, uint8_t cf,
+uint8_t cuf, double *sc_l, double *sc_r, double *sc_m, uint32_t *res)
+{
+	uint32_t k, o, j, n, t, z; mc_edge_t *e; 
+	double mm_l, mm_r, m_inner, mm; int64_t mmlk, mmrk, rev, m_inner_k, mmk;
+	for (k = 0; k < a_n; k++) ff[a[k]] = cf;
+	m_inner = 0; m_inner_k = -1; mm_l = mm_r = 0; mmlk = mmrk = -1;
+	for (k = 0, rev = -1; k < a_n; k++) {
+		sc_l[k] = sc_r[k] = sc_m[k] = 0;
+		o = ma->idx.a[a[k]] >> 32; n = (uint32_t)ma->idx.a[a[k]];
+		for (j = 0; j < n; ++j) {
+			e = &ma->ma.a[o + j];
+			t = ma_y(*e);
+			if(ff[t] == lf) sc_l[k] += fabs(e->w);
+			if(ff[t] == rf) sc_r[k] += fabs(e->w);
+			if(ff[t] == cf) sc_m[k] += fabs(e->w);
+		}
+		if(sc_l[k] > 0) {
+			if(sc_l[k] > mm_l) {
+				mm_l = sc_l[k]; mmlk = k; 
+			}
+		} else if(sc_r[k] > 0) {
+			if(sc_r[k] > mm_r) {
+				mm_r = sc_r[k]; mmrk = k; 
+			}
+		} else if(sc_m[k] > 0 && sc_m[k] > m_inner) {
+			m_inner = sc_m[k]; m_inner_k = k;
+		}
+	}
+	if(mmlk == -1 && mmrk == -1 && m_inner_k == -1) return;
+	if(mmlk != -1) {
+		mm = mm_l; mmk = mmlk; rev = 0;
+	} else if(mmrk != -1) {
+		mm = mm_r; mmk = mmrk; rev = 1;
+	} else {
+		mm = m_inner; mmk = m_inner_k; rev = 0;
+	}
+
+	double *sc = (!rev)?sc_l:sc_r;
+	// for (k = 0; k < a_n; k++) {
+	// 	// sc_m[k] = 0;
+	// 	fprintf(stderr, "+[M::%s] a_n::%u, a[%u]::%u\n", __func__, a_n, k, a[k]);
+	// }
+	
+	z = 0; res[z++] = a[mmk]; ff[a[mmk]] = cuf; 
+	for (; z < a_n; ) {
+		for (k = 0, mm = 0, mmk = -1; k < a_n; k++) {
+			if(ff[a[k]] == cuf) continue;
+			o = ma->idx.a[a[k]] >> 32; n = (uint32_t)ma->idx.a[a[k]];
+			for (j = 0; j < n; ++j) {
+				e = &ma->ma.a[o + j];
+				t = ma_y(*e);
+				if(ff[t] == cuf) sc[k] += fabs(e->w);
+				// if(ff[t] == cuf) sc_m[k] += fabs(e->w);
+			}
+
+			if(sc[k] > 0) {
+				if(sc[k] > mm) {
+					mm = sc[k]; mmk = k; 
+				}
+			}
+		}
+		if(mmk == -1) break;
+		// fprintf(stderr, "-[M::%s] mmk::%ld, a[%ld]::%u, z::%u\n", __func__, mmk, mmk, a[mmk], z);
+		res[z++] = a[mmk]; ff[a[mmk]] = cuf; 
+	}
+	// fprintf(stderr, "[M::%s] a_n::%u, z::%u\n", __func__, a_n, k, z);
+	if(z < a_n) {
+		for (k = 0; k < a_n; k++) {
+			if(ff[a[k]] == cuf) continue;
+			res[z++] = a[k]; ff[a[k]] = cuf;
+		}
+	}
+	assert(z == a_n);
+	if(!rev) {
+		for (k = 0; k < a_n; k++) {
+			a[k] = res[k]; 
+			// fprintf(stderr, "[M::%s] a_n::%u, a[k]::%u, res[k]::%u\n", __func__, a_n, a[k], res[k]);
+			ff[a[k]] = lf;
+		}
+	} else {
+		for (k = 0; k < a_n; k++) {
+			a[k] = res[a_n-k-1]; ff[a[k]] = lf;
+		}
+	}
+}
+
+void prt_bub(uint32_t *a, uint32_t a_n, const char *cmd) 
+{
+	uint32_t k;
+	fprintf(stderr, "%s\n", cmd);
+	for (k = 0; k < a_n; k++) {
+		fprintf(stderr, "utg%.6dl\t", (int32_t)a[k]+1);
+	}
+	fprintf(stderr, "\n");
+	
+}
+
+void renew_mc_clus_t(mc_clus_t *bc, uint32_t *a, uint32_t a_n)
+{
+	if(!bc) return;
+	// fprintf(stderr, "[M::%s] a_n::%u\n", __func__, a_n);
+	uint32_t k, i, *ba, bn, m, cocc, iin, bub_occ = 0, bbn = 0; uint64_t *p; ma_utg_t *u = NULL;
+	kvec_t(double) sc_l; kvec_t(double) sc_r; kvec_t(double) sc_m; kvec_t(uint32_t) tmp;
+	kv_init(sc_l); kv_init(sc_r); kv_init(sc_m); kv_init(tmp);
+	
+	bc->cc.ng.n = bc->cc.nn.n = 0;
+	memset(bc->lock, 0, sizeof((*(bc->lock)))*bc->n);
+	for (k = 0; k < a_n; k++) bc->lock[a[k]] = 1;
+
+	kv_resize(uint32_t, bc->cc.nn, a_n);
+	// for (i = 0; i < bc->bub->chain_weight.n; i++) {
+    //     if(bc->bub->chain_weight.a[i].del) continue;
+    //     u = &(bc->bub->b_ug->u.a[bc->bub->chain_weight.a[i].id]);///list of bubbles
+	for (i = 0; i < bc->bub->b_ug->u.n; i++) {
+        u = &(bc->bub->b_ug->u.a[i]);
+        if(u->n == 0) continue;
+		bub_occ += u->n;
+		// fprintf(stderr, "[M::%s] i::%u, u->n::%u\n", __func__, i, (uint32_t)u->n);
+        for (k = cocc = 0, iin = bc->cc.nn.n; k < u->n; k++) {
+            get_bubbles(bc->bub, u->a[k]>>33, NULL, NULL, &ba, &bn, NULL);
+			kv_pushp(uint64_t, bc->cc.ng, &p); bbn += bn;
+			*p = bc->cc.nn.n;///a bubble
+			for (m = 0; m < bn; m++) {
+				if(!(bc->lock[ba[m]>>1])) continue;
+				kv_push(uint32_t, bc->cc.nn, (ba[m]>>1));
+				bc->lock[ba[m]>>1] = 2;
+            }
+			if(bc->cc.nn.n <= (*p)) {///no node in this bubble
+				bc->cc.ng.n--;
+				continue;
+			}
+			*p <<= 32; *p |= (bc->cc.nn.n-((*p)>>32)); cocc++;
+        }
+		//split chains
+		if(cocc > 0) {//cocc: # of bubbles in this chain
+			for (k = bc->cc.ng.n - cocc; k < bc->cc.ng.n; k++) {
+				kv_resize(double, sc_l, clus_n((*bc), k)); 
+				kv_resize(double, sc_r, clus_n((*bc), k)); 
+				kv_resize(double, sc_m, clus_n((*bc), k)); 
+				kv_resize(uint32_t, tmp, clus_n((*bc), k)); 
+				// prt_bub(clus_a((*bc), k), clus_n((*bc), k), "-0-"); 
+				reorder_bub(bc->mg->e, clus_a((*bc), k), clus_n((*bc), k), bc->lock, 3, 2, 4, 5, 
+				sc_l.a, sc_r.a, sc_m.a, tmp.a);
+				// prt_bub(clus_a((*bc), k), clus_n((*bc), k), "-1-"); 
+			}
+			for (k = iin; k < bc->cc.nn.n; k++) bc->lock[bc->cc.nn.a[k]] = 1;//reset
+			kv_pushp(uint64_t, bc->cc.ng, &p); *p = (uint64_t)-1; 
+			kv_push(uint32_t, bc->cc.nn, ((uint32_t)-1)); ///split
+		}
+    }
+
+	for (k = 0; k < a_n; k++) bc->lock[a[k]] = 0;
+	kv_destroy(sc_l); kv_destroy(sc_r); kv_destroy(sc_m); kv_destroy(tmp);
+	// fprintf(stderr, "[M::%s] a_n::%u, bc->cc.nn.n::%u, bc->cc.ng.n::%u, bbn::%u, bub_occ::%u, bc->bub->b_ug->u.n::%u\n", __func__, 
+	// a_n, (uint32_t)bc->cc.nn.n, (uint32_t)bc->cc.ng.n, bbn, bub_occ, (uint32_t)bc->bub->b_ug->u.n);
+}
+
+void clean_clus_flip_aux(clus_flip_aux *z)
+{
+	z->w = -1; z->occ = z->off = (uint32_t)-1; 
+	memset(z->vis.a, 0, sizeof(*(z->vis.a))*z->vis.n);
+}
+
+#define is_set_bits_p(v, i) (((v).a[((i)>>3)]>>(i&7))&1)
+#define set_bits_p(v, i) (((v).a[((i)>>3)])|=(((uint8_t)1)<<(i&7)));
+
+t_w_t clus_weight(mc_svaux_t *b_aux, mc_match_t *ma, bits_p *vis, uint32_t uid)
+{
+	mc_edge_t *o = NULL;
+	uint32_t n, i, t;
+	t_w_t w = ((t_w_t)(b_aux->s[uid])) * (b_aux->z[uid].z[0] - b_aux->z[uid].z[1]) * 2;
+	t_w_t w_off = 0;
+	o = pt_a(*ma, uid);
+	n = pt_n(*ma, uid);
+	for (i = 0; i < n; ++i) {
+		t = ma_y(o[i]);
+		if(!(is_set_bits_p((*vis), t))) continue;
+		// if(vis[t] == 0) continue;
+        if(t == uid) continue;
+		w_off += (b_aux->s[uid]*b_aux->s[t]*o[i].w);
+	}
+	return w - (w_off*4);//2 for self; 4 for both directions
+}
+
+void cal_clus_sc0(mc_match_t *ma, mc_svaux_t *b_aux, mc_clus_t* bc, uint8_t *lock, uint8_t lock_max,
+uint32_t *a, uint32_t a_n, uint32_t id, clus_flip_aux *r, uint32_t tid)
+{
+	uint32_t i, max_occ = (uint32_t)-1;//, len, mm0 = (uint32_t)-1, mm1 = 0; 
+	bits_p *vis = &(r->vis); t_w_t w = 0, max_w = -1;
+
+	memset(vis->a, 0, sizeof(*(vis->a))*vis->n);
+	// if(bc->dbg) {
+	// 	if(a[id] == 487 || a[id] == 47) {
+	// 		fprintf(stderr, "[M::%s::] id::%u, a[id]::%u, s::%d\n", __func__, id, a[id], b_aux->s[a[id]]);
+	// 	}
+	// }
+	for (i = id; i < a_n && a[i] != (uint32_t)-1; i++) {
+		if(lock[a[i]] >= lock_max) continue;
+		if(is_set_bits_p((*vis), a[i])) continue;
+		w += clus_weight(b_aux, ma, vis, a[i]);
+		// if(bc->dbg) {
+		// 	if(a[id] == 487 || a[id] == 47) {
+		// 		fprintf(stderr, "[M::%s::id->%u] a[%u]::%u, s::%d, lock::%u, lock_max::%u, is_set::%u, w::%f\n", 
+		// 		__func__, id, i, a[i], b_aux->s[a[i]], lock[a[i]], lock_max, is_set_bits_p((*vis), a[i]), w);
+		// 	}
+		// }
+		set_bits_p((*vis), a[i]); 
+		// mm1 = a[i]; if(a[i] < mm0) mm0 = a[i];
+		///update max_w
+        if(max_w < w) {
+            max_w = w; max_occ = i + 1 - id;
+        }
+	}
+	// if(mm0 != (uint32_t)-1 && mm1 != (uint32_t)-1) {
+	// 	len = MIN(((mm1>>3)+1), vis->n) - (mm0>>3);
+	// 	memset(vis->a+(mm0>>3), 0, sizeof(*(vis->a))*len);
+	// }
+	for (i = id; i < a_n && a[i] != (uint32_t)-1; i++) vis->a[a[i]>>3] = 0;///reset
+	if(max_w <= 0.000001 || max_occ == (uint32_t)-1) return;
+	if((max_w > r->w) || (max_w == r->w && id < r->off)) {
+        r->w = max_w; r->off = id; r->occ = max_occ;
+    }
+	// if(bc->dbg) {
+	// 	if(a[id] == 487 || a[id] == 47) {
+	// 		fprintf(stderr, "[M::%s::] id::%u, a[id]::%u, w::%f, off::%u, occ::%u\n", __func__, id, a[id], r->w, r->off, r->occ);
+	// 	}
+	// }
+}
+
+static void worker_cal_clus_sc(void *data, long i, int tid) // callback for kt_for()
+{
+	mc_clus_t *bc = (mc_clus_t *)data;
+	uint32_t *a = bc->cc.nn.a, a_n = bc->cc.nn.n;
+	if(a[i] == (uint32_t)-1) return;
+	cal_clus_sc0(bc->mg->e, bc->baux, bc, bc->lock, bc->lock_max, a, a_n, i, &(bc->aux[tid]), tid);
+}
+
+
+uint32_t gen_best_clus(mc_clus_t *bc, uint32_t *off, uint32_t *occ, double *rw)
+{
+	uint32_t i; (*off) = (*occ) = (uint32_t)-1; (*rw) = -1;
+	for (i = 0; i < bc->n_thread; i++) clean_clus_flip_aux(&(bc->aux[i]));
+	
+	kt_for(bc->n_thread, worker_cal_clus_sc, bc, bc->cc.nn.n);
+	
+	for (i = 0; i < bc->n_thread; i++) {
+		if(bc->aux[i].off == (uint32_t)-1) continue;
+		if(bc->aux[i].w < 0) continue;
+
+		if((bc->aux[i].w > (*rw)) || (bc->aux[i].w == (*rw) && bc->aux[i].off < (*off))) {
+			(*off) = bc->aux[i].off; (*occ) = bc->aux[i].occ; (*rw) = bc->aux[i].w;
+		}
+	}
+	if((*off) != (uint32_t)-1) return 1;
+	return 0;
+}
+
+double flip_chain(const mc_match_t *ma, mc_svaux_t *b, uint32_t *a, uint32_t a_n, uint32_t off, uint32_t occ, 
+bits_p *vis, uint8_t *lock, uint8_t lock_max)
+{
+	uint32_t k, kn = off + occ;
+	for (k = off; k < kn; k++) {
+		vis->a[a[k]>>3] = 0;
+		// if(occ == 4 && a[off] == 11279) dbg = 1;
+	}
+	for (k = off; k < kn; k++) {
+		if(lock[a[k]] >= lock_max) continue;
+		if(is_set_bits_p((*vis), a[k])) continue;
+		set_bits_p((*vis), a[k]); lock[a[k]]++;
+		// if(dbg) fprintf(stderr, "[M::%s::] a[%u]::%u, s::%d\n", __func__, k, a[k], b->s[a[k]]);
+		mc_set_spin(ma, b, a[k], -b->s[a[k]]);
+	}
+	return mc_score(ma, b);
+}
+
+
+void test_flip_sc(const mc_match_t *ma, mc_svaux_t *b, uint32_t *a, uint32_t a_n, bits_p *vis)
+{
+	mc_edge_t *o = NULL; t_w_t w = 0, w_off = 0; 
+	t_w_t sc_new = mc_score(ma, b), sc;
+    uint32_t n, i, t, k, uid, z;
+	for (k = 0; k < a_n; k++) mc_set_spin(ma, b, a[k], -b->s[a[k]]);
+	for (k = 0; k < a_n; k++) {
+		uid = a[k];
+		fprintf(stderr, "+[M::%s::] uid::%u, z[0]::%f, z[1]::%f\n", __func__, uid, b->z[uid].z[0], b->z[uid].z[1]);
+		w += ((t_w_t)(b->s[uid])) * (b->z[uid].z[0] - b->z[uid].z[1]) * 2;
+		o = pt_a(*ma, uid);
+		n = pt_n(*ma, uid);
+		for (i = 0; i < n; ++i) {
+			t = ma_y(o[i]);
+			for (z = 0; z < k; z++) {
+				if(a[z] == t) break;
+			}
+			if(z >= k) continue;
+			// if(!(is_set_bits_p((*vis), t))) continue;
+			// if(vis[t] == 0) continue;
+			if(t == uid) continue;
+			fprintf(stderr, "+[M::%s::] uid::%u, t::%u, w::%f\n", __func__, uid, t, o[i].w);
+			w_off += (b->s[uid]*b->s[t]*o[i].w);
+		}
+	}
+	w -= (w_off*4);
+	sc = mc_score(ma, b);
+	fprintf(stderr, "+[M::%s::] sc::%f, sc_new::%f, w::%f\n", __func__, sc, sc_new, w);
+
+	w = w_off = 0; memset(vis->a, 0, sizeof(*(vis->a))*vis->n);
+	for (k = 0; k < a_n; k++) {
+		uid = a[k];
+		fprintf(stderr, "-[M::%s::] uid::%u, z[0]::%f, z[1]::%f\n", __func__, uid, b->z[uid].z[0], b->z[uid].z[1]);
+		w += ((t_w_t)(b->s[uid])) * (b->z[uid].z[0] - b->z[uid].z[1]) * 2;
+		o = pt_a(*ma, uid);
+		n = pt_n(*ma, uid);
+		for (i = 0; i < n; ++i) {
+			t = ma_y(o[i]);
+			// for (z = 0; z < k; z++) {
+			// 	if(a[z] == t) break;
+			// }
+			// if(z >= k) continue;
+			if(!(is_set_bits_p((*vis), t))) continue;
+			// if(vis[t] == 0) continue;
+			if(t == uid) continue;
+			fprintf(stderr, "-[M::%s::] uid::%u, t::%u, w::%f\n", __func__, uid, t, o[i].w);
+			w_off += (b->s[uid]*b->s[t]*o[i].w);
+		}
+		set_bits_p((*vis), uid);
+	}
+	w -= (w_off*4);
+	sc = mc_score(ma, b);
+	fprintf(stderr, "-[M::%s::] sc::%f, sc_new::%f, w::%f\n", __func__, sc, sc_new, w);
+}
+
+t_w_t mc_solve_clus(mc_clus_t *bc)
+{
+	uint32_t off, occ/**, r = 0**/; double rw, sc, sc_opt = mc_score(bc->mg->e, bc->baux);
+	memset(bc->lock, 0, bc->n*sizeof(*(bc->lock)));
+	while (gen_best_clus(bc, &off, &occ, &rw)) {
+		sc = flip_chain(bc->mg->e, bc->baux, bc->cc.nn.a, bc->cc.nn.n, off, occ, &(bc->aux[0].vis), bc->lock, bc->lock_max);
+		// if(r%10000) {
+		// 	fprintf(stderr, "[M::%s::] rw::%f, sc_opt::%f, sc::%f, off::%u, occ::%u, r::%u\n", 
+		// 	__func__, rw, sc_opt, sc, off, occ, r);
+		// }
+		if(sc < sc_opt) {
+			fprintf(stderr, "\nwrong::[M::%s::] rw::%f, sc_opt::%f, sc::%f, off::%u, occ::%u\n", 
+			__func__, rw, sc_opt, sc, off, occ);
+			// if(occ == 2) {
+			// uint32_t k;
+			// 	for (k = off; k < off + occ; k++) {
+			// 		fprintf(stderr, "[M::%s::] a[%u]::%u, s::%d\n", __func__, k, bc->cc.nn.a[k], bc->baux->s[bc->cc.nn.a[k]]);
+			// 	}
+			// 	test_flip_sc(bc->mg->e, bc->baux, bc->cc.nn.a+off, occ, &(bc->aux[0].vis));
+			// }
+		}
+		sc_opt = sc; //r++;
+	}
+	return sc_opt;
+}
+
+t_w_t mc_clus_cc(mc_clus_t *bc)
+{
+	// fprintf(stderr, "+[M::%s::]\n", __func__);
+	// double index_time = yak_realtime();
+    // uint32_t r = 1;
+    t_w_t sc_opt, sc;
+	// fprintf(stderr, "-[M::%s::]\n", __func__);
+	mc_reset_z(bc->mg->e, bc->baux);
+	// fprintf(stderr, "*[M::%s::]\n", __func__);
+	sc_opt = mc_score(bc->mg->e, bc->baux); 
+	// fprintf(stderr, "[M::%s::] sc_opt: %f\n", __func__, sc_opt);
+	while (1) {
+        sc = mc_solve_clus(bc);
+        // fprintf(stderr, "[M::%s::# round: %u] sc_opt: %f, sc: %f\n", __func__, r, sc_opt, sc);
+        if(sc <= (sc_opt+0.0000001)) break;
+        sc_opt = sc; //r++;
+    }
+    // fprintf(stderr, "[M::%s::%.3f] ==> round %u\n", __func__, yak_realtime()-index_time, r);
+	return sc;
+}
+
+uint32_t mc_solve_cc_adv(const mc_opt_t *opt, const mc_g_t *mg, mc_svaux_t *b, uint32_t cc_off, uint32_t cc_size, mc_clus_t *bc)
+{
+	uint32_t j, k, n_iter = 0, flush = opt->max_iter * 50, n_skip, n_skip_flush = opt->n_perturb/16;
+	t_w_t sc_opt = -(1<<30), sc;///problem-w
+	b->cc_off = cc_off, b->cc_size = cc_size;
+	if (b->cc_size < 2) return 0;
+	sc_opt = mc_init_spin(mg->e, b);
+	// print_sc(opt, mg, b, sc_opt, n_iter);
+	if (b->cc_size == 2) return 0;
+	for (j = 0; j < b->cc_size; ++j) {///backup s and z in s_opt and z_opt
+		b->s_opt[b->cc_node[j]] = b->s[b->cc_node[j]]; ///hap status of each unitig
+		b->z_opt[b->cc_node[j]] = b->z[b->cc_node[j]]; ///z[0]: positive weight; z[1]: positive weight
+	}
+	renew_mc_clus_t(bc, b->cc_node, b->cc_size);
+	// fprintf(stderr, "\ncc_size: %u, cc_off: %u\n", b->cc_size, b->cc_off);
+	// print_sc(opt, mg->e, b, sc_opt, n_iter);
+	sc = mc_optimize_local(opt, mg->e, b, &n_iter);
+	if (sc > sc_opt) {
+		for (j = 0; j < b->cc_size; ++j) {
+			b->s_opt[b->cc_node[j]] = b->s[b->cc_node[j]];
+			b->z_opt[b->cc_node[j]] = b->z[b->cc_node[j]];
+		}
+		sc_opt = sc;
+	} else {
+		for (j = 0; j < b->cc_size; ++j) {
+			b->s[b->cc_node[j]] = b->s_opt[b->cc_node[j]];
+			b->z[b->cc_node[j]] = b->z_opt[b->cc_node[j]];
+		}
+	}
+    // print_mc_node(mg->e, b, 36880);
+	// print_sc(opt, mg, b, sc_opt, n_iter);
+	// mc_reset_z_debug(mg->e, b);
+	// print_sc(opt, mg->e, b, sc_opt, n_iter);
+	// fprintf(stderr, "\ncc_size: %u, cc_off: %u\n", b->cc_size, b->cc_off);
+	
+	if(bc) {
+		sc = mc_clus_cc(bc);
+		if (sc > sc_opt) {
+			for (j = 0; j < b->cc_size; ++j) {
+				b->s_opt[b->cc_node[j]] = b->s[b->cc_node[j]];
+				b->z_opt[b->cc_node[j]] = b->z[b->cc_node[j]];
+			}
+			sc_opt = sc;
+		} else {
+			for (j = 0; j < b->cc_size; ++j) {
+				b->s[b->cc_node[j]] = b->s_opt[b->cc_node[j]];
+				b->z[b->cc_node[j]] = b->z_opt[b->cc_node[j]];
+			}
+		}
+	}
+	
+	for (k = n_skip = 0; k < (uint32_t)opt->n_perturb; ++k) {
+		if (k&1) mc_perturb(opt, mg->e, b);
+		else mc_perturb_node(opt, mg->e, b, 3);
+		sc = mc_optimize_local(opt, mg->e, b, &n_iter);
+		// if((k%256) == 0) fprintf(stderr, "(%u) sc_opt::%f, sc::%f, flush::%u, n_iter::%u\n", k, sc_opt, sc, flush, n_iter);
+		if (sc > sc_opt) {
+			for (j = 0; j < b->cc_size; ++j) {
+				b->s_opt[b->cc_node[j]] = b->s[b->cc_node[j]];
+				b->z_opt[b->cc_node[j]] = b->z[b->cc_node[j]];
+			}
+			sc_opt = sc; n_skip = 0;
+			// print_sc(opt, mg, b, sc_opt, n_iter);
+		} else {
+			for (j = 0; j < b->cc_size; ++j) {
+				b->s[b->cc_node[j]] = b->s_opt[b->cc_node[j]];
+				b->z[b->cc_node[j]] = b->z_opt[b->cc_node[j]];
+			}
+			n_skip++;
+		}
+		if(n_skip >= n_skip_flush && bc) {
+			sc = mc_clus_cc(bc);
+			if (sc > sc_opt) {
+				for (j = 0; j < b->cc_size; ++j) {
+					b->s_opt[b->cc_node[j]] = b->s[b->cc_node[j]];
+					b->z_opt[b->cc_node[j]] = b->z[b->cc_node[j]];
+				}
+				sc_opt = sc;
+			} else {
+				for (j = 0; j < b->cc_size; ++j) {
+					b->s[b->cc_node[j]] = b->s_opt[b->cc_node[j]];
+					b->z[b->cc_node[j]] = b->z_opt[b->cc_node[j]];
+				}
+			}
+			n_skip = 0;
+		}
+
+		if((n_iter%flush) == 0) {
+			mc_reset_z(mg->e, b);
+			sc = mc_score(mg->e, b);
+
+			for (j = 0; j < b->cc_size; ++j) {
+				b->z_opt[b->cc_node[j]] = b->z[b->cc_node[j]];
+			}
+			sc_opt = sc;
+		}
+	}
+	if(bc) {
+		sc = mc_clus_cc(bc);
+		if (sc > sc_opt) {
+			for (j = 0; j < b->cc_size; ++j) {
+				b->s_opt[b->cc_node[j]] = b->s[b->cc_node[j]];
+				b->z_opt[b->cc_node[j]] = b->z[b->cc_node[j]];
+			}
+			sc_opt = sc;
+		} else {
+			for (j = 0; j < b->cc_size; ++j) {
+				b->s[b->cc_node[j]] = b->s_opt[b->cc_node[j]];
+				b->z[b->cc_node[j]] = b->z_opt[b->cc_node[j]];
+			}
+		}
+	}
+
+	// if(bc) {
+	// 	bc->dbg = 1;
+	// 	mc_clus_cc(bc);
+	// 	bc->dbg = 0;
+	// }
+
+	for (j = 0; j < b->cc_size; ++j)
+	{
+		b->s[b->cc_node[j]] = b->s_opt[b->cc_node[j]];
+		b->z[b->cc_node[j]] = b->z_opt[b->cc_node[j]];
+	}
+	// exit(1);
+	return n_iter;
+}
+
 
 void reset_mb_g_t_z(mb_g_t *mbg);
 uint32_t mb_solve_cc(const mc_opt_t *opt, mb_g_t *mbg, mb_svaux_t *b, uint32_t cc_off, uint32_t cc_size)
@@ -2689,6 +3225,63 @@ void mc_solve_core(const mc_opt_t *opt, mc_g_t *mg, bubble_type* bub)
 	fprintf(stderr, "[M::%s::%.3f] ==> Partition\n", __func__, yak_realtime()-index_time);
 }
 
+mc_clus_t *init_mc_clus_t(const mc_opt_t *opt, mc_g_t *mg, bubble_type* bub, uint32_t n_thread, mc_svaux_t *b, uint32_t flp_max)
+{
+	if((!bub)) return NULL;
+	mc_clus_t *p; CALLOC(p, 1); 
+	p->bub = bub; p->opt = opt; p->mg = mg; p->n = bub->ug->g->n_seq;
+	CALLOC(p->lock, p->n);
+	if(n_thread > 64) n_thread = 64; p->n_thread = n_thread;
+	CALLOC(p->aux, p->n_thread);
+	uint32_t k, ss = (p->n>>3)+(!!(p->n&7));
+	for (k = 0; k < p->n_thread; k++) {
+		kv_resize(uint8_t, p->aux[k].vis, ss); p->aux[k].vis.n = ss;
+	}
+	p->baux = b; p->lock_max = ((flp_max<=255)?flp_max:255); if(p->lock_max < 1) p->lock_max = 1;
+	return p;
+}
+
+void mc_solve_core_adv(const mc_opt_t *opt, mc_g_t *mg, bubble_type* bub)
+{
+	double index_time = yak_realtime();
+	uint32_t st, i;
+	mc_svaux_t *b; mc_clus_t *bc; 
+	// mc_bp_t *bp = NULL;
+	mc_g_cc(mg->e);
+	b = mc_svaux_init(mg, opt->seed);
+	bc = init_mc_clus_t(opt, mg, bub, asm_opt.thread_num, b, 16); 
+	// bc = gen_mc_clus_t(mg->e, b, bub, ref, asm_opt.thread_num);
+	// if(bub) bp = mc_bp_t_init(mg->e, b, bub, asm_opt.thread_num);
+	/*******************************for debug************************************/
+	// if(bp) mc_init_spin_all(opt, mg, NULL, b);
+	// if(bp) mc_solve_bp(bp);
+	/*******************************for debug************************************/
+	if(VERBOSE_CUT)
+	{
+		fprintf(stderr, "\n\n\n\n\n*************beg-[M::%s::score->%f] ==> Partition\n", __func__, mc_score_all_advance(mg->e, mg->s.a));
+	}
+	
+	for (st = 0, i = 1; i <= mg->e->n_seq; ++i) {
+		if (i == mg->e->n_seq || mg->e->cc[st]>>32 != mg->e->cc[i]>>32) {
+			mc_solve_cc_adv(opt, mg, b, st, i - st, bc);
+			st = i;
+		}
+	}
+
+	if(VERBOSE_CUT)
+	{
+		fprintf(stderr, "##############end-[---M::%s::score->%f] ==> Partition\n", __func__, mc_score_all(mg->e, b));
+		mc_status_all(mg->e, mg->s.a);
+	}
+	
+
+	// if(bp) mc_solve_bp(bp);	
+	///mc_write_info(g, b);
+	mc_svaux_destroy(b);
+	// if(bp) destroy_mc_bp_t(&bp);
+	fprintf(stderr, "[M::%s::%.3f] ==> Partition\n", __func__, yak_realtime()-index_time);
+}
+
 void set_p_flag(mc_g_t *mg, uint32_t uID, uint8_t* trio_flag, trans_chain* t_ch, int8_t s)
 {
 	uint32_t i;
@@ -2908,6 +3501,7 @@ void mc_solve(hap_overlaps_list* ovlp, trans_chain* t_ch, kv_u_trans_t *ta, ma_u
 {
 	if(is_dump) {
 		dump_debug_phasing(MC_NAME, ta, ug, read_g, f_rate, renew_s, s, is_sys, bub, ref);
+		// bub = NULL;
 	}
 	
 	mc_opt_t opt;
@@ -2920,7 +3514,8 @@ void mc_solve(hap_overlaps_list* ovlp, trans_chain* t_ch, kv_u_trans_t *ta, ma_u
 	mb_solve_core(&opt, mg, ref, is_sys);
 	///debug_mc_g_t(mg);
 	// if(renew_s == 0) write_mc_g_t(&opt, mg, MC_NAME);
-	mc_solve_core(&opt, mg, bub);
+	// mc_solve_core(&opt, mg, bub);
+	mc_solve_core_adv(&opt, mg, bub);
 
 	if((asm_opt.flag & HA_F_PARTITION) && t_ch)
 	{
@@ -4005,9 +4600,10 @@ void quick_debug_phasing(const char* fn)
 
 
 	mc_solve(NULL, NULL, ta, ug, read_g, f_rate, NULL, renew_s, s, is_sys, bub, ref, 0, 0);
+	// mc_solve_core_adv(const mc_opt_t *opt, mc_g_t *mg, bubble_type* bub, kv_u_trans_t *ref)
 
 	for (k = 0; k < ug->g->n_seq; k++) {
-		fprintf(stderr, "utg%.6dl(len::%u)\n", (int32_t)(k)+1, ug->g->seq[k].len);
+		fprintf(stderr, "utg%.6dl(len::%u), s[k]::%d\n", (int32_t)(k)+1, ug->g->seq[k].len, s[k]);
 	}
 	
 	
