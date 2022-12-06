@@ -25,6 +25,9 @@ void ha_get_ul_candidates_interface(ha_abufl_t *ab, int64_t rid, char* rs, uint6
 								 int max_n_chain, int keep_whole_chain, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* chain_idx, overlap_region* f_cigar, kvec_t_u64_warp* dbg_ct, st_mt_t *sp, uint32_t high_occ, void *km);
 void ul_map_lchain(ha_abufl_t *ab, uint32_t rid, char* rs, uint64_t rl, uint64_t mz_w, uint64_t mz_k, const ul_idx_t *uref, overlap_region_alloc *overlap_list, Candidates_list *cl, double bw_thres, 
 								 int max_n_chain, int apend_be, kvec_t_u8_warp* k_flag, overlap_region* f_cigar, kvec_t_u64_warp* dbg_ct, st_mt_t *sp, uint32_t *high_occ, uint32_t *low_occ, uint32_t is_accurate, uint32_t gen_off);
+void ug_map_lchain(ha_abufl_t *ab, uint32_t rid, char* rs, uint64_t rl, uint64_t mz_w, uint64_t mz_k, const ul_idx_t *uref, overlap_region_alloc *overlap_list, Candidates_list *cl, double bw_thres, 
+								 int max_n_chain, int apend_be, kvec_t_u8_warp* k_flag, overlap_region* f_cigar, kvec_t_u64_warp* dbg_ct, st_mt_t *sp, uint32_t *high_occ, uint32_t *low_occ, uint32_t is_accurate, uint32_t gen_off, uint32_t is_hpc);
+
 #define MG_SEED_IGNORE     (1ULL<<41)
 #define MG_SEED_TANDEM     (1ULL<<42)
 #define MG_SEED_KEPT       (1ULL<<43)
@@ -248,8 +251,6 @@ KRADIX_SORT_INIT(eg_srt_x, eg_srt_t, eg_srt_x_key, member_size(eg_srt_t, x))
 #define eg_srt_d_key(p) ((p).d)
 KRADIX_SORT_INIT(eg_srt_d, eg_srt_t, eg_srt_d_key, member_size(eg_srt_t, d))
 
-
-
 // shortest path
 typedef struct {
 	// input
@@ -373,6 +374,28 @@ typedef struct { // data structure for each step in kt_pipeline()
 	int64_t n_thread;
 } utepdat_t;
 
+
+typedef struct { // global data structure for kt_pipeline()
+    uint64_t x, i;
+} ha_mzl_srt_t;
+
+typedef struct { size_t n, m; ha_mzl_srt_t *a; } ha_mzl_srt_v;
+
+typedef struct { // global data structure for kt_pipeline()
+    ma_ug_t *ug;
+    asg_t *rg;
+    ha_ovec_buf_t **hab;
+	glchain_t *ll;
+    int32_t w, k;
+    ///base-alignment
+    double bw_thres, diff_ec_ul; 
+    int32_t max_n_chain;
+    ha_mzl_v idx_a;
+    asg64_v idx_n;
+    ha_mzl_srt_v srt_a;
+    int32_t is_HPC, bw, max_gap, chn_pen_gap, n_thread, is_cnt;
+	ul_idx_t udb;
+} ug_trans_t;
 
 void hc_glchain_destroy(glchain_t *b)
 {
@@ -9184,6 +9207,126 @@ uint32_t ck_ul_alignment(ul_vec_t *x)
 }
 
 
+static void worker_for_trans_ovlp(void *data, long i, int tid) // callback for kt_for()
+{
+	/**
+    ug_trans_t *s = (ug_trans_t*)data;
+    ha_ovec_buf_t *b = s->hab[tid];
+    glchain_t *bl = &(s->ll[tid]);
+    int64_t winLen = MIN((((double)THRESHOLD_MAX_SIZE)/s->diff_ec_ul), WINDOW), ton = 0;
+	uint32_t high_occ = 2, phase = 1, k;
+	asg64_v b0, b1, b2; window_list p; memset(&p, 0, sizeof(p));
+	overlap_region *aux_o = NULL;
+	char *seq = s->ug->u.a[i].s; 
+	int64_t len = s->ug->u.a[i].len;
+	**/
+    // uint64_t align = 0;
+    
+	// if(UL_INF.a[s->id+i].rlen != s->len[i]) {
+	// 	fprintf(stderr, "[M::%s] rid:%ld, s->len:%lu, UL_INF->rlen:%u\n", __func__, s->id+i, s->len[i], UL_INF.a[s->id+i].rlen);
+	// }
+    // void *km = s->buf?(s->buf[tid]?s->buf[tid]->km:NULL):NULL;
+    // if(s->id+i!=3046) return;
+	// if((s->id+i!=871) && (s->id+i!=963) && (s->id+i!=980)) return;
+	// if(s->id+i!=944) return;
+	// if(s->id+i != 35437) return;
+	// if((s->id+i != 7086) && (s->id+i != 51705) && (s->id+i != 266022) && (s->id+i != 353608)
+	// 		&& (s->id+i != 399416) && (s->id+i != 403014) && (s->id+i != 420915) && (s->id+i != 603855)
+	// 		&& (s->id+i != 680134) && (s->id+i != 766261) && (s->id+i != 794527)) {
+	// 	return;
+	// }
+	// char *as = NULL; 
+	// asprintf(&as, "\n[M::%s] rid::%ld, len::%lu, name::%.*s\n", __func__, s->id+i, s->len[i], (int32_t)UL_INF.nid.a[s->id+i].n, UL_INF.nid.a[s->id+i].a);
+    // push_vlog(&(overall_zdbg->a[s->id+i]), as); free(as); as = NULL;
+	// fprintf(stderr, "\n[M::%s] rid::%ld, len::%lu, name::%.*s\n", __func__, s->id+i, s->len[i],
+	// (int32_t)UL_INF.nid.a[s->id+i].n, UL_INF.nid.a[s->id+i].a);
+	// fprintf(stderr, ">%.*s\n%.*s\n", (int32_t)UL_INF.nid.a[s->id+i].n, UL_INF.nid.a[s->id+i].a, 
+	// (int32_t)s->len[i], s->seq[i]);
+
+    // if (memcmp(UL_INF.nid.a[s->id+i].a, "d0aab024-b3a7-40fb-83cc-22c3d6d951f8", UL_INF.nid.a[s->id+i].n-1)) return;
+    // fprintf(stderr, "[M::%s::] ==> len: %lu\n", __func__, s->len[i]);
+    // ha_get_ul_candidates_interface(b->abl, i, s->seq[i], s->len[i], s->opt->w, s->opt->k, s->uu, &b->olist, &b->olist_hp, &b->clist, s->opt->bw_thres, 
+    //     s->opt->max_n_chain, 1, NULL, &b->r_buf, &(b->tmp_region), NULL, &(b->sp), 1, NULL);
+	/**
+	ug_map_lchain(b->abl, (uint32_t)-1, seq, len, s->w, s->k, &(s->udb), NULL, NULL, s->bw_thres, 
+            s->max_n_chain, 1, NULL, &(b->tmp_region), NULL, &(b->sp), &high_occ, NULL, 0, 1, s->is_HPC);
+	**/
+	/**
+    clear_Cigar_record(&b->cigar1);
+    clear_Round2_alignment(&b->round2);
+    // return;
+    // b->num_correct_base += overlap_statistics(&b->olist, NULL, 0);   
+
+	// int fully_cov, abnormal;
+    // b->self_read.seq = s->seq[i]; b->self_read.length = s->len[i]; b->self_read.size = 0;
+    // correct_ul_overlap(&b->olist, s->uu, &b->self_read, &b->correct, &b->ovlp_read, &b->POA_Graph, &b->DAGCon,
+    //         &b->cigar1, &b->hap, &b->round2, &b->r_buf, &(b->tmp_region.w_list), 0, 1, &fully_cov, &abnormal, s->opt->diff_ec_ul, winLen, NULL);
+	// memset(&b->self_read, 0, sizeof(b->self_read));
+
+	ul_lalign(&b->olist, &b->clist, s->uu, s->uopt, s->seq[i], s->len[i], &b->self_read, &b->ovlp_read,
+                        &b->correct, &b->exz, &b->hap, &b->r_buf, aux_o, s->opt->diff_ec_ul, winLen, NULL, s->id+i, s->opt->k, &(s->sps[tid]), NULL);
+	// ul_lalign_old_ed(&b->olist, &b->clist, s->uu, s->seq[i], s->len[i], &b->self_read, &b->ovlp_read,
+    //                     &b->correct, &b->hap, &b->r_buf, s->opt->diff_ec_ul, winLen, 1, NULL);
+	ton = b->olist.length;//all alignments pass similary check
+	aux_o = gen_aux_ovlp(&b->olist);///must be here
+	gl_chain_flter(&b->olist, &b->correct, &(s->sps[tid]), bl, s->uu, s->opt->diff_ec_ul, winLen, s->len[i], s->uopt, &phase);
+
+	// fprintf(stderr, "[M::%s] rid::%ld, len::%lu, name::%.*s, phase::%u\n", __func__, s->id+i, s->len[i],
+	// 		(int32_t)UL_INF.nid.a[s->id+i].n, UL_INF.nid.a[s->id+i].a, phase);
+	if(phase && gen_shared_intervals(&b->olist, s->uu, s->uopt, winLen, &b->r_buf, &(bl->lo))) {
+		filter_topN(&b->olist, &(bl->lo), s->len[i], winLen, UL_TOPN, bl);
+		// update_shared_intervals(&b->olist, s->uu, s->uopt, NULL, &b->ovlp_read, &b->r_buf, &(s->sps[tid]), s->len[i], winLen, &(bl->lo), s->id+i);
+		
+		copy_asg_arr(b0, b->hap.snp_srt); copy_asg_arr(b1, s->sps[tid]); copy_asg_arr(b2, b->r_buf.a); 
+		// update_shared_intervals(&b->olist, s->uu, s->uopt, NULL, &b->ovlp_read, &b0, &b1, &b2, s->len[i], winLen, &(bl->lo), s->id+i);
+		update_sketch_trace(&b->olist, s->uu, s->uopt, NULL, &b->ovlp_read, &b0, &b1, &b2, s->len[i], winLen, &(bl->lo), s->id+i, MAX_LGAP(s->len[i]), s->opt->diff_ec_ul);
+		copy_asg_arr(b->hap.snp_srt, b0); copy_asg_arr(s->sps[tid], b1); copy_asg_arr(b->r_buf.a, b2); 
+		
+		ul_lalign(&b->olist, &b->clist, s->uu, s->uopt, s->seq[i], s->len[i], &b->self_read, &b->ovlp_read,
+						&b->correct, &b->exz, &b->hap, &b->r_buf, aux_o, s->opt->diff_ec_ul, winLen, &(bl->lo), s->id+i, s->opt->k, &(s->sps[tid]), NULL);
+		// ul_lalign_old_ed(&b->olist, &b->clist, s->uu, s->seq[i], s->len[i], &b->self_read, &b->ovlp_read,
+		//                 &b->correct, &b->hap, &b->r_buf, s->opt->diff_ec_ul, winLen, 0, NULL);
+		///recover alignments
+		for (k = b->olist.length; k < ton; k++) {
+			b->olist.list[k].w_list.n = 0;
+			p.x_start = b->olist.list[k].x_pos_s; 
+			p.x_end = b->olist.list[k].x_pos_e+1;
+			p.clen = b->olist.list[k].non_homopolymer_errors;
+			kv_push(window_list, b->olist.list[k].w_list, p);
+			b->olist.list[k].align_length = 0; 
+			b->olist.list[k].overlapLen = b->olist.list[k].x_pos_e+1-b->olist.list[k].x_pos_s;
+		}
+		b->olist.length = ton;
+	} else {
+		for (k = 0; k < b->olist.length; k++) {
+			b->olist.list[k].w_list.n = 0;
+			p.x_start = b->olist.list[k].x_pos_s; 
+			p.x_end = b->olist.list[k].x_pos_e+1;
+			p.clen = 0;
+			kv_push(window_list, b->olist.list[k].w_list, p);
+			b->olist.list[k].align_length = b->olist.list[k].overlapLen = 
+										b->olist.list[k].x_pos_e+1-b->olist.list[k].x_pos_s;
+			b->olist.list[k].non_homopolymer_errors = 0;
+		}
+	}
+	
+	// prt_overlap_region_alloc_ol(&(b->olist), s->id+i);
+	
+	
+	gl_chain(s->buf[tid], &(UL_INF.a[s->id+i]), &b->olist, &(b->clist.chainDP), &b->hap, &(s->sps[tid]), bl, &(s->gdp[tid]), s->uu, s->opt->diff_ec_ul, winLen, s->len[i], s->uopt, s->id+i, tid, NULL);
+
+    
+    if(UL_INF.a[s->id+i].dd == 1 || UL_INF.a[s->id+i].dd == 2) {
+        b->num_correct_base++;
+    }
+	if(UL_INF.a[s->id+i].dd != 3) {
+		free(s->seq[i]); s->seq[i] = NULL; 
+	}
+    s->hab[tid]->num_read_base++;
+	**/
+}
+
+
 static void worker_for_ul_recorrect_alignment(void *data, long i, int tid) // callback for kt_for()
 {
     utepdat_t *s = (utepdat_t*)data;
@@ -14891,6 +15034,49 @@ void clear_all_ul_t(all_ul_t *x)
 	free(x->ridx.idx.a); free(x->ridx.occ.a); memset(&(x->ridx), 0, sizeof((x->ridx)));
 }
 
+void init_ug_trans_t(ug_trans_t *opt, int32_t is_HPC, int32_t k, int32_t w, int32_t max_n_chain, 
+double bw_thres, double diff_ec_ul, int32_t n_thread, ma_ug_t *ug, asg_t *sg)
+{
+    int64_t i;
+    memset(opt, 0, sizeof((*opt)));
+    opt->k = k; 
+    opt->w = w;
+    opt->is_HPC = is_HPC;
+    opt->max_n_chain = max_n_chain;
+    opt->bw_thres = bw_thres;
+    opt->diff_ec_ul = diff_ec_ul;
+
+    opt->bw = 10000;///2000 in minigraph
+    opt->max_gap = 500000;///5000 in minigraph
+    opt->ug = ug;
+    opt->rg = sg;
+    opt->n_thread = ((n_thread>=1)?n_thread:1);
+
+    CALLOC(opt->hab, opt->n_thread); 
+	CALLOC(opt->ll, opt->n_thread);
+    for (i = 0; i < opt->n_thread; ++i) {
+        opt->hab[i] = ha_ovec_init(0, 0, 1); 
+    }
+
+	opt->idx_n.n = opt->idx_n.m = ug->u.n;
+	MALLOC(opt->idx_n.a, opt->idx_n.n);
+
+	opt->udb.ug = ug;
+}
+
+void trans_base_count(ug_trans_t *p)
+{
+	p->is_cnt = 1; ha_flt_tab = NULL;
+	kt_for(p->n_thread, worker_for_trans_ovlp, p, p->ug->u.n);
+	
+}
+
+void trans_base_infer(ma_ug_t *ug, asg_t *sg)
+{
+    ug_trans_t sl; 
+    init_aux_table(); ha_opt_update_cov(&asm_opt, asm_opt.hom_cov);
+    init_ug_trans_t(&sl, 0, asm_opt.trans_mer_length, asm_opt.trans_win, asm_opt.max_n_chain, 1.0-asm_opt.trans_base_rate, 1.0-asm_opt.trans_base_rate, asm_opt.thread_num, ug, sg);
+}
 
 
 ma_ug_t *ul_realignment(const ug_opt_t *uopt, asg_t *sg, uint32_t double_check_cache)

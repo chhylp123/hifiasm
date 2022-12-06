@@ -13823,6 +13823,8 @@ long long gap_fuzz, bub_label_t* b_mask_t)
 
         if((asm_opt.flag & HA_F_VERBOSE_GFA)) write_trans_chain(cov->t_ch, output_file_name);
     }
+
+
     ///for debug
     // char* gfa_name = (char*)malloc(strlen(output_file_name)+50);
     // sprintf(gfa_name, "%s.pre.clean_d_utg.noseq.gfa", output_file_name);
@@ -13830,7 +13832,11 @@ long long gap_fuzz, bub_label_t* b_mask_t)
     // ma_ug_print_simple(ug, sg, coverage_cut, sources, ruIndex, "utg", output_file);
     // fclose(output_file);
     // free(gfa_name);
+    // exit(1);
     ///for debug
+
+
+
     hic_analysis(ug, sg, cov?cov->t_ch:t_ch, &opt, 0, asm_opt.scffold?&rhits:NULL);
 
 
@@ -14876,12 +14882,29 @@ void filter_u_trans_t(kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g, uint32_t thr
     kt_u_trans_t_idx(ta, ug->g->n_seq);
 }
 
+
+void dbg_prt_utg_trans(kv_u_trans_t *ta, ma_ug_t *ug, const char *o_n)
+{
+    char* gfa_name = (char*)malloc(strlen(o_n)+100); 
+    FILE *fn = NULL; sprintf(gfa_name, "%s.tran.dbg.ovlp.log", o_n);
+    u_trans_t *p = NULL; uint32_t i; fn = fopen(gfa_name, "w");
+    for (i = 0; i < ta->n; i++) {
+        p = &(ta->a[i]);
+        fprintf(fn, "utg%.6u%c\t%u\t%u\t%u\t%c\tutg%.6u%c\t%u\t%u\t%u\tw(%f)\tf(%u)\n", 
+        p->qn+1, "lc"[ug->u.a[p->qn].circ], ug->u.a[p->qn].len, p->qs, p->qe, "+-"[p->rev],
+        p->tn+1, "lc"[ug->u.a[p->tn].circ], ug->u.a[p->tn].len, p->ts, p->te, p->nw, p->f);
+    }
+    fclose(fn); free(gfa_name); fprintf(stderr, "[M::%s::] done\n", __func__);
+}
+
 void clean_u_trans_t_idx(kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g)
 {
+    // dbg_prt_utg_trans(ta, ug, "pre");
     kt_u_trans_t_idx(ta, ug->g->n_seq);
     kt_u_trans_t_symm(ta, ug);
     filter_u_trans_t(ta, ug, read_g, 3);
     ///debug_u_trans_t(ta);
+    // dbg_prt_utg_trans(ta, ug, "after");
 }
 
 
@@ -32112,7 +32135,7 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
     // flat_bubbles(sg, ruIndex->is_het); free(ruIndex->is_het); ruIndex->is_het = NULL;
     flat_soma_v(sg, sources, ruIndex);
     **/
-    if(!(ha_opt_triobin(&asm_opt) && ha_opt_hic(&asm_opt))) {
+    if(!ha_opt_triobin(&asm_opt)) {
         // output_unitig_graph(sg, coverage_cut, "pre_clean", sources, ruIndex, max_hang_length, mini_overlap_length);
         hic_clean_adv(sg, &uopt);
     }

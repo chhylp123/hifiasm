@@ -285,7 +285,6 @@ KRADIX_SORT_INIT(k_trans_qs, u_trans_t, k_trans_qs_key, member_size(u_trans_t, q
 #define get_hit_euid(x, k) (((x).a.a[(k)].e<<1)>>(64 - (x).uID_bits))
 #define get_hit_epos(x, k) ((x).a.a[(k)].e & (x).pos_mode)
 
-
 typedef struct {
     kvec_t(kvec_t_u64_warp) matrix;
     uint64_t uID_shift, dis_mode;
