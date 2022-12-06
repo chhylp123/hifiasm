@@ -4,7 +4,7 @@
 #include <pthread.h>
 #include <stdint.h>
 
-#define HA_VERSION "0.18.0-r465"
+#define HA_VERSION "0.18.1-r466"
 
 #define VERBOSE 0
 
@@ -48,9 +48,11 @@ typedef struct {
     int k_mer_length;
     int hic_mer_length;
     int ul_mer_length;
+    int trans_mer_length;
     int bub_mer_length;
 	int mz_win;
     int ul_mz_win;
+    int trans_win;
     int mz_rewin;
     int ul_mz_rewin;
 	int mz_sample_dist;
@@ -97,6 +99,7 @@ typedef struct {
     float purge_simi_rate_l2;
     float purge_simi_rate_l3;
     float purge_simi_thres;
+    float trans_base_rate;
 
     ///float purge_simi_rate_hic;
 

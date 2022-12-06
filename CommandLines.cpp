@@ -172,8 +172,10 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->k_mer_length = 51;
     asm_opt->hic_mer_length = 31;
     asm_opt->ul_mer_length = 19;
+    asm_opt->trans_mer_length = 31;
 	asm_opt->mz_win = 51;
     asm_opt->ul_mz_win = 19;
+    asm_opt->trans_win = 31;
     asm_opt->mz_rewin = 1000;
     asm_opt->ul_mz_rewin = 360;
 	asm_opt->mz_sample_dist = 500;
@@ -208,6 +210,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->purge_level_trio = 0;
     asm_opt->purge_simi_rate_l2 = 0.75;
     asm_opt->purge_simi_rate_l3 = 0.55;
+    asm_opt->trans_base_rate = 0.8;
     asm_opt->purge_overlap_len = 1;
     ///asm_opt->purge_overlap_len_hic = 50;
     asm_opt->recover_atg_cov_min = -1024;

@@ -1278,3 +1278,16 @@ void ul_map_lchain(ha_abufl_t *ab, uint32_t rid, char* rs, uint64_t rl, uint64_t
 	///no need to sort here, overlap_list has been sorted at lchain_gen
 	lchain_qgen_mcopy(cl, overlap_list, rid, rl, NULL, uref, apend_be, max_n_chain, max_skip, max_iter, max_dis, chn_pen_gap, chn_pen_skip, bw_thres, quick_check, gen_off);
 }
+
+void ug_map_lchain(ha_abufl_t *ab, uint32_t rid, char* rs, uint64_t rl, uint64_t mz_w, uint64_t mz_k, const ul_idx_t *uref, overlap_region_alloc *overlap_list, Candidates_list *cl, double bw_thres, 
+								 int max_n_chain, int apend_be, kvec_t_u8_warp* k_flag, overlap_region* f_cigar, kvec_t_u64_warp* dbg_ct, st_mt_t *sp, uint32_t *high_occ, uint32_t *low_occ, uint32_t is_accurate, uint32_t gen_off, uint32_t is_hpc)
+{
+	int64_t max_skip, max_iter, max_dis, quick_check; double chn_pen_gap, chn_pen_skip;
+	set_lchain_dp_op(is_accurate, mz_k, &max_skip, &max_iter, &max_dis, &chn_pen_gap, &chn_pen_skip, &quick_check);
+	if((!overlap_list) || (!cl)) {
+		ab->mz.n = 0;
+		mz2_ha_sketch(rs, rl, mz_w, mz_k, 0, is_hpc, &ab->mz, NULL, asm_opt.mz_sample_dist, k_flag, dbg_ct, NULL, -1, asm_opt.dp_min_len, -1, sp, asm_opt.mz_rewin, 0, NULL);
+	} else {
+
+	}
+}

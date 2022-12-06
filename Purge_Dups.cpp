@@ -1788,7 +1788,7 @@ void chain_trans_ovlp(hap_cov_t *cover, utg_trans_t *o, ma_ug_t *ug, asg_t *read
             }
 
             p_v = v; len += l;
-            if(len >= targetBaseLen)
+            if(len >= targetBaseLen)///might be not right for centromeres 
             {
                 xOcc = aOcc;
                 break;
