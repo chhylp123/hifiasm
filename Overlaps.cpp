@@ -3594,7 +3594,7 @@ uint32_t startNode, uint32_t endNode, int max_dist, buf_t* bub)
                    {
                        Ns_first[0] = av[0].v; Ns_first[1] = av[1].v;
                        f1 = asg_bub_end_finder_with_del_advance(g, Ns_first, 2, max_dist, 
-                       bub, 0, (u_int32_t)-1, &convex1);
+                       bub, 0, (uint32_t)-1, &convex1);
                        l1 = min_thres + 10;
                    }
 
@@ -3602,7 +3602,7 @@ uint32_t startNode, uint32_t endNode, int max_dist, buf_t* bub)
                    {
                        Ns_second[0] = aw[0].v; Ns_second[1] = aw[1].v;
                        f2 = asg_bub_end_finder_with_del_advance(g, Ns_second, 2, max_dist, 
-                       bub, 0, (u_int32_t)-1, &convex2);
+                       bub, 0, (uint32_t)-1, &convex2);
                        l2 = min_thres + 10;
                    }
 
@@ -4034,7 +4034,7 @@ uint32_t startNode, uint32_t endNode, int max_dist, buf_t* bub)
             {
                 Ns_first[0] = Nodes1[0]^1; Ns_first[1] = Nodes2[1]^1;
                 f1 = asg_bub_end_finder_with_del_advance(g, Ns_first, 2, max_dist, 
-                bub, 0, (u_int32_t)-1, &convex1);
+                bub, 0, (uint32_t)-1, &convex1);
                 l1 = min_thres + 10;
             }
 
@@ -4042,7 +4042,7 @@ uint32_t startNode, uint32_t endNode, int max_dist, buf_t* bub)
             {
                 Ns_second[0] = Nodes2[0]^1; Ns_second[1] = Nodes1[1]^1;
                 f2 = asg_bub_end_finder_with_del_advance(g, Ns_second, 2, max_dist, 
-                bub, 0, (u_int32_t)-1, &convex2);
+                bub, 0, (uint32_t)-1, &convex2);
                 l2 = min_thres + 10;
             }
 
@@ -6896,7 +6896,7 @@ ma_hit_t_alloc* reverse_sources, long long miniedgeLen, R_to_U* ruIndex)
                 kv_push(uint32_t, b_r, w);
 
                 aw = asg_arc_a(g, w);
-                min_edge = (u_int32_t)-1;
+                min_edge = (uint32_t)-1;
                 for (t = 0; t < nw; t++)
                 {
                     if(aw[t].del) continue;
@@ -6996,7 +6996,7 @@ ma_hit_t_alloc* reverse_sources, long long miniedgeLen, R_to_U* ruIndex)
         }
         //check the length
         if(to_del_l == 0 && asg_bub_end_finder_with_del_advance(g, 
-        b_f.a, b_f.n, max_dist, &bub, 0, (u_int32_t)-1, &sink)==1)
+        b_f.a, b_f.n, max_dist, &bub, 0, (uint32_t)-1, &sink)==1)
         {
             to_del_l = 1;
         }
@@ -7143,7 +7143,7 @@ ma_hit_t_alloc* reverse_sources, long long miniedgeLen, R_to_U* ruIndex)
             kv_push(uint32_t, b_r, w);
 
             aw = asg_arc_a(g, w);
-            min_edge = (u_int32_t)-1;
+            min_edge = (uint32_t)-1;
             for (t = 0; t < nw; t++)
             {
                 if(aw[t].del) continue;
@@ -7187,7 +7187,7 @@ ma_hit_t_alloc* reverse_sources, long long miniedgeLen, R_to_U* ruIndex)
                 kv_push(uint32_t, b_r, w);
 
                 aw = asg_arc_a(g, w);
-                min_edge = (u_int32_t)-1;
+                min_edge = (uint32_t)-1;
                 for (t = 0; t < nw; t++)
                 {
                     if(aw[t].del) continue;
@@ -7288,7 +7288,7 @@ ma_hit_t_alloc* reverse_sources, long long miniedgeLen, R_to_U* ruIndex)
         }
         //check the length
         if(to_del_l == 0 && asg_bub_end_finder_with_del_advance(g, 
-        b_f.a, b_f.n, max_dist, &bub, 0, (u_int32_t)-1, &sink)==1)
+        b_f.a, b_f.n, max_dist, &bub, 0, (uint32_t)-1, &sink)==1)
         {
             to_del_l = 1;
         }
@@ -7431,7 +7431,7 @@ ma_hit_t_alloc* reverse_sources, long long miniedgeLen, R_to_U* ruIndex)
             kv_push(uint32_t, b_r, w);
 
             aw = asg_arc_a(g, w);
-            min_edge = (u_int32_t)-1;
+            min_edge = (uint32_t)-1;
             for (t = 0; t < nw; t++)
             {
                 if(aw[t].del) continue;
@@ -7475,7 +7475,7 @@ ma_hit_t_alloc* reverse_sources, long long miniedgeLen, R_to_U* ruIndex)
                 kv_push(uint32_t, b_r, w);
 
                 aw = asg_arc_a(g, w);
-                min_edge = (u_int32_t)-1;
+                min_edge = (uint32_t)-1;
                 for (t = 0; t < nw; t++)
                 {
                     if(aw[t].del) continue;
@@ -7575,7 +7575,7 @@ ma_hit_t_alloc* reverse_sources, long long miniedgeLen, R_to_U* ruIndex)
         }
         //check the length
         if(to_del_l == 0 && asg_bub_end_finder_with_del_advance(g, 
-        b_f.a, b_f.n, max_dist, &bub, 0, (u_int32_t)-1, &sink)==1)
+        b_f.a, b_f.n, max_dist, &bub, 0, (uint32_t)-1, &sink)==1)
         {
             to_del_l = 1;
         }
@@ -31884,7 +31884,7 @@ int64_t max_tip, bub_label_t *b_mask_t, uint32_t is_trio, char *o_file)
     nopt.cov = coverage_cut; nopt.b_mask_t = b_mask_t;
     nopt.max_hang = max_hang_length; nopt.mini_ovlp = mini_overlap_length;
     ul_realignment_gfa(uopt, *sg, clean_round, min_ovlp_drop_ratio, max_ovlp_drop_ratio, 
-                                                                    asm_opt.max_short_tip, b_mask_t, ha_opt_triobin(&asm_opt), o_file, &nopt);;
+                                                                    asm_opt.max_short_tip, asm_opt.max_short_ul_tip, b_mask_t, ha_opt_triobin(&asm_opt), o_file, &nopt);;
     // ma_ug_t *iug = ul_realignment_gfa(uopt, *sg, clean_round, min_ovlp_drop_ratio, max_ovlp_drop_ratio, 
     //                                                                 asm_opt.max_short_tip, b_mask_t, ha_opt_triobin(&asm_opt), o_file);
     // asg_t *ng = gen_ng(iug, *sg, uopt, coverage_cut, ruIndex, 256);

@@ -49,6 +49,8 @@ static ko_longopt_t long_options[] = {
     { "kpt-rate",     ko_required_argument, 335},
     { "ul-rate",     ko_required_argument, 336},
     { "dbg-het-cnt",     ko_no_argument, 337},
+    { "ul-tip",     ko_required_argument, 338},
+    { "low-het",     ko_no_argument, 339},
 	{ 0, 0, 0 }
 };
 
@@ -146,8 +148,10 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "  Ultra-Long-integration (beta):\n");
     fprintf(stderr, "    --ul FILEs   file names of Ultra-Long reads [r1.fq,r2.fq,...]\n");
     fprintf(stderr, "    --ul-rate    FLOAT\n");
-    fprintf(stderr, "                 similarity threshold for UL-to-HiFi alignment [%.3g]\n", asm_opt->ul_error_rate);
-    
+    fprintf(stderr, "                 error rate of Ultra-Long reads [%.3g]\n", asm_opt->ul_error_rate);
+    fprintf(stderr, "    --ul-tip     INT\n");
+    fprintf(stderr, "                 remove tip unitigs composed of <=INT reads for the UL assembly [%d]\n", asm_opt->max_short_ul_tip);
+    // fprintf(stderr, "    --low-het    enable it for genomes with very low het heterozygosity rate (<0.0001%%)\n");
 
     fprintf(stderr, "Example: ./hifiasm -o NA12878.asm -t 32 NA12878.fq.gz\n");
     fprintf(stderr, "See `https://hifiasm.readthedocs.io/en/latest/' or `man ./hifiasm.1' for complete documentation.\n");
@@ -204,6 +208,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->min_overlap_Len = 50;
     asm_opt->min_overlap_coverage = 0;
     asm_opt->max_short_tip = 3;
+    asm_opt->max_short_ul_tip = 6;
     asm_opt->min_cnt = 2;
     asm_opt->mid_cnt = 5;
     asm_opt->purge_level_primary = 3;
@@ -246,6 +251,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->ul_error_rate_hpc = 0.2;
     asm_opt->ul_ec_round = 3;
     asm_opt->is_dbg_het_cnt = 0;
+    asm_opt->is_low_het_ul = 0;
 }
 
 void destory_enzyme(enzyme* f)
@@ -763,6 +769,8 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         else if (c == 335) asm_opt->kpt_rate = atof(opt.arg);
         else if (c == 336) asm_opt->ul_error_rate = atof(opt.arg);
         else if (c == 337) asm_opt->is_dbg_het_cnt = 1;
+        else if (c == 338) asm_opt->max_short_ul_tip = atol(opt.arg);
+        else if (c == 339) asm_opt->is_low_het_ul = 1;
         else if (c == 'l')
         {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
             asm_opt->purge_level_primary = asm_opt->purge_level_trio = atoi(opt.arg);

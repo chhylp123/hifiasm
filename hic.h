@@ -110,4 +110,6 @@ void set_utg_by_dis(uint32_t v, pdq* pq, asg_t *g, kvec_t_u32_warp *res, uint32_
 void dedup_hits(kvec_pe_hit* hits, uint64_t is_dup);
 void hic_analysis(ma_ug_t *ug, asg_t* read_g, trans_chain* t_ch, ug_opt_t *opt, uint32_t is_poy, kvec_pe_hit **rhits);
 spg_t *hic_pre_analysis(ma_ug_t *ug, asg_t* read_g, trans_chain* t_ch, ug_opt_t *opt, kvec_pe_hit **rhits);
+void prt_bubble_gfa_adv(FILE *fp, bubble_type *bub, const char* utg_pre, const char* bub_pre, const char* chain_pre);
+
 #endif

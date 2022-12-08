@@ -4,7 +4,7 @@
 #include <pthread.h>
 #include <stdint.h>
 
-#define HA_VERSION "0.18.1-r466"
+#define HA_VERSION "0.18.2-r467"
 
 #define VERBOSE 0
 
@@ -79,6 +79,7 @@ typedef struct {
     int min_overlap_Len;
     int min_overlap_coverage;
     int max_short_tip;
+    int max_short_ul_tip;
     int min_cnt;
     int mid_cnt;
     int purge_level_primary;
@@ -128,6 +129,7 @@ typedef struct {
     double ul_error_rate, ul_error_rate_low, ul_error_rate_hpc;
     int32_t ul_ec_round;
     uint8_t is_dbg_het_cnt;
+    uint8_t is_low_het_ul;
 } hifiasm_opt_t;
 
 extern hifiasm_opt_t asm_opt;
