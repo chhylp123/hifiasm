@@ -14385,9 +14385,12 @@ void u2g_hybrid_detan_iter(ul_resolve_t *uidx, usg_t *ng, uint32_t max_ext, uint
     asg64_v b64, ub64; kv_init(b64); kv_init(ub64); 
     asg64_v tx = {0,0,0}, tb = {0,0,0}, *ob = NULL, *ub = NULL;
     ob = (in?(in):(&tx)); ub = (ib?(ib):(&tb)); ob->n = ub->n = 0;
+    // fprintf(stderr, "\n[M::%s::] asm_opt.is_low_het_ul::%u, max_ext::%u\n", 
+    //     __func__, asm_opt.is_low_het_ul, max_ext);
     // prt_usg_t(uidx, ng, "ng0");
     for (k = 0; k < clean_round; k++) {
         ncut += ug_ext_strict(ob, ub, uidx, ng, max_ext, &ff, &ng_occ, &i_idx, &b64, &ub64);
+        // if(asm_opt.is_low_het_ul) break;
         ncut += ug_ext_free(ob, ub, uidx, ng, max_ext, &ff, &ng_occ, &i_idx, &b64, &ub64, 48, 1);
         // prt_usg_t(uidx, ng, "ng_python");
         ncut += ug_ext_free(ob, ub, uidx, ng, max_ext, &ff, &ng_occ, &i_idx, &b64, &ub64, 16, 1);
@@ -14403,7 +14406,7 @@ void u2g_hybrid_detan_iter(ul_resolve_t *uidx, usg_t *ng, uint32_t max_ext, uint
     // prt_usg_t(uidx, ng, "ng.db");
     // ncut += ug_ext_free(ob, ub, uidx, ng, max_ext, &ff, &ng_occ, &i_idx, &b64, &ub64, 10);
     // ncut += ug_ext_strict(ob, ub, uidx, ng, max_ext, &ff, &ng_occ, &i_idx, &b64, &ub64);
-    // prt_usg_t(uidx, ng, "ng1");
+    // prt_usg_t(uidx, ng, "ng.db");
     if(ncut) {
         usg_cleanup(ng); usg_arc_cut_tips(ng, max_ext, 1, ub);
     }
@@ -16479,8 +16482,38 @@ void destroy_ul_resolve_t(ul_resolve_t *uidx)
     free(uidx);
 }
 
+static void clear_ma_hit_t_alloc(void *data, long i, int tid)
+{
+    ma_hit_t_alloc *src = (ma_hit_t_alloc *)data;
+    ma_hit_t_alloc *z = &(src[i]); uint32_t k;
+    for (k = 0; k < z->length; k++) z->buffer[k].del = 0;
+}
+
+static void reset_ma_sub_t(void *data, long i, int tid)
+{
+    sset_aux *s = (sset_aux *)data;
+    if(s->g && s->g->seq[i].del) s->cov[i].del = 1;
+    else s->cov[i].del = 0;
+}
+
+void renew_R_to_U(asg_t *ng, ma_hit_t_alloc* src, ma_hit_t_alloc* r_src, int64_t n_read, ma_sub_t *coverage_cut, 
+R_to_U* ruIndex, int max_hang, int min_ovlp)
+{
+    sset_aux s; memset(&s, 0, sizeof(s)); 
+    kt_for(asm_opt.thread_num, clear_ma_hit_t_alloc, src, n_read);
+    kt_for(asm_opt.thread_num, clear_ma_hit_t_alloc, r_src, n_read);
+
+    s.g = NULL; s.cov = coverage_cut;
+    kt_for(asm_opt.thread_num, reset_ma_sub_t, &s, n_read);
+
+    ma_hit_contained_advance(src, n_read, coverage_cut, ruIndex, max_hang, min_ovlp);
+
+    // s.g = ng; s.cov = coverage_cut;
+    // kt_for(asm_opt.thread_num, reset_ma_sub_t, &s, n_read);
+}
+
 void ul_realignment_gfa(ug_opt_t *uopt, asg_t *sg, int64_t clean_round, double min_ovlp_drop_ratio, 
-double max_ovlp_drop_ratio, int64_t max_tip, bub_label_t *b_mask_t, uint32_t is_trio, char *o_file,
+double max_ovlp_drop_ratio, int64_t max_tip, int64_t max_ul_tip, bub_label_t *b_mask_t, uint32_t is_trio, char *o_file,
 ul_renew_t *ropt)
 {
     uint64_t i; uint8_t *r_het = NULL; bubble_type *bub = NULL; ulg_opt_t uu;
@@ -16502,7 +16535,7 @@ ul_renew_t *ropt)
     // print_raw_uls_seq(uidx, asm_opt.output_file_name);
     // print_raw_uls_aln(uidx, asm_opt.output_file_name);
     ul_re_correct(uidx, 3); 
-    init_ulg_opt_t(&uu, uopt, clean_round, min_ovlp_drop_ratio, max_ovlp_drop_ratio, 0.55, max_tip, max_tip<<1, b_mask_t, is_trio);
+    init_ulg_opt_t(&uu, uopt, clean_round, min_ovlp_drop_ratio, max_ovlp_drop_ratio, 0.55, max_tip, max_ul_tip, b_mask_t, is_trio);
     // print_debug_gfa(sg, init_ug, uopt->coverage_cut, "UL.debug0", uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 0, 0, 1);
     /**ul2ul_idx_t *u2o = **/gen_ul2ul(uidx, uopt, &uu, 0);
     // print_ul_alignment(init_ug, &UL_INF, 47072, "after-3");
@@ -16529,7 +16562,7 @@ ul_renew_t *ropt)
     asg_destroy((*(ropt->sg))); (*(ropt->sg)) = ng; 
     (*(ropt->src)) = R_INF.paf; (*(ropt->r_src)) = R_INF.reverse_paf;
     (*(ropt->n_read)) = R_INF.total_reads; (*(ropt->readLen)) = R_INF.read_length;
-    ma_hit_contained_advance((*(ropt->src)), (*(ropt->n_read)), (*(ropt->cov)), ropt->ruIndex, ropt->max_hang, ropt->mini_ovlp);
+    renew_R_to_U(ng, (*(ropt->src)), (*(ropt->r_src)), (*(ropt->n_read)), (*(ropt->cov)), ropt->ruIndex, ropt->max_hang, ropt->mini_ovlp);
     post_rescue(uopt, (*(ropt->sg)), (*(ropt->src)), (*(ropt->r_src)), ropt->ruIndex, ropt->b_mask_t, 0);
     // print_raw_uls_aln(uidx, asm_opt.output_file_name);
     // exit(0);
