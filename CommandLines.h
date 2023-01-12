@@ -4,7 +4,7 @@
 #include <pthread.h>
 #include <stdint.h>
 
-#define HA_VERSION "0.18.2-r467"
+#define HA_VERSION "0.18.4-r496"
 
 #define VERBOSE 0
 
@@ -101,6 +101,7 @@ typedef struct {
     float purge_simi_rate_l3;
     float purge_simi_thres;
     float trans_base_rate;
+    float trans_base_rate_sec;
 
     ///float purge_simi_rate_hic;
 
@@ -130,6 +131,10 @@ typedef struct {
     int32_t ul_ec_round;
     uint8_t is_dbg_het_cnt;
     uint8_t is_low_het_ul;
+    uint8_t is_base_trans;
+    uint8_t is_read_trans;
+    uint8_t is_topo_trans;
+    uint8_t is_bub_trans;
 } hifiasm_opt_t;
 
 extern hifiasm_opt_t asm_opt;

@@ -8,6 +8,7 @@
 #define RC_0 0
 #define RC_1 1
 #define RC_2 2
+#define RC_3 3
 
 hc_edge* get_hc_edge(hc_links* link, uint64_t src, uint64_t dest, uint64_t dir);
 hc_edge* push_hc_edge(hc_linkeage* x, uint64_t uID, double weight, int dir, uint64_t* d);
@@ -111,5 +112,6 @@ void dedup_hits(kvec_pe_hit* hits, uint64_t is_dup);
 void hic_analysis(ma_ug_t *ug, asg_t* read_g, trans_chain* t_ch, ug_opt_t *opt, uint32_t is_poy, kvec_pe_hit **rhits);
 spg_t *hic_pre_analysis(ma_ug_t *ug, asg_t* read_g, trans_chain* t_ch, ug_opt_t *opt, kvec_pe_hit **rhits);
 void prt_bubble_gfa_adv(FILE *fp, bubble_type *bub, const char* utg_pre, const char* bub_pre, const char* chain_pre);
+void bp_solve(ug_opt_t *opt, kv_u_trans_t *ref, ma_ug_t *ug, asg_t *sg, bubble_type *bub, double cis_rate);
 
 #endif

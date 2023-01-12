@@ -2,6 +2,7 @@
 #define __INTER__
 #include "Overlaps.h"
 #include "Process_Read.h"
+#include "hic.h"
 
 #define G_CHAIN_BW 16//128
 #define FLANK_M (0x7fffU)
@@ -116,5 +117,6 @@ void gen_ul_vec_rid_t(all_ul_t *x, All_reads *rdb, ma_ug_t *ug);
 void update_ug_arch_ul_mul(ma_ug_t *ug);
 void print_ul_alignment(ma_ug_t *ug, all_ul_t *aln, uint32_t id, const char* cmd);
 void clear_all_ul_t(all_ul_t *x);
+void trans_base_infer(ma_ug_t *ug, asg_t *sg, ug_opt_t *uopt, kv_u_trans_t *res, bubble_type *bub);
 
 #endif

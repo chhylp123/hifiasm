@@ -233,6 +233,7 @@ uint64_t lchain_qdp_mcopy(Candidates_list *cl, int64_t a_idx, int64_t a_n, int64
               Chain_Data* dp, overlap_region_alloc* res, int64_t max_skip, int64_t max_iter, 
               int64_t max_dis, double chn_pen_gap, double chn_pen_skip, double bw_rate, 
               uint32_t xid, int64_t xl, int64_t yl, int64_t quick_check, uint32_t apend_be, 
-              int64_t gen_cigar);
+              int64_t gen_cigar, int64_t enable_mcopy, double mcopy_rate, int64_t mcopy_khit_cutoff, 
+              int64_t khit_n);
 
 #endif

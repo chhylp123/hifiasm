@@ -51,6 +51,7 @@ static ko_longopt_t long_options[] = {
     { "dbg-het-cnt",     ko_no_argument, 337},
     { "ul-tip",     ko_required_argument, 338},
     { "low-het",     ko_no_argument, 339},
+    { "s-base",     ko_required_argument, 340},
 	{ 0, 0, 0 }
 };
 
@@ -120,7 +121,7 @@ void Print_H(hifiasm_opt_t* asm_opt)
 
     fprintf(stderr, "  Purge-dups:\n");
     fprintf(stderr, "    -l INT       purge level. 0: no purging; 1: light; 2/3: aggressive [0 for trio; 3 for unzip]\n");
-    fprintf(stderr, "    -s FLOAT     similarity threshold for duplicate haplotigs [%g for -l1/-l2, %g for -l3]\n", 
+    fprintf(stderr, "    -s FLOAT     similarity threshold for duplicate haplotigs in read-level [%g for -l1/-l2, %g for -l3]\n", 
                                       asm_opt->purge_simi_rate_l2, asm_opt->purge_simi_rate_l3);
     fprintf(stderr, "    -O INT       min number of overlapped reads for duplicate haplotigs [%d]\n", 
                                       asm_opt->purge_overlap_len);
@@ -134,7 +135,9 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "    --h1 FILEs   file names of Hi-C R1  [r1_1.fq,r1_2.fq,...]\n");
     fprintf(stderr, "    --h2 FILEs   file names of Hi-C R2  [r2_1.fq,r2_2.fq,...]\n");
     fprintf(stderr, "    --seed INT   RNG seed [%lu]\n", asm_opt->seed);
-
+    fprintf(stderr, "    --s-base     FLOAT\n");
+	fprintf(stderr, "                 similarity threshold for homology detection in base-level;\n"); 
+    fprintf(stderr, "                 -1 to disable [%.3g]; -s for read-level (see <Purge-dups>)\n", asm_opt->trans_base_rate_sec);
     
     fprintf(stderr, "    --n-weight   INT\n");
     fprintf(stderr, "                 rounds of reweighting Hi-C links [%d]\n", asm_opt->n_weight);
@@ -215,7 +218,8 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->purge_level_trio = 0;
     asm_opt->purge_simi_rate_l2 = 0.75;
     asm_opt->purge_simi_rate_l3 = 0.55;
-    asm_opt->trans_base_rate = 0.8;
+    asm_opt->trans_base_rate = 0.93;
+    asm_opt->trans_base_rate_sec = 0.5;
     asm_opt->purge_overlap_len = 1;
     ///asm_opt->purge_overlap_len_hic = 50;
     asm_opt->recover_atg_cov_min = -1024;
@@ -252,6 +256,10 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->ul_ec_round = 3;
     asm_opt->is_dbg_het_cnt = 0;
     asm_opt->is_low_het_ul = 0;
+    asm_opt->is_base_trans = 1;
+    asm_opt->is_read_trans = 1;
+    asm_opt->is_topo_trans = 1;
+    asm_opt->is_bub_trans = 1;
 }
 
 void destory_enzyme(enzyme* f)
@@ -771,7 +779,10 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         else if (c == 337) asm_opt->is_dbg_het_cnt = 1;
         else if (c == 338) asm_opt->max_short_ul_tip = atol(opt.arg);
         else if (c == 339) asm_opt->is_low_het_ul = 1;
-        else if (c == 'l')
+        else if (c == 340) {
+            asm_opt->trans_base_rate_sec = atof(opt.arg);
+            if(asm_opt->trans_base_rate_sec < 0) asm_opt->is_base_trans = 0;
+        } else if (c == 'l')
         {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
             asm_opt->purge_level_primary = asm_opt->purge_level_trio = atoi(opt.arg);
         }
@@ -788,10 +799,9 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
 			return 1;
 		}
     }
-
+    
     if(asm_opt->purge_level_primary > 2) asm_opt->purge_simi_thres = asm_opt->purge_simi_rate_l3;
     else asm_opt->purge_simi_thres = asm_opt->purge_simi_rate_l2;
-
     
     if (argc == opt.ind)
     {

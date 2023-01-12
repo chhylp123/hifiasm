@@ -1160,6 +1160,11 @@ void lchain_align(overlap_region_alloc* overlap_list, const ul_idx_t *uref,
                         kvec_t_u64_warp* v_idx, window_list_alloc* win_ciagr_buf, 
                         int force_repeat, int is_consensus, int* fully_cov, int* abnormal, 
                         double max_ov_diff_ec, long long winLen, void *km);
+
+void ug_lalign(overlap_region_alloc* ol, Candidates_list *cl, const ul_idx_t *uref, const ug_opt_t *uopt, 
+        char *qstr, uint64_t ql, UC_Read* qu, UC_Read* tu, Correct_dumy* dumy, bit_extz_t *exz,  
+        overlap_region *aux_o, double e_rate, int64_t wl, int64_t sid, uint64_t khit, uint64_t chain_cut, 
+        void *km);
 /***
  type:
  0. match

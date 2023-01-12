@@ -2142,6 +2142,7 @@ void print_hits_simp(ha_ug_index* idx, kvec_pe_hit* hits)
     char dir[2] = {'+', '-'};
     for (k = 0; k < hits->a.n; ++k) 
     { 
+        if(((hits->a.a[k].s<<1)>>shif) == ((hits->a.a[k].e<<1)>>shif)) continue;
         fprintf(stderr, "r-%lu-th\t%c\trs-utg%.6dl\t%lu\t%c\tre-utg%.6dl\t%lu\n", 
         hits->a.a[k].id,
         dir[hits->a.a[k].s>>63], (int)((hits->a.a[k].s<<1)>>shif)+1, hits->a.a[k].s&idx->pos_mode,
@@ -7088,7 +7089,7 @@ void get_bub_graph(ma_ug_t* ug, bubble_type* bub)
             adjecent = 0;
             while (pre_id != v)
             {
-                if(connect_bub_occ(bub, pre_id>>1, bub->check_het) > 0)
+                if(connect_bub_occ(bub, pre_id>>1, bub->check_het) > 0)///some bubbles between v and k
                 {
                     adjecent = 1;
                     break;
@@ -16480,7 +16481,7 @@ void optimize_u_trans(kv_u_trans_t *ovlp, kvec_pe_hit* hits, ha_ug_index* idx)
     for (i = 0; i < ovlp->n; i++){
         x = &(ovlp->a[i]);
         if(x->qn > x->tn) continue;
-        if(x->f != RC_2 || x->del) continue;
+        if(x->f != RC_2 || x->del) continue;///no need to adjust RC_0/RC_1
         occ = get_oe_occ(x->qn, x->tn, hits, idx) + get_oe_occ(x->tn, x->qn, hits, idx);///how many UL bridging qn and tn
         kv_pushp(u_trans_t, k_trans, &p);
         (*p) = (*x); p->nw = (x->nw*(1-(((double)(occ<<1))/((double)(hits->occ.a[x->qn]+hits->occ.a[x->tn])))));
@@ -16731,8 +16732,13 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, ug_o
         write_hc_hits(&sl.hits, idx->ug, asm_opt.output_file_name);
     }
     sl.hits.uID_bits = idx->uID_bits; sl.hits.pos_mode = idx->pos_mode;
-    optimize_u_trans(&(idx->t_ch->k_trans), &sl.hits, idx);
-    filter_kv_u_trans_t(&(idx->t_ch->k_trans), idx->ug, 0.5);
+
+    /***debug***/
+    if(sl.hits.idx.n == 0) idx_hc_links(&(sl.hits), idx, NULL);
+    // optimize_u_trans(&(idx->t_ch->k_trans), &sl.hits, idx);
+    // filter_kv_u_trans_t(&(idx->t_ch->k_trans), idx->ug, 0.5);
+    /***debug***/
+    
     // print_kv_u_trans_t(&(idx->t_ch->k_trans), idx->ug);
     // flter_by_cov(idx, &sl.hits, 2);
     // update_hits(idx, &sl.hits, idx->t_ch->is_r_het);
@@ -16740,7 +16746,7 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, ug_o
     ////dedup_hits(&(sl.hits), sl.idx);   
     ///write_hc_hits_v14(&sl.hits, asm_opt.output_file_name);
     
-    if(asm_opt.misjoin_len > 0)
+    if(asm_opt.misjoin_len > 0/** && (!(asm_opt.ar))**/)//disable it for the UL assembly
     {
         update_switch_unitig(idx->ug, idx->read_g, &(sl.hits), &(idx->t_ch->k_trans), 10, 20, asm_opt.misjoin_len, 0.15);
         renew_idx_para(idx, idx->ug);
@@ -16782,13 +16788,15 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, ug_o
         /*******************************for debug************************************/
         mc_solve(NULL, NULL, &k_trans, idx->ug, idx->read_g, 0.8, R_INF.trio_flag, 
         (bub.round_id == 0? 1 : 0), s->s, 1, &bub, 
-        &(idx->t_ch->k_trans), 0, 0/**(((bub.round_id+1) == bub.n_round)?1:0)**/);
+        &(idx->t_ch->k_trans), 0, /**(((bub.round_id+1) == bub.n_round)?1:0)**/0);
         // mc_solve(NULL, NULL, &k_trans, idx->ug, idx->read_g, 0.8, R_INF.trio_flag, 
         // (bub.round_id == 0? 1 : 0), s->s, 1, NULL, &(idx->t_ch->k_trans), 0, 0);
-        // if((bub.round_id+1) == bub.n_round) {
-        //     prt_debug_hic(asm_opt.output_file_name, idx->ug, idx, opt, &sl.hits, 
-        //     &(idx->t_ch->k_trans), &k_trans, &link, s->s, &(bub));
-        // }
+        /**
+        if((bub.round_id+1) == bub.n_round) {
+            prt_debug_hic(asm_opt.output_file_name, idx->ug, idx, opt, &sl.hits, 
+            &(idx->t_ch->k_trans), &k_trans, &link, s->s, &(bub));
+        }
+        **/
         /*******************************for debug************************************/
         label_unitigs_sm(s->s, NULL, idx->ug);
 
@@ -16851,6 +16859,84 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, ug_o
     
     fprintf(stderr, "[M::%s::%.3f] processed %lu pairs; %lu bases\n", __func__, yak_realtime()-index_time, sl.total_pair, sl.total_base);
     return 1;
+}
+
+void bp_solve(ug_opt_t *opt, kv_u_trans_t *ref, ma_ug_t *ug, asg_t *sg, bubble_type *bub, double cis_rate)
+{
+    uint64_t k, i, v, nvx, n[3], nv; u_trans_t *z;
+    kv_u_trans_t in; memset(&in, 0, sizeof(in));
+    ma_utg_t *u = NULL; asg_arc_t *av; double w;
+    ps_t *s = init_ps_t(11, ug->g->n_seq);
+
+    for (i = 0; i < ug->g->n_seq; i++) {
+        s->s[i] = 0;
+        if((ug->g->seq[i].del) || (IF_HOM(i, (*bub)))) {
+            continue;
+        }
+
+        u = &ug->u.a[i];
+        if(u->m == 0 || u->n == 0) continue;
+        for (k = n[0] = n[1] = n[2] = 0; k < u->n; k++) {
+            if(R_INF.trio_flag[u->a[k]>>33] == FATHER) n[1]++;
+            else if(R_INF.trio_flag[u->a[k]>>33] == MOTHER) n[2]++;
+            else n[0]++;
+        }
+        if(n[1] >= n[2] && n[1] >= n[0]) s->s[i] = 1;
+        else if(n[2] >= n[1] && n[2] >= n[0]) s->s[i] = -1;
+    }
+
+    kv_resize(u_trans_t, in, ref->n);
+    for (k = in.n = 0; k < ref->n; k++) {
+        if((IF_HOM(ref->a[k].qn, (*bub))) || (IF_HOM(ref->a[k].tn, (*bub))) || ref->a[k].del) {
+            continue;
+        }
+        kv_push(u_trans_t, in, ref->a[k]);
+    }
+
+    if(cis_rate > 0) {
+        nvx = ug->g->n_seq<<1;
+        for (v = 0; v < nvx; v++) {
+            if((ug->g->seq[v>>1].del) || (IF_HOM((v>>1), (*bub)))) continue;
+            av = asg_arc_a(ug->g, v); nv = asg_arc_n(ug->g, v);
+            for (i = 0; i < nv; i++) {
+                if((av[i].del) || (av[i].v>>1) == (v>>1) || 
+                                            (ug->g->seq[av[i].v>>1].del) || (IF_HOM((av[i].v>>1), (*bub)))) {
+                    continue;
+                }
+                w = ((double)av[i].ol)*cis_rate;
+                if(w <= 0) continue;
+                kv_pushp(u_trans_t, in, &z); 
+                memset(z, 0, sizeof((*z)));
+                z->f = RC_3; z->nw =-w; z->rev = (v^av[i].v)&1;
+                z->qn = v>>1; z->tn = av[i].v>>1;
+    
+                z->qs = 0; z->qe = sg->seq[z->qn].len;
+                if(av[i].ol < sg->seq[z->qn].len) {
+                    if(v&1) {
+                        z->qe = z->qs + av[i].ol;
+                    } else {
+                        z->qs = z->qe - av[i].ol;
+                    }
+                }
+
+                z->ts = 0; z->te = sg->seq[z->tn].len;
+                if(av[i].ol < sg->seq[z->tn].len) {
+                    if(av[i].v&1) {
+                        z->ts = z->te - av[i].ol;
+                    } else {
+                        z->te = z->ts + av[i].ol;
+                    }
+                }
+            }
+
+        }
+    }
+    // fprintf(stderr, "[M::%s::] ==> nup::%lu\n", __func__, nup);
+    clean_u_trans_t_idx_adv(&in, ug, sg);
+
+    mc_solve(NULL, NULL, &in, ug, sg, 0.8, NULL, 0, s->s, 1, bub, ref, 0, 0);
+    label_unitigs_sm(s->s, NULL, ug);
+    destory_ps_t(&s); kv_destroy(in); kv_destroy(in.idx);
 }
 
 spg_t *hic_short_pre_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, ug_opt_t *opt, kvec_pe_hit **rhits)

@@ -3241,6 +3241,15 @@ mc_clus_t *init_mc_clus_t(const mc_opt_t *opt, mc_g_t *mg, bubble_type* bub, uin
 	return p;
 }
 
+void des_mc_clus_t(mc_clus_t *p)
+{
+	if((!p)) return;
+	uint32_t k; free(p->lock);
+	for (k = 0; k < p->n_thread; k++) free(p->aux[k].vis.a);
+	free(p->aux); free(p->cc.ng.a); free(p->cc.nn.a); 
+	free(p);
+}
+
 void mc_solve_core_adv(const mc_opt_t *opt, mc_g_t *mg, bubble_type* bub)
 {
 	double index_time = yak_realtime();
@@ -3277,7 +3286,7 @@ void mc_solve_core_adv(const mc_opt_t *opt, mc_g_t *mg, bubble_type* bub)
 
 	// if(bp) mc_solve_bp(bp);	
 	///mc_write_info(g, b);
-	mc_svaux_destroy(b);
+	mc_svaux_destroy(b); des_mc_clus_t(bc);
 	// if(bp) destroy_mc_bp_t(&bp);
 	fprintf(stderr, "[M::%s::%.3f] ==> Partition\n", __func__, yak_realtime()-index_time);
 }
@@ -4464,6 +4473,28 @@ void dump_bubble_type(bubble_type* bub, FILE *fp)
 	dump_ma_ug_t(bub->ug, fp);
 }
 
+void dump_rid(All_reads *rdb, FILE *fp)
+{
+	fwrite(&(rdb->total_reads), sizeof(rdb->total_reads), 1, fp);
+	fwrite(&(rdb->name_index_size), sizeof(rdb->name_index_size), 1, fp);
+	fwrite(rdb->name_index, sizeof((*(rdb->name_index))), rdb->name_index_size, fp);
+
+	fwrite(&(rdb->total_name_length), sizeof(rdb->total_name_length), 1, fp);
+	fwrite(rdb->name, sizeof((*(rdb->name))), rdb->total_name_length, fp);
+}
+
+void load_rid(All_reads *rdb, FILE *fp)
+{
+	fread(&(rdb->total_reads), sizeof(rdb->total_reads), 1, fp);
+	fread(&(rdb->name_index_size), sizeof(rdb->name_index_size), 1, fp);
+	MALLOC(rdb->name_index, rdb->name_index_size);
+	fread(rdb->name_index, sizeof((*(rdb->name_index))), rdb->name_index_size, fp);
+
+	fread(&(rdb->total_name_length), sizeof(rdb->total_name_length), 1, fp);
+	MALLOC(rdb->name, rdb->total_name_length);
+	fread(rdb->name, sizeof((*(rdb->name))), rdb->total_name_length, fp);
+}
+
 void dump_debug_phasing(const char* fn, kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g, double f_rate, 
 uint32_t renew_s, int8_t *s, uint32_t is_sys, bubble_type* bub, kv_u_trans_t *ref)
 {
@@ -4481,6 +4512,7 @@ uint32_t renew_s, int8_t *s, uint32_t is_sys, bubble_type* bub, kv_u_trans_t *re
 	fwrite(&is_sys, sizeof(is_sys), 1, fp);///is_sys
 	dump_bubble_type(bub, fp);///bub
 	dump_kv_u_trans_t(ref, fp);///ta
+	dump_rid(&R_INF, fp);
 
 	fclose(fp);
     free(buf);
@@ -4586,15 +4618,43 @@ uint32_t *renew_s, int8_t **s, uint32_t *is_sys, bubble_type **bub, kv_u_trans_t
 	CALLOC((*bub), 1); load_bubble_type(*bub, fp);///bub
 	CALLOC((*ref), 1); load_kv_u_trans_t(*ref, fp);///ta
 
+	load_rid(&R_INF, fp);///read id
+
 	fclose(fp);
     free(buf);
 }
 
 
+void prt_rcut_res(const char* fn, int8_t *s, ma_ug_t *ug, asg_t *sg)
+{
+	uint32_t i, k, flag = AMBIGU; 
+	char *buf = (char*)calloc(strlen(fn) + 50, 1);
+    sprintf(buf, "%s.rcut.res.log", fn);
+    FILE *fp = fopen(buf, "w");
+	uint8_t *rs = NULL; MALLOC(rs, sg->n_seq);
+	memset(rs, AMBIGU, sg->n_seq*sizeof((*rs)));
+
+    for (i = 0; i < ug->g->n_seq; i++) {
+        if(ug->g->seq[i].del) continue;
+        flag = AMBIGU;
+		if(s[i] == 0) continue;
+		flag = (s[i] > 0? FATHER:MOTHER);
+        for (k = 0; k < ug->u.a[i].n; k++) rs[ug->u.a[i].a[k]>>33] = flag;
+    }
+
+	for (i = 0; i < sg->n_seq; i++) {
+		if(rs[i] == AMBIGU) continue;
+		fprintf(fp, "%.*s\t%u\n", (int)Get_NAME_LENGTH(R_INF, i), Get_NAME(R_INF, i), rs[i]);
+	}
+
+	fclose(fp); free(rs);
+    free(buf);
+}
+
 void quick_debug_phasing(const char* fn)
 {
 	kv_u_trans_t *ta; ma_ug_t *ug; asg_t *read_g; double f_rate;
-	uint32_t renew_s; int8_t *s; uint32_t is_sys, k; bubble_type *bub; kv_u_trans_t *ref;
+	uint32_t renew_s; int8_t *s; uint32_t is_sys; bubble_type *bub; kv_u_trans_t *ref;
 	load_debug_phasing(fn, &ta, &ug, &read_g, &f_rate, &renew_s, &s, &is_sys, &bub, &ref);
 
 
@@ -4602,10 +4662,10 @@ void quick_debug_phasing(const char* fn)
 	mc_solve(NULL, NULL, ta, ug, read_g, f_rate, NULL, renew_s, s, is_sys, bub, ref, 0, 0);
 	// mc_solve_core_adv(const mc_opt_t *opt, mc_g_t *mg, bubble_type* bub, kv_u_trans_t *ref)
 
-	for (k = 0; k < ug->g->n_seq; k++) {
-		fprintf(stderr, "utg%.6dl(len::%u), s[k]::%d\n", (int32_t)(k)+1, ug->g->seq[k].len, s[k]);
-	}
-	
+	// for (k = 0; k < ug->g->n_seq; k++) {
+	// 	fprintf(stderr, "utg%.6dl(len::%u), s[k]::%d\n", (int32_t)(k)+1, ug->g->seq[k].len, s[k]);
+	// }
+	prt_rcut_res(fn, s, ug, read_g);
 	
 	exit(1);
 }

@@ -3,6 +3,7 @@
 #include "Overlaps.h"
 #include "hic.h"
 
+
 typedef struct {
 	asg_t *g; 
 	ma_hit_t_alloc *src;
@@ -35,5 +36,6 @@ void post_rescue(ug_opt_t *uopt, asg_t *sg, ma_hit_t_alloc *src, ma_hit_t_alloc 
 // void print_raw_u2rgfa_seq(all_ul_t *aln, R_to_U* rI, uint32_t is_detail);
 bubble_type *gen_bubble_chain(asg_t *sg, ma_ug_t *ug, ug_opt_t *uopt, uint8_t **ir_het);
 void filter_sg_by_ug(asg_t *rg, ma_ug_t *ug, ug_opt_t *uopt);
+void ug_ext_gfa(ug_opt_t *uopt, asg_t *sg, uint32_t max_len);
 
 #endif
