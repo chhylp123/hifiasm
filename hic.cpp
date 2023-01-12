@@ -16746,7 +16746,7 @@ int hic_short_align(const enzyme *fn1, const enzyme *fn2, ha_ug_index* idx, ug_o
     ////dedup_hits(&(sl.hits), sl.idx);   
     ///write_hc_hits_v14(&sl.hits, asm_opt.output_file_name);
     
-    if(asm_opt.misjoin_len > 0)
+    if(asm_opt.misjoin_len > 0/** && (!(asm_opt.ar))**/)//disable it for the UL assembly
     {
         update_switch_unitig(idx->ug, idx->read_g, &(sl.hits), &(idx->t_ch->k_trans), 10, 20, asm_opt.misjoin_len, 0.15);
         renew_idx_para(idx, idx->ug);

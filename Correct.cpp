@@ -3485,6 +3485,24 @@ inline void recalcate_window_advance(overlap_region_alloc* overlap_list, All_rea
                     ///note!!! need notification
                     end_site = Reserve_Banded_BPM_PATH(y_string, Window_Len, x_string, x_len, threshold, &error, &real_y_start,
                     &(dumy->path_length), dumy->matrix_bit, dumy->path, p->error, p->y_end - y_start);
+                    // if(!(error != (unsigned int)-1)) {
+                    //     fprintf(stderr, "[M::%s::]\tqid::%u\tqlen::%lu\tq::[%d,\t%d)\ttid::%u\ttlen::%lu\tt::[%d,\t%d)\te_beg::%d\te_end::%d\terr::%d\n", __func__, 
+                    //     overlap_list->list[j].x_id, Get_READ_LENGTH((*rref), overlap_list->list[j].x_id), 
+                    //     p->x_start, p->x_end+1, 
+                    //     overlap_list->list[j].y_id, Get_READ_LENGTH((*rref), overlap_list->list[j].y_id), 
+                    //     p->y_start, p->y_end+1, 
+                    //     p->extra_begin, p->extra_end, p->error);
+                    //     fprintf(stderr, "[M::%s::]\tqcal_len::%lld\ttcal_len::%lld\tthres::%d\n", __func__, 
+                    //     x_len, Window_Len, threshold);
+                    //     fprintf(stderr, "qid::%u\nqname::%.*s\n\t%.*s\n", overlap_list->list[j].x_id, 
+                    //     (int32_t)Get_NAME_LENGTH((*rref), overlap_list->list[j].x_id), 
+                    //     Get_NAME((*rref), overlap_list->list[j].x_id), (int32_t)x_len, x_string);
+
+                    //     fprintf(stderr, "tid::%u\ntname::%.*s\n\t%.*s\n", overlap_list->list[j].y_id, 
+                    //     (int32_t)Get_NAME_LENGTH((*rref), overlap_list->list[j].y_id), 
+                    //     Get_NAME((*rref), overlap_list->list[j].y_id), (int32_t)Window_Len, y_string);
+
+                    // }
                     assert(error != (unsigned int)-1);
 
                     {
