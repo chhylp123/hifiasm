@@ -960,7 +960,7 @@ int64_t cov_s_pos, int64_t cov_e_pos, uint64_t *s, uint64_t *e)
     (*s) = (*e) = (uint64_t)-1;
     res->n = 0;
     get_hic_cov_interval(b, b_n, cutoff, &cov_s_pos, &cov_e_pos, res);
-    if(res->n == 0) return;
+    if(res->n == 0) return;///res keeps all intervals with >= cutoff coverage
     int64_t max = -1, max_cur = 0;
     int64_t max_s_idx, max_e_idx, cur_s_idx;
     for (i = 0; i < res->n; i++)//all intervals have cov >= cutoff
@@ -1842,7 +1842,7 @@ void break_phasing_utg(ma_ug_t *ug, asg_t *rg, kvec_pe_hit *hits, kv_u_trans_t *
                         kv_pushp(h_cov_t, join, &p);
                         p->dp = (b_points->a[l].s<<32)|(ug->u.n-1);
                         p->s = rsi; p->e = ug->u.a[ug->u.n-1].len;
-                        kv_push(uint64_t, dbg_N50, (uint64_t)(ug->u.a[ug->u.n-1].len)+((uint64_t)(1)<<63));
+                        kv_push(uint64_t, dbg_N50, (uint64_t)(ug->u.a[ug->u.n-1].len)+((uint64_t)(1)<<63));///new nodes
                     }
                 }
                 pidx = idx;
@@ -1858,13 +1858,13 @@ void break_phasing_utg(ma_ug_t *ug, asg_t *rg, kvec_pe_hit *hits, kv_u_trans_t *
                     kv_pushp(h_cov_t, join, &p);
                     p->dp = (b_points->a[l].s<<32)|(ug->u.n-1);
                     p->s = rsi; p->e = ug->u.a[ug->u.n-1].len;
-                    kv_push(uint64_t, dbg_N50, (uint64_t)(ug->u.a[ug->u.n-1].len)+((uint64_t)(1)<<63));
+                    kv_push(uint64_t, dbg_N50, (uint64_t)(ug->u.a[ug->u.n-1].len)+((uint64_t)(1)<<63));///new nodes
                 }
             }
 
             if(de_u)
             {
-                kv_push(uint64_t, dbg_N50, ug->u.a[b_points->a[l].s].len);
+                kv_push(uint64_t, dbg_N50, ug->u.a[b_points->a[l].s].len);///old nodes
                 update_nus(&(ug->u.a[b_points->a[l].s]), ug, join.a + pn, join.n - pn);
                 free(ug->u.a[b_points->a[l].s].a); free(ug->u.a[b_points->a[l].s].s);
                 memset(&(ug->u.a[b_points->a[l].s]), 0, sizeof(ug->u.a[b_points->a[l].s]));
@@ -1890,7 +1890,7 @@ void break_phasing_utg(ma_ug_t *ug, asg_t *rg, kvec_pe_hit *hits, kv_u_trans_t *
         if(i < oug_n)
         {
             kv_pushp(h_cov_t, join, &p);
-            p->dp = (i<<32)|(m);
+            p->dp = (i<<32)|(m);///current id | updated id
             p->s = 0; p->e = ug->u.a[i].len;
         }
 
@@ -1963,7 +1963,11 @@ void break_phasing_utg(ma_ug_t *ug, asg_t *rg, kvec_pe_hit *hits, kv_u_trans_t *
     free(k_trans->a); free(k_trans->idx.a); memset(k_trans, 0, sizeof(*k_trans));
     k_trans->a = n_trans->a; k_trans->n = n_trans->n; k_trans->m = n_trans->m; 
     free(n_trans);
-    clean_u_trans_t_idx(k_trans, ug, rg);
+
+    clean_u_trans_t_idx_adv(k_trans, ug, rg);
+    // clean_u_trans_t_idx(k_trans, ug, rg);
+
+    
     uint64_t uID_bits, pos_mode;
     for (uID_bits=1; (uint64_t)(1<<uID_bits)<(uint64_t)ug->u.n; uID_bits++);
     pos_mode = ((uint64_t)-1)>>(uID_bits+1);
@@ -2069,6 +2073,8 @@ uint64_t min_ulen, double boundaryRate)
                     //     fprintf(stderr, "consensus_break-s: %lu, e: %lu\n", cov_buf.a[i].s, cov_buf.a[i].e);
                     // }
                     /*******************************for debug************************************/
+                    ///res -> all low coverage intervals;
+                    ///cov_buf -> consensus coverage intervals;
                     get_read_breaks(&(ug->u.a[get_hit_suid(*hits, l)]), rg, &cov_buf, 
                     &res, hits, l, k, ulen, &bs, &dp);
                     if(bs == (uint64_t)-1) fprintf(stderr, "ERROR-read\n");

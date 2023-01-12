@@ -461,7 +461,7 @@ void sf##_ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is
     uint32_t buf_p[256], min_s = (uint32_t)-1;\
     tiny_queue_t tq;\
     assert(len > 0 && (int64_t)(len) < (int64_t)((((uint64_t)1)<<PosBits)) && (int64_t)(rid) < (int64_t)((((uint64_t)1)<<RidBits)) && (w > 0 && w < 256) && (k > 0 && k <= 63));\
-    if (dbg_ct != NULL) dbg_ct->a.n = 0;\
+	if (dbg_ct != NULL) dbg_ct->a.n = 0;\
     if (k_flag != NULL) {\
         kv_resize_km(km, uint8_t, k_flag->a, (uint64_t)len);\
         k_flag->a.n = len;\

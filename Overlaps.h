@@ -33,6 +33,7 @@
 // #define ALTER_LABLE 2
 // #define HAP_LABLE 4
 #define HA_RE_UL_ID "re"
+#define ug_ext_len 75000
 
 #define Get_qn(RECORD) ((uint32_t)((RECORD).qns>>32))
 #define Get_qs(RECORD) ((uint32_t)((RECORD).qns))
@@ -1135,6 +1136,8 @@ asg_t *i_read_sg, trans_chain* i_t_ch, uint32_t i_cBeg, uint32_t i_cEnd);
 void extract_sub_overlaps(uint32_t i_tScur, uint32_t i_tEcur, uint32_t i_tSpre, uint32_t i_tEpre,
 uint32_t tn, kv_u_trans_hit_t* ktb, uint32_t bn);
 void clean_u_trans_t_idx(kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g);
+void clean_u_trans_t_idx_adv(kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g);
+void clean_u_trans_t_idx_filter_adv(kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g);
 uint32_t test_dbug(ma_ug_t* ug, FILE* fp);
 void write_dbug(ma_ug_t* ug, FILE* fp);
 int asg_arc_identify_simple_bubbles_multi(asg_t *g, bub_label_t* x, int check_cross);

@@ -215,7 +215,8 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->purge_level_trio = 0;
     asm_opt->purge_simi_rate_l2 = 0.75;
     asm_opt->purge_simi_rate_l3 = 0.55;
-    asm_opt->trans_base_rate = 0.8;
+    asm_opt->trans_base_rate = 0.93;
+    asm_opt->trans_base_rate_sec = 0.5;
     asm_opt->purge_overlap_len = 1;
     ///asm_opt->purge_overlap_len_hic = 50;
     asm_opt->recover_atg_cov_min = -1024;
@@ -252,6 +253,10 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->ul_ec_round = 3;
     asm_opt->is_dbg_het_cnt = 0;
     asm_opt->is_low_het_ul = 0;
+    asm_opt->is_base_trans = 1;
+    asm_opt->is_read_trans = 1;
+    asm_opt->is_topo_trans = 1;
+    asm_opt->is_bub_trans = 1;
 }
 
 void destory_enzyme(enzyme* f)
