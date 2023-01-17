@@ -114,6 +114,7 @@ double yak_peakrss_in_gb(void);
 double yak_cpu_usage(void);
 
 void ha_triobin(const hifiasm_opt_t *opt);
+uint32_t test_yak_binning(char* fn, char *cmd);
 uint32_t *ha_polybin_list(const hifiasm_opt_t *opt);
 
 void mz1_ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mz1_v *p, const void *hf, int sample_dist, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct, ha_pt_t *pt, int min_freq, int32_t dp_min_len, float dp_e, st_mt_t *mt, int32_t ws, int32_t is_unique, void *km);

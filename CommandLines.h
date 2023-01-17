@@ -4,7 +4,7 @@
 #include <pthread.h>
 #include <stdint.h>
 
-#define HA_VERSION "0.18.4-r496"
+#define HA_VERSION "0.18.5-r499"
 
 #define VERBOSE 0
 
@@ -21,9 +21,10 @@
 #define HA_F_HIGH_HET        0x400
 #define HA_F_PARTITION       0x800
 #define HA_F_FAST            0x1000
-#define HA_F_USKEW            0x2000
+#define HA_F_USKEW           0x2000
 
 #define HA_MIN_OV_DIFF       0.02 // min sequence divergence in an overlap
+#define MIN_N_CHAIN          100
 
 typedef struct{
     int *l, n; 
@@ -135,6 +136,7 @@ typedef struct {
     uint8_t is_read_trans;
     uint8_t is_topo_trans;
     uint8_t is_bub_trans;
+    uint8_t bin_only;
 } hifiasm_opt_t;
 
 extern hifiasm_opt_t asm_opt;
@@ -143,6 +145,7 @@ void init_opt(hifiasm_opt_t* asm_opt);
 void destory_opt(hifiasm_opt_t* asm_opt);
 void ha_opt_reset_to_round(hifiasm_opt_t* asm_opt, int round);
 void ha_opt_update_cov(hifiasm_opt_t *opt, int hom_cov);
+void ha_opt_update_cov_min(hifiasm_opt_t *opt, int hom_cov, int min_chain);
 int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt);
 double Get_T(void);
 

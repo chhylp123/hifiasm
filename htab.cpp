@@ -1546,6 +1546,7 @@ int uidx_load(void **r_flt_tab, ha_pt_t **r_ha_idx, char* file_name, ma_ug_t *ug
         free(gfa_name); fclose(fp);
         return 0;
     }
+	// fprintf(stderr, "[M::%s]\t%s\tftell::%ld\n", __func__, file_name, ftell(fp));
 
     ha_pt_t *ha_idx = NULL;
     char mode = 0;

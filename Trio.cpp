@@ -349,6 +349,27 @@ static void ha_triobin_list(const hifiasm_opt_t *opt)
 	fprintf(stderr, "[M::%s::%.3f*%.2f] ==> partitioned reads with external lists\n", __func__, yak_realtime(), yak_cpu_usage());
 }
 
+uint32_t test_yak_binning(char* fn, char *cmd)
+{
+    gzFile fp; kstream_t *ks; kstring_t str = {0,0,0};
+	int dret, eq = 0; fp = gzopen(fn, "r");
+	if (fp == 0) return eq;
+	ks = ks_init(fp);
+	if(ks_getuntil(ks, KS_SEP_LINE, &str, &dret) >= 0) {
+		uint64_t sl = strlen(str.s), z;
+		for (z = 0; (z < sl) && (str.s[z]!='\t'); z++);
+		if(((z+1)<sl) && (str.s[z]=='\t')) {
+			if((strlen(str.s+z+1)==strlen(cmd)) && (!memcmp(str.s+z+1, cmd, strlen(cmd)))) {
+				eq = 1;
+			}
+		}		
+	}
+	free(str.s);
+	ks_destroy(ks);
+	gzclose(fp);
+	return eq;
+}
+
 inline void phrase_hstatus(char *s, char **rname, uint32_t *hid)
 {
 	char *p = NULL, *id = NULL; *rname = NULL; *hid = (uint32_t)-1;
