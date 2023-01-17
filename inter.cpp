@@ -10449,7 +10449,7 @@ static void *worker_ul_scall_pipeline(void *data, int step, void *in) // callbac
 		}
 		// fprintf(stderr, "[M::%s::Start] ==> s->id: %lu, s->n:% d\n", __func__, s->id, s->n);
 		kt_for(p->n_thread, worker_for_ul_scall_alignment, s, s->n);
-		fprintf(stderr, "[M::%s::Done] ==> s->id: %lu, s->n:% d\n", __func__, s->id, s->n);
+		// fprintf(stderr, "[M::%s::Done] ==> s->id: %lu, s->n:% d\n", __func__, s->id, s->n);
 		///debug
 		/**
 		uint64_t i;
@@ -10580,7 +10580,7 @@ static void *worker_ul_rescall_pipeline(void *data, int step, void *in) // callb
 		}
 		// fprintf(stderr, "[M::%s::Start] ==> s->id: %lu, s->n:% d\n", __func__, s->id, s->n);
 		kt_for(p->n_thread, worker_for_ul_rescall_alignment, s, s->n);
-		fprintf(stderr, "[M::%s::Done] ==> s->id: %lu, s->n:% d\n", __func__, s->id, s->n);
+		// fprintf(stderr, "[M::%s::Done] ==> s->id: %lu, s->n:% d\n", __func__, s->id, s->n);
 		// get_utepdat_t_mem(s, 1);
 
 		for (i = 0; i < p->n_thread; ++i) {
@@ -15594,6 +15594,7 @@ void gen_UL_ovlps(uldat_t *sl, int32_t cutoff)
 	ul_idx_t *uu = dedup_HiFis(sl->uopt, 1, 0);
 	int exist = (asm_opt.load_index_from_disk? uidx_load(&ha_flt_tab, &ha_idx, asm_opt.output_file_name, NULL) : 0);
     if(exist == 0) uidx_l_build(uu->ug, (mg_idxopt_t *)sl->opt, cutoff);
+	// print_debug_gfa(sl->uopt, ug, coverage_cut, "debug_dups", sources, ruIndex, asm_opt.max_hang_Len, asm_opt.min_overlap_Len);
 	if(exist == 0) uidx_write(ha_flt_tab, ha_idx, asm_opt.output_file_name, NULL);
 	sl->ha_flt_tab = ha_flt_tab; sl->ha_idx = (ha_pt_t *)ha_idx; sl->uu = uu;		
 	ul_v_call(sl, asm_opt.ar);
@@ -15699,6 +15700,7 @@ int32_t write_all_ul_t(all_ul_t *x, char* file_name, ma_ug_t *ug)
 
 	fprintf(stderr, "[M::%s] Index has been written.\n", __func__);
 	fclose(fp);
+	if(asm_opt.bin_only) exit(1);
 	return 1;
 }
 

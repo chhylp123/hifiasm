@@ -63,7 +63,7 @@ KRADIX_SORT_INIT(ha_mzl_t_srt1, ha_mzl_t, ha_mzl_t_key, member_size(ha_mzl_t, x)
 KSORT_INIT_GENERIC(uint32_t)
 
 void reduce_hamming_error_adv(ma_ug_t *iug, asg_t *sg, ma_hit_t_alloc* sources, ma_sub_t *coverage_cut, 
-int max_hang, int min_ovlp, long long gap_fuzz, bubble_type* bub);
+int max_hang, int min_ovlp, long long gap_fuzz, R_to_U *ru, bubble_type* bub);
 
 typedef struct {
     uint32_t d, tot, ma, p;
@@ -14636,7 +14636,7 @@ long long gap_fuzz, bub_label_t* b_mask_t, ug_opt_t *opt)
     asg_cleanup(sg);
 
     // reduce_hamming_error(sg, sources, coverage_cut, max_hang, min_ovlp, gap_fuzz);
-    reduce_hamming_error_adv(NULL, sg, sources, coverage_cut, max_hang, min_ovlp, gap_fuzz, NULL);
+    reduce_hamming_error_adv(NULL, sg, sources, coverage_cut, max_hang, min_ovlp, gap_fuzz, opt->ruIndex, NULL);
 
     ug_fa = output_trio_unitig_graph(sg, coverage_cut, output_file_name, FATHER, sources, reverse_sources, (asm_opt.max_short_tip*2), 0.15, 3, ruIndex, 
     0.05, 0.9, max_hang, min_ovlp, rhits?1:0, b_mask_t, NULL, NULL, NULL);
@@ -14762,7 +14762,7 @@ long long gap_fuzz, bub_label_t* b_mask_t)
     asg_cleanup(sg);
 
     // reduce_hamming_error(sg, sources, coverage_cut, max_hang, min_ovlp, gap_fuzz);
-    reduce_hamming_error_adv(NULL, sg, sources, coverage_cut, max_hang, min_ovlp, gap_fuzz, NULL);
+    reduce_hamming_error_adv(NULL, sg, sources, coverage_cut, max_hang, min_ovlp, gap_fuzz, opt.ruIndex, NULL);
 
     output_trio_unitig_graph(sg, coverage_cut, output_file_name, FATHER, sources, reverse_sources, (asm_opt.max_short_tip*2), 0.15, 3, ruIndex, 
     0.05, 0.9, max_hang, min_ovlp, 0, b_mask_t, NULL, NULL, NULL);
@@ -18998,11 +18998,81 @@ void write_debug_ma_hit_ts(ma_hit_t_alloc* x, long long n_read, char* read_file_
     fprintf(stderr, "ma_hit_ts has been written.\n");
 }
 
+void write_yak_binning(char *ou, char *fn_bin_yak1, char *fn_bin_yak2)
+{
+    fprintf(stderr, "Writing binning to disk ...... \n");
+    char* paf_name = (char*)malloc(strlen(ou)+50);
+    sprintf(paf_name, "%s.hap1.phase.bin", ou);
+    FILE* oh1 = fopen(paf_name, "w");
+    sprintf(paf_name, "%s.hap2.phase.bin", ou);
+    FILE* oh2 = fopen(paf_name, "w");
+    uint64_t i, s1, s2;
+
+    for (i = s1 = s2 = 0; i < R_INF.total_reads; i++) {
+        if(R_INF.trio_flag[i]==FATHER) {
+            if(s1) {
+                fprintf(oh1, "%.*s\n", (int)Get_NAME_LENGTH(R_INF, i), Get_NAME(R_INF, i));
+            } else {
+                fprintf(oh1, "%.*s\t%s\n", (int)Get_NAME_LENGTH(R_INF, i), Get_NAME(R_INF, i), fn_bin_yak1);
+            }
+            s1 = 1;
+        }
+        if(R_INF.trio_flag[i]==MOTHER) {
+            if(s2) {
+                fprintf(oh2, "%.*s\n", (int)Get_NAME_LENGTH(R_INF, i), Get_NAME(R_INF, i));
+            } else {
+                fprintf(oh2, "%.*s\t%s\n", (int)Get_NAME_LENGTH(R_INF, i), Get_NAME(R_INF, i), fn_bin_yak2);
+            }
+            s2 = 1;
+        }
+    }
+    free(paf_name);
+    fclose(oh1); fclose(oh2);
+    fprintf(stderr, "Binning has been written.\n");
+}
+
+uint32_t load_yak_binning(hifiasm_opt_t *opt, char *ou)///asm_opt
+{
+    char* paf_name = (char*)malloc(strlen(ou)+50); 
+    uint32_t len[2] = {0}; char *lst0, *lst1, *yak0, *yak1;
+    lst0 = lst1 = yak0 = yak1 = NULL;
+
+    sprintf(paf_name, "%s.hap1.phase.bin", ou); len[0] = strlen(paf_name)+1;
+    if(!test_yak_binning(paf_name, opt->fn_bin_yak[0])) {
+        free(paf_name); return 0;
+    }
+
+    sprintf(paf_name, "%s.hap2.phase.bin", ou); len[1] = strlen(paf_name)+1;
+    if(!test_yak_binning(paf_name, opt->fn_bin_yak[1])) {
+        free(paf_name); return 0;
+    }
+    free(paf_name); paf_name = NULL;
+
+    lst0 = opt->fn_bin_list[0]; MALLOC(opt->fn_bin_list[0], len[0]); 
+    sprintf(opt->fn_bin_list[0], "%s.hap1.phase.bin", ou);
+
+    lst1 = opt->fn_bin_list[1]; MALLOC(opt->fn_bin_list[1], len[1]); 
+    sprintf(opt->fn_bin_list[1], "%s.hap2.phase.bin", ou);
+
+    memset(R_INF.trio_flag, AMBIGU, R_INF.total_reads * sizeof(uint8_t));
+    yak0 = opt->fn_bin_yak[0]; opt->fn_bin_yak[0] = NULL;
+    yak1 = opt->fn_bin_yak[1]; opt->fn_bin_yak[1] = NULL;
+    ha_triobin(opt); 
+    opt->fn_bin_yak[0] = yak0; opt->fn_bin_yak[1] = yak1;
+    free(opt->fn_bin_list[0]); opt->fn_bin_list[0] = lst0;
+    free(opt->fn_bin_list[1]); opt->fn_bin_list[1] = lst1;
+    return 1;
+}
+
 void write_all_data_to_disk(ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, All_reads *RNF, char* output_file_name)
 {   
 	char* gfa_name = (char*)malloc(strlen(output_file_name)+25);
 	sprintf(gfa_name, "%s.ec", output_file_name);
 	write_All_reads(RNF, gfa_name);
+
+    if((ha_opt_triobin(&asm_opt)) && (asm_opt.fn_bin_yak[0] && asm_opt.fn_bin_yak[1])) {
+        write_yak_binning(asm_opt.output_file_name, asm_opt.fn_bin_yak[0], asm_opt.fn_bin_yak[1]);
+    }
 
 	sprintf(gfa_name, "%s.ovlp.source", output_file_name);
 	write_ma_hit_ts(sources, RNF->total_reads, gfa_name);
@@ -19012,6 +19082,7 @@ void write_all_data_to_disk(ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sou
 
 	free(gfa_name);
     fprintf(stderr, "bin files have been written.\n");
+    if(asm_opt.bin_only) exit(1);
 }
 
 int load_debug_graph(asg_t** sg, ma_hit_t_alloc** sources, ma_sub_t** coverage_cut, 
@@ -19024,6 +19095,15 @@ int load_all_data_from_disk(ma_hit_t_alloc **sources, ma_hit_t_alloc **reverse_s
 		free(gfa_name);
 		return 0;
 	}
+
+    if(ha_opt_triobin(&asm_opt)) {
+        if(!((asm_opt.fn_bin_yak[0]) && (asm_opt.fn_bin_yak[1]) && 
+                        (load_yak_binning(&asm_opt, asm_opt.output_file_name)))) {
+            ha_triobin(&asm_opt); 
+            write_yak_binning(asm_opt.output_file_name, asm_opt.fn_bin_yak[0], asm_opt.fn_bin_yak[1]);
+        }
+    }
+
     if((asm_opt.flag & HA_F_VERBOSE_GFA) && load_debug_graph(NULL, NULL, NULL, output_file_name, NULL, NULL, NULL))
     {
         (*sources) = NULL;
@@ -20045,7 +20125,7 @@ buf_t *b, uint64_t tLen, uint64_t vis_f, asg_t *res, asg64_v *sv)
         for (k_j = 0; k_j < nsu->n; k_j++) {
             for (k_v = 0; k_v < 2; k_v++) {
                 v = ((nsu->a[k_j]>>33)<<1) + k_v;
-                if(vis_r_flag[v] != vis_f) break;
+                if(vis_r_flag[v] != vis_f) continue;;
                 x = &(src[v>>1]); 
                 za = asg_arc_a(sg, v); 
                 zn = asg_arc_n(sg, v); 
@@ -20100,7 +20180,10 @@ int asg_arc_del_trans_aux(asg_t *g, asg_t *aux, uint8_t *mark, int fuzz)
         if(kv == 0) continue; 
 
         ///av[nv-1] is longest out-dege
-        L = MAX(asg_arc_len(av0[nv0-1]), asg_arc_len(av1[nv1-1])) + fuzz;
+        L = 0;
+        if(nv0) L = asg_arc_len(av0[nv0-1]);
+        if(nv1 && L < asg_arc_len(av1[nv1-1])) L = asg_arc_len(av1[nv1-1]);
+        L += fuzz;
         for (i = 0; i < nv0; ++i) {
             //w is an out-node of v
             w = av0[i].v; if (mark[w] != 1) continue; ///w has already been reduced
@@ -20128,16 +20211,27 @@ int asg_arc_del_trans_aux(asg_t *g, asg_t *aux, uint8_t *mark, int fuzz)
 
     return n_reduced;
 }
-
+/**
+#define ba_fetch(pa, ca, v0, v) (((v)==(v0))?(pa)[(v)]:(ca)[(v)])
 uint64_t rd_hm_bub(asg_t *g, asg_t *ref, uint32_t v0, uint64_t max_dist, buf_t *b)
 {
     uint32_t i0, i1, n_pending = 0, is_first = 1, n_tips, tip_end; uint64_t n_pop = 0;
-    uint32_t v, w, d, nv0, nv1, l, x, i; asg_arc_t *av0, *av1; binfo_t *t;
+    uint32_t v, w, d, nv0, nv1, l, x, i; asg_arc_t *av0, *av1; binfo_t *t, *pa, *ca;
     if (g->seq[v0>>1].del) return 0; // already deleted
     nv0 = g?get_real_length(g, v0, NULL):0; 
     nv1 = ref?get_real_length(ref, v0, NULL):0;
-    if((nv0+nv1)<2) return 0;
-    b->a[v0].c = b->a[v0].d = b->a[v0].m = b->a[v0].nc = b->a[v0].np = 0;
+    // if((v0 == 4386) && (!ref)) {
+    //     fprintf(stderr, "[M::%s] v0>>1::%u(v0&1::%u), nv0::%u, nv1::%u\n", __func__, v0>>1, v0&1, 
+    //     nv0, nv1);
+    // }
+    if((nv0+nv1) < 2) return 0;
+    pa = b->a; ca = b->a + (g->n_seq<<1);
+    // if(v0 >= (ref->n_seq<<1)) {
+    //     fprintf(stderr, "[M::%s] v0::%u, ref->n_seq::%u\n", __func__, v0, ref->n_seq);
+    // }
+    b->S.n = b->T.n = b->b.n = b->e.n = 0; 
+    v = v0; t = &(ba_fetch(pa, ca, v0, v));
+    t->c = t->d = t->m = t->nc = t->np = 0;
     ///b->S is the nodes with all incoming edges visited
     kv_push(uint32_t, b->S, v0);
     n_tips = 0; tip_end = (uint32_t)-1;
@@ -20145,7 +20239,7 @@ uint64_t rd_hm_bub(asg_t *g, asg_t *ref, uint32_t v0, uint64_t max_dist, buf_t *
     do {
         ///v is a node that all incoming edges have been visited
         ///d is the distance from v0 to v
-        v = kv_pop(b->S); d = b->a[v].d;
+        v = kv_pop(b->S); d = (ba_fetch(pa, ca, v0, v)).d;
         nv0 = 0; av0 = NULL; nv1 = 0; av1 = NULL; i0 = i1 = 0;
         if(g) {
             nv0 = asg_arc_n(g, v); av0 = asg_arc_a(g, v);
@@ -20153,10 +20247,17 @@ uint64_t rd_hm_bub(asg_t *g, asg_t *ref, uint32_t v0, uint64_t max_dist, buf_t *
         if(ref) {
             nv1 = asg_arc_n(ref, v); av1 = asg_arc_a(ref, v);
         }
+        // if((v0 == 4386) && (!ref)) {
+        //     fprintf(stderr, "[M::%s] v0>>1::%u(v0&1::%u), v>>1::%u(v&1::%u)\n", __func__, v0>>1, v0&1, v>>1, v&1);
+        // }
         ///all out-edges of v
         for (i0 = 0; i0 < nv0; ++i0) { // loop through v's neighbors
             if (av0[i0].del) continue;
-            w = av0[i0].v; l = (uint32_t)av0[i0].ul; t = &b->a[w];
+            w = av0[i0].v; l = (uint32_t)av0[i0].ul; t = &((ba_fetch(pa, ca, v0, w)));
+            // if((v0 == 4386) && (!ref)) {
+            //     fprintf(stderr, "[M::%s] v0>>1::%u(v0&1::%u), w>>1::%u(w&1::%u)\n", 
+            //     __func__, v0>>1, v0&1, w>>1, w&1);
+            // }
             if ((w>>1) == (v0>>1)) goto pop_rd_hm_bub;
             if(is_first) l = 0;
             if (d + l > max_dist) break; // too far
@@ -20170,12 +20271,27 @@ uint64_t rd_hm_bub(asg_t *g, asg_t *ref, uint32_t v0, uint64_t max_dist, buf_t *
                 ///the shortest path
                 if (d + l < t->d) t->d = d + l; // update dist
             }
-
+            // if((v0 == 4386) && (!ref) && ((w>>1) == 2597)) {
+            //     fprintf(stderr, "[M::%s] w>>1::%u(w&1::%u), t->r::%u\n", 
+            //     __func__, w>>1, w&1, t->r);
+            // }
             //if all incoming edges of w have visited
             //push it to b->S
             if (--(t->r) == 0) {
                 x = (g?get_real_length(g, w, NULL):0)+(ref?get_real_length(ref, w, NULL):0);
+                // if((v0 == 4386) && (!ref) && ((w>>1) == 2597)) {
+                //     fprintf(stderr, "[M::%s] w>>1::%u(w&1::%u), t->r::%u, x::%u, b->S.n::%u\n", 
+                //     __func__, w>>1, w&1, t->r, x, (uint32_t)b->S.n);
+                // }
                 if(x > 0) {
+                    // if((v0 == 4386) && (!ref)) {
+                    //     fprintf(stderr, "+[M::%s] v0>>1::%u(v0&1::%u), push_w>>1::%u(w&1::%u)\n", 
+                    //     __func__, v0>>1, v0&1, w>>1, w&1);
+                    //     uint32_t m;
+                    //     for (m = 0; m < b->S.n; m++) {
+                    //         fprintf(stderr, "+[M::%s] m>>1::%u(m&1::%u)\n", __func__, b->S.a[m]>>1, b->S.a[m]&1);
+                    //     }
+                    // }
                     kv_push(uint32_t, b->S, w);
                 } else {
                     ///at most one tip
@@ -20188,7 +20304,7 @@ uint64_t rd_hm_bub(asg_t *g, asg_t *ref, uint32_t v0, uint64_t max_dist, buf_t *
         if (i0 >= nv0) {
             for (i1 = 0; i1 < nv1; ++i1) { // loop through v's neighbors
                 if (av1[i1].del) continue;
-                w = av1[i1].v; l = (uint32_t)av1[i1].ul; t = &b->a[w];
+                w = av1[i1].v; l = (uint32_t)av1[i1].ul; t = &((ba_fetch(pa, ca, v0, w)));
                 if ((w>>1) == (v0>>1)) goto pop_rd_hm_bub;
                 if(is_first) l = 0;
                 if (d + l > max_dist) break; // too far
@@ -20208,6 +20324,10 @@ uint64_t rd_hm_bub(asg_t *g, asg_t *ref, uint32_t v0, uint64_t max_dist, buf_t *
                 if (--(t->r) == 0) {
                     x = (g?get_real_length(g, w, NULL):0)+(ref?get_real_length(ref, w, NULL):0);
                     if(x > 0) {
+                        // if((v0 == 4386) && (!ref)) {
+                        //     fprintf(stderr, "-[M::%s] v0>>1::%u(v0&1::%u), push_w>>1::%u(w&1::%u)\n", 
+                        //     __func__, v0>>1, v0&1, w>>1, w&1);
+                        // }
                         kv_push(uint32_t, b->S, w);
                     } else {
                         ///at most one tip
@@ -20223,19 +20343,27 @@ uint64_t rd_hm_bub(asg_t *g, asg_t *ref, uint32_t v0, uint64_t max_dist, buf_t *
         //if found a tip
         if(n_tips == 1) {
             if(tip_end != (uint32_t)-1 && n_pending == 0 && b->S.n == 0) {
+                // if((v0 == 4386) && (!ref)) {
+                //     fprintf(stderr, ">[M::%s] v0>>1::%u(v0&1::%u), push_w>>1::%u(w&1::%u)\n", 
+                //     __func__, v0>>1, v0&1, tip_end>>1, tip_end&1);
+                // }
                 kv_push(uint32_t, b->S, tip_end);
                 break;
             } else {
                 goto pop_rd_hm_bub;
             }
         }
+        // if((v0 == 4386) && (!ref)) {
+        //     fprintf(stderr, "[M::%s] v0>>1::%u(v0&1::%u), b->S.n::%u, n_pending::%u\n", 
+        //             __func__, v0>>1, v0&1, (uint32_t)b->S.n, n_pending);
+        // }
         ///if i < nv, that means (d + l > max_dist)
         if (i0 < nv0 || i1 < nv1 || b->S.n == 0) goto pop_rd_hm_bub;
     } while (b->S.n > 1 || n_pending);
     n_pop = 1;
     pop_rd_hm_bub:
     for (i = 0; i < b->b.n; ++i) { // clear the states of visited vertices
-        t = &b->a[b->b.a[i]];
+        t = &((ba_fetch(pa, ca, v0, b->b.a[i])));
         t->s = t->c = t->d = t->m = t->nc = t->np = 0;
     }
     return n_pop;
@@ -20279,23 +20407,25 @@ uint64_t rd_hm_drop(asg_t *g, asg_t *ref, uint32_t v0, uint32_t v1, double cutof
     uint32_t i1, ncut = 0;
     uint32_t v, w, nv1, i; asg_arc_t *av1; 
     if (g->seq[v0>>1].del) return 0; // already deleted    
+    b->S.n = 0; binfo_t *pa, *ca;
+    pa = b->a; ca = b->a + (g->n_seq<<1);
     ///b->S is the nodes with all incoming edges visited
     kv_push(uint32_t, b->S, v0);    
     while(b->S.n) {
         v = kv_pop(b->S); 
-        if(b->a[v].s) continue;
-        b->a[v].s = 1; 
+        if((ba_fetch(pa, ca, v0, v)).s) continue;
+        (ba_fetch(pa, ca, v0, v)).s = 1; 
         kv_push(uint32_t, b->b, v); // save it for revert
         nv1 = asg_arc_n(ref, v); av1 = asg_arc_a(ref, v);
         for (i1 = 0; i1 < nv1; ++i1) { // loop through v's neighbors
             if (av1[i1].del) continue;
             w = av1[i1].v;
-            if(b->a[w].s || w == v1) continue;
+            if((ba_fetch(pa, ca, v0, w)).s || w == v1) continue;
             kv_push(uint32_t, b->S, w);
         }
     }
     for (i = 0; i < b->b.n; ++i) { // clear the states of visited vertices
-        v = b->b.a[i]; b->a[b->b.a[i]].s = 0;
+        v = b->b.a[i]; (ba_fetch(pa, ca, v0, b->b.a[i])).s = 0;
         if(v == v0 || v == v1) continue;
         ncut += rd_hm_drop0(g, ref, v, cutoff);
         ncut += rd_hm_drop0(g, ref, v^1, cutoff);
@@ -20311,9 +20441,20 @@ static void rd_hamming_symm(void *data, long i, int tid) // callback for kt_for(
     uint32_t st = s->rr->a[i]>>32, ed = (uint32_t)(s->rr->a[i]), p, k, ncut;
     double step = 0.2, cuttoff; uint64_t max_dist = s->max_dist;
     p = rd_hm_bub(s->g, s->ref, st, max_dist, b);
-    if(p) return;
+    if(p) {
+        // if(!(b->S.a[0] == (ed^1))) {
+        //         fprintf(stderr, "[M::%s] st>>1::%u(st&1::%u), ed>>1::%u(ed&1::%u), S[0]>>1::%u(S[0]&1::%u), max_dist::%lu\n", 
+        //     __func__, st>>1, st&1, ed>>1, ed&1, b->S.a[0]>>1, b->S.a[0]&1, max_dist);
+        // }
+        assert(b->S.a[0] == (ed^1));
+        return;
+    }
     ///recalculate max_dist
     p = rd_hm_bub(s->ref, NULL, st, max_dist, b);
+    // if(!p) {
+    //     fprintf(stderr, "[M::%s] st>>1::%u(st&1::%u), ed>>1::%u(ed&1::%u), max_dist::%lu\n", 
+    //     __func__, st>>1, st&1, ed>>1, ed&1, max_dist);
+    // }
     assert(p); assert(b->S.a[0] == (ed^1));
     for (k = max_dist = 0; k < b->b.n; ++k) {
         if(b->b.a[k]==st || b->b.a[k]==b->S.a[0]) continue;
@@ -20322,21 +20463,30 @@ static void rd_hamming_symm(void *data, long i, int tid) // callback for kt_for(
     max_dist += s->ref->seq[st>>1].len;
     max_dist += s->ref->seq[b->S.a[0]>>1].len;
     p = rd_hm_bub(s->g, s->ref, st, max_dist, b);
-    if(p) return;
+    if(p) {
+        assert(b->S.a[0] == (ed^1));
+        return;
+    }
 
     for (cuttoff = step; cuttoff < 1.0; cuttoff += step) {
         ncut = rd_hm_drop(s->g, s->ref, st, ed^1, cuttoff, b);
         p = rd_hm_bub(s->g, s->ref, st, max_dist, b);
-        if(p) return;
+        if(p) {
+            assert(b->S.a[0] == (ed^1));
+            return;
+        }
         if(!ncut) break;
     }
     rd_hm_drop(s->g, s->ref, st, ed^1, 1024, b);   
     p = rd_hm_bub(s->g, s->ref, st, max_dist, b); 
-    assert(p);
+    if(p) {
+        assert(b->S.a[0] == (ed^1));
+        return;
+    }
 }
 
 void reduce_hamming_error_adv(ma_ug_t *iug, asg_t *sg, ma_hit_t_alloc* sources, ma_sub_t *coverage_cut, 
-int max_hang, int min_ovlp, long long gap_fuzz, bubble_type* bub)
+int max_hang, int min_ovlp, long long gap_fuzz, R_to_U *ru, bubble_type* bub)
 {
     double index_time = yak_realtime();
     ma_ug_t *ug = NULL; rd_hamming_t aux_t; memset((&aux_t), 0, sizeof(aux_t));
@@ -20397,7 +20547,7 @@ int max_hang, int min_ovlp, long long gap_fuzz, bubble_type* bub)
             }
         }
     }
-    free(vis_flag); free(bs_flag); if(!iug) ma_ug_destroy(ug);    
+    free(bs_flag); if(!iug) ma_ug_destroy(ug);    
 
     if(sv.n > 0) {
         ig->n_seq = ig->m_seq = sg->n_seq; 
@@ -20405,8 +20555,10 @@ int max_hang, int min_ovlp, long long gap_fuzz, bubble_type* bub)
         memcpy(ig->seq, sg->seq, (sizeof((*(ig->seq)))*ig->n_seq));
         asg_cleanup(ig); asg_arc_del_trans_aux(ig, sg, vis_flag, gap_fuzz);
         aux_t.n_thread = asm_opt.thread_num; CALLOC(aux_t.a, aux_t.n_thread);
+        REALLOC(b.a, (ig->n_seq<<2)); memset(b.a, 0, sizeof((*(b.a)))*(ig->n_seq<<2));
         for (i = 0; i < aux_t.n_thread; i++) aux_t.a[i].a = b.a;
-        aux_t.g = ig; aux_t.ref = sg; aux_t.rr = &sv;
+        aux_t.g = ig; aux_t.ref = sg; aux_t.rr = &sv; aux_t.max_dist = max_dist;
+        // print_debug_gfa(ug, sg, coverage_cut, "debug_hamming", sources, ru);
         kt_for(aux_t.n_thread, rd_hamming_symm, &aux_t, aux_t.rr->n);///all ul + ug
         for (i = 0; i < aux_t.n_thread; i++) {
             free(aux_t.a[i].S.a); free(aux_t.a[i].T.a); 
@@ -20414,7 +20566,7 @@ int max_hang, int min_ovlp, long long gap_fuzz, bubble_type* bub)
         }
         free(aux_t.a);
     }
-    free(sv.a);
+    free(sv.a); free(vis_flag);
 
     for (i = n_pop = 0; i < ig->n_arc; i++) {
         if(ig->arc[i].del) continue;
@@ -20432,8 +20584,421 @@ int max_hang, int min_ovlp, long long gap_fuzz, bubble_type* bub)
     fprintf(stderr, "[M::%s::%.3f] # inserted edges: %u, # fixed bubbles: %u\n", 
                         __func__, yak_realtime() - index_time, sg->n_arc - n_arc_0, fix_bub);
 }
+**/
 
+uint64_t rd_hm_bub(asg_t *g, asg_t *ref, uint32_t v0, uint64_t max_dist, buf_t *b)
+{
+    uint32_t i0, i1, n_pending = 0, is_first = 1, n_tips, tip_end; uint64_t n_pop = 0;
+    uint32_t v, w, d, nv0, nv1, l, x, i; asg_arc_t *av0, *av1; binfo_t *t;
+    if (g->seq[v0>>1].del) return 0; // already deleted
+    nv0 = g?get_real_length(g, v0, NULL):0; 
+    nv1 = ref?get_real_length(ref, v0, NULL):0;
+    // if((v0 == 4386) && (!ref)) {
+    //     fprintf(stderr, "[M::%s] v0>>1::%u(v0&1::%u), nv0::%u, nv1::%u\n", __func__, v0>>1, v0&1, 
+    //     nv0, nv1);
+    // }
+    if((nv0+nv1)<2) return 0;
+    // if(v0 >= (ref->n_seq<<1)) {
+    //     fprintf(stderr, "[M::%s] v0::%u, ref->n_seq::%u\n", __func__, v0, ref->n_seq);
+    // }
+    b->S.n = b->T.n = b->b.n = b->e.n = 0;
+    b->a[v0].c = b->a[v0].d = b->a[v0].m = b->a[v0].nc = b->a[v0].np = 0;
+    ///b->S is the nodes with all incoming edges visited
+    kv_push(uint32_t, b->S, v0);
+    n_tips = 0; tip_end = (uint32_t)-1;
 
+    do {
+        ///v is a node that all incoming edges have been visited
+        ///d is the distance from v0 to v
+        v = kv_pop(b->S); d = b->a[v].d;
+        nv0 = 0; av0 = NULL; nv1 = 0; av1 = NULL; i0 = i1 = 0;
+        if(g) {
+            nv0 = asg_arc_n(g, v); av0 = asg_arc_a(g, v);
+        }
+        if(ref) {
+            nv1 = asg_arc_n(ref, v); av1 = asg_arc_a(ref, v);
+        }
+        // if((v0 == 4386) && (!ref)) {
+        //     fprintf(stderr, "[M::%s] v0>>1::%u(v0&1::%u), v>>1::%u(v&1::%u)\n", __func__, v0>>1, v0&1, v>>1, v&1);
+        // }
+        ///all out-edges of v
+        for (i0 = 0; i0 < nv0; ++i0) { // loop through v's neighbors
+            if (av0[i0].del) continue;
+            w = av0[i0].v; l = (uint32_t)av0[i0].ul; t = &b->a[w];
+            // if((v0 == 4386) && (!ref)) {
+            //     fprintf(stderr, "[M::%s] v0>>1::%u(v0&1::%u), w>>1::%u(w&1::%u)\n", 
+            //     __func__, v0>>1, v0&1, w>>1, w&1);
+            // }
+            if ((w>>1) == (v0>>1)) goto pop_rd_hm_bub;
+            if(is_first) l = 0;
+            if (d + l > max_dist) break; // too far
+            ///unvisited node
+            if (t->s == 0) { // this vertex has never been visited
+                kv_push(uint32_t, b->b, w); // save it for revert
+                t->p = v, t->s = 1, t->d = d + l;
+                t->r = (g?get_real_length(g, w^1, NULL):0)+(ref?get_real_length(ref, w^1, NULL):0);
+                ++n_pending;
+            } else { // visited before
+                ///the shortest path
+                if (d + l < t->d) t->d = d + l; // update dist
+            }
+            // if((v0 == 4386) && (!ref) && ((w>>1) == 2597)) {
+            //     fprintf(stderr, "[M::%s] w>>1::%u(w&1::%u), t->r::%u\n", 
+            //     __func__, w>>1, w&1, t->r);
+            // }
+            //if all incoming edges of w have visited
+            //push it to b->S
+            if (--(t->r) == 0) {
+                x = (g?get_real_length(g, w, NULL):0)+(ref?get_real_length(ref, w, NULL):0);
+                // if((v0 == 4386) && (!ref) && ((w>>1) == 2597)) {
+                //     fprintf(stderr, "[M::%s] w>>1::%u(w&1::%u), t->r::%u, x::%u, b->S.n::%u\n", 
+                //     __func__, w>>1, w&1, t->r, x, (uint32_t)b->S.n);
+                // }
+                if(x > 0) {
+                    // if((v0 == 4386) && (!ref)) {
+                    //     fprintf(stderr, "+[M::%s] v0>>1::%u(v0&1::%u), push_w>>1::%u(w&1::%u)\n", 
+                    //     __func__, v0>>1, v0&1, w>>1, w&1);
+                    //     uint32_t m;
+                    //     for (m = 0; m < b->S.n; m++) {
+                    //         fprintf(stderr, "+[M::%s] m>>1::%u(m&1::%u)\n", __func__, b->S.a[m]>>1, b->S.a[m]&1);
+                    //     }
+                    // }
+                    kv_push(uint32_t, b->S, w);
+                } else {
+                    ///at most one tip
+                    if(n_tips != 0) goto pop_rd_hm_bub;
+                    n_tips++; tip_end = w;
+                }
+                --n_pending;
+            }
+        }
+        if (i0 >= nv0) {
+            for (i1 = 0; i1 < nv1; ++i1) { // loop through v's neighbors
+                if (av1[i1].del) continue;
+                w = av1[i1].v; l = (uint32_t)av1[i1].ul; t = &b->a[w];
+                if ((w>>1) == (v0>>1)) goto pop_rd_hm_bub;
+                if(is_first) l = 0;
+                if (d + l > max_dist) break; // too far
+                ///unvisited node
+                if (t->s == 0) { // this vertex has never been visited
+                    kv_push(uint32_t, b->b, w); // save it for revert
+                    t->p = v, t->s = 1, t->d = d + l;
+                    t->r = (g?get_real_length(g, w^1, NULL):0)+(ref?get_real_length(ref, w^1, NULL):0);
+                    ++n_pending;
+                } else { // visited before
+                    ///the shortest path
+                    if (d + l < t->d) t->d = d + l; // update dist
+                }
+
+                //if all incoming edges of w have visited
+                //push it to b->S
+                if (--(t->r) == 0) {
+                    x = (g?get_real_length(g, w, NULL):0)+(ref?get_real_length(ref, w, NULL):0);
+                    if(x > 0) {
+                        // if((v0 == 4386) && (!ref)) {
+                        //     fprintf(stderr, "-[M::%s] v0>>1::%u(v0&1::%u), push_w>>1::%u(w&1::%u)\n", 
+                        //     __func__, v0>>1, v0&1, w>>1, w&1);
+                        // }
+                        kv_push(uint32_t, b->S, w);
+                    } else {
+                        ///at most one tip
+                        if(n_tips != 0) goto pop_rd_hm_bub;
+                        n_tips++; tip_end = w;
+                    }
+                    --n_pending;
+                }
+            }
+        }
+
+        is_first = 0;
+        //if found a tip
+        if(n_tips == 1) {
+            if(tip_end != (uint32_t)-1 && n_pending == 0 && b->S.n == 0) {
+                // if((v0 == 4386) && (!ref)) {
+                //     fprintf(stderr, ">[M::%s] v0>>1::%u(v0&1::%u), push_w>>1::%u(w&1::%u)\n", 
+                //     __func__, v0>>1, v0&1, tip_end>>1, tip_end&1);
+                // }
+                kv_push(uint32_t, b->S, tip_end);
+                break;
+            } else {
+                goto pop_rd_hm_bub;
+            }
+        }
+        // if((v0 == 4386) && (!ref)) {
+        //     fprintf(stderr, "[M::%s] v0>>1::%u(v0&1::%u), b->S.n::%u, n_pending::%u\n", 
+        //             __func__, v0>>1, v0&1, (uint32_t)b->S.n, n_pending);
+        // }
+        ///if i < nv, that means (d + l > max_dist)
+        if (i0 < nv0 || i1 < nv1 || b->S.n == 0) goto pop_rd_hm_bub;
+    } while (b->S.n > 1 || n_pending);
+    n_pop = 1;
+    pop_rd_hm_bub:
+    for (i = 0; i < b->b.n; ++i) { // clear the states of visited vertices
+        t = &b->a[b->b.a[i]];
+        t->s = t->c = t->d = t->m = t->nc = t->np = 0;
+    }
+    return n_pop;
+}
+
+uint64_t rd_hm_drop0(asg_t *g, asg_t *ref, uint32_t v, double cutoff)
+{
+    uint32_t nv0, nv1, mol = 0, i0, i1, ncut = 0; asg_arc_t *av0, *av1;
+    nv0 = asg_arc_n(g, v); av0 = asg_arc_a(g, v);
+    nv1 = asg_arc_n(ref, v); av1 = asg_arc_a(ref, v);
+    if(cutoff < 1) {
+        for (i0 = 0; i0 < nv0; ++i0) { // loop through v's neighbors
+            if (av0[i0].del) continue;
+            if(mol < av0[i0].ol) mol = av0[i0].ol;
+        }
+        for (i1 = 0; i1 < nv1; ++i1) { // loop through v's neighbors
+            if (av1[i1].del) continue;
+            if(mol < av1[i1].ol) mol = av1[i1].ol;
+        }
+        if(mol > 0) {
+            for (i0 = 0; i0 < nv0; ++i0) { // loop through v's neighbors
+                if (av0[i0].del) continue;
+                if(av0[i0].ol < (mol*cutoff)) {
+                    av0[i0].del = 1; asg_arc_del(g, av0[i0].v^1, (av0[i0].ul>>32)^1, 1);
+                    ncut++;
+                }
+            }
+        }
+    } else {
+        for (i0 = 0; i0 < nv0; ++i0) { // loop through v's neighbors
+            if (av0[i0].del) continue;
+            av0[i0].del = 1; asg_arc_del(g, av0[i0].v^1, (av0[i0].ul>>32)^1, 1);
+            ncut++;
+        }
+    }
+    return ncut;
+}
+
+uint64_t rd_hm_drop(asg_t *g, asg_t *ref, uint32_t v0, uint32_t v1, double cutoff, buf_t *b)
+{
+    uint32_t i1, ncut = 0;
+    uint32_t v, w, nv1, i; asg_arc_t *av1; 
+    if (g->seq[v0>>1].del) return 0; // already deleted    
+    ///b->S is the nodes with all incoming edges visited
+    b->S.n = 0;
+    kv_push(uint32_t, b->S, v0);    
+    while(b->S.n) {
+        v = kv_pop(b->S); 
+        if(b->a[v].s) continue;
+        b->a[v].s = 1; 
+        kv_push(uint32_t, b->b, v); // save it for revert
+        nv1 = asg_arc_n(ref, v); av1 = asg_arc_a(ref, v);
+        for (i1 = 0; i1 < nv1; ++i1) { // loop through v's neighbors
+            if (av1[i1].del) continue;
+            w = av1[i1].v;
+            if(b->a[w].s || w == v1) continue;
+            kv_push(uint32_t, b->S, w);
+        }
+    }
+    for (i = 0; i < b->b.n; ++i) { // clear the states of visited vertices
+        v = b->b.a[i]; b->a[b->b.a[i]].s = 0;
+        if(v == v0 || v == v1) continue;
+        ncut += rd_hm_drop0(g, ref, v, cutoff);
+        ncut += rd_hm_drop0(g, ref, v^1, cutoff);
+    }
+    ncut += rd_hm_drop0(g, ref, v0, cutoff);
+    ncut += rd_hm_drop0(g, ref, v1^1, cutoff);
+    return ncut;
+}
+
+void rd_hamming_symm(void *data, long i, int tid) // callback for kt_for()
+{
+    rd_hamming_t *s = (rd_hamming_t *)data; buf_t *b = &(s->a[tid]);
+    uint32_t st = s->rr->a[i]>>32, ed = (uint32_t)(s->rr->a[i]), p, k, ncut;
+    double step = 0.2, cuttoff; uint64_t max_dist = s->max_dist;
+    p = rd_hm_bub(s->g, s->ref, st, max_dist, b);
+    if(p) {
+        assert(b->S.a[0] == (ed^1));
+        return;
+    }
+    ///recalculate max_dist
+    p = rd_hm_bub(s->ref, NULL, st, max_dist, b);
+    // if(!p) {
+    //     fprintf(stderr, "[M::%s] st>>1::%u(st&1::%u), ed>>1::%u(ed&1::%u), max_dist::%lu\n", 
+    //     __func__, st>>1, st&1, ed>>1, ed&1, max_dist);
+    // }
+    assert(p); assert(b->S.a[0] == (ed^1));
+    for (k = max_dist = 0; k < b->b.n; ++k) {
+        if(b->b.a[k]==st || b->b.a[k]==b->S.a[0]) continue;
+        max_dist += s->ref->seq[b->b.a[k]>>1].len;
+    }
+    max_dist += s->ref->seq[st>>1].len;
+    max_dist += s->ref->seq[b->S.a[0]>>1].len;
+    p = rd_hm_bub(s->g, s->ref, st, max_dist, b);
+    if(p) {
+        assert(b->S.a[0] == (ed^1));
+        return;
+    }
+
+    for (cuttoff = step; cuttoff < 1.0; cuttoff += step) {
+        ncut = rd_hm_drop(s->g, s->ref, st, ed^1, cuttoff, b);
+        p = rd_hm_bub(s->g, s->ref, st, max_dist, b);
+        if(p) {
+            assert(b->S.a[0] == (ed^1));
+            return;
+        }
+        if(!ncut) break;
+    }
+    rd_hm_drop(s->g, s->ref, st, ed^1, 1024, b);   
+    p = rd_hm_bub(s->g, s->ref, st, max_dist, b); 
+    if(p) {
+        assert(b->S.a[0] == (ed^1));
+        return;
+    }
+}
+
+void rd_hamming_symm_simple(rd_hamming_t *s, uint32_t st, uint32_t ed) // callback for kt_for()
+{
+    buf_t *b = &(s->a[0]); double step = 0.2, cuttoff; uint64_t max_dist = s->max_dist;
+    // uint32_t st = s->rr->a[i]>>32, ed = (uint32_t)(s->rr->a[i]);
+    uint32_t p, k, ncut;
+    p = rd_hm_bub(s->g, s->ref, st, max_dist, b);
+    if(p) {
+        assert(b->S.a[0] == (ed^1));
+        return;
+    }
+    ///recalculate max_dist
+    p = rd_hm_bub(s->ref, NULL, st, max_dist, b);
+    // if(!p) {
+    //     fprintf(stderr, "[M::%s] st>>1::%u(st&1::%u), ed>>1::%u(ed&1::%u), max_dist::%lu\n", 
+    //     __func__, st>>1, st&1, ed>>1, ed&1, max_dist);
+    // }
+    assert(p); assert(b->S.a[0] == (ed^1));
+    for (k = max_dist = 0; k < b->b.n; ++k) {
+        if(b->b.a[k]==st || b->b.a[k]==b->S.a[0]) continue;
+        max_dist += s->ref->seq[b->b.a[k]>>1].len;
+    }
+    max_dist += s->ref->seq[st>>1].len;
+    max_dist += s->ref->seq[b->S.a[0]>>1].len;
+    p = rd_hm_bub(s->g, s->ref, st, max_dist, b);
+    if(p) {
+        assert(b->S.a[0] == (ed^1));
+        return;
+    }
+
+    for (cuttoff = step; cuttoff < 1.0; cuttoff += step) {
+        ncut = rd_hm_drop(s->g, s->ref, st, ed^1, cuttoff, b);
+        p = rd_hm_bub(s->g, s->ref, st, max_dist, b);
+        if(p) {
+            assert(b->S.a[0] == (ed^1));
+            return;
+        }
+        if(!ncut) break;
+    }
+    rd_hm_drop(s->g, s->ref, st, ed^1, 1024, b);   
+    p = rd_hm_bub(s->g, s->ref, st, max_dist, b); 
+    if(p) {
+        assert(b->S.a[0] == (ed^1));
+        return;
+    }
+}
+
+void reduce_hamming_error_adv(ma_ug_t *iug, asg_t *sg, ma_hit_t_alloc* sources, ma_sub_t *coverage_cut, 
+int max_hang, int min_ovlp, long long gap_fuzz, R_to_U *ru, bubble_type* bub)
+{
+    double index_time = yak_realtime();
+    ma_ug_t *ug = NULL; rd_hamming_t aux_t; memset((&aux_t), 0, sizeof(aux_t));
+    ug = (iug)?(iug):(ma_ug_gen_primary(sg, PRIMARY_LABLE));
+    uint8_t* vis_flag = NULL; CALLOC(vis_flag, sg->n_seq*2);
+    uint32_t fix_bub = 0; asg_t *g = ug->g;
+    uint32_t v, n_vtx = g->n_seq * 2, n_arc, n_arc_0 = sg->n_arc, nv, i;
+    uint64_t n_pop = 0, max_dist; asg_arc_t *p;
+    asg_arc_t *av; asg_t *ig = asg_init(); asg64_v sv; kv_init(sv);
+    buf_t b; memset(&b, 0, sizeof(buf_t));
+    b.a = (binfo_t*)calloc(n_vtx, sizeof(binfo_t));
+    uint8_t* bs_flag = NULL; CALLOC(bs_flag, n_vtx);
+    for (i = 0; i < ug->g->n_seq; i++) ug->g->seq[i].c = 0;
+    max_dist = get_bub_pop_max_dist_advance(g, &b);
+    
+    if(max_dist > 0) {
+        if(bub) {
+            for (i = 0; i < bub->f_bub; i++) {
+                get_bubbles(bub, i, &v, NULL, NULL, NULL, NULL);
+                fix_bub += gen_switch_phasing(sg, ug, v, sources, coverage_cut, max_hang, min_ovlp, 
+                    R_INF.trio_flag, vis_flag, &b, max_dist, 1, ig, &sv);
+            }
+        } else {
+            for (v = 0; v < n_vtx; ++v) {
+                if(bs_flag[v] != 0) continue;
+                nv = asg_arc_n(g, v); av = asg_arc_a(g, v);
+                ///some node could be deleted
+                if (nv < 2 || g->seq[v>>1].del) continue;
+                ///some edges could be deleted
+                for (i = n_arc = 0; i < nv; ++i) // asg_bub_pop1() may delete some edges/arcs
+                    if (!av[i].del) ++n_arc;
+                if (n_arc < 2) continue;
+                if(asg_bub_pop1_primary_trio(ug->g, NULL, v, max_dist, &b, (uint32_t)-1, (uint32_t)-1, 0, NULL, NULL, NULL, 0, 0, NULL)) {
+                    //beg is v, end is b.S.a[0]
+                    //note b.b include end, does not include beg
+                    for (i = 0; i < b.b.n; i++) {
+                        if(b.b.a[i]==v || b.b.a[i]==b.S.a[0]) continue;
+                        bs_flag[b.b.a[i]] = bs_flag[b.b.a[i]^1] = 1;
+                    }
+                    bs_flag[v] = 2; bs_flag[b.S.a[0]^1] = 3;
+                }
+            }
+
+            //traverse all node with two directions 
+            for (v = 0; v < n_vtx; ++v) {
+                if(bs_flag[v] !=2) continue;
+                nv = asg_arc_n(g, v);
+                av = asg_arc_a(g, v);
+                ///some node could be deleted
+                if (nv < 2 || g->seq[v>>1].del) continue;
+                ///some edges could be deleted
+                for (i = n_arc = 0; i < nv; ++i) // asg_bub_pop1() may delete some edges/arcs
+                    if (!av[i].del) ++n_arc;
+                if (n_arc > 1) {
+                    fix_bub += gen_switch_phasing(sg, ug, v, sources, coverage_cut, max_hang, min_ovlp, 
+                    R_INF.trio_flag, vis_flag, &b, max_dist, 1, ig, &sv);
+                }
+            }
+        }
+    }
+    free(bs_flag); if(!iug) ma_ug_destroy(ug);    
+
+    if(sv.n > 0) {
+        ig->n_seq = ig->m_seq = sg->n_seq; 
+        MALLOC(ig->seq, ig->n_seq);
+        memcpy(ig->seq, sg->seq, (sizeof((*(ig->seq)))*ig->n_seq));
+        asg_cleanup(ig); asg_arc_del_trans_aux(ig, sg, vis_flag, gap_fuzz);
+        aux_t.n_thread = 1/**asm_opt.thread_num**/; CALLOC(aux_t.a, aux_t.n_thread);
+        REALLOC(b.a, (ig->n_seq<<1)); memset(b.a, 0, sizeof((*(b.a)))*(ig->n_seq<<1));
+        for (i = 0; i < aux_t.n_thread; i++) aux_t.a[i].a = b.a;
+        aux_t.g = ig; aux_t.ref = sg; aux_t.rr = &sv; aux_t.max_dist = max_dist;
+        // print_debug_gfa(ug, sg, coverage_cut, "debug_hamming", sources, ru);
+        // kt_for(aux_t.n_thread, rd_hamming_symm, &aux_t, aux_t.rr->n);
+        for (i = 0; i < aux_t.rr->n; i++) {
+            rd_hamming_symm_simple(&aux_t, aux_t.rr->a[i]>>32, (uint32_t)(aux_t.rr->a[i]));
+        }        
+        for (i = 0; i < aux_t.n_thread; i++) {
+            free(aux_t.a[i].S.a); free(aux_t.a[i].T.a); 
+            free(aux_t.a[i].b.a); free(aux_t.a[i].e.a);
+        }
+        free(aux_t.a);
+    }
+    free(sv.a); free(vis_flag);
+
+    for (i = n_pop = 0; i < ig->n_arc; i++) {
+        if(ig->arc[i].del) continue;
+        p = asg_arc_pushp(sg); *p = (ig->arc[i]); n_pop++;
+    }
+    if(n_pop) {
+        free(sg->idx);
+        sg->idx = 0;
+        sg->is_srt = 0;
+        asg_cleanup(sg);
+        asg_symm(sg);
+        asg_arc_del_trans(sg, gap_fuzz);
+    }
+    free(b.a); free(b.S.a); free(b.T.a); free(b.b.a); free(b.e.a); asg_destroy(ig);
+    fprintf(stderr, "[M::%s::%.3f] # inserted edges: %u, # fixed bubbles: %u\n", 
+                        __func__, yak_realtime() - index_time, sg->n_arc - n_arc_0, fix_bub);
+}
 
 void reduce_hamming_error(asg_t *sg, ma_hit_t_alloc* sources, ma_sub_t *coverage_cut, 
 int max_hang, int min_ovlp, long long gap_fuzz)
@@ -30672,7 +31237,7 @@ int max_hang, int min_ovlp, uint32_t chainLenThres, long long gap_fuzz, bub_labe
         ma_ug_destroy(ug); ug = NULL; ug = ma_ug_gen_primary(sg, PRIMARY_LABLE);
         reset_bub(&bub, ug, cov->t_ch, &new_rtg_edges);
         // rescue_missing_hap_ovlp(ug, sg, sources, coverage_cut, max_hang, min_ovlp, &bub, gap_fuzz);
-        reduce_hamming_error_adv(ug, sg, sources, coverage_cut, max_hang, min_ovlp, gap_fuzz, &bub);
+        reduce_hamming_error_adv(ug, sg, sources, coverage_cut, max_hang, min_ovlp, gap_fuzz, ruIndex, &bub);
     }
 
     destory_bubbles(&bub);

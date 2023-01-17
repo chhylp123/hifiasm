@@ -32,7 +32,7 @@ KRADIX_SORT_INIT(osg, osg_arc_t, osg_arc_key, member_size(osg_arc_t, u))
 #define BREAK_CUTOFF 0.1
 #define BREAK_BOUNDARY 0.015
 void reduce_hamming_error_adv(ma_ug_t *iug, asg_t *sg, ma_hit_t_alloc* sources, ma_sub_t *coverage_cut, 
-int max_hang, int min_ovlp, long long gap_fuzz, bubble_type* bub);
+int max_hang, int min_ovlp, long long gap_fuzz, R_to_U *ru, bubble_type* bub);
 
 typedef struct {
 	uint64_t ruid;
@@ -3964,7 +3964,7 @@ asg_t *i_rg, ma_ug_t* i_ug, bubble_type* bub, kv_u_trans_t *ref, ug_opt_t *opt, 
     // output_hic_rtg(i_ug, h->r_g, opt, asm_opt.output_file_name);
 
     // reduce_hamming_error(h->r_g, opt->sources, opt->coverage_cut, opt->max_hang, opt->min_ovlp, opt->gap_fuzz);
-    reduce_hamming_error_adv(NULL, h->r_g, opt->sources, opt->coverage_cut, opt->max_hang, opt->min_ovlp, opt->gap_fuzz, NULL);
+    reduce_hamming_error_adv(NULL, h->r_g, opt->sources, opt->coverage_cut, opt->max_hang, opt->min_ovlp, opt->gap_fuzz, opt->ruIndex, NULL);
     /**
     scaffold_hap(h, t_idx, opt, round, asm_opt.output_file_name, FATHER);
     scaffold_hap(h, t_idx, opt, round, asm_opt.output_file_name, MOTHER);

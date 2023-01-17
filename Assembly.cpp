@@ -1517,31 +1517,6 @@ void Output_PAF()
     fprintf(stderr, "PAF has been written.\n");
 }
 
-void Output_yak_binning()
-{
-    fprintf(stderr, "Writing binning to disk ...... \n");
-    char* paf_name = (char*)malloc(strlen(asm_opt.output_file_name)+50);
-    sprintf(paf_name, "%s.hap1.bin.log", asm_opt.output_file_name);
-    FILE* oh1 = fopen(paf_name, "w");
-    sprintf(paf_name, "%s.hap2.bin.log", asm_opt.output_file_name);
-    FILE* oh2 = fopen(paf_name, "w");
-    uint64_t i;
-
-    for (i = 0; i < R_INF.total_reads; i++) {
-        if(R_INF.trio_flag[i]==FATHER) {
-            fprintf(oh1, "%.*s\n", (int)Get_NAME_LENGTH(R_INF, i), Get_NAME(R_INF, i));
-        }
-        if(R_INF.trio_flag[i]==MOTHER) {
-            fprintf(oh2, "%.*s\n", (int)Get_NAME_LENGTH(R_INF, i), Get_NAME(R_INF, i));
-        }
-    }
-
-    free(paf_name);
-    fclose(oh1); fclose(oh2);
-    fprintf(stderr, "Binning has been written.\n");
-}
-
-
 int check_cluster(uint64_t* list, long long listLen, ma_hit_t_alloc* paf, float threshold)
 {
     long long i, k;
@@ -1785,13 +1760,9 @@ int ha_assemble(void)
 			ha_extract_print_list(&R_INF, asm_opt.extract_iter, asm_opt.extract_list);
 			exit(0);
 		}
-		// if (!(asm_opt.flag & HA_F_SKIP_TRIOBIN) && !(asm_opt.flag & HA_F_VERBOSE_GFA)) ha_triobin(&asm_opt);
-        if (!(asm_opt.flag & HA_F_SKIP_TRIOBIN)) ha_triobin(&asm_opt);
-        // if (!(asm_opt.flag & HA_F_SKIP_TRIOBIN)) ha_triobin(&asm_opt), ovlp_loaded = 2;
 		if (asm_opt.flag & HA_F_WRITE_EC) Output_corrected_reads();
 		if (asm_opt.flag & HA_F_WRITE_PAF) Output_PAF();
         if (asm_opt.het_cov == -1024) hap_recalculate_peaks(asm_opt.output_file_name), ovlp_loaded = 2;
-        if (asm_opt.fn_bin_yak[0] && asm_opt.fn_bin_yak[1]) Output_yak_binning();
 	}
 	if (!ovlp_loaded) {
         ha_flt_tab = ha_idx = NULL;
@@ -1826,6 +1797,7 @@ int ha_assemble(void)
 		ha_triobin(&asm_opt);
 	}
     if(ovlp_loaded == 2) ovlp_loaded = 0;
+    ha_opt_update_cov_min(&asm_opt, asm_opt.hom_cov, MIN_N_CHAIN);
 
     build_string_graph_without_clean(asm_opt.min_overlap_coverage, R_INF.paf, R_INF.reverse_paf, 
         R_INF.total_reads, R_INF.read_length, asm_opt.min_overlap_Len, asm_opt.max_hang_Len, asm_opt.clean_round, 
