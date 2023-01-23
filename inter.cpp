@@ -15700,7 +15700,7 @@ int32_t write_all_ul_t(all_ul_t *x, char* file_name, ma_ug_t *ug)
 
 	fprintf(stderr, "[M::%s] Index has been written.\n", __func__);
 	fclose(fp);
-	if(asm_opt.bin_only) exit(1);
+	if(asm_opt.bin_only) exit(0);
 	return 1;
 }
 

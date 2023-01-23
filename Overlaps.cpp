@@ -19082,7 +19082,7 @@ void write_all_data_to_disk(ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sou
 
 	free(gfa_name);
     fprintf(stderr, "bin files have been written.\n");
-    if(asm_opt.bin_only) exit(1);
+    if(asm_opt.bin_only) exit(0);
 }
 
 int load_debug_graph(asg_t** sg, ma_hit_t_alloc** sources, ma_sub_t** coverage_cut, 

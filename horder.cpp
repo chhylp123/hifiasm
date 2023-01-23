@@ -463,12 +463,9 @@ void idx_hits(kvec_pe_hit* hits, uint64_t n)
     memset(hits->idx.a, 0, hits->idx.n*sizeof(uint64_t));
 
     radix_sort_pe_hit_idx_hn1(hits->a.a, hits->a.a + hits->a.n);
-    for (k = 1, l = 0; k <= hits->a.n; ++k) 
-    {   
-        if (k == hits->a.n || (get_hit_suid(*hits, k) != get_hit_suid(*hits, l))) 
-        {
+    for (k = 1, l = 0; k <= hits->a.n; ++k) {   
+        if (k == hits->a.n || (get_hit_suid(*hits, k) != get_hit_suid(*hits, l))) {
             if (k - l > 1) radix_sort_pe_hit_idx_hn2(hits->a.a + l, hits->a.a + k);
-            
             hits->idx.a[get_hit_suid(*hits, l)] = (uint64_t)l << 32 | (k - l);            
             l = k;
         }
@@ -596,8 +593,7 @@ void get_r_hits(kvec_pe_hit *u_hits, kvec_pe_hit *r_hits, asg_t* r_g, ma_ug_t* u
     uint64_t k, l, i, r_i, offset, rid, rev, rBeg, rEnd, ubits, p_mode, upos, rpos, update;
     ma_utg_t *u = NULL;
     memset(r_hits, 0, sizeof(*r_hits));
-    r_hits->uID_bits = uID_bits;
-    r_hits->pos_mode = pos_mode;
+    r_hits->uID_bits = uID_bits; r_hits->pos_mode = pos_mode;
     //reset for reads
     for (ubits=1; (uint64_t)(1<<ubits)<(uint64_t)r_g->n_seq; ubits++);
     p_mode = ((uint64_t)-1) >> (ubits + 1);
@@ -605,30 +601,22 @@ void get_r_hits(kvec_pe_hit *u_hits, kvec_pe_hit *r_hits, asg_t* r_g, ma_ug_t* u
     kv_malloc(r_hits->a, u_hits->a.n); r_hits->a.n = r_hits->a.m = u_hits->a.n;
     memcpy(r_hits->a.a, u_hits->a.a, r_hits->a.n*sizeof(pe_hit));
     radix_sort_pe_hit_idx_hn1(r_hits->a.a, r_hits->a.a + r_hits->a.n);
-    for (k = 1, l = 0; k <= r_hits->a.n; ++k) 
-    {   
-        if (k == r_hits->a.n || get_hit_suid(*r_hits, k) != get_hit_suid(*r_hits, l))//same suid
-        {
+    for (k = 1, l = 0; k <= r_hits->a.n; ++k) {   
+        if (k == r_hits->a.n || get_hit_suid(*r_hits, k) != get_hit_suid(*r_hits, l)) {//same suid
             ///already sort by spos
-            u = &(ug->u.a[get_hit_suid(*r_hits, l)]);
-            update = 0;
-            for (i = offset = 0, r_i = l; i < u->n; i++)
-            {
+            u = &(ug->u.a[get_hit_suid(*r_hits, l)]); update = 0;
+            for (i = offset = 0, r_i = l; i < u->n; i++) {
                 rid = u->a[i]>>33; 
                 rBeg = offset;
                 rEnd = rBeg + r_g->seq[rid].len - 1;
-                for (; r_i < k; r_i++)
-                {
+                for (; r_i < k; r_i++) {
                     upos = get_hit_spos(*r_hits, r_i);///pos at unitig
                     
                     if(upos > rEnd) break;
-                    if(upos >= rBeg && upos <= rEnd)
-                    {
-                        if(bub)
-                        {
+                    if(upos >= rBeg && upos <= rEnd) {
+                        if(bub) {
                             r_hits->a.a[r_i].id = (uint32_t)r_hits->a.a[r_i].id;
-                            if(!IF_HOM(get_hit_suid(*r_hits, r_i), *bub))
-                            {
+                            if(!IF_HOM(get_hit_suid(*r_hits, r_i), *bub)) {
                                 r_hits->a.a[r_i].id += ((uint64_t)(1)<<32);
                             }
                         }
@@ -642,38 +630,30 @@ void get_r_hits(kvec_pe_hit *u_hits, kvec_pe_hit *r_hits, asg_t* r_g, ma_ug_t* u
                 }
                 offset += (uint32_t)u->a[i];
             }
-
-            if(r_i != k || update != k - l) fprintf(stderr, "ERROR-r_i\n");
+            assert((r_i == k) && (update == (k-l)));
+            // if(r_i != k || update != k - l) fprintf(stderr, "ERROR-r_i\n");
             l = k;
         }
     }
 
     radix_sort_pe_hit_idx_hn2(r_hits->a.a, r_hits->a.a + r_hits->a.n);
-    for (k = 1, l = 0; k <= r_hits->a.n; ++k) 
-    {
-        if (k == r_hits->a.n || get_hit_euid(*r_hits, k) != get_hit_euid(*r_hits, l))//same euid
-        {
+    for (k = 1, l = 0; k <= r_hits->a.n; ++k) {
+        if (k == r_hits->a.n || get_hit_euid(*r_hits, k) != get_hit_euid(*r_hits, l)) {//same euid
             ///already sort by epos
-            u = &(ug->u.a[get_hit_euid(*r_hits, l)]);
-            update = 0;
-            for (i = offset = 0, r_i = l; i < u->n; i++)
-            {
+            u = &(ug->u.a[get_hit_euid(*r_hits, l)]); update = 0;
+            for (i = offset = 0, r_i = l; i < u->n; i++) {
                 rid = u->a[i]>>33; 
                 rBeg = offset;
                 rEnd = rBeg + r_g->seq[rid].len - 1;
-                for (; r_i < k; r_i++)
-                {
+                for (; r_i < k; r_i++) {
                     upos = get_hit_epos(*r_hits, r_i);///pos at unitig
 
                     if(upos > rEnd) break;
-                    if(upos >= rBeg && upos <= rEnd)
-                    {
-                        if(bub)
-                        {
+                    if(upos >= rBeg && upos <= rEnd) {
+                        if(bub) {
                             r_hits->a.a[r_i].id >>= 32;
                             r_hits->a.a[r_i].id <<= 32;
-                            if(!IF_HOM(get_hit_euid(*r_hits, r_i), *bub))
-                            {
+                            if(!IF_HOM(get_hit_euid(*r_hits, r_i), *bub)) {
                                 r_hits->a.a[r_i].id += 1;
                             }
                         }
@@ -687,8 +667,8 @@ void get_r_hits(kvec_pe_hit *u_hits, kvec_pe_hit *r_hits, asg_t* r_g, ma_ug_t* u
                 }
                 offset += (uint32_t)u->a[i];
             }
-
-            if(r_i != k || update != k - l) fprintf(stderr, "ERROR-r_i\n");
+            assert((r_i == k) && (update == (k - l)));
+            // if(r_i != k || update != k - l) fprintf(stderr, "ERROR-r_i\n");
             l = k;
         }
     }
@@ -822,34 +802,22 @@ static inline void asg_arc_unique_del(asg_t *g, uint32_t v, uint32_t w, int del)
 }
 void horder_clean_sg_by_utg(asg_t *sg, ma_ug_t *ug)
 {
-    uint32_t i, v, n_vx, w, k, m, nv, vx, wx;
+    uint32_t i, v, w, k, nv, vx, wx;
     asg_arc_t *av = NULL;
     ma_utg_t *u = NULL; 
     
-    n_vx = sg->n_seq<<1;
-    for (v = 0; v < n_vx; v++)
-    {
-        nv = asg_arc_n(sg, v);
-        av = asg_arc_a(sg, v);
-        for (m = 0; m < nv; m++) av[m].del = (!!1);
-        sg->seq[v>>1].del = (!!1);
-    }
+    for (i = 0; i < sg->n_arc; i++) sg->arc[i].del = (!!1);
+    for (i = 0; i < sg->n_seq; i++) sg->seq[i].del = (!!1);
     
-    for (i = 0; i < ug->g->n_seq; ++i) 
-    {
+    for (i = 0; i < ug->g->n_seq; ++i)  {
         if(ug->g->seq[i].del) continue;
         u = &(ug->u.a[i]);
-        for (k = 0; (k + 1) < u->n; k++)
-        {
+        for (k = 0; (k + 1) < u->n; k++) {
             v = u->a[k]>>32; w = u->a[k+1]>>32;
-
             asg_arc_unique_del(sg, v, w, 0);
             asg_arc_unique_del(sg, w^1, v^1, 0);
         }
-        for (k = 0; k < u->n; k++)
-        {
-            sg->seq[u->a[k]>>33].del = (!!0);
-        }
+        for (k = 0; k < u->n; k++) sg->seq[u->a[k]>>33].del = (!!0);
 
         v = i<<1;
         nv = asg_arc_n(ug->g, v); av = asg_arc_a(ug->g, v);
@@ -2544,8 +2512,7 @@ dens_idx_t *build_interval_idx(kvec_pe_hit *hits, ma_ug_t *ug)
     dens_idx_t *idx = NULL;
     CALLOC(idx, 1);
 
-    for (i = 0; i < hits->a.n; i++)
-    {
+    for (i = 0; i < hits->a.n; i++) {
         if(!hits->a.a[i].id) continue;
         suid = get_hit_suid(*hits, i);
         euid = get_hit_euid(*hits, i);
@@ -2574,10 +2541,8 @@ dens_idx_t *build_interval_idx(kvec_pe_hit *hits, ma_ug_t *ug)
     radix_sort_ho64(idx->pos.a, idx->pos.a + idx->pos.n);
     idx->n = idx->m = ug->u.n;
     CALLOC(idx->a, idx->n);
-    for (k = 1, l = 0; k <= idx->pos.n; ++k) 
-    {
-        if (k == idx->pos.n || ((idx->pos.a[k]>>32) != (idx->pos.a[l]>>32))) 
-        {
+    for (k = 1, l = 0; k <= idx->pos.n; ++k) {
+        if (k == idx->pos.n || ((idx->pos.a[k]>>32) != (idx->pos.a[l]>>32))) {
             idx->a[idx->pos.a[l]>>32] = (uint64_t)l << 32 | (k - l);
             l = k;
         }
@@ -2801,8 +2766,7 @@ void update_scg(horder_t *h, trans_col_t *t_idx)
     osg_arc_t *p = NULL;
     osg_destroy(h->sg.g); 
     h->sg.g = osg_init();
-    for (i = 0; i < ug->u.n; i++)
-    {
+    for (i = 0; i < ug->u.n; i++) {
         osg_seq_set(h->sg.g, i, 0);
         h->sg.g->seq[i].mw[0] = h->sg.g->seq[i].mw[1] = 0;
         h->sg.g->seq[i].ez[0] = ug->u.a[i].len>>1;
@@ -2810,8 +2774,7 @@ void update_scg(horder_t *h, trans_col_t *t_idx)
     }
     idx = build_interval_idx(hits, ug);///idx is used to get density
     
-    for (i = 0, e.n = 0; i < hits->a.n; i++)
-    {
+    for (i = 0, e.n = 0; i < hits->a.n; i++) {
         if(!hits->a.a[i].id) continue;//hom hits
         suid = get_hit_suid(*hits, i);
         euid = get_hit_euid(*hits, i);
@@ -2848,8 +2811,7 @@ void update_scg(horder_t *h, trans_col_t *t_idx)
         ep->e = (v<<32)|w; 
         ep->d = (sd<<32)|ed;
 
-        if(v > w)
-        {
+        if(v > w) {
             ep->e = (w<<32)|v;
             ep->d = (ed<<32)|sd;
         } 
@@ -2926,6 +2888,7 @@ void update_scg(horder_t *h, trans_col_t *t_idx)
         }
 
         if(bestAlt == 0) bestAlt = 1;
+        ///if there is just one edges between p->u and p->v, then bestAlt -> p->nw <= 1; this is wrong
         p->nw = p->w/bestAlt;
         if(p->nw > 1) eg_edges++;
     }
@@ -3015,6 +2978,8 @@ void get_backbone_layout(horder_t *h, sc_lay_t *sl, osg_t *lg, uint8_t *vis)
     memset(vis, 0, sizeof(uint8_t)*(lg->n_seq<<1));
     for (k = 0; k < lg->n_seq; k++)
     {
+        ///I guess this should be (!!(asg_arc_n(lg, k<<1)))^(!!(asg_arc_n(lg, (k<<1)+1)))?
+        ///no, since asg_arc_n is at most 1
         if((asg_arc_n(lg, k<<1))^(asg_arc_n(lg, (k<<1)+1)))
         {
             v = (asg_arc_n(lg, k<<1)?(k<<1):((k<<1)+1));
@@ -4089,7 +4054,111 @@ asg_t *i_rg, ma_ug_t* i_ug, bubble_type* bub, ug_opt_t *opt)
     sc_lay_t sl; kv_init(sl);
     get_r_hits(i_hits, &(h->r_hits), i_rg, i_ug, bub, i_hits_uid_bits, i_hits_pos_mode);
     h->r_g = copy_read_graph(i_rg);
-    horder_clean_sg_by_utg(h->r_g, i_ug);
+    horder_clean_sg_by_utg(h->r_g, i_ug);///udate rg by ug
+    h->ug = copy_untig_graph(i_ug); asg_destroy(h->ug->g); h->ug->g = NULL;
+    cpy_u_hits(&(h->u_hits), i_hits, h->ug->u.n);
+
+    update_scg(h, NULL);
+    layout_scg(h, ((double)1)/((double)0.75), 19, &sl);
+    renew_scaffold_utg(h, &sl, i_ug);
+    
+    spg_t *scg = scf_g(&sl, i_ug);
+    destory_sc_lay_t(&sl);
+    destory_horder_t(&h);
+    return scg;
+}
+
+void gen_r_hits(kvec_pe_hit *u_hits, kvec_pe_hit *r_hits, asg_t* r_g, ma_ug_t* ug, bubble_type* bub, uint64_t uID_bits, uint64_t pos_mode)
+{
+    uint64_t k, l, i, m, r_i, offset, rid, rev, rBeg, rEnd, ubits, p_mode, upos, rpos, update;
+    ma_utg_t *u = NULL;
+    memset(r_hits, 0, sizeof(*r_hits));
+    r_hits->uID_bits = uID_bits; r_hits->pos_mode = pos_mode;
+    //reset for reads
+    for (ubits=1; (uint64_t)(1<<ubits)<(uint64_t)r_g->n_seq; ubits++);
+    p_mode = ((uint64_t)-1) >> (ubits + 1);
+
+    kv_malloc(r_hits->a, u_hits->a.n); r_hits->a.n = r_hits->a.m = u_hits->a.n;
+    memcpy(r_hits->a.a, u_hits->a.a, r_hits->a.n*sizeof(pe_hit));
+    radix_sort_pe_hit_idx_hn1(r_hits->a.a, r_hits->a.a + r_hits->a.n);
+    for (k = 1, l = m = 0; k <= r_hits->a.n; ++k) {   
+        if (k == r_hits->a.n || get_hit_suid(*r_hits, k) != get_hit_suid(*r_hits, l)) {//same suid
+            ///already sort by spos
+            if((!bub) || ((!IF_HOM(get_hit_suid(*r_hits, l), *bub)))) {
+                u = &(ug->u.a[get_hit_suid(*r_hits, l)]); update = 0;
+                for (i = offset = 0, r_i = l; i < u->n; i++) {
+                    rid = u->a[i]>>33; 
+                    rBeg = offset;
+                    rEnd = rBeg + r_g->seq[rid].len - 1;
+                    for (; r_i < k; r_i++) {
+                        upos = get_hit_spos(*r_hits, r_i);///pos at unitig
+                        
+                        if(upos > rEnd) break;
+                        if(upos >= rBeg && upos <= rEnd) {
+                            rpos = (((u->a[i]>>32)&1)? rEnd - upos : upos - rBeg);///pos at read
+                            rev = ((u->a[i]>>32)&1) ^ (r_hits->a.a[r_i].s>>63);
+                            r_hits->a.a[r_i].s = (rev<<63) | ((rid << (64-ubits))>>1) | (rpos & p_mode);
+                            r_hits->a.a[r_i].id = 1; r_hits->a.a[m++] = r_hits->a.a[r_i];
+                            
+                            update++;
+                        }
+                    }
+                    offset += (uint32_t)u->a[i];
+                }
+                assert((r_i == k) && (update == (k-l)));
+            }
+            // if(r_i != k || update != k - l) fprintf(stderr, "ERROR-r_i\n");
+            l = k;
+        }
+    }
+    r_hits->a.n = m;
+
+    radix_sort_pe_hit_idx_hn2(r_hits->a.a, r_hits->a.a + r_hits->a.n);
+    for (k = 1, l = m = 0; k <= r_hits->a.n; ++k) {
+        if (k == r_hits->a.n || get_hit_euid(*r_hits, k) != get_hit_euid(*r_hits, l)) {//same euid
+            ///already sort by epos
+            if((!bub) || ((!IF_HOM(get_hit_euid(*r_hits, l), *bub)))) {
+                u = &(ug->u.a[get_hit_euid(*r_hits, l)]); update = 0;
+                for (i = offset = 0, r_i = l; i < u->n; i++) {
+                    rid = u->a[i]>>33; 
+                    rBeg = offset;
+                    rEnd = rBeg + r_g->seq[rid].len - 1;
+                    for (; r_i < k; r_i++) {
+                        upos = get_hit_epos(*r_hits, r_i);///pos at unitig
+
+                        if(upos > rEnd) break;
+                        if(upos >= rBeg && upos <= rEnd) {
+                            rpos = (((u->a[i]>>32)&1)? rEnd - upos : upos - rBeg);///pos at read
+                            rev = ((u->a[i]>>32)&1) ^ (r_hits->a.a[r_i].e>>63);
+                            r_hits->a.a[r_i].e = (rev<<63) | ((rid << (64-ubits))>>1) | (rpos & p_mode);
+                            r_hits->a.a[r_i].id = 1; r_hits->a.a[m++] = r_hits->a.a[r_i];
+                            
+                            update++;
+                        }
+                    }
+                    offset += (uint32_t)u->a[i];
+                }
+                assert((r_i == k) && (update == (k - l)));
+            }
+            // if(r_i != k || update != k - l) fprintf(stderr, "ERROR-r_i\n");
+            l = k;
+        }
+    }
+    r_hits->a.n = m;
+
+    r_hits->uID_bits = ubits;
+    r_hits->pos_mode = p_mode;
+    idx_hits(r_hits, r_g->n_seq);
+}
+
+spg_t *horder_sensitive_utg(kvec_pe_hit *i_hits, uint64_t i_hits_uid_bits, uint64_t i_hits_pos_mode, 
+asg_t *i_rg, ma_ug_t* i_ug, bubble_type* bub, ug_opt_t *opt)
+{
+    horder_t *h = NULL; CALLOC(h, 1);
+    sc_lay_t sl; kv_init(sl);
+    gen_r_hits(i_hits, &(h->r_hits), i_rg, i_ug, bub, i_hits_uid_bits, i_hits_pos_mode);
+    h->r_g = copy_read_graph(i_rg);
+    horder_clean_sg_by_utg(h->r_g, i_ug);///udate rg by ug
     h->ug = copy_untig_graph(i_ug); asg_destroy(h->ug->g); h->ug->g = NULL;
     cpy_u_hits(&(h->u_hits), i_hits, h->ug->u.n);
 
