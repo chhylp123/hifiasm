@@ -32,7 +32,6 @@
 // #define PRIMARY_LABLE 1
 // #define ALTER_LABLE 2
 // #define HAP_LABLE 4
-#define HA_RE_UL_ID "re"
 #define ug_ext_len 75000
 
 #define Get_qn(RECORD) ((uint32_t)((RECORD).qns>>32))

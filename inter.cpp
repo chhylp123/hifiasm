@@ -16125,13 +16125,13 @@ void trans_base_infer(ma_ug_t *ug, asg_t *sg, ug_opt_t *uopt, kv_u_trans_t *res,
 }
 
 
-ma_ug_t *ul_realignment(const ug_opt_t *uopt, asg_t *sg, uint32_t double_check_cache)
+ma_ug_t *ul_realignment(const ug_opt_t *uopt, asg_t *sg, uint32_t double_check_cache, const char *bin_file)
 {
 	fprintf(stderr, "[M::%s::] ==> starting UL\n", __func__);
 	mg_idxopt_t opt; uldat_t sl;
 	int32_t cutoff;
 	char* gfa_name = NULL; MALLOC(gfa_name, strlen(asm_opt.output_file_name)+50);
-	sprintf(gfa_name, "%s.%s", asm_opt.output_file_name, HA_RE_UL_ID);
+	sprintf(gfa_name, "%s.%s", asm_opt.output_file_name, bin_file);
 
 	init_aux_table(); ha_opt_update_cov(&asm_opt, asm_opt.hom_cov);
 	cutoff = REA_ALIGN_CUTOFF;
@@ -16147,9 +16147,13 @@ ma_ug_t *ul_realignment(const ug_opt_t *uopt, asg_t *sg, uint32_t double_check_c
 		gen_UL_reovlps(&sl, ug, sg, gfa_name, cutoff);
 		// exit(1);
 		write_all_ul_t(&UL_INF, gfa_name, ug);
-	} else if(double_check_cache){
-		if(drenew_UL_reovlps(&sl, ug, sg, gfa_name, cutoff)) {
-			write_all_ul_t(&UL_INF, gfa_name, ug);
+	} else{
+		free(UL_INF.ridx.idx.a); free(UL_INF.ridx.occ.a); 
+		memset(&(UL_INF.ridx), 0, sizeof((UL_INF.ridx)));
+		if(double_check_cache){
+			if(drenew_UL_reovlps(&sl, ug, sg, gfa_name, cutoff)) {
+				write_all_ul_t(&UL_INF, gfa_name, ug);
+			}
 		}
 	}
 

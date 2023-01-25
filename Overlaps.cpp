@@ -18754,10 +18754,11 @@ void filter_set_kug(uint8_t* trio_flag, asg_t *rg, uint8_t *rf, kvec_asg_arc_t_w
 
 
 void output_trio_graph(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name, 
-ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, 
-long long tipsLen, float tip_drop_ratio, long long stops_threshold, R_to_U* ruIndex, 
-float chimeric_rate, float drop_ratio, int max_hang, int min_ovlp, int is_bench, bub_label_t* b_mask_t)
+ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, long long tipsLen, float tip_drop_ratio, 
+long long stops_threshold, R_to_U* ruIndex, float chimeric_rate, float drop_ratio, int max_hang, 
+int min_ovlp, int is_bench, long long gap_fuzz, ug_opt_t *opt, bub_label_t* b_mask_t)
 {
+    reduce_hamming_error_adv(NULL, sg, sources, coverage_cut, max_hang, min_ovlp, gap_fuzz, opt->ruIndex, NULL);
     uint8_t *rf = NULL;
 
     if(asm_opt.kpt_rate > 0) CALLOC(rf, sg->n_seq); 
@@ -31231,7 +31232,7 @@ int max_hang, int min_ovlp, uint32_t chainLenThres, long long gap_fuzz, bub_labe
     reset_bub(&bub, ug, cov->t_ch, &new_rtg_edges);
     beg_idx = bub.f_bub; occ = bub.b_bub + bub.b_end_bub + bub.tangle_bub;
     rescue_bubbles_by_missing_ovlp_backward(ug, sg, sources, coverage_cut, ruIndex, max_hang, min_ovlp, chainLenThres, beg_idx, occ, &bub, b_mask_t);
-
+    /**
     if((!no_trio_recover) && (ha_opt_triobin(&asm_opt)))
     {
         ma_ug_destroy(ug); ug = NULL; ug = ma_ug_gen_primary(sg, PRIMARY_LABLE);
@@ -31239,6 +31240,7 @@ int max_hang, int min_ovlp, uint32_t chainLenThres, long long gap_fuzz, bub_labe
         // rescue_missing_hap_ovlp(ug, sg, sources, coverage_cut, max_hang, min_ovlp, &bub, gap_fuzz);
         reduce_hamming_error_adv(ug, sg, sources, coverage_cut, max_hang, min_ovlp, gap_fuzz, ruIndex, &bub);
     }
+    **/
 
     destory_bubbles(&bub);
     destory_hap_cov_t(&cov);
@@ -33585,7 +33587,7 @@ void renew_g(ma_hit_t_alloc **sources, ma_hit_t_alloc **reverse_sources, long lo
 uint64_t **readLen, ma_sub_t **coverage_cut, R_to_U *ruIndex, asg_t **sg, 
 int64_t mini_overlap_length, int64_t max_hang_length,
 ug_opt_t *uopt, int64_t clean_round, double min_ovlp_drop_ratio, double max_ovlp_drop_ratio, 
-int64_t max_tip, bub_label_t *b_mask_t, uint32_t is_trio, char *o_file)
+int64_t max_tip, bub_label_t *b_mask_t, uint32_t is_trio, char *o_file, const char *bin_file, uint64_t free_uld)
 {
     ul_renew_t nopt; memset(&nopt, 0, sizeof(nopt));
     nopt.src = sources; nopt.r_src = reverse_sources; nopt.ruIndex = ruIndex;
@@ -33593,7 +33595,7 @@ int64_t max_tip, bub_label_t *b_mask_t, uint32_t is_trio, char *o_file)
     nopt.cov = coverage_cut; nopt.b_mask_t = b_mask_t;
     nopt.max_hang = max_hang_length; nopt.mini_ovlp = mini_overlap_length;
     ul_realignment_gfa(uopt, *sg, clean_round, min_ovlp_drop_ratio, max_ovlp_drop_ratio, 
-                                                                    asm_opt.max_short_tip, asm_opt.max_short_ul_tip, b_mask_t, ha_opt_triobin(&asm_opt), o_file, &nopt);;
+        asm_opt.max_short_tip, asm_opt.max_short_ul_tip, b_mask_t, ha_opt_triobin(&asm_opt), o_file, &nopt, bin_file, free_uld);
     // ma_ug_t *iug = ul_realignment_gfa(uopt, *sg, clean_round, min_ovlp_drop_ratio, max_ovlp_drop_ratio, 
     //                                                                 asm_opt.max_short_tip, b_mask_t, ha_opt_triobin(&asm_opt), o_file);
     // asg_t *ng = gen_ng(iug, *sg, uopt, coverage_cut, ruIndex, 256);
@@ -33605,6 +33607,40 @@ int64_t max_tip, bub_label_t *b_mask_t, uint32_t is_trio, char *o_file)
     // (*sg) = ng; 
     // ma_hit_contained_advance(*sources, *n_read, *coverage_cut, ruIndex, max_hang_length, mini_overlap_length);
     // post_rescue(uopt, *sg, (*sources), (*reverse_sources), ruIndex, b_mask_t, 0);
+}
+
+void gradually_renew_g(ma_hit_t_alloc **src, ma_hit_t_alloc **rev_src, long long *n_read, 
+uint64_t **readLen, ma_sub_t **cov, R_to_U *ruIndex, asg_t **sg, int64_t mini_overlap_length, 
+int64_t max_hang_length, ug_opt_t *uopt, int64_t clean_round, double min_ovlp_drop_ratio, 
+double max_ovlp_drop_ratio, int64_t max_tip, int64_t gap_fuzz, int64_t min_dp, 
+bub_label_t *b_mask_t, uint32_t is_trio, int32_t ul_aln_round, char *o_file, const char *bin_file)
+{
+    int32_t k, strl = strlen(bin_file)+1, kt, cl, sl; char *id = NULL;
+    renew_g(src, rev_src, n_read, readLen, cov, ruIndex, sg, mini_overlap_length, max_hang_length,
+        uopt, clean_round, min_ovlp_drop_ratio, max_ovlp_drop_ratio, asm_opt.max_short_tip, b_mask_t, 
+        is_trio, o_file, bin_file, (ul_aln_round<=1)?1:0);
+    gen_ug_opt_t(uopt, *src, *rev_src, max_hang_length, mini_overlap_length, gap_fuzz, min_dp, *readLen, 
+            *cov, ruIndex, (asm_opt.max_short_tip*2), 0.15, 3, 0.05, 0.9, b_mask_t);
+    ug_ext_gfa(uopt, *sg, ug_ext_len);
+    /**if(!ha_opt_triobin(&asm_opt))**/ hic_clean_adv(*sg, uopt);
+
+    cl = strl+1; MALLOC(id, cl);
+    for (k = 1; k < ul_aln_round; k++) {
+        for(kt = k, sl = strl+1; kt > 0; kt/=10) sl++;
+        if(cl < sl) {
+            cl = sl; REALLOC(id, cl);
+        }
+
+        sprintf(id, "%s%d", bin_file, k);
+        renew_g(src, rev_src, n_read, readLen, cov, ruIndex, sg, mini_overlap_length, max_hang_length,
+            uopt, clean_round, min_ovlp_drop_ratio, max_ovlp_drop_ratio, asm_opt.max_short_tip, b_mask_t, 
+            is_trio, o_file, id, ((k+1)==ul_aln_round)?1:0);
+        gen_ug_opt_t(uopt, *src, *rev_src, max_hang_length, mini_overlap_length, gap_fuzz, min_dp, *readLen, 
+            *cov, ruIndex, (asm_opt.max_short_tip*2), 0.15, 3, 0.05, 0.9, b_mask_t);
+        ug_ext_gfa(uopt, *sg, ug_ext_len);
+        /**if(!ha_opt_triobin(&asm_opt))**/ hic_clean_adv(*sg, uopt);
+    }
+    free(id);
 }
 
 void clean_graph(
@@ -33712,17 +33748,28 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
     }
 
     if(asm_opt.ar) {
+        gradually_renew_g(&sources, &reverse_sources, &n_read, &readLen, &coverage_cut, ruIndex, 
+        &sg, mini_overlap_length, max_hang_length, &uopt, clean_round, min_ovlp_drop_ratio, 
+        max_ovlp_drop_ratio, asm_opt.max_short_tip, gap_fuzz, min_dp, &b_mask_t, 
+        ha_opt_triobin(&asm_opt), asm_opt.ul_clean_round, o_file, "re");
+    } else {
+        ug_ext_gfa(&uopt, sg, ug_ext_len);
+        if(!ha_opt_triobin(&asm_opt)) {
+            // output_unitig_graph(sg, coverage_cut, "pre_clean", sources, ruIndex, max_hang_length, mini_overlap_length);
+            hic_clean_adv(sg, &uopt);
+        }
+    }
+
+    /**
+    if(asm_opt.ar) {
         renew_g(&sources, &reverse_sources, &n_read, &readLen, &coverage_cut, ruIndex, &sg, mini_overlap_length, max_hang_length,
         &uopt, clean_round, min_ovlp_drop_ratio, max_ovlp_drop_ratio, asm_opt.max_short_tip, &b_mask_t, 
         ha_opt_triobin(&asm_opt), o_file);
         ///make sure uopt has been updated; not necessary
         gen_ug_opt_t(&uopt, sources, reverse_sources, max_hang_length, mini_overlap_length, gap_fuzz, min_dp, readLen, coverage_cut, ruIndex, 
             (asm_opt.max_short_tip*2), 0.15, 3, 0.05, 0.9, &b_mask_t);
-        // ma_ug_t *iug = ul_realignment_gfa(&uopt, sg, clean_round, min_ovlp_drop_ratio, max_ovlp_drop_ratio, 
-        //                                                             asm_opt.max_short_tip, &b_mask_t, ha_opt_triobin(&asm_opt), o_file);
-        // gen_ng(iug, sg, &uopt, &coverage_cut, ruIndex, 100);
-        // exit(1);
     }
+    **/
     // print_debug_gfa(sg, NULL, coverage_cut, "UL.debug", sources, ruIndex, max_hang_length, mini_overlap_length, 0, 0, 0);
     /**
     asg_cut_tip(sg, asm_opt.max_short_tip);
@@ -33853,12 +33900,6 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
     // flat_bubbles(sg, ruIndex->is_het); free(ruIndex->is_het); ruIndex->is_het = NULL;
     flat_soma_v(sg, sources, ruIndex);
     **/
-    ug_ext_gfa(&uopt, sg, ug_ext_len);
-
-    if(!ha_opt_triobin(&asm_opt)) {
-        // output_unitig_graph(sg, coverage_cut, "pre_clean", sources, ruIndex, max_hang_length, mini_overlap_length);
-        hic_clean_adv(sg, &uopt);
-    }
 
     output_contig_graph_primary_pre(sg, coverage_cut, o_file, sources, reverse_sources, 
         asm_opt.small_pop_bubble_size, asm_opt.max_short_tip, ruIndex, max_hang_length, mini_overlap_length);
@@ -33885,7 +33926,7 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
     {   
         if(asm_opt.flag & HA_F_PARTITION) asm_opt.flag -= HA_F_PARTITION;
         output_trio_graph(sg, coverage_cut, o_file, sources, reverse_sources, (asm_opt.max_short_tip*2), 
-        0.15, 3, ruIndex, 0.05, 0.9, max_hang_length, mini_overlap_length, 0, &b_mask_t);
+        0.15, 3, ruIndex, 0.05, 0.9, max_hang_length, mini_overlap_length, 0, gap_fuzz, &uopt, &b_mask_t);
     }
     else if(ha_opt_hic(&asm_opt))
     {

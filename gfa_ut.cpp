@@ -2270,6 +2270,20 @@ void print_vw_edge(asg_t *sg, uint32_t v, uint32_t w, const char *cmd)
     if(i >= nv) fprintf(stderr, "[%s]\tno edges\n", cmd);
 }
 
+void prt_spec_edge(asg_t *rg, ma_hit_t_alloc *src, uint32_t tot_rid, uint32_t vid, uint32_t wid, const char *cmd)
+{
+    if(vid >= tot_rid) return;
+    uint32_t k, qn, tn; ma_hit_t_alloc *s = &(src[vid]); 
+    for (k = 0; k < s->length; k++) {
+        qn = Get_qn(s->buffer[k]); tn = Get_tn(s->buffer[k]);
+        if(qn == vid && tn == wid) {
+            fprintf(stderr, "[M::%s]%s\tqn::%u\tq::[%u,\t%u)\t%c\ttn::%u\tt::[%u,\t%u)\n", 
+                    __func__, cmd, qn, Get_qs(s->buffer[k]), Get_qe(s->buffer[k]), 
+                    "+-"[s->buffer[k].rev], tn, Get_ts(s->buffer[k]), Get_te(s->buffer[k]));
+        }
+    }
+}
+
 int32_t gen_spec_edge(asg_t *rg, ug_opt_t *uopt, uint32_t v, uint32_t w, asg_arc_t *t)
 {
     uint32_t k, qn, tn; int32_t r; ma_hit_t_alloc *s = &(uopt->sources[v>>1]); asg_arc_t p;
@@ -13717,10 +13731,10 @@ typedef struct {
 
 
 #define B4Lg(x) (((x)>>2)+(((x)&3)?1:0))
-uint32_t load_scaf_base(all_ul_t *x, char* file_name)
+uint32_t load_scaf_base(all_ul_t *x, char* file_name, const char *bin_file)
 {
     char *gfa_name = (char*)malloc(strlen(file_name)+50);
-	sprintf(gfa_name, "%s.%s.uidx.ucr.bin", file_name, HA_RE_UL_ID);
+	sprintf(gfa_name, "%s.%s.uidx.ucr.bin", file_name, bin_file);
     // fprintf(stderr, "[M::%s] open %s...\n", __func__, gfa_name);
     FILE *fp = fopen(gfa_name, "r"); free(gfa_name);
     if (!fp) return 0;
@@ -13986,7 +14000,7 @@ uint64_t rid_n, uint64_t scaf_len, char *scaf_id, asg_t *ng, ug_opt_t *uopt, ma_
 int64_t reload_uovl(all_ul_t *x, char* file_name)
 {
     char* gfa_name = NULL; MALLOC(gfa_name, strlen(file_name)+100);
-    sprintf(gfa_name, "%s.%s.ul.ovlp.bin", file_name, HA_RE_UL_ID);
+    sprintf(gfa_name, "%s.%s.ul.ovlp.bin", file_name, "re");
     FILE* fp = fopen(gfa_name, "r"); free(gfa_name);
     if (!fp) return 0;
     uint64_t k; size_t kn; ul_vec_t *p = NULL;
@@ -14128,10 +14142,10 @@ static void gen_scaffold_id(void *data, long i, int tid) // callback for kt_for(
     }
 }
 
-void reload_uu(all_ul_t *x, ma_ug_t *raw_g, char* file_name)
+void reload_uu(all_ul_t *x, ma_ug_t *raw_g, char* file_name, const char *bin_file)
 {
     char* gfa_name = NULL; MALLOC(gfa_name, strlen(asm_opt.output_file_name)+50);
-	sprintf(gfa_name, "%s.%s", asm_opt.output_file_name, HA_RE_UL_ID);
+	sprintf(gfa_name, "%s.%s", asm_opt.output_file_name, bin_file);
     clear_all_ul_t(x);
     load_all_ul_t(x, gfa_name, &R_INF, raw_g);
     // filter_ul_ug(raw_g);//no filter since we would like to use all alignments
@@ -14139,10 +14153,10 @@ void reload_uu(all_ul_t *x, ma_ug_t *raw_g, char* file_name)
     free(gfa_name);
 }
 
-void fill_scaffolds(usc_t *a, uint64_t a_n, ma_ug_t *raw_g, int64_t min_arc_len)
+void fill_scaffolds(usc_t *a, uint64_t a_n, ma_ug_t *raw_g, int64_t min_arc_len, const char *bin_file)
 {   
     scaf_mul_t ss; uint32_t k, occ = 0;
-    reload_uu(&UL_INF, raw_g, asm_opt.output_file_name);
+    reload_uu(&UL_INF, raw_g, asm_opt.output_file_name, bin_file);
     // reload_uovl(&UL_INF, asm_opt.output_file_name);
     // filter_ul_ug(raw_g);
     // free(UL_INF.ridx.idx.a); UL_INF.ridx.idx.n = UL_INF.ridx.idx.m = 0;
@@ -14164,7 +14178,7 @@ void fill_scaffolds(usc_t *a, uint64_t a_n, ma_ug_t *raw_g, int64_t min_arc_len)
     }
 
     // fprintf(stderr, "[M::%s] occ::%u\n", __func__, occ);
-    if(occ) load_scaf_base(&UL_INF, asm_opt.output_file_name);
+    if(occ) load_scaf_base(&UL_INF, asm_opt.output_file_name, bin_file);
 }
 
 void update_paf(ma_hit_t_alloc *src, ma_hit_t_alloc *r_src, uint64_t *rmap, uint64_t rid_n, uint64_t pre_gn, asg_t *ng);
@@ -14239,15 +14253,22 @@ void push_direct_scaff_node(usc_t *psa, asg_t *ng, ug_opt_t *uopt, uint64_t vx, 
             if(dif > 16) r = -1;
         }
     }
-    // if((((vx>>1) == 3313901) && ((wx>>1) == 3555473)) || (((vx>>1) == 3555473) && ((wx>>1) == 3313901))) { 
-    //     fprintf(stderr, "[M::%s::]\t%.*s(%c)(sv>>1::%lu)\t%.*s(%c)(sw>>1::%lu)\tr::%d\n", __func__, 
-    //         (int)Get_NAME_LENGTH(R_INF, (vx>>1)), Get_NAME(R_INF, (vx>>1)), "+-"[vx&1], vx>>1, 
-    //         (int)Get_NAME_LENGTH(R_INF, (wx>>1)), Get_NAME(R_INF, (wx>>1)), "+-"[wx&1], wx>>1, r);
-    // }
     if(r >= 0) {
-        p = asg_arc_pushp(ng); *p = t;
         r = gen_spec_rc_edge(ng, uopt, wx^1, vx^1, &t, &rc1);
-        assert(r >= 0); p = asg_arc_pushp(ng); *p = t;
+        if(uol > t.ol) dif = uol - t.ol;
+        else dif = t.ol - uol;
+        if((dif > (uol*0.05)) || (dif > (t.ol*0.05))) {
+            if(dif > 16) r = -1;
+        }
+    }
+
+    if(r >= 0) {
+        r = gen_spec_rc_edge(ng, uopt, vx, wx, &t, &rc0); assert(r >= 0);
+        p = asg_arc_pushp(ng); *p = t;
+
+        r = gen_spec_rc_edge(ng, uopt, wx^1, vx^1, &t, &rc1); assert(r >= 0);
+        p = asg_arc_pushp(ng); *p = t;
+
         add_ma_hit_t_alloc(&(R_INF.paf[Get_qn((*rc0))]), rc0);
         add_ma_hit_t_alloc(&(R_INF.paf[Get_qn((*rc1))]), rc1);
     } else {
@@ -14307,7 +14328,7 @@ void print_debug_scaffold_nodes(ug_opt_t *uopt, usc_t *a, uint32_t a_n, asg_t *n
     destory_UC_Read(&r0); destory_UC_Read(&r1);
 }
 
-asg_t *renew_ng(usg_t *eg, ma_ug_t *rug, asg_t *sg, ug_opt_t *uopt, ma_sub_t **cov, R_to_U *ruI, uint64_t scaffold_len)
+asg_t *renew_ng(usg_t *eg, ma_ug_t *rug, asg_t *sg, ug_opt_t *uopt, ma_sub_t **cov, R_to_U *ruI, uint64_t scaffold_len, const char *bin_file)
 {
     init_aux_table();
     ma_utg_t *u; uint64_t i, v, w, m, h, z, raw_v, raw_w, nocc, nv, vx, wx; int32_t r;
@@ -14322,7 +14343,6 @@ asg_t *renew_ng(usg_t *eg, ma_ug_t *rug, asg_t *sg, ug_opt_t *uopt, ma_sub_t **c
     MALLOC(ext.idx_a.a, ext.idx_a.n); 
     memset(ext.idx_a.a, -1, sizeof(*(ext.idx_a.a))*ext.idx_a.n);//map
     ug1 = convert_usg_t(eg, rug);
-
 
     for (i = 0; i < ug1->u.n; ++i) {
         if(ug1->g->seq[i].del) continue;
@@ -14354,7 +14374,6 @@ asg_t *renew_ng(usg_t *eg, ma_ug_t *rug, asg_t *sg, ug_opt_t *uopt, ma_sub_t **c
     }
     ng->r_seq = ng->n_seq;
     assert(ng->n_seq == ext.idx_a.n);
-
 
     for (i = 0, nocc = ng->r_seq, sa.n = 0; i < eg->n; ++i) {
         if(ug1->g->seq[i].del) continue;
@@ -14415,11 +14434,10 @@ asg_t *renew_ng(usg_t *eg, ma_ug_t *rug, asg_t *sg, ug_opt_t *uopt, ma_sub_t **c
     assert(ng->n_seq == ext.idx_a.n); 
     CALLOC(ng->seq_vis, (ng->n_seq<<1));
     ///# scaffolding nodes
-    if(sa.n > 0) fill_scaffolds(sa.a, sa.n, rug, uopt->min_ovlp);
-    realloc_rdb_adv(&(R_INF), &UL_INF, cov, ruI, ext.idx_a.a, ext.idx_a.n, scaffold_len, (char *)"scaf", ng, uopt, rug, sa.a);
+    if(sa.n > 0) fill_scaffolds(sa.a, sa.n, rug, uopt->min_ovlp, bin_file);
+
+    realloc_rdb_adv(&(R_INF), &UL_INF, cov, ruI, ext.idx_a.a, ext.idx_a.n, scaffold_len, (char *)"scaf", ng, uopt, rug, sa.a); 
     update_paf(R_INF.paf, R_INF.reverse_paf, ext.idx_a.a, ext.idx_a.n, sg->n_seq, ng);
-
-
 
 
     for (i = 0, nocc = ng->r_seq; i < eg->n; ++i) {
@@ -14449,6 +14467,13 @@ asg_t *renew_ng(usg_t *eg, ma_ug_t *rug, asg_t *sg, ug_opt_t *uopt, ma_sub_t **c
             if(r >= 0) {
                 p = asg_arc_pushp(ng); *p = t;
                 r = gen_spec_edge(ng, uopt, wx^1, vx^1, &t);
+                // if(!(r >= 0)) {
+                //     fprintf(stderr, "[M::%s]\tvx>>1::%lu(%c)\twx>>1::%lu(%c)\n", 
+                //     __func__, vx>>1, "+-"[vx&1], wx>>1, "+-"[wx&1]);
+                //     fprintf(stderr, "[M::%s]\t%.*s(%c)->%.*s(%c)\n", 
+                //     __func__, (int)Get_NAME_LENGTH(R_INF, (vx>>1)), Get_NAME(R_INF, (vx>>1)), "+-"[vx&1],
+                //     (int)Get_NAME_LENGTH(R_INF, (wx>>1)), Get_NAME(R_INF, (wx>>1)), "+-"[wx&1]);
+                // }
                 assert(r >= 0); p = asg_arc_pushp(ng); *p = t;
             } else {
                 psa = &(sa.a[nocc-ng->r_seq]); z = nocc<<1; 
@@ -14514,7 +14539,6 @@ asg_t *renew_ng(usg_t *eg, ma_ug_t *rug, asg_t *sg, ug_opt_t *uopt, ma_sub_t **c
             }
         }
     }
-    // print_debug_scaffold_nodes(uopt, sa.a, sa.n, ng);
 
     asg_cleanup(ng); ng->r_seq = ng->n_seq;
     free(ext.cnt.a); free(ext.idx_a.a); free(sa.a); ma_ug_destroy(ug1);
@@ -16010,7 +16034,7 @@ ul2ul_idx_t *gen_ul2ul(ul_resolve_t *uidx, ug_opt_t *uopt, ulg_opt_t *ulopt, uin
     asg_arc_del_trans(z->i_g, uopt->gap_fuzz);
 
     z->i_ug = ma_ug_gen(z->i_g);
-    CALLOC(z->i_ug->g->seq_vis, z->i_ug->g->n_seq*2);
+    // CALLOC(z->i_ug->g->seq_vis, z->i_ug->g->n_seq*2);
     renew_u2g_cov(uidx); 
     renew_u2g_bg(uidx);
     
@@ -16205,11 +16229,66 @@ inline void update_qtn(ma_hit_t *z, uint64_t qn, uint64_t tn)
     z->qns <<= 32; z->qns >>= 32; z->qns |= (qn<<32); z->tn = tn;
 }
 
-void renew_paf0(ma_hit_t_alloc *paf, uint64_t *a0, uint64_t a0n, uint64_t *a1, uint64_t a1n)
+inline uint64_t dup_paf_check(ma_hit_t_alloc *x, ma_hit_t *p)
+{
+    int64_t i; ma_hit_t *z;
+    for (i = 0; i < x->length; i++) {
+        z = &(x->buffer[i]);
+        if((z->qns == p->qns) && (z->tn == p->tn) && (z->qe == p->qe) && (z->ts == p->ts) && (z->te == p->te) && 
+            (z->cc == p->cc) && (z->ml == p->ml) && (z->rev == p->rev) && (z->bl == p->bl) && (z->del == p->del) && 
+            (z->el == p->el) && (z->no_l_indel == p->no_l_indel)) {
+            return 0;
+        }    
+    }
+    return 1;
+}
+
+void renew_paf0(ma_hit_t_alloc *paf, uint64_t *a0, uint64_t a0n, uint64_t *a1, uint64_t a1n, asg64_v *buf)
 {
     if(a0n <= 1 && a1n <= 1) return;
-    int64_t idx; uint64_t qn = ((uint32_t)a0[0]), tn = ((uint32_t)a1[0]), i, k;
-    ma_hit_t e01, e10;
+    uint64_t qn = ((uint32_t)a0[0]), tn = ((uint32_t)a1[0]), i, k, sf = 0;
+    ma_hit_t e01, e10; uint64_t qi, ti, *qa, *ta, qlen, tlen; buf->n = 0; ma_hit_t_alloc *qo, *to;
+    if(qn == tn) sf = 1;
+    qo = &(paf[qn]); qi = qo->length;
+    for (i = qlen = 0, qa = NULL; i < qi; i++) {
+        if(qo->buffer[i].tn == tn) kv_push(uint64_t, *buf, i);
+    }
+    qlen = buf->n; 
+
+    to = &(paf[tn]); ti = to->length;
+    for (i = tlen = 0, ta = NULL; i < ti; i++) {
+        if(to->buffer[i].tn == qn) kv_push(uint64_t, *buf, i);
+    }
+    tlen = buf->n - qlen;
+    assert(qlen && tlen);
+    qa = buf->a; ta = buf->a + qlen;
+
+    for (qi = 0; qi < qlen; qi++) {
+        e01 = qo->buffer[qa[qi]];
+        for (ti = 0; ti < tlen; ti++) {
+            e10 = to->buffer[ta[ti]];
+
+            for (i = 0; i < a0n; i++) {
+                qn = ((uint32_t)a0[i]);
+                for (k = 0; k < a1n; k++) {
+                    if(i == 0 && k == 0) continue;
+                    tn = ((uint32_t)a1[k]);
+
+                    update_qtn(&e01, qn, tn); 
+                    if((!sf) || (dup_paf_check(&(paf[qn]), &e01))) {
+                        add_ma_hit_t_alloc(&(paf[qn]), &e01);
+                    }
+
+                    update_qtn(&e10, tn, qn); 
+                    if((!sf) || (dup_paf_check(&(paf[tn]), &e10))) {
+                        add_ma_hit_t_alloc(&(paf[tn]), &e10);
+                    }
+                }
+            }
+        }
+    }
+    
+    /**
     idx = get_specific_overlap(&(paf[qn]), qn, tn);
     if(idx < 0) return;
     e01 = paf[qn].buffer[idx];
@@ -16221,10 +16300,15 @@ void renew_paf0(ma_hit_t_alloc *paf, uint64_t *a0, uint64_t a0n, uint64_t *a1, u
         for (k = 0; k < a1n; k++) {
             if(i == 0 && k == 0) continue;
             tn = ((uint32_t)a1[k]);
+            if((qn == 5619628 && tn == 5619629) || (tn == 5619628 && qn == 5619629)) {
+                fprintf(stderr, "[M::%s]\tqn::%lu(qg::%u)\ttn::%lu(tg::%u)\n", __func__, 
+                qn, ((uint32_t)a0[0]), tn, ((uint32_t)a1[0]));
+            }
             update_qtn(&e01, qn, tn); add_ma_hit_t_alloc(&(paf[qn]), &e01);
             update_qtn(&e10, tn, qn); add_ma_hit_t_alloc(&(paf[tn]), &e10);
         }
     }
+    **/
 }
 
 void renew_paf1(ma_hit_t_alloc *paf, uint64_t *a, uint64_t an, uint64_t len)
@@ -16246,10 +16330,10 @@ void renew_paf1(ma_hit_t_alloc *paf, uint64_t *a, uint64_t an, uint64_t len)
 
 void update_paf(ma_hit_t_alloc *src, ma_hit_t_alloc *r_src, uint64_t *rmap, uint64_t rid_n, uint64_t pre_gn, asg_t *ng)
 {
-    asg64_v clus; uint64_t k, l, dn = 0, j, qn, tn; 
+    asg64_v clus, bb; uint64_t k, l, dn = 0, j, qn, tn; 
     uint64_t *idx; ma_hit_t_alloc *z; 
     uint64_t *a0, *a1, a0n, a1n;
-    CALLOC(idx, pre_gn);
+    CALLOC(idx, pre_gn); kv_init(bb);
     kv_init(clus); kv_resize(uint64_t, clus, rid_n);
     for (k = 0; k < rid_n; k++) {
         if(rmap[k] == ((uint64_t)-1)) continue;///scaffold
@@ -16268,7 +16352,12 @@ void update_paf(ma_hit_t_alloc *src, ma_hit_t_alloc *r_src, uint64_t *rmap, uint
     for (k = 0; k < dn; k++) {
         a0 = clus.a + (idx[k]>>32); a0n = ((uint32_t)idx[k]) - (idx[k]>>32);
         assert(a0n > 0 && ((uint32_t)a0[0]) == k);
-
+        // if(k == 4265018) {
+        //     fprintf(stderr, "\n[M::%s]\tgroup::%lu\n", __func__, k);
+        //     for (j = 0; j < a0n; j++) {
+        //         fprintf(stderr, "[M::%s]\tnid::%uu\n", __func__, (uint32_t)a0[j]);
+        //     }
+        // }
         z = &(src[k]);
         for (j = 0; j < z->length; j++) {
             qn = Get_qn(z->buffer[j]);
@@ -16279,7 +16368,7 @@ void update_paf(ma_hit_t_alloc *src, ma_hit_t_alloc *r_src, uint64_t *rmap, uint
             a1n = ((uint32_t)idx[tn]) - (idx[tn]>>32);
             // fprintf(stderr, "+[M::%s] qn::%lu, tn::%lu, a0n::%lu, a1n::%lu\n", __func__, qn, tn, a0n, a1n);
             assert(a1n > 0 && ((uint32_t)a1[0]) == tn);
-            renew_paf0(src, a0, a0n, a1, a1n);
+            renew_paf0(src, a0, a0n, a1, a1n, &bb);
         }
 
         z = &(r_src[k]);
@@ -16292,7 +16381,7 @@ void update_paf(ma_hit_t_alloc *src, ma_hit_t_alloc *r_src, uint64_t *rmap, uint
             a1n = ((uint32_t)idx[tn]) - (idx[tn]>>32);
             // fprintf(stderr, "-[M::%s] qn::%lu, tn::%lu, a0n::%lu, a1n::%lu\n", __func__, qn, tn, a0n, a1n);
             assert(a1n > 0 && ((uint32_t)a1[0]) == tn);
-            renew_paf0(r_src, a0, a0n, a1, a1n);
+            renew_paf0(r_src, a0, a0n, a1, a1n, &bb);
         }
 
 
@@ -16306,14 +16395,13 @@ void update_paf(ma_hit_t_alloc *src, ma_hit_t_alloc *r_src, uint64_t *rmap, uint
         // }
         if(a0n > 1) renew_paf1(r_src, a0, a0n, ng->seq[k].len);
     }
-    free(idx); free(clus.a);
+    free(idx); free(clus.a); free(bb.a);
 }
 
 void push_scaff_node(ma_hit_t_alloc *src, uint64_t v, uint64_t w, uint64_t ol, asg_t *ng)
 {
     uint64_t vl = ng->seq[v>>1].len, wl = ng->seq[w>>1].len; 
     ma_hit_t arc, arc1;
-
     arc.qns = (v>>1)<<32; 
     if(!(v&1)) {
         arc.qns += vl - ol; arc.qe = vl;
@@ -16348,7 +16436,8 @@ uint64_t scaffold_len)
     ext.idx_a.n = ext.idx_a.m = sg->n_seq; 
     MALLOC(ext.idx_a.a, ext.idx_a.n); 
     memset(ext.idx_a.a, -1, sizeof(*(ext.idx_a.a))*ext.idx_a.n);//map
-    
+    fprintf(stderr, "\n+[M::%s] 0\n", __func__);
+
     for (i = 0; i < ug->g->n_seq; ++i) {
         u = &(ug->u.a[i]);
         for (m = 0; m < u->n; m++) {
@@ -16380,6 +16469,7 @@ uint64_t scaffold_len)
     // fprintf(stderr, "+[M::%s] ng->n_seq::%u, ext.idx_a.n::%u\n", 
     // __func__, (uint32_t)ng->n_seq, (uint32_t)ext.idx_a.n);
     assert(ng->n_seq == ext.idx_a.n); 
+    fprintf(stderr, "\n+[M::%s] 1\n", __func__);
 
     for (i = 0, nocc = ng->r_seq; i < ug->g->n_seq; ++i) {
         u = &(ug->u.a[i]);
@@ -16437,13 +16527,16 @@ uint64_t scaffold_len)
             }
         }
     }
+    fprintf(stderr, "\n+[M::%s] 2\n", __func__);
     // fprintf(stderr, "+[M::%s] ng->n_seq::%u, ext.idx_a.n::%u\n", 
     // __func__, (uint32_t)ng->n_seq, (uint32_t)ext.idx_a.n);
     assert(ng->n_seq == ext.idx_a.n); 
     CALLOC(ng->seq_vis, (ng->n_seq<<1));
     realloc_rdb(&(R_INF), cov, ruI, ext.idx_a.a, ext.idx_a.n, slen, (char *)"scaf", ng, uopt);
-    update_paf(R_INF.paf, R_INF.reverse_paf, ext.idx_a.a, ext.idx_a.n, sg->n_seq, ng);
 
+    fprintf(stderr, "\n+[M::%s] 3\n", __func__);
+    update_paf(R_INF.paf, R_INF.reverse_paf, ext.idx_a.a, ext.idx_a.n, sg->n_seq, ng);
+    fprintf(stderr, "\n+[M::%s] 4\n", __func__);
 
     for (i = 0, nocc = ng->r_seq; i < ug->g->n_seq; ++i) {
         u = &(ug->u.a[i]);
@@ -16534,6 +16627,7 @@ uint64_t scaffold_len)
             }
         }
     }
+    fprintf(stderr, "\n+[M::%s] 5\n", __func__);
     asg_cleanup(ng); ng->r_seq = ng->n_seq;
     free(ext.cnt.a); free(ext.idx_a.a); 
     fprintf(stderr, "[M::%s] nocc::%lu, ng->n_seq::%u, sg->n_seq::%u\n", 
@@ -16669,9 +16763,9 @@ R_to_U* ruIndex, int max_hang, int min_ovlp)
 
 void ul_realignment_gfa(ug_opt_t *uopt, asg_t *sg, int64_t clean_round, double min_ovlp_drop_ratio, 
 double max_ovlp_drop_ratio, int64_t max_tip, int64_t max_ul_tip, bub_label_t *b_mask_t, uint32_t is_trio, char *o_file,
-ul_renew_t *ropt)
+ul_renew_t *ropt, const char *bin_file, uint64_t free_uld)
 {
-    uint64_t i; uint8_t *r_het = NULL; bubble_type *bub = NULL; ulg_opt_t uu;
+    uint64_t i, bn = 0, idn = 0; uint32_t *bl = NULL; uint8_t *r_het = NULL; bubble_type *bub = NULL; ulg_opt_t uu;
     for (i = 0; i < sg->n_seq; ++i) {
         if(sg->seq[i].del) continue;
         sg->seq[i].c = PRIMARY_LABLE;
@@ -16679,17 +16773,21 @@ ul_renew_t *ropt)
     // fprintf(stderr, "0[M::%s]\n", __func__);
     hic_clean(sg);
     // fprintf(stderr, "1[M::%s]\n", __func__);
-    ma_ug_t *init_ug = ul_realignment(uopt, sg, 0);
+    ma_ug_t *init_ug = ul_realignment(uopt, sg, 0, bin_file);
     // fprintf(stderr, "2[M::%s]\n", __func__);
     // exit(1);
     filter_sg_by_ug(sg, init_ug, uopt);
-    // fprintf(stderr, "3[M::%s]\n", __func__);
+    // fprintf(stderr, "-0-[M::%s]\tUL_INF.a[25].rlen::%u\n", __func__, UL_INF.a[25].rlen);
     // print_debug_gfa(sg, init_ug, uopt->coverage_cut, "UL.debug", uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 0, 0, 0);
     // print_ul_alignment(init_ug, &UL_INF, 47072, "after-0");
     bub = gen_bubble_chain(sg, init_ug, uopt, &r_het);
     // fprintf(stderr, "4[M::%s]\n", __func__);
     // print_ul_alignment(init_ug, &UL_INF, 47072, "after-1");
     ul_resolve_t *uidx = init_ul_resolve_t(sg, init_ug, bub, &UL_INF, uopt, r_het);
+    if(!free_uld) {///backup
+        bn = UL_INF.n; idn = UL_INF.nid.n; MALLOC(bl, bn);
+        for (i = 0; i < bn; i++) bl[i] = UL_INF.a[i].rlen;
+    }
     // fprintf(stderr, "5[M::%s]\n", __func__);
     // print_ul_alignment(init_ug, &UL_INF, 47072, "after-2");
     // exit(1);
@@ -16709,16 +16807,30 @@ ul_renew_t *ropt)
     // uidx->uovl.hybrid_ug = gen_hybrid_ug(uidx, uidx->uovl.h_usg);
     // print_debug_gfa(sg, uidx->uovl.hybrid_ug, uopt->coverage_cut, "hybrid_ug", uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 0, 0, 1);
     // print_debug_gfa(sg, uidx->uovl.hybrid_ug, uopt->coverage_cut, "hybrid_ug", uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 0, 0, 0);
-    // print_debug_gfa(sg, init_ug, uopt->coverage_cut, "UL.debug", uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 0, 0, 0);
+    // print_debug_gfa(sg, init_ug, uopt->coverage_cut, bin_file, uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 0, 0, 0);
     
     // if(is_trio) gen_ul_trio_graph(uopt, uidx, o_file);    
     // exit(0);
     // return uidx->uovl.hybrid_ug;
 
-    asg_t *ng = renew_ng(uidx->uovl.h_usg, init_ug, sg, uopt, ropt->cov, ropt->ruIndex, 16);
-
+    asg_t *ng = renew_ng(uidx->uovl.h_usg, init_ug, sg, uopt, ropt->cov, ropt->ruIndex, 16, bin_file);
     destory_bubbles(uidx->bub); free(uidx->bub); ma_ug_destroy(init_ug); free(r_het);
-    destroy_ul_resolve_t(uidx); destory_all_ul_t(&UL_INF); 
+    destroy_ul_resolve_t(uidx); 
+    if(free_uld) {
+        destory_all_ul_t(&UL_INF); memset((&UL_INF), 0, sizeof(UL_INF));
+    } else {
+        for (i = 0; i < bn; i++) UL_INF.a[i].rlen = bl[i];
+        for (i = bn; i < UL_INF.n; i++) {
+            free(UL_INF.a[i].N_site.a); free(UL_INF.a[i].r_base.a); 
+            free(UL_INF.a[i].bb.a); memset(&(UL_INF.a[i]), 0, sizeof(UL_INF.a[i]));
+        }
+        UL_INF.n = bn;
+
+        for (i = idn; i < UL_INF.nid.n; i++) {
+            free(UL_INF.nid.a[i].a); memset(&(UL_INF.nid.a[i]), 0, sizeof(UL_INF.nid.a[i])); 
+        }
+        UL_INF.nid.n = idn; free(bl);
+    }
 
     asg_destroy((*(ropt->sg))); (*(ropt->sg)) = ng; 
     (*(ropt->src)) = R_INF.paf; (*(ropt->r_src)) = R_INF.reverse_paf;

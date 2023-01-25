@@ -262,6 +262,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->is_topo_trans = 1;
     asm_opt->is_bub_trans = 1;
     asm_opt->bin_only = 0;
+    asm_opt->ul_clean_round = 2;
 }
 
 void destory_enzyme(enzyme* f)
