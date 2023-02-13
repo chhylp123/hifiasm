@@ -764,6 +764,11 @@ void destory_all_ul_t(all_ul_t *x) {
 	for (i = 0; i < x->nid.n; i++) free(x->nid.a[i].a);
 	free(x->nid.a);
 	free(x->ridx.idx.a); free(x->ridx.occ.a);
+
+	// if(x->mm) {
+	// 	for (i = 0; i < x->mm->n; i++) free(x->mm->a[i].a);
+	// 	free(x->mm->a); free(x->mm); x->mm = NULL;
+	// }
 }
 
 void ha_encode_base(uint8_t* dest, char* src, uint64_t src_l, N_t *nn, uint64_t nn_offset)

@@ -4,7 +4,7 @@
 #include <pthread.h>
 #include <stdint.h>
 
-#define HA_VERSION "0.18.6-r502"
+#define HA_VERSION "0.18.6-r509"
 
 #define VERBOSE 0
 

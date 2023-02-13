@@ -1806,3 +1806,23 @@ int64_t ug_map_lchain(ha_abufl_t *ab, uint32_t rid, char* rs, uint64_t rl, uint6
 		return 0;
 	}
 }
+
+int64_t ug_map_lchain_simple(ha_abufl_t *ab, uint32_t rid, char* rs, uint64_t rl, uint64_t mz_w, uint64_t mz_k, const ul_idx_t *uref, overlap_region_alloc *overlap_list, Candidates_list *cl, double bw_thres,
+								 int max_n_chain, int apend_be, kvec_t_u8_warp* k_flag, overlap_region* f_cigar, kvec_t_u64_warp* dbg_ct, st_mt_t *sp, uint32_t *high_occ, uint32_t *low_occ, uint32_t is_accurate, 
+								 uint32_t gen_off, double mcopy_rate, uint32_t mcopy_khit_cut, uint32_t is_hpc, ha_mzl_t *res, uint64_t res_n, ha_mzl_t *idx, uint64_t idx_n, uint64_t mzl_cutoff, uint64_t chain_cutoff)
+{
+	int64_t max_skip, max_iter, max_dis, quick_check; double chn_pen_gap, chn_pen_skip;
+	set_lchain_dp_op(is_accurate, mz_k, &max_skip, &max_iter, &max_dis, &chn_pen_gap, &chn_pen_skip, &quick_check);
+	if((!overlap_list) || (!cl)) {
+		ab->mz.n = 0;
+		mz2_ha_sketch(rs, rl, mz_w, mz_k, rid, is_hpc, &ab->mz, NULL, asm_opt.mz_sample_dist, k_flag, dbg_ct, NULL, -1, asm_opt.dp_min_len, -1, sp, asm_opt.mz_rewin, 0, NULL);
+		if(res) memcpy(res, ab->mz.a, ab->mz.n * (sizeof((*(ab->mz.a)))));
+		return ab->mz.n;
+	} else {
+		sp->n = 0;
+		minimizers_qgen_input(ab, rid, rs, rl, mz_w, mz_k, cl, k_flag, ha_flt_tab, ha_idx, NULL, uref, dbg_ct, sp, high_occ, low_occ, res, res_n, idx, idx_n, mzl_cutoff, chain_cutoff, NULL);
+		// lchain_qgen_mcopy_input(cl, overlap_list, rid, rl, NULL, uref, apend_be, max_n_chain, max_skip, max_iter, max_dis, chn_pen_gap, chn_pen_skip, bw_thres, bw_thres_sec, quick_check, gen_off, mcopy_rate, mcopy_khit_cut, sp);
+		lchain_qgen_mcopy(cl, overlap_list, rid, rl, NULL, uref, apend_be, max_n_chain, max_skip, max_iter, max_dis, chn_pen_gap, chn_pen_skip, bw_thres, quick_check, gen_off, mcopy_rate, chain_cutoff, mcopy_khit_cut, sp);
+		return 0;
+	}
+}

@@ -118,5 +118,11 @@ void update_ug_arch_ul_mul(ma_ug_t *ug);
 void print_ul_alignment(ma_ug_t *ug, all_ul_t *aln, uint32_t id, const char* cmd);
 void clear_all_ul_t(all_ul_t *x);
 void trans_base_infer(ma_ug_t *ug, asg_t *sg, ug_opt_t *uopt, kv_u_trans_t *res, bubble_type *bub);
+hpc_re_t *gen_hpc_re_t(ma_ug_t *ug);
+idx_emask_t* graph_ovlp_binning(ma_ug_t *ug, asg_t *sg, const ug_opt_t *uopt);
+uint32_t gen_src_shared_interval_simple(uint32_t src, ma_ug_t *ug, kv_ul_ov_t *res);
+uint64_t check_ul_ov_t_consist(ul_ov_t *x, ul_ov_t *y, int64_t ql, int64_t tl, double diff);
+uint32_t infer_se(uint32_t qs, uint32_t qe, uint32_t ts, uint32_t te, uint32_t rev, 
+uint32_t rqs, uint32_t rqe, uint32_t *rts, uint32_t *rte);
 
 #endif

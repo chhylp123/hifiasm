@@ -198,6 +198,7 @@ typedef struct
     ul_vec_t *a;
     size_t n, m;
     All_reads *hR;
+    // idx_emask_t *mm;
     // uint32_t mm;
 } all_ul_t;
 
