@@ -1,3 +1,4 @@
+#define __STDC_LIMIT_MACROS
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>

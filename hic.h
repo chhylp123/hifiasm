@@ -1,5 +1,7 @@
 #ifndef __HIC__
 #define __HIC__
+
+#define __STDC_LIMIT_MACROS
 #include <stdint.h>
 #include "Overlaps.h"
 

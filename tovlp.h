@@ -1,5 +1,7 @@
 #ifndef __TOVLP__
 #define __TOVLP__
+
+#define __STDC_LIMIT_MACROS
 #include <stdint.h>
 #include "Overlaps.h"
 

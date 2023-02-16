@@ -1,5 +1,7 @@
 #ifndef __OVERLAPS__
 #define __OVERLAPS__
+
+#define __STDC_LIMIT_MACROS
 #include <stdio.h>
 #include <stdint.h>
 #include "kvec.h"
@@ -32,7 +34,6 @@
 // #define PRIMARY_LABLE 1
 // #define ALTER_LABLE 2
 // #define HAP_LABLE 4
-#define HA_RE_UL_ID "re"
 #define ug_ext_len 75000
 
 #define Get_qn(RECORD) ((uint32_t)((RECORD).qns>>32))
@@ -67,6 +68,22 @@ typedef struct {
 	ul_ov_t *a;
 	size_t n, m;
 } kv_ul_ov_t;
+
+typedef struct {
+	uint32_t tn, rn, el;
+	uint32_t qs, qe, ts, te;
+	uint8_t dir:5, pe:1, full:1, rev:1;
+} emask_t;
+
+typedef struct {
+	emask_t *a; 
+	size_t n, m;
+} kv_emask_t;
+
+typedef struct {
+	kv_emask_t *a; 
+	uint32_t n;
+} idx_emask_t;
 
 typedef struct {
 	///off: start idx in mg128_t * a[];
@@ -118,8 +135,6 @@ void ma_hit_sort_qns(ma_hit_t *a, long long n);
 
 int load_all_data_from_disk(ma_hit_t_alloc **sources, ma_hit_t_alloc **reverse_sources, 
 char* output_file_name);
-
-
 
 typedef struct {
 	uint32_t s:31, del:1, e;
@@ -240,6 +255,7 @@ void print_gfa(asg_t *g);
 typedef struct { size_t n, m; uint64_t *a; } asg64_v;
 typedef struct { size_t n, m; uint32_t *a; } asg32_v;
 typedef struct { size_t n, m; ma_utg_t *a;} ma_utg_v;
+typedef struct { asg64_v idx; kv_ul_ov_t srt;} mask_ul_ov_t;
 
 typedef struct {
 	ma_utg_v u;
@@ -295,8 +311,32 @@ typedef struct {
 	hmap_t *mm;
 } hpc_t;
 
+typedef struct {
+	uint32_t s, e;
+	uint8_t k;
+} hpc_ss_t;
+
+typedef struct {
+	uint32_t s, e;
+} hpc_idx_t;
+
+typedef struct {
+	size_t n, m; 
+	hpc_ss_t *a;
+	hpc_idx_t *idx;
+	uint64_t idx_n;
+} hpc_re_t;
+
 #define hpc_len(x, id) ((x).hg->u.a[(id)].len>>1)
 #define hpc_str(x, id, rev) (((x).hg->u.a[(id)].s)+((rev)?((x).hg->u.a[(id)].len>>1):(0)))
+
+typedef struct {
+	uint32_t n;
+	uint8_t *a; 
+} bit_mask_t;
+
+#define set_bit_mask_t(x, i) ((x).a[(i)>>3]|=(((uint8_t)1)<<((i)&((uint32_t)7))))
+#define get_bit_mask_t(x, i) ((x).a[(i)>>3]&(((uint8_t)1)<<((i)&((uint32_t)7))))
 
 typedef struct {
 	ma_ug_t *ug;
@@ -1163,6 +1203,8 @@ void set_reverse_overlap(ma_hit_t* dest, ma_hit_t* source);
 // int* b_low_cov, int* b_high_cov, double m_rate);
 void ma_hit_contained_advance(ma_hit_t_alloc* sources, long long n_read, ma_sub_t *coverage_cut, 
 R_to_U* ruIndex, int max_hang, int min_ovlp);
+void hic_clean_adv(asg_t *sg, ug_opt_t *uopt);
+void update_ug_ou(ma_ug_t *ug, asg_t *sg);
 
 #define JUNK_COV 5
 #define DISCARD_RATE 0.8

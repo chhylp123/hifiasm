@@ -1,5 +1,7 @@
 #ifndef __POA_PARSER__
 #define __POA_PARSER__
+
+#define __STDC_LIMIT_MACROS
 #include <stdint.h>
 #include "Hash_Table.h"
 #include "Process_Read.h"

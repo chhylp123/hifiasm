@@ -841,6 +841,13 @@ void horder_clean_sg_by_utg(asg_t *sg, ma_ug_t *ug)
             vx = (v&1?((ug->u.a[v>>1].a[0]>>32)^1):(ug->u.a[v>>1].a[ug->u.a[v>>1].n-1]>>32));
             wx = (w&1?((ug->u.a[w>>1].a[ug->u.a[w>>1].n-1]>>32)^1):(ug->u.a[w>>1].a[0]>>32));
             asg_arc_unique_del(sg, vx, wx, 0); asg_arc_unique_del(sg, wx^1, vx^1, 0);
+        }
+
+        if(u->circ) {
+            v = w = i<<1;
+            vx = (v&1?((ug->u.a[v>>1].a[0]>>32)^1):(ug->u.a[v>>1].a[ug->u.a[v>>1].n-1]>>32));
+            wx = (w&1?((ug->u.a[w>>1].a[ug->u.a[w>>1].n-1]>>32)^1):(ug->u.a[w>>1].a[0]>>32));
+            asg_arc_unique_del(sg, vx, wx, 0); asg_arc_unique_del(sg, wx^1, vx^1, 0);
         }         
     }
     asg_cleanup(sg);
