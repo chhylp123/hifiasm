@@ -1,6 +1,7 @@
 #ifndef __READ__
 #define __READ__
 
+#define __STDC_LIMIT_MACROS
 #include<stdint.h>
 #include <string.h>
 #include <stdlib.h>

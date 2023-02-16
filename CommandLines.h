@@ -1,10 +1,11 @@
 #ifndef __COMMAND_LINE_PARSER__
 #define __COMMAND_LINE_PARSER__
 
+#define __STDC_LIMIT_MACROS
 #include <pthread.h>
 #include <stdint.h>
 
-#define HA_VERSION "0.18.6-r509"
+#define HA_VERSION "0.18.6-r513"
 
 #define VERBOSE 0
 
@@ -138,6 +139,7 @@ typedef struct {
     uint8_t is_bub_trans;
     uint8_t bin_only;
     int32_t ul_clean_round;
+    int32_t prt_dbg_gfa;
 } hifiasm_opt_t;
 
 extern hifiasm_opt_t asm_opt;

@@ -1,5 +1,7 @@
 #ifndef __OVERLAPS__
 #define __OVERLAPS__
+
+#define __STDC_LIMIT_MACROS
 #include <stdio.h>
 #include <stdint.h>
 #include "kvec.h"

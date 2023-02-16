@@ -1,5 +1,7 @@
 #ifndef __PURGEDUPS__
 #define __PURGEDUPS__
+
+#define __STDC_LIMIT_MACROS
 #include <stdio.h>
 #include <stdint.h>
 #include "kvec.h"

@@ -1,5 +1,7 @@
 #ifndef __HORDER__
 #define __HORDER__
+
+#define __STDC_LIMIT_MACROS
 #include <stdint.h>
 #include "hic.h"
 

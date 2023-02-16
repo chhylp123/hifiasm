@@ -1,3 +1,4 @@
+#define __STDC_LIMIT_MACROS
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -15796,7 +15797,8 @@ int64_t extract_sub_cigar_err_rr(overlap_region *z, int64_t s, int64_t e, ul_ov_
     int64_t wk = ovlp_cur_wid(*p), xk = ovlp_cur_xoff(*p), ck = ovlp_cur_coff(*p);
     int64_t min_w = ovlp_min_wid(*p), max_w = ovlp_max_wid(*p);//[min_w, max_w]
     bit_extz_t ez; window_list *m; int64_t bd = ovlp_bd(*p), s0, e0;
-    s0 = z->w_list.a[min_w].x_start + bd; e0 = z->w_list.a[max_w].x_end+1-bd;
+    s0 = ((int64_t)(z->w_list.a[min_w].x_start)) + bd; 
+    e0 = ((int64_t)(z->w_list.a[max_w].x_end))+1-bd;
     if(s < s0) s = s0; if(e > e0) e = e0;///exclude boundary
     if(s >= e) return -1;
 
@@ -15811,7 +15813,7 @@ int64_t extract_sub_cigar_err_rr(overlap_region *z, int64_t s, int64_t e, ul_ov_
         xk = z->w_list.a[wk].x_start; ck = 0;
     }
 
-    while(wk <= max_w && z->w_list.a[wk].x_start < e) {///[s, e)
+    while(wk <= max_w && z->w_list.a[wk].x_start < e) {///[s, e); [min_w, max_w]
         m = &(z->w_list.a[wk]); 
         ws = m->x_start; we = m->x_end+1;
         os = MAX(s, ws); oe = MIN(e, we);
@@ -15851,6 +15853,7 @@ int64_t extract_sub_cigar_err_rr(overlap_region *z, int64_t s, int64_t e, ul_ov_
     return err;
 }
 
+///[s, e)
 uint64_t gen_region_phase_robust_rr(overlap_region* ol, uint64_t *id_a, uint64_t id_n, uint64_t s, uint64_t e, uint64_t dp, ul_ov_t *c_idx, asg64_v *buf)
 {
     if(!id_n) return id_n;
@@ -16412,7 +16415,7 @@ void rphase_rr(overlap_region_alloc* ol, const ul_idx_t *uref, const ug_opt_t *u
                 m++;
             }
             z->w_list.n = m; 
-            assert(zwn <= z->overlapLen);
+            assert(zwn <= z->overlapLen);///zwn is the length with secondary-best alignment
             z->align_length = z->overlapLen - zwn;
         }
     }
@@ -16799,7 +16802,7 @@ int64_t get_pe_diff(overlap_region *q, uint64_t *qmask, uint64_t qmask_n, overla
 void retrieve_cigar_xcoord(bit_extz_t *ez, int64_t is, int64_t ie, int64_t *yk, int64_t *xk, int64_t *ck, int64_t *rxs, int64_t *rxe)
 {
     if(!ez->cigar.n) return;
-    int64_t cn = ez->cigar.n, op; int64_t ws, we, ws0, we0;
+    int64_t cn = ez->cigar.n, op; int64_t ws, we, ws0, we0, os, oe;
     if(((*ck) < 0) || ((*ck) > cn)) {//(*ck) == cn is allowed
         (*ck) = 0; (*yk) = ez->ps; (*xk) = ez->ts; 
     }
@@ -16818,9 +16821,17 @@ void retrieve_cigar_xcoord(bit_extz_t *ez, int64_t is, int64_t ie, int64_t *yk, 
         if(op!=3) (*yk) += (ez->cigar.a[(*ck)]&(0x3fff));
         if(op!=2) (*xk) += (ez->cigar.a[(*ck)]&(0x3fff));
         we = (*yk); we0 = (*xk); 
-        if(ws >= is && we <= ie) {
+        if(ws >= is && we <= ie) {///the cigar is fully contained
             if((*rxs) > ws0) (*rxs) = ws0;
             if((*rxe) < we0) (*rxe) = we0;
+        } else if(op == 0 || op == 1) {///overlap, it is hard to handle indels
+            os = MAX(is, ws); oe = MIN(ie, we);
+            if(oe > os) {
+                ws0 += (os - ws);
+                we0 = ws0 + (oe - os);
+                if((*rxs) > ws0) (*rxs) = ws0;
+                if((*rxe) < we0) (*rxe) = we0;
+            }
         }
         (*ck)++;
     }
@@ -16904,7 +16915,7 @@ uint64_t extract_xcoordates(overlap_region *z, uint64_t *a, int64_t a_n, asg64_v
                 ovlp_cur_xoff(m) = z->w_list.a[w[0]].y_start; ///cur ypos
                 ovlp_cur_coff(m) = 0; ///cur cigar off in cur window
 
-                is = t[0]; ie = t[1]+1; 
+                is = t[0]; ie = t[1]+1; ///[is, ie)
                 for (a_z = a_i; a_z >= 0; a_z--) {
                     as = a[a_z]>>32; ae = (uint32_t)a[a_z];
                     if(ae <= is) break;
@@ -17067,7 +17078,7 @@ void update_masks(asg64_v *in, overlap_region *qi, overlap_region *ti, int64_t b
     }
     in_n1 = in->n;
 
-    radix_sort_bc64(in->a+in_n0, in->a+in_n1);
+    radix_sort_bc64(in->a+in_n0, in->a+in_n1);///(uint32_t)in->a[]: 0-> original; 1-> mask
     for (k = in_n0, dp = old_dp = dp_mask = old_dp_mask = 0, start = 0, end = -1; k < in_n1; ++k) {///[beg, end) but coordinates in idx is [, ]
         ///if idx->a.a[] is qe
         old_dp = dp; old_dp_mask = dp_mask;
@@ -17150,7 +17161,8 @@ asg64_v* buf1, int64_t bd, ul_ov_t *res)
 {
     ul_ov_t *ref, r0, r1; uint32_t bn = buf->n, s, e; uint64_t is_exact = 0; 
     overlap_region *q = &(a[qi]), *t = &(a[ti]); int64_t dis;
-    assert(q->y_id < t->y_id); assert(ovdb_idx < ov_db->n);
+    assert(q->y_id < t->y_id); 
+    assert(ovdb_idx < ov_db->n);///quickly jump to the related qn-tn pair ov_db[]
     cal_x_ul_ovlp(ug, q, t, &r0); 
     r1 = r0; 
     r1.qn = r0.tn; r1.tn = r0.qn;
@@ -17310,12 +17322,12 @@ int64_t rlen, mask_ul_ov_t *mk, idx_emask_t *mm, double len_diff)
         ///sort overlaps by yid for filtering
         kv_push(uint64_t, *idx, (((uint64_t)z->y_id)<<32)|((uint64_t)k));
     }
-    radix_sort_bc64(idx->a, idx->a+idx->n); 
+    radix_sort_bc64(idx->a, idx->a+idx->n); ///for filtering
 
     radix_sort_bc64(buf->a, buf->a+buf->n);///sort by error; smaller first
     for (l = 0, k = 1; k <= buf->n; k++) {
         if(k == buf->n || (buf->a[l]>>32) == (buf->a[k]>>32)) {///with equal number of normalized errors
-            if((k - l) >1) {
+            if((k - l) > 1) {
                 for (i = l; i < k; i++) {
                     z = &(ol->list[(uint32_t)buf->a[i]]);
                     m0 = z->x_pos_e+1-z->x_pos_s;

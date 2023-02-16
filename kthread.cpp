@@ -1,3 +1,4 @@
+#define __STDC_LIMIT_MACROS
 #include <pthread.h>
 #include <stdlib.h>
 #include <limits.h>

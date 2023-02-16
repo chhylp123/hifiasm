@@ -2568,6 +2568,13 @@ void post_rescue(ug_opt_t *uopt, asg_t *sg, ma_hit_t_alloc *src, ma_hit_t_alloc 
     uopt->min_ovlp, 10, uopt->gap_fuzz, b_mask_t, no_trio_recover);
 }
 
+void prt_dbg_gfa(ug_opt_t *uopt, asg_t *sg, char *o_file, const char *suffix)
+{
+    char* gfa_name; MALLOC(gfa_name, strlen(o_file)+strlen(suffix)+50); sprintf(gfa_name, "%s.%s", o_file, suffix);
+    print_debug_gfa(sg, NULL, uopt->coverage_cut, gfa_name, uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 0, 0, 1);
+    free(gfa_name);
+}
+
 void ul_clean_gfa(ug_opt_t *uopt, asg_t *sg, ma_hit_t_alloc *src, ma_hit_t_alloc *rev, R_to_U* rI, int64_t clean_round, double min_ovlp_drop_ratio, double max_ovlp_drop_ratio, 
 double ou_drop_rate, int64_t max_tip, int64_t gap_fuzz, bub_label_t *b_mask_t, int32_t is_ou, int32_t is_trio, uint32_t ou_thres, char *o_file)
 {
@@ -2585,8 +2592,7 @@ double ou_drop_rate, int64_t max_tip, int64_t gap_fuzz, bub_label_t *b_mask_t, i
     // exit(1);
     // print_raw_u2rgfa_seq(&UL_INF, rI, 1);
     // exit(1);
-
-
+    if(asm_opt.prt_dbg_gfa) prt_dbg_gfa(uopt, sg, o_file, "raw");
     // fprintf(stderr, "%.*s\tid::%u\tis_c::%u\n", 
     //                 (int)Get_NAME_LENGTH(R_INF, 10785), Get_NAME(R_INF, 10785), 10785, is_contain_r((*rI), 10785));
     // fprintf(stderr, "%.*s\tid::%u\tis_c::%u\n", 

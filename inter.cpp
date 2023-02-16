@@ -17753,7 +17753,7 @@ void gen_trans_base_count_comp(ug_trans_t *p, kv_u_trans_t *res)
 	double index_time = yak_realtime();
 	// ha_flt_tab = NULL;
 	uint64_t i, k, l, occ, m, cc; kv_ul_ov_t *bl = NULL; 
-	u_trans_t *z; ha_mzl_t *tz;
+	u_trans_t *z; ha_mzl_t *tz; double ww;
 	clean_u_trans_t_idx_adv(res, p->ug, p->rg); p->filter = res;
 	// fprintf(stderr, "[M::%s::] ==> 0\n", __func__);
 	p->is_cnt = 1; p->is_ovlp = 0; 
@@ -17834,7 +17834,7 @@ void gen_trans_base_count_comp(ug_trans_t *p, kv_u_trans_t *res)
 		}
 	}
 	// fprintf(stderr, "[M::%s::] ==> 5\n", __func__);
-	kt_for(p->n_thread, worker_for_sysm_trans_ovlp, p, p->ug->u.n);
+	// kt_for(p->n_thread, worker_for_sysm_trans_ovlp, p, p->ug->u.n);///not correct
 	// assert(p->srt_a.n <= p->ug->u.n); 
 	// radix_sort_ha_mzl_t_srt(p->srt_a.a, p->srt_a.a + p->srt_a.n);
 	kv_resize(u_trans_t, *res, occ); 
@@ -17846,13 +17846,14 @@ void gen_trans_base_count_comp(ug_trans_t *p, kv_u_trans_t *res)
 		assert(bl->a[k].qn == (tz->x>>32));
 		for (; (k < bl->n) && (bl->a[k].qn == (tz->x>>32)); k++) {
 			if(bl->a[k].qn == bl->a[k].tn) continue;
-			if(bl->a[k].qs == (uint32_t)-1 && bl->a[k].qe == (uint32_t)-1) continue;
+			ww = cal_trans_ov_w(&(bl->a[k])); 
+			if(ww <= 0) continue;
 			
 			kv_pushp(u_trans_t, *res, &z);
 			z->f = RC_3; z->rev = bl->a[k].rev; z->del = 0; 
 			z->qn = bl->a[k].qn; z->qs = bl->a[k].qs; z->qe = bl->a[k].qe;
 			z->tn = bl->a[k].tn; z->ts = bl->a[k].ts; z->te = bl->a[k].te;
-			z->nw = cal_trans_ov_w(&(bl->a[k])); assert(z->nw > 0);
+			z->nw = ww; 
 			// if(z->qn == 56 || z->qn == 160 || z->tn == 56 || z->tn == 160) {
 			// 	fprintf(stderr, ">>>utg%.6u%c\t%u\t%u\t%u\t%c\tutg%.6u%c\t%u\t%u\t%u\tnw::%f\n", 
             //          z->qn+1, "lc"[p->ug->u.a[z->qn].circ], p->ug->u.a[z->qn].len, z->qs, z->qe, "+-"[z->rev],

@@ -1,5 +1,7 @@
 #ifndef __LEVENSHTEIN__
 #define __LEVENSHTEIN__
+
+#define __STDC_LIMIT_MACROS
 #include <stdint.h>
 #include "emmintrin.h"
 #include "nmmintrin.h"

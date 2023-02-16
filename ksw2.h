@@ -1,6 +1,7 @@
 #ifndef KSW2_H_
 #define KSW2_H_
 
+#define __STDC_LIMIT_MACROS
 #include <stdint.h>
 
 #define KSW_NEG_INF -0x40000000

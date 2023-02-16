@@ -1,6 +1,7 @@
 #ifndef __OUTPUT__
 #define __OUTPUT__
 
+#define __STDC_LIMIT_MACROS
 #include<stdint.h>
 #include <string.h>
 #include <stdlib.h>

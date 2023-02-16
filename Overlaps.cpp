@@ -33703,7 +33703,7 @@ bub_label_t *b_mask_t, uint32_t is_trio, int32_t ul_aln_round, char *o_file, con
     int32_t k, strl = strlen(bin_file)+1, kt, cl, sl; char *id = NULL;
     renew_g(src, rev_src, n_read, readLen, cov, ruIndex, sg, mini_overlap_length, max_hang_length,
         uopt, clean_round, min_ovlp_drop_ratio, max_ovlp_drop_ratio, asm_opt.max_short_tip, b_mask_t, 
-        is_trio, o_file, bin_file, (ul_aln_round<=1)?1:0, 1, 1);
+        is_trio, o_file, bin_file, (ul_aln_round<=1)?1:0, 1, ((is_trio)?(0):(1))/**1**/);
     gen_ug_opt_t(uopt, *src, *rev_src, max_hang_length, mini_overlap_length, gap_fuzz, min_dp, *readLen, 
             *cov, ruIndex, (asm_opt.max_short_tip*2), 0.15, 3, 0.05, 0.9, b_mask_t);
     ug_ext_gfa(uopt, *sg, ug_ext_len);
