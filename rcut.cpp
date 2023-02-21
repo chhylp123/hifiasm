@@ -2498,12 +2498,11 @@ void renew_mc_clus_t_adv(mc_clus_t *bc, uint32_t *a, uint32_t a_n)
 			}
 		}
 	}
-	/**
 	///need enable it later
 	kv_resize(uint32_t, tmp, bc->cc.nn.n);
 	kv_resize(uint64_t, bc->cc.ng, bc->cc.ng.n+bc->bub->ug->g->n_seq);
-	layout_mc_clus_t(bc->mg->e, bc->cc.nn.a, bc->cc.nn.n, &(bc->sg), tmp.a, bc->cc.ng.a+bc->cc.ng.n, bc->bub->ug);
-	**/
+	layout_mc_clus_t(bc->mg->e, bc->cc.nn.a, bc->cc.nn.n, &(bc->sg), tmp.a, bc->cc.ng.a+bc->cc.ng.n, bc->bub->ug, 0.199999, 0.800001, 4);
+	
 	for (k = 0; k < a_n; k++) bc->lock[a[k]] = 0;
 	kv_destroy(sc_l); kv_destroy(sc_r); kv_destroy(sc_m); kv_destroy(tmp);
 	// fprintf(stderr, "[M::%s] a_n::%u, bc->cc.nn.n::%u, bc->cc.ng.n::%u, bbn::%u, bub_occ::%u, bc->bub->b_ug->u.n::%u\n", __func__, 
@@ -3360,7 +3359,7 @@ mc_clus_t *init_mc_clus_t(const mc_opt_t *opt, mc_g_t *mg, bubble_type* bub, uin
 void des_mc_clus_t(mc_clus_t *p)
 {
 	if((!p)) return;
-	uint32_t k; free(p->lock); 
+	uint32_t k; free(p->lock); osg_destroy(p->sg.g);
 	if(p->asn) {
 		free(p->asn->a); free(p->asn);
 	}

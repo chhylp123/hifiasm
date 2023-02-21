@@ -3967,71 +3967,353 @@ asg_t *i_rg, ma_ug_t* i_ug, bubble_type* bub, kv_u_trans_t *ref, ug_opt_t *opt, 
     return h;
 }
 
-void layout_mc_clus_t(const mc_match_t *ma, uint32_t *a, uint32_t an, scg_t *sg, uint32_t *buf, uint64_t *idx, ma_ug_t* ug)
+int cmp_mc_edge_t_w(const void * a, const void * b)
 {
-    uint64_t i, k, l, len, z, cutoff, s, e, v, w; asg64_v srt; kv_init(srt);
+    if((*(osg_arc_t*)a).nw == (*(osg_arc_t*)b).nw) return 0;
+    return (*(osg_arc_t*)a).nw < (*(osg_arc_t*)b).nw ? -1 : 1;
+}
+
+void cal_chain_arch(scg_t *sg, const mc_match_t *ma, uint32_t v, uint32_t *va, uint32_t vn, uint64_t *idx, asg64_v *srt)
+{
+    uint64_t z, n, j, t, w, o, l, k; double mw; osg_arc_t *p;
+    srt->n = 0;
+    for (z = 0; z < vn; z++) {
+        assert((v == (idx[va[z]]>>32)) || v == ((uint32_t)idx[va[z]]));
+        o = (ma->idx.a[va[z]]>>32); 
+        n = (uint32_t)ma->idx.a[va[z]];
+        for (j = 0; j < n; ++j) {
+            t = ((uint32_t)(ma->ma.a[o+j]).x);
+
+            w = idx[t]>>32; 
+            if((w != (uint32_t)-1) && ((w>>1) > (v>>1))) {
+                kv_push(uint64_t, (*srt), ((w<<32)|(o+j)));
+            }
+
+            w = (uint32_t)idx[t];
+            if((w != (uint32_t)-1) && ((w>>1) > (v>>1))) {
+                kv_push(uint64_t, (*srt), ((w<<32)|(o+j)));
+            }
+        }
+    }
+
+    radix_sort_ho64(srt->a, srt->a + srt->n);
+    for (l = 0, k = 1; k <= srt->n; k++) {
+        if(k == srt->n || (srt->a[l]>>32) != (srt->a[k]>>32)) {
+            w = srt->a[l]>>32; mw = 0;
+            for (j = l; j < k; j++) {
+                t = ((uint32_t)(ma->ma.a[(uint32_t)srt->a[j]]).x);
+                assert((w == (idx[t]>>32)) || (w == ((uint32_t)idx[t])));
+                mw += fabs(ma->ma.a[(uint32_t)srt->a[j]].w);
+            }
+
+            p = osg_arc_pushp(sg->g);
+            p->occ = p->del = 0;
+            p->u = v; p->v = w; p->w = p->nw = mw;
+
+            p = osg_arc_pushp(sg->g);
+            p->occ = p->del = 0;
+            p->u = w; p->v = v; p->w = p->nw = mw;
+
+            l = k;
+        }
+    }  
+}
+
+void prt_scg_t_arc(scg_t *sg)
+{
+    uint64_t k;
+    for (k = 0; k < sg->g->n_arc; k++) {
+        fprintf(stderr, "[M::%s] k::%lu, v::%u, w::%u\n", __func__, k, sg->g->arc[k].u, sg->g->arc[k].v);
+    }
+}
+
+uint64_t mc_clus_cut(scg_t *sg, mc_edge_t *sa, uint64_t sn, double cut_rate, uint64_t force_cut)
+{
+    uint64_t i, k, kv, kw, v, w, nv, nw, cnt = 0, m = sn; double mm_ol, ol_max;
+    osg_arc_t *av, *aw, *ve, *we; 
+    for (k = 0; k < sn; k++) {
+        if(sa[k].x == ((uint64_t)-1)) {
+            cnt++; continue;
+        }
+        if(sg->g->arc[sa[k].x].del) {
+            sa[k].x = ((uint64_t)-1); cnt++;
+            continue;
+        }
+
+        v = sg->g->arc[sa[k].x].u;
+        w = sg->g->arc[sa[k].x].v;
+
+        nv = asg_arc_n(sg->g, v); nw = asg_arc_n(sg->g, w);
+        if(nv<=1 && nw <= 1) {
+            sa[k].x = ((uint64_t)-1); cnt++;
+            continue;
+        }
+        av = asg_arc_a(sg->g, v); aw = asg_arc_a(sg->g, w);
+
+        ve = &(sg->g->arc[sa[k].x]); we = NULL;
+        for (i = 0; i < nw; ++i) {
+            if (aw[i].v == v) {
+                we = &(aw[i]);
+                break;
+            }
+        }
+        // if(!((!we) && (!(we->del)))) {
+        //     fprintf(stderr, "[M::%s] sn::%lu, sg->g->n_arc::%u, sg->g->n_seq::%u, cut_rate::%f, v::%lu, w::%lu, x::%lu, v_beg::%lu, nv::%lu, w_beg::%lu, nw::%lu\n", __func__, 
+	    //     sn, sg->g->n_arc, sg->g->n_seq, cut_rate, v, w, sa[k].x, 
+        //     (sg->g)->idx[(v)]>>32, nv, (sg->g)->idx[(w)]>>32, nw);
+        //     prt_scg_t_arc(sg);
+        // }
+        assert((we) && (!(we->del)));
+        mm_ol = sg->g->arc[sa[k].x].nw;
+
+        for (i = kv = ol_max = 0; i < nv; ++i) {
+            if(av[i].del) continue;
+            kv++;
+            if(ol_max < av[i].nw) ol_max = av[i].nw;
+        }
+        if (kv < 1) {
+            sa[k].x = ((uint64_t)-1); cnt++;
+            continue;
+        }
+        if (kv >= 2) {
+            if ((!force_cut) && (mm_ol > (ol_max*cut_rate))) continue;
+        }
+        
+
+        for (i = kw = ol_max = 0; i < nw; ++i) {
+            if(aw[i].del) continue;
+            kw++;
+            if(ol_max < aw[i].nw) ol_max = aw[i].nw;
+        }
+        if (kw < 1) {
+            sa[k].x = ((uint64_t)-1); cnt++;
+            continue;
+        }
+        if (kw >= 2) {
+            if ((!force_cut) && (mm_ol > (ol_max*cut_rate))) continue;
+        }
+
+        if (kv <= 1 && kw <= 1) {
+            sa[k].x = ((uint64_t)-1); cnt++;
+            continue;
+        }
+
+        ve->del = we->del = 1;
+        sa[k].x = ((uint64_t)-1); cnt++; 
+    }
+
+    m = sn;
+    if(cnt) {
+        for (k = m = 0; k < sn; k++) {
+            if(sa[k].x == ((uint64_t)-1)) continue;
+            sa[m++] = sa[k];
+        }
+    }
+    return m;
+}
+
+void gen_mc_clus_backbone_layout(scg_t *sg, asg64_v *res, uint32_t *out, uint32_t out_n, uint32_t *buf)
+{
+    uint64_t k, l, i, rn, n0, n1, v, z; int64_t m, s, e; osg_arc_t *t = NULL;
+    kv_resize(uint64_t, *res, sg->g->n_seq); res->n = sg->g->n_seq;
+    memset(res->a, 0, sizeof((*(res->a)))*res->n); rn = res->n;
+    
+    for (k = 0; k < sg->g->n_seq; k++) {
+        ///I guess this should be (!!(asg_arc_n(lg, k<<1)))^(!!(asg_arc_n(lg, (k<<1)+1)))?
+        ///no, since asg_arc_n is at most 1
+        n0 = asg_arc_n(sg->g, (k<<1));
+        n1 = asg_arc_n(sg->g, ((k<<1)+1));
+        assert((n0 <= 1) && (n1 <= 1));
+        ///1&&0; 0&&0; 1&&1;
+        if((n0^n1) || ((!n0) && (!n1))) {
+            v = (n0?(k<<1):((k<<1)+1));
+            // if(vis[k<<1] || vis[(k<<1)+1]) continue;
+            // if((res->a[k]>>32) || ((uint32_t)res->a[k])) continue;
+            if(res->a[k]) continue;
+
+            // kv_pushp(lay_t, *sl, &p);
+            // kv_init(*p);
+            // kv_push(uint32_t, *p, v^1);
+            // kv_push(uint32_t, *p, v);
+            // vis[v] = vis[v^1] = 1;
+            // kv_push(uint64_t, *res, (((uint64_t)((v^1)<<32))|((uint64_t)(v))|((uint64_t)(0x8000000000000000))));
+            kv_push(uint64_t, *res, (((uint64_t)((v^1)<<32))|((uint64_t)(v))));
+            // res->a[v>>1] |= ((uint64_t)(1))<<32;
+            // res->a[v>>1] |= ((uint64_t)(1));
+            res->a[v>>1] = 1;
+
+            while (asg_arc_n(sg->g, v)) {
+                v = (arc_first(sg->g, v).v)^1;
+                // kv_push(uint32_t, *p, v^1);
+                // kv_push(uint32_t, *p, v);
+                // vis[v] = vis[v^1] = 1;
+                kv_push(uint64_t, *res, ((uint64_t)((v^1)<<32))|((uint64_t)(v)));
+                // res->a[v>>1] |= ((uint64_t)(1))<<32;
+                // res->a[v>>1] |= ((uint64_t)(1));
+                res->a[v>>1] = 1;
+            }
+        }
+    }
+
+
+    for (k = 0; k < sg->g->n_seq; k++) {
+        // if(vis[k<<1] || vis[(k<<1)+1]) continue;
+        // if((res->a[k]>>32) || ((uint32_t)res->a[k])) continue;
+        if(res->a[k]) continue;
+        n0 = asg_arc_n(sg->g, (k<<1));
+        n1 = asg_arc_n(sg->g, ((k<<1)+1));
+        assert((n0 == 1) && (n1 == 1));///must within a circle
+
+
+        v = k<<1; t = NULL;
+        while (asg_arc_n(sg->g, v)) {
+            if((!t) || (t->nw > arc_first(sg->g, v).nw)) {
+                t = &(arc_first(sg->g, v));
+            } 
+            v = (arc_first(sg->g, v).v)^1;
+            if(v == (k<<1)) break;
+        }
+
+        v = t->v^1;
+        // kv_pushp(lay_t, *sl, &p);
+        // kv_init(*p);
+        // kv_push(uint32_t, *p, v^1);
+        // kv_push(uint32_t, *p, v);
+        // vis[v] = vis[v^1] = 1;
+        // kv_push(uint64_t, *res, (((uint64_t)((v^1)<<32))|((uint64_t)(v))|((uint64_t)(0x8000000000000000))));
+        kv_push(uint64_t, *res, ((uint64_t)((v^1)<<32))|((uint64_t)(v)));
+        // res->a[v>>1] |= ((uint64_t)(1))<<32;
+        // res->a[v>>1] |= ((uint64_t)(1));
+        res->a[v>>1] = 1;
+
+        while (1) {
+            v = (arc_first(sg->g, v).v)^1;
+            // if(vis[v]) break;
+            if(res->a[v>>1]) break;
+            // kv_push(uint32_t, *p, v^1);
+            // kv_push(uint32_t, *p, v);
+            // vis[v] = vis[v^1] = 1;
+            kv_push(uint64_t, *res, ((uint64_t)((v^1)<<32))|((uint64_t)(v)));
+            // res->a[v>>1] |= ((uint64_t)(1))<<32;
+            // res->a[v>>1] |= ((uint64_t)(1));
+            res->a[v>>1] = 1;
+        }
+    }
+
+    uint32_t db_on = 0, db_z = 0;
+    assert((res->n-rn) == sg->g->n_seq);
+    for (l = 0, k = 1, i = 0; k <= out_n; k++) {
+       if(k == out_n || out[k] == (uint32_t)-1) {
+            if(k > l) {
+                res->a[i++] = ((l<<32)|(k)); db_on += k - l;
+            } else {
+                assert(k == out_n);
+            }
+            l = k + 1;
+       }
+    }
+    assert(i == sg->g->n_seq && i == rn);
+    for (k = rn, z = 0; k < res->n; k++) {
+        v = (res->a[k]>>32); 
+        s = res->a[v>>1]>>32; e = (uint32_t)res->a[v>>1];
+        if(!(v&1)) {
+            for (m = s; m < e; m++) buf[z++] = out[m]; 
+        } else {
+            for (m = e-1; m >= s; m--) buf[z++] = out[m]; 
+        }
+        buf[z++] = (uint32_t)-1; 
+        db_z += e - s;
+    }
+    // if(!(z == out_n)) {
+    //     fprintf(stderr, "[M::%s] sg->g->n_arc::%u, sg->g->n_seq::%u, z::%lu, out_n::%u, db_z::%u, db_on::%u\n", __func__, 
+	//         sg->g->n_arc, sg->g->n_seq, z, out_n, db_z, db_on);
+    // }
+    assert(z == out_n);
+    memcpy(out, buf, sizeof((*out))*out_n);
+}
+
+void layout_mc_clus_t(const mc_match_t *ma, uint32_t *a, uint32_t an, scg_t *sg, uint32_t *buf, uint64_t *idx, ma_ug_t* ug,
+double min_cut, double max_cut, uint64_t cut_round)
+{
+    uint64_t i, k, l, len, z, cutoff, s, e, v, vn; mc_edge_t *sp;
+    asg64_v srt; kv_init(srt); kvec_t(mc_edge_t) sm; kv_init(sm);
     osg_destroy(sg->g); sg->g = osg_init();
     memset(idx, -1, sizeof((*idx))*ug->g->n_seq);
 
+    // for (k = 0; k < an; k++) {
+    //     fprintf(stderr, "[M::%s] k::%lu, a[k]::%u, an::%u\n", __func__, k, a[k], an);
+    // }
     for (l = 0, k = 1, i = 0; k <= an; k++) {
        if(k == an || a[k] == (uint32_t)-1) {
-          if(k > l) {
-            osg_seq_set(sg->g, i, 0);
-            for (z = l, len = 0; z < k; z++) len += ug->g->seq[a[z]].len;
-            cutoff = len >> 1;
-            for (z = l, len = 0; z < k; z++) {
-                s = len; len += ug->g->seq[a[z]].len; e = len;
-                if(s <= cutoff) {
-                    idx[a[z]] <<= 32; idx[a[z]] |= (i<<1);
-                } 
-                if(e >= cutoff) {
-                    idx[a[z]] <<= 32; idx[a[z]] |= ((i<<1)+1);
-                }
-            }
-            i++;
-          }
-          l = k;
-       }
-    }
-
-    uint32_t o, n, t, j; mc_edge_t *arc; 
-    for (l = 0, k = 1, i = 0; k <= an; k++) {
-       if(k == an || a[k] == (uint32_t)-1) {
-          if(k > l) {
-            for (z = l; z < k; z++) {
-                v = idx[a[z]]>>32; 
-                if(v != (uint32_t)-1) {
-                    o = ma->idx.a[a[k]] >> 32; 
-                    n = (uint32_t)ma->idx.a[a[k]];
-                    srt.n = 0;
-                    for (j = 0; j < n; ++j) {
-                        arc = &ma->ma.a[o + j];
-                        t = (((uint32_t)((*arc).x)));
-
-                        w = idx[t]>>32; 
-                        if((w != (uint32_t)-1) && ((w>>1) > (v>>1))) {
-
-                        }
-
-                        w = (uint32_t)idx[t];
-                        if((w != (uint32_t)-1) && ((w>>1) > (v>>1))) {
-                            
-                        }
+            // fprintf(stderr, "[M::%s] l::%lu, k::%lu\n", __func__, l, k);
+            if(k > l) {
+                osg_seq_set(sg->g, i, 0);
+                for (z = l, len = 0; z < k; z++) len += ug->g->seq[a[z]].len;
+                cutoff = len >> 1;
+                for (z = l, len = 0; z < k; z++) {
+                    s = len; len += ug->g->seq[a[z]].len; e = len;
+                    if(s <= cutoff) {
+                        idx[a[z]] <<= 32; idx[a[z]] |= (i<<1);
+                    } 
+                    if(e >= cutoff) {
+                        idx[a[z]] <<= 32; idx[a[z]] |= ((i<<1)+1);
                     }
                 }
-
-                v = (uint32_t)idx[a[z]];
-                if(v != (uint32_t)-1) {
-                    
-                }
+                i++;
+            } else {
+                assert(k == an);
             }
-            i++;
-          }
-          l = k;
+            l = k+1;
        }
     }
 
-    kv_destroy(srt);
+    for (l = 0, k = 1, i = 0; k <= an; k++) {
+       if(k == an || a[k] == (uint32_t)-1) {
+            if(k > l) {
+                for (z = l, v = (i<<1), vn = 0; z < k; z++) {
+                    if((v == (idx[a[z]]>>32)) || v == ((uint32_t)idx[a[z]])) buf[vn++] = a[z];
+                }
+                cal_chain_arch(sg, ma, v, buf, vn, idx, &srt);
+
+                for (z = l, v = (i<<1)+1, vn = 0; z < k; z++) {
+                    if((v == (idx[a[z]]>>32)) || v == ((uint32_t)idx[a[z]])) buf[vn++] = a[z];
+                }
+                cal_chain_arch(sg, ma, v, buf, vn, idx, &srt);
+
+                i++;
+            } else {
+                assert(k == an);
+            }
+            l = k + 1;
+       }
+    }
+    osg_cleanup(sg->g);
+
+    sm.n = 0;
+    // kv_resize(mc_edge_t, sm, sg->g->n_arc);
+    for (k = 0; k < sg->g->n_arc; k++) {
+        if((asg_arc_n(sg->g, sg->g->arc[k].u)<=1) && (asg_arc_n(sg->g, sg->g->arc[k].v)<=1)) continue;
+        kv_pushp(mc_edge_t, sm, &sp);
+        sp->w = sg->g->arc[k].nw; sp->x = k;
+    }
+    qsort(sm.a, sm.n, sizeof(mc_edge_t), cmp_mc_edge_t_w);
+
+
+
+    double step = (cut_round==1?max_cut:((max_cut-min_cut)/(cut_round-1)));
+    double drop = min_cut;
+
+    for (i = 0; i < cut_round; i++, drop += step) {
+        if(drop > max_cut) drop = max_cut;
+        sm.n = mc_clus_cut(sg, sm.a, sm.n, drop, 0);    
+    }
+    mc_clus_cut(sg, sm.a, sm.n, 1.1, 1);
+    osg_cleanup(sg->g);
+
+    gen_mc_clus_backbone_layout(sg, &srt, a, an, buf);
+
+
+    kv_destroy(srt); kv_destroy(sm);
 }
 
 void cpy_u_hits(kvec_pe_hit *u_hits, kvec_pe_hit *i_hits, uint32_t u_n)
