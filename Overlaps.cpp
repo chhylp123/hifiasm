@@ -33641,6 +33641,14 @@ void rescue_src_ul(ma_hit_t_alloc* src, uint64_t n_read, uint64_t occ)
     }
 }
 
+void prt_dbg_gfa(asg_t *sg, const char *suffix, ma_sub_t *cov, ma_hit_t_alloc* src, R_to_U* ruIndex, int64_t max_hang, int64_t min_ovlp)
+{
+    char *o_file = get_outfile_name(asm_opt.output_file_name);
+    char* gfa_name; MALLOC(gfa_name, strlen(o_file)+strlen(suffix)+50); sprintf(gfa_name, "%s.%s", o_file, suffix);
+    print_debug_gfa(sg, NULL, cov, gfa_name, src, ruIndex, max_hang, min_ovlp, 0, 0, 1);
+    free(gfa_name); free(o_file);
+}
+
 asg_t *gen_init_sg(int32_t min_dp, uint64_t n_read, int64_t mini_overlap_length, int64_t max_hang_length, int64_t gap_fuzz,
 ma_hit_t_alloc* src, uint64_t* readLen, R_to_U* ruIndex, bub_label_t *b_mask_t, ma_sub_t** cov, all_ul_t *ul)
 {
@@ -33655,9 +33663,11 @@ ma_hit_t_alloc* src, uint64_t* readLen, R_to_U* ruIndex, bub_label_t *b_mask_t, 
 
     if(!ul) {
         sg = ma_sg_gen(src, n_read, *cov, max_hang_length, mini_overlap_length);
+        if(asm_opt.prt_dbg_gfa) prt_dbg_gfa(sg, "raw", *cov, src, ruIndex, max_hang_length, mini_overlap_length);        
         asg_arc_del_trans(sg, gap_fuzz);
     } else {
         sg = ma_sg_gen_ul(src, n_read, *cov, ruIndex, max_hang_length, mini_overlap_length, UL_COV_THRES);
+        if(asm_opt.prt_dbg_gfa) prt_dbg_gfa(sg, "raw", *cov, src, ruIndex, max_hang_length, mini_overlap_length);
         // prt_specfic_sge(sg, 10498, 10505, "--*--");
         asg_arc_del_trans_ul(sg, gap_fuzz);
         // prt_specfic_sge(sg, 10498, 10505, "--#--");

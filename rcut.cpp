@@ -9,6 +9,7 @@
 #include "ksort.h"
 #include "kthread.h"
 #include "hic.h"
+#include "horder.h"
 
 #define VERBOSE_CUT 0
 
@@ -116,6 +117,8 @@ typedef struct{
 	uint32_t n, n_thread;
 	clus_flip_aux *aux;
 	mc_svaux_t *baux;
+	asg64_v *asn;
+	scg_t sg;
 } mc_clus_t;
 
 typedef struct {
@@ -2340,13 +2343,13 @@ void renew_mc_clus_t(mc_clus_t *bc, uint32_t *a, uint32_t a_n)
 {
 	if(!bc) return;
 	// fprintf(stderr, "[M::%s] a_n::%u\n", __func__, a_n);
-	uint32_t k, i, *ba, bn, m, cocc, iin, bub_occ = 0, bbn = 0; uint64_t *p; ma_utg_t *u = NULL;
+	uint32_t k, i, *ba, bn, m, cocc, iin, /**bub_occ = 0,**/ bbn = 0; uint64_t *p; ma_utg_t *u = NULL;
 	kvec_t(double) sc_l; kvec_t(double) sc_r; kvec_t(double) sc_m; kvec_t(uint32_t) tmp;
 	kv_init(sc_l); kv_init(sc_r); kv_init(sc_m); kv_init(tmp);
 	
 	bc->cc.ng.n = bc->cc.nn.n = 0;
-	memset(bc->lock, 0, sizeof((*(bc->lock)))*bc->n);
-	for (k = 0; k < a_n; k++) bc->lock[a[k]] = 1;
+	memset(bc->lock, 0, sizeof((*(bc->lock)))*bc->n);///bc->n: number of all nodes
+	for (k = 0; k < a_n; k++) bc->lock[a[k]] = 1;///a_n: number of nodes within the cluster
 
 	kv_resize(uint32_t, bc->cc.nn, a_n);
 	// for (i = 0; i < bc->bub->chain_weight.n; i++) {
@@ -2355,14 +2358,14 @@ void renew_mc_clus_t(mc_clus_t *bc, uint32_t *a, uint32_t a_n)
 	for (i = 0; i < bc->bub->b_ug->u.n; i++) {
         u = &(bc->bub->b_ug->u.a[i]);
         if(u->n == 0) continue;
-		bub_occ += u->n;
+		// bub_occ += u->n;
 		// fprintf(stderr, "[M::%s] i::%u, u->n::%u\n", __func__, i, (uint32_t)u->n);
         for (k = cocc = 0, iin = bc->cc.nn.n; k < u->n; k++) {
             get_bubbles(bc->bub, u->a[k]>>33, NULL, NULL, &ba, &bn, NULL);
 			kv_pushp(uint64_t, bc->cc.ng, &p); bbn += bn;
 			*p = bc->cc.nn.n;///a bubble
 			for (m = 0; m < bn; m++) {
-				if(!(bc->lock[ba[m]>>1])) continue;
+				if(!(bc->lock[ba[m]>>1])) continue;///if the node of bubble is not at this cluster
 				kv_push(uint32_t, bc->cc.nn, (ba[m]>>1));
 				bc->lock[ba[m]>>1] = 2;
             }
@@ -2372,7 +2375,7 @@ void renew_mc_clus_t(mc_clus_t *bc, uint32_t *a, uint32_t a_n)
 			}
 			*p <<= 32; *p |= (bc->cc.nn.n-((*p)>>32)); cocc++;
         }
-		//split chains
+		//split the chain if there is multipe bubbles
 		if(cocc > 0) {//cocc: # of bubbles in this chain
 			for (k = bc->cc.ng.n - cocc; k < bc->cc.ng.n; k++) {
 				kv_resize(double, sc_l, clus_n((*bc), k)); 
@@ -2385,8 +2388,8 @@ void renew_mc_clus_t(mc_clus_t *bc, uint32_t *a, uint32_t a_n)
 				// prt_bub(clus_a((*bc), k), clus_n((*bc), k), "-1-"); 
 			}
 			for (k = iin; k < bc->cc.nn.n; k++) bc->lock[bc->cc.nn.a[k]] = 1;//reset
-			kv_pushp(uint64_t, bc->cc.ng, &p); *p = (uint64_t)-1; 
-			kv_push(uint32_t, bc->cc.nn, ((uint32_t)-1)); ///split
+			kv_pushp(uint64_t, bc->cc.ng, &p); *p = (uint64_t)-1; ///cluster
+			kv_push(uint32_t, bc->cc.nn, ((uint32_t)-1)); ///split, node id
 		}
     }
 
@@ -2395,6 +2398,118 @@ void renew_mc_clus_t(mc_clus_t *bc, uint32_t *a, uint32_t a_n)
 	// fprintf(stderr, "[M::%s] a_n::%u, bc->cc.nn.n::%u, bc->cc.ng.n::%u, bbn::%u, bub_occ::%u, bc->bub->b_ug->u.n::%u\n", __func__, 
 	// a_n, (uint32_t)bc->cc.nn.n, (uint32_t)bc->cc.ng.n, bbn, bub_occ, (uint32_t)bc->bub->b_ug->u.n);
 }
+
+
+void renew_mc_clus_t_adv(mc_clus_t *bc, uint32_t *a, uint32_t a_n)
+{
+	if(!bc) return;
+	// fprintf(stderr, "[M::%s] a_n::%u\n", __func__, a_n);
+	uint32_t k, i, *ba, bn, m, cocc, iin, /**bub_occ = 0,**/ bbn = 0, bid, bk, bl; 
+	uint64_t *p; ma_utg_t *u = NULL; asg64_v *asn = bc->asn;
+	kvec_t(double) sc_l; kvec_t(double) sc_r; kvec_t(double) sc_m; kvec_t(uint32_t) tmp;
+	kv_init(sc_l); kv_init(sc_r); kv_init(sc_m); kv_init(tmp);
+	
+	bc->cc.ng.n = bc->cc.nn.n = 0;
+	memset(bc->lock, 0, sizeof((*(bc->lock)))*bc->n);///bc->n: number of all nodes
+	for (k = 0; k < a_n; k++) bc->lock[a[k]] = 1;///a_n: number of nodes within the cluster
+
+	kv_resize(uint32_t, bc->cc.nn, a_n);
+	for (i = bid = bk = 0; i < bc->bub->b_ug->u.n; i++) {
+        u = &(bc->bub->b_ug->u.a[i]);
+        if(u->n == 0) continue;
+		// bub_occ += u->n;
+		// fprintf(stderr, "[M::%s] i::%u, u->n::%u\n", __func__, i, (uint32_t)u->n);
+        for (k = cocc = 0, iin = bc->cc.nn.n; k < u->n; k++, bid++) {
+            get_bubbles(bc->bub, u->a[k]>>33, NULL, NULL, &ba, &bn, NULL);
+			kv_pushp(uint64_t, bc->cc.ng, &p); bbn += bn;
+			*p = bc->cc.nn.n;///a bubble
+			for (m = 0; m < bn; m++) {
+				if(!(bc->lock[ba[m]>>1])) continue;///if the node of bubble is not at this cluster
+				kv_push(uint32_t, bc->cc.nn, (ba[m]>>1));
+				bc->lock[ba[m]>>1] = 2;
+            }
+			if(asn) {
+				for (; bk < asn->n && (asn->a[bk]>>32) < bid; bk++);
+				for (; bk < asn->n && (asn->a[bk]>>32) == bid; bk++) {
+					if(!(bc->lock[((uint32_t)asn->a[bk])])) continue;///if the node of bubble is not at this cluster
+					kv_push(uint32_t, bc->cc.nn, ((uint32_t)asn->a[bk]));
+					bc->lock[((uint32_t)asn->a[bk])] = 2;
+				}
+			}
+			
+			if(bc->cc.nn.n <= (*p)) {///no node in this bubble
+				bc->cc.ng.n--;
+				continue;
+			}
+			*p <<= 32; *p |= (bc->cc.nn.n-((*p)>>32)); cocc++;
+        }
+		//split the chain if there is multipe bubbles
+		if(cocc > 0) {//cocc: # of bubbles in this chain
+			for (k = bc->cc.ng.n - cocc; k < bc->cc.ng.n; k++) {
+				kv_resize(double, sc_l, clus_n((*bc), k)); 
+				kv_resize(double, sc_r, clus_n((*bc), k)); 
+				kv_resize(double, sc_m, clus_n((*bc), k)); 
+				kv_resize(uint32_t, tmp, clus_n((*bc), k)); 
+				// prt_bub(clus_a((*bc), k), clus_n((*bc), k), "-0-"); 
+				reorder_bub(bc->mg->e, clus_a((*bc), k), clus_n((*bc), k), bc->lock, 3, 2, 4, 5, 
+				sc_l.a, sc_r.a, sc_m.a, tmp.a);
+				// prt_bub(clus_a((*bc), k), clus_n((*bc), k), "-1-"); 
+			}
+			for (k = iin; k < bc->cc.nn.n; k++) bc->lock[bc->cc.nn.a[k]] = 1;//reset
+			kv_pushp(uint64_t, bc->cc.ng, &p); *p = (uint64_t)-1; ///cluster
+			kv_push(uint32_t, bc->cc.nn, ((uint32_t)-1)); ///split, node id
+		}
+    }
+
+	if(asn) {
+		for (bl = bk, bk = bk + 1; bk <= asn->n; bk++) {
+			if(bk == asn->n || (asn->a[bk]>>32) != (asn->a[bl]>>32)) {
+				cocc = 0; iin = bc->cc.nn.n;
+				kv_pushp(uint64_t, bc->cc.ng, &p); bbn += bn;
+            	*p = bc->cc.nn.n;///a bubble
+				for (m = bl; m < bk; m++) {
+					if(!(bc->lock[((uint32_t)asn->a[m])])) continue;///if the node of bubble is not at this cluster
+                    kv_push(uint32_t, bc->cc.nn, ((uint32_t)asn->a[m]));
+                    bc->lock[((uint32_t)asn->a[m])] = 2;
+				}
+				if(bc->cc.nn.n <= (*p)) {///no node in this bubble
+					bc->cc.ng.n--; 
+					bl = bk;
+					continue;
+				}
+				*p <<= 32; *p |= (bc->cc.nn.n-((*p)>>32)); cocc++;
+				if(cocc > 0) {//cocc: # of bubbles in this chain
+					for (k = bc->cc.ng.n - cocc; k < bc->cc.ng.n; k++) {
+						kv_resize(double, sc_l, clus_n((*bc), k)); 
+						kv_resize(double, sc_r, clus_n((*bc), k)); 
+						kv_resize(double, sc_m, clus_n((*bc), k)); 
+						kv_resize(uint32_t, tmp, clus_n((*bc), k)); 
+						// prt_bub(clus_a((*bc), k), clus_n((*bc), k), "-0-"); 
+						reorder_bub(bc->mg->e, clus_a((*bc), k), clus_n((*bc), k), bc->lock, 3, 2, 4, 5, 
+						sc_l.a, sc_r.a, sc_m.a, tmp.a);
+						// prt_bub(clus_a((*bc), k), clus_n((*bc), k), "-1-"); 
+					}
+					for (k = iin; k < bc->cc.nn.n; k++) bc->lock[bc->cc.nn.a[k]] = 1;//reset
+					kv_pushp(uint64_t, bc->cc.ng, &p); *p = (uint64_t)-1; ///cluster
+					kv_push(uint32_t, bc->cc.nn, ((uint32_t)-1)); ///split, node id
+				}
+
+				bl = bk;
+			}
+		}
+	}
+	/**
+	///need enable it later
+	kv_resize(uint32_t, tmp, bc->cc.nn.n);
+	kv_resize(uint64_t, bc->cc.ng, bc->cc.ng.n+bc->bub->ug->g->n_seq);
+	layout_mc_clus_t(bc->mg->e, bc->cc.nn.a, bc->cc.nn.n, &(bc->sg), tmp.a, bc->cc.ng.a+bc->cc.ng.n, bc->bub->ug);
+	**/
+	for (k = 0; k < a_n; k++) bc->lock[a[k]] = 0;
+	kv_destroy(sc_l); kv_destroy(sc_r); kv_destroy(sc_m); kv_destroy(tmp);
+	// fprintf(stderr, "[M::%s] a_n::%u, bc->cc.nn.n::%u, bc->cc.ng.n::%u, bbn::%u, bub_occ::%u, bc->bub->b_ug->u.n::%u\n", __func__, 
+	// a_n, (uint32_t)bc->cc.nn.n, (uint32_t)bc->cc.ng.n, bbn, bub_occ, (uint32_t)bc->bub->b_ug->u.n);
+}
+
 
 void clean_clus_flip_aux(clus_flip_aux *z)
 {
@@ -2630,7 +2745,8 @@ uint32_t mc_solve_cc_adv(const mc_opt_t *opt, const mc_g_t *mg, mc_svaux_t *b, u
 		b->s_opt[b->cc_node[j]] = b->s[b->cc_node[j]]; ///hap status of each unitig
 		b->z_opt[b->cc_node[j]] = b->z[b->cc_node[j]]; ///z[0]: positive weight; z[1]: positive weight
 	}
-	renew_mc_clus_t(bc, b->cc_node, b->cc_size);
+	// renew_mc_clus_t(bc, b->cc_node, b->cc_size);
+	renew_mc_clus_t_adv(bc, b->cc_node, b->cc_size);
 	// fprintf(stderr, "\ncc_size: %u, cc_off: %u\n", b->cc_size, b->cc_off);
 	// print_sc(opt, mg->e, b, sc_opt, n_iter);
 	sc = mc_optimize_local(opt, mg->e, b, &n_iter);
@@ -3244,13 +3360,98 @@ mc_clus_t *init_mc_clus_t(const mc_opt_t *opt, mc_g_t *mg, bubble_type* bub, uin
 void des_mc_clus_t(mc_clus_t *p)
 {
 	if((!p)) return;
-	uint32_t k; free(p->lock);
+	uint32_t k; free(p->lock); 
+	if(p->asn) {
+		free(p->asn->a); free(p->asn);
+	}
 	for (k = 0; k < p->n_thread; k++) free(p->aux[k].vis.a);
 	free(p->aux); free(p->cc.ng.a); free(p->cc.nn.a); 
 	free(p);
 }
 
-void mc_solve_core_adv(const mc_opt_t *opt, mc_g_t *mg, bubble_type* bub)
+asg64_v* gen_ref_bub(mc_clus_t *bc, kv_u_trans_t *ref)
+{
+	if(!ref) return NULL;
+	asg64_v *aux; CALLOC(aux, 1); aux->n = aux->m = bc->n; double w, mmw;
+	MALLOC(aux->a, bc->n); memset(aux->a, -1, sizeof((*(aux->a)))*bc->n);
+	uint32_t k, l, i, *ba, bn, m, on, bid; ma_utg_t *u = NULL; uint64_t p, mm, st, j;
+	u_trans_t *o = NULL; asg64_v buf; kv_init(buf); 
+
+	for (i = bid = 0; i < bc->bub->b_ug->u.n; i++) {///set nodes within bubbles
+        u = &(bc->bub->b_ug->u.a[i]);
+        for (k = 0; k < u->n; k++, bid++) {
+            get_bubbles(bc->bub, u->a[k]>>33, NULL, NULL, &ba, &bn, NULL);
+            for (m = 0; m < bn; m++) aux->a[ba[m]>>1] = bid;
+        }
+    }
+	// bin = bid;
+
+	for (i = 0; i < bc->bub->ug->g->n_seq; i++) {
+		if(aux->a[i] != ((uint64_t)-1)) continue;
+		o = u_trans_a(*ref, i); on = u_trans_n(*ref, i);
+		if(!on) continue;
+		buf.n = 0; kv_resize(uint64_t, buf, on);
+		for (k = 0; k < on; k++) {
+			p = aux->a[o[k].tn]; p<<= 32; p += k;
+			kv_push(uint64_t, buf, p);
+		}
+
+		radix_sort_mc64(buf.a, buf.a + buf.n); 
+		mm = (uint32_t)-1; mmw = -1;
+		for (l = 0, k = 1; k <= buf.n; k++) {
+			if((k == buf.n) || ((buf.a[l]>>32) == ((uint32_t)-1)) || ((buf.a[l]>>32) != (buf.a[k]>>32))) {
+				for (m = l, w = 0; m < k; m++) w += fabs(o[((uint32_t)buf.a[m])].nw);
+				if(mmw < w) {
+					mmw = w; mm = buf.a[l]>>32;
+				}
+				l = k;
+			}
+		}
+		if(mm != ((uint32_t)-1)) aux->a[i] = mm;
+	}
+
+
+	///final cluster
+	for (i = 0; i < bc->bub->ug->g->n_seq; i++) {
+		if(aux->a[i] != ((uint64_t)-1)) continue;
+		buf.n = 0; kv_push(uint64_t, buf, i);
+        while (buf.n > 0) {
+            k = buf.a[--buf.n];
+			if(aux->a[k] != ((uint64_t)-1)) continue;
+            aux->a[k] = bid;///group id
+            o = u_trans_a(*ref, k); on = u_trans_n(*ref, k);
+            for (st = 0, j = 1; j <= on; ++j) {
+                if(j == on || o[j].tn != o[st].tn) {
+					if(aux->a[o[st].tn] == ((uint64_t)-1)) {
+						kv_push(uint64_t, buf, o[st].tn);
+					}
+                    st = j;
+                }
+            }
+        }
+		bid++;
+	}
+
+	assert(aux->n == bc->bub->ug->g->n_seq);
+
+	for (i = 0; i < bc->bub->b_ug->u.n; i++) {///no need nodes in bubbles
+        u = &(bc->bub->b_ug->u.a[i]);
+        for (k = 0; k < u->n; k++) {
+            get_bubbles(bc->bub, u->a[k]>>33, NULL, NULL, &ba, &bn, NULL);
+            for (m = 0; m < bn; m++) aux->a[ba[m]>>1] = (uint64_t)-1;
+        }
+    }
+	for (i = aux->n = 0; i < bc->bub->ug->g->n_seq; i++) {
+		if(aux->a[i] == ((uint64_t)-1)) continue;
+		aux->a[i] <<= 32; aux->a[i] |= i;//bub_id|node_id
+		aux->a[aux->n++] = aux->a[i];
+	}
+	radix_sort_mc64(aux->a, aux->a + aux->n);
+	kv_destroy(buf);
+	return aux;
+} 
+
+void mc_solve_core_adv(const mc_opt_t *opt, mc_g_t *mg, bubble_type* bub, kv_u_trans_t *ref)
 {
 	double index_time = yak_realtime();
 	uint32_t st, i;
@@ -3259,6 +3460,7 @@ void mc_solve_core_adv(const mc_opt_t *opt, mc_g_t *mg, bubble_type* bub)
 	mc_g_cc(mg->e);
 	b = mc_svaux_init(mg, opt->seed);
 	bc = init_mc_clus_t(opt, mg, bub, asm_opt.thread_num, b, 16); 
+	if(ref && bc) bc->asn = gen_ref_bub(bc, ref);
 	// bc = gen_mc_clus_t(mg->e, b, bub, ref, asm_opt.thread_num);
 	// if(bub) bp = mc_bp_t_init(mg->e, b, bub, asm_opt.thread_num);
 	/*******************************for debug************************************/
@@ -3286,7 +3488,7 @@ void mc_solve_core_adv(const mc_opt_t *opt, mc_g_t *mg, bubble_type* bub)
 
 	// if(bp) mc_solve_bp(bp);	
 	///mc_write_info(g, b);
-	mc_svaux_destroy(b); des_mc_clus_t(bc);
+	mc_svaux_destroy(b); des_mc_clus_t(bc); 
 	// if(bp) destroy_mc_bp_t(&bp);
 	fprintf(stderr, "[M::%s::%.3f] ==> Partition\n", __func__, yak_realtime()-index_time);
 }
@@ -3524,7 +3726,7 @@ void mc_solve(hap_overlaps_list* ovlp, trans_chain* t_ch, kv_u_trans_t *ta, ma_u
 	///debug_mc_g_t(mg);
 	// if(renew_s == 0) write_mc_g_t(&opt, mg, MC_NAME);
 	// mc_solve_core(&opt, mg, bub);
-	mc_solve_core_adv(&opt, mg, bub);
+	mc_solve_core_adv(&opt, mg, bub, ref);
 
 	if((asm_opt.flag & HA_F_PARTITION) && t_ch)
 	{

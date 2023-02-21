@@ -2568,13 +2568,6 @@ void post_rescue(ug_opt_t *uopt, asg_t *sg, ma_hit_t_alloc *src, ma_hit_t_alloc 
     uopt->min_ovlp, 10, uopt->gap_fuzz, b_mask_t, no_trio_recover);
 }
 
-void prt_dbg_gfa(ug_opt_t *uopt, asg_t *sg, char *o_file, const char *suffix)
-{
-    char* gfa_name; MALLOC(gfa_name, strlen(o_file)+strlen(suffix)+50); sprintf(gfa_name, "%s.%s", o_file, suffix);
-    print_debug_gfa(sg, NULL, uopt->coverage_cut, gfa_name, uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 0, 0, 1);
-    free(gfa_name);
-}
-
 void ul_clean_gfa(ug_opt_t *uopt, asg_t *sg, ma_hit_t_alloc *src, ma_hit_t_alloc *rev, R_to_U* rI, int64_t clean_round, double min_ovlp_drop_ratio, double max_ovlp_drop_ratio, 
 double ou_drop_rate, int64_t max_tip, int64_t gap_fuzz, bub_label_t *b_mask_t, int32_t is_ou, int32_t is_trio, uint32_t ou_thres, char *o_file)
 {
@@ -2592,7 +2585,6 @@ double ou_drop_rate, int64_t max_tip, int64_t gap_fuzz, bub_label_t *b_mask_t, i
     // exit(1);
     // print_raw_u2rgfa_seq(&UL_INF, rI, 1);
     // exit(1);
-    if(asm_opt.prt_dbg_gfa) prt_dbg_gfa(uopt, sg, o_file, "raw");
     // fprintf(stderr, "%.*s\tid::%u\tis_c::%u\n", 
     //                 (int)Get_NAME_LENGTH(R_INF, 10785), Get_NAME(R_INF, 10785), 10785, is_contain_r((*rI), 10785));
     // fprintf(stderr, "%.*s\tid::%u\tis_c::%u\n", 
@@ -7686,7 +7678,7 @@ void print_raw_uls_seq(ul_resolve_t *uidx, const char *nn)
         // for (k = 0; k < a_n && ug_occ_w(a[k].ts, a[k].te, &(ug->u.a[a[k].hid])) == 0; k++);
         for (; k < a_n; k++) {
             // if(ug_occ_w(a[k].ts, a[k].te, &(ug->u.a[a[k].hid])) == 0) break;
-            fprintf(fp, "utg%.6d%c(%c)\t", a[k].hid + 1, "lc"[ug->u.a[a[k].hid].circ], "+-"[a[k].rev]);
+            fprintf(fp, "utg%.6d%c(%c)(n::%lu)\t", a[k].hid + 1, "lc"[ug->u.a[a[k].hid].circ], "+-"[a[k].rev], ug_occ_w(a[k].ts, a[k].te, &(ug->u.a[a[k].hid])));
         }
         fprintf(fp,"\n");
     }
@@ -16900,7 +16892,7 @@ ul_renew_t *ropt, const char *bin_file, uint64_t free_uld, uint64_t is_bridg, ui
     // char* gfa_name = NULL; MALLOC(gfa_name, strlen(o_file)+strlen(bin_file)+50);
     // sprintf(gfa_name, "%s.%s", o_file, bin_file);
     // print_debug_gfa(sg, init_ug, uopt->coverage_cut, gfa_name, uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 0, 0, 0);
-    // // print_debug_gfa(sg, init_ug, uopt->coverage_cut, gfa_name, uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 0, 0, 1);
+    // print_debug_gfa(sg, init_ug, uopt->coverage_cut, gfa_name, uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 0, 0, 1);
     // free(gfa_name);
     
     
@@ -16920,7 +16912,7 @@ ul_renew_t *ropt, const char *bin_file, uint64_t free_uld, uint64_t is_bridg, ui
     // print_ul_alignment(init_ug, &UL_INF, 47072, "after-2");
     // exit(1);
     // if(free_uld) {
-    //     print_raw_uls_seq(uidx, asm_opt.output_file_name);
+        print_raw_uls_seq(uidx, asm_opt.output_file_name);
     //     print_raw_uls_aln(uidx, asm_opt.output_file_name);
     // }
     
@@ -17451,20 +17443,20 @@ double min_ovlp_drop_ratio, double max_ovlp_drop_ratio, double ou_rat, int64_t m
         cal_bub_best_by_len(sl, &b, max_ext, is_trio, sl->is_ou, sl->len_rat, sl->ou_rat, min_ou);
     }
 
-    if(is_ou) {
-        uint64_t k; sl->is_ou = 0;
-        for (k = 0; k < sl->ug->g->n_arc; k++) sl->ug->g->arc[k].ou = 0;
-        max_ovlp_drop_ratio = 0.6;
-        if(max_ovlp_drop_ratio > min_ovlp_drop_ratio) {
-            step = (clean_round==1?max_ovlp_drop_ratio:((max_ovlp_drop_ratio-min_ovlp_drop_ratio)/(clean_round-1)));
-            for (i = 0, sl->len_rat = min_ovlp_drop_ratio; i < clean_round; i++, sl->len_rat += step) {
-                if(sl->len_rat > max_ovlp_drop_ratio) sl->len_rat = max_ovlp_drop_ratio;
-                update_ug_clean_t(sl);
-                kt_for(asm_opt.thread_num, cal_bub_best, sl, sl->ug->g->n_seq);
-                cal_bub_best_by_len(sl, &b, max_ext, is_trio, sl->is_ou, sl->len_rat, sl->ou_rat, min_ou);
-            }
-        }
-    }
+    // if(is_ou) {
+    //     uint64_t k; sl->is_ou = 0;
+    //     for (k = 0; k < sl->ug->g->n_arc; k++) sl->ug->g->arc[k].ou = 0;
+    //     max_ovlp_drop_ratio = 0.6;
+    //     if(max_ovlp_drop_ratio > min_ovlp_drop_ratio) {
+    //         step = (clean_round==1?max_ovlp_drop_ratio:((max_ovlp_drop_ratio-min_ovlp_drop_ratio)/(clean_round-1)));
+    //         for (i = 0, sl->len_rat = min_ovlp_drop_ratio; i < clean_round; i++, sl->len_rat += step) {
+    //             if(sl->len_rat > max_ovlp_drop_ratio) sl->len_rat = max_ovlp_drop_ratio;
+    //             update_ug_clean_t(sl);
+    //             kt_for(asm_opt.thread_num, cal_bub_best, sl, sl->ug->g->n_seq);
+    //             cal_bub_best_by_len(sl, &b, max_ext, is_trio, sl->is_ou, sl->len_rat, sl->ou_rat, min_ou);
+    //         }
+    //     }
+    // }
 
     // update_ug_clean_t(sl);
     // cal_bub_best_by_topo(sl, &b, max_ext, is_trio, sl->is_ou, sl->len_rat, sl->ou_rat, min_ou, long_tip);

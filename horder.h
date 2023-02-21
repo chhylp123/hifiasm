@@ -4,6 +4,7 @@
 #define __STDC_LIMIT_MACROS
 #include <stdint.h>
 #include "hic.h"
+#include "rcut.h"
 
 #define get_hit_srev(x, k) ((x).a.a[(k)].s>>63)
 #define get_hit_slen(x, k) ((x).a.a[(k)].len>>32)
@@ -71,4 +72,6 @@ void ha_aware_order(kvec_pe_hit *r_hits, asg_t *rg, ma_ug_t *ug_fa, ma_ug_t *ug_
 ug_opt_t *opt, uint32_t round);
 spg_t *horder_utg(kvec_pe_hit *i_hits, uint64_t i_hits_uid_bits, uint64_t i_hits_pos_mode, 
 asg_t *i_rg, ma_ug_t* i_ug, bubble_type* bub, ug_opt_t *opt);
+void layout_mc_clus_t(const mc_match_t *ma, uint32_t *a, uint32_t an, scg_t *sg, uint32_t *buf, uint64_t *idx, ma_ug_t* ug);
+
 #endif

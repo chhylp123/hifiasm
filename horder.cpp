@@ -3967,6 +3967,73 @@ asg_t *i_rg, ma_ug_t* i_ug, bubble_type* bub, kv_u_trans_t *ref, ug_opt_t *opt, 
     return h;
 }
 
+void layout_mc_clus_t(const mc_match_t *ma, uint32_t *a, uint32_t an, scg_t *sg, uint32_t *buf, uint64_t *idx, ma_ug_t* ug)
+{
+    uint64_t i, k, l, len, z, cutoff, s, e, v, w; asg64_v srt; kv_init(srt);
+    osg_destroy(sg->g); sg->g = osg_init();
+    memset(idx, -1, sizeof((*idx))*ug->g->n_seq);
+
+    for (l = 0, k = 1, i = 0; k <= an; k++) {
+       if(k == an || a[k] == (uint32_t)-1) {
+          if(k > l) {
+            osg_seq_set(sg->g, i, 0);
+            for (z = l, len = 0; z < k; z++) len += ug->g->seq[a[z]].len;
+            cutoff = len >> 1;
+            for (z = l, len = 0; z < k; z++) {
+                s = len; len += ug->g->seq[a[z]].len; e = len;
+                if(s <= cutoff) {
+                    idx[a[z]] <<= 32; idx[a[z]] |= (i<<1);
+                } 
+                if(e >= cutoff) {
+                    idx[a[z]] <<= 32; idx[a[z]] |= ((i<<1)+1);
+                }
+            }
+            i++;
+          }
+          l = k;
+       }
+    }
+
+    uint32_t o, n, t, j; mc_edge_t *arc; 
+    for (l = 0, k = 1, i = 0; k <= an; k++) {
+       if(k == an || a[k] == (uint32_t)-1) {
+          if(k > l) {
+            for (z = l; z < k; z++) {
+                v = idx[a[z]]>>32; 
+                if(v != (uint32_t)-1) {
+                    o = ma->idx.a[a[k]] >> 32; 
+                    n = (uint32_t)ma->idx.a[a[k]];
+                    srt.n = 0;
+                    for (j = 0; j < n; ++j) {
+                        arc = &ma->ma.a[o + j];
+                        t = (((uint32_t)((*arc).x)));
+
+                        w = idx[t]>>32; 
+                        if((w != (uint32_t)-1) && ((w>>1) > (v>>1))) {
+
+                        }
+
+                        w = (uint32_t)idx[t];
+                        if((w != (uint32_t)-1) && ((w>>1) > (v>>1))) {
+                            
+                        }
+                    }
+                }
+
+                v = (uint32_t)idx[a[z]];
+                if(v != (uint32_t)-1) {
+                    
+                }
+            }
+            i++;
+          }
+          l = k;
+       }
+    }
+
+    kv_destroy(srt);
+}
+
 void cpy_u_hits(kvec_pe_hit *u_hits, kvec_pe_hit *i_hits, uint32_t u_n)
 {
     uint64_t i;
