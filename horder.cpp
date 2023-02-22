@@ -4117,6 +4117,7 @@ void gen_mc_clus_backbone_layout(scg_t *sg, asg64_v *res, uint32_t *out, uint32_
     uint64_t k, l, i, rn, n0, n1, v, z; int64_t m, s, e; osg_arc_t *t = NULL;
     kv_resize(uint64_t, *res, sg->g->n_seq); res->n = sg->g->n_seq;
     memset(res->a, 0, sizeof((*(res->a)))*res->n); rn = res->n;
+    // fprintf(stderr, "[M::%s::]******Start******\n",__func__);
     
     for (k = 0; k < sg->g->n_seq; k++) {
         ///I guess this should be (!!(asg_arc_n(lg, k<<1)))^(!!(asg_arc_n(lg, (k<<1)+1)))?
@@ -4200,12 +4201,12 @@ void gen_mc_clus_backbone_layout(scg_t *sg, asg64_v *res, uint32_t *out, uint32_
         }
     }
 
-    uint32_t db_on = 0, db_z = 0;
+    // uint32_t db_on = 0, db_z = 0;
     assert((res->n-rn) == sg->g->n_seq);
     for (l = 0, k = 1, i = 0; k <= out_n; k++) {
        if(k == out_n || out[k] == (uint32_t)-1) {
             if(k > l) {
-                res->a[i++] = ((l<<32)|(k)); db_on += k - l;
+                res->a[i++] = ((l<<32)|(k)); ///db_on += k - l;
             } else {
                 assert(k == out_n);
             }
@@ -4221,8 +4222,14 @@ void gen_mc_clus_backbone_layout(scg_t *sg, asg64_v *res, uint32_t *out, uint32_
         } else {
             for (m = e-1; m >= s; m--) buf[z++] = out[m]; 
         }
+
+        // if(e > s) {
+        //     fprintf(stderr, "[M::%s::]\t#chain::%ld\tutg%.6ul->utg%.6ul\n", 
+        //         __func__, (e-s), buf[z-(e-s)]+1, buf[z-1]+1);
+        // }
+        
         buf[z++] = (uint32_t)-1; 
-        db_z += e - s;
+        // db_z += e - s;
     }
     // if(!(z == out_n)) {
     //     fprintf(stderr, "[M::%s] sg->g->n_arc::%u, sg->g->n_seq::%u, z::%lu, out_n::%u, db_z::%u, db_on::%u\n", __func__, 

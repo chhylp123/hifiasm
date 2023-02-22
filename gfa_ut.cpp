@@ -16912,7 +16912,7 @@ ul_renew_t *ropt, const char *bin_file, uint64_t free_uld, uint64_t is_bridg, ui
     // print_ul_alignment(init_ug, &UL_INF, 47072, "after-2");
     // exit(1);
     // if(free_uld) {
-        print_raw_uls_seq(uidx, asm_opt.output_file_name);
+        // print_raw_uls_seq(uidx, asm_opt.output_file_name);
     //     print_raw_uls_aln(uidx, asm_opt.output_file_name);
     // }
     
