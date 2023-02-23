@@ -1,10 +1,10 @@
-CXX :=	g++
-CC  :=	gcc
-CXXFLAGS := $(CXXFLAGS)	-g -O3 -msse4.2 -mpopcnt -fomit-frame-pointer -Wall
-CFLAGS := $(CXXFLAGS)
-CPPFLAGS :=
-INCLUDES :=
-OBJS :=		CommandLines.o Process_Read.o Assembly.o Hash_Table.o \
+CXX ?=	g++
+CC  ?=	gcc
+CXXFLAGS ?= $(CXXFLAGS)	-g -O3 -msse4.2 -mpopcnt -fomit-frame-pointer -Wall
+CFLAGS ?= $(CXXFLAGS)
+CPPFLAGS=
+INCLUDES=
+OBJS=		CommandLines.o Process_Read.o Assembly.o Hash_Table.o \
 			POA.o Correct.o Levenshtein_distance.o Overlaps.o Trio.o kthread.o Purge_Dups.o \
 			htab.o hist.o sketch.o anchor.o extract.o sys.o ksw2_extz2_sse.o hic.o rcut.o horder.o \
 			tovlp.o inter.o kalloc.o gfa_ut.o gchain_map.o
