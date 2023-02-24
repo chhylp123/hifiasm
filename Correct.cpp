@@ -18617,7 +18617,18 @@ void ul_lalign(overlap_region_alloc* ol, Candidates_list *cl, const ul_idx_t *ur
         if(ol->length <= 0) return;
     } else {
         // fprintf(stderr, "-[M::%s] on::%lu\n", __func__, ol->length);
-        if(ol->length <= 1) return;
+        if(ol->length <= 1) {
+            if(ol->length == 1) {
+                window_list *p;
+                z = &(ol->list[0]); z->w_list.n = 0;
+                kv_pushp(window_list, z->w_list, &p);
+                memset(p, 0, sizeof((*p)));
+                p->x_start = z->x_pos_s; p->x_end = z->x_pos_e+1; p->clen = 0;
+                z->align_length = z->overlapLen = z->x_pos_e+1-z->x_pos_s;
+                z->non_homopolymer_errors = 0;
+            }
+            return;
+        }
         ///coordinates for all intervals with cov > 1
         copy_asg_arr(iidx, hap->snp_srt); copy_asg_arr(buf, v_idx->a); copy_asg_arr(buf1, (*stb));
         // fprintf(stderr, "\n[M::%s] iidx_n::%ld\n", __func__, (int64_t)iidx.n);
@@ -21022,7 +21033,7 @@ bit_extz_t *exz, double e_rate, int64_t w_l, uint64_t ql, uint64_t rid, uint64_t
     int64_t aux_n = aux_o->w_list.n;
 
 
-    // if(z->x_id == 29033 && z->y_id == 21307) {
+    // if(z->x_id == 77960 && z->y_id == 27340) {
     //     fprintf(stderr, "\n[M::%s]\tutg%.6u%c\txl::%u\tx::[%u,\t%u)\t%c\tutg%.6u%c\tyl::%u\ty::[%u,\t%u)\n", 
     //         __func__, 
 	// 		z->x_id+1, "lc"[udb->ug->u.a[z->x_id].circ], udb->ug->u.a[z->x_id].len, z->x_pos_s, z->x_pos_e+1,
@@ -21046,7 +21057,7 @@ bit_extz_t *exz, double e_rate, int64_t w_l, uint64_t ql, uint64_t rid, uint64_t
         rechain_aln(z, cl, aux_o, i, w_l, udb, NULL, NULL, qstr, tu, exz, e_rate, ql, tl, khit, rid);
     }
 
-    // if(z->x_id == 29033 && z->y_id == 21307) {
+    // if(z->x_id == 77960 && z->y_id == 27340) {
     //     fprintf(stderr, "\n[M::%s]\tutg%.6u%c\txl::%u\tx::[%u,\t%u)\t%c\tutg%.6u%c\tyl::%u\ty::[%u,\t%u)\n", 
     //         __func__, 
 	// 		z->x_id+1, "lc"[udb->ug->u.a[z->x_id].circ], udb->ug->u.a[z->x_id].len, z->x_pos_s, z->x_pos_e+1,
@@ -21086,7 +21097,7 @@ bit_extz_t *exz, double e_rate, int64_t w_l, uint64_t ql, uint64_t rid, uint64_t
     }
     z->non_homopolymer_errors = zerr;
 
-    // if(z->x_id == 29033 && z->y_id == 21307) {
+    // if(z->x_id == 77960 && z->y_id == 27340) {
     //     fprintf(stderr, "\n[M::%s]\tutg%.6u%c\txl::%u\tx::[%u,\t%u)\t%c\tutg%.6u%c\tyl::%u\ty::[%u,\t%u)\n", 
     //         __func__, 
 	// 		z->x_id+1, "lc"[udb->ug->u.a[z->x_id].circ], udb->ug->u.a[z->x_id].len, z->x_pos_s, z->x_pos_e+1,
@@ -21308,12 +21319,13 @@ void ug_lalign(overlap_region_alloc* ol, Candidates_list *cl, const ul_idx_t *ur
             rr = gen_extend_err_exz(z, uref, NULL, NULL, in/**qu->seq**/, tu->seq, exz, NULL/**v_idx?v_idx->a.a:NULL**/, w.window_length, -1, err, (e_max+0.000001), &re);
             z->is_match = 0;///must be here;
             
-            // if(sid == 7 && z->y_id == 135) {
-            //     fprintf(stderr, "===utg%.6u%c\t%u\t%u\t%u\t%c\tutg%.6u%c\t%u\t%u\t%u\talign_length::%u\terr::%f\trr::%f\twn::%u\n", 
+            // if(z->x_id == 77960 && z->y_id == 27340) { 
+            //     fprintf(stderr, "+utg%.6u%c\t%u\t%u\t%u\t%c\tutg%.6u%c\t%u\t%u\t%u\talign_length::%u\terr::%f\trr::%f\twn::%u\tk::%lu\ti::%lu\n", 
             //         z->x_id+1, "lc"[uref->ug->u.a[z->x_id].circ], uref->ug->u.a[z->x_id].len, 
             //         z->x_pos_s, z->x_pos_e+1, "+-"[z->y_pos_strand],
             //         z->y_id+1, "lc"[uref->ug->u.a[z->y_id].circ], uref->ug->u.a[z->y_id].len, 
-            //         z->y_pos_s, z->y_pos_e+1, z->align_length, err, rr, (uint32_t)z->w_list.n/**gen_nkhits(cl, z)**/);
+            //         z->y_pos_s, z->y_pos_e+1, z->align_length, err, rr, (uint32_t)z->w_list.n/**gen_nkhits(cl, z)**/,
+            //         k, i);
             // }
             if (rr <= err) {
                 if(k != i) {
@@ -21327,18 +21339,39 @@ void ug_lalign(overlap_region_alloc* ol, Candidates_list *cl, const ul_idx_t *ur
         }
 
         ol->length = k;
+        // if(sid == 77960) { 
+        //     fprintf(stderr, "+utg%.6ld%c\tol->length::%lu\n", sid+1, "lc"[uref->ug->u.a[sid].circ], ol->length);
+        // }
         if(ol->length <= 0) return;
     } else {
-        if(ol->length <= 1) return;
+        // if(ol->length <= 1) return;
+        if(ol->length <= 0) return;
         if(qu) {
             resize_UC_Read(qu, ql); qu->length = ql; memcpy(qu->seq, qstr, ql); in = qu->seq;
         } 
         for (i = k = 0; i < ol->length; i++) {
             z = &(ol->list[i]); 
+            // if(z->x_id == 77960 && z->y_id == 27340) { 
+            //     fprintf(stderr, "-1-utg%.6u%c\t%u\t%u\t%u\t%c\tutg%.6u%c\t%u\t%u\t%u\talign_length::%u\terr::%f\twn::%u\tk::%lu\ti::%lu\n", 
+            //         z->x_id+1, "lc"[uref->ug->u.a[z->x_id].circ], uref->ug->u.a[z->x_id].len, 
+            //         z->x_pos_s, z->x_pos_e+1, "+-"[z->y_pos_strand],
+            //         z->y_id+1, "lc"[uref->ug->u.a[z->y_id].circ], uref->ug->u.a[z->y_id].len, 
+            //         z->y_pos_s, z->y_pos_e+1, z->align_length, err, (uint32_t)z->w_list.n/**gen_nkhits(cl, z)**/,
+            //         k, i);
+            // }
             if(!ul_raw_aln(z, cl, uref, in/**qu->seq**/, tu, exz, err, wl, ql, sid, khit, aux_o)) {
                 z->is_match = 0;
                 continue;
             }
+
+            // if(z->x_id == 77960 && z->y_id == 27340) { 
+            //     fprintf(stderr, "-2-utg%.6u%c\t%u\t%u\t%u\t%c\tutg%.6u%c\t%u\t%u\t%u\talign_length::%u\terr::%f\twn::%u\tk::%lu\ti::%lu\n", 
+            //         z->x_id+1, "lc"[uref->ug->u.a[z->x_id].circ], uref->ug->u.a[z->x_id].len, 
+            //         z->x_pos_s, z->x_pos_e+1, "+-"[z->y_pos_strand],
+            //         z->y_id+1, "lc"[uref->ug->u.a[z->y_id].circ], uref->ug->u.a[z->y_id].len, 
+            //         z->y_pos_s, z->y_pos_e+1, z->align_length, err, (uint32_t)z->w_list.n/**gen_nkhits(cl, z)**/,
+            //         k, i);
+            // }
             if(k != i) {
                 t = ol->list[k];
                 ol->list[k] = ol->list[i];
@@ -21348,5 +21381,9 @@ void ug_lalign(overlap_region_alloc* ol, Candidates_list *cl, const ul_idx_t *ur
             k++;
         }
         ol->length = k;
+
+        // if(sid == 77960) { 
+        //     fprintf(stderr, "-utg%.6ld%c\tol->length::%lu\n", sid+1, "lc"[uref->ug->u.a[sid].circ], ol->length);
+        // }
     }
 }
