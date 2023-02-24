@@ -11228,7 +11228,7 @@ int64_t cal_exact_batch(overlap_region *z, ul_ov_t *sa, uint64_t sn, int64_t yle
 	}
 
 	if((*q0l) >= (z->x_pos_e+1-z->x_pos_s) && (*t0l) >= (z->y_pos_e+1-z->y_pos_s)) {
-		// if((!(((*q0l) == (*q1l)) && ((*t0l) == (*t1l)) && (err0 == err1))) || (!(err0 == tot))) {
+		// if((!(((*q0l) == (*q1l)) && ((*t0l) == (*t1l)) && (err0 == err1)))/** || (!(err0 == tot))**/) {
 		// 	fprintf(stderr, "[M::%s]\tutg%.6u%c\txl::%u\tx::[%u,\t%u)\t%c\tutg%.6u%c\tyl::%u\ty::[%u,\t%u)\terr::%u\twn::%u\n", 
         //     __func__, 
 		// 	z->x_id+1, "lc"[ug->u.a[z->x_id].circ], ug->u.a[z->x_id].len, z->x_pos_s, z->x_pos_e+1,
@@ -11702,6 +11702,8 @@ static void worker_for_graph_bin(void *data, long i, int tid) // callback for kt
 		retrieve_u_seq(NULL, b->self_read.seq, &(s->ug->u.a[i]), 0, 0, len, NULL);
 		seq = b->self_read.seq;
 	}
+
+	// if(i!=77960) return;
 
 	// asprintf(&as, "\n[M::%s] rid::%ld, len::%lu, name::%.*s\n", __func__, s->id+i, s->len[i], (int32_t)UL_INF.nid.a[s->id+i].n, UL_INF.nid.a[s->id+i].a);
     // push_vlog(&(overall_zdbg->a[s->id+i]), as); free(as); as = NULL;
