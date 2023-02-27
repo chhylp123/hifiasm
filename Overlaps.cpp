@@ -6315,6 +6315,20 @@ int asg_topocut_aux(asg_t *g, uint32_t v, int max_ext)
 	return n_ext;
 }
 
+int asg_topocut_aux_pg(asg_t *g, uint32_t v, int max_ext, uint32_t *rv)
+{
+    int32_t n_ext; (*rv) = (uint32_t)-1;
+    for (n_ext = 1; n_ext < max_ext && v != (uint32_t)-1; ++n_ext) {
+        if (asg_check_unambi1(g, v^1) == (uint32_t)-1) {
+            --n_ext; (*rv) = v^1;/// asg_arc_n(g, v) >= 2
+            break;
+        }
+        v = asg_check_unambi1(g, v);
+    }
+    
+    return n_ext;
+}
+
 // delete short arcs
 ///for best graph?
 int asg_arc_del_short_diploid_by_length(asg_t *g, float drop_ratio, int max_ext, 
