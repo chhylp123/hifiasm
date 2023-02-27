@@ -1182,6 +1182,7 @@ void write_dbug(ma_ug_t* ug, FILE* fp);
 int asg_arc_identify_simple_bubbles_multi(asg_t *g, bub_label_t* x, int check_cross);
 uint8_t get_tip_trio_infor(asg_t *sg, uint32_t begNode);
 int asg_topocut_aux(asg_t *g, uint32_t v, int max_ext);
+int asg_topocut_aux_pg(asg_t *g, uint32_t v, int max_ext, uint32_t *rv);
 int asg_arc_del_triangular_directly(asg_t *g, long long min_edge_length, 
 ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex);
 int asg_arc_del_short_diploid_by_exact(asg_t *g, int max_ext, ma_hit_t_alloc* sources);
