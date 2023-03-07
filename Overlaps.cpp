@@ -2770,6 +2770,7 @@ R_to_U* ruIndex, int64_t max_hang, int64_t min_ovlp, int64_t ul_occ)
     }
 
     asg_cleanup(g);
+    asg_symm(g);
     g->r_seq = g->n_seq;
 	return g;
 }
@@ -10308,16 +10309,14 @@ void clean_weak_ma_hit_t(ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_source
     long long i, j, index;
     uint32_t qn, tn, ou;
 
-    for (i = 0; i < num_sources; i++)
-    {
-        for (j = 0; j < sources[i].length; j++)
-        {
+    for (i = 0; i < num_sources; i++) {
+        for (j = 0; j < sources[i].length; j++) {
             qn = Get_qn(sources[i].buffer[j]);
             tn = Get_tn(sources[i].buffer[j]);
 
             if(sources[i].buffer[j].del) continue;
             ou = (sources[i].buffer[j].bl&((uint32_t)0x3fffffff));
-            //if this is a weak overlap
+            //if this is a weak overlap; ml == 0 -> weak overlap
             if((sources[i].buffer[j].ml == 0) && ((ou_thres==((uint32_t)-1)) || (ou < ou_thres)))
             {   
                 if(
@@ -33680,8 +33679,11 @@ ma_hit_t_alloc* src, uint64_t* readLen, R_to_U* ruIndex, bub_label_t *b_mask_t, 
         if(asm_opt.prt_dbg_gfa) prt_dbg_gfa(sg, "raw", *cov, src, ruIndex, max_hang_length, mini_overlap_length);        
         asg_arc_del_trans(sg, gap_fuzz);
     } else {
+        ug_opt_t uopt; 
         sg = ma_sg_gen_ul(src, n_read, *cov, ruIndex, max_hang_length, mini_overlap_length, UL_COV_THRES);
         if(asm_opt.prt_dbg_gfa) prt_dbg_gfa(sg, "raw", *cov, src, ruIndex, max_hang_length, mini_overlap_length);
+        gen_ug_opt_t(&uopt, src, NULL, max_hang_length, mini_overlap_length, gap_fuzz, min_dp, readLen, *cov, ruIndex, -1, -1, -1, -1, -1, b_mask_t);
+        if(clean_contain_g(&uopt, sg, 0)) update_sg_uo(sg, src);
         // prt_specfic_sge(sg, 10498, 10505, "--*--");
         asg_arc_del_trans_ul(sg, gap_fuzz);
         // prt_specfic_sge(sg, 10498, 10505, "--#--");
@@ -33727,7 +33729,7 @@ bub_label_t *b_mask_t, uint32_t is_trio, int32_t ul_aln_round, char *o_file, con
     int32_t k, strl = strlen(bin_file)+1, kt, cl, sl; char *id = NULL;
     renew_g(src, rev_src, n_read, readLen, cov, ruIndex, sg, mini_overlap_length, max_hang_length,
         uopt, clean_round, min_ovlp_drop_ratio, max_ovlp_drop_ratio, asm_opt.max_short_tip, b_mask_t, 
-        is_trio, o_file, bin_file, (ul_aln_round<=1)?1:0, 1, ((is_trio)?(0):(1))/**1**/);
+        is_trio, o_file, bin_file, (ul_aln_round<=1)?1:0, 1, /**((is_trio)?(0):(1))**/1);
     gen_ug_opt_t(uopt, *src, *rev_src, max_hang_length, mini_overlap_length, gap_fuzz, min_dp, *readLen, 
             *cov, ruIndex, (asm_opt.max_short_tip*2), 0.15, 3, 0.05, 0.9, b_mask_t);
     ug_ext_gfa(uopt, *sg, ug_ext_len);
