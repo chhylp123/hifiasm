@@ -125,5 +125,6 @@ uint64_t check_ul_ov_t_consist(ul_ov_t *x, ul_ov_t *y, int64_t ql, int64_t tl, d
 uint32_t infer_se(uint32_t qs, uint32_t qe, uint32_t ts, uint32_t te, uint32_t rev, 
 uint32_t rqs, uint32_t rqe, uint32_t *rts, uint32_t *rte);
 uint32_t clean_contain_g(const ug_opt_t *uopt, asg_t *sg, uint32_t push_trans);
+void dedup_contain_g(const ug_opt_t *uopt, asg_t *sg);
 
 #endif

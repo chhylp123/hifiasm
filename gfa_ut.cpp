@@ -1922,6 +1922,8 @@ void flex_asg_t_cleanup(flex_asg_t *fg)
         fg->g->is_srt = 0;
     }
     asg_cleanup(fg->g);
+    // asg_symm(fg->g);
+    // asg_arc_del_trans_ul(fg->g, fg->gap_fuzz);
 }
 
 void asg_arc_cut_contain(flex_asg_t *fg, asg64_v *in, asg64_v *in0, R_to_U* rI, float ou_rat, uint32_t only_trans_nn)
@@ -2770,7 +2772,7 @@ double ou_drop_rate, int64_t max_tip, int64_t gap_fuzz, bub_label_t *b_mask_t, i
 
 	asg_arc_cut_tips(sg, max_tip, &bu, is_ou, is_ou?rI:NULL);
     // fprintf(stderr, "[M::%s] count_edges_v_w(sg, 49778, 49847)->%ld\n", __func__, count_edges_v_w(sg, 49778, 49847));
-    
+    // if(is_ou) dedup_contain_g(uopt, sg);
     for (i = 0; i < clean_round; i++, drop += step) {
         if(drop > max_ovlp_drop_ratio) drop = max_ovlp_drop_ratio;
         if(is_ou) {
@@ -2800,7 +2802,10 @@ double ou_drop_rate, int64_t max_tip, int64_t gap_fuzz, bub_label_t *b_mask_t, i
 
         // prt_specfic_sge(sg, 10531, 10519, "--3--");
         // if(is_ou) asg_arc_cut_contain(fg, &bu, &ba, rI, ((i+1)<clean_round)?ou_drop_rate:-1);
-        if(is_ou) asg_arc_cut_contain(fg, &bu, &ba, rI, ou_drop_rate, 0);
+        if(is_ou) {
+            asg_arc_cut_contain(fg, &bu, &ba, rI, ou_drop_rate, 0);
+            // dedup_contain_g(uopt, sg);
+        }
 
         asg_arc_identify_simple_bubbles_multi(sg, b_mask_t, 1);
         asg_arc_cut_bub_links(sg, &bu, HARD_OL_DROP, HARD_OL_SEC_DROP, HARD_OU_DROP, is_ou, asm_opt.large_pop_bubble_size, rev, rI, max_tip);
@@ -2818,9 +2823,7 @@ double ou_drop_rate, int64_t max_tip, int64_t gap_fuzz, bub_label_t *b_mask_t, i
 
         if(is_ou) {
             if(ul_refine_alignment(uopt, sg)) update_sg_uo(sg, src);
-            // debug_out = 1;
             if(clean_contain_g(uopt, sg, 1)) update_sg_uo(sg, src);
-            // exit(1);
         }
     }
 
@@ -2831,6 +2834,7 @@ double ou_drop_rate, int64_t max_tip, int64_t gap_fuzz, bub_label_t *b_mask_t, i
     if(is_ou) {
         asg_arc_cut_contain(fg, &bu, &ba, rI, ou_drop_rate, 0);
         asg_arc_cut_contain(fg, &bu, &ba, rI, -1, 1);
+        // dedup_contain_g(uopt, sg);
         if(clean_contain_g(uopt, sg, 1)) update_sg_uo(sg, src);
     }
     if(!is_ou) asg_iterative_semi_circ(sg, src, &bu, max_tip, 1);
@@ -2874,7 +2878,11 @@ double ou_drop_rate, int64_t max_tip, int64_t gap_fuzz, bub_label_t *b_mask_t, i
     
     ug_ext_gfa(uopt, sg, ug_ext_len);
 
+    // if(is_ou) dedup_contain_g(uopt, sg);
+    // exit(1)
+
     output_unitig_graph(sg, uopt->coverage_cut, o_file, src, rI, uopt->max_hang, uopt->min_ovlp);
+    // exit(1);
     // flat_bubbles(sg, ruIndex->is_het); free(ruIndex->is_het); ruIndex->is_het = NULL;
     flat_soma_v(sg, src, rI);
 
@@ -17154,7 +17162,7 @@ ul_renew_t *ropt, const char *bin_file, uint64_t free_uld, uint64_t is_bridg, ui
         print_raw_uls_aln(uidx, asm_opt.output_file_name);
     // }
     
-    ul_re_correct(uidx, 3); 
+    ul_re_correct(uidx, asm_opt.integer_correct_round/**3**/); 
     init_ulg_opt_t(&uu, uopt, clean_round, 0.2, 0.6, min_ovlp_drop_ratio, max_ovlp_drop_ratio, 0.55, max_tip, max_ul_tip, b_mask_t, is_trio);
     // print_debug_gfa(sg, init_ug, uopt->coverage_cut, "UL.debug0", uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 0, 0, 1);
     /**ul2ul_idx_t *u2o = **/gen_ul2ul(uidx, uopt, &uu, 0, is_bridg);

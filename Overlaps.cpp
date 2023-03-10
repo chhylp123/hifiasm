@@ -33683,10 +33683,15 @@ ma_hit_t_alloc* src, uint64_t* readLen, R_to_U* ruIndex, bub_label_t *b_mask_t, 
         sg = ma_sg_gen_ul(src, n_read, *cov, ruIndex, max_hang_length, mini_overlap_length, UL_COV_THRES);
         if(asm_opt.prt_dbg_gfa) prt_dbg_gfa(sg, "raw", *cov, src, ruIndex, max_hang_length, mini_overlap_length);
         gen_ug_opt_t(&uopt, src, NULL, max_hang_length, mini_overlap_length, gap_fuzz, min_dp, readLen, *cov, ruIndex, -1, -1, -1, -1, -1, b_mask_t);
+        
+        ///debug
+        // asg_symm(sg);
+        // dedup_contain_g(&uopt, sg);
+        
         if(clean_contain_g(&uopt, sg, 0)) update_sg_uo(sg, src);
         // prt_specfic_sge(sg, 10498, 10505, "--*--");
         asg_arc_del_trans_ul(sg, gap_fuzz);
-        // prt_specfic_sge(sg, 10498, 10505, "--#--");
+        // prt_specfic_sge(sg, 10498, 10505, "--#--");        
     }
     
     init_bub_label_t(b_mask_t, MIN(10, asm_opt.thread_num), sg->n_seq);

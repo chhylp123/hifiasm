@@ -15466,54 +15466,110 @@ static void worker_for_ul_gchains_alignment(void *data, long i, int tid)
 	// gl_chain_refine_advance(&b->olist, &b->correct, &b->hap, bl, s->uu, s->opt->diff_ec_ul, winLen, s->len[i], s->uopt, s->id+i, km);
 }
 
+uint32_t inline is_rg_connect(const asg_t *rg, uint32_t v, uint32_t w)
+{
+	uint32_t nv = asg_arc_n(rg, v), i; 
+	asg_arc_t *av = asg_arc_a(rg, v);
+    for (i = 0; i < nv; i++) {
+		if((!(av[i].del)) && (av[i].v == w)) return 1;
+    }
+	return 0;
+}
+
 uint32_t refine_contain_consensus_chain(const asg_t *rg, ul_vec_t *rch, R_to_U *ri, asg64_v *bu, uint64_t ulid)
 {
 	bu->n = 0; 
 	if(rch->bb.n == 1 && rch->bb.a[0].base) return bu->n;///no alignment
 	if(rch->bb.n == 0) return bu->n;///no alignment
-	uint64_t i, m, nc, occ; int64_t k, kn;
+	uint64_t i, m, nc, occ, is_end; int64_t k, kn;
 	kv_resize(uint64_t, *bu, rch->bb.n); 
 	memset(bu->a, -1, (sizeof((*(bu->a)))*rch->bb.n));
 	for (k = rch->bb.n-1; k >= 0; k--) {
+		// if(ulid == 2 || ulid == 46 || ulid == 475 || ulid == 3274 || ulid == 3360) {
+		// 	fprintf(stderr, "[M::%s::] ulid::%lu, k::%ld, q::[%u, %u), t::[%u, %u), del::%u, pidx::%u, pconn::%u, aidx::%u, aconn::%u\n", 
+		// 		__func__, ulid, k, 
+		// 		rch->bb.a[k].qs, rch->bb.a[k].qe, rch->bb.a[k].ts, rch->bb.a[k].te, rg->seq[rch->bb.a[k].hid].del,
+		// 		rch->bb.a[k].pidx, 
+		// 		((rch->bb.a[k].pidx!=((uint32_t)-1))&&is_rg_connect(rg, (uint64_t)((rch->bb.a[rch->bb.a[k].pidx].hid<<1)|(rch->bb.a[rch->bb.a[k].pidx].rev)), (uint64_t)((rch->bb.a[k].hid<<1)|(rch->bb.a[k].rev))))?1:0,
+		// 		rch->bb.a[k].aidx,
+		// 		((rch->bb.a[k].aidx!=((uint32_t)-1))&&is_rg_connect(rg, (uint64_t)((rch->bb.a[k].hid<<1)|(rch->bb.a[k].rev)),(uint64_t)((rch->bb.a[rch->bb.a[k].aidx].hid<<1)|(rch->bb.a[rch->bb.a[k].aidx].rev))))?1:0);
+		// }
+
+		
+
 		if(bu->a[k] != ((uint64_t)-1)) continue;
+		is_end = 0;
 		if((rch->bb.a[k].aidx == ((uint32_t)-1)) && (rch->bb.a[k].pidx != ((uint32_t)-1))) {///the end of a chain
-			for (i = k, m = k, occ = 0; i != (uint32_t)-1; i = rch->bb.a[i].pidx) {
-				assert(bu->a[i] == ((uint64_t)-1));
-				if(rg->seq[rch->bb.a[i].hid].del) {
-					if(occ > 1) {
-						bu->a[m] = occ;
-						// if(debug_out) {
-						// 	fprintf(stderr, "+[M::%s::] ulid::%lu, k::%ld, m::%lu, occ::%lu\n", 
-						// 	__func__, ulid, k, m, occ);
-						// }
-					}
-					// assert(i!=m);
-					bu->a[i] = 0; m = (uint32_t)-1; occ = 0;
-				} else {
-					if(m == (uint32_t)-1) m = i;
-					bu->a[i] = 0; occ++;
+			is_end = 1;
+		} else if((rch->bb.a[k].aidx != ((uint32_t)-1)) && (rch->bb.a[k].pidx != ((uint32_t)-1))) {
+			if(!is_rg_connect(rg, (uint64_t)((rch->bb.a[k].hid<<1)|(rch->bb.a[k].rev)), 
+						(uint64_t)((rch->bb.a[rch->bb.a[k].aidx].hid<<1)|(rch->bb.a[rch->bb.a[k].aidx].rev)))) {
+				is_end = 1;
+			}
+		}
+		if(!is_end) continue;
+		i = m = k; occ = 0;
+		while (i != ((uint32_t)-1)) {
+			assert(bu->a[i] == ((uint64_t)-1));
+			if(rg->seq[rch->bb.a[i].hid].del) {
+				if(occ > 1) {
+					bu->a[m] = occ;
+					// if(debug_out) {
+					// 	fprintf(stderr, "+[M::%s::] ulid::%lu, k::%ld, m::%lu, occ::%lu\n", 
+					// 	__func__, ulid, k, m, occ);
+					// }
+				}
+				// assert(i!=m);
+				bu->a[i] = 0; m = (uint32_t)-1; occ = 0;
+			} else {
+				if(m == (uint32_t)-1) m = i;
+				bu->a[i] = 0; occ++;
+			}
+			i = rch->bb.a[i].pidx;
+			if(i != ((uint32_t)-1)) {
+				if(!is_rg_connect(rg, (uint64_t)((rch->bb.a[i].hid<<1)|(rch->bb.a[i].rev)), 
+						(uint64_t)((rch->bb.a[rch->bb.a[i].aidx].hid<<1)|(rch->bb.a[rch->bb.a[i].aidx].rev)))) {
+					i = ((uint32_t)-1);
 				}
 			}
-			if(occ > 1) {
-				bu->a[m] = occ;
-				// if(debug_out) {
-				// 	fprintf(stderr, "+[M::%s::] ulid::%lu, k::%ld, m::%lu, occ::%lu\n", 
-				// 	__func__, ulid, k, m, occ);
-				// }
-			}
+		}
+
+		if(occ > 1) {
+			bu->a[m] = occ;
+			// if(debug_out) {
+			// 	fprintf(stderr, "+[M::%s::] ulid::%lu, k::%ld, m::%lu, occ::%lu\n", 
+			// 	__func__, ulid, k, m, occ);
+			// }
 		}
 	}
 
 	kn = rch->bb.n;
 	for (k = bu->n = 0; k < kn; k++) {
 		if((bu->a[k] == ((uint64_t)-1)) || (bu->a[k] == 0)) continue;
-		for (i = k, occ = nc = 0; (i != (uint32_t)-1) && (!rg->seq[rch->bb.a[i].hid].del); i = rch->bb.a[i].pidx) {
+		i = k; occ = nc = 0;
+		while (i != (uint32_t)-1) {
+			if(rg->seq[rch->bb.a[i].hid].del) break;
+
 			occ++; if(is_contain_r((*ri), rch->bb.a[i].hid)) nc++; 
+
+			i = rch->bb.a[i].pidx;
+			if(i != ((uint32_t)-1)) {
+				if(!is_rg_connect(rg, (uint64_t)((rch->bb.a[i].hid<<1)|(rch->bb.a[i].rev)), 
+						(uint64_t)((rch->bb.a[rch->bb.a[i].aidx].hid<<1)|(rch->bb.a[rch->bb.a[i].aidx].rev)))) {
+					i = ((uint32_t)-1);
+				}
+			}
 		}
+		// for (i = k, occ = nc = 0; (i != (uint32_t)-1) && (!rg->seq[rch->bb.a[i].hid].del); i = rch->bb.a[i].pidx) {
+		// 	occ++; if(is_contain_r((*ri), rch->bb.a[i].hid)) nc++; 
+		// }
 		assert(occ == bu->a[k]);
 		if(nc) bu->a[bu->n++] = k;
 		// if(debug_out) {
-		// 	fprintf(stderr, "-[M::%s::] ulid::%lu, nc::%lu, occ::%lu, k::%ld\n", __func__, ulid, nc, occ, k);
+			// if(occ != rch->bb.n) {
+			// 	fprintf(stderr, "-[M::%s::] ulid::%lu, nc::%lu, occ::%lu, k::%ld, rch->bb.n::%u\n", 
+			// 	__func__, ulid, nc, occ, k, (uint32_t)rch->bb.n);
+			// }
 		// }
 	}
 	return bu->n;///# chains have contained reads
@@ -15597,23 +15653,48 @@ uint32_t extract_nccov(ma_hit_t *in, uc_block_t *rovlp, const asg_t *rg, ul_ov_t
 	return 1;
 }
 
-void collect_nc_ovlps(ul_vec_t *rch, uint32_t rch_i, kv_ul_ov_t *res, const ug_opt_t *uopt, const asg_t *rg, R_to_U *ri, uint64_t *mqs, uint64_t *mqe)
+
+void collect_nc_ovlps(ul_vec_t *rch, uint32_t rch_i, kv_ul_ov_t *res, const ug_opt_t *uopt, const asg_t *rg, R_to_U *ri, int64_t ulid, uint64_t *mqs, uint64_t *mqe)
 {
 	uint64_t i, occ, nc, k; ma_hit_t_alloc* src; 
 	int64_t min_ovlp = uopt->min_ovlp, max_hang = uopt->max_hang; ul_ov_t p;
 	res->n = occ = nc = 0; (*mqs) = (*mqe) = (uint64_t)-1;
-	for (i = rch_i; (i != (uint32_t)-1) && (!rg->seq[rch->bb.a[i].hid].del); i = rch->bb.a[i].pidx) {
+	i = rch_i;
+	// for (i = rch_i; (i != (uint32_t)-1) && (!rg->seq[rch->bb.a[i].hid].del); i = rch->bb.a[i].pidx) {
+	while(i != (uint32_t)-1) {
+		if(rg->seq[rch->bb.a[i].hid].del) break;
+		// if(ulid == 442462) {		
+		// 	fprintf(stderr, "\n>>>[M::%s::i->%lu::id->%u::%.*s]\n", __func__, i, rch->bb.a[i].hid, 
+		// 		(int)Get_NAME_LENGTH(R_INF, rch->bb.a[i].hid), Get_NAME(R_INF, rch->bb.a[i].hid));
+		// 	fprintf(stderr, "*[M::%s::id->%u::%.*s]\tq::[%u, %u),\tt::[%u, %u),\tis_rev::%u,\tis_cr::%u\n", 
+		// 			__func__, rch->bb.a[i].hid, 
+		// 			(int)Get_NAME_LENGTH(R_INF, rch->bb.a[i].hid), Get_NAME(R_INF, rch->bb.a[i].hid), 
+		// 			rch->bb.a[i].qs, rch->bb.a[i].qe, rch->bb.a[i].ts, rch->bb.a[i].te, rch->bb.a[i].rev,
+		// 			!!(is_contain_r((*(ri)), rch->bb.a[i].hid)));
+		// }
+		
 		if(is_contain_r((*ri), rch->bb.a[i].hid)) {
-			// fprintf(stderr, "cc[M::%s::id->%u::%.*s]\n", __func__, rch->bb.a[i].hid, 
-			// (int)Get_NAME_LENGTH(R_INF, rch->bb.a[i].hid), Get_NAME(R_INF, rch->bb.a[i].hid));
 			src = &(uopt->sources[rch->bb.a[i].hid]);
 			for (k = 0; k < src->length; k++) {
 				if(rg->seq[Get_tn(src->buffer[k])].del) continue;///tn must exist
 				// if(!extract_ccov(&(src->buffer[k]), &(rch->bb.a[i]), rg, &p, 1, min_ovlp, max_hang)) continue;
+				// if(ulid == 442462) {	
+				// 	fprintf(stderr, "+[M::%s::id->%u::%.*s]\tq::[%u, %u),\tql::%u,\tt::[%u, %u),\ttl::%u,\tis_rev::%u,\tis_cr::%u\n", 
+				// 	__func__, src->buffer[k].tn, 
+				// 	(int)Get_NAME_LENGTH(R_INF, src->buffer[k].tn), Get_NAME(R_INF, src->buffer[k].tn), 
+				// 	Get_qs(src->buffer[k]), Get_qe(src->buffer[k]), rg->seq[Get_qn(src->buffer[k])].len,
+				// 	Get_ts(src->buffer[k]), Get_te(src->buffer[k]), rg->seq[Get_tn(src->buffer[k])].len,
+				// 	src->buffer[k].rev, !!(is_contain_r((*(ri)), src->buffer[k].tn)));
+				// }
 				if(!extract_nccov(&(src->buffer[k]), &(rch->bb.a[i]), rg, &p, 1, min_ovlp, max_hang)) continue;
-				// fprintf(stderr, "cc[M::%s::id->%u::%.*s] q::[%u, %u), t::[%u, %u), is_cr::%u, del::%u\n", 
-				// __func__, p.tn, (int)Get_NAME_LENGTH(R_INF, p.tn), Get_NAME(R_INF, p.tn), 
-				// p.qs, p.qe, p.ts, p.te, !!(is_contain_r((*(ri)), p.tn)), rg->seq[p.tn].del);
+				// if(ulid == 442462) {	
+				// 	fprintf(stderr, "-[M::%s::id->%u::%.*s]\tq::[%u, %u),\tt::[%u, %u),\tis_rev::%u,\tis_cr::%u\n", 
+				// 	__func__, p.tn, (int)Get_NAME_LENGTH(R_INF, p.tn), Get_NAME(R_INF, p.tn), 
+				// 	p.qs, p.qe, p.ts, p.te, p.rev, !!(is_contain_r((*(ri)), p.tn)));
+				// 	// fprintf(stderr, "cc[M::%s::id->%u::%.*s] q::[%u, %u), t::[%u, %u), is_cr::%u, del::%u\n", 
+				// 	// __func__, p.tn, (int)Get_NAME_LENGTH(R_INF, p.tn), Get_NAME(R_INF, p.tn), 
+				// 	// p.qs, p.qe, p.ts, p.te, !!(is_contain_r((*(ri)), p.tn)), rg->seq[p.tn].del);
+				// }
 				p.el = 0; p.tn <<= 1; p.tn |= p.rev; p.qn = i;//for linear chain
             	kv_push(ul_ov_t, *res, p);
 			}
@@ -15633,6 +15714,14 @@ void collect_nc_ovlps(ul_vec_t *rch, uint32_t rch_i, kv_ul_ov_t *res, const ug_o
 		if(((*mqs) == ((uint64_t)-1)) || ((*mqs) > rch->bb.a[i].qs)) (*mqs) = rch->bb.a[i].qs;
 		if(((*mqe) == ((uint64_t)-1)) || ((*mqe) < rch->bb.a[i].qe)) (*mqe) = rch->bb.a[i].qe;
 		occ++; 
+
+		i = rch->bb.a[i].pidx;
+		if(i != ((uint32_t)-1)) {
+			if(!is_rg_connect(rg, (uint64_t)((rch->bb.a[i].hid<<1)|(rch->bb.a[i].rev)), 
+					(uint64_t)((rch->bb.a[rch->bb.a[i].aidx].hid<<1)|(rch->bb.a[rch->bb.a[i].aidx].rev)))) {
+				i = ((uint32_t)-1);
+			}
+		}
 	}
 	assert(occ > 1 && nc > 0);
 }
@@ -15659,7 +15748,7 @@ inline int64_t comput_rlinear_sc(ul_ov_t *li, ul_ov_t *lj, int64_t jidx, int32_t
 }
 
 uint64_t linear_rchain_dp_adv(ul_ov_t *ch, int64_t ch_n, ul_ov_t *sv, const ug_opt_t *uopt, int64_t bw, 
-double diff_ec_ul, int64_t qlen, int64_t max_skip, int64_t max_iter, int64_t max_dis, Chain_Data* dp, const asg_t *rg)
+double diff_ec_ul, int64_t qlen, int64_t max_skip, int64_t max_iter, int64_t max_dis, Chain_Data* dp, const asg_t *rg, int64_t ulid)
 {	///all in[].el must be 1
 	if(ch_n == 0) return 0;
     int64_t i, j, k, sc, csc, mm_sc, mm_idx, its, ite, max; int32_t *f, *bq, *bt;
@@ -15728,6 +15817,12 @@ double diff_ec_ul, int64_t qlen, int64_t max_skip, int64_t max_iter, int64_t max
             max_ii = i;
         }
 		li->sec = (mm_idx<0?0x3FFFFFFF:i-mm_idx); sv[i] = *li;
+		// if(ulid == 442462) {    
+		// 	fprintf(stderr, "[M::%s::id->%u::%.*s]\tq::[%u, %u),\tt::[%u, %u),\tis_rev::%u\n", 
+		// 	__func__, li->tn, (int)Get_NAME_LENGTH(R_INF, li->tn), Get_NAME(R_INF, li->tn), 
+		// 	li->qs, li->qe, li->ts, li->te, li->rev);
+		// }
+
 	}
 	// radix_sort_gfa64i
 	for (i = 0; i < ch_n; ++i) {
@@ -15757,7 +15852,7 @@ double diff_ec_ul, int64_t qlen, int64_t max_skip, int64_t max_iter, int64_t max
 
 
 void gen_linear_rchains(kv_ul_ov_t *res, kv_ul_ov_t *buf, const asg_t *rg, const ug_opt_t *uopt, int64_t bw, 
-double diff_ec_ul, int64_t qlen, Chain_Data* dp)
+double diff_ec_ul, int64_t qlen, Chain_Data* dp, int64_t ulid)
 {
 	uint64_t k, l, z, an, m, bn = buf->n; 
     radix_sort_ul_ov_srt_tn(res->a, res->a + res->n);
@@ -15767,7 +15862,7 @@ double diff_ec_ul, int64_t qlen, Chain_Data* dp)
 			for (z = l; z < k; z++) res->a[z].tn>>=1;
 			kv_resize(ul_ov_t, *buf, bn+k-l); 
 			an = l + linear_rchain_dp_adv(res->a+l, k-l, buf->a+bn, uopt, bw, diff_ec_ul, qlen, 
-			UG_SKIP_N, UG_ITER_N, UG_DIS_N, dp, rg);
+			UG_SKIP_N, UG_ITER_N, UG_DIS_N, dp, rg, ulid);
 			for (z = l; z < an; z++) res->a[m++] = res->a[z];
 			l = k;
 		}
@@ -15802,7 +15897,7 @@ int64_t gconnect_test(const asg_t *g, uint32_t v, uint32_t w, int64_t bw, double
 }
 
 uint64_t gen_cns_chain_linear(ul_ov_t *a, int64_t a_n, /**ul_ov_t *ab,**/ const asg_t *rg, R_to_U *ri, int64_t qlen, int64_t bw, double diff_thre, Chain_Data* dp, 
-int64_t max_skip, int64_t max_iter, int64_t max_dis, uint64_t mqs, uint64_t mqe)
+int64_t max_skip, int64_t max_iter, int64_t max_dis, uint64_t mqs, uint64_t mqe, uint64_t ulid)
 {
 	if(a_n == 0) return 0;
 	uint32_t li_v, lj_v; int32_t *f, *c_n, *len; int64_t *p, *t, st, max_ii, max, qo, cL, sn, ln, csn, mm_sn, cln, mm_ln; 
@@ -15905,10 +16000,16 @@ int64_t max_skip, int64_t max_iter, int64_t max_dis, uint64_t mqs, uint64_t mqe)
 				ch_sc = mm_sc; ch_i = i; cn_sn = mm_sn; ch_ln = mm_ln;
 			}
 		}
-		// fprintf(stderr, "[M::%s::id->%u::%.*s] i::%ld, q::[%u, %u), t::[%u, %u), is_cr::%u, mm_idx::%ld, end::%u\n", 
-		// __func__, li->tn, (int)Get_NAME_LENGTH(R_INF, li->tn), Get_NAME(R_INF, li->tn), i, 
-		// li->qs, li->qe, li->ts, li->te, !!(is_contain_r((*ri), li->tn)), mm_idx, !!(((int64_t)(a[i].qe+bw))>=((int64_t)(mqe))));
+		// if(ulid == 442462) {
+		// 	fprintf(stderr, "[M::%s::id->%u::%.*s] i::%ld, q::[%u, %u), t::[%u, %u), is_cr::%u, mm_idx::%ld, end::%u\n", 
+		// 	__func__, li->tn, (int)Get_NAME_LENGTH(R_INF, li->tn), Get_NAME(R_INF, li->tn), i, 
+		// 	li->qs, li->qe, li->ts, li->te, !!(is_contain_r((*ri), li->tn)), mm_idx, !!(((int64_t)(a[i].qe+bw))>=((int64_t)(mqe))));
+		// }
     }
+	// if(ulid == 442462) {
+	// 	fprintf(stderr, "[M::%s::] ch_i::%ld, mqs::%lu, mqe::%lu\n", 
+	// 	__func__, ch_i, mqs, mqe);
+	// }
 	if(ch_i == INT32_MIN) return 0;
 
 	i = ch_i; cL = 0;
@@ -15921,11 +16022,11 @@ void gen_contain_consensus_chain(ul_vec_t *rch, uint32_t rch_i, kv_ul_ov_t *idx,
 const ug_opt_t *uopt, const asg_t *rg, R_to_U *ri, int64_t bw, double diff_ec_ul, int64_t ulid, Chain_Data* dp)
 {
 	uint64_t dn = dump->n, i, mqs, mqe; int64_t iqs, iqe, its, ite; idx->n = 0;
-	collect_nc_ovlps(rch, rch_i, idx, uopt, rg, ri, &mqs, &mqe);
+	collect_nc_ovlps(rch, rch_i, idx, uopt, rg, ri, ulid, &mqs, &mqe);
 	assert(idx->n > 1); assert((mqs != ((uint64_t)-1)) && (mqe != ((uint64_t)-1)) && (mqe > mqs));
-	gen_linear_rchains(idx, dump, rg, uopt, bw, diff_ec_ul, rch->rlen, dp);
+	gen_linear_rchains(idx, dump, rg, uopt, bw, diff_ec_ul, rch->rlen, dp, ulid);
 	assert(idx->n);
-	idx->n = gen_cns_chain_linear(idx->a, idx->n, /**dump->a+dn,**/ rg, ri, rch->rlen, bw, diff_ec_ul, dp, UG_SKIP_N, UG_ITER_N, UG_DIS_N, mqs, mqe);
+	idx->n = gen_cns_chain_linear(idx->a, idx->n, /**dump->a+dn,**/ rg, ri, rch->rlen, bw, diff_ec_ul, dp, UG_SKIP_N, UG_ITER_N, UG_DIS_N, mqs, mqe, ulid);
 	// fprintf(stderr, "[M::%s::] idx->n::%u, mqs::%lu, mqe::%lu\n", __func__, (uint32_t)idx->n, mqs, mqe);
 	if(idx->n) {
 		kv_resize(ul_ov_t, *dump, dn + idx->n);
@@ -16088,8 +16189,10 @@ static void worker_for_contain_consensus(void *data, long i, int tid)
     // if(p->bb.n == 0) return;///no alignment
     s->hab[tid]->num_read_base++; 
 
-	// fprintf(stderr, "***[M::%s::%.*s(id:%ld), len:%u] ff:%u, sp_chn::%u, p->bb.n::%u\n", __func__, 
-    // UL_INF.nid.a[i].n, UL_INF.nid.a[i].a, i, p->rlen, ff, (uint32_t)s->ll[tid].srt.a.n, (uint32_t)p->bb.n);
+	// if(i == 442462) {
+	// 	fprintf(stderr, "\n[M::%s::%.*s(id:%ld), len:%u] ff:%u, sp_chn::%u, p->bb.n::%u\n", __func__, 
+    // 	UL_INF.nid.a[i].n, UL_INF.nid.a[i].a, i, p->rlen, ff, (uint32_t)s->ll[tid].srt.a.n, (uint32_t)p->bb.n);
+	// }
 
 	// fprintf(stderr, "[M::%s]\tp->bb.n::%u\n", __func__, (uint32_t)p->bb.n);
     kv_resize(ul_ov_t, *dump, p->bb.n);
@@ -16098,9 +16201,11 @@ static void worker_for_contain_consensus(void *data, long i, int tid)
         z->qn = k; z->qs = p->bb.a[k].qs; z->qe = p->bb.a[k].qe; 
         z->tn = p->bb.a[k].hid; z->ts = p->bb.a[k].ts; z->te = p->bb.a[k].te; 
         z->el = 1; z->rev = p->bb.a[k].rev; z->sec = 0;
-		// fprintf(stderr, "[M::%s::id->%u::%.*s] q::[%u, %u), t::[%u, %u), is_cr::%u\n", 
-		// __func__, z->tn, (int)Get_NAME_LENGTH(R_INF, z->tn), Get_NAME(R_INF, z->tn), 
-		// z->qs, z->qe, z->ts, z->te, !!(is_contain_r((*(s->uopt->ruIndex)), z->tn)));
+		// if(i == 442462) {
+		// 	fprintf(stderr, "[M::%s::id->%u::%.*s] q::[%u, %u), t::[%u, %u), is_rev::%u, is_cr::%u\n", 
+		// 	__func__, z->tn, (int)Get_NAME_LENGTH(R_INF, z->tn), Get_NAME(R_INF, z->tn), 
+		// 	z->qs, z->qe, z->ts, z->te, z->rev, !!(is_contain_r((*(s->uopt->ruIndex)), z->tn)));
+		// }
     }
     
     for (k = 0; k < s->ll[tid].srt.a.n; k++) {
@@ -16116,6 +16221,458 @@ static void worker_for_contain_consensus(void *data, long i, int tid)
 
     // s->hab[tid]->num_correct_base += direct_gchain(s->buf[tid], p, &(s->ll[tid]), &(s->gdp[tid]), &(s->sps[tid]), &(s->hab[tid]->hap), s->uu, s->uopt, G_CHAIN_BW, s->opt->diff_ec_ul, UG_SKIP, i, &(s->hab[tid]->clist.chainDP), s->rg, ((ff==2)?1:0));
     // gl_chain_refine_advance(&b->olist, &b->correct, &b->hap, bl, s->uu, s->opt->diff_ec_ul, winLen, s->len[i], s->uopt, s->id+i, km);
+}
+
+uint32_t extract_contain_tig(asg_t *g, uint64_t v0, R_to_U *ri, uint64_t offset, uint64_t must_tip, kv_ul_ov_t *res)
+{
+	uint32_t v = v0, w, kv, kw, is_tip = 0, l = offset;
+	ul_ov_t p; memset(&p, 0, sizeof(p));
+
+	while (1) {
+		if(!is_contain_r((*ri), (v>>1))) return 0;
+		kv = get_arcs(g, v, &w, 1);        
+		if(kv > 1) return 0;
+
+		p.qn = 0; p.qs = l; p.qe = l + g->seq[v>>1].len; 
+		p.tn = v>>1; p.ts = 0; p.te = g->seq[v>>1].len;
+		p.el = 0; p.rev = v&1; kv_push(ul_ov_t, *res, p);
+
+		if(kv == 0) {is_tip = 1; break;}
+
+		l += asg_arc_len(g->arc[w]);
+		w = g->arc[w].v;
+        ///kv must be 1 here
+        kw = get_arcs(g, w^1, NULL, 0);
+		assert(kw >= 1);
+		if(kw > 1) {
+			p.qn = 0; p.qs = l; p.qe = l + g->seq[w>>1].len; 
+			p.tn = w>>1; p.ts = 0; p.te = g->seq[w>>1].len;
+			p.el = 1; p.rev = w&1; kv_push(ul_ov_t, *res, p);
+			break;
+		}
+        v = w;
+        if(v == v0) return 0;
+    }
+	if((must_tip) && (!is_tip)) return 0;
+	return 1;
+}
+
+uint32_t gen_dup_path(const asg_t *g, R_to_U *ri, kv_ul_ov_t *res, uint64_t v)
+{
+    asg_t *rg = (asg_t *)g; res->n = 0;
+	if(rg->seq[v>>1].del) return res->n;
+	uint64_t nv = asg_arc_n(rg, v); asg_arc_t *av = asg_arc_a(rg, v);
+	uint64_t k, kv, w = (uint64_t)-1, kw, l, rn, z; ul_ov_t p; memset(&p, 0, sizeof(p));
+
+	// for (k = 0; k < nv; k++) {
+	// 	if(av[k].del) continue;
+	// 	asg_arc_t *aw = asg_arc_a(rg, av[k].v);
+	// 	uint64_t nw = asg_arc_n(rg, av[k].v);
+	// 	for (l = 0; l < nw; l++) {
+	// 		if(aw[l].del) continue;
+	// 		for (rn = 0; rn < nv; rn++) {
+	// 			if(av[rn].del) continue;
+	// 			if(av[rn].v == aw[l].v) break;
+	// 		}
+	// 		if(rn < nv) {
+	// 			fprintf(stderr, "[M::%s] v0::%lu, w::%u, v1::%u\n", __func__, v, av[k].v, aw[l].v);
+	// 		}
+	// 	}
+	// }
+	
+
+
+
+	for (k = kv = 0; k < nv && kv < 2; k++) {
+		if(!(av[k].del)) kv++; 
+	}
+	// if(v == 7723) {
+	// 	fprintf(stderr, "[M::%s] v0::%lu, kv::%lu\n", __func__, v, kv);
+	// }
+	if(kv > 1) {
+		for (k = 0; k < nv; k++) {
+			if(av[k].del) continue;
+			w = av[k].v; kw = get_arcs(rg, w^1, NULL, 0);
+			// if(v == 7723) {
+			// 	fprintf(stderr, "*[M::%s] v0::%lu, av[%lu].v::%u, kw::%lu,\n", __func__, v, k, av[k].v, kw);
+			// }
+			if(kw > 1) {///kv > 1 && kw > 1
+				if((v>>1) != (w>>1)) {///cannot handle if the prefix and suffix nodes are the same
+					l = 0;
+					p.qn = 0; p.qs = l; p.qe = l + rg->seq[v>>1].len; 
+					p.tn = v>>1; p.ts = 0; p.te = rg->seq[v>>1].len;
+					p.el = 1; p.rev = v&1; kv_push(ul_ov_t, *res, p);
+					// if(v == 7723) {
+					// 	fprintf(stderr, "*[M::%s] v0::%lu, p.tn::%u, p.rev::%u\n", __func__, v, p.tn, p.rev);
+					// }
+
+					l += asg_arc_len(av[k]);
+					p.qn = 0; p.qs = l; p.qe = l + rg->seq[w>>1].len; 
+					p.tn = w>>1; p.ts = 0; p.te = rg->seq[w>>1].len;
+					p.el = 1; p.rev = w&1; kv_push(ul_ov_t, *res, p);
+
+					// if(v == 7723) {
+					// 	fprintf(stderr, "*[M::%s] v0::%lu, p.tn::%u, p.rev::%u\n", __func__, v, p.tn, p.rev);
+					// }
+
+					p.tn = (uint32_t)-1; p.qn = ((uint64_t)(av-g->arc+k));
+					kv_push(ul_ov_t, *res, p);
+				}
+			} else if((kw == 1) && (is_contain_r((*ri), (w>>1)))) {///kv > 1 && kw == 1 && w is contained
+				rn = res->n; l = 0;
+				p.qn = 0; p.qs = l; p.qe = l + rg->seq[v>>1].len; 
+				p.tn = v>>1; p.ts = 0; p.te = rg->seq[v>>1].len;
+				p.el = 1; p.rev = v&1; kv_push(ul_ov_t, *res, p);
+				l += asg_arc_len(av[k]);
+				if(!extract_contain_tig(rg, w, ri, l, 0, res)) {
+					res->n = rn;
+				} else {
+					for (z = rn+1; z < res->n; z++) {
+						if(res->a[z].tn == (v>>1)) break;
+					}
+					if(z >= res->n) {///cannot handle circles
+						p.tn = (uint32_t)-1; p.qn = ((uint64_t)(av-g->arc+k));
+						kv_push(ul_ov_t, *res, p);
+					} else {
+						res->n = rn;
+					}
+				}
+			}
+		}
+	} else if(((kv == 1) || (kv == 0)) && (!get_arcs(rg, v^1, NULL, 0)) && (is_contain_r((*ri), (v>>1)))) {
+		///1. kv == 1 && kv^ == 0 && v is contained
+		///2. kv == 0 && kv^ == 0 && v is contained; an isolated single contained read
+		rn = res->n; l = 0;
+		if(!extract_contain_tig(rg, v, ri, l, 1, res)) {
+			res->n = rn;
+		} else {
+			for (z = rn+1; z < res->n; z++) {
+				if(res->a[z].tn == (v>>1)) break;
+			}
+			if(z >= res->n) {///cannot handle circles
+				p.tn = (uint32_t)-1; p.qn = (uint32_t)-1;
+				if(kv > 0) {
+					for (k = 0; k < nv; k++) {
+						if(!(av[k].del)) break; 
+					}
+					assert(k < nv);
+					p.qn = ((uint64_t)(av-g->arc+k));
+				}
+
+				kv_push(ul_ov_t, *res, p);
+			} else {
+				res->n = rn;
+			}
+		}
+	} 
+	// if(v == 7723) {
+	// 	fprintf(stderr, "[M::%s] v0::%lu, res->n::%lu,\n", __func__, v, (uint64_t)res->n);
+	// }
+    return res->n;///# chains have contained reads
+}
+
+void collect_pp_ovlps(ul_ov_t *a, uint64_t a_n, kv_ul_ov_t *res, const ug_opt_t *uopt, const asg_t *rg, uint64_t rlen, int64_t ulid, uint64_t *mqs, uint64_t *mqe)
+{
+	uint64_t i, k; ma_hit_t_alloc* src; uc_block_t rch; ul_ov_t p, *st, *et;
+    int64_t min_ovlp = uopt->min_ovlp, max_hang = uopt->max_hang, iqs, iqe; st = et = NULL;
+    res->n = 0; (*mqs) = (*mqe) = (uint64_t)-1; memset(&rch, 0, sizeof(rch));
+	if(a_n && a[0].el) st = &(a[0]);
+	if(a_n > 1 && a[a_n-1].el) et = &(a[a_n-1]);
+	// if(ulid == 7723 && a_n == 2 && a[0].tn == (7723>>1) && a[a_n-1].tn == (7829>>1)) {
+	// 	fprintf(stderr, "[M::%s] ulid::%ld, st::%ld, st_q::[%ld, %ld), et::%ld, et_q::[%ld, %ld)\n", 
+	// 	__func__, ulid, st?(int64_t)st->tn:-1, st?(int64_t)st->qs:-1, st?(int64_t)st->qe:-1, 
+	// 	et?(int64_t)et->tn:-1, et?(int64_t)et->qs:-1, et?(int64_t)et->qe:-1);
+	// }
+	for (i = 0; i < a_n; i++) {
+		src = &(uopt->sources[a[i].tn]);
+		rch.hid = a[i].tn; rch.rev = a[i].rev;
+		rch.qs = a[i].qs; rch.qe = a[i].qe;
+		rch.ts = a[i].ts; rch.te = a[i].te;
+		for (k = 0; k < src->length; k++) {
+            if(rg->seq[Get_tn(src->buffer[k])].del) continue;///tn must exist
+			if(st && st->tn == Get_tn(src->buffer[k])) continue;//not useful
+			if(et && et->tn == Get_tn(src->buffer[k])) continue;//not useful
+			if(!extract_nccov(&(src->buffer[k]), &rch, rg, &p, 0, min_ovlp, max_hang)) continue;
+			
+			extend_end_coord(NULL, &p, rlen, rg->seq[p.tn].len, &iqs, &iqe, NULL, NULL);
+			if(st && iqs <= (int64_t)st->qe && iqe <= (int64_t)st->qe) continue;//not useful
+			if(et && iqs >= (int64_t)et->qs && iqe >= (int64_t)et->qs) continue;//not useful
+			
+			if(p.rev) {
+				iqs = rg->seq[p.tn].len - p.te;
+				iqe = rg->seq[p.tn].len - p.ts;
+				p.ts = iqs; p.te = iqe;
+			}
+			// if(ulid == 7723 && a_n == 2 && a[0].tn == (7723>>1) && a[a_n-1].tn == (7829>>1)) {
+			// 	fprintf(stderr, "[M::%s] ulid::%ld, p.tn::%u, pq::[%u, %u), p.el::%u\n", 
+			// 	__func__, ulid, p.tn, p.qs, p.qe, p.el);
+			// }
+			p.el = 0; p.tn <<= 1; p.tn |= p.rev; p.qn = i;//for linear chain
+            kv_push(ul_ov_t, *res, p);
+		}
+
+		///it is unnecessary to push any non-end reads; 
+		///since the read graph will remove any old read; each read/node is unique within the read graph
+		if(a[i].el) {
+			///push itself into the chain
+			p = a[i]; 
+			// if(ulid == 7723 && a_n == 2 && a[0].tn == (7723>>1) && a[a_n-1].tn == (7829>>1)) {
+			// 	fprintf(stderr, "[M::%s] ulid::%ld, p.tn::%u, pq::[%u, %u), p.el::%u\n", 
+			// 	__func__, ulid, p.tn, p.qs, p.qe, p.el);
+			// }
+			p.tn <<= 1; p.tn |= p.rev; p.qn = i;//for linear chain
+			kv_push(ul_ov_t, *res, p);
+		}
+        if(((*mqs) == ((uint64_t)-1)) || ((*mqs) > a[i].qs)) (*mqs) = a[i].qs;
+        if(((*mqe) == ((uint64_t)-1)) || ((*mqe) < a[i].qe)) (*mqe) = a[i].qe;
+		
+	}
+	if(st) (*mqs) = st->qs; if(et) (*mqe) = et->qe;
+}
+
+uint64_t gen_cns_chain_linear_hard(ul_ov_t *a, int64_t a_n, const asg_t *rg, int64_t qlen, int64_t bw, double diff_thre, Chain_Data* dp, 
+int64_t max_skip, int64_t max_iter, int64_t max_dis, uint64_t mqs, uint64_t mqe, uint64_t ulid, uint64_t ltn, uint64_t rtn)
+{
+    if(a_n == 0) return 0;
+    uint32_t li_v, lj_v; int32_t *f; int64_t *p, *t, st, max_ii, max, qo, cL; ul_ov_t *li, *lj; 
+    int64_t mm_ovlp, x, i, j, sc, csc, mm_sc, mm_idx, n_skip, end_j, ch_sc, ch_i; 
+    resize_Chain_Data(dp, a_n, NULL); t = dp->tmp; f = dp->score; p = dp->pre;
+        
+    radix_sort_ul_ov_srt_qe(a, a + a_n);
+    for (i = 1, j = 0; i <= a_n; i++) {
+        if (i == a_n || a[i].qe != a[j].qe) {
+            if(i - j > 1) radix_sort_ul_ov_srt_qs(a+j, a+i);
+            j = i;
+        }
+    }
+
+    memset(t, 0, (a_n*sizeof((*t)))); 
+    ch_sc = ch_i = INT32_MIN; 
+    for (i = st = 0, max_ii = -1; i < a_n; ++i) {
+        li = &(a[i]); 
+        mm_ovlp = max_ovlp(rg, ((li->tn<<1)|li->rev)^1);        
+        x = (li->qs + mm_ovlp)*diff_thre; 
+        if(x < bw) x = bw; 
+        x += li->qs + mm_ovlp;
+        if (x > qlen+1) x = qlen+1;
+        x = find_ul_ov_max(i, a, x+G_CHAIN_INDEL); 
+
+        csc = 1; if(li->el) csc = 0;
+        mm_sc = INT32_MIN+1; mm_idx = -1; n_skip = 0; end_j = -1; 
+
+        li_v = (li->tn<<1)|li->rev; li_v ^= 1;
+        if ((x-st) > max_iter) st = x-max_iter;
+        for (j = x; j >= st; --j) { // collect potential destination vertices
+            lj = &(a[j]); 
+            if(lj->qe+G_CHAIN_INDEL <= li->qs) break;//even this pair has a overlap, its length will be very small; just ignore
+            if(f[j] == INT32_MIN) continue;///could not reach the left end
+            sc = INT32_MIN;
+            if(lj->qs <= li->qs && lj->qe <= li->qe) {///not contained
+                lj_v = (lj->tn<<1)|lj->rev; lj_v ^= 1;
+                qo = infer_rovlp(li, lj, NULL, NULL, NULL, NULL);
+                if(gconnect_test(rg, li_v, lj_v, bw, diff_thre, qo)) {
+                    sc = f[j] + csc; 
+                }
+            }
+            if(sc == INT32_MIN) continue;
+            if(sc > mm_sc) {
+                mm_sc = sc, mm_idx = j;
+                if (n_skip > 0) --n_skip;
+            } else if (t[j] == i) {
+                if (++n_skip > max_skip) break;
+            }
+            if (p[j] >= 0) t[p[j]] = i;
+        }
+        
+        end_j = j;
+        if (max_ii < 0 || (a[i].qe > (a[max_ii].qe+max_dis))) {//too long
+            max = INT32_MIN; max_ii = -1;
+            for (j = i - 1; (j >= st) && (a[i].qe<=(max_dis+a[j].qe)); --j) {
+                if (max < f[j]) {
+                    max = f[j], max_ii = j;
+                }
+            }
+        }
+                
+        if (max_ii >= 0 && max_ii < end_j) {///just have a try with a[i]<->a[max_ii]
+            lj = &(a[max_ii]); 
+            if(((lj->qe+G_CHAIN_INDEL)>li->qs) && (lj->qs<=li->qs) && (lj->qe<=li->qe) && (f[max_ii]!=INT32_MIN)) {
+                lj_v = (lj->tn<<1)|lj->rev; lj_v ^= 1; sc = INT32_MIN;
+                qo = infer_rovlp(li, lj, NULL, NULL, NULL, NULL);
+                if(gconnect_test(rg, li_v, lj_v, bw, diff_thre, qo)) {
+                    sc = f[max_ii] + csc; 
+                }
+                if(sc != INT32_MIN) {
+                    if(sc > mm_sc) {
+                        mm_sc = sc, mm_idx = max_ii;
+                    }
+                }
+            }
+        }
+
+		if(mm_idx == -1) {
+			if((ltn) != ((uint64_t)-1)) {
+				if(ltn != li->tn) mm_sc = mm_idx = INT32_MIN;
+			} else {
+				if(((int64_t)li->qs) > ((int64_t)(mqs+bw))) mm_sc = mm_idx = INT32_MIN;
+			}
+		}
+        
+        if((mm_sc==(INT32_MIN+1))) {
+            mm_sc = csc; 
+        }
+
+        
+        f[i] = mm_sc; p[i] = mm_idx; 
+
+		// if(ulid == 7723 && ltn == (7723>>1) && rtn == (7829>>1)) {
+		// 	fprintf(stderr, "[M::%s::id->%u::%.*s] i::%ld, q::[%u, %u), t::[%u, %u), mm_idx::%ld, mm_sc::%ld\n", 
+		// 	__func__, li->tn, (int)Get_NAME_LENGTH(R_INF, li->tn), Get_NAME(R_INF, li->tn), i, 
+		// 	li->qs, li->qe, li->ts, li->te, mm_idx, mm_sc);
+        // }
+
+		if(mm_sc == INT32_MIN) continue;
+		if((rtn != ((uint64_t)-1)) && (rtn != li->tn)) continue;
+		if((rtn == ((uint64_t)-1)) && (((int64_t)(a[i].qe+bw))<((int64_t)(mqe)))) continue;
+        if(mm_sc >= ch_sc) {
+			ch_sc = mm_sc; ch_i = i;
+		}
+		if ((max_ii < 0) || (f[max_ii]<f[i])) {
+            max_ii = i;
+        }
+    }
+    // if(ulid == 442462) {
+    //  fprintf(stderr, "[M::%s::] ch_i::%ld, mqs::%lu, mqe::%lu\n", 
+    //  __func__, ch_i, mqs, mqe);
+    // }
+    if(ch_i == INT32_MIN) return 0;
+
+    i = ch_i; cL = 0;
+    while (i >= 0) {t[cL++] = i; i = p[i];}
+    for (i = 0; i < cL; i++) a[i] = a[t[cL-i-1]];
+    return cL;
+}
+
+void gen_linear_rchains_dedup(kv_ul_ov_t *res, kv_ul_ov_t *buf, const asg_t *rg, const ug_opt_t *uopt, int64_t bw, 
+double diff_ec_ul, int64_t qlen, Chain_Data* dp, int64_t ulid, uint64_t *flt, uint64_t flt_n)
+{
+	uint64_t k, l, z, an, m, bn = buf->n, fi, tn; 
+    radix_sort_ul_ov_srt_tn(res->a, res->a + res->n);
+    ///after this function, res keeps unitig alignment, while buf keeps read alignments
+    for (k = 1, l = m = fi = 0; k <= res->n; k++) {
+        if(k == res->n || res->a[k].tn != res->a[l].tn) {///qn <- (tn|rev)
+			tn = res->a[l].tn>>1;
+			for (z = l; z < k; z++) res->a[z].tn>>=1;
+			for (; (fi<flt_n) && (flt[fi]<tn); fi++);
+			if((fi>=flt_n) || (flt[fi]!=tn)) {
+				kv_resize(ul_ov_t, *buf, bn+k-l); 
+				an = l + linear_rchain_dp_adv(res->a+l, k-l, buf->a+bn, uopt, bw, diff_ec_ul, qlen, 
+				UG_SKIP_N, UG_ITER_N, UG_DIS_N, dp, rg, ulid);
+				for (z = l; z < an; z++) res->a[m++] = res->a[z];
+			}
+			l = k;
+		}
+    }
+    res->n = m; 
+}
+
+void renew_consensus_chain(kv_ul_ov_t *in, uint32_t in_s, uint32_t in_e, kv_ul_ov_t *idx, asg64_v *ou, R_to_U *ri,
+const ug_opt_t *uopt, const asg_t *rg, int64_t bw, double diff_ec_ul, uint32_t arc_id, Chain_Data* dp, uint64_t rlen, uint32_t ulid)
+{	
+	if(in_e <= in_s) return;
+	uint64_t mqs, mqe, k, l, ou_n = ou->n, stn, etn;
+	collect_pp_ovlps(in->a + in_s, in_e - in_s, idx, uopt, rg, rlen, ulid, &mqs, &mqe);
+	// if(ulid == 7723 && in_e-in_s == 2 && in->a[in_s].tn == (7723>>1) && in->a[in_e-1].tn == (7829>>1)) {
+	// 	fprintf(stderr, "-0-[M::%s] ulid::%u, idx->n::%u\n", __func__, ulid, (uint32_t)idx->n);
+	// }
+	if(!idx->n) return;///it is possible
+	kv_resize(uint64_t, *ou, (ou_n+(in_e-in_s)));
+	for (k = in_s; k < in_e; k++) {
+		if(in->a[k].el) continue;
+		ou->a[ou_n++] = in->a[k].tn;
+	}
+	assert(ou_n <= ou->m);
+	radix_sort_gfa64(ou->a+ou->n, ou->a+ou_n);
+	gen_linear_rchains_dedup(idx, in, rg, uopt, bw, diff_ec_ul, rlen, dp, ulid, ou->a+ou->n, ou_n-ou->n);
+	// if(ulid == 7723 && in_e-in_s == 2 && in->a[in_s].tn == (7723>>1) && in->a[in_e-1].tn == (7829>>1)) {
+	// 	fprintf(stderr, "-1-[M::%s] ulid::%u, idx->n::%u\n", __func__, ulid, (uint32_t)idx->n);
+	// }
+	if(!idx->n) return;///it is possible
+	stn = etn = (uint64_t)-1;
+	if(in_e > in_s && in->a[in_s].el) stn = in->a[in_s].tn;
+	if(in_e-in_s>1 && in->a[in_e-1].el) etn = in->a[in_e-1].tn;
+	idx->n = gen_cns_chain_linear_hard(idx->a, idx->n, rg, rlen, bw, diff_ec_ul, dp, UG_SKIP_N, UG_ITER_N, UG_DIS_N, mqs, mqe, ulid, stn, etn);
+	// if(ulid == 7723 && in_e-in_s == 2 && in->a[in_s].tn == (7723>>1) && in->a[in_e-1].tn == (7829>>1)) {
+	// 	fprintf(stderr, "-2-[M::%s] ulid::%u, idx->n::%u\n", __func__, ulid, (uint32_t)idx->n);
+	// }
+	if(!idx->n) return;
+	assert((stn==((uint64_t)-1))||((idx->a[0].tn == stn) && (idx->a[0].el)));
+	assert((etn==((uint64_t)-1))||((idx->a[idx->n-1].tn == etn) && (idx->a[idx->n-1].el)));
+	if((stn != ((uint64_t)-1)) && (etn != ((uint64_t)-1)) && idx->n < 2) return;///could happen for circle
+	if(((stn != ((uint64_t)-1)) || (etn != ((uint64_t)-1))) && idx->n < 1) return;///not sure if it will happen
+	ou_n = ou->n;
+	for (k = in_s; k < in_e; k++) {
+		if(in->a[k].el) continue;
+		kv_push(uint64_t, *ou, in->a[k].tn);
+	}
+	for (k = 0; k < idx->n; k++) {
+		if(idx->a[k].el) continue;
+		kv_push(uint64_t, *ou, idx->a[k].tn);
+	}
+	if(ou->n == ou_n) return;
+	radix_sort_gfa64(ou->a+ou_n, ou->a+ou->n);
+	for (k = ou_n+1, l = ou_n; k <= ou->n; k++) {
+		if(k == ou->n || ou->a[l] != ou->a[k]) {
+			if(k-l > 1) break;
+			l = k;
+		}
+	}
+	assert(k > ou->n);
+	ou->n = ou_n;
+	l = arc_id; 
+	if(arc_id == (uint32_t)-1) {///this is an isloated node
+		l = idx->a[0].tn; l |= ((uint64_t)0x80000000);
+	}
+	l <<= 32; l |= ((uint64_t)((uint32_t)-1));
+	kv_push(uint64_t, *ou, l);
+	for (k = 0; k < idx->n; k++) {
+		l = ((uint64_t)(idx->a[k].tn<<1))|((uint64_t)idx->a[k].rev);
+		if(idx->a[k].el) l += ((uint64_t)0x100000000);
+		kv_push(uint64_t, *ou, l);
+	}
+	kv_push(uint64_t, *ou, ((uint64_t)-1));
+	for (k = in_s; k < in_e; k++) {
+		l = ((uint64_t)(in->a[k].tn<<1))|((uint64_t)in->a[k].rev);
+		if(in->a[k].el) l += ((uint64_t)0x100000000);
+		kv_push(uint64_t, *ou, l);
+	}
+}
+
+static void worker_for_contain_dedup(void *data, long i, int tid)
+{
+    utepdat_t *s = (utepdat_t*)data; asg64_v ou; 
+	kv_ul_ov_t *idx = &(s->ll[tid].lo), *dump = &(s->ll[tid].tk); 
+	uint32_t k, v = i, l, dump_n; 
+
+	if(!gen_dup_path(s->rg, s->uopt->ruIndex, dump, v)) return;
+	// if(v == 7723) {
+	// 	fprintf(stderr, "[M::%s] v::%u, dump->n::%u\n", __func__, v, (uint32_t)dump->n);
+	// }
+
+
+	copy_asg_arr(ou, s->ll[tid].srt.a); 
+	for (k = 1, l = 0, dump_n = dump->n; k <= dump_n; k++) {
+		if(k == dump_n || (dump->a[k].tn == ((uint32_t)-1))) {
+			assert(k > l || k == dump_n); 
+			if(k > l) {
+				assert(dump->a[k].tn == ((uint32_t)-1));
+				renew_consensus_chain(dump, l, k, idx, &ou, s->uopt->ruIndex, s->uopt, s->rg, G_CHAIN_BW, 
+							0.02/**s->opt->diff_ec_ul**/, dump->a[k].qn, &(s->hab[tid]->clist.chainDP), dump->a[k-1].qe, v);
+			}
+			l = k + 1;
+		}
+	}
+	copy_asg_arr(s->ll[tid].srt.a, ou);
 }
 
 void detect_outlier_len(const char* cmd)
@@ -16188,6 +16745,427 @@ uint64_t work_ul_gchains_consensus(uldat_t *sl)
 	free(s.hab); free(s.ll); ///free(s.sps);
 	fprintf(stderr, "[M::%s::] # try:%d, # done:%d\n", __func__, s.sum_len, s.n); 
 	return s.sum_len;
+}
+
+
+void update_contain_dedup_arr(asg64_v *in, uint64_t prefix, asg64_v *res)
+{
+	if(in->n == 0) return;
+	uint64_t i, m;
+	for (i = 0; i < in->n; i++) {
+		if(in->a[i] == ((uint64_t)-1)) continue;
+		if(((uint32_t)in->a[i]) == ((uint32_t)-1)) {
+			m = prefix; m <<= 32; m += i;
+			kv_push(uint64_t, *res, m);
+		}
+	}
+}
+
+uint64_t path_del_topo(asg_t *g, uint64_t v)
+{
+	uint64_t nv, nw, kw, k, z, w; asg_arc_t *av, *aw;
+	nv = asg_arc_n(g, v); av = asg_arc_a(g, v);
+	for (k = 0; k < nv; k++){
+		if(av[k].del) continue;
+		w = av[k].v^1;
+		nw = asg_arc_n(g, w); aw = asg_arc_a(g, w);
+		for (z = kw = 0; z < nw; z++) {
+			if(aw[z].del) continue;
+			if((aw[z].v>>1) != (v>>1)) continue;
+			kw++;
+		}
+		if(kw <= 0) return 0; 
+	}
+	return 1;
+}
+
+uint64_t tes_path_connec(asg_t *g, uint64_t sn, uint64_t en, uint64_t *pa, uint64_t pn, uint64_t is_single_path, uint64_t *min_ou)
+{
+	// fprintf(stderr, "-0-[M::%s::]\n", __func__); 
+	if(min_ou) (*min_ou) = 0;
+	if((sn != (uint64_t)-1) && ((g->seq[sn>>1].del)||(get_arcs(g, sn, NULL, 0)<2))) return 0;
+	if((en != (uint64_t)-1) && ((g->seq[en>>1].del)||((get_arcs(g, en^1, NULL, 0)<2)))) return 0;
+	uint64_t nv, k, v, w, i, ou = (uint64_t)-1; asg_arc_t *av;
+	if((sn != (uint64_t)-1) && (en != (uint64_t)-1) && (!pn)) {
+		v = sn; w = en;
+		nv = asg_arc_n(g, v); av = asg_arc_a(g, v);
+		for (k = 0; k < nv; k++) {
+			if(av[k].del) continue;
+			if(av[k].v == w) {
+				if(((uint64_t)av[k].ou) < ou) ou = av[k].ou;
+				break;
+			}
+		}
+		if(k >= nv) return 0;
+		
+		v = en^1; w = sn^1;
+		nv = asg_arc_n(g, v); av = asg_arc_a(g, v);
+		for (k = 0; k < nv; k++) {
+			if(av[k].del) continue;
+			if(av[k].v == w) {
+				if(((uint64_t)av[k].ou) < ou) ou = av[k].ou;
+				break;
+			}
+		}
+		if(k >= nv) return 0;
+
+		// if(get_arcs(g, sn, NULL, 0) < 2) return 0;
+		// if(get_arcs(g, en^1, NULL, 0) < 2) return 0;
+		if(min_ou) (*min_ou) = ou;
+		return 1;
+	}
+
+	// fprintf(stderr, "-1-[M::%s::]\n", __func__); 
+	if(sn != (uint64_t)-1) {
+		v = sn; i = 0;
+	} else {
+		v = pa[0]; i = 1; assert(!(pa[0]>>32));
+	}
+	// fprintf(stderr, "-2-[M::%s::]\n", __func__); 
+	for (; i < pn; i++) {
+		w = pa[i]; assert(!(pa[i]>>32));
+		if(g->seq[v>>1].del || g->seq[w>>1].del) return 0;
+
+		nv = asg_arc_n(g, v); av = asg_arc_a(g, v);
+		for (k = 0; k < nv; k++) {
+			if(av[k].del) continue;
+			if(av[k].v == w) {
+				if(((uint64_t)av[k].ou) < ou) ou = av[k].ou;
+				break;
+			}
+		}
+		if(k >= nv) return 0;
+
+		nv = asg_arc_n(g, w^1); av = asg_arc_a(g, w^1);
+		for (k = 0; k < nv; k++) {
+			if(av[k].del) continue;
+			if(av[k].v == (v^1)) {
+				if(((uint64_t)av[k].ou) < ou) ou = av[k].ou;
+				break;
+			}
+		}
+		if(k >= nv) return 0;
+
+		if(is_single_path) {
+			if(v != sn && v != en && get_arcs(g, v, NULL, 0) != 1) return 0;
+			if(w != sn && w != en && get_arcs(g, w^1, NULL, 0) != 1) return 0;
+		}
+
+		v = w;
+	}
+	// fprintf(stderr, "-3-[M::%s::]\n", __func__); 
+	if(en != (uint64_t)-1) {
+		w = en;
+		if(g->seq[v>>1].del || g->seq[w>>1].del) return 0;
+		// fprintf(stderr, "-3a-[M::%s::]\n", __func__); 
+		nv = asg_arc_n(g, v); av = asg_arc_a(g, v);
+		for (k = 0; k < nv; k++) {
+			if(av[k].del) continue;
+			if(av[k].v == w) {
+				if(((uint64_t)av[k].ou) < ou) ou = av[k].ou;
+				break;
+			}
+		}
+		if(k >= nv) return 0;
+		// fprintf(stderr, "-3b-[M::%s::]\n", __func__); 
+		nv = asg_arc_n(g, w^1); av = asg_arc_a(g, w^1);
+		for (k = 0; k < nv; k++) {
+			if(av[k].del) continue;
+			if(av[k].v == (v^1)) {
+				if(((uint64_t)av[k].ou) < ou) ou = av[k].ou;
+				break;
+			}
+		}
+		if(k >= nv) return 0;
+
+		if(is_single_path) {
+			if(v != sn && v != en && get_arcs(g, v, NULL, 0) != 1) return 0;
+			if(w != sn && w != en && get_arcs(g, w^1, NULL, 0) != 1) return 0;
+		}
+	}
+
+
+
+	// fprintf(stderr, "-4-[M::%s::]\n", __func__); 
+	if(!path_del_topo(g, pa[0]^1)) return 0;
+	// if(sn != ((uint64_t)-1)) {
+	// 	v = sn; w = pa[0];
+	// 	nv = asg_arc_n(g, v); av = asg_arc_a(g, v);
+	// 	for (k = 0; k < nv; k++) {
+	// 		if(av[k].del) continue;
+	// 		if(av[k].v == w) break;
+	// 	}
+	// 	if(k >= nv) return 0;
+
+	// 	v = pa[0]^1; w = sn^1;
+	// 	nv = asg_arc_n(g, v); av = asg_arc_a(g, v);
+	// 	for (k = 0; k < nv; k++) {
+	// 		if(av[k].del) continue;
+	// 		if(av[k].v == w) break;
+	// 	}
+	// 	if(k >= nv) return 0;
+	// }
+
+
+
+	if(!path_del_topo(g, pa[pn-1])) return 0;
+	// if(en != ((uint64_t)-1)) {
+	// 	v = pa[pn-1]; w = en;
+	// 	nv = asg_arc_n(g, v); av = asg_arc_a(g, v);
+	// 	for (k = 0; k < nv; k++) {
+	// 		if(av[k].del) continue;
+	// 		if(av[k].v == w) break;
+	// 	}
+	// 	if(k >= nv) return 0;
+
+	// 	v = en^1; w = pa[pn-1]^1;
+	// 	nv = asg_arc_n(g, v); av = asg_arc_a(g, v);
+	// 	for (k = 0; k < nv; k++) {
+	// 		if(av[k].del) continue;
+	// 		if(av[k].v == w) break;
+	// 	}
+	// 	if(k >= nv) return 0;
+	// }
+
+	if(min_ou) (*min_ou) = ou;
+	return 1;
+}
+
+void append_path_connec(asg_t *g, uint64_t sn, uint64_t en, uint64_t *pa, uint64_t pn, uint64_t min_ou)
+{
+	uint64_t nv, k, v, w, i, ou; asg_arc_t *av;
+    if(sn != (uint64_t)-1) {
+        v = sn; i = 0;
+    } else {
+        v = pa[0]; i = 1; 
+    }
+
+    for (; i < pn; i++) {
+        w = pa[i]; 
+
+        nv = asg_arc_n(g, v); av = asg_arc_a(g, v);
+        for (k = 0; k < nv; k++) {
+            if(av[k].del) continue;
+            if(av[k].v == w) {
+				ou = av[k].ou; ou += min_ou; 
+				if(ou > OU_MASK) ou = OU_MASK;
+				av[k].ou = ou;
+                break;
+            }
+        }
+		assert(k < nv);
+
+        nv = asg_arc_n(g, w^1); av = asg_arc_a(g, w^1);
+        for (k = 0; k < nv; k++) {
+            if(av[k].del) continue;
+            if(av[k].v == (v^1)) {
+                ou = av[k].ou; ou += min_ou; 
+				if(ou > OU_MASK) ou = OU_MASK;
+				av[k].ou = ou;
+                break;
+            }
+        }
+		assert(k < nv);
+
+        v = w;
+    }
+    // fprintf(stderr, "-3-[M::%s::]\n", __func__); 
+    if(en != (uint64_t)-1) {
+        w = en;
+        // fprintf(stderr, "-3a-[M::%s::]\n", __func__); 
+        nv = asg_arc_n(g, v); av = asg_arc_a(g, v);
+        for (k = 0; k < nv; k++) {
+            if(av[k].del) continue;
+            if(av[k].v == w) {
+                ou = av[k].ou; ou += min_ou; 
+				if(ou > OU_MASK) ou = OU_MASK;
+				av[k].ou = ou;
+                break;
+            }
+        }
+		assert(k < nv);
+
+        // fprintf(stderr, "-3b-[M::%s::]\n", __func__); 
+        nv = asg_arc_n(g, w^1); av = asg_arc_a(g, w^1);
+        for (k = 0; k < nv; k++) {
+            if(av[k].del) continue;
+            if(av[k].v == (v^1)) {
+                ou = av[k].ou; ou += min_ou; 
+				if(ou > OU_MASK) ou = OU_MASK;
+				av[k].ou = ou;
+                break;
+            }
+        }
+		assert(k < nv);
+    }
+}
+
+
+uint64_t asg_clean_idx_tig(asg_t *g, uint64_t *idx, uint64_t idx_n, uint64_t *srt, uint64_t srt_n, utepdat_t *s)
+{
+	uint64_t i, k, *a, an, sp, *del_a, del_n, *ref_a, ref_n, *ka, kk, cnt = 0, min_ou;
+	uint64_t ref_s, ref_e, del_s, del_e;
+	for (i = 0; i < srt_n; i++) {
+		a = s->ll[idx[(uint32_t)srt[i]]>>32].srt.a.a; 
+		an = s->ll[idx[(uint32_t)srt[i]]>>32].srt.a.n;
+		sp = (uint32_t)idx[(uint32_t)srt[i]];
+		assert((((uint32_t)a[sp])==((uint32_t)-1)) && ((a[sp]>>32)!=((uint32_t)-1)));
+
+		// fprintf(stderr, "\n+[M::%s::] ((uint32_t)(a[sp]>>32))::%u, ((uint32_t)a[sp])::%u, sp::%lu, an::%lu\n", __func__, 
+		// ((uint32_t)(a[sp]>>32)), ((uint32_t)a[sp]), sp, an); 
+
+		k = sp + 1; ref_a = a + k;
+		for (sp = k; k < an; k++) {
+			if(a[k] == (uint64_t)-1) break;
+		}
+		assert(k < an);
+		ref_n = k - sp;
+		// fprintf(stderr, "+[M::%s::] k::%lu\n", __func__, k); 
+		// fprintf(stderr, "+[M::%s::] k::%lu, an::%lu\n", __func__, k, an); 
+
+		k++; del_a = a + k;
+		for (sp = k; k < an; k++) {
+			if((a[k] != (uint64_t)-1) && (((uint32_t)a[k]) == ((uint32_t)-1))) break;
+		}
+		
+		// assert(k < an);//for the last batch of reads, there is no end marker, so k == an
+		del_n = k - sp;
+
+		ref_s = ref_e = del_s = del_e = (uint64_t)-1;
+		if(ref_n > 0 && (ref_a[0]>>32)) ref_s = (uint32_t)ref_a[0];
+		if(ref_n > 1 && (ref_a[ref_n-1]>>32)) ref_e = (uint32_t)ref_a[ref_n-1];
+
+		if(del_n > 0 && (del_a[0]>>32)) del_s = (uint32_t)del_a[0];
+		if(del_n > 1 && (del_a[del_n-1]>>32)) del_e = (uint32_t)del_a[del_n-1];
+
+		// if((ref_e != del_e) || (ref_s != del_s)) {
+		// 	fprintf(stderr, "-[M::%s::] idx_n::%lu, idx_n::%lu, ref_n::%lu, del_n::%lu, ref_s::%lu, ref_e::%lu, del_s::%lu, del_e::%lu\n", 
+		// 	__func__, idx_n, idx_n, ref_n, del_n, ref_s, ref_e, del_s, del_e); 
+		// 	for (k = 0; k < ref_n; k++) {
+		// 		fprintf(stderr, "-[M::ref::] ref_a[k]>>1::%lu\n", ref_a[k]>>1); 
+		// 	}
+		// 	for (k = 0; k < del_n; k++) {
+		// 		fprintf(stderr, "-[M::del::] del_a[k]>>1::%lu\n", del_a[k]>>1); 
+		// 	}
+		// }
+		assert(ref_s == del_s); assert(ref_e == del_e); 
+
+		if(ref_s != (uint64_t)-1) {
+			ref_a = ref_a + 1; ref_n--;
+		}
+		if(ref_e != (uint64_t)-1) ref_n--;
+
+		if(del_s != (uint64_t)-1) {
+			del_a = del_a + 1; del_n--;
+		}
+		if(del_e != (uint64_t)-1) del_n--;
+
+		if(ref_n == 0 && del_n > 0) {
+			ka = ref_a; ref_a = del_a; del_a = ka;
+			kk = ref_n; ref_n = del_n; del_n = kk;
+			kk = ref_s; ref_s = del_s; del_s = kk;
+			kk = ref_e; ref_e = del_e; del_e = kk;
+		}
+
+		// fprintf(stderr, "-[M::%s::] idx_n::%lu, idx_n::%lu, ref_n::%lu, del_n::%lu, ref_s::%lu, ref_e::%lu\n", 
+		// __func__, idx_n, idx_n, ref_n, del_n, ref_s, ref_e); 
+		// for (k = 0; k < ref_n; k++) {
+		// 	fprintf(stderr, "-[M::ref::] ref_a[k]>>1::%lu\n", ref_a[k]>>1); 
+		// }
+		// for (k = 0; k < del_n; k++) {
+		// 	fprintf(stderr, "-[M::del::] del_a[k]>>1::%lu\n", del_a[k]>>1); 
+		// }
+		
+
+
+		///just for debug
+		// if(ref_s != (uint64_t)-1) {
+		// 	assert(get_arcs(g, ref_s, NULL, 0) > 1);
+		// }
+		// if(ref_e != (uint64_t)-1) {
+		// 	assert(get_arcs(g, ref_e^1, NULL, 0) > 1);
+		// }
+		// assert(tes_path_connec(g, ref_s, ref_e, ref_a, ref_n, 0, NULL));
+		// assert(tes_path_connec(g, del_s, del_e, del_a, del_n, 1, NULL));
+		
+		min_ou = 0;
+		if((ref_s!=(uint64_t)-1) && (get_arcs(g, ref_s, NULL, 0)<=1)) continue;
+		if((ref_e!=(uint64_t)-1) && (get_arcs(g, ref_e^1, NULL, 0)<=1)) continue;
+		if(!tes_path_connec(g, ref_s, ref_e, ref_a, ref_n, 0, NULL)) continue;
+		if(!tes_path_connec(g, del_s, del_e, del_a, del_n, 1, &min_ou)) continue;
+
+		if(del_n > 0) {
+			for (k = 0; k < del_n; k++) asg_seq_del(g, del_a[k]>>1);
+			cnt += del_n;
+		} else {
+			asg_arc_del(g, del_s, del_e, 1);
+			asg_arc_del(g, del_e^1, del_s^1, 1);
+			cnt++;
+		}
+		if(min_ou > 0) append_path_connec(g, ref_s, ref_e, ref_a, ref_n, min_ou);
+	}
+	if(cnt) {
+		asg_cleanup(g);
+	}
+	return cnt;
+}
+
+uint64_t work_rg_contain_dedup(uldat_t *sl)
+{
+	utepdat_t s; uint64_t i, occ, ou_n, m, *srt, srt_n, *idx, idx_n, tot; 
+	asg64_v ou, bu; kv_init(ou); memset(&s, 0, sizeof(s));
+	s.id = 0; s.uopt = sl->uopt; s.rg = sl->rg; s.opt = sl->opt; ///s.ug = sl->ug; s.uu = sl->uu; 
+	//  CALLOC(s.buf, sl->n_thread); CALLOC(s.gdp, sl->n_thread); CALLOC(s.mzs, sl->n_thread); 
+	CALLOC(s.hab, sl->n_thread); CALLOC(s.ll, sl->n_thread); ///CALLOC(s.sps, sl->n_thread); 
+
+	for (i = 0; i < sl->n_thread; ++i) {
+		s.hab[i] = ha_ovec_init(0, 0, 1); ///s.buf[i] = mg_tbuf_init();
+	}
+
+	// detect_outlier_len("+++work_ul_gchains");
+
+	//debug
+    // overall_zdbg = init_mul_debug_prt_t(UL_INF.n);
+	occ = 1; tot = 0;
+	while (occ) {
+		kt_for(sl->n_thread, worker_for_contain_dedup, &s, (s.rg->n_seq<<1));
+		for (i = ou.n = 0; i < sl->n_thread; ++i) {
+			copy_asg_arr(bu, s.ll[i].srt.a);
+			update_contain_dedup_arr(&bu, i, &ou);
+			copy_asg_arr(s.ll[i].srt.a, bu);
+		}
+		ou_n = ou.n;
+		for (i = 0; i < ou_n; i++) {
+			assert(((uint32_t)s.ll[ou.a[i]>>32].srt.a.a[(uint32_t)ou.a[i]]) == ((uint32_t)-1));
+			m = s.ll[ou.a[i]>>32].srt.a.a[(uint32_t)ou.a[i]]>>32; m <<= 32; m += i;
+			kv_push(uint64_t, ou, m);
+		}
+		// fprintf(stderr, "[M::%s::] ou_n::%lu, ou.n::%u\n", __func__, ou_n, (uint32_t)ou.n); 
+		idx = ou.a; idx_n = ou_n; srt = ou.a + ou_n; srt_n = ou.n - ou_n;
+		radix_sort_gfa64(srt, srt + srt_n);
+		// print_debug_gfa((asg_t *)s.rg, NULL, s.uopt->coverage_cut, "UL.dirty.debug", s.uopt->sources, s.uopt->ruIndex, s.uopt->max_hang, s.uopt->min_ovlp, 0, 0, 0);
+		occ = asg_clean_idx_tig((asg_t *)s.rg, idx, idx_n, srt, srt_n, &s);
+		for (i = 0; i < sl->n_thread; ++i) s.ll[i].srt.a.n = 0;
+		tot += occ;
+		// fprintf(stderr, "[M::%s::] idx_n::%lu, srt_n::%lu, occ::%lu\n", __func__, idx_n, srt_n, occ); 
+	}
+	
+
+	
+
+	// detect_outlier_len("---work_ul_gchains");
+
+	for (i = 0; i < sl->n_thread; ++i) {
+		s.sum_len += s.hab[i]->num_read_base; s.n += s.hab[i]->num_correct_base;
+		// hc_gdpchain_destroy(&(s.gdp[i])); kv_destroy(s.mzs[i]); mg_tbuf_destroy(s.buf[i]); 
+		ha_ovec_destroy(s.hab[i]); hc_glchain_destroy(&(s.ll[i])); ///kv_destroy(s.sps[i]);
+	}
+
+	// free(s.buf); free(s.gdp); free(s.mzs); 
+	free(s.hab); free(s.ll); kv_destroy(ou); ///free(s.sps);
+	fprintf(stderr, "[M::%s::] # duplicated reads::%lu\n", __func__, tot); 
+	// exit(1);
+	return tot;
 }
 
 void print_ul_ovlps(all_ul_t *x, int32_t prt_ovlp)
@@ -16570,7 +17548,7 @@ void determine_connective_adv(all_ul_t *m, const ug_opt_t *uopt, int64_t bw, dou
 	}
 }
 
-void determine_connective_backtrack(all_ul_t *m, const ug_opt_t *uopt, ul_vec_t *p, uint32_t ii, uint64_t rid)
+void determine_connective_backtrack(all_ul_t *m, const ug_opt_t *uopt, ul_vec_t *p, uint32_t ii, uint64_t rid, uint64_t ulid)
 {
 	assert((!p->bb.a[ii].base)&&(p->bb.a[ii].hid == rid)&&(p->bb.a[ii].el));
 	if(ii <= 0) return;
@@ -16599,7 +17577,13 @@ void determine_connective_backtrack(all_ul_t *m, const ug_opt_t *uopt, ul_vec_t 
 					break;
 				}
 			}
-			if(z < x->length) x->buffer[z].bl++;
+			if(z < x->length) {
+				x->buffer[z].bl++;
+				// if(((li_v>>1) == 1656459) || ((li_v>>1) == 4179430)|| 
+				// 	((lk_v>>1) == 1656459) || ((lk_v>>1) == 4179430)) {
+				// 	fprintf(stderr, "[M::%s::]\tulid::%lu\n", __func__, ulid);
+				// }
+			}
 		}
 
 		lk = ((lk->pidx==(uint32_t)-1)?NULL:&(p->bb.a[lk->pidx]));
@@ -16618,7 +17602,7 @@ static void update_ovlp_src(void *data, long i, int tid) // callback for kt_for(
 	for (k = 0; k < a_n; k++) {
 		///note: we only label reliable chains
 		// if(i == 4217) fprintf(stderr, "\nul_id: %lu\n", a[k]>>32);
-		determine_connective_backtrack(&UL_INF, sl->uopt, &(UL_INF.a[a[k]>>32]), (uint32_t)(a[k]), i);
+		determine_connective_backtrack(&UL_INF, sl->uopt, &(UL_INF.a[a[k]>>32]), (uint32_t)(a[k]), i, a[k]>>32);
 		// determine_connective_adv(&UL_INF, sl->uopt, G_CHAIN_BW, sl->opt->diff_ec_ul, &(UL_INF.a[a[k]>>32]), (uint32_t)(a[k]), i);
 		// determine_connective(&UL_INF, sl->uopt, G_CHAIN_BW, sl->opt->diff_ec_ul, 
 		// 										&(UL_INF.a[a[k]>>32]), (uint32_t)(a[k]), i);
@@ -18499,13 +19483,26 @@ uint32_t clean_contain_g(const ug_opt_t *uopt, asg_t *sg, uint32_t push_trans)
 	if(work_ul_gchains_consensus(&sl)) {
 		free(UL_INF.ridx.idx.a); free(UL_INF.ridx.occ.a); memset(&(UL_INF.ridx), 0, sizeof(UL_INF.ridx));
 		gen_ul_vec_rid_t(&UL_INF, &R_INF, NULL);
+		// fprintf(stderr, "+[M::%s::]\n", __func__);
 		kt_for(sl.n_thread, update_ovlp_src, &sl, R_INF.total_reads);
+		// fprintf(stderr, "-[M::%s::]\n", __func__);
 		kt_for(sl.n_thread, update_ovlp_src_bl, &sl, R_INF.total_reads);
 		clean_contain_g0(&sl);
 		f = 1;
 	}
 	if(push_trans) asg_arc_del_trans_ul(sg, sl.uopt->gap_fuzz);
 	return f;
+}
+
+
+void dedup_contain_g(const ug_opt_t *uopt, asg_t *sg)
+{
+	mg_idxopt_t opt; uldat_t sl; int32_t cutoff;
+	init_aux_table(); ha_opt_update_cov(&asm_opt, asm_opt.hom_cov);
+	cutoff = asm_opt.max_n_chain;
+	init_mg_opt(&opt, !(asm_opt.flag&HA_F_NO_HPC), 19, 10, cutoff, asm_opt.max_n_chain, asm_opt.ul_error_rate, asm_opt.ul_error_rate, asm_opt.ul_error_rate_low, asm_opt.ul_error_rate_hpc, asm_opt.ul_ec_round);
+	init_uldat_t(&sl, NULL, NULL, &opt, CHUNK_SIZE, asm_opt.thread_num, uopt, NULL); sl.rg = sg;
+	work_rg_contain_dedup(&sl);
 }
 
 
