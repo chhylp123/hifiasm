@@ -16473,7 +16473,7 @@ ul2ul_idx_t *gen_ul2ul(ul_resolve_t *uidx, ug_opt_t *uopt, ulg_opt_t *ulopt, uin
 
     kt_for(uidx->str_b.n_thread, worker_integert_debug_sym, uidx, z->tot);///all ul + ug
     print_integert_ovlp_stat(z);
-    print_uls_seq(uidx, asm_opt.output_file_name);
+    // print_uls_seq(uidx, asm_opt.output_file_name);
     // print_uls_ovs(uidx, asm_opt.output_file_name);
     
     z->i_g = integer_sg_gen(uidx, uopt->min_ovlp);
@@ -17234,11 +17234,11 @@ ul_renew_t *ropt, const char *bin_file, uint64_t free_uld, uint64_t is_bridg, ui
     // fprintf(stderr, "2[M::%s]\n", __func__);
     // exit(1);
 
-    char* gfa_name = NULL; MALLOC(gfa_name, strlen(o_file)+strlen(bin_file)+50);
-    sprintf(gfa_name, "%s.%s", o_file, bin_file);
-    print_debug_gfa(sg, init_ug, uopt->coverage_cut, gfa_name, uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 0, 0, 0);
-    print_debug_gfa(sg, init_ug, uopt->coverage_cut, gfa_name, uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 0, 0, 1);
-    free(gfa_name);
+    // char* gfa_name = NULL; MALLOC(gfa_name, strlen(o_file)+strlen(bin_file)+50);
+    // sprintf(gfa_name, "%s.%s", o_file, bin_file);
+    // print_debug_gfa(sg, init_ug, uopt->coverage_cut, gfa_name, uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 0, 0, 0);
+    // print_debug_gfa(sg, init_ug, uopt->coverage_cut, gfa_name, uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 0, 0, 1);
+    // free(gfa_name);
     
     
     filter_sg_by_ug(sg, init_ug, uopt);
@@ -17257,8 +17257,8 @@ ul_renew_t *ropt, const char *bin_file, uint64_t free_uld, uint64_t is_bridg, ui
     // print_ul_alignment(init_ug, &UL_INF, 47072, "after-2");
     // exit(1);
     // if(free_uld) {
-        print_raw_uls_seq(uidx, asm_opt.output_file_name);
-        print_raw_uls_aln(uidx, asm_opt.output_file_name);
+        // print_raw_uls_seq(uidx, asm_opt.output_file_name);
+        // print_raw_uls_aln(uidx, asm_opt.output_file_name);
     // }
     
     ul_re_correct(uidx, asm_opt.integer_correct_round/**3**/); 
@@ -17273,9 +17273,9 @@ ul_renew_t *ropt, const char *bin_file, uint64_t free_uld, uint64_t is_bridg, ui
 
     // free(r_het); destory_bubbles(bub); free(bub);
     // if(free_uld) {
-        uidx->uovl.hybrid_ug = gen_hybrid_ug(uidx, uidx->uovl.h_usg);
+        // uidx->uovl.hybrid_ug = gen_hybrid_ug(uidx, uidx->uovl.h_usg);
     //     // print_debug_gfa(sg, uidx->uovl.hybrid_ug, uopt->coverage_cut, "hybrid_ug", uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 0, 0, 1);
-        print_debug_gfa(sg, uidx->uovl.hybrid_ug, uopt->coverage_cut, "hybrid_ug", uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 0, 0, 0);
+        // print_debug_gfa(sg, uidx->uovl.hybrid_ug, uopt->coverage_cut, "hybrid_ug", uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 0, 0, 0);
     //     // print_debug_gfa(sg, init_ug, uopt->coverage_cut, bin_file, uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 0, 0, 0);
     // }
     // if(is_trio) gen_ul_trio_graph(uopt, uidx, o_file);    
