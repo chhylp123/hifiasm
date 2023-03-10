@@ -115,6 +115,7 @@ typedef struct {
     size_t n, m;
     uint32_t id:31, is_del:1;
     uint32_t cn;
+    // uint8_t is_consist;
 } ul2ul_item_t;
 
 typedef struct {
@@ -6281,8 +6282,8 @@ void integer_gen_ovlp(ul_resolve_t *uidx, integer_t *buf, uint32_t qid, ul2ul_it
 {
     ul_str_idx_t *str_idx = &(uidx->pstr); ma_ug_t *ug = uidx->l1_ug; ul2ul_t res;
     ul_str_t *str = &(str_idx->str.a[qid]); integer_aln_t *p; ul_chain_t sc;
-    uint64_t k, z, *hid_a, hid_n, sck, b_n, m; uint32_t vk, vz; uc_block_t *xi;
-    o->n = o->cn = 0; o->id = qid; o->is_del = 0;
+    uint64_t k, z, *hid_a, hid_n, sck, b_n, m/**, ovn = 0**/; uint32_t vk, vz; uc_block_t *xi;
+    o->n = o->cn = 0; o->id = qid; o->is_del = 0; ///o->is_consist = 0;
     // if(qid == 95 || qid == 36) print_integer_seq(ug, str_idx->str.a, qid, 1);
     if(str->cn < 2) return;
     for (k = 0, buf->b.n = 0; k < str->cn; k++) {
@@ -6316,6 +6317,14 @@ void integer_gen_ovlp(ul_resolve_t *uidx, integer_t *buf, uint32_t qid, ul2ul_it
     }
 
     radix_sort_integer_aln_t_srt(buf->b.a, buf->b.a + buf->b.n); 
+
+    // b_n = buf->b.n;
+    // for (k = 1, z = ovn = 0; k <= b_n; k++) {
+    //     if(k == b_n || (buf->b.a[z].tn_rev_qk>>33) != (buf->b.a[k].tn_rev_qk>>33)) {
+    //         ovn++; z = k;
+    //     }
+    // }
+
     b_n = buf->b.n; buf->sc.n = 0;
     for (k = 1, z = 0; k <= b_n; k++) {
         if(k == b_n || (buf->b.a[z].tn_rev_qk>>32) != (buf->b.a[k].tn_rev_qk>>32)) {
@@ -6360,7 +6369,8 @@ void integer_gen_ovlp(ul_resolve_t *uidx, integer_t *buf, uint32_t qid, ul2ul_it
     //     // v = ((uint32_t)str->a[str->cn-1]);
     //     // nv = asg_arc_n(g, v); av = asg_arc_a(g, v);
     // }
-    o->cn = o->n;
+    o->cn = o->n; 
+    // if(ovn == o->cn) o->is_consist = 1;
     if(o->n <= 0) return;
 }
 
@@ -6660,6 +6670,32 @@ void gen_integer_normalize(ul_resolve_t *uidx)
     }
 }
 
+uint64_t dd_path_connect(asg_t *g, ul_str_t *str)
+{
+    if(str->cn < 2) return 1;///actually should return 1, doesn't matter
+    uint64_t i, v, w, nv, k; asg_arc_t *av;
+    v = ((uint32_t)str->a[0]);
+    for (i = 1; i < str->cn; i++) {
+        w = ((uint32_t)str->a[i]);
+
+        nv = asg_arc_n(g, v); av = asg_arc_a(g, v);
+        for (k = 0; k < nv; k++) {
+            if(av[k].del) continue;
+            if(av[k].v == w) break;
+        }
+        if(k >= nv) return 0;
+
+        nv = asg_arc_n(g, w^1); av = asg_arc_a(g, w^1);
+        for (k = 0; k < nv; k++) {
+            if(av[k].del) continue;
+            if(av[k].v == (v^1)) break;
+        }
+        if(k >= nv) return 0;
+
+        v = w;
+    }
+    return 1;
+}
 
 void clip_integer_chimeric(ul_resolve_t *uidx, uint32_t qid, ul2ul_item_t *o, ul2ul_idx_t *ul2, integer_t *buf, int64_t min_dp)
 {
@@ -6732,6 +6768,14 @@ void clip_integer_chimeric(ul_resolve_t *uidx, uint32_t qid, ul2ul_item_t *o, ul
         if(is_left == 0 && is_right == 0) is_del = 1;
         if(is_left && is_right && is_middle) is_del = 1;
     }
+
+    // if(is_del && str->cn > 1 && o->is_consist && dd_path_connect(uidx->l1_ug->g, str)) {
+    //     is_del = 0;
+    // }
+
+    // fprintf(stderr, "[M::%s] qid::%u, o->is_consist::%u, str->cn::%u, is_connect::%lu\n", 
+    //     __func__, qid, o->is_consist, str->cn, dd_path_connect(uidx->l1_ug->g, str));
+
     /**
     if(!is_del) {
         for (k = 0; k < str->cn; k++) {
@@ -12659,6 +12703,7 @@ typedef struct {
     uint64_t int_an;
     uint64_t *ridx_a; 
     uint64_t *ridx;
+    // uint8_t is_double_check;
 } unique_bridge_check_t;
 
 uint64_t get_arc_support(ul_resolve_t *uidx, uint64_t v, uint64_t w)
@@ -12767,6 +12812,53 @@ uint64_t get_arc_support_chain(ul_resolve_t *uidx, uint64_t *a, uint64_t a_n, us
     return occ;
 }
 
+// uint64_t is_consist_ul(ul_resolve_t *uidx, uint64_t *a, uint64_t a_n, usg_t *ng)
+// {
+//     if(a_n <= 0) return 0;
+//     uint64_t k, v, w, z, *hid_a, hid_n, ulid, i; ul2ul_item_t *it;;
+//     ul_str_idx_t *str_idx = &(uidx->pstr);
+//     for (k = 0; k < a_n; k++) {
+//         v = (ng->a[a[k]>>1].mm<<1)|(a[k]&1);
+//         hid_a = str_idx->occ.a + str_idx->idx.a[v>>1];
+//         hid_n = str_idx->idx.a[(v>>1)+1] - str_idx->idx.a[v>>1];
+//         for (z = 0; z < hid_n; z++) {
+//             ulid = hid_a[z]>>32;
+//             if(ulid < uidx->uovl.uln) {
+//                 it = get_ul_ovlp(&(uidx->uovl), ulid, 1);
+//                 if(!it) continue;
+//                 assert(uidx->pstr.str.a[ulid].cn > 1);
+//                 if(it->is_consist == 0) return 0;
+//             }
+//         }
+//     }
+
+//     uint64_t nv; asg_arc_t *av;
+//     v = (ng->a[a[0]>>1].mm<<1)|(a[0]&1);
+//     for (i = 1; i < a_n; i++) {
+//         w = (ng->a[a[i]>>1].mm<<1)|(a[i]&1);
+
+//         nv = asg_arc_n(uidx->l1_ug->g, v); 
+//         av = asg_arc_a(uidx->l1_ug->g, v);
+//         for (k = 0; k < nv; k++) {
+//             if(av[k].del) continue;
+//             if(av[k].v == w) break;
+//         }
+//         if(k >= nv) return 0;
+
+//         nv = asg_arc_n(uidx->l1_ug->g, w^1); 
+//         av = asg_arc_a(uidx->l1_ug->g, w^1);
+//         for (k = 0; k < nv; k++) {
+//             if(av[k].del) continue;
+//             if(av[k].v == (v^1)) break;
+//         }
+//         if(k >= nv) return 0;
+
+//         v = w;
+//     }
+
+//     return 1;
+// }
+
 static void worker_unique_bridge_check_s(void *data, long i, int tid) // callback for kt_for()
 {
     unique_bridge_check_t *uaux = (unique_bridge_check_t *)data;
@@ -12783,7 +12875,9 @@ static void worker_unique_bridge_check_s(void *data, long i, int tid) // callbac
             // (ng->a[integer_seq[k]>>1].mm<<1)|(integer_seq[k]&1));
             nse = get_arc_support_chain(uaux->uidx, integer_seq+k-1, 2, ng);
             if(nse < unique_bridge_occ) {
-                gidx[i] |= ((uint64_t)0x8000000000000000); return;
+                // if((!(uaux->is_double_check)) || (!is_consist_ul(uaux->uidx, integer_seq+k-1, 2, ng))) {
+                    gidx[i] |= ((uint64_t)0x8000000000000000); return;
+                // }
             }
         }
         if(IF_HOM((integer_seq[k]>>1), *bub)) continue;
@@ -12793,7 +12887,9 @@ static void worker_unique_bridge_check_s(void *data, long i, int tid) // callbac
             // nse = get_arc_support(uaux->uidx, v, w);
             nse = get_arc_support_chain(uaux->uidx, integer_seq+vk, wk+1-vk, ng);
             if(nse < unique_bridge_occ) {
-                gidx[i] |= ((uint64_t)0x8000000000000000); return;
+                // if((!(uaux->is_double_check)) || (!is_consist_ul(uaux->uidx, integer_seq+vk, wk+1-vk, ng))) {
+                    gidx[i] |= ((uint64_t)0x8000000000000000); return;
+                // }
             }
         }
         vk = wk;
@@ -12808,6 +12904,10 @@ uint32_t ava_pass_unique_bridge_cov(ul_resolve_t *uidx, usg_t *g, asg64_v *b64, 
     uaux.uidx = uidx; uaux.integer_seq = integer_seq; 
     uaux.gidx = b64->a + g_s; uaux.gidx_n = g_e - g_s;
     uaux.interval_idx = b64->a; uaux.ng = g;
+    ///if tip_l == 0, it is more likely to be right, so give more chance by double checking
+    // if(!tip_l) uaux.is_double_check = 1;
+    // else uaux.is_double_check = 0;
+
     kt_for(uidx->str_b.n_thread, worker_unique_bridge_check_s, (&uaux), g_e-g_s);///seq->n > 1
 
     for (i = g_s; i < g_e; i++) {///available intervals within the same cluster
@@ -12849,8 +12949,7 @@ uint8_t *ff, uint32_t *ng_occ, uint32_t max_ext)
         if(k == b64->n || (b64->a[k]>>32) != (b64->a[i]>>32)) {
             tip_l = ava_pass_unique_bridge_tips(ng, b64, i, k, int_a, ff, max_ext);
             if(tip_l < max_ext) {///no long tip
-                if(ava_pass_unique_bridge_cov(uidx, ng, b64, i, k, int_a, tip_l)) 
-                {
+                if(/**(!tip_l) || (**/ava_pass_unique_bridge_cov(uidx, ng, b64, i, k, int_a, tip_l)) {
                     for (z = i; z < k; z++) {
                         b64->a[mm++] = b64->a[z];
                     }
@@ -15730,11 +15829,11 @@ void u2g_threading(ul_resolve_t *uidx, ulg_opt_t *ulopt, uint64_t cov_cutoff, ui
         for (z = 0; z < ub->n; z++) {///all unreliable arcs
             i = ub->a[z]; tm = 1; p = get_usg_arc(ng, seq->a[i].v, seq->a[i+1].v);
             if(p) {
-                if(p->ou < (uint64_t)tm) p->ou = tm;
+                if(p->ou < (uint64_t)tm) p->ou = tm;///since the initial ou is 0, p->ou = 1
                 pushp_usg_arc_mm(ng, seq->a[i].v, seq->a[i+1].v, k, i); 
 
                 p = get_usg_arc(ng, seq->a[i+1].v^1, seq->a[i].v^1);
-                if(p->ou < (uint64_t)tm) p->ou = tm;
+                if(p->ou < (uint64_t)tm) p->ou = tm;///since the initial ou is 0, p->ou = 1
                 pushp_usg_arc_mm(ng, seq->a[i+1].v^1, seq->a[i].v^1, k, i); 
             } 
             ///give up unreliable arcs if they are not adjacent
