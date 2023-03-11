@@ -16488,7 +16488,7 @@ ul2ul_idx_t *gen_ul2ul(ul_resolve_t *uidx, ug_opt_t *uopt, ulg_opt_t *ulopt, uin
     u2g_clean(uidx, ulopt, keep_raw_utg, is_bridg);
     // renew_ul2_utg(uidx);
 
-    output_integer_graph(uidx, z->i_ug, asm_opt.output_file_name, 0);
+    // output_integer_graph(uidx, z->i_ug, asm_opt.output_file_name, 0);
     return z;
 }
 
