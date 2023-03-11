@@ -645,6 +645,44 @@ static void worker_ovec(void *data, long i, int tid)
 }
 
 
+static void worker_ovec_cal0(void *data, long i, int tid)
+{
+	ha_ovec_buf_t *b = ((ha_ovec_buf_t**)data)[tid];
+	int fully_cov, abnormal;
+    // if(i != 33) return;
+    // fprintf(stderr, "[M::%s-beg] rid->%ld\n", __func__, i);
+    // if (memcmp("m64012_190920_173625/88015004/ccs", Get_NAME((R_INF), i), Get_NAME_LENGTH((R_INF),i)) == 0) {
+    //     fprintf(stderr, "[M::%s-beg] rid->%ld\n", __func__, i);
+    // } else {
+    //     return;
+    // }
+
+    ha_get_candidates_interface(b->ab, i, &b->self_read, &b->olist, &b->olist_hp, &b->clist, 
+    0.02, asm_opt.max_n_chain, 1, NULL/**&(b->k_flag)**/, &b->r_buf, &(R_INF.paf[i]), &(R_INF.reverse_paf[i]), &(b->tmp_region), NULL, &(b->sp));
+
+	clear_Cigar_record(&b->cigar1);
+	clear_Round2_alignment(&b->round2);
+
+	correct_overlap(&b->olist, &R_INF, &b->self_read, &b->correct, &b->ovlp_read, &b->POA_Graph, &b->DAGCon,
+			&b->cigar1, &b->hap, &b->round2, &b->r_buf, &(b->tmp_region.w_list), 0, 0, &fully_cov, &abnormal);
+
+	b->num_read_base += b->self_read.length;
+	b->num_correct_base += b->correct.corrected_base;
+	b->num_recorrect_base += b->round2.dumy.corrected_base;
+
+	
+
+	R_INF.paf[i].is_fully_corrected = 0;
+	R_INF.paf[i].is_abnormal = abnormal;
+    R_INF.trio_flag[i] = AMBIGU;
+    
+    push_final_overlaps(&(R_INF.paf[i]), R_INF.reverse_paf, &b->olist, 1);
+    push_final_overlaps(&(R_INF.reverse_paf[i]), R_INF.reverse_paf, &b->olist, 2);
+
+    if(het_cnt) het_cnt[i] = get_het_cnt(&b->hap);
+}
+
+
 static void worker_ovec_related_reads(void *data, long i, int tid)
 {
 	ha_ovec_buf_t *b = ((ha_ovec_buf_t**)data)[tid];
@@ -980,6 +1018,45 @@ void ha_overlap_and_correct(int round)
 	}
 	free(e);
     ///debug_print_pob_regions();
+}
+
+void ha_overlap_cal(int round)
+{
+	int i, hom_cov, het_cov;
+	ha_ovec_buf_t **b;
+    ha_flt_tab_hp = ha_idx_hp = NULL;
+
+	// overlap and correct reads
+	CALLOC(b, asm_opt.thread_num);
+	for (i = 0; i < asm_opt.thread_num; ++i)
+		b[i] = ha_ovec_init(0, (round == asm_opt.number_of_round - 1),0);
+    if(ha_idx) hom_cov = asm_opt.hom_cov;
+	if(ha_idx == NULL) ha_idx = ha_pt_gen(&asm_opt, ha_flt_tab, round == 0? 0 : 1, 0, &R_INF, &hom_cov, &het_cov); // build the index
+	///debug_adapter(&asm_opt, &R_INF);
+    if (round == 0 && ha_flt_tab == 0) // then asm_opt.hom_cov hasn't been updated
+		ha_opt_update_cov(&asm_opt, hom_cov);
+    het_cnt = NULL;
+    if(round == asm_opt.number_of_round-1 && asm_opt.is_dbg_het_cnt) CALLOC(het_cnt, R_INF.total_reads);
+    // fprintf(stderr, "[M::%s-start]\n", __func__);
+	kt_for(asm_opt.thread_num, worker_ovec_cal0, b, R_INF.total_reads);///debug_for_fix
+    // fprintf(stderr, "[M::%s-end]\n", __func__);
+
+	ha_pt_destroy(ha_idx);
+	ha_idx = NULL;
+
+    if(het_cnt) {
+        print_het_cnt_log(het_cnt); free(het_cnt); het_cnt = NULL;
+    }
+
+	// collect statistics
+	for (i = 0; i < asm_opt.thread_num; ++i) {
+		asm_opt.num_bases += b[i]->num_read_base;
+		asm_opt.num_corrected_bases += b[i]->num_correct_base;
+		asm_opt.num_recorrected_bases += b[i]->num_recorrect_base;
+		asm_opt.mem_buf += ha_ovec_mem(b[i], NULL);
+		ha_ovec_destroy(b[i]);
+	}
+	free(b);
 }
 
 
@@ -1518,6 +1595,52 @@ void Output_PAF()
     fprintf(stderr, "PAF has been written.\n");
 }
 
+
+void Output_PAF0(ma_hit_t_alloc* sources, const char *prefix)
+{
+    fprintf(stderr, "Writing PAF to disk ...... \n");
+    char* paf_name = (char*)malloc(strlen(asm_opt.output_file_name)+strlen(prefix)+50);
+    sprintf(paf_name, "%s.%s.ovlp.paf", asm_opt.output_file_name, prefix);
+    FILE* output_file = fopen(paf_name, "w");
+    uint64_t i, j;
+
+    for (i = 0; i < R_INF.total_reads; i++)
+    {
+        for (j = 0; j < sources[i].length; j++)
+        {
+            fwrite(Get_NAME(R_INF, Get_qn(sources[i].buffer[j])), 1, 
+            Get_NAME_LENGTH(R_INF, Get_qn(sources[i].buffer[j])), output_file);
+            fwrite("\t", 1, 1, output_file);
+            fprintf(output_file, "%lu\t", (unsigned long)Get_READ_LENGTH(R_INF, Get_qn(sources[i].buffer[j])));
+            fprintf(output_file, "%d\t", Get_qs(sources[i].buffer[j]));
+            fprintf(output_file, "%d\t", Get_qe(sources[i].buffer[j]));
+            if(sources[i].buffer[j].rev)
+            {
+                fprintf(output_file, "-\t");
+            }
+            else
+            {
+                fprintf(output_file, "+\t");
+            }
+            fwrite(Get_NAME(R_INF, Get_tn(sources[i].buffer[j])), 1, 
+            Get_NAME_LENGTH(R_INF, Get_tn(sources[i].buffer[j])), output_file);
+            fwrite("\t", 1, 1, output_file);
+            fprintf(output_file, "%lu\t", (unsigned long)Get_READ_LENGTH(R_INF, Get_tn(sources[i].buffer[j])));
+            fprintf(output_file, "%d\t", Get_ts(sources[i].buffer[j]));
+            fprintf(output_file, "%d\t", Get_te(sources[i].buffer[j]));
+            fprintf(output_file, "%d\t", sources[i].buffer[j].ml);
+            fprintf(output_file, "%d\t", sources[i].buffer[j].bl);
+            fprintf(output_file, "255\n");
+
+        }
+    }
+
+    free(paf_name);
+    fclose(output_file);
+
+    fprintf(stderr, "PAF has been written.\n");
+}
+
 int check_cluster(uint64_t* list, long long listLen, ma_hit_t_alloc* paf, float threshold)
 {
     long long i, k;
@@ -1745,6 +1868,37 @@ void ug_idx_build(ma_ug_t *ug, int hap_n)
     ha_pt_destroy(ha_idx);
     asm_opt.flag += flag;
     exit(1);
+}
+
+int ha_assemble_ovec(void)
+{
+	extern void ha_extract_print_list(const All_reads *rs, int n_rounds, const char *o);
+	int r = 0, hom_cov = -1;
+	
+    ha_flt_tab = ha_idx = NULL;
+
+    // construct hash table for high occurrence k-mers
+    if (!(asm_opt.flag & HA_F_NO_KMER_FLT) && ha_flt_tab == NULL) 
+    {
+        ha_flt_tab = ha_ft_gen(&asm_opt, &R_INF, &hom_cov, 0);
+        ha_opt_update_cov(&asm_opt, hom_cov);
+    }
+    // error correction
+    assert(asm_opt.number_of_round > 0);
+    ha_opt_reset_to_round(&asm_opt, r); // this update asm_opt.roundID and a few other fields
+    ha_overlap_cal(r);
+    fprintf(stderr, "[M::%s] size of buffer: %.3fGB\n", __func__, asm_opt.mem_buf / 1073741824.0);
+    
+    
+    ha_print_ovlp_stat(R_INF.paf, R_INF.reverse_paf, R_INF.total_reads);
+    ha_ft_destroy(ha_flt_tab);
+
+    Output_PAF0(R_INF.paf, "0");
+    Output_PAF0(R_INF.reverse_paf, "1");
+    if (asm_opt.flag & HA_F_WRITE_PAF) Output_PAF();
+
+	destory_All_reads(&R_INF);
+	return 0;
 }
 
 int ha_assemble(void)

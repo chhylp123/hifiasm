@@ -57,6 +57,7 @@ static ko_longopt_t long_options[] = {
     { "ul-round",     ko_required_argument, 342},
     { "prt-raw",     ko_no_argument, 343},
     { "integer-correct",     ko_required_argument, 344},
+    { "dbg-ovec",     ko_no_argument, 345},
 	{ 0, 0, 0 }
 };
 
@@ -269,6 +270,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->ul_clean_round = 1;
     asm_opt->prt_dbg_gfa = 0;
     asm_opt->integer_correct_round = 0;
+    asm_opt->dbg_ovec_cal = 0;
 }
 
 void destory_enzyme(enzyme* f)
@@ -804,6 +806,7 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         else if (c == 342) asm_opt->ul_clean_round = atol(opt.arg);
         else if (c == 343) asm_opt->prt_dbg_gfa = 1;
         else if (c == 344) asm_opt->integer_correct_round = atol(opt.arg);
+        else if (c == 345) asm_opt->dbg_ovec_cal = 1;
         else if (c == 'l') {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
             asm_opt->purge_level_primary = asm_opt->purge_level_trio = atoi(opt.arg);
         }

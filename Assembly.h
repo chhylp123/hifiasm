@@ -48,7 +48,7 @@ void ug_idx_build(ma_ug_t *ug, int hap_n);
 ha_ovec_buf_t *ha_ovec_init(int is_final, int save_ov, int is_ug);
 ha_ovec_buf_t *ha_ovec_buf_init(void *km, int is_final, int save_ov, int is_ug);
 void ha_ovec_destroy(ha_ovec_buf_t *b);
-int64_t ha_ovec_mem(const ha_ovec_buf_t *b, int64_t *mem_a)
-;
+int64_t ha_ovec_mem(const ha_ovec_buf_t *b, int64_t *mem_a);
+int ha_assemble_ovec(void);
 
 #endif
