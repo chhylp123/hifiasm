@@ -206,6 +206,7 @@ typedef struct
 extern all_ul_t UL_INF;
 extern all_ul_t ULG_INF;
 // extern uint32_t *het_cnt;
+// extern uint32_t debug_out;
 
 void init_All_reads(All_reads* r);
 void malloc_All_reads(All_reads* r);

@@ -1206,6 +1206,7 @@ void ma_hit_contained_advance(ma_hit_t_alloc* sources, long long n_read, ma_sub_
 R_to_U* ruIndex, int max_hang, int min_ovlp);
 void hic_clean_adv(asg_t *sg, ug_opt_t *uopt);
 void update_ug_ou(ma_ug_t *ug, asg_t *sg);
+int asg_arc_del_trans_ul(asg_t *g, int fuzz);
 
 #define JUNK_COV 5
 #define DISCARD_RATE 0.8

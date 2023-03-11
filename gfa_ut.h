@@ -3,6 +3,7 @@
 #include "Overlaps.h"
 #include "hic.h"
 
+#define is_contain_r(ri, z) (((z)<(ri).len)&&((ri).index[(z)]!=(uint32_t)(-1))&&(!((ri).index[(z)]>>31)))
 
 typedef struct {
 	asg_t *g; 
@@ -37,5 +38,7 @@ void post_rescue(ug_opt_t *uopt, asg_t *sg, ma_hit_t_alloc *src, ma_hit_t_alloc 
 bubble_type *gen_bubble_chain(asg_t *sg, ma_ug_t *ug, ug_opt_t *uopt, uint8_t **ir_het);
 void filter_sg_by_ug(asg_t *rg, ma_ug_t *ug, ug_opt_t *uopt);
 void ug_ext_gfa(ug_opt_t *uopt, asg_t *sg, uint32_t max_len);
+void update_sg_uo(asg_t *g, ma_hit_t_alloc *src);
+uint32_t get_arcs(asg_t *g, uint32_t v, uint32_t* idx, uint32_t idx_n);
 
 #endif
