@@ -58,6 +58,9 @@ static ko_longopt_t long_options[] = {
     { "prt-raw",     ko_no_argument, 343},
     { "integer-correct",     ko_required_argument, 344},
     { "dbg-ovec",     ko_no_argument, 345},
+    { "path-max",     ko_required_argument, 346},
+    { "path-min",     ko_required_argument, 347},
+    // { "path-round",     ko_required_argument, 348},
 	{ 0, 0, 0 }
 };
 
@@ -160,6 +163,12 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "                 error rate of Ultra-Long reads [%.3g]\n", asm_opt->ul_error_rate);
     fprintf(stderr, "    --ul-tip     INT\n");
     fprintf(stderr, "                 remove tip unitigs composed of <=INT reads for the UL assembly [%d]\n", asm_opt->max_short_ul_tip);
+    fprintf(stderr, "    --path-max   FLOAT\n");
+    fprintf(stderr, "                 max path drop ratio [%.2g]; higher number may make the assembly cleaner\n", asm_opt->max_path_drop_rate);
+    fprintf(stderr, "                 but may lead to more misassemblies\n");
+    fprintf(stderr, "    --path-min   FLOAT\n");
+    fprintf(stderr, "                 min path drop ratio [%.2g]; higher number may make the assembly cleaner\n", asm_opt->min_path_drop_rate);
+    fprintf(stderr, "                 but may lead to more misassemblies\n");
     // fprintf(stderr, "    --low-het    enable it for genomes with very low het heterozygosity rate (<0.0001%%)\n");
 
     fprintf(stderr, "Example: ./hifiasm -o NA12878.asm -t 32 NA12878.fq.gz\n");
@@ -271,6 +280,8 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->prt_dbg_gfa = 0;
     asm_opt->integer_correct_round = 0;
     asm_opt->dbg_ovec_cal = 0;
+    asm_opt->min_path_drop_rate = 0.2;
+    asm_opt->max_path_drop_rate = 0.6;
 }
 
 void destory_enzyme(enzyme* f)
@@ -807,6 +818,8 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         else if (c == 343) asm_opt->prt_dbg_gfa = 1;
         else if (c == 344) asm_opt->integer_correct_round = atol(opt.arg);
         else if (c == 345) asm_opt->dbg_ovec_cal = 1;
+        else if (c == 346) asm_opt->max_path_drop_rate = atof(opt.arg);
+        else if (c == 347) asm_opt->min_path_drop_rate = atof(opt.arg);
         else if (c == 'l') {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
             asm_opt->purge_level_primary = asm_opt->purge_level_trio = atoi(opt.arg);
         }

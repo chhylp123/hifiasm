@@ -5,7 +5,7 @@
 #include <pthread.h>
 #include <stdint.h>
 
-#define HA_VERSION "0.19.0-r558"
+#define HA_VERSION "0.19.1-r559"
 
 #define VERBOSE 0
 
@@ -104,6 +104,9 @@ typedef struct {
     float purge_simi_thres;
     float trans_base_rate;
     float trans_base_rate_sec;
+    float min_path_drop_rate;
+    float max_path_drop_rate;
+    // uint64_t path_clean_round;
 
     ///float purge_simi_rate_hic;
 

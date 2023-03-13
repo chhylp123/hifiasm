@@ -34019,6 +34019,15 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
 
     output_contig_graph_primary_pre(sg, coverage_cut, o_file, sources, reverse_sources, 
         asm_opt.small_pop_bubble_size, asm_opt.max_short_tip, ruIndex, max_hang_length, mini_overlap_length, &uopt);
+    
+    // if(asm_opt.ar) {
+    //     char *op_file = get_outfile_name(o_file);
+    //     ul_clean_gfa(&uopt, sg, sources, reverse_sources, ruIndex, clean_round, min_ovlp_drop_ratio, max_ovlp_drop_ratio, 
+    //     0.6, asm_opt.max_short_tip, gap_fuzz, &b_mask_t, 0/**!!asm_opt.ar**/, ha_opt_triobin(&asm_opt), UL_COV_THRES, op_file);
+    //     output_contig_graph_primary_pre(sg, coverage_cut, op_file, sources, reverse_sources, 
+    //     asm_opt.small_pop_bubble_size, asm_opt.max_short_tip, ruIndex, max_hang_length, mini_overlap_length, &uopt);
+    //     free(op_file);
+    // }
     /**
     if (asm_opt.flag & HA_F_VERBOSE_GFA)
     {

@@ -15934,11 +15934,11 @@ void u2g_clean(ul_resolve_t *uidx, ulg_opt_t *ulopt, uint32_t keep_raw_utg, uint
     // char sb[1000]; 
     // output_integer_graph(uidx, iug, "ig_h0", 0);
 
-
+    // fprintf(stderr, "\n[M::%s::] max_path_drop_ratio::%f, min_path_drop_ratio::%f\n", __func__, ulopt->max_path_drop_ratio, ulopt->min_path_drop_ratio);
     for (ss = 0; ss < 2; ss++) {
         for (i = 0, drop = ulopt->min_path_drop_ratio; i < ulopt->clean_round; i++, drop += step) {
             if(drop > ulopt->max_path_drop_ratio) drop = ulopt->max_path_drop_ratio;
-            // fprintf(stderr, "\n[M::%s::] Starting round-%ld, drop::%f\n", __func__, i, drop);
+            // fprintf(stderr, "[M::%s::] Starting round-%ld, drop::%f\n", __func__, i, drop);
             cnt = 1; topo_level = 2; mm_tip = ulopt->max_tip;
             while (cnt) {
                 cnt = 0;
@@ -17246,11 +17246,11 @@ ul_renew_t *ropt, const char *bin_file, uint64_t free_uld, uint64_t is_bridg, ui
     // fprintf(stderr, "2[M::%s]\n", __func__);
     // exit(1);
 
-    char* gfa_name = NULL; MALLOC(gfa_name, strlen(o_file)+strlen(bin_file)+50);
-    sprintf(gfa_name, "%s.%s", o_file, bin_file);
-    print_debug_gfa(sg, init_ug, uopt->coverage_cut, gfa_name, uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 0, 0, 0);
-    print_debug_gfa(sg, init_ug, uopt->coverage_cut, gfa_name, uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 0, 0, 1);
-    free(gfa_name);
+    // char* gfa_name = NULL; MALLOC(gfa_name, strlen(o_file)+strlen(bin_file)+50);
+    // sprintf(gfa_name, "%s.%s", o_file, bin_file);
+    // print_debug_gfa(sg, init_ug, uopt->coverage_cut, gfa_name, uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 0, 0, 0);
+    // print_debug_gfa(sg, init_ug, uopt->coverage_cut, gfa_name, uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 0, 0, 1);
+    // free(gfa_name);
     
     
     filter_sg_by_ug(sg, init_ug, uopt);
@@ -17274,7 +17274,7 @@ ul_renew_t *ropt, const char *bin_file, uint64_t free_uld, uint64_t is_bridg, ui
     // }
     
     ul_re_correct(uidx, asm_opt.integer_correct_round/**3**/); 
-    init_ulg_opt_t(&uu, uopt, clean_round, 0.2, 0.6, min_ovlp_drop_ratio, max_ovlp_drop_ratio, 0.55, max_tip, max_ul_tip, b_mask_t, is_trio);
+    init_ulg_opt_t(&uu, uopt, clean_round, asm_opt.min_path_drop_rate, asm_opt.max_path_drop_rate, min_ovlp_drop_ratio, max_ovlp_drop_ratio, 0.55, max_tip, max_ul_tip, b_mask_t, is_trio);
     // print_debug_gfa(sg, init_ug, uopt->coverage_cut, "UL.debug0", uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 0, 0, 1);
     /**ul2ul_idx_t *u2o = **/gen_ul2ul(uidx, uopt, &uu, 0, is_bridg);
     // print_ul_alignment(init_ug, &UL_INF, 47072, "after-3");
