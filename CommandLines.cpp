@@ -100,7 +100,9 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "    -x FLOAT     max overlap drop ratio [%.2g]\n", asm_opt->max_drop_rate);
     fprintf(stderr, "    -y FLOAT     min overlap drop ratio [%.2g]\n", asm_opt->min_drop_rate);
     fprintf(stderr, "    -i           ignore saved read correction and overlaps\n");
-    fprintf(stderr, "    -u           disable post-join step for contigs which may improve N50\n");
+    fprintf(stderr, "    -u           post-join step for contigs which may improve N50; 0 to disable; 1 to enable\n");
+    fprintf(stderr, "                 [%u] and [%u] in default for the UL+HiFi assembly and the HiFi assembly, respectively\n",
+                                      asm_opt->ul_pst_join, asm_opt->hifi_pst_join);
     fprintf(stderr, "    --hom-cov    INT\n");
     fprintf(stderr, "                 homozygous read coverage [auto]\n");
     fprintf(stderr, "    --lowQ       INT\n");
@@ -282,6 +284,8 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->dbg_ovec_cal = 0;
     asm_opt->min_path_drop_rate = 0.2;
     asm_opt->max_path_drop_rate = 0.6;
+    asm_opt->hifi_pst_join = 1;
+    asm_opt->ul_pst_join = 0;
 }
 
 void destory_enzyme(enzyme* f)
@@ -719,7 +723,7 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
 
     int c;
 
-    while ((c = ketopt(&opt, argc, argv, 1, "hvt:o:k:w:m:n:r:a:b:z:x:y:p:c:d:M:P:if:D:FN:1:2:3:4:5:l:s:O:eu", long_options)) >= 0) {
+    while ((c = ketopt(&opt, argc, argv, 1, "hvt:o:k:w:m:n:r:a:b:z:x:y:p:c:d:M:P:if:D:FN:1:2:3:4:5:l:s:O:eu:", long_options)) >= 0) {
         if (c == 'h')
         {
             Print_H(asm_opt);
@@ -756,8 +760,14 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         else if (c == 'm') asm_opt->large_pop_bubble_size = atoll(opt.arg);
         else if (c == 'n') asm_opt->max_short_tip = atoll(opt.arg);
         else if (c == 'e') asm_opt->flag |= HA_F_BAN_ASSEMBLY;
-        else if (c == 'u') asm_opt->flag |= HA_F_BAN_POST_JOIN;
-		else if (c == 301) asm_opt->flag |= HA_F_VERBOSE_GFA;
+        else if (c == 'u') {
+            if(atoll(opt.arg)) {
+                asm_opt->hifi_pst_join = asm_opt->ul_pst_join = 1;
+            } else {
+                asm_opt->hifi_pst_join = asm_opt->ul_pst_join = 0;
+            }
+        }
+        else if (c == 301) asm_opt->flag |= HA_F_VERBOSE_GFA;
 		else if (c == 302) asm_opt->flag |= HA_F_WRITE_PAF;
 		else if (c == 303) asm_opt->flag |= HA_F_WRITE_EC;
 		else if (c == 304) asm_opt->flag |= HA_F_SKIP_TRIOBIN;
@@ -847,6 +857,16 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
     }
 
     get_queries(argc, argv, &opt, asm_opt);
+
+    c = ((asm_opt->ar)?(asm_opt->ul_pst_join):(asm_opt->hifi_pst_join));
+    if(c) {
+        if((asm_opt->flag&HA_F_BAN_POST_JOIN)) asm_opt->flag-=HA_F_BAN_POST_JOIN;
+    } else {
+        asm_opt->flag |= HA_F_BAN_POST_JOIN;
+    }
+
+    // fprintf(stderr, "[M::%s::] post join::%u\n", __func__, (uint32_t)(!(asm_opt->flag & HA_F_BAN_POST_JOIN)));
+    // exit(1);
 
     return check_option(asm_opt);
 }
