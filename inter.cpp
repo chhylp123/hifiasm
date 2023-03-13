@@ -19599,7 +19599,7 @@ int32_t mini_cut, int32_t chain_cut, int32_t keep_unsymm_arc, ma_ug_t *ug, asg_t
 	if(bub) {
 		opt->bub = bub;
 	} else {
-		opt->bub = gen_bubble_chain(sg, ug, uopt, &bf); free(bf);
+		opt->bub = gen_bubble_chain(sg, ug, uopt, &bf, 0); free(bf);
 	}
 }
 

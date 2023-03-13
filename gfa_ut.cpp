@@ -2995,7 +2995,7 @@ void ug_ext_gfa(ug_opt_t *uopt, asg_t *sg, uint32_t max_len)
 }
 
 
-bubble_type *gen_bubble_chain(asg_t *sg, ma_ug_t *ug, ug_opt_t *uopt, uint8_t **ir_het)
+bubble_type *gen_bubble_chain(asg_t *sg, ma_ug_t *ug, ug_opt_t *uopt, uint8_t **ir_het, uint8_t avoid_het)
 {
     kvec_asg_arc_t_warp new_rtg_edges;
     kv_init(new_rtg_edges.a);
@@ -3013,7 +3013,14 @@ bubble_type *gen_bubble_chain(asg_t *sg, ma_ug_t *ug, ug_opt_t *uopt, uint8_t **
     // fprintf(stderr, "1[M::%s]\n", __func__);
     CALLOC(bub, 1); (*ir_het) = cov->t_ch->ir_het; 
     cov->t_ch->ir_het = NULL; cov->is_r_het = NULL;
-    identify_bubbles(ug, bub, (*ir_het), NULL);
+    if(!avoid_het) {
+        identify_bubbles(ug, bub, (*ir_het), NULL);
+    } else {
+        uint8_t *pr_het; CALLOC(pr_het, sg->n_seq);
+        identify_bubbles_recal_poy(sg, ug, bub, pr_het, uopt->sources, uopt->ruIndex, NULL);
+        free(pr_het);
+    }
+    
     // fprintf(stderr, "2[M::%s]\n", __func__);
     kv_destroy(new_rtg_edges.a); destory_hap_cov_t(&cov);
     if(asm_opt.purge_level_primary == 0) {///all nodes are het
@@ -13621,7 +13628,12 @@ void renew_usg_t_bub(ul_resolve_t *uidx, usg_t *ng, uint32_t *id_map, uint8_t *f
     // fprintf(stderr, "[M::%s] homozygous read coverage threshold: %d\n", __func__, asm_opt.hom_global_coverage_set?
     //                         asm_opt.hom_global_coverage:(int)(((double)asm_opt.hom_global_coverage)/((double)HOM_PEAK_RATE)));
     // identify_bubbles(ug, uidx->bub, uidx->r_het, NULL);
-    identify_bubbles_recal(uidx->sg, ug, uidx->bub, uidx->r_het, uidx->uopt->sources, uidx->uopt->ruIndex, NULL);
+    if(asm_opt.polyploidy <= 2) {
+        identify_bubbles_recal(uidx->sg, ug, uidx->bub, uidx->r_het, uidx->uopt->sources, uidx->uopt->ruIndex, NULL);
+    } else {
+        identify_bubbles_recal_poy(uidx->sg, ug, uidx->bub, uidx->r_het, uidx->uopt->sources, uidx->uopt->ruIndex, NULL);
+    }
+    
     // fprintf(stderr, "0[M::%s::] f[51]::%u\n", __func__, ff[51]);
     for (i = 0; i < ng->n; i++) {
         if(id_map[i] != (uint32_t)-1) {
@@ -15922,11 +15934,11 @@ void u2g_clean(ul_resolve_t *uidx, ulg_opt_t *ulopt, uint32_t keep_raw_utg, uint
     // char sb[1000]; 
     // output_integer_graph(uidx, iug, "ig_h0", 0);
 
-
+    // fprintf(stderr, "\n[M::%s::] max_path_drop_ratio::%f, min_path_drop_ratio::%f\n", __func__, ulopt->max_path_drop_ratio, ulopt->min_path_drop_ratio);
     for (ss = 0; ss < 2; ss++) {
         for (i = 0, drop = ulopt->min_path_drop_ratio; i < ulopt->clean_round; i++, drop += step) {
             if(drop > ulopt->max_path_drop_ratio) drop = ulopt->max_path_drop_ratio;
-            // fprintf(stderr, "\n[M::%s::] Starting round-%ld, drop::%f\n", __func__, i, drop);
+            // fprintf(stderr, "[M::%s::] Starting round-%ld, drop::%f\n", __func__, i, drop);
             cnt = 1; topo_level = 2; mm_tip = ulopt->max_tip;
             while (cnt) {
                 cnt = 0;
@@ -17245,7 +17257,7 @@ ul_renew_t *ropt, const char *bin_file, uint64_t free_uld, uint64_t is_bridg, ui
     // fprintf(stderr, "-0-[M::%s]\tUL_INF.a[25].rlen::%u\n", __func__, UL_INF.a[25].rlen);
     // print_debug_gfa(sg, init_ug, uopt->coverage_cut, "UL.debug", uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 0, 0, 0);
     // print_ul_alignment(init_ug, &UL_INF, 47072, "after-0");
-    bub = gen_bubble_chain(sg, init_ug, uopt, &r_het);
+    bub = gen_bubble_chain(sg, init_ug, uopt, &r_het, ((asm_opt.polyploidy>2)?1:0));
     // fprintf(stderr, "4[M::%s]\n", __func__);
     // print_ul_alignment(init_ug, &UL_INF, 47072, "after-1");
     ul_resolve_t *uidx = init_ul_resolve_t(sg, init_ug, bub, &UL_INF, uopt, r_het);
@@ -17262,7 +17274,7 @@ ul_renew_t *ropt, const char *bin_file, uint64_t free_uld, uint64_t is_bridg, ui
     // }
     
     ul_re_correct(uidx, asm_opt.integer_correct_round/**3**/); 
-    init_ulg_opt_t(&uu, uopt, clean_round, 0.2, 0.6, min_ovlp_drop_ratio, max_ovlp_drop_ratio, 0.55, max_tip, max_ul_tip, b_mask_t, is_trio);
+    init_ulg_opt_t(&uu, uopt, clean_round, asm_opt.min_path_drop_rate, asm_opt.max_path_drop_rate, min_ovlp_drop_ratio, max_ovlp_drop_ratio, 0.55, max_tip, max_ul_tip, b_mask_t, is_trio);
     // print_debug_gfa(sg, init_ug, uopt->coverage_cut, "UL.debug0", uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 0, 0, 1);
     /**ul2ul_idx_t *u2o = **/gen_ul2ul(uidx, uopt, &uu, 0, is_bridg);
     // print_ul_alignment(init_ug, &UL_INF, 47072, "after-3");

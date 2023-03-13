@@ -13528,7 +13528,7 @@ void hic_clean_adv(asg_t *sg, ug_opt_t *uopt)
 {
     uint32_t i, k, m, z, v, w, mk; ma_utg_t *u = NULL; uint32_t *ba, bn, n_vtx, beg, end, n0, n1; ma_utg_t *mz = NULL;
     ma_ug_t *ug = ma_ug_gen_primary(sg, PRIMARY_LABLE); n_vtx = ug->g->n_seq<<1; double bub_rate = 0.1;
-    uint8_t *bf = NULL; bubble_type *bub = gen_bubble_chain(sg, ug, uopt, &bf); 
+    uint8_t *bf = NULL; bubble_type *bub = gen_bubble_chain(sg, ug, uopt, &bf, ((asm_opt.polyploidy>2)?1:0)); 
     uint64_t tLen, vocc, socc, pocc; buf_t b; memset(&b, 0, sizeof(buf_t)); CALLOC(b.a, n_vtx);
     REALLOC(bf, n_vtx); memset(bf, 0, sizeof((*bf))*n_vtx);
     kvec_t(uint64_t) buf; kv_init(buf); n0 = n1 = 0;
@@ -15605,7 +15605,7 @@ void clean_u_trans_t_idx(kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g)
 void gen_bp_phasing(ug_opt_t *opt, kv_u_trans_t *ta, ma_ug_t *ug, asg_t *sg)
 {
     uint8_t *bf = NULL;
-    bubble_type *bub = gen_bubble_chain(sg, ug, opt, &bf); free(bf);
+    bubble_type *bub = gen_bubble_chain(sg, ug, opt, &bf, 0); free(bf);
     filter_u_trans(ta, asm_opt.is_bub_trans, asm_opt.is_topo_trans, asm_opt.is_read_trans, asm_opt.is_base_trans);
     // dbg_prt_utg_trans(ta, ug, "pre");
     if(asm_opt.is_base_trans) {
@@ -33734,7 +33734,7 @@ bub_label_t *b_mask_t, uint32_t is_trio, int32_t ul_aln_round, char *o_file, con
     int32_t k, strl = strlen(bin_file)+1, kt, cl, sl; char *id = NULL;
     renew_g(src, rev_src, n_read, readLen, cov, ruIndex, sg, mini_overlap_length, max_hang_length,
         uopt, clean_round, min_ovlp_drop_ratio, max_ovlp_drop_ratio, asm_opt.max_short_tip, b_mask_t, 
-        is_trio, o_file, bin_file, (ul_aln_round<=1)?1:0, 1, /**((is_trio)?(0):(1))**/1);
+        is_trio, o_file, bin_file, (ul_aln_round<=1)?1:0, 1, /**((is_trio)?(0):(1))**/((asm_opt.polyploidy<=2)?1:0));
     gen_ug_opt_t(uopt, *src, *rev_src, max_hang_length, mini_overlap_length, gap_fuzz, min_dp, *readLen, 
             *cov, ruIndex, (asm_opt.max_short_tip*2), 0.15, 3, 0.05, 0.9, b_mask_t);
     ug_ext_gfa(uopt, *sg, ug_ext_len);
@@ -34019,6 +34019,15 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
 
     output_contig_graph_primary_pre(sg, coverage_cut, o_file, sources, reverse_sources, 
         asm_opt.small_pop_bubble_size, asm_opt.max_short_tip, ruIndex, max_hang_length, mini_overlap_length, &uopt);
+    
+    // if(asm_opt.ar) {
+    //     char *op_file = get_outfile_name(o_file);
+    //     ul_clean_gfa(&uopt, sg, sources, reverse_sources, ruIndex, clean_round, min_ovlp_drop_ratio, max_ovlp_drop_ratio, 
+    //     0.6, asm_opt.max_short_tip, gap_fuzz, &b_mask_t, 0/**!!asm_opt.ar**/, ha_opt_triobin(&asm_opt), UL_COV_THRES, op_file);
+    //     output_contig_graph_primary_pre(sg, coverage_cut, op_file, sources, reverse_sources, 
+    //     asm_opt.small_pop_bubble_size, asm_opt.max_short_tip, ruIndex, max_hang_length, mini_overlap_length, &uopt);
+    //     free(op_file);
+    // }
     /**
     if (asm_opt.flag & HA_F_VERBOSE_GFA)
     {

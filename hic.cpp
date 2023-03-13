@@ -2520,7 +2520,8 @@ void identify_bubbles(ma_ug_t* ug, bubble_type* bub, uint8_t *r_het_flag, kv_u_t
     // fprintf(stderr, "-bub->index[18759]: %u, bub->num.n: %u\n",  (uint32_t)bub->index[18759], bub->num.n);
 }
 
-uint32_t get_unitig_het_fly(ma_ug_t* ug, uint32_t uid, asg_t* sg, int64_t het_cov_thres,
+uint32_t get_unitig_het_fly(ma_ug_t* ug, uint32_t uid, asg_t* sg, /**int64_t het_cov_thres,**/
+int64_t m_het_cov_thres, int64_t m_hom_cov_thres,
 ma_hit_t_alloc* sources, R_to_U* ruIndex, uint8_t* r_flag, uint32_t m_het_occ, uint32_t m_het_label, 
 uint32_t p_het_label, uint32_t n_het_label)
 {
@@ -2596,8 +2597,10 @@ uint32_t p_het_label, uint32_t n_het_label)
     //     fprintf(stderr, "[M::%s::uid->%u] u->n::%u, C_bases::%ld, R_bases::%ld, het_cov_thres::%ld, m_het_occ::%u\n", 
     //     __func__, uid, (uint32_t)u->n, C_bases, R_bases, het_cov_thres, m_het_occ);
     // }
-    if((cov <= (het_cov_thres*1.333333)) && (u->n >= m_het_occ)) return m_het_label; ///must het
-    if((cov >= (het_cov_thres*1.6))) return n_het_label; ///hom
+    // if((cov <= (het_cov_thres*1.333333)) && (u->n >= m_het_occ)) return m_het_label; ///must het
+    // if((cov >= (het_cov_thres*1.6))) return n_het_label; ///hom
+    if((cov <= m_het_cov_thres) && (u->n >= m_het_occ)) return m_het_label; ///must het
+    if(cov >= m_hom_cov_thres) return n_het_label; ///hom
     return p_het_label; ///potential het
 }
 
@@ -2608,9 +2611,20 @@ kv_u_trans_t *ref)
     if (!ug->g->is_symm) asg_symm(ug->g);
     uint32_t v, n_vtx = ug->g->n_seq * 2, i, k, mode = (((uint32_t)-1)<<2);
     uint32_t beg, sink, n, *a, n_occ;
-    uint64_t pathLen;
+    uint64_t pathLen, hom_cov, het_cov, m_het_cov, m_hom_cov;
     bub->ug = ug; 
     bub->b_bub = bub->b_end_bub = bub->tangle_bub = bub->cross_bub = bub->mess_bub = 0;
+
+    if(asm_opt.hom_global_coverage_set) {
+        hom_cov = asm_opt.hom_global_coverage;
+    } else {
+        hom_cov = ((double)asm_opt.hom_global_coverage)/((double)HOM_PEAK_RATE);
+    }
+    het_cov = hom_cov/asm_opt.polyploidy;
+    m_het_cov = hom_cov - het_cov + (het_cov*0.333333);
+    m_hom_cov = hom_cov - het_cov + (het_cov*0.6);
+    // fprintf(stderr, "hom_cov::%lu, het_cov::%lu, m_het_cov::%lu, m_hom_cov::%lu\n",  hom_cov, het_cov, m_het_cov, m_hom_cov);
+
     if(bub->round_id == 0)
     {
         buf_t b; memset(&b, 0, sizeof(buf_t)); b.a = (binfo_t*)calloc(n_vtx, sizeof(binfo_t));
@@ -2697,20 +2711,11 @@ kv_u_trans_t *ref)
         kv_push(uint32_t, bub->num, bub->list.n);
         free(b.a); free(b.S.a); free(b.T.a); free(b.b.a); free(b.e.a);
         bub->f_bub = bub->num.n - 1; ///bub->s_bub = bub->num.n - 1;
-        
 
-        uint64_t dip_thre_max;
         memset(r_het_flag, 0, sizeof((*r_het_flag))*sg->n_seq);
-        if(asm_opt.hom_global_coverage_set) {
-            dip_thre_max = asm_opt.hom_global_coverage;
-        } else {
-            dip_thre_max = ((double)asm_opt.hom_global_coverage)/((double)HOM_PEAK_RATE);
-        }
-        // dip_thre_max = (double)(dip_thre_max) - (((double)(dip_thre_max)*0.5)/asm_opt.polyploidy);
-        dip_thre_max = (double)(dip_thre_max) - ((double)(dip_thre_max)/asm_opt.polyploidy);
         for (i = 0; i < ug->g->n_seq; i++) {
-            bub->index[i] = get_unitig_het_fly(ug, i, sg, dip_thre_max, sources, ruIndex, 
-                                        r_het_flag, 20, M_het(*bub), P_het(*bub), (uint32_t)-1);
+            bub->index[i] = get_unitig_het_fly(ug, i, sg, m_het_cov, m_hom_cov,
+            sources, ruIndex, r_het_flag, 20, M_het(*bub), P_het(*bub), (uint32_t)-1);
         }
 
         for (i = 0; i < bub->f_bub; i++)
@@ -2779,6 +2784,301 @@ kv_u_trans_t *ref)
     bub->b_g = NULL;
     bub->b_ug = NULL;
     build_bub_graph(ug, bub);
+    // fprintf(stderr, "-bub->index[18759]: %u, bub->num.n: %u\n",  (uint32_t)bub->index[18759], bub->num.n);
+}
+
+void reset_inner_bub_het_poy(asg_t* sg, ma_ug_t* ug, bubble_type* bub, uint32_t bid, uint64_t tLen, buf_t *b, 
+uint64_t m_het_cov, uint64_t m_hom_cov, uint8_t *r_het_flag, ma_hit_t_alloc* sources, R_to_U* ruIndex)
+{
+    uint32_t beg, sink, *ba, bn, m, v, z, socc;
+    get_bubbles(bub, bid, &beg, &sink, &ba, &bn, NULL);
+    for (m = 0; m < bn; m++) {
+        v = ba[m];
+        if(IF_HOM((v>>1), *bub)) continue;
+        if(ug->g->seq[v>>1].del) continue;
+        if(bub->index[v>>1] == (uint32_t)-1) continue;
+
+        if(get_unitig_het_fly(ug, v>>1, sg, m_het_cov, m_hom_cov, sources, ruIndex, r_het_flag, 20, 1, 0, (uint32_t)-1) == 1) {
+            continue;
+        }
+
+        if(asg_arc_n(ug->g, v) < 2) continue;
+        if(get_real_length(ug->g, v, NULL) < 2) continue;
+        if(asg_bub_pop1_primary_trio(ug->g, NULL, v, tLen, b, (uint32_t)-1, (uint32_t)-1, 0, NULL, NULL, NULL, 0, 0, NULL)) {
+            //beg is v, end is b.S.a[0]
+            //note b.b include end, does not include beg
+            for (z = socc = 0; z < b->b.n; z++) {
+                if(b->b.a[z]==v || b->b.a[z]==b->S.a[0]) continue;
+                socc += ug->u.a[b->b.a[z]>>1].n;
+            }
+            if((socc > 10) && (socc > (ug->u.a[v>>1].n*3))) {
+                bub->index[v>>1] = (uint32_t)-1;
+            }
+        }
+
+        
+        v ^= 1;
+        if(bub->index[v>>1] == (uint32_t)-1) continue;
+        if(asg_arc_n(ug->g, v) < 2) continue;
+        if(get_real_length(ug->g, v, NULL) < 2) continue;
+        if(asg_bub_pop1_primary_trio(ug->g, NULL, v, tLen, b, (uint32_t)-1, (uint32_t)-1, 0, NULL, NULL, NULL, 0, 0, NULL)) {
+            //beg is v, end is b.S.a[0]
+            //note b.b include end, does not include beg
+            for (z = socc = 0; z < b->b.n; z++) {
+                if(b->b.a[z]==v || b->b.a[z]==b->S.a[0]) continue;
+                socc += ug->u.a[b->b.a[z]>>1].n;
+            }
+            if((socc > 10) && (socc > (ug->u.a[v>>1].n*3))) {
+                bub->index[v>>1] = (uint32_t)-1;
+            }
+        }
+    }  
+}
+
+uint32_t deter_unitig_het_fly(ma_ug_t* ug, uint32_t uid, asg_t* sg, int64_t het_cov_thres,
+ma_hit_t_alloc* sources, R_to_U* ruIndex, uint8_t* r_flag)
+{
+    ma_utg_t *u = &(ug->u.a[uid]);
+    uint32_t k, i, j, rId, nv, tn, is_Unitig;
+    asg_arc_t *av = NULL; ma_hit_t *h;
+    int64_t R_bases = 0, C_bases = 0, cov;
+
+    ///set
+    u = &(ug->u.a[uid]);
+    for (k = 0; k < u->n; k++) {
+        rId = u->a[k]>>33;
+        r_flag[rId] = 1;
+    }
+    for (i = 0; i < 2; i++) {
+        nv = asg_arc_n(ug->g, (uid<<1)+i);
+        av = asg_arc_a(ug->g, (uid<<1)+i);
+        for (j = 0; j < nv; j++) {
+            u = &(ug->u.a[av[j].v>>1]);
+            for (k = 0; k < u->n; k++) {
+                rId = u->a[k]>>33;
+                r_flag[rId] = 2;
+            }
+        }
+    }
+
+    u = &(ug->u.a[uid]);
+    for (k = 0; k < u->n; k++) {
+        if(u->a[k] == (uint64_t)-1) continue;
+        rId = u->a[k]>>33;
+        R_bases += sg->seq[rId].len;
+        for (j = 0; j < (uint64_t)(sources[rId].length); j++) {
+            h = &(sources[rId].buffer[j]);
+            if(h->el != 1) continue;
+            tn = Get_tn((*h));
+            if(sg->seq[tn].del == 1) {
+                ///get the id of read that contains it 
+                get_R_to_U(ruIndex, tn, &tn, &is_Unitig);
+                if(tn == (uint32_t)-1 || is_Unitig == 1 || sg->seq[tn].del == 1) continue;
+            }
+            if(sg->seq[tn].del == 1) continue;
+            if(r_flag[tn] == 0) continue;
+            if(r_flag[tn] == 1) {
+                C_bases += (Get_qe((*h)) - Get_qs((*h)));
+            }
+            if(r_flag[tn] == 2) {
+                C_bases += ((Get_qe((*h)) - Get_qs((*h)))/2);
+            }
+        }
+    }
+
+    ///reset
+    u = &(ug->u.a[uid]);
+    for (k = 0; k < u->n; k++) {
+        rId = u->a[k]>>33;
+        r_flag[rId] = 0;
+    }
+    for (i = 0; i < 2; i++) {
+        nv = asg_arc_n(ug->g, (uid<<1)+i);
+        av = asg_arc_a(ug->g, (uid<<1)+i);
+        for (j = 0; j < nv; j++) {
+            u = &(ug->u.a[av[j].v>>1]);
+            for (k = 0; k < u->n; k++) {
+                rId = u->a[k]>>33;
+                r_flag[rId] = 0;
+            }
+        }
+    }
+
+    u = &(ug->u.a[uid]); cov = 0;
+    if(R_bases > 0) cov = C_bases/R_bases;
+    if(cov <= het_cov_thres) return 1;
+    return 0;
+}
+
+void identify_bubbles_recal_poy(asg_t* sg, ma_ug_t* ug, bubble_type* bub, uint8_t *r_het_flag, ma_hit_t_alloc* sources, R_to_U* ruIndex,
+kv_u_trans_t *ref)
+{
+    asg_cleanup(ug->g);
+    if (!ug->g->is_symm) asg_symm(ug->g);
+    uint32_t v, n_vtx = ug->g->n_seq * 2, i, k, mode = (((uint32_t)-1)<<2);
+    uint32_t beg, sink, n, *a, n_occ;
+    uint64_t pathLen, hom_cov, het_cov, m_het_cov, m_hom_cov;
+    bub->ug = ug; 
+    bub->b_bub = bub->b_end_bub = bub->tangle_bub = bub->cross_bub = bub->mess_bub = 0;
+    if(asm_opt.hom_global_coverage_set) {
+        hom_cov = asm_opt.hom_global_coverage;
+    } else {
+        hom_cov = ((double)asm_opt.hom_global_coverage)/((double)HOM_PEAK_RATE);
+    }
+    het_cov = hom_cov/asm_opt.polyploidy;
+    m_het_cov = het_cov + (het_cov*0.333333);///hom_cov - het_cov + (het_cov*0.333333);
+    m_hom_cov = het_cov + (het_cov*0.6);///hom_cov - het_cov + (het_cov*0.6);
+    // fprintf(stderr, "hom_cov::%lu, het_cov::%lu, m_het_cov::%lu, m_hom_cov::%lu\n",  hom_cov, het_cov, m_het_cov, m_hom_cov);
+
+    buf_t b; memset(&b, 0, sizeof(buf_t)); b.a = (binfo_t*)calloc(n_vtx, sizeof(binfo_t));
+    uint64_t tLen = get_bub_pop_max_dist_advance(ug->g, &b);
+    kv_init(bub->list); kv_init(bub->num); kv_init(bub->pathLen);
+    kv_init(bub->b_s_idx); kv_malloc(bub->b_s_idx, ug->g->n_seq); 
+    bub->b_ug = NULL; kv_init(bub->chain_weight);
+    bub->b_s_idx.n = ug->g->n_seq;
+    memset(bub->b_s_idx.a, -1, bub->b_s_idx.n * sizeof(uint64_t));
+    CALLOC(bub->index, n_vtx);
+    for (i = 0; i < ug->g->n_seq; i++) ug->g->seq[i].c = 0;
+    for (v = 0; v < n_vtx; ++v) 
+    {
+        if(ug->g->seq[v>>1].del) continue;
+        if(asg_arc_n(ug->g, v) < 2) continue;
+        if((bub->index[v]&(uint32_t)3) != 0) continue;
+        if(asg_bub_pop1_primary_trio(ug->g, NULL, v, tLen, &b, (uint32_t)-1, (uint32_t)-1, 0, NULL, NULL, NULL, 0, 0, NULL))
+        {
+            //beg is v, end is b.S.a[0]
+            //note b.b include end, does not include beg
+            for (i = 0; i < b.b.n; i++)
+            {
+                if(b.b.a[i]==v || b.b.a[i]==b.S.a[0]) continue;
+                bub->index[b.b.a[i]] &= mode; bub->index[b.b.a[i]] += 1;
+                bub->index[b.b.a[i]^1] &= mode; bub->index[b.b.a[i]^1] += 1;
+            }
+            bub->index[v] &= mode; bub->index[v] += 2;
+            bub->index[b.S.a[0]^1] &= mode; bub->index[b.S.a[0]^1] += 3;
+        }
+    }
+
+    kvec_t_u32_warp stack, result;
+    kv_init(stack.a); kv_init(result.a);
+    for (v = 0; v < n_vtx; ++v) 
+    {
+        if((bub->index[v]&(uint32_t)3) !=2) continue;
+        if(asg_bub_pop1_primary_trio(ug->g, ug, v, tLen, &b, (uint32_t)-1, (uint32_t)-1, 0, &pathLen, NULL, NULL, 0, 0, NULL))
+        {   
+            //note b.b include end, does not include beg
+            i = b.b.n + 1;
+            if(b.b.n == 2 || b.b.n == 3 || b.b.n == 5)
+            {
+                for (i = 0; i < b.b.n; i++)
+                {
+                    if(b.b.a[i]==v || b.b.a[i]==b.S.a[0]) continue;
+                    dfs_bubble(ug->g, &stack, &result, b.b.a[i]>>1, v>>1, b.S.a[0]>>1);
+                    if((result.a.n + 3) != b.b.n && (result.a.n + 2) != b.b.n) break;
+                }
+            }
+
+            if(i == b.b.n)
+            {
+                kv_push(uint32_t, bub->num, v);
+            }
+            else
+            {
+                kv_push(uint32_t, bub->num, v + (1<<31));
+            }
+        }
+    }
+    kv_destroy(stack.a); kv_destroy(result.a);
+    radix_sort_u32(bub->num.a, bub->num.a + bub->num.n);
+    bub->s_bub = 0;
+    for (k = 0; k < bub->num.n; k++)
+    {
+        if((bub->num.a[k]>>31) == 0) bub->s_bub++;
+        v = (bub->num.a[k]<<1)>>1;
+        bub->num.a[k] = bub->list.n;
+        if(asg_bub_pop1_primary_trio(ug->g, ug, v, tLen, &b, (uint32_t)-1, (uint32_t)-1, 0, &pathLen, NULL, NULL, 0, 0, NULL))
+        {
+            kv_push(uint64_t, bub->pathLen, pathLen);
+            //beg is v, end is b.S.a[0]
+            kv_push(uint32_t, bub->list, v);
+            kv_push(uint32_t, bub->list, b.S.a[0]^1);
+            
+            //note b.b include end, does not include beg
+            for (i = 0; i < b.b.n; i++)
+            {
+                if(b.b.a[i]==v || b.b.a[i]==b.S.a[0]) continue;
+                kv_push(uint32_t, bub->list, b.b.a[i]);
+            }
+        }
+    }
+    kv_push(uint32_t, bub->num, bub->list.n);
+    // free(b.a); free(b.S.a); free(b.T.a); free(b.b.a); free(b.e.a);
+    bub->f_bub = bub->num.n - 1; ///bub->s_bub = bub->num.n - 1;
+    
+
+    memset(r_het_flag, 0, sizeof((*r_het_flag))*sg->n_seq);
+    for (i = 0; i < ug->g->n_seq; i++) {
+        bub->index[i] = get_unitig_het_fly(ug, i, sg, m_het_cov, m_hom_cov,
+        sources, ruIndex, r_het_flag, 20, M_het(*bub), P_het(*bub), (uint32_t)-1);
+    }
+
+    for (i = 0; i < bub->f_bub; i++) {
+        get_bubbles(bub, i, &beg, &sink, &a, &n, &pathLen);
+        for (v = n_occ = 0; v < n; v++) {
+            bub->index[(a[v]>>1)] = i;
+            n_occ += ug->u.a[a[v]>>1].n;
+        }
+
+        if(n_occ > 3) {
+            if(bub->index[(beg>>1)] != M_het(*bub)) bub->index[(beg>>1)] = (uint32_t)-1;
+            if(bub->index[(sink>>1)] != M_het(*bub)) bub->index[(sink>>1)] = (uint32_t)-1;
+        }
+        
+        
+        v = beg>>1;
+        if(bub->b_s_idx.a[v] == (uint64_t)-1) {
+            bub->b_s_idx.a[v] <<= 32;
+            bub->b_s_idx.a[v] |= i;
+        } else if((bub->b_s_idx.a[v] & 0xffffffff00000000) == 0xffffffff00000000) {
+            bub->b_s_idx.a[v] <<= 32;
+            bub->b_s_idx.a[v] |= i;
+        }
+
+
+        v = sink>>1;
+        if(bub->b_s_idx.a[v] == (uint64_t)-1) {
+            bub->b_s_idx.a[v] <<= 32;
+            bub->b_s_idx.a[v] |= i;
+        } else if((bub->b_s_idx.a[v] & 0xffffffff00000000) == 0xffffffff00000000) {
+            bub->b_s_idx.a[v] <<= 32;
+            bub->b_s_idx.a[v] |= i;
+        }     
+    }
+    for (i = 0; i < ug->g->n_seq; i++) {
+        if(bub->index[i] == M_het(*bub)) bub->index[i] = P_het(*bub);
+    }
+    
+    bub->b_g = NULL;
+    bub->b_ug = NULL;
+    build_bub_graph(ug, bub);
+
+
+    ///make het nodes to be hom
+    ma_utg_t *u = NULL;
+    for (i = 0; i < bub->b_ug->u.n; i++) {
+        u = &(bub->b_ug->u.a[i]);
+        if(u->n == 0) continue;
+        for (k = 0; k < u->n; k++) {
+            reset_inner_bub_het_poy(sg, ug, bub, u->a[k]>>33, tLen, &b, m_het_cov, m_hom_cov, r_het_flag, sources, ruIndex);   
+        }
+    }
+    free(b.a); free(b.S.a); free(b.T.a); free(b.b.a); free(b.e.a);
+
+    for (i = 0; i < ug->g->n_seq; i++) {
+        if(IF_HOM(i, *bub)) continue;
+        if(deter_unitig_het_fly(ug, i, sg, het_cov*1.15, sources, ruIndex, r_het_flag)) continue;
+        bub->index[i] = (uint32_t)-1;
+    }
     // fprintf(stderr, "-bub->index[18759]: %u, bub->num.n: %u\n",  (uint32_t)bub->index[18759], bub->num.n);
 }
 
