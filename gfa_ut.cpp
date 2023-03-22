@@ -1262,7 +1262,7 @@ uint32_t minLen, asg64_v *t)
 }
 
 void asg_arc_cut_length(asg_t *g, asg64_v *in, int32_t max_ext, float len_rat, float ou_rat, uint32_t is_ou, uint32_t is_trio, 
-uint32_t is_topo, uint32_t min_diff, ma_hit_t_alloc *rev, R_to_U* rI, uint32_t *max_drop_len)
+uint32_t is_topo, uint32_t min_diff, uint32_t min_ou, ma_hit_t_alloc *rev, R_to_U* rI, uint32_t *max_drop_len)
 {
     asg64_v tx = {0,0,0}, *b = NULL;
     uint32_t i, k, v, w, n_vtx = g->n_seq<<1, nv, nw, kv, kw, trioF = (uint32_t)-1, ntrioF = (uint32_t)-1, ol_max, ou_max, to_del, cnt = 0, mm_ol, mm_ou;
@@ -1341,7 +1341,7 @@ uint32_t is_topo, uint32_t min_diff, ma_hit_t_alloc *rev, R_to_U* rI, uint32_t *
         if (kv < 1) continue;
         if (kv >= 2) {
             if (mm_ol > ol_max*len_rat) continue;
-            if (is_ou && mm_ou > ou_max*ou_rat) continue;
+            if (is_ou && mm_ou > ou_max*ou_rat && mm_ou > min_ou) continue;
             if ((mm_ol + min_diff) > ol_max) continue;
         }
         
@@ -1356,7 +1356,7 @@ uint32_t is_topo, uint32_t min_diff, ma_hit_t_alloc *rev, R_to_U* rI, uint32_t *
         if (kw < 1) continue;
         if (kw >= 2) {
             if (mm_ol > ol_max*len_rat) continue;
-            if (is_ou && mm_ou > ou_max*ou_rat) continue;
+            if (is_ou && mm_ou > ou_max*ou_rat && mm_ou > min_ou) continue;
             if ((mm_ol + min_diff) > ol_max) continue;
         }
 
@@ -2798,7 +2798,7 @@ double ou_drop_rate, int64_t max_tip, int64_t gap_fuzz, bub_label_t *b_mask_t, i
         // prt_specfic_sge(sg, 10531, 10519, "--2--");
 
         asg_arc_identify_simple_bubbles_multi(sg, b_mask_t, 1);
-        asg_arc_cut_length(sg, &bu, max_tip, drop, ou_drop_rate, is_ou, is_trio, 1, min_diff, NULL, NULL, NULL);
+        asg_arc_cut_length(sg, &bu, max_tip, drop, ou_drop_rate, is_ou, is_trio, 1, min_diff, 1, NULL, NULL, NULL);
         asg_arc_cut_tips(sg, max_tip, &bu, is_ou, is_ou?rI:NULL);
 
         // prt_specfic_sge(sg, 10531, 10519, "--3--");
@@ -2851,13 +2851,18 @@ double ou_drop_rate, int64_t max_tip, int64_t gap_fuzz, bub_label_t *b_mask_t, i
     if(!is_ou) {
         ///asg_arc_del_triangular_directly might be unnecessary
         asg_arc_identify_simple_bubbles_multi(sg, b_mask_t, 0);
-        asg_arc_cut_length(sg, &bu, max_tip, HARD_ORTHOLOGY_DROP/**min_ovlp_drop_ratio**/, ou_drop_rate, is_ou, 0/**is_trio**/, is_ou?1:0, min_diff, rev, rI, NULL);
+        asg_arc_cut_length(sg, &bu, max_tip, HARD_ORTHOLOGY_DROP/**min_ovlp_drop_ratio**/, ou_drop_rate, is_ou, 0/**is_trio**/, is_ou?1:0, min_diff, 1, rev, rI, NULL);
         asg_arc_cut_tips(sg, max_tip, &bu, is_ou, is_ou?rI:NULL);
 
         // print_debug_gfa(sg, NULL, uopt->coverage_cut, "UL.dirty7.debug", uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 1, 0, 0);
 
         asg_arc_identify_simple_bubbles_multi(sg, b_mask_t, 0);
-        asg_arc_cut_length(sg, &bu, max_tip, min_ovlp_drop_ratio, ou_drop_rate, is_ou, 0/**is_trio**/, is_ou?1:0, min_diff, rev, rI, &l_drop);
+        asg_arc_cut_length(sg, &bu, max_tip, min_ovlp_drop_ratio, ou_drop_rate, is_ou, 0/**is_trio**/, is_ou?1:0, min_diff, 1, rev, rI, &l_drop);
+        asg_arc_cut_tips(sg, max_tip, &bu, is_ou, is_ou?rI:NULL);
+    } else {
+        min_diff = step_diff; l_drop = 6000;
+        asg_arc_identify_simple_bubbles_multi(sg, b_mask_t, 0);
+        asg_arc_cut_length(sg, &bu, max_tip, 0.3, 0.9, is_ou, is_trio, 1, min_diff, 8, NULL, NULL, &l_drop);
         asg_arc_cut_tips(sg, max_tip, &bu, is_ou, is_ou?rI:NULL);
     }
 
@@ -11923,16 +11928,18 @@ uint32_t ava_pass_unique_bridge(uint64_t *idx, uint64_t *integer_seq, uint64_t s
     return 1;
 }
 
-uint32_t ava_pass_unique_bridge_tips(usg_t *g, asg64_v *b64, uint64_t g_s, uint64_t g_e, uint64_t *integer_seq, uint8_t *f, uint64_t max_ext)
+uint32_t ava_pass_unique_bridge_tips(usg_t *g, asg64_v *b64, uint64_t g_s, uint64_t g_e, uint64_t *integer_seq, uint8_t *f, uint64_t max_ext, double max_ext_rate, uint64_t ext_up)
 {
-    uint64_t i, k, z, s, e, v, nv, bn = b64->n, kv, n_ext = 0; usg_arc_t *av;
+    uint64_t i, k, z, s, e, v, nv, bn = b64->n, kv, n_ext = 0, nkeep = 0, ncut = 0; usg_arc_t *av;
     for (i = g_s; i < g_e; i++) {///available intervals within the same cluster
         s = b64->a[((uint32_t)b64->a[i])]>>32; e = ((uint32_t)b64->a[((uint32_t)b64->a[i])]); assert(s < e);
         for (k = s + 1; k < e; k++) {///note: here is [s, e]
-            f[integer_seq[k]] = f[integer_seq[k]^1] = 1;
+            f[integer_seq[k]] = f[integer_seq[k]^1] = 1; 
+            nkeep += g->a[integer_seq[k]>>1].occ;
         }
         f[integer_seq[s]] = f[integer_seq[e]^1] = 1;
     }
+    nkeep = nkeep*max_ext_rate;
 
     ///collect nodes within raw unitig graph that are linked by the clusters but not in the cluster
     for (i = g_s; i < g_e; i++) {
@@ -11964,7 +11971,10 @@ uint32_t ava_pass_unique_bridge_tips(usg_t *g, asg64_v *b64, uint64_t g_s, uint6
         }
     }
 
-    while (b64->n > bn && n_ext < max_ext) {
+    ncut = MAX(nkeep, max_ext); 
+    if(ncut > ext_up) ncut = ext_up;
+    if(ncut < max_ext) ncut = max_ext;
+    while (b64->n > bn && n_ext < ncut) {
         v = b64->a[--b64->n]; if(f[v]) continue;
         av = usg_arc_a(g, v^1); nv = usg_arc_n(g, v^1);
         for (i = kv = 0; i < nv && kv < 1; i++) {
@@ -12014,7 +12024,7 @@ uint32_t ava_pass_unique_bridge_tips(usg_t *g, asg64_v *b64, uint64_t g_s, uint6
             }
         }
     }
-
+    if((n_ext < ncut) && (n_ext > max_ext - 1)) n_ext = max_ext - 1;
     return n_ext;
 }
 
@@ -12954,7 +12964,7 @@ uint8_t *ff, uint32_t *ng_occ, uint32_t max_ext)
     n_clus = 0;
     for (k = a_n + 1, i = a_n, mm = a_n; k <= b64->n; k++) {
         if(k == b64->n || (b64->a[k]>>32) != (b64->a[i]>>32)) {
-            tip_l = ava_pass_unique_bridge_tips(ng, b64, i, k, int_a, ff, max_ext);
+            tip_l = ava_pass_unique_bridge_tips(ng, b64, i, k, int_a, ff, max_ext, 0.03, 16);
             if(tip_l < max_ext) {///no long tip
                 if(/**(!tip_l) || (**/ava_pass_unique_bridge_cov(uidx, ng, b64, i, k, int_a, tip_l)) {
                     for (z = i; z < k; z++) {
@@ -15934,11 +15944,14 @@ void u2g_clean(ul_resolve_t *uidx, ulg_opt_t *ulopt, uint32_t keep_raw_utg, uint
     // char sb[1000]; 
     // output_integer_graph(uidx, iug, "ig_h0", 0);
 
-    // fprintf(stderr, "\n[M::%s::] max_path_drop_ratio::%f, min_path_drop_ratio::%f\n", __func__, ulopt->max_path_drop_ratio, ulopt->min_path_drop_ratio);
+    // fprintf(stderr, "\n[M::%s::] max_path_drop_ratio::%f, min_path_drop_ratio::%f, max_tip_hifi::%ld, max_tip::%ld\n", 
+    // __func__, ulopt->max_path_drop_ratio, ulopt->min_path_drop_ratio, 
+    // ulopt->max_tip_hifi, ulopt->max_tip);
     for (ss = 0; ss < 2; ss++) {
         for (i = 0, drop = ulopt->min_path_drop_ratio; i < ulopt->clean_round; i++, drop += step) {
             if(drop > ulopt->max_path_drop_ratio) drop = ulopt->max_path_drop_ratio;
-            // fprintf(stderr, "[M::%s::] Starting round-%ld, drop::%f\n", __func__, i, drop);
+            // fprintf(stderr, "[M::%s::] Starting round-%ld, drop::%f, max_tip_hifi::%ld\n", 
+            // __func__, i, drop, ulopt->max_tip_hifi);
             cnt = 1; topo_level = 2; mm_tip = ulopt->max_tip;
             while (cnt) {
                 cnt = 0;

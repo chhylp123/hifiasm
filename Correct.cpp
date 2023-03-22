@@ -15216,8 +15216,10 @@ bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t ql, int64_t tl, u
     else ibeg = ov->qn;
     iend = ov->tn;
     assert(iend>=ibeg+1);
-    // fprintf(stderr, "\n***[M::%s::rid->%lu] utg%.6dl(%c), s::%u, e::%u, z::[%u, %u), ibeg::%ld, iend::%ld, ch_n::%ld\n", 
-    // __func__, rid, (int32_t)z->y_id+1, "+-"[z->y_pos_strand], ov->qs, ov->qe, z->x_pos_s, z->x_pos_e+1, ibeg, iend, ch_n);
+    // if(z->x_id == 57 && z->y_id == 2175) {
+    //     fprintf(stderr, "\n***[M::%s::rid->%lu] utg%.6dl(%c), s::%u, e::%u, z::[%u, %u), ibeg::%ld, iend::%ld, ch_n::%ld\n", 
+    //     __func__, rid, (int32_t)z->y_id+1, "+-"[z->y_pos_strand], ov->qs, ov->qe, z->x_pos_s, z->x_pos_e+1, ibeg, iend, ch_n);
+    // }
     for (l = ibeg, i = ibeg + 1; i <= iend; i++) {
         q[0] = q[1] = t[0] = t[1] = mode = -1; is_done = 0;
         if(l >= 0) {
@@ -15243,14 +15245,14 @@ bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t ql, int64_t tl, u
         }
 
         if(mode == 1 || mode == 2) adjust_ext_offset(&(q[0]), &(q[1]), &(t[0]), &(t[1]), ql, tl, 0, mode);
-        // if(aux_o->x_id == 29033 && aux_o->y_id == 21307) {
+        // if(z->x_id == 57 && z->y_id == 2175) {
         //     fprintf(stderr, "#[M::%s::] utg%.6dl(%c), q::[%ld, %ld), t::[%ld, %ld), mode::%ld\n", 
         //             __func__, (int32_t)z->y_id+1, "+-"[z->y_pos_strand], q[0], q[1], t[0], t[1], mode);
         // }
         is_done = hc_aln_exz_adv(z, uref, hpc_g, rref, qstr, tu, q[0], q[1], t[0], t[1], mode, wl, exz, ql, e_rate, 
         MAX_SIN_L, MAX_SIN_E, FORCE_SIN_L, -1, aux_o);
 
-        // if(aux_o->x_id == 29033 && aux_o->y_id == 21307) {
+        // if(z->x_id == 57 && z->y_id == 2175) {
         //     fprintf(stderr, "-is_done::%ld[M::%s::] utg%.6dl(%c), q::[%ld, %ld), t::[%ld, %ld), mode::%ld\n", 
         //             is_done, __func__, (int32_t)z->y_id+1, "+-"[z->y_pos_strand], q[0], q[1], t[0], t[1], mode);
         // }
@@ -19123,11 +19125,40 @@ uint64_t gen_sub_ov_adv(const ul_idx_t *udb, overlap_region* o, double o_rate, u
 int64_t return_t_chain(overlap_region *z, Candidates_list *cl)
 {
     int64_t i, cn = cl->length, scn; uint64_t pid; k_mer_hit *ca;
+
+    // if(z->x_id == 57 && z->y_id == 2175) {
+    //     fprintf(stderr, "\n-0-[M::%s]\tutg%.6ul\tx::[%u,\t%u)\t%c\tutg%.6ul\ty::[%u,\t%u)\n", 
+    //         __func__, z->x_id+1, z->x_pos_s, z->x_pos_e+1,
+	// 		"+-"[z->y_pos_strand], z->y_id+1, z->y_pos_s, z->y_pos_e+1);
+    //     i = z->shared_seed; pid = cl->list[i].readID;
+    //     for (; i < cn && cl->list[i].readID == pid && cl->list[i].readID != ((uint32_t)(0x7fffffff)); i++) {
+    //         fprintf(stderr, "i::%ld[M::%s]\treadID::%u\tself_offset::%u\toffset::%u\t%c\n", 
+    //             i, __func__, cl->list[i].readID, cl->list[i].self_offset, cl->list[i].offset, 
+    //             "+-"[cl->list[i].strand]);
+    //     }
+    // }
+
+
+
     i = z->shared_seed; pid = cl->list[i].readID;
     for (; i < cn && cl->list[i].readID == pid && cl->list[i].readID != ((uint32_t)(0x7fffffff)); i++);
     scn = i - z->shared_seed; ca = cl->list+z->shared_seed;
     i = lchain_refine(ca, scn, ca, &(cl->chainDP), 50, 5000, 512, 16); cn = i;
     for (; i < scn; i++) ca[i].readID = ((uint32_t)(0x7fffffff));
+
+
+
+    // if(z->x_id == 57 && z->y_id == 2175) {
+    //     fprintf(stderr, "\n-1-[M::%s]\tutg%.6ul\tx::[%u,\t%u)\t%c\tutg%.6ul\ty::[%u,\t%u)\n", 
+    //         __func__, z->x_id+1, z->x_pos_s, z->x_pos_e+1,
+	// 		"+-"[z->y_pos_strand], z->y_id+1, z->y_pos_s, z->y_pos_e+1);
+    //     i = z->shared_seed; pid = cl->list[i].readID;
+    //     for (; i < cn && cl->list[i].readID == pid && cl->list[i].readID != ((uint32_t)(0x7fffffff)); i++) {
+    //         fprintf(stderr, "i::%ld[M::%s]\treadID::%u\tself_offset::%u\toffset::%u\t%c\n", 
+    //             i, __func__, cl->list[i].readID, cl->list[i].self_offset, cl->list[i].offset, 
+    //             "+-"[cl->list[i].strand]);
+    //     }
+    // }
     return cn;
 }
 
@@ -21017,6 +21048,20 @@ bit_extz_t *exz, double e_rate, int64_t w_l, uint64_t ql, uint64_t rid, uint64_t
     tl = udb->ug->u.a[id].len;
     for (i = ch_idx; i < cl->length && cl->list[i].readID == cl->list[ch_idx].readID; i++); ch_n = i-ch_idx;
 
+    // if(z->x_id == 57 && z->y_id == 2175) {
+    //     fprintf(stderr, "\n-*-[M::%s]\tutg%.6u%c\txl::%u\tx::[%u,\t%u)\t%c\tutg%.6u%c\tyl::%u\ty::[%u,\t%u)\tch_idx::%ld\tch_n::%ld\n", 
+    //         __func__, 
+	// 		z->x_id+1, "lc"[udb->ug->u.a[z->x_id].circ], udb->ug->u.a[z->x_id].len, z->x_pos_s, z->x_pos_e+1,
+	// 		"+-"[z->y_pos_strand],
+	// 		z->y_id+1, "lc"[udb->ug->u.a[z->y_id].circ], udb->ug->u.a[z->y_id].len, z->y_pos_s, z->y_pos_e+1,
+    //         ch_idx, ch_n);
+    //     for (i = ch_idx; i < cl->length && cl->list[i].readID == cl->list[ch_idx].readID; i++) {
+    //         fprintf(stderr, "i::%ld[M::%s]\treadID::%u\tself_offset::%u\toffset::%u\t%c\n", 
+    //             i, __func__, cl->list[i].readID, cl->list[i].self_offset, cl->list[i].offset, 
+    //             "+-"[cl->list[i].strand]);
+    //     }
+    // }
+
     // on = fusion_chain_ovlp(z, ch_a, ch_n, ov, on, wl, ql, tl);
     aux_o->w_list.n = aux_o->w_list.c.n = 0; 
     aux_o->y_id = z->y_id; aux_o->y_pos_strand = z->y_pos_strand;
@@ -21033,8 +21078,8 @@ bit_extz_t *exz, double e_rate, int64_t w_l, uint64_t ql, uint64_t rid, uint64_t
     int64_t aux_n = aux_o->w_list.n;
 
 
-    // if(z->x_id == 77960 && z->y_id == 27340) {
-    //     fprintf(stderr, "\n[M::%s]\tutg%.6u%c\txl::%u\tx::[%u,\t%u)\t%c\tutg%.6u%c\tyl::%u\ty::[%u,\t%u)\n", 
+    // if(z->x_id == 57 && z->y_id == 2175) {
+    //     fprintf(stderr, "\n-0-[M::%s]\tutg%.6u%c\txl::%u\tx::[%u,\t%u)\t%c\tutg%.6u%c\tyl::%u\ty::[%u,\t%u)\n", 
     //         __func__, 
 	// 		z->x_id+1, "lc"[udb->ug->u.a[z->x_id].circ], udb->ug->u.a[z->x_id].len, z->x_pos_s, z->x_pos_e+1,
 	// 		"+-"[z->y_pos_strand],
@@ -21057,8 +21102,8 @@ bit_extz_t *exz, double e_rate, int64_t w_l, uint64_t ql, uint64_t rid, uint64_t
         rechain_aln(z, cl, aux_o, i, w_l, udb, NULL, NULL, qstr, tu, exz, e_rate, ql, tl, khit, rid);
     }
 
-    // if(z->x_id == 77960 && z->y_id == 27340) {
-    //     fprintf(stderr, "\n[M::%s]\tutg%.6u%c\txl::%u\tx::[%u,\t%u)\t%c\tutg%.6u%c\tyl::%u\ty::[%u,\t%u)\n", 
+    // if(z->x_id == 57 && z->y_id == 2175) {
+    //     fprintf(stderr, "\n-1-[M::%s]\tutg%.6u%c\txl::%u\tx::[%u,\t%u)\t%c\tutg%.6u%c\tyl::%u\ty::[%u,\t%u)\n", 
     //         __func__, 
 	// 		z->x_id+1, "lc"[udb->ug->u.a[z->x_id].circ], udb->ug->u.a[z->x_id].len, z->x_pos_s, z->x_pos_e+1,
 	// 		"+-"[z->y_pos_strand],
@@ -21085,6 +21130,7 @@ bit_extz_t *exz, double e_rate, int64_t w_l, uint64_t ql, uint64_t rid, uint64_t
 
     ///update z by aux_o
     update_overlap_region(z, aux_o, ql, tl);
+    assert((z->x_pos_e>=z->x_pos_s) && (z->y_pos_e>=z->y_pos_s));
 
     int64_t zwn = z->w_list.n, zerr = 0, zlen = z->x_pos_e+1-z->x_pos_s;
     for (i = 0; i < zwn; i++) {
@@ -21097,8 +21143,8 @@ bit_extz_t *exz, double e_rate, int64_t w_l, uint64_t ql, uint64_t rid, uint64_t
     }
     z->non_homopolymer_errors = zerr;
 
-    // if(z->x_id == 77960 && z->y_id == 27340) {
-    //     fprintf(stderr, "\n[M::%s]\tutg%.6u%c\txl::%u\tx::[%u,\t%u)\t%c\tutg%.6u%c\tyl::%u\ty::[%u,\t%u)\n", 
+    // if(z->x_id == 57 && z->y_id == 2175) {
+    //     fprintf(stderr, "\n-2-[M::%s]\tutg%.6u%c\txl::%u\tx::[%u,\t%u)\t%c\tutg%.6u%c\tyl::%u\ty::[%u,\t%u)\n", 
     //         __func__, 
 	// 		z->x_id+1, "lc"[udb->ug->u.a[z->x_id].circ], udb->ug->u.a[z->x_id].len, z->x_pos_s, z->x_pos_e+1,
 	// 		"+-"[z->y_pos_strand],
@@ -21112,6 +21158,15 @@ bit_extz_t *exz, double e_rate, int64_t w_l, uint64_t ql, uint64_t rid, uint64_t
 	// 			(is_ualn_win((*m))), (is_est_aln((*m))));
     //     }
     //     fprintf(stderr, "\n");
+    // }
+
+    // if(z->x_id == 57 && z->y_id == 2175) {
+    //     fprintf(stderr, "\n-3-[M::%s]\tutg%.6u%c\txl::%u\tx::[%u,\t%u)\t%c\tutg%.6u%c\tyl::%u\ty::[%u,\t%u)\tzerr::%ld\tzlen::%ld\te_rate::%f\n", 
+    //         __func__, 
+	// 		z->x_id+1, "lc"[udb->ug->u.a[z->x_id].circ], udb->ug->u.a[z->x_id].len, z->x_pos_s, z->x_pos_e+1,
+	// 		"+-"[z->y_pos_strand],
+	// 		z->y_id+1, "lc"[udb->ug->u.a[z->y_id].circ], udb->ug->u.a[z->y_id].len, z->y_pos_s, z->y_pos_e+1,
+    //         zerr, zlen, e_rate);
     // }
 
     if(zerr >= zlen) return 0;
@@ -21319,7 +21374,7 @@ void ug_lalign(overlap_region_alloc* ol, Candidates_list *cl, const ul_idx_t *ur
             rr = gen_extend_err_exz(z, uref, NULL, NULL, in/**qu->seq**/, tu->seq, exz, NULL/**v_idx?v_idx->a.a:NULL**/, w.window_length, -1, err, (e_max+0.000001), &re);
             z->is_match = 0;///must be here;
             
-            // if(z->x_id == 77960 && z->y_id == 27340) { 
+            // if(z->x_id == 57 && z->y_id == 2175) { 
             //     fprintf(stderr, "+utg%.6u%c\t%u\t%u\t%u\t%c\tutg%.6u%c\t%u\t%u\t%u\talign_length::%u\terr::%f\trr::%f\twn::%u\tk::%lu\ti::%lu\n", 
             //         z->x_id+1, "lc"[uref->ug->u.a[z->x_id].circ], uref->ug->u.a[z->x_id].len, 
             //         z->x_pos_s, z->x_pos_e+1, "+-"[z->y_pos_strand],
@@ -21339,7 +21394,7 @@ void ug_lalign(overlap_region_alloc* ol, Candidates_list *cl, const ul_idx_t *ur
         }
 
         ol->length = k;
-        // if(sid == 77960) { 
+        // if(sid == 57) { 
         //     fprintf(stderr, "+utg%.6ld%c\tol->length::%lu\n", sid+1, "lc"[uref->ug->u.a[sid].circ], ol->length);
         // }
         if(ol->length <= 0) return;
@@ -21351,7 +21406,7 @@ void ug_lalign(overlap_region_alloc* ol, Candidates_list *cl, const ul_idx_t *ur
         } 
         for (i = k = 0; i < ol->length; i++) {
             z = &(ol->list[i]); 
-            // if(z->x_id == 77960 && z->y_id == 27340) { 
+            // if(z->x_id == 57 && z->y_id == 2175) { 
             //     fprintf(stderr, "-1-utg%.6u%c\t%u\t%u\t%u\t%c\tutg%.6u%c\t%u\t%u\t%u\talign_length::%u\terr::%f\twn::%u\tk::%lu\ti::%lu\n", 
             //         z->x_id+1, "lc"[uref->ug->u.a[z->x_id].circ], uref->ug->u.a[z->x_id].len, 
             //         z->x_pos_s, z->x_pos_e+1, "+-"[z->y_pos_strand],
@@ -21364,7 +21419,7 @@ void ug_lalign(overlap_region_alloc* ol, Candidates_list *cl, const ul_idx_t *ur
                 continue;
             }
 
-            // if(z->x_id == 77960 && z->y_id == 27340) { 
+            // if(z->x_id == 57 && z->y_id == 2175) { 
             //     fprintf(stderr, "-2-utg%.6u%c\t%u\t%u\t%u\t%c\tutg%.6u%c\t%u\t%u\t%u\talign_length::%u\terr::%f\twn::%u\tk::%lu\ti::%lu\n", 
             //         z->x_id+1, "lc"[uref->ug->u.a[z->x_id].circ], uref->ug->u.a[z->x_id].len, 
             //         z->x_pos_s, z->x_pos_e+1, "+-"[z->y_pos_strand],
@@ -21382,7 +21437,7 @@ void ug_lalign(overlap_region_alloc* ol, Candidates_list *cl, const ul_idx_t *ur
         }
         ol->length = k;
 
-        // if(sid == 77960) { 
+        // if(sid == 57) { 
         //     fprintf(stderr, "-utg%.6ld%c\tol->length::%lu\n", sid+1, "lc"[uref->ug->u.a[sid].circ], ol->length);
         // }
     }

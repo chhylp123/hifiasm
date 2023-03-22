@@ -126,5 +126,6 @@ uint32_t infer_se(uint32_t qs, uint32_t qe, uint32_t ts, uint32_t te, uint32_t r
 uint32_t rqs, uint32_t rqe, uint32_t *rts, uint32_t *rte);
 uint32_t clean_contain_g(const ug_opt_t *uopt, asg_t *sg, uint32_t push_trans);
 void dedup_contain_g(const ug_opt_t *uopt, asg_t *sg);
+void trans_base_mmhap_infer(ma_ug_t *ug, asg_t *sg, ug_opt_t *uopt, kv_u_trans_t *res);
 
 #endif
