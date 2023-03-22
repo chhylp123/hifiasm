@@ -1620,7 +1620,7 @@ inline uint64_t special_lchain(Candidates_list* cl, overlap_region_alloc* ol, ui
 				double chn_pen_skip, double bw_rate, int64_t quick_check, uint32_t gen_off, double mcopy_rate, uint32_t mcopy_khit_cut, 
 				st_mt_t *sp, uint64_t *si, uint64_t m, uint64_t l, uint64_t k)
 {
-	uint64_t z, s, e, yid, ol0 = ol->length, ol1; 
+	uint64_t z, s, e, yid, ol0 = ol->length, ol1, m0 = m; 
 	if(l >= k) return m;
 	yid = cl->list[l].readID;
 	for (z = l; z < k && cl->list[z].strand == cl->list[l].strand; z++);
@@ -1678,7 +1678,21 @@ inline uint64_t special_lchain(Candidates_list* cl, overlap_region_alloc* ol, ui
 			}
 			s++;
 		}
-		ol->length = s;
+
+		if(s != ol->length) {
+			ol->length = s;
+			for (z = ol0; z < ol->length; z++) {
+				s = ol->list[z].non_homopolymer_errors;
+				pi = cl->list[s].readID;
+				ol->list[z].non_homopolymer_errors = m0;
+				for (; s < m && cl->list[s].readID == pi; s++) {
+					cl->list[m0] = cl->list[s];
+					cl->list[m0].readID = z; m0++;
+				}
+			}
+			m = m0;
+		}
+		
 	}
 	return m;
 }

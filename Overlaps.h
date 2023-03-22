@@ -1211,4 +1211,27 @@ int asg_arc_del_trans_ul(asg_t *g, int fuzz);
 #define JUNK_COV 5
 #define DISCARD_RATE 0.8
 
+typedef struct {
+    uint32_t n, m, a;
+} mmhap_status_t;
+
+typedef struct {
+	kvec_t(mmhap_status_t) h;
+    kvec_t(uint32_t) a;
+} mmhap_t;
+
+typedef struct { // global data structure for kt_pipeline()
+    ma_ug_t *ug;
+    asg_t *rg;
+    uint64_t *idx;
+	asg64_v cov;
+	uint64_t hom_min, hom_max, hom_cov, het_cov;
+} ug_rid_cov_t;
+
+ug_rid_cov_t* gen_ug_rid_cov_t(ma_ug_t *ug, asg_t *rg, ma_hit_t_alloc *src);
+void destory_ug_rid_cov_t(ug_rid_cov_t *p);
+uint32_t append_cov_line_ug_rid_cov_t(uint64_t uid, uint64_t *qcc, u_trans_t *p, ug_rid_cov_t *idx, uint64_t hom_cut, double cut_rate);
+uint64_t infer_mmhap_copy(ma_ug_t *ug, asg_t *sg, ma_hit_t_alloc *src, uint8_t *ff, uint64_t uid, uint64_t het_cov, uint64_t n_hap);
+uint64_t trans_sec_cut0(kv_u_trans_t *ta, asg64_v *srt, uint32_t id, double sec_rate, uint64_t bd, ma_ug_t *ug);
+
 #endif

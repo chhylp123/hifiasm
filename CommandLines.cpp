@@ -285,7 +285,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->min_path_drop_rate = 0.2;
     asm_opt->max_path_drop_rate = 0.6;
     asm_opt->hifi_pst_join = 1;
-    asm_opt->ul_pst_join = 0;
+    asm_opt->ul_pst_join = 1;
 }
 
 void destory_enzyme(enzyme* f)
