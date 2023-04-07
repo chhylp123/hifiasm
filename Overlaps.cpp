@@ -15208,11 +15208,10 @@ void purge_ovlp_cov_adv(uint32_t id, kv_u_trans_t *ta, asg64_v *b64, ug_rid_cov_
     }
 }
 
-void trans_sec_cut_filter_mmhap_adv(kv_u_trans_t *ta, ma_ug_t *ug, asg_t *sg, ma_hit_t_alloc* src)
+void trans_sec_cut_filter_mmhap_adv(kv_u_trans_t *ta, ma_ug_t *ug, asg_t *sg, ma_hit_t_alloc* src, ug_rid_cov_t *in)
 {
-    uint64_t k; 
-    asg64_v b64; kv_init(b64);
-    ug_rid_cov_t *cc = gen_ug_rid_cov_t(ug, sg, src);
+    uint64_t k; asg64_v b64; kv_init(b64);
+    ug_rid_cov_t *cc = ((in)?(in):(gen_ug_rid_cov_t(ug, sg, src)));
 
     fprintf(stderr, "+[M::%s]\thom_cov::%lu\thet_cov::%lu\thom_cut::%lu\n", __func__, 
         cc->hom_cov, cc->het_cov, cc->hom_max);
@@ -15221,7 +15220,7 @@ void trans_sec_cut_filter_mmhap_adv(kv_u_trans_t *ta, ma_ug_t *ug, asg_t *sg, ma
         purge_ovlp_cov_adv(k, ta, &b64, cc, cc->hom_max);
     }
 
-    destory_ug_rid_cov_t(cc); free(cc); kv_destroy(b64);
+    if(!in) {destory_ug_rid_cov_t(cc); free(cc);} kv_destroy(b64);
 }
 
 static void worker_for_trans_sec_simple_cut(void *data, long i, int tid) // callback for kt_for()
@@ -15251,8 +15250,18 @@ static void worker_for_trans_sec_simple_cut(void *data, long i, int tid) // call
     }
 }
 
+void gen_ug_rid_cov_t_by_ovlp(kv_u_trans_t *ta, ug_rid_cov_t *cc)
+{
+    uint64_t z, k, id, n; u_trans_t *a; 
+    for (z = 0; z < cc->ug->g->n_seq; z++) {
+        id = z; a = u_trans_a(*ta, id); n = u_trans_n(*ta, id); 
+        for (k = 0; k < n; k++) {
+            append_cov_line_ug_rid_cov_t(id, cc->cov.a+cc->idx[id], &(a[k]), cc, ((uint64_t)-1), -1);
+        }
+    }
+}
 
-void clean_u_trans_t_idx_filter_mmhap_adv(kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g, ma_hit_t_alloc* src)
+void clean_u_trans_t_idx_filter_mmhap_adv(kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g, ma_hit_t_alloc* src, ug_rid_cov_t *in)
 {
     u_trans_clean_t sl; uint64_t k, i, l, st, occ; ha_mzl_t *tz;
     ha_mzl_v srt_a; kv_u_trans_t *bl; u_trans_t *z;
@@ -15318,7 +15327,7 @@ void clean_u_trans_t_idx_filter_mmhap_adv(kv_u_trans_t *ta, ma_ug_t *ug, asg_t *
     free(sl.res); kv_destroy(srt_a);
     kt_u_trans_t_idx(ta, ug->g->n_seq);
     // dbg_prt_utg_trans(ta, ug, "after");
-    trans_sec_cut_filter_mmhap_adv(ta, ug, read_g, src);
+    trans_sec_cut_filter_mmhap_adv(ta, ug, read_g, src, in);
     kt_for(sl.n_thread, worker_for_trans_sec_simple_cut, &sl, sl.ta->idx.n);
 
     // CALLOC(sl.srt, sl.n_thread); sl.sec_rate = 0.5;
@@ -15338,6 +15347,7 @@ void clean_u_trans_t_idx_filter_mmhap_adv(kv_u_trans_t *ta, ma_ug_t *ug, asg_t *
             st = i;
         }
     }
+
     // dbg_prt_utg_extra_trans(ta, ug, asm_opt.output_file_name);
 }
 
@@ -15660,9 +15670,9 @@ float chimeric_rate, float drop_ratio, int max_hang, int min_ovlp, long long gap
         // if((asm_opt.flag & HA_F_VERBOSE_GFA)) write_trans_chain(cov->t_ch, output_file_name);
     }
 
-    dbg_prt_utg_trans(&(cov?cov->t_ch->k_trans:t_ch->k_trans), ug, "pre");
-    clean_u_trans_t_idx_filter_mmhap_adv(&(cov?cov->t_ch->k_trans:t_ch->k_trans), ug, sg, opt->sources);
-    dbg_prt_utg_trans(&(cov?cov->t_ch->k_trans:t_ch->k_trans), ug, "after");
+    // dbg_prt_utg_trans(&(cov?cov->t_ch->k_trans:t_ch->k_trans), ug, "pre");
+    clean_u_trans_t_idx_filter_mmhap_adv(&(cov?cov->t_ch->k_trans:t_ch->k_trans), ug, sg, opt->sources, NULL);
+    // dbg_prt_utg_trans(&(cov?cov->t_ch->k_trans:t_ch->k_trans), ug, "after");
 
     // refine_hic_trans_mmhap(opt, &(cov?cov->t_ch->k_trans:t_ch->k_trans), sg, ug);
     ///for debug
@@ -15723,7 +15733,7 @@ float chimeric_rate, float drop_ratio, int max_hang, int min_ovlp, long long gap
     kv_destroy(d_edges.a);
     asg_cleanup(sg);
 
-    dbg_prt_trio_mmhap_label(ug, rh, output_file_name);
+    // dbg_prt_trio_mmhap_label(ug, rh, output_file_name);
 
     output_trio_mmhap(sg, coverage_cut, output_file_name, sources, reverse_sources, tipsLen, tip_drop_ratio, 
     stops_threshold, ruIndex, chimeric_rate, drop_ratio, max_hang, min_ovlp, gap_fuzz, b_mask_t, opt, ug, rh, asm_opt.polyploidy);
@@ -18596,46 +18606,62 @@ float drop_ratio, uint32_t trio_flag, float trio_drop_rate, hap_cov_t *cov)
 {
     asg_t *g = ug->g;
     uint32_t is_first = 1;
-
+    // if(trio_flag == MOTHER) {
+    //     print_debug_gfa(read_g, ug, coverage_cut, "debug_dups", sources, ruIndex, asm_opt.max_hang_Len, asm_opt.min_overlap_Len, 0, 1, 0);
+    //     exit(1);
+    // }
     redo:
-    ///print_untig((ug), 61955, "i-0:", 0);
+    // if(trio_flag == MOTHER) print_untig((ug), 425, "i-0:", 0);
     
     // fprintf(stderr, "[M::%s] 0\n", __func__);
     asg_pop_bubble_primary_trio(ug, NULL, trio_flag, DROP, cov, NULL, 1);
+
+    // if(trio_flag == MOTHER) print_untig((ug), 425, "i-1:", 0);
     // fprintf(stderr, "[M::%s] 1\n", __func__);
     magic_trio_phasing(g, ug, read_g, coverage_cut, sources, reverse_sources, 2, ruIndex, trio_flag, trio_drop_rate);        
     // fprintf(stderr, "[M::%s] 2\n", __func__);
+
+    // if(trio_flag == MOTHER) print_untig((ug), 425, "i-2:", 0);
     /**********debug**********/
     if(just_bubble_pop == 0)
     {
         cut_trio_tip_primary(g, ug, tipsLen, trio_flag, 0, read_g, reverse_sources, ruIndex, cov->is_r_het, 2);
     }
     // fprintf(stderr, "[M::%s] 3\n", __func__);
+    // if(trio_flag == MOTHER) print_untig((ug), 425, "i-3:", 0);
     /**********debug**********/
     long long pre_cons = get_graph_statistic(g);
     long long cur_cons = 0;
     while(pre_cons != cur_cons)
     {
         // fprintf(stderr, "[M::%s] 4\n", __func__);
+        // if(trio_flag == MOTHER) print_untig((ug), 425, "i-4:", 0);
         pre_cons = get_graph_statistic(g);
         // fprintf(stderr, "[M::%s] 5\n", __func__);
+        // if(trio_flag == MOTHER) print_untig((ug), 425, "i-5:", 0);
         ///need consider tangles
         asg_pop_bubble_primary_trio(ug, NULL, trio_flag, DROP, cov, NULL, 1);
         // fprintf(stderr, "[M::%s] 6\n", __func__);
+        // if(trio_flag == MOTHER) print_untig((ug), 425, "i-6:", 0);
         /**********debug**********/
         if(just_bubble_pop == 0)
         {
             ///need consider tangles
             asg_arc_cut_trio_long_tip_primary(g, ug, read_g, reverse_sources, ruIndex, 2, tip_drop_ratio, trio_flag, cov, NULL);            
+            // if(trio_flag == MOTHER) print_untig((ug), 425, "i-7:", 0);
             // fprintf(stderr, "[M::%s] 7\n", __func__);
             // if(trio_flag == MOTHER) print_debug_gfa(read_g, ug, coverage_cut, "debug_dups", sources, ruIndex, asm_opt.max_hang_Len, asm_opt.min_overlap_Len);
             asg_arc_cut_trio_long_equal_tips_assembly(g, ug, read_g, reverse_sources, 2, ruIndex, trio_flag, cov, NULL);            
+            // if(trio_flag == MOTHER) print_untig((ug), 425, "i-8:", 0);
             // fprintf(stderr, "[M::%s] 8\n", __func__);
             asg_arc_cut_trio_long_tip_primary_complex(g, ug, read_g, reverse_sources, ruIndex, 2, tip_drop_ratio, stops_threshold, cov, NULL, trio_flag);
+            // if(trio_flag == MOTHER) print_untig((ug), 425, "i-9:", 0);
             // fprintf(stderr, "[M::%s] 9\n", __func__);
             asg_arc_cut_trio_long_equal_tips_assembly_complex(g, ug, read_g, reverse_sources, 2, ruIndex, stops_threshold, cov, NULL, trio_flag);
+            // if(trio_flag == MOTHER) print_untig((ug), 425, "i-10:", 0);
             // fprintf(stderr, "[M::%s] 10\n", __func__);
             detect_chimeric_by_topo(g, ug, read_g, reverse_sources, 2, stops_threshold, chimeric_rate, ruIndex, NULL, cov->is_r_het);
+            // if(trio_flag == MOTHER) print_untig((ug), 425, "i-11:", 0);
             // fprintf(stderr, "[M::%s] 11\n", __func__);
             ///need consider tangles
             ///note we need both the read graph and the untig graph
@@ -18643,34 +18669,42 @@ float drop_ratio, uint32_t trio_flag, float trio_drop_rate, hap_cov_t *cov)
         /**********debug**********/
         cur_cons = get_graph_statistic(g);
         // fprintf(stderr, "[M::%s] 12\n", __func__);
+        // if(trio_flag == MOTHER) print_untig((ug), 425, "i-12:", 0);
     }
     if(just_bubble_pop == 0)
     {   
         // fprintf(stderr, "[M::%s] 13\n", __func__);
+        // if(trio_flag == MOTHER) print_untig((ug), 425, "i-13:", 0);
         cut_trio_tip_primary(g, ug, tipsLen, trio_flag, 0, read_g, reverse_sources, ruIndex, cov->is_r_het, 2);
+        // if(trio_flag == MOTHER) print_untig((ug), 425, "i-14:", 0);
         // fprintf(stderr, "[M::%s] 14\n", __func__);
     }
 
     // print_debug_gfa(read_g, ug, coverage_cut, "debug_dups", sources, ruIndex, asm_opt.max_hang_Len, asm_opt.min_overlap_Len);
     // fprintf(stderr, "[M::%s] 15\n", __func__);
+    // if(trio_flag == MOTHER) print_untig((ug), 425, "i-15:", 0);
     magic_trio_phasing(g, ug, read_g, coverage_cut, sources, reverse_sources, 2, ruIndex, trio_flag, trio_drop_rate); 
     // fprintf(stderr, "[M::%s] 16\n", __func__);
-
+    // if(trio_flag == MOTHER) print_untig((ug), 425, "i-16:", 0);
 
     // print_debug_gfa(read_g, ug, coverage_cut, "resolve_tangles", sources, ruIndex, asm_opt.max_hang_Len, asm_opt.min_overlap_Len, 0, 0, 0);
     // exit(1);
     ///bug here
     resolve_tangles(ug, read_g, reverse_sources, 20, 100, 0.05, 0.2, ruIndex, cov->is_r_het, trio_flag, drop_ratio);    
+    // if(trio_flag == MOTHER) print_untig((ug), 425, "i-17:", 0);
     // fprintf(stderr, "[M::%s] 17\n", __func__);
     drop_semi_circle(ug, g, read_g, reverse_sources, ruIndex, cov->is_r_het);
+    // if(trio_flag == MOTHER) print_untig((ug), 425, "i-18:", 0);
     // fprintf(stderr, "[M::%s] 18\n", __func__);
     all_to_all_deduplicate(ug, read_g, coverage_cut, sources, trio_flag, trio_drop_rate, reverse_sources, ruIndex, cov->is_r_het, DOUBLE_CHECK_THRES, asm_opt.trio_flag_occ_thres);
+    // if(trio_flag == MOTHER) print_untig((ug), 425, "i-19:", 0);
     // fprintf(stderr, "[M::%s] 19\n", __func__);
     // if(trio_flag == MOTHER) print_untig_by_read(ug, "m54329U_190827_173812/30214441/ccs", (uint32_t)-1, NULL, NULL, "bf-16");
     if(is_first)
     {
         is_first = 0;
         unitig_arc_del_short_diploid_by_length(ug->g, drop_ratio);
+        // if(trio_flag == MOTHER) print_untig((ug), 425, "i-20:", 0);
         // fprintf(stderr, "[M::%s] 20\n", __func__);
         goto redo;
     }    
@@ -19332,15 +19366,104 @@ void delete_useless_nodes(ma_ug_t **ug)
     asg_cleanup(nsg);
 }
 
+inline uint32_t is_useful_node(uint32_t flag_occ, uint32_t non_flag_occ, uint32_t drop_occ, uint32_t tot_occ,
+float flag_rate, float used_rate, uint32_t min_occ)
+{
+    if((flag_occ > 0) && (flag_occ >= min_occ) && (flag_occ >= ((non_flag_occ+flag_occ+drop_occ)*flag_rate)) 
+                                                && (drop_occ <= (tot_occ*used_rate))) {
+        return 1;
+    }
+    return 0;
+}
 
 
+void recover_chain_nodes(buf_t *in, ma_ug_t *ug, uint32_t flag, float flag_rate, float used_rate, uint32_t min_occ)
+{
+    ma_utg_t *u = NULL; uint32_t flag_occ, non_flag_occ, drop_occ, rid;
+    uint32_t tot_flag_occ, tot_non_flag_occ, tot_drop_occ, tot_occ, i, k, z;
+    tot_flag_occ = tot_non_flag_occ = tot_drop_occ = tot_occ = 0;
+
+    for (i = 0; i < in->b.n; i++) {
+        u = &(ug->u.a[in->b.a[i]>>1]);
+        flag_occ = non_flag_occ = drop_occ = 0; 
+        for (k = 0; k < u->n; k++) {
+            rid = u->a[k]>>33;
+            if(R_INF.trio_flag[rid] == AMBIGU) continue;
+            else if(R_INF.trio_flag[rid] == DROP) drop_occ++;
+            else if(R_INF.trio_flag[rid] == flag) flag_occ++;
+            else if(R_INF.trio_flag[rid] != flag) non_flag_occ++;
+        }
+
+        if(is_useful_node(flag_occ, non_flag_occ, drop_occ, u->n, flag_rate, used_rate, min_occ)) {
+            ug->g->seq[in->b.a[i]>>1].c = PRIMARY_LABLE;
+        }
+        tot_flag_occ += flag_occ;
+        tot_non_flag_occ += non_flag_occ;
+        tot_drop_occ += drop_occ;
+        tot_occ += u->n;
+        if(is_useful_node(tot_flag_occ, tot_non_flag_occ, tot_drop_occ, tot_occ, flag_rate, used_rate, min_occ)) {
+            for (z = 0; z <= i; z++) {
+                if(ug->g->seq[in->b.a[z]>>1].c == ALTER_LABLE) {
+                    u = &(ug->u.a[in->b.a[z]>>1]);
+                    flag_occ = non_flag_occ = drop_occ = 0; 
+                    for (k = 0; k < u->n; k++) {
+                        rid = u->a[k]>>33;
+                        if(R_INF.trio_flag[rid] == AMBIGU) continue;
+                        else if(R_INF.trio_flag[rid] == DROP) drop_occ++;
+                        else if(R_INF.trio_flag[rid] == flag) flag_occ++;
+                        else if(R_INF.trio_flag[rid] != flag) non_flag_occ++;
+                    }
+                    if(is_useful_node(flag_occ, non_flag_occ, drop_occ, u->n, flag_rate, used_rate, 0/**min_occ**/)) {
+                        ug->g->seq[in->b.a[z]>>1].c = PRIMARY_LABLE;
+                    }
+                }
+            }
+        }
+    }
+}
+
+void rescue_useless_trio_nodes(ma_ug_t *ug, uint32_t flag, float flag_rate, float used_rate, uint32_t min_occ)
+{
+    asg_t* nsg = ug->g; 
+    uint32_t v, w, n_vtx = nsg->n_seq<<1, i, k, z;
+    long long nodeLen, baseLen, max_stop_nodeLen, max_stop_baseLen;
+    buf_t b; memset(&b, 0, sizeof(buf_t));
+
+    for (v = 0; v < n_vtx; v++) {
+        if(nsg->seq[v>>1].del) continue;
+        if(nsg->seq[v>>1].c != ALTER_LABLE) continue;
+        ///check if beg is the tig end
+        if(get_real_length(nsg, v^1, NULL) == 1) {
+            get_real_length(nsg, v^1, &w);
+            if(get_real_length(nsg, w^1, NULL) == 1) continue;
+        }
+
+        b.b.n = 0; 
+        get_unitig(nsg, ug, v, &w, &nodeLen, &baseLen, &max_stop_nodeLen, &max_stop_baseLen, 1, &b);
+        recover_chain_nodes(&b, ug, flag, flag_rate, used_rate, min_occ);
+        if(b.b.n > 1) {
+            k = b.b.n>>1;
+            for (i = 0; i < k; i++) {
+                z = b.b.a[i]; b.b.a[i] = b.b.a[b.b.n-i-1]; b.b.a[b.b.n-i-1] = z;
+            }
+            recover_chain_nodes(&b, ug, flag, flag_rate, used_rate, min_occ);
+        }
+    }
+    
+    free(b.b.a);
+    asg_cleanup(nsg);
+}
 
 void delete_useless_trio_nodes(ma_ug_t **ug, asg_t* read_g, ma_sub_t* coverage_cut, 
-ma_hit_t_alloc* sources, R_to_U* ruIndex)
+ma_hit_t_alloc* sources, R_to_U* ruIndex, uint32_t flag, float flag_rate, float used_rate, uint32_t min_occ)
 {
     asg_t* nsg = (*ug)->g;
     uint32_t v, n_vtx = nsg->n_seq;
     uint8_t* primary_flag = (uint8_t*)calloc(read_g->n_seq, sizeof(uint8_t));
+
+    if(flag_rate > 0 && used_rate > 0 && min_occ > 0) {
+        rescue_useless_trio_nodes(*ug, flag, flag_rate, used_rate, min_occ);
+    }
 
     for (v = 0; v < n_vtx; ++v) 
     {
@@ -19630,7 +19753,7 @@ kvec_asg_arc_t_warp* new_rtg_edges, bub_label_t* b_mask_t)
     // fprintf(stderr, "[M::%s] 4\n", __func__);
     
     ///delete_useless_nodes(ug);
-    delete_useless_trio_nodes(ug, read_g, coverage_cut, sources, ruIndex);
+    delete_useless_trio_nodes(ug, read_g, coverage_cut, sources, ruIndex, flag, 0.8, 0.15, 16);
     // fprintf(stderr, "[M::%s] 5\n", __func__);
 
     update_hap_label(*ug, read_g);
@@ -19678,7 +19801,7 @@ kvec_asg_arc_t_warp* new_rtg_edges, bub_label_t* b_mask_t)
     // fprintf(stderr, "[M::%s] 16\n", __func__);
 
     ///delete_useless_nodes(ug);
-    delete_useless_trio_nodes(ug, read_g, coverage_cut, sources, ruIndex);
+    delete_useless_trio_nodes(ug, read_g, coverage_cut, sources, ruIndex, flag, 0.8, 0.15, 16);
     // fprintf(stderr, "[M::%s] 17\n", __func__);
 
 
@@ -19688,7 +19811,7 @@ kvec_asg_arc_t_warp* new_rtg_edges, bub_label_t* b_mask_t)
         asm_opt.purge_simi_thres, asm_opt.purge_overlap_len, max_hang, min_ovlp, drop_ratio, 1, 0, 
         cov, 0, 0);
 		///delete_useless_nodes(ug);
-        delete_useless_trio_nodes(ug, read_g, coverage_cut, sources, ruIndex);
+        delete_useless_trio_nodes(ug, read_g, coverage_cut, sources, ruIndex, flag, 0.8, 0.15, 16);
 	}
     // fprintf(stderr, "[M::%s] 18\n", __func__);
 

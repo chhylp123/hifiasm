@@ -1233,5 +1233,7 @@ void destory_ug_rid_cov_t(ug_rid_cov_t *p);
 uint32_t append_cov_line_ug_rid_cov_t(uint64_t uid, uint64_t *qcc, u_trans_t *p, ug_rid_cov_t *idx, uint64_t hom_cut, double cut_rate);
 uint64_t infer_mmhap_copy(ma_ug_t *ug, asg_t *sg, ma_hit_t_alloc *src, uint8_t *ff, uint64_t uid, uint64_t het_cov, uint64_t n_hap);
 uint64_t trans_sec_cut0(kv_u_trans_t *ta, asg64_v *srt, uint32_t id, double sec_rate, uint64_t bd, ma_ug_t *ug);
+void clean_u_trans_t_idx_filter_mmhap_adv(kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g, ma_hit_t_alloc* src, ug_rid_cov_t *in);
+void gen_ug_rid_cov_t_by_ovlp(kv_u_trans_t *ta, ug_rid_cov_t *cc);
 
 #endif
