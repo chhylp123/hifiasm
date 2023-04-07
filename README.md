@@ -22,6 +22,9 @@ hifiasm -o HG002.asm --h1 read1.fq.gz --h2 read2.fq.gz HG002-HiFi.fq.gz
 yak count -b37 -t16 -o pat.yak <(cat pat_1.fq.gz pat_2.fq.gz) <(cat pat_1.fq.gz pat_2.fq.gz)
 yak count -b37 -t16 -o mat.yak <(cat mat_1.fq.gz mat_2.fq.gz) <(cat mat_1.fq.gz mat_2.fq.gz)
 hifiasm -o HG002.asm -t32 -1 pat.yak -2 mat.yak HG002-HiFi.fa.gz
+
+# Single-sample telomere-to-telomere assembly with HiFi, ultralong and Hi-C reads
+hifiasm -o HG002.asm --h1 read1.fq.gz --h2 read2.fq.gz --ul ul.fq.gz HG002-HiFi.fq.gz
 ```
 See [tutorial][tutorial] for more details. 
 
@@ -43,11 +46,8 @@ See [tutorial][tutorial] for more details.
 
 ## <a name="intro"></a>Introduction
 
-Hifiasm is a fast haplotype-resolved de novo assembler for PacBio HiFi reads.
-It can assemble a human genome in several hours and assemble a ~30Gb California
-redwood genome in a few days. Hifiasm emits partially phased assemblies of
-quality competitive with the best assemblers. Given parental short reads or
-Hi-C data, it produces arguably the best haplotype-resolved assemblies so far.
+Hifiasm is a fast haplotype-resolved de novo assembler initially designed for PacBio HiFi reads.
+Its latest release could support the telomere-to-telomere assembly by utilizing ultralong Oxford Nanopore reads. Hifiasm produces arguably the best single-sample telomere-to-telomere assemblies combing HiFi, ultralong and Hi-C reads, and it is one of the best haplotype-resolved assemblers for the trio-binning assembly given parental short reads. For a human genome, hifiasm can produce the telomere-to-telomere assembly in one day.
 
 ## <a name="why"></a>Why Hifiasm?
 
@@ -146,11 +146,18 @@ The second command line will run much faster than the first.
 
 ### <a name="ul"></a>Ultra-long ONT integration
 
-Hifiasm could integrate ultra-long ONT reads to improve the assembly quality:
+Hifiasm could integrate ultra-long ONT reads to produce the telomere-to-telomere assembly:
 ```sh
 hifiasm -o NA12878.asm -t32 --ul ul.fq.gz HiFi-reads.fq.gz
 ```
-Please note that this mode is not stable right now. We have only tested with >=100kb UL reads.
+For the single-sample telomere-to-telomere assembly with Hi-C reads:
+```sh
+hifiasm -o NA12878.asm -t32 --ul ul.fq.gz --h1 read1.fq.gz --h2 read2.fq.gz HiFi-reads.fq.gz
+```
+For the trio-binning telomere-to-telomere assembly；
+```sh
+hifiasm -o NA12878.asm -t32 --ul ul.fq.gz -1 pat.yak -2 mat.yak HiFi-reads.fq.gz
+```
 
 ### <a name="output"></a>Output files
 
