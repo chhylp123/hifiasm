@@ -15686,6 +15686,9 @@ void u2g_hybrid_clean(ul_resolve_t *uidx, ulg_opt_t *ulopt, usg_t *ng, asg64_v *
         // prt_usg_t(uidx, ng, sb);
         // usg_arc_cut_length(ng, b, ub, mm_tip>>1, drop, ulopt->is_trio, 1, NULL);
         usg_bub_clean(ng, &bb, b, ub, mm_tip>>1, drop, 1, bs, f);
+        // fprintf(stderr, "-1bub-[M::%s::] i::%ld, drop::%f\n", __func__, i, drop);
+        // sprintf(sb, "ng_ss::%ld_i::%ld_drop::%f_b::bub", ss, i, drop);
+        // prt_usg_t(uidx, ng, sb);
         usg_arc_cut_srt_length(ng, b, ub, mm_tip>>1, drop, ulopt->is_trio, 1, NULL, bs);
         // fprintf(stderr, "-1-[M::%s::] i::%ld, drop::%f\n", __func__, i, drop);
         // sprintf(sb, "ng_ss::%ld_i::%ld_drop::%f_b", ss, i, drop);
@@ -16580,7 +16583,7 @@ ma_ug_t* output_trio_unitig_graph_ul(ug_opt_t *uopt, ul_resolve_t *uidx, char* o
 
     adjust_utg_by_trio(&ug, uidx->sg, flag, TRIO_THRES, uopt->sources, uopt->reverse_sources, 
     uopt->coverage_cut, uopt->tipsLen, uopt->tip_drop_ratio, uopt->stops_threshold, uopt->ruIndex, 
-    uopt->chimeric_rate, uopt->drop_ratio, uopt->max_hang, uopt->min_ovlp, &ne, uopt->b_mask_t);    
+    uopt->chimeric_rate, uopt->drop_ratio, uopt->max_hang, uopt->min_ovlp, uopt->gap_fuzz, &ne, uopt->b_mask_t);    
 
     // if(asm_opt.b_low_cov > 0) {
     //     break_ug_contig(&ug, uidx->sg, &R_INF, uopt->coverage_cut, uopt->sources, uopt->ruIndex, &ne, 

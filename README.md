@@ -51,7 +51,7 @@ Its latest release could support the telomere-to-telomere assembly by utilizing 
 
 ## <a name="why"></a>Why Hifiasm?
 
-* Hifiasm delivers high-quality assemblies. It tends to generate longer contigs
+* Hifiasm delivers high-quality telomere-to-telomere assemblies. It tends to generate longer contigs
   and resolve more segmental duplications than other assemblers.
 
 * Given Hi-C reads or short reads from the parents, hifiasm can produce overall the best
