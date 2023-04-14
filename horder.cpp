@@ -781,7 +781,7 @@ ma_ug_t* get_trio_unitig_graph(asg_t *sg, uint8_t flag, ug_opt_t *opt)
     adjust_utg_by_trio(&ug, sg, flag, TRIO_THRES, opt->sources, opt->reverse_sources, 
     opt->coverage_cut, opt->tipsLen, opt->tip_drop_ratio, opt->stops_threshold, 
     opt->ruIndex, opt->chimeric_rate, opt->drop_ratio, opt->max_hang, opt->min_ovlp,
-    &new_rtg_edges, opt->b_mask_t);
+    opt->gap_fuzz, &new_rtg_edges, opt->b_mask_t);
 
     kv_destroy(new_rtg_edges.a);
     return ug;

@@ -7365,7 +7365,7 @@ void rebuid_idx(ul_resolve_t *uidx)
     init_ul_str_idx_t(uidx);
 }
 
-void shrink_1b(ma_ug_t *ug, uc_block_t *z, uint32_t is_forward)
+void shrink_1b(ma_ug_t *ug, uc_block_t *z, uc_block_t *lim, uint32_t is_forward)
 {
     if(z->ts != 0 || z->te != ug->g->seq[z->hid].len) return;
     uc_block_t bc = *z;
@@ -7377,12 +7377,14 @@ void shrink_1b(ma_ug_t *ug, uc_block_t *z, uint32_t is_forward)
             } else {
                 z->te -= 1; z->qs += off;
             }
+            if((lim) && (!((z->qs <= lim->qs) && (z->qe <= lim->qe)))) *z = bc;
         } else {
             if((!z->rev)) {
                 z->te -= 1; z->qe -= off;
             } else {
                 z->ts += 1; z->qe -= off;
             }
+            if((lim) && (!((z->qs >= lim->qs) && (z->qe >= lim->qe)))) *z = bc;
         }
         if((ugl_cover_check(bc.ts, bc.te, &(ug->u.a[bc.hid]))) && 
                                             (!ugl_cover_check(z->ts, z->te, &(ug->u.a[z->hid])))) {
@@ -7436,7 +7438,7 @@ void renew_ul_vec_t(ul_vec_t *x, ma_ug_t *ug)
 
 void shrink_ul0(all_ul_t *uls, ul_str_t *str, uint64_t id, integer_t *buf, ma_ug_t *ug)
 {
-    uint32_t k, c_k, p_k, cv, pv, bl, i; uc_block_t *xi; buf->u.n = 0; nid_t *np = NULL;
+    uint32_t k, c_k, p_k, cv, pv, bl, i; uc_block_t *xi, *yi; buf->u.n = 0; nid_t *np = NULL;
     asg_arc_t *av; uint32_t nv, s, e, m, d, mm, is_conn; uint64_t *z; ul_vec_t *x;
     if(str->cn < 2) return;
     for (k = 0, bl = 0, c_k = p_k = pv = (uint32_t)-1; k < str->cn; k++) {
@@ -7463,6 +7465,11 @@ void shrink_ul0(all_ul_t *uls, ul_str_t *str, uint64_t id, integer_t *buf, ma_ug
             } else if(xi->pidx == (uint32_t)-1) {
                 is_conn = 1;
             }
+        }
+        if(is_conn) {
+            is_conn = 0; assert(k);
+            yi = &(uls->a[id].bb.a[str->a[k-1]>>32]);
+            if((xi->qs >= yi->qs) && (xi->qe >= yi->qe)) is_conn = 1;
         }
         if(is_conn) {
             bl++;
@@ -7514,10 +7521,9 @@ void shrink_ul0(all_ul_t *uls, ul_str_t *str, uint64_t id, integer_t *buf, ma_ug
             x->bb.n = m;
             assert(x->bb.n > 1);
 
-
-
-            shrink_1b(ug, &(x->bb.a[0]), 1);
-            shrink_1b(ug, &(x->bb.a[x->bb.n-1]), 0);
+            shrink_1b(ug, &(x->bb.a[0]), ((x->bb.n>=2)?&(x->bb.a[1]):(NULL)), 1);
+            shrink_1b(ug, &(x->bb.a[x->bb.n-1]), ((x->bb.n>=2)?&(x->bb.a[x->bb.n-2]):(NULL)), 0);
+            
             d = x->bb.a[0].qs;
             for (k = 0; k < x->bb.n; k++) {
                 x->bb.a[k].qs -= d; x->bb.a[k].qe -= d;
@@ -7546,8 +7552,8 @@ void shrink_ul0(all_ul_t *uls, ul_str_t *str, uint64_t id, integer_t *buf, ma_ug
         }
         x->bb.n = m;
         assert(x->bb.n > 1);
-        shrink_1b(ug, &(x->bb.a[0]), 1);
-        shrink_1b(ug, &(x->bb.a[x->bb.n-1]), 0);
+        shrink_1b(ug, &(x->bb.a[0]), ((x->bb.n>=2)?&(x->bb.a[1]):(NULL)), 1);
+        shrink_1b(ug, &(x->bb.a[x->bb.n-1]), ((x->bb.n>=2)?&(x->bb.a[x->bb.n-2]):(NULL)), 0);
         d = x->bb.a[0].qs;
         for (k = 0; k < x->bb.n; k++) {
             x->bb.a[k].qs -= d; x->bb.a[k].qe -= d;
@@ -15686,6 +15692,9 @@ void u2g_hybrid_clean(ul_resolve_t *uidx, ulg_opt_t *ulopt, usg_t *ng, asg64_v *
         // prt_usg_t(uidx, ng, sb);
         // usg_arc_cut_length(ng, b, ub, mm_tip>>1, drop, ulopt->is_trio, 1, NULL);
         usg_bub_clean(ng, &bb, b, ub, mm_tip>>1, drop, 1, bs, f);
+        // fprintf(stderr, "-1bub-[M::%s::] i::%ld, drop::%f\n", __func__, i, drop);
+        // sprintf(sb, "ng_ss::%ld_i::%ld_drop::%f_b::bub", ss, i, drop);
+        // prt_usg_t(uidx, ng, sb);
         usg_arc_cut_srt_length(ng, b, ub, mm_tip>>1, drop, ulopt->is_trio, 1, NULL, bs);
         // fprintf(stderr, "-1-[M::%s::] i::%ld, drop::%f\n", __func__, i, drop);
         // sprintf(sb, "ng_ss::%ld_i::%ld_drop::%f_b", ss, i, drop);
@@ -16580,7 +16589,7 @@ ma_ug_t* output_trio_unitig_graph_ul(ug_opt_t *uopt, ul_resolve_t *uidx, char* o
 
     adjust_utg_by_trio(&ug, uidx->sg, flag, TRIO_THRES, uopt->sources, uopt->reverse_sources, 
     uopt->coverage_cut, uopt->tipsLen, uopt->tip_drop_ratio, uopt->stops_threshold, uopt->ruIndex, 
-    uopt->chimeric_rate, uopt->drop_ratio, uopt->max_hang, uopt->min_ovlp, &ne, uopt->b_mask_t);    
+    uopt->chimeric_rate, uopt->drop_ratio, uopt->max_hang, uopt->min_ovlp, uopt->gap_fuzz, &ne, uopt->b_mask_t);    
 
     // if(asm_opt.b_low_cov > 0) {
     //     break_ug_contig(&ug, uidx->sg, &R_INF, uopt->coverage_cut, uopt->sources, uopt->ruIndex, &ne, 

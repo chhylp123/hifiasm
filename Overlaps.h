@@ -1066,7 +1066,7 @@ ma_ug_t* copy_untig_graph(ma_ug_t *src);
 ma_ug_t* output_trio_unitig_graph(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name, 
 uint8_t flag, ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, 
 long long tipsLen, float tip_drop_ratio, long long stops_threshold, R_to_U* ruIndex, 
-float chimeric_rate, float drop_ratio, int max_hang, int min_ovlp, int is_bench, bub_label_t* b_mask_t, char *f_prefix, uint8_t *kpt_buf, kvec_asg_arc_t_warp *r_edges);
+float chimeric_rate, float drop_ratio, int max_hang, int min_ovlp, int gap_fuzz, int is_bench, bub_label_t* b_mask_t, char *f_prefix, uint8_t *kpt_buf, kvec_asg_arc_t_warp *r_edges);
 asg_t* copy_read_graph(asg_t *src);
 ma_ug_t *ma_ug_gen(asg_t *g);
 void ma_ug_destroy(ma_ug_t *ug);
@@ -1135,7 +1135,7 @@ void adjust_utg_by_trio(ma_ug_t **ug, asg_t* read_g, uint8_t flag, float drop_ra
 ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, ma_sub_t* coverage_cut, 
 long long tipsLen, float tip_drop_ratio, long long stops_threshold, 
 R_to_U* ruIndex, float chimeric_rate, float drop_ratio, int max_hang, int min_ovlp,
-kvec_asg_arc_t_warp* new_rtg_edges, bub_label_t* b_mask_t);
+int gap_fuzz, kvec_asg_arc_t_warp* new_rtg_edges, bub_label_t* b_mask_t);
 uint32_t cmp_untig_graph(ma_ug_t *src, ma_ug_t *dest);
 void reduce_hamming_error(asg_t *sg, ma_hit_t_alloc* sources, ma_sub_t *coverage_cut, 
 int max_hang, int min_ovlp, long long gap_fuzz);
