@@ -64,6 +64,8 @@ KRADIX_SORT_INIT(ha_mzl_t_srt1, ha_mzl_t, ha_mzl_t_key, member_size(ha_mzl_t, x)
 #define PHASE_SEP_RATE 0.04
 #define PHASE_MISS_LEN 1000000
 #define PHASE_MISS_N 8
+// #define PHASE_MISS_SLEN 500000
+// #define PHASE_MISS_SN 24
 
 KSORT_INIT_GENERIC(uint32_t)
 
@@ -13578,40 +13580,40 @@ void destory_hc_links(hc_links* link)
     kv_destroy(link->enzymes);
 }
 
-void print_utg(ma_ug_t *ug, asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name, 
+void print_utg(ma_ug_t **ug, asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name, 
 ma_hit_t_alloc* sources, R_to_U* ruIndex, int max_hang, int min_ovlp, kvec_asg_arc_t_warp* new_rtg_edges)
 {
     if(asm_opt.b_low_cov > 0)
     {
-        break_ug_contig(&ug, sg, &R_INF, coverage_cut, sources, ruIndex, new_rtg_edges, max_hang, min_ovlp, 
+        break_ug_contig(ug, sg, &R_INF, coverage_cut, sources, ruIndex, new_rtg_edges, max_hang, min_ovlp, 
         &asm_opt.b_low_cov, NULL, asm_opt.m_rate);
     }
 
     if(asm_opt.b_high_cov > 0)
     {
-        break_ug_contig(&ug, sg, &R_INF, coverage_cut, sources, ruIndex, new_rtg_edges, max_hang, min_ovlp, 
+        break_ug_contig(ug, sg, &R_INF, coverage_cut, sources, ruIndex, new_rtg_edges, max_hang, min_ovlp, 
         NULL, &asm_opt.b_high_cov, asm_opt.m_rate);
     }
 
-    ma_ug_seq(ug, sg, coverage_cut, sources, new_rtg_edges, max_hang, min_ovlp, 0, 1);
+    ma_ug_seq(*ug, sg, coverage_cut, sources, new_rtg_edges, max_hang, min_ovlp, 0, 1);
 
     
     char* gfa_name = (char*)malloc(strlen(output_file_name)+35);
     sprintf(gfa_name, "%s.p_ctg.gfa", output_file_name);
     fprintf(stderr, "Writing %s to disk... \n", gfa_name);
     FILE* output_file = fopen(gfa_name, "w");
-    ma_ug_print(ug, sg, coverage_cut, sources, ruIndex, "ptg", output_file);
+    ma_ug_print(*ug, sg, coverage_cut, sources, ruIndex, "ptg", output_file);
     fclose(output_file);
 
     sprintf(gfa_name, "%s.p_ctg.noseq.gfa", output_file_name);
     output_file = fopen(gfa_name, "w");
-    ma_ug_print_simple(ug, sg, coverage_cut, sources, ruIndex, "ptg", output_file);
+    ma_ug_print_simple(*ug, sg, coverage_cut, sources, ruIndex, "ptg", output_file);
     fclose(output_file);
     if(asm_opt.bed_inconsist_rate != 0)
     {
         sprintf(gfa_name, "%s.p_ctg.lowQ.bed", output_file_name);
         output_file = fopen(gfa_name, "w");
-        ma_ug_print_bed(ug, sg, &R_INF, coverage_cut, sources, new_rtg_edges, 
+        ma_ug_print_bed(*ug, sg, &R_INF, coverage_cut, sources, new_rtg_edges, 
         max_hang, min_ovlp, asm_opt.bed_inconsist_rate, "ptg", output_file, NULL);
         fclose(output_file);
     }
@@ -15668,7 +15670,7 @@ long long gap_fuzz, bub_label_t* b_mask_t, ug_opt_t *opt)
         adjust_utg_by_primary(&copy_ug, copy_sg, TRIO_THRES, sources, reverse_sources, coverage_cut, 
         tipsLen, tip_drop_ratio, stops_threshold, ruIndex, chimeric_rate, drop_ratio, 
         max_hang, min_ovlp, &new_rtg_edges, &cov, b_mask_t, 1, 0);
-        print_utg(copy_ug, copy_sg, coverage_cut, output_file_name, sources, ruIndex, max_hang, 
+        print_utg(&copy_ug, copy_sg, coverage_cut, output_file_name, sources, ruIndex, max_hang, 
         min_ovlp, &new_rtg_edges);
 
         if(asm_opt.is_alt)
@@ -15924,7 +15926,7 @@ float chimeric_rate, float drop_ratio, int max_hang, int min_ovlp, long long gap
         adjust_utg_by_primary(&copy_ug, copy_sg, TRIO_THRES, sources, reverse_sources, coverage_cut, 
         tipsLen, tip_drop_ratio, stops_threshold, ruIndex, chimeric_rate, drop_ratio, 
         max_hang, min_ovlp, &new_rtg_edges, &cov, b_mask_t, 1, 0);
-        print_utg(copy_ug, copy_sg, coverage_cut, output_file_name, sources, ruIndex, max_hang, 
+        print_utg(&copy_ug, copy_sg, coverage_cut, output_file_name, sources, ruIndex, max_hang, 
         min_ovlp, &new_rtg_edges);
 
         if(asm_opt.is_alt) {
@@ -16920,7 +16922,7 @@ int gap_fuzz, bub_label_t* b_mask_t, ug_opt_t *opt)
     // ruIndex, max_hang, min_ovlp, &new_rtg_edges, b_mask_t, NULL);
     // exit(1);
     /*******************************for debug************************************/
-    print_utg(copy_ug, copy_sg, coverage_cut, output_file_name, sources, ruIndex, max_hang, 
+    print_utg(&copy_ug, copy_sg, coverage_cut, output_file_name, sources, ruIndex, max_hang, 
     min_ovlp, &new_rtg_edges);
     ma_ug_destroy(copy_ug);
     asg_destroy(copy_sg);
@@ -17003,7 +17005,7 @@ long long gap_fuzz, ug_opt_t *opt)
     // ruIndex, max_hang, min_ovlp, &new_rtg_edges, b_mask_t, NULL);
     // exit(1);
     /*******************************for debug************************************/
-    print_utg(copy_ug, copy_sg, coverage_cut, output_file_name, sources, ruIndex, max_hang, 
+    print_utg(&copy_ug, copy_sg, coverage_cut, output_file_name, sources, ruIndex, max_hang, 
     min_ovlp, &new_rtg_edges);
     ma_ug_destroy(copy_ug);
     asg_destroy(copy_sg);
@@ -20546,7 +20548,7 @@ int min_ovlp, int is_bench, long long gap_fuzz, ug_opt_t *opt, bub_label_t* b_ma
                 reverse_sources, tipsLen, tip_drop_ratio, stops_threshold, ruIndex, chimeric_rate, 
                 drop_ratio, max_hang, min_ovlp, gap_fuzz, 1, b_mask_t, NULL, NULL, &r_edges);
         filter_set_kug(R_INF.trio_flag, sg, rf, &r_edges, asm_opt.kpt_rate, &kug);
-        print_utg(kug, sg, coverage_cut, kug_n, sources, ruIndex, max_hang, min_ovlp, &r_edges);
+        print_utg(&kug, sg, coverage_cut, kug_n, sources, ruIndex, max_hang, min_ovlp, &r_edges);
         
         free(kug_n), kv_destroy(r_edges.a); ma_ug_destroy(kug); 
         free(rf);
@@ -20804,7 +20806,9 @@ int min_ovlp, long long gap_fuzz, bub_label_t* b_mask_t, ma_ug_t **rhu0, ma_ug_t
     s = dedup_exact_ug(hidx0, hidx1, coverage_cut, sources, ruIndex, ff, MOTHER); dedup_base += s;
     destroy_dedup_idx_t(hidx0); destroy_dedup_idx_t(hidx1); 
 
-    miss_base = append_miss_nid(sg, hu0, hu1, ff, PHASE_MISS_LEN, PHASE_MISS_N); free(ff);
+    s = append_miss_nid(sg, hu0, hu1, ff, PHASE_MISS_LEN, PHASE_MISS_N); miss_base += s;
+    // s = append_miss_nid(sg, hu0, hu1, ff, PHASE_MISS_SLEN, PHASE_MISS_SN); miss_base += s;
+    free(ff);
 
     renew_utg((&hu0), sg, &arcs0); renew_utg((&hu1), sg, &arcs1);
     fprintf(stderr, "[M::%s] dedup_base::%lu, miss_base::%lu\n", __func__, dedup_base, miss_base);

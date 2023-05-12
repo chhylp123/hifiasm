@@ -151,9 +151,10 @@ typedef struct
 typedef struct
 {
     char** read_name;
+    uint64_t *read_id;
     uint64_t query_num;
     kvec_t_u64_warp* candidate_count;
-    FILE* fp;
+    FILE *fp, *fp_r0, *fp_r1;
     pthread_mutex_t OutputMutex;
 } Debug_reads;
 
