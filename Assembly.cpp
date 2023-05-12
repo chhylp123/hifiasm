@@ -700,6 +700,7 @@ static void worker_ovec_related_reads(void *data, long i, int tid)
 
     if(k < R_INF_FLAG.query_num)
     {
+        R_INF_FLAG.read_id[k] = i;
         int fully_cov, abnormal, q_idx = k;
 
         ha_get_candidates_interface(b->ab, i, &b->self_read, &b->olist, &b->olist_hp, &b->clist, 
@@ -766,6 +767,7 @@ static void worker_ovec_related_reads(void *data, long i, int tid)
             Get_READ_LENGTH(R_INF, b->olist.list[k].y_id));
 		}
 
+        /**
         fprintf(R_INF_FLAG.fp, "***************************unmatched ovlp***************************\n");
         for (k = 0; k < b->olist.length; k++) 
         {
@@ -777,6 +779,7 @@ static void worker_ovec_related_reads(void *data, long i, int tid)
             b->olist.list[k].y_pos_strand, b->olist.list[k].strong, b->olist.list[k].without_large_indel,
             Get_READ_LENGTH(R_INF, b->olist.list[k].y_id));
 		}
+        **/
 
         R_INF.trio_flag[i] = AMBIGU;
 
@@ -950,6 +953,19 @@ void print_het_cnt_log(uint32_t *het_cnt)
     fclose(output_file);
 }
 
+void prt_dbg_rs(FILE *fp, Debug_reads* x, uint64_t round)
+{
+    uint64_t k, id; UC_Read g_read; init_UC_Read(&g_read);
+    for (k = 0; k < R_INF_FLAG.query_num; k++) {
+        id = x->read_id[k];
+        if(id == ((uint64_t)-1)) continue;
+        recover_UC_Read(&g_read, &R_INF, id);
+        fprintf(fp, ">%.*s_r%lu\n", (int)Get_NAME_LENGTH((R_INF), id), Get_NAME((R_INF), id), round);
+        fprintf(fp, "%.*s\n", (int)g_read.length, g_read.seq);
+    }
+    destory_UC_Read(&g_read);
+}
+
 
 void ha_overlap_and_correct(int round)
 {
@@ -999,8 +1015,7 @@ void ha_overlap_and_correct(int round)
 		ha_ovec_destroy(b[i]);
 	}
 	free(b);
-
-	if (asm_opt.required_read_name) destory_Debug_reads(&R_INF_FLAG), exit(0); // for debugging only
+    if (asm_opt.required_read_name) prt_dbg_rs(R_INF_FLAG.fp_r0, &R_INF_FLAG, 0); // for debugging only
     
 	// save corrected reads to R_INF
 	CALLOC(e, asm_opt.thread_num);
@@ -1017,6 +1032,9 @@ void ha_overlap_and_correct(int round)
 		free(e[i].second_round_read);
 	}
 	free(e);
+
+    if (asm_opt.required_read_name) prt_dbg_rs(R_INF_FLAG.fp_r1, &R_INF_FLAG, 1); // for debugging only
+    if (asm_opt.required_read_name) destory_Debug_reads(&R_INF_FLAG), exit(0); // for debugging only
     ///debug_print_pob_regions();
 }
 

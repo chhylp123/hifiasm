@@ -714,6 +714,8 @@ void init_Debug_reads(Debug_reads* x, const char* file)
 	}
 	x->read_name = (char**)malloc(sizeof(char*)*x->query_num);
 	x->candidate_count = (kvec_t_u64_warp*)malloc(sizeof(kvec_t_u64_warp)*x->query_num);
+	x->read_id = NULL; MALLOC(x->read_id, x->query_num); 
+	memset(x->read_id, -1, sizeof((*(x->read_id)))*x->query_num);
 	fseek(x->fp, 0, SEEK_SET);
 
 	i = 0;
@@ -732,6 +734,15 @@ void init_Debug_reads(Debug_reads* x, const char* file)
 	sprintf(Name_Buffer, "%s.debug.stdout", file);
 	x->fp = fopen(Name_Buffer,"w");
 	fprintf(stderr, "Print debugging information to: %s\n", Name_Buffer);
+
+	sprintf(Name_Buffer, "%s.debug.r0.fa", file);
+	x->fp_r0 = fopen(Name_Buffer,"w");
+	fprintf(stderr, "Print raw reads to: %s\n", Name_Buffer);
+
+	sprintf(Name_Buffer, "%s.debug.r1.fa", file);
+	x->fp_r1 = fopen(Name_Buffer,"w");
+	fprintf(stderr, "Print corrected reads to: %s\n", Name_Buffer);
+
 	free(Name_Buffer);
 }
 
@@ -744,8 +755,8 @@ void destory_Debug_reads(Debug_reads* x)
 		kv_destroy(x->candidate_count[i].a);
 	}
 	
-	free(x->read_name);
-	fclose(x->fp);
+	free(x->read_name); free(x->read_id);
+	fclose(x->fp); fclose(x->fp_r0); fclose(x->fp_r1);
 }
 
 
