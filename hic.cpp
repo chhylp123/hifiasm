@@ -17722,6 +17722,190 @@ void hic_analysis(ma_ug_t *ug, asg_t* read_g, trans_chain* t_ch, ug_opt_t *opt, 
     destory_hc_pt_index(ug_index);free(ug_index);
 }
 
+uint64_t ug_occ_hap_w(uint64_t is, uint64_t ie, ma_utg_t *u)
+{
+    uint64_t l, i, us, ue, occ;
+    for (i = l = occ = 0; i < u->n; i++) {
+        us = l; ue = l + Get_READ_LENGTH(R_INF, (u->a[i]>>33));
+        if(is <= us && ie >= ue) {
+            if((R_INF.trio_flag[u->a[i]>>33] == FATHER) || (R_INF.trio_flag[u->a[i]>>33] == MOTHER)) {
+                occ++;
+            }
+        }
+        if(us >= ie) break;
+        l += (uint32_t)u->a[i];
+    }
+    return occ;
+}
+
+void trio_phasing_refine(ma_ug_t *iug, asg_t* sg, kv_u_trans_t *ref, ug_opt_t *opt)
+{
+    ma_ug_t *ug = copy_untig_graph(iug); uint8_t *bf = NULL; 
+    uint64_t ug_n0 = ug->g->n_seq, k, i, ul, cis_n, trans_n, w_n, tot_hap, tot_r, frid, mrid, flag; 
+    kv_u_trans_t in; memset(&in, 0, sizeof(in)); ma_utg_t *p; u_trans_t *z; int64_t fh, mh;
+    bubble_type *bub = gen_bubble_chain(sg, ug, opt, &bf, 0); free(bf);
+    clean_u_trans_t_idx_filter_adv(ref, ug, sg);
+    
+    ///update ug itself
+    ul = FATHER; frid = ug->g->n_seq; asg_seq_set(ug->g, frid, ul, 0); 
+    kv_pushp(ma_utg_t, ug->u, &p); memset(p, 0, sizeof((*p)));
+    p->s = 0; p->start = UINT32_MAX; p->end = UINT32_MAX; p->len = ul, p->n = p->m = 1; p->circ = 1;
+    kv_roundup32(p->m); p->a = (uint64_t*)malloc(8 * p->m); 
+    p->a[0] = UINT32_MAX; p->a[0] <<= 32; p->a[0] |= ul;
+    
+    ul = MOTHER; mrid = ug->g->n_seq; asg_seq_set(ug->g, mrid, ul, 0); 
+    kv_pushp(ma_utg_t, ug->u, &p); memset(p, 0, sizeof((*p)));
+    p->s = 0; p->start = UINT32_MAX; p->end = UINT32_MAX; p->len = ul, p->n = p->m = 1; p->circ = 1;
+    kv_roundup32(p->m); p->a = (uint64_t*)malloc(8 * p->m); 
+    p->a[0] = UINT32_MAX; p->a[0] <<= 32; p->a[0] |= ul;
+
+    free(ug->g->idx); ug->g->idx = 0; ug->g->is_srt = 0; asg_cleanup(ug->g);
+
+    ///update bubble
+    REALLOC(bub->index, ug->g->n_seq);
+    for (k = ug_n0; k < ug->g->n_seq; k++) bub->index[k] = bub->f_bub+1;
+    
+    bub->b_s_idx.n = ug->g->n_seq; kv_resize(uint64_t, bub->b_s_idx, ug->g->n_seq);
+    for (k = ug_n0; k < bub->b_s_idx.m; k++) bub->b_s_idx.a[k] = (uint64_t)-1;
+
+    ///check if a node has haplotype markers
+    CALLOC(bf, ug->g->n_seq);
+    for (k = cis_n = tot_hap = tot_r = 0; k < ug_n0; k++) {
+        if(ug->g->seq[k].del) continue;
+        p = &(ug->u.a[k]); tot_r += p->n;
+        if(p->n == 0 || p->m == 0) continue;
+        for (i = fh = mh = 0; i < p->n; i++) {
+            if(R_INF.trio_flag[p->a[i]>>33] == FATHER) {
+                tot_hap++; fh = 1;
+            } else if(R_INF.trio_flag[p->a[i]>>33] == MOTHER) {
+                tot_hap++; mh = 1;
+            }
+            if((R_INF.trio_flag[p->a[i]>>33] == FATHER) || (R_INF.trio_flag[p->a[i]>>33] == MOTHER)) {
+                tot_hap++; bf[k] = 1; 
+            }
+        }
+        if(fh > 0) {
+            bf[k] = 1; cis_n+=2;
+        }
+        if(mh > 0) {
+            bf[k] = 1; cis_n+=2;
+        }
+    }
+    for (; k < ug->g->n_seq; k++) bf[k] = 1;///for father/mother nodes
+    
+
+    ///update trans overlaps
+    kv_pushp(u_trans_t, *ref, &z); memset(z, 0, sizeof((*z)));
+    z->f = RC_2; z->nw = (DBL_MAX/2); z->rev = 0;
+    z->qn = ug_n0; z->tn = ug_n0+1; z->del = 0;
+    z->qs = 0; z->qe = ug->g->seq[z->qn].len;
+    z->ts = 0; z->te = ug->g->seq[z->tn].len;
+
+    kv_pushp(u_trans_t, *ref, &z); memset(z, 0, sizeof((*z)));
+    z->f = RC_2; z->nw = (DBL_MAX/2); z->rev = 0;
+    z->qn = ug_n0+1; z->tn = ug_n0; z->del = 0;
+    z->qs = 0; z->qe = ug->g->seq[z->qn].len;
+    z->ts = 0; z->te = ug->g->seq[z->tn].len;
+
+    kt_u_trans_t_idx(ref, ug->g->n_seq);
+    // clean_u_trans_t_idx_adv(ref, ug, sg);
+    // clean_u_trans_t_idx_filter_adv(ref, ug, sg);
+
+    ///gen all links
+    for (k = trans_n = 0; k < ref->n; k++) {
+        if(ref->a[k].del) continue;
+        if((IF_HOM(ref->a[k].qn, (*bub))) || (IF_HOM(ref->a[k].tn, (*bub)))) continue;
+        ///disable bf
+        // if((!bf[ref->a[k].qn]) || (!bf[ref->a[k].tn])) continue;
+        trans_n++;
+    }
+    kv_resize(u_trans_t, in, (trans_n+cis_n)); 
+
+    for (k = in.n = 0; k < ref->n; k++) {
+        if(ref->a[k].del) continue;
+        if((IF_HOM(ref->a[k].qn, (*bub))) || (IF_HOM(ref->a[k].tn, (*bub)))) continue;
+        ///disable bf
+        // if((!bf[ref->a[k].qn]) || (!bf[ref->a[k].tn])) continue;
+
+        kv_pushp(u_trans_t, in, &z); memset(z, 0, sizeof((*z))); w_n = 0;
+        if((ref->a[k].qn < ug_n0) && (ref->a[k].tn < ug_n0)) {
+            w_n += ug_occ_hap_w(ref->a[k].qs, ref->a[k].qe, &(ug->u.a[ref->a[k].qn])) + 
+            ug_occ_hap_w(ref->a[k].ts, ref->a[k].te, &(ug->u.a[ref->a[k].tn]));
+            w_n += ug_occ_w(ref->a[k].qs, ref->a[k].qe, &(ug->u.a[ref->a[k].qn])) + 
+            ug_occ_w(ref->a[k].ts, ref->a[k].te, &(ug->u.a[ref->a[k].tn]));
+        } else {
+            w_n += tot_hap + tot_r;
+        }
+        w_n >>= 1;///wn/4
+        (*z) = ref->a[k]; z->nw = ((w_n)?(w_n):(1));
+    }
+
+    for (k = 0; k < ug_n0; k++) {
+        if(!bf[k]) continue;
+        p = &(ug->u.a[k]);
+        if(p->n == 0 || p->m == 0) continue;
+        fh = mh = 0;
+        for (i = 0; i < p->n; i++) {
+            if(R_INF.trio_flag[p->a[i]>>33] == FATHER) fh--;
+            if(R_INF.trio_flag[p->a[i]>>33] == MOTHER) mh--;
+        }
+        if(fh != 0) {
+            w_n = frid;
+
+            kv_pushp(u_trans_t, in, &z); memset(z, 0, sizeof((*z)));
+            z->f = RC_2; z->nw = fh; z->rev = 0;
+            z->qn = w_n; z->tn = k; z->del = 0;
+            z->qs = 0; z->qe = MIN(ug->g->seq[z->qn].len, ug->g->seq[z->tn].len);
+            z->ts = 0; z->te = MIN(ug->g->seq[z->qn].len, ug->g->seq[z->tn].len);
+
+            kv_pushp(u_trans_t, in, &z); memset(z, 0, sizeof((*z)));
+            z->f = RC_2; z->nw = fh; z->rev = 0;
+            z->qn = k; z->tn = w_n; z->del = 0;
+            z->qs = 0; z->qe = MIN(ug->g->seq[z->qn].len, ug->g->seq[z->tn].len);
+            z->ts = 0; z->te = MIN(ug->g->seq[z->qn].len, ug->g->seq[z->tn].len);
+        }
+
+        if(mh != 0) {
+            w_n = mrid;
+
+            kv_pushp(u_trans_t, in, &z); memset(z, 0, sizeof((*z)));
+            z->f = RC_2; z->nw = mh; z->rev = 0;
+            z->qn = w_n; z->tn = k; z->del = 0;
+            z->qs = 0; z->qe = MIN(ug->g->seq[z->qn].len, ug->g->seq[z->tn].len);
+            z->ts = 0; z->te = MIN(ug->g->seq[z->qn].len, ug->g->seq[z->tn].len);
+
+            kv_pushp(u_trans_t, in, &z); memset(z, 0, sizeof((*z)));
+            z->f = RC_2; z->nw = mh; z->rev = 0;
+            z->qn = k; z->tn = w_n; z->del = 0;
+            z->qs = 0; z->qe = MIN(ug->g->seq[z->qn].len, ug->g->seq[z->tn].len);
+            z->ts = 0; z->te = MIN(ug->g->seq[z->qn].len, ug->g->seq[z->tn].len);
+        }
+    }
+    free(bf);
+    assert(in.n == (trans_n+cis_n));
+    kt_u_trans_t_idx(&in, ug->g->n_seq);
+    // clean_u_trans_t_idx_adv(&in, ug, sg);
+
+    ps_t *s = init_ps_t(11, ug->g->n_seq); s->s[frid] = 1; s->s[mrid] = -1; 
+    mc_solve(NULL, NULL, &in, ug, sg, 0.8, NULL, 0, s->s, 1, bub, ref, 0, 0);
+    // fprintf(stderr, "[M::%s::] s[frid]::%d, s->s[mrid]::%d\n", __func__, s->s[frid], s->s[mrid]);
+    if((s->s[frid] != 0) && (s->s[mrid] != 0) && (s->s[frid] != s->s[mrid])) {
+        memset(R_INF.trio_flag, AMBIGU, R_INF.total_reads * sizeof(uint8_t));
+        for (i = 0; i < ug_n0; i++) {
+            if(ug->g->seq[i].del) continue;
+            flag = AMBIGU;
+            if(s->s[i] == 0) continue;
+            flag = (s->s[i] == s->s[frid]? FATHER:MOTHER);
+            p = &ug->u.a[i];
+            if(p->m == 0) continue;
+            for (k = 0; k < p->n; k++) R_INF.trio_flag[p->a[k]>>33] = flag;
+        }
+    }
+
+    destory_bubbles(bub); free(bub); ma_ug_destroy(ug);
+    destory_ps_t(&s); kv_destroy(in); kv_destroy(in.idx);
+}
+
 spg_t *hic_pre_analysis(ma_ug_t *ug, asg_t* read_g, trans_chain* t_ch, ug_opt_t *opt, kvec_pe_hit **rhits)
 {
     ug_index = NULL;

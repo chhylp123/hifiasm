@@ -17034,6 +17034,62 @@ long long gap_fuzz, ug_opt_t *opt)
     0.05, 0.9, max_hang, min_ovlp, gap_fuzz, b_mask_t, NULL, NULL);
 }
 
+void output_bp_trio_graph(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name, 
+ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, long long tipsLen, float tip_drop_ratio, long long stops_threshold, 
+R_to_U* ruIndex, float chimeric_rate, float drop_ratio, int max_hang, int min_ovlp, bub_label_t* b_mask_t,
+long long gap_fuzz, ug_opt_t *opt)
+{
+    hic_clean(sg);
+
+    kvec_asg_arc_t_warp new_rtg_edges;
+    kv_init(new_rtg_edges.a); 
+    ma_ug_t *ug = NULL;
+    ug = ma_ug_gen_primary(sg, PRIMARY_LABLE);
+    
+    hap_cov_t *cov = NULL;
+    trans_chain* t_ch = NULL;
+    if((asm_opt.flag & HA_F_VERBOSE_GFA)) t_ch = load_hc_trans(output_file_name);
+    
+    if(!t_ch) {
+        new_rtg_edges.a.n = 0;
+        asg_t *copy_sg = copy_read_graph(sg);
+        ma_ug_t *copy_ug = copy_untig_graph(ug);    
+        ///asm_opt.purge_overlap_len = asm_opt.purge_overlap_len_hic;
+        ///asm_opt.purge_simi_thres = asm_opt.purge_simi_rate_hic;
+        adjust_utg_by_primary(&copy_ug, copy_sg, TRIO_THRES, sources, reverse_sources, coverage_cut, 
+        tipsLen, tip_drop_ratio, stops_threshold, ruIndex, chimeric_rate, drop_ratio, 
+        max_hang, min_ovlp, &new_rtg_edges, &cov, b_mask_t, 1, 0);
+        
+        ma_ug_destroy(copy_ug);
+        asg_destroy(copy_sg);
+
+        if((asm_opt.flag & HA_F_VERBOSE_GFA)) write_trans_chain(cov->t_ch, output_file_name);
+    }
+
+    // clean_u_trans_t_idx_filter_adv(&(cov?cov->t_ch->k_trans:t_ch->k_trans), ug, sg);
+    trio_phasing_refine(ug, sg, cov?&(cov->t_ch->k_trans):&(t_ch->k_trans), opt);
+    
+    if(cov) destory_hap_cov_t(&cov);
+    if(t_ch) destory_trans_chain(&t_ch);
+
+
+    // char* gfa_name = (char*)malloc(strlen(output_file_name)+50);
+    // sprintf(gfa_name, "%s.after.clean_d_utg.noseq.gfa", output_file_name);
+    // FILE* output_file = fopen(gfa_name, "w");
+    // ma_ug_print_simple(ug, sg, coverage_cut, sources, ruIndex, "utg", output_file);
+    // fclose(output_file);
+    // free(gfa_name);
+
+
+
+    ma_ug_destroy(ug);
+    kv_destroy(new_rtg_edges.a); 
+
+
+    output_trio_graph_joint(sg, coverage_cut, output_file_name, sources, reverse_sources, (asm_opt.max_short_tip*2), 0.15, 3, ruIndex, 
+    0.05, 0.9, max_hang, min_ovlp, gap_fuzz, b_mask_t, NULL, NULL);
+}
+
 ma_ug_t* merge_utg(ma_ug_t **dest, ma_ug_t **src)
 {
     asg_t *g_d = (*dest)->g, *g_s = (*src)->g;
@@ -36393,8 +36449,13 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
         if(asm_opt.flag & HA_F_PARTITION) asm_opt.flag -= HA_F_PARTITION;
         // output_trio_graph(sg, coverage_cut, o_file, sources, reverse_sources, (asm_opt.max_short_tip*2), 
         // 0.15, 3, ruIndex, 0.05, 0.9, max_hang_length, mini_overlap_length, 0, gap_fuzz, &uopt, &b_mask_t);
-        output_trio_graph_joint(sg, coverage_cut, o_file, sources, reverse_sources, (asm_opt.max_short_tip*2), 
-        0.15, 3, ruIndex, 0.05, 0.9, max_hang_length, mini_overlap_length, gap_fuzz, &b_mask_t, NULL, NULL);
+        if(asm_opt.trio_cov_het_ovlp > 0) {
+            output_bp_trio_graph(sg, coverage_cut, o_file, sources, reverse_sources, (asm_opt.max_short_tip*2), 
+            0.15, 3, ruIndex, 0.05, 0.9, max_hang_length, mini_overlap_length, &b_mask_t, gap_fuzz, &uopt);
+        } else {
+            output_trio_graph_joint(sg, coverage_cut, o_file, sources, reverse_sources, (asm_opt.max_short_tip*2), 
+            0.15, 3, ruIndex, 0.05, 0.9, max_hang_length, mini_overlap_length, gap_fuzz, &b_mask_t, NULL, NULL);
+        }
     }
     else if(ha_opt_hic(&asm_opt))
     {
