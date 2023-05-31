@@ -60,6 +60,7 @@ static ko_longopt_t long_options[] = {
     { "dbg-ovec",     ko_no_argument, 345},
     { "path-max",     ko_required_argument, 346},
     { "path-min",     ko_required_argument, 347},
+    { "trio-dual",     ko_no_argument, 348},
     // { "path-round",     ko_required_argument, 348},
 	{ 0, 0, 0 }
 };
@@ -129,6 +130,8 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "    --t-occ      INT\n");
     fprintf(stderr, "                 forcedly remove unitigs with >INT unexpected haplotype-specific reads;\n");
     fprintf(stderr, "                 ignore graph topology; [%d]\n", asm_opt->trio_flag_occ_thres);
+    fprintf(stderr, "    --trio-dual  utilize homology information to correct trio phasing errors\n");
+
 
     fprintf(stderr, "  Purge-dups:\n");
     fprintf(stderr, "    -l INT       purge level. 0: no purging; 1: light; 2/3: aggressive [0 for trio; 3 for unzip]\n");
@@ -286,6 +289,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->max_path_drop_rate = 0.6;
     asm_opt->hifi_pst_join = 1;
     asm_opt->ul_pst_join = 1;
+    asm_opt->trio_cov_het_ovlp = -1;
 }
 
 void destory_enzyme(enzyme* f)
@@ -830,6 +834,7 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         else if (c == 345) asm_opt->dbg_ovec_cal = 1;
         else if (c == 346) asm_opt->max_path_drop_rate = atof(opt.arg);
         else if (c == 347) asm_opt->min_path_drop_rate = atof(opt.arg);
+        else if (c == 348) asm_opt->trio_cov_het_ovlp = 1;
         else if (c == 'l') {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
             asm_opt->purge_level_primary = asm_opt->purge_level_trio = atoi(opt.arg);
         }

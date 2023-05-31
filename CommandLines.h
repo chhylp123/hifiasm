@@ -5,7 +5,7 @@
 #include <pthread.h>
 #include <stdint.h>
 
-#define HA_VERSION "0.19.5-r590"
+#define HA_VERSION "0.19.5-r592"
 
 #define VERBOSE 0
 
@@ -131,7 +131,7 @@ typedef struct {
     float dp_e;
     int64_t hg_size;
     float kpt_rate;
-    int64_t infor_cov, s_hap_cov;
+    int64_t infor_cov, s_hap_cov, trio_cov_het_ovlp;
     double ul_error_rate, ul_error_rate_low, ul_error_rate_hpc;
     int32_t ul_ec_round;
     uint8_t is_dbg_het_cnt;

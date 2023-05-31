@@ -3969,8 +3969,8 @@ asg_t *i_rg, ma_ug_t* i_ug, bubble_type* bub, kv_u_trans_t *ref, ug_opt_t *opt, 
 
 int cmp_mc_edge_t_w(const void * a, const void * b)
 {
-    if((*(osg_arc_t*)a).nw == (*(osg_arc_t*)b).nw) return 0;
-    return (*(osg_arc_t*)a).nw < (*(osg_arc_t*)b).nw ? -1 : 1;
+    if((*(mc_edge_t*)a).w == (*(mc_edge_t*)b).w) return 0;
+    return (*(mc_edge_t*)a).w < (*(mc_edge_t*)b).w ? -1 : 1;
 }
 
 void cal_chain_arch(scg_t *sg, const mc_match_t *ma, uint32_t v, uint32_t *va, uint32_t vn, uint64_t *idx, asg64_v *srt)
@@ -4303,6 +4303,7 @@ double min_cut, double max_cut, uint64_t cut_round)
         kv_pushp(mc_edge_t, sm, &sp);
         sp->w = sg->g->arc[k].nw; sp->x = k;
     }
+    // fprintf(stderr, "sm.n::%lu\n", (uint64_t)sm.n);
     qsort(sm.a, sm.n, sizeof(mc_edge_t), cmp_mc_edge_t_w);
 
 
