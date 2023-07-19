@@ -17891,11 +17891,12 @@ static void filter_short_ulalignments(void *data, long i, int tid) // callback f
 	a = UL_INF.a[i].bb.a; a_n = UL_INF.a[i].bb.n; 
 
 	for (k = a_n - 1; k >= 0; k--) {
-		// if(i == 1126) {
-		// 	fprintf(stderr, "[M::%s::id->%ld::rlen->%u] (%ld) utg%.6dl, q::[%u, %u), t::[%u, %u), pidx::%u, aidx::%u, pdis::%u\n", 
-		// 	__func__, i, UL_INF.a[i].rlen, k, (int32_t)a[k].hid+1, a[k].qs, a[k].qe, a[k].ts, a[k].te, a[k].pidx, a[k].aidx, a[k].pdis);
-		// }
 		p = &(a[k]);
+		// if(i == 338344) {
+		// 	fprintf(stderr, "+[M::%s::id->%ld::rlen->%u::glen->%u] (%ld) utg%.6dl, q::[%u, %u), t::[%u, %u), pidx::%u, aidx::%u, pdis::%u, a[k].base::%u, a[k].el::%u, a[k].pchain::%u\n", 
+		// 	__func__, i, UL_INF.a[i].rlen, ug->u.a[p->hid].len, k, (int32_t)a[k].hid+1, a[k].qs, a[k].qe, a[k].ts, a[k].te, a[k].pidx, a[k].aidx, a[k].pdis, 
+		// 	a[k].base, a[k].el, a[k].pchain);
+		// }
 		if(p->base || (!p->el) || (!p->pchain)) continue;
 		if(p->pidx == (uint32_t)-1) {
 			if(!ugl_cover_check(p->ts, p->te, &(ug->u.a[p->hid]))) {
@@ -17928,9 +17929,32 @@ static void filter_short_ulalignments(void *data, long i, int tid) // callback f
 	for (k = a_n - 1; k >= 0; k--) {
 		p = &(a[k]);
 		if(p->base || (!p->el) || (!p->pchain)) continue;
-		// if(i == 1126) {
-		// 	fprintf(stderr, "-[M::%s::id->%ld::rlen->%u] (%ld) utg%.6dl, q::[%u, %u), t::[%u, %u), pidx::%u, aidx::%u, pdis::%u\n", 
-		// 	__func__, i, UL_INF.a[i].rlen, k, (int32_t)a[k].hid+1, a[k].qs, a[k].qe, a[k].ts, a[k].te, a[k].pidx, a[k].aidx, a[k].pdis);
+		if(p->pidx != (uint32_t)-1) {		
+			if((a[p->pidx].aidx != ((uint32_t)k)) && (a[p->pidx].aidx == ((uint32_t)-1))) {
+				p->pidx = (uint32_t)-1;
+			} else {
+				assert(a[p->pidx].aidx == (uint32_t)k);
+				assert(a[p->pidx].pchain);
+			}
+		}
+		if(p->aidx != (uint32_t)-1) {
+			if((a[p->aidx].pidx != (uint32_t)k) && (a[p->aidx].pidx == ((uint32_t)-1))) {
+				p->aidx = (uint32_t)-1;
+			} else {
+				assert(a[p->aidx].pidx == (uint32_t)k);
+				assert(a[p->aidx].pchain);
+			}
+			
+		}
+	}
+
+	for (k = a_n - 1; k >= 0; k--) {
+		p = &(a[k]);
+		if(p->base || (!p->el) || (!p->pchain)) continue;
+		// if(i == 338344) {
+		// 	fprintf(stderr, "-[M::%s::id->%ld::rlen->%u::glen->%u] (%ld) utg%.6dl, q::[%u, %u), t::[%u, %u), pidx::%u, aidx::%u, pdis::%u, a[k].base::%u, a[k].el::%u, a[k].pchain::%u\n", 
+		// 	__func__, i, UL_INF.a[i].rlen, ug->u.a[p->hid].len, k, (int32_t)a[k].hid+1, a[k].qs, a[k].qe, a[k].ts, a[k].te, a[k].pidx, a[k].aidx, a[k].pdis, 
+		// 	a[k].base, a[k].el, a[k].pchain);
 		// }
 		if(p->pidx != (uint32_t)-1) {
 			// if(!(a[p->pidx].aidx == (uint32_t)k)) {
@@ -17941,6 +17965,10 @@ static void filter_short_ulalignments(void *data, long i, int tid) // callback f
 			assert(a[p->pidx].pchain);
 		}
 		if(p->aidx != (uint32_t)-1) {
+			// if(a[p->aidx].pidx != (uint32_t)k) {
+			// 	fprintf(stderr, "[M::%s::id->%ld] name::%.*s, a_n::%ld, p->aidx::%u, p->pidx::%u, a[p->aidx].pidx::%u\n", __func__, i, (int32_t)UL_INF.nid.a[i].n, UL_INF.nid.a[i].a, a_n, 
+			// 	p->aidx, p->pidx, a[p->aidx].pidx);
+			// }
 			assert(a[p->aidx].pidx == (uint32_t)k);
 			assert(a[p->aidx].pchain);
 		}
