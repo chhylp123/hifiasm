@@ -12692,7 +12692,7 @@ static void *worker_ul_scall_pipeline(void *data, int step, void *in) // callbac
 		s->opt = p->opt; s->uu = p->uu; s->uopt = p->uopt; s->rg = p->rg;
         while ((ret = kseq_read(p->ks)) >= 0) 
         {
-            if (p->ks->seq.l < (uint64_t)p->opt->k) continue;
+            if ((p->ks->seq.l < (uint64_t)p->opt->k) || (p->ks->seq.l < asm_opt.ul_min_base)) continue;
             if (s->n == s->m) {
                 s->m = s->m < 16? 16 : s->m + (s->n>>1);
                 REALLOC(s->len, s->m);
@@ -12823,7 +12823,7 @@ static void *worker_ul_rescall_pipeline(void *data, int step, void *in) // callb
 		s->opt = p->opt; s->uu = p->uu; s->uopt = p->uopt; s->rg = p->rg; s->mm = p->mm;
         while ((ret = kseq_read(p->ks)) >= 0) 
         {
-            if (p->ks->seq.l < (uint64_t)p->opt->k) continue;
+			if ((p->ks->seq.l < (uint64_t)p->opt->k) || (p->ks->seq.l < asm_opt.ul_min_base)) continue;
             if (s->n == s->m) {
                 s->m = s->m < 16? 16 : s->m + (s->n>>1);
                 REALLOC(s->len, s->m);
@@ -15956,7 +15956,7 @@ uint32_t refine_rid_chain(const asg_t *rg, mg_tbuf_t *b, ul_vec_t *rch, uint64_t
 {
 	if(rch->bb.n == 1 && rch->bb.a[0].base) return 1;///no alignment
 	if(rch->bb.n == 0) return 1;///no alignment
-	uint64_t i, m, c[2], nc, cc, ni[2]; 
+	uint64_t i, m, c[2], nc, cc/**, ni[2]**/; 
 	for (i = c[1] = rch->bb.n-1, m = nc = 0; i != (uint32_t)-1; i = rch->bb.a[i].pidx) {
 		m++; c[0] = i; if(!(rg->seq[rch->bb.a[i].hid].del)) nc++; 
 	}
@@ -15967,16 +15967,14 @@ uint32_t refine_rid_chain(const asg_t *rg, mg_tbuf_t *b, ul_vec_t *rch, uint64_t
 			if(rg->seq[rch->bb.a[i].hid].del) cc++;
 			else break;
 		}
-		ni[1] = i;
+		// ni[1] = i;
 		for (i = c[0]; i != (uint32_t)-1; i = rch->bb.a[i].aidx) {
 			if(rg->seq[rch->bb.a[i].hid].del) cc++;
 			else break;
 		}
-		ni[0] = i;
+		// ni[0] = i;
 		if(nc + cc == m) return 1;
-		assert(ni[1] > ni[0] && ni[0] != (uint32_t)-1 && ni[1] != (uint32_t)-1);
-		// fprintf(stderr, "[M::%s::%.*s(id:%ld), len:%u] aln::%lu, m::%lu, nc::%lu, cc::%lu\n", __func__, 
-		// UL_INF.nid.a[ulid].n, UL_INF.nid.a[ulid].a, ulid, rch->rlen, (uint64_t)rch->bb.n, m, nc, cc);
+		// assert(ni[1] > ni[0] && ni[0] != (uint32_t)-1 && ni[1] != (uint32_t)-1);
 		return 2;
 	}
 	return 0;
@@ -16042,7 +16040,7 @@ uint32_t refine_contain_consensus_chain(const asg_t *rg, ul_vec_t *rch, R_to_U *
 		if(!is_end) continue;
 		i = m = k; occ = 0;
 		while (i != ((uint32_t)-1)) {
-			assert(bu->a[i] == ((uint64_t)-1));
+			//assert(bu->a[i] == ((uint64_t)-1));
 			if(rg->seq[rch->bb.a[i].hid].del) {
 				if(occ > 1) {
 					bu->a[m] = occ;
