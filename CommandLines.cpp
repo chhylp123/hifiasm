@@ -61,6 +61,7 @@ static ko_longopt_t long_options[] = {
     { "path-max",     ko_required_argument, 346},
     { "path-min",     ko_required_argument, 347},
     { "trio-dual",     ko_no_argument, 348},
+    { "ul-cut",     ko_required_argument, 349},
     // { "path-round",     ko_required_argument, 348},
 	{ 0, 0, 0 }
 };
@@ -174,6 +175,8 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "    --path-min   FLOAT\n");
     fprintf(stderr, "                 min path drop ratio [%.2g]; higher number may make the assembly cleaner\n", asm_opt->min_path_drop_rate);
     fprintf(stderr, "                 but may lead to more misassemblies\n");
+    fprintf(stderr, "    --ul-cut     INT\n");
+    fprintf(stderr, "                 filter out <INT UL reads during the UL assembly [%d]\n", asm_opt->ul_min_base);
     // fprintf(stderr, "    --low-het    enable it for genomes with very low het heterozygosity rate (<0.0001%%)\n");
 
     fprintf(stderr, "Example: ./hifiasm -o NA12878.asm -t 32 NA12878.fq.gz\n");
@@ -290,6 +293,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->hifi_pst_join = 1;
     asm_opt->ul_pst_join = 1;
     asm_opt->trio_cov_het_ovlp = -1;
+    asm_opt->ul_min_base = 0;
 }
 
 void destory_enzyme(enzyme* f)
@@ -835,6 +839,7 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         else if (c == 346) asm_opt->max_path_drop_rate = atof(opt.arg);
         else if (c == 347) asm_opt->min_path_drop_rate = atof(opt.arg);
         else if (c == 348) asm_opt->trio_cov_het_ovlp = 1;
+        else if (c == 349) asm_opt->ul_min_base = atol(opt.arg);
         else if (c == 'l') {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
             asm_opt->purge_level_primary = asm_opt->purge_level_trio = atoi(opt.arg);
         }
