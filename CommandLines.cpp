@@ -294,6 +294,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->ul_pst_join = 1;
     asm_opt->trio_cov_het_ovlp = -1;
     asm_opt->ul_min_base = 0;
+    asm_opt->self_scaf = 0;
 }
 
 void destory_enzyme(enzyme* f)

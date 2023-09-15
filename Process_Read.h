@@ -25,6 +25,7 @@
 #define Get_NAME(R_INF, ID) ((R_INF).name + (R_INF).name_index[(ID)])
 #define CHECK_BY_NAME(R_INF, NAME, ID) (Get_NAME_LENGTH((R_INF),(ID))==strlen((NAME)) && \
                                         memcmp((NAME), Get_NAME((R_INF), (ID)), Get_NAME_LENGTH((R_INF),(ID))) == 0)
+#define IS_SCAF_READ(R_INF, ID) ((R_INF).read_sperate[(ID)] == NULL)
 
 extern uint8_t seq_nt6_table[256];
 extern char bit_t_seq_table[256][4];
@@ -204,6 +205,13 @@ typedef struct
     // uint32_t mm;
 } all_ul_t;
 
+
+typedef struct {
+    ul_vec_t *a;
+    size_t n, m;
+    uint8_t dd;
+} scaf_res_t;
+
 extern all_ul_t UL_INF;
 extern all_ul_t ULG_INF;
 // extern uint32_t *het_cnt;
@@ -239,5 +247,7 @@ uint64_t retrieve_r_cov_region(const ul_idx_t *ul, uint64_t id, uint8_t strand, 
 void append_ul_t_back(all_ul_t *x, uint64_t *rid, char* id, int64_t id_l, char* str, int64_t str_l, ul_ov_t *o, int64_t on, float p_chain_rate);
 void write_compress_base_disk(FILE *fp, uint64_t ul_rid, char *str, uint32_t len, ul_vec_t *buf);
 int64_t load_compress_base_disk(FILE *fp, uint64_t *ul_rid, char *dest, uint32_t *len, ul_vec_t *buf);
+scaf_res_t *init_scaf_res_t(uint32_t n);
+void destroy_scaf_res_t(scaf_res_t *p);
 
 #endif
