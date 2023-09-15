@@ -541,31 +541,27 @@ void recover_UC_Read(UC_Read* r, const All_reads *R_INF, uint64_t ID)
 	r->length = Get_READ_LENGTH((*R_INF), ID);
 	uint8_t* src = Get_READ((*R_INF), ID);
 
-	if (r->length + 4 > r->size)
-	{
+	if (r->length + 4 > r->size) {
 		r->size = r->length + 4;
 		r->seq = (char*)realloc(r->seq,sizeof(char)*(r->size));
 	}
 
 	uint64_t i = 0;
 
-	while ((long long)i < r->length)
-	{
-		memcpy(r->seq+i, bit_t_seq_table[src[i>>2]], 4);
-		i = i + 4;
-	}
-
-
-	if (R_INF->N_site[ID])
-	{
-		for (i = 1; i <= R_INF->N_site[ID][0]; i++)
-		{
-			r->seq[R_INF->N_site[ID][i]] = 'N';
+	if(src) {
+		while ((long long)i < r->length) {
+			memcpy(r->seq+i, bit_t_seq_table[src[i>>2]], 4);
+			i = i + 4;
 		}
+
+		if (R_INF->N_site[ID]) {
+			for (i = 1; i <= R_INF->N_site[ID][0]; i++) r->seq[R_INF->N_site[ID][i]] = 'N';
+		}
+	} else {///N
+		memset(r->seq, 'N', r->length);
 	}
 
-	r->RID = ID;
-		
+	r->RID = ID;	
 }
 
 void recover_UC_Read_RC(UC_Read* r, All_reads* R_INF, uint64_t ID)
@@ -573,8 +569,7 @@ void recover_UC_Read_RC(UC_Read* r, All_reads* R_INF, uint64_t ID)
 	r->length = Get_READ_LENGTH((*R_INF), ID);
 	uint8_t* src = Get_READ((*R_INF), ID);
 
-	if (r->length + 4 > r->size)
-	{
+	if (r->length + 4 > r->size) {
 		r->size = r->length + 4;
 		r->seq = (char*)realloc(r->seq,sizeof(char)*(r->size));
 	}
@@ -583,27 +578,29 @@ void recover_UC_Read_RC(UC_Read* r, All_reads* R_INF, uint64_t ID)
 	long long i = r->length / 4 - 1 + (last_chr != 0);
 	long long index = 0;
 
-	if(last_chr!=0)
-	{
-		memcpy(r->seq + index, bit_t_seq_table_rc[src[i]] + 4 - last_chr, last_chr);
-		index = last_chr;
-		i--;
-	}
-
-	while (i >= 0)
-	{
-		memcpy(r->seq + index, bit_t_seq_table_rc[src[i]], 4);
-		i--;
-		index = index + 4;
-	}
-
-	if (R_INF->N_site[ID])
-	{
-		for (i = 1; i <= (long long)R_INF->N_site[ID][0]; i++)
-		{
-			r->seq[r->length - R_INF->N_site[ID][i] - 1] = 'N';
+	if(src) {
+		if(last_chr!=0) {
+			memcpy(r->seq + index, bit_t_seq_table_rc[src[i]] + 4 - last_chr, last_chr);
+			index = last_chr;
+			i--;
 		}
+
+		while (i >= 0) {
+			memcpy(r->seq + index, bit_t_seq_table_rc[src[i]], 4);
+			i--;
+			index = index + 4;
+		}
+
+		if (R_INF->N_site[ID]) {
+			for (i = 1; i <= (long long)R_INF->N_site[ID][0]; i++) {
+				r->seq[r->length - R_INF->N_site[ID][i] - 1] = 'N';
+			}
+		}
+	} else {///N
+		memset(r->seq, 'N', r->length);
 	}
+
+	
 }
 
 #define COMPRESS_BASE {c = seq_nt6_table[(uint8_t)src[i]];\
@@ -1893,4 +1890,24 @@ int64_t load_compress_base_disk(FILE *fp, uint64_t *ul_rid, char *dest, uint32_t
 		des_i += tailLen; src_i += tailLen;
 	}
 	return 1;
+}
+
+
+scaf_res_t *init_scaf_res_t(uint32_t n)
+{
+	scaf_res_t *p = NULL; CALLOC(p, 1);
+	p->n = p->m = n; CALLOC(p->a, n);
+	return p;
+}
+
+void destroy_scaf_res_t(scaf_res_t *p)
+{
+	if(p) {
+		uint32_t k;
+		for (k = 0; k < p->m; k++) {
+			free(p->a[k].N_site.a); free(p->a[k].r_base.a); free(p->a[k].bb.a);	
+		}
+		free(p->a);
+		free(p);
+	}
 }

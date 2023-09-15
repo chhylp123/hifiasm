@@ -6934,7 +6934,7 @@ void get_bub_id(bubble_type* bub, uint32_t root, uint64_t* id0, uint64_t* id1, u
         if(check_het)
         {
             get_bubbles(bub, b_id0, &beg, &sink, NULL, NULL, NULL);
-            if(IF_HET(beg>>1, *bub) && IF_HET(sink>>1, *bub)) b_id0 = (uint64_t)-1;
+            if(((beg == (uint32_t)-1) || IF_HET(beg>>1, *bub)) && ((sink == (uint32_t)-1) || IF_HET(sink>>1, *bub))) b_id0 = (uint64_t)-1;
         } 
     }
 
@@ -6944,7 +6944,7 @@ void get_bub_id(bubble_type* bub, uint32_t root, uint64_t* id0, uint64_t* id1, u
         if(check_het)
         {
             get_bubbles(bub, b_id1, &beg, &sink, NULL, NULL, NULL);
-            if(IF_HET(beg>>1, *bub) && IF_HET(sink>>1, *bub)) b_id1 = (uint64_t)-1;
+            if(((beg == (uint32_t)-1) || IF_HET(beg>>1, *bub)) && ((sink == (uint32_t)-1) || IF_HET(sink>>1, *bub))) b_id1 = (uint64_t)-1;
         }        
     }
 

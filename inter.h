@@ -127,5 +127,7 @@ uint32_t rqs, uint32_t rqe, uint32_t *rts, uint32_t *rte);
 uint32_t clean_contain_g(const ug_opt_t *uopt, asg_t *sg, uint32_t push_trans);
 void dedup_contain_g(const ug_opt_t *uopt, asg_t *sg);
 void trans_base_mmhap_infer(ma_ug_t *ug, asg_t *sg, ug_opt_t *uopt, kv_u_trans_t *res);
+scaf_res_t *gen_contig_path(const ug_opt_t *uopt, asg_t *sg, ma_ug_t *ctg, ma_ug_t *ref);
+kv_u_trans_t *gen_contig_trans(const ug_opt_t *uopt, asg_t *sg, ma_ug_t *qry, scaf_res_t *qry_sc, ma_ug_t *ref, scaf_res_t *ref_sc, ma_ug_t *gfa, kv_u_trans_t *ta);
 
 #endif
