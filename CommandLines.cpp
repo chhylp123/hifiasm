@@ -62,6 +62,8 @@ static ko_longopt_t long_options[] = {
     { "path-min",     ko_required_argument, 347},
     { "trio-dual",     ko_no_argument, 348},
     { "ul-cut",     ko_required_argument, 349},
+    { "dual-scaf",     ko_no_argument, 350},
+    { "scaf-gap",     ko_required_argument, 351},
     // { "path-round",     ko_required_argument, 348},
 	{ 0, 0, 0 }
 };
@@ -163,7 +165,7 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "    --l-msjoin   INT\n");
     fprintf(stderr, "                 detect misjoined unitigs of >=INT in size; 0 to disable [%lu]\n", asm_opt->misjoin_len);
 
-    fprintf(stderr, "  Ultra-Long-integration (beta):\n");
+    fprintf(stderr, "  Ultra-Long-integration:\n");
     fprintf(stderr, "    --ul FILEs   file names of Ultra-Long reads [r1.fq,r2.fq,...]\n");
     fprintf(stderr, "    --ul-rate    FLOAT\n");
     fprintf(stderr, "                 error rate of Ultra-Long reads [%.3g]\n", asm_opt->ul_error_rate);
@@ -178,6 +180,11 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "    --ul-cut     INT\n");
     fprintf(stderr, "                 filter out <INT UL reads during the UL assembly [%d]\n", asm_opt->ul_min_base);
     // fprintf(stderr, "    --low-het    enable it for genomes with very low het heterozygosity rate (<0.0001%%)\n");
+
+    fprintf(stderr, "  Dual-Scaffolding:\n");
+    fprintf(stderr, "    --dual-scaf  output scaffolding\n");
+    fprintf(stderr, "    --scaf-gap   INT\n");
+    fprintf(stderr, "                 max gap size for scaffolding [%ld]\n", asm_opt->self_scaf_gap_max);
 
     fprintf(stderr, "Example: ./hifiasm -o NA12878.asm -t 32 NA12878.fq.gz\n");
     fprintf(stderr, "See `https://hifiasm.readthedocs.io/en/latest/' or `man ./hifiasm.1' for complete documentation.\n");
@@ -295,6 +302,9 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->trio_cov_het_ovlp = -1;
     asm_opt->ul_min_base = 0;
     asm_opt->self_scaf = 0;
+    asm_opt->self_scaf_min = 250000;
+    asm_opt->self_scaf_reliable_min = 5000000;
+    asm_opt->self_scaf_gap_max = 3000000;
 }
 
 void destory_enzyme(enzyme* f)
@@ -841,6 +851,8 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         else if (c == 347) asm_opt->min_path_drop_rate = atof(opt.arg);
         else if (c == 348) asm_opt->trio_cov_het_ovlp = 1;
         else if (c == 349) asm_opt->ul_min_base = atol(opt.arg);
+        else if (c == 350) asm_opt->self_scaf = 1;
+        else if (c == 351) asm_opt->self_scaf_gap_max = atol(opt.arg);
         else if (c == 'l') {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
             asm_opt->purge_level_primary = asm_opt->purge_level_trio = atoi(opt.arg);
         }

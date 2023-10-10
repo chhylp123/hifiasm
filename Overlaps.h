@@ -1176,7 +1176,7 @@ void extract_sub_overlaps(uint32_t i_tScur, uint32_t i_tEcur, uint32_t i_tSpre, 
 uint32_t tn, kv_u_trans_hit_t* ktb, uint32_t bn);
 void clean_u_trans_t_idx(kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g);
 void clean_u_trans_t_idx_adv(kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g);
-void clean_u_trans_t_idx_filter_adv(kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g);
+void clean_u_trans_t_idx_filter_adv(kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g, double sc_sec_rate, uint64_t uniform_only);
 uint32_t test_dbug(ma_ug_t* ug, FILE* fp);
 void write_dbug(ma_ug_t* ug, FILE* fp);
 int asg_arc_identify_simple_bubbles_multi(asg_t *g, bub_label_t* x, int check_cross);
