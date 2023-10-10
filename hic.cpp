@@ -17744,7 +17744,7 @@ void trio_phasing_refine(ma_ug_t *iug, asg_t* sg, kv_u_trans_t *ref, ug_opt_t *o
     uint64_t ug_n0 = ug->g->n_seq, k, i, ul, cis_n, trans_n, w_n, tot_hap, tot_r, frid, mrid, flag; 
     kv_u_trans_t in; memset(&in, 0, sizeof(in)); ma_utg_t *p; u_trans_t *z; int64_t fh, mh;
     bubble_type *bub = gen_bubble_chain(sg, ug, opt, &bf, 0); free(bf);
-    clean_u_trans_t_idx_filter_adv(ref, ug, sg);
+    clean_u_trans_t_idx_filter_adv(ref, ug, sg, 0.95, 0);
     
     ///update ug itself
     ul = FATHER; frid = ug->g->n_seq; asg_seq_set(ug->g, frid, ul, 0); 

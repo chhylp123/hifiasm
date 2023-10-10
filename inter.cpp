@@ -23,6 +23,9 @@ KSEQ_INIT(gzFile, gzread)
 #define oreg_xe_lt(a, b) (((uint64_t)(a).x_pos_e<<32|(a).x_pos_s) < ((uint64_t)(b).x_pos_e<<32|(b).x_pos_s))
 KSORT_INIT(or_xe, overlap_region, oreg_xe_lt)
 
+#define u_trans_qs_key0(a) ((a).qs)
+KRADIX_SORT_INIT(u_trans_qs0, u_trans_t, u_trans_qs_key0, member_size(u_trans_t, qs))
+
 void ha_get_ul_candidates_interface(ha_abufl_t *ab, int64_t rid, char* rs, uint64_t rl, uint64_t mz_w, uint64_t mz_k, const ul_idx_t *uref, overlap_region_alloc *overlap_list, overlap_region_alloc *overlap_list_hp, Candidates_list *cl, double bw_thres, 
 								 int max_n_chain, int keep_whole_chain, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* chain_idx, overlap_region* f_cigar, kvec_t_u64_warp* dbg_ct, st_mt_t *sp, uint32_t high_occ, void *km);
 void ul_map_lchain(ha_abufl_t *ab, uint32_t rid, char* rs, uint64_t rl, uint64_t mz_w, uint64_t mz_k, const ul_idx_t *uref, overlap_region_alloc *overlap_list, Candidates_list *cl, double bw_thres, 
@@ -407,6 +410,8 @@ typedef struct { // global data structure for kt_pipeline()
 	ma_ug_t *gfa;
 	bubble_type *bub;
 	kv_u_trans_t *ta;
+	uint64_t mm;
+	uint64_t soff;
 } ctdat_t;
 
 
@@ -3406,7 +3411,7 @@ int64_t get_ecov_adv(const ul_idx_t *uref, const ug_opt_t *uopt, uint32_t v, uin
 		for (i = 0; i < nv; i++) {
 			if(av[i].del || av[i].v != w) continue;
 			dt = av[i].ol; 
-			// if(v==1772 && w==1769) fprintf(stderr, "+++v:%u, w:%u, ou:%u\n", v, w, av[i].ou);
+			// if((v>>1)==25288) fprintf(stderr, "+++v:%u, w:%u, ou:%ld\n", v, w, dt);
 			// if((v>>1) == 3012 && (w>>1) == 3011) fprintf(stderr, "******************\n");
 			if(contain_off) {
 				(*contain_off) = av[i].ou;
@@ -5644,7 +5649,7 @@ uint64_t primary_chain_check(uint64_t *idx, int64_t idx_n, mg_lchain_t *a)
 int64_t gl_chain_linear(const ul_idx_t *uref, const ma_ug_t *ug, vec_mg_lchain_t *lc, 
 vec_mg_lchain_t *sw, int64_t qlen, const ug_opt_t *uopt, int64_t bw, double ng_diff_thre, 
 st_mt_t *bf, int64_t max_skip, int64_t max_iter, int64_t max_dis, int32_t *p, int64_t *f, 
-int64_t *t, int64_t n_ext)
+int64_t *t, int64_t n_ext, uint64_t id)
 {
 	int64_t i, j, lc_n = lc->n, mm_ovlp, x, m_idx, m_sc, qo, n_skip, k, k0, n_u, n_v, ni;
     int64_t max_f, st, max_ii, sc, csc, mm_sc, mm_idx, end_j, max, n_v0;
@@ -5662,12 +5667,18 @@ int64_t *t, int64_t n_ext)
 		mm_sc = csc; mm_idx = -1; 
 		n_skip = 0; end_j = -1;
 		if ((x-st) > max_iter) st = x-max_iter;
+		// if(id == 123/** || id == 192**/) {
+		// 	fprintf(stderr, "[M::id->%lu::i->%ld::utg%.6d%c] q::[%u, %u); t::[%u, %u); st->%ld; x->%ld\n", id, i, (li->v>>1)+1, "lc"[ug->u.a[li->v>>1].circ], li->qs, li->qe, li->rs, li->re, st, x);
+		// }
 		for (j = x; j >= st; --j) { // collect potential destination vertices
 			lj = &lc->a[j];
 			if(lj->qe+G_CHAIN_INDEL <= li->qs) break;
 			if(lj->qs >= li->qs) continue;
 			set_ul_ov_t_by_mg_lchain_t(&uj, lj);
 			qo = infer_rovlp(&ui, &uj, NULL, NULL, NULL, (ma_ug_t *)ug); ///overlap length in query (UL read)
+			// if(id == 123/** || id == 192**/) {
+			// 	fprintf(stderr, "[M::id->%lu::j->%ld] qo->%ld\n", id, j, qo);
+			// }
 			if(/**li->v!=lj->v &&**/get_ecov_adv(uref, uopt, li->v^1, lj->v^1, bw, ng_diff_thre, qo, 0, NULL)) {
 				sc = csc + f[j];
                 if(sc > mm_sc) {
@@ -5828,7 +5839,7 @@ st_mt_t *bf, Chain_Data* dp, int64_t max_skip, int64_t max_iter, int64_t max_dis
 	t = dp->tmp; p = dp->score; f = dp->pre;
 	if(ng_diff_thre >= 0) {
 		m_idx = gl_chain_linear(uref, ug, lc, sw, qlen, uopt, bw, ng_diff_thre, bf, 
-			max_skip, max_iter, max_dis, p, f, t, n_ext);
+			max_skip, max_iter, max_dis, p, f, t, n_ext, -1);
 		if(diff_thre < 0) return m_idx;
 		if(m_idx >= 0 && primary_chain_check(bf->a, bf->n, lc->a)) return m_idx;
 		else m_idx = -1;
@@ -5973,7 +5984,7 @@ st_mt_t *bf, Chain_Data* dp, int64_t max_skip, int64_t max_iter, int64_t max_dis
 int64_t ctg_chain_graph(void *km, const ul_idx_t *uref, const ma_ug_t *ug, vec_mg_lchain_t *lc, 
 vec_mg_lchain_t *sw, vec_mg_path_dst_t *dst, vec_sp_node_t *out, vec_mg_pathv_t *path,
 int64_t qlen, const ug_opt_t *uopt, int64_t bw, double ng_diff_thre, uint64_t *srt, 
-st_mt_t *bf, Chain_Data* dp, int64_t max_skip, int64_t max_iter, int64_t max_dis)
+st_mt_t *bf, Chain_Data* dp, int64_t max_skip, int64_t max_iter, int64_t max_dis, uint64_t id)
 {
 	bf->n = 0;
     if(lc->n == 0) return 0;
@@ -6008,7 +6019,7 @@ st_mt_t *bf, Chain_Data* dp, int64_t max_skip, int64_t max_iter, int64_t max_dis
 	t = dp->tmp; p = dp->score; f = dp->pre;
 
 	m_idx = gl_chain_linear(uref, ug, lc, sw, qlen, uopt, bw, ng_diff_thre, bf, 
-		max_skip, max_iter, max_dis, p, f, t, lc->n);
+		max_skip, max_iter, max_dis, p, f, t, lc->n, id);
 
 	// if(m_idx >= 0 && primary_chain_check(bf->a, bf->n, lc->a)) return m_idx;
 	// else m_idx = -1;
@@ -13826,10 +13837,10 @@ void dump_linear_chain(ma_ug_t *ug, kv_ul_ov_t *lidx, vec_mg_lchain_t *res, int6
 		p->off = i; p->score = lidx->a[i].sec;
 		p->qs = lidx->a[i].qs; p->qe = lidx->a[i].qe;
 		p->rs = lidx->a[i].ts; p->re = lidx->a[i].te; 
-		// if(ulid == 14714) {
-		// 	fprintf(stderr, "+[M::%s::]\tutg%.6dl(%c)\tq::[%d, %d)\tqlen::%ld\tt::[%d, %d)\ttlen::%u\n", __func__, 
+		// if(ulid == 123) {
+		// 	fprintf(stderr, "+[M::%s::]\tutg%.6dl(%c)\tq::[%d, %d)\tqlen::%ld\tt::[%d, %d)\ttlen::%u\tsc::%d\n", __func__, 
         //                     (int32_t)(p->v>>1)+1, "+-"[p->v&1], p->qs, p->qe, qlen, 
-		// 					p->rs, p->re, ug->g->seq[p->v>>1].len);
+		// 					p->rs, p->re, ug->g->seq[p->v>>1].len, p->score);
 		// }
 		extend_end_coord(p, NULL, qlen, ug->g->seq[p->v>>1].len, &iqs, &iqe, &its, &ite);
 		p->qs = iqs; p->qe = iqe; p->rs = its; p->re = ite;
@@ -16036,7 +16047,7 @@ int64_t dp_max_skip, int64_t dp_max_iter, int64_t dp_max_dis)
 }
 
 
-void push_ctg_res(ul_vec_t *rch, vec_mg_lchain_t *uc)
+void push_ctg_res(ul_vec_t *rch, vec_mg_lchain_t *uc, uint64_t id)
 {
 	// fprintf(stderr, "\n++[M::%s::%.*s(id:%ld), len:%u]\n", __func__, 
 	// UL_INF.nid.a[ulid].n, UL_INF.nid.a[ulid].a, ulid, rch->rlen);
@@ -16045,14 +16056,11 @@ void push_ctg_res(ul_vec_t *rch, vec_mg_lchain_t *uc)
 	for (k = 0, rch->bb.n = 0, tt = 0; k < ucn; k += ix->cnt + 1) {
 		ix = &(uc->a[k]); assert(ix->v == (uint32_t)-1);
 		kv_pushp(uc_block_t, rch->bb, &p); memset(p, 0, sizeof((*p))); 
-		p->hid = (uint32_t)-1; p->qs = ix->qs; p->qe = ix->qe; p->ts = ix->cnt; tt += ix->cnt;
+		p->hid = k/**(uint32_t)-1**/; p->qs = ix->qs; p->qe = ix->qe; p->ts = ix->cnt; tt += ix->cnt;
 
-		// if(ulid == 14714) {
-		// 	fprintf(stderr, "\n[M::%s::ucn->%ld, k->%ld, kcnt->%d]\n", __func__, ucn, k, ix->cnt);
-		// 	print_debug_gchain(uref, uc->a + k + 1, ix->cnt, rch);
+		// if(id == 206) {
+		// 	fprintf(stderr, "init->[M::%s::ucn->%lu, k->%lu, kcnt->%d]\n", __func__, ucn, k, ix->cnt);
 		// }
-		// gen_rovlp_chain_by_ul(rg, rch, uref, raw_idx, raw_chn, uc->a + k + 1, ix->cnt, swap, dp, 
-		// dp_max_skip, dp_max_iter, dp_max_dis, ulid);
 	}
 	radix_sort_uc_block_t_qe_srt(rch->bb.a, rch->bb.a + rch->bb.n);
 
@@ -16062,21 +16070,42 @@ void push_ctg_res(ul_vec_t *rch, vec_mg_lchain_t *uc)
 		s = tt; e = tt + rch->bb.a[k].ts; 
 		rch->bb.a[k].ts = s; rch->bb.a[k].te = e;
 		tt = e; 
-	}
-	assert(tt <= rch->bb.m);
+		// if(id == 206) {
+		// 	fprintf(stderr, "mid->[M::%s::rch->bb.n->%u, k->%lu] [%lu, %lu)\n", 
+		// 	__func__, (uint32_t)rch->bb.n, k, s, e);
+		// }
 
-	for (k = 0, tt = 0; k < ucn; k += ix->cnt + 1, tt++) {
-		ix = &(uc->a[k]); assert(ix->v == (uint32_t)-1);
-		rr = rch->bb.a + rch->bb.a[tt].ts; rrn = rch->bb.a[tt].te - rch->bb.a[tt].ts;
-		src = uc->a + k + 1; assert((uint32_t)ix->cnt == rrn);
+		ix = &(uc->a[rch->bb.a[k].hid]); assert(ix->v == (uint32_t)-1);
+		rr = rch->bb.a + rch->bb.a[k].ts; rrn = rch->bb.a[k].te - rch->bb.a[k].ts;
+		src = uc->a + rch->bb.a[k].hid + 1; assert((uint32_t)ix->cnt == rrn);
 		for(z = 0; z < rrn; z++) {
 			rr[z].hid = src[z].v>>1;
 			rr[z].rev = src[z].v&1;
 			rr[z].qs = src[z].qs; rr[z].qe = src[z].qe;
 			rr[z].ts = src[z].rs; rr[z].te = src[z].re; 
-			rr[z].aidx = k;
+			rr[z].aidx = rch->bb.a[k].hid;
 		}
+		rch->bb.a[k].hid = (uint32_t)-1;
+
 	}
+	assert(tt <= rch->bb.m);
+
+	// for (k = 0, tt = 0; k < ucn; k += ix->cnt + 1, tt++) {
+	// 	ix = &(uc->a[k]); assert(ix->v == (uint32_t)-1);
+	// 	rr = rch->bb.a + rch->bb.a[tt].ts; rrn = rch->bb.a[tt].te - rch->bb.a[tt].ts;
+	// 	src = uc->a + k + 1; 
+	// 	if(!((uint32_t)ix->cnt == rrn)) {
+	// 		fprintf(stderr, "\n++[M::%s::(id::%lu)] ix->cnt::%d, rrn::%lu\n", __func__, id, ix->cnt, rrn);
+	// 	}
+	// 	assert((uint32_t)ix->cnt == rrn);
+	// 	for(z = 0; z < rrn; z++) {
+	// 		rr[z].hid = src[z].v>>1;
+	// 		rr[z].rev = src[z].v&1;
+	// 		rr[z].qs = src[z].qs; rr[z].qe = src[z].qe;
+	// 		rr[z].ts = src[z].rs; rr[z].te = src[z].re; 
+	// 		rr[z].aidx = k;
+	// 	}
+	// }
 	///up to now, given a <x> in swap
 	///x->ts and x->te are the coordinates in unitig (x->score>>1), instead of HiFi read (x->v>>1)
 	///x->qs and x->qe are the coordinates in UL
@@ -16234,17 +16263,37 @@ uint64_t rov2uov_ctg(uint64_t rid, const ul_idx_t *uref, utg_rid_dt *ru_map, uc_
 
 uint64_t get_unique_rctg_aln(const ul_idx_t *uref, uint64_t v, uint64_t vi, uint64_t vs, uint64_t ulen, ul_ov_t *ures, kv_ul_ov_t *rr, uint32_t sec)
 {
-	utg_rid_dt *a = NULL; uint64_t a_n, k, rrn = 0; uc_block_t z; ul_ov_t p;
+	utg_rid_dt *a = NULL; uint64_t a_n, k, rrn = 0, over_bd = 0; uc_block_t z; ul_ov_t p;
 	p.tn = p.qn = ((uint32_t)-1); if(ures) ures->tn = ures->qn = ((uint32_t)-1);
 	if(IS_SCAF_READ(R_INF, (v>>1))) return 0;///actually no scaf nodes within the assembly graph
 	a = get_r_ug_region(uref->r_ug, &a_n, v>>1);
 	if(!a) return 0;
-
-
-	z.ts = 0; z.te = Get_READ_LENGTH(R_INF, (v>>1));
+	
 	z.qs = vs; z.qe = vs + Get_READ_LENGTH(R_INF, (v>>1)); 
-	if(z.qs > ulen) z.qs = ulen; if(z.qe > ulen) z.qe = ulen;
+	if(z.qs > ulen) {
+		z.qs = ulen; 
+		over_bd = 1;
+	} 
+	
+	if(z.qe > ulen) {
+		z.qe = ulen;
+		over_bd = 1;
+	}
+
 	z.hid = v>>1; z.rev = v&1; z.el = 1;
+	z.ts = 0; z.te = Get_READ_LENGTH(R_INF, (v>>1));
+	if(over_bd) {//////need to handle it especially for circles
+		over_bd = z.qe - z.qs; 
+		if(over_bd > Get_READ_LENGTH(R_INF, (v>>1))) {
+			over_bd = Get_READ_LENGTH(R_INF, (v>>1));
+		}
+		if(!(z.rev)) {
+			z.ts = 0; z.te = over_bd;
+		} else {
+			z.ts = Get_READ_LENGTH(R_INF, (v>>1))-over_bd; z.te = Get_READ_LENGTH(R_INF, (v>>1));
+		}
+	}
+	if(z.qe <= z.qs || z.te <= z.ts) return 0;
 
 
 	for (k = rrn = 0; k < a_n; k++) {
@@ -16266,7 +16315,7 @@ uint64_t cmp_shrink_ul_ov_t(ul_ov_t *a0, ul_ov_t *a1, uint64_t off)
 	return 1;
 }
 
-void ctg_rg2ug_gen(ma_utg_t *r_cl, kv_ul_ov_t *u_cl, const ul_idx_t *uref)
+void ctg_rg2ug_gen(ma_utg_t *r_cl, kv_ul_ov_t *u_cl, const ul_idx_t *uref, uint64_t id)
 {
 	if(r_cl->n <= 0) return ;
 	uint64_t k, i, m, l, is_push, vs, ls; ul_ov_t kp, lp, kp0; 
@@ -16294,11 +16343,20 @@ void ctg_rg2ug_gen(ma_utg_t *r_cl, kv_ul_ov_t *u_cl, const ul_idx_t *uref)
 					if(kp.qs < lp.qs) lp.qs = kp.qs; if(kp.qe > lp.qe) lp.qe = kp.qe;
 					if(kp.ts < lp.ts) lp.ts = kp.ts; if(kp.te > lp.te) lp.te = kp.te;
 					ls += (uint32_t)(r_cl->a[i]); 
+
+					// if(id == 123) {
+					// 	fprintf(stderr, "-0-[M::%s::]\tutg%.6dl(%c)\tq::[%d, %d)<l::%u>\tt::[%d, %d)<l::%u>\tsc::%d\n", __func__, 
+					// 					(int32_t)(kp.tn>>1)+1, "+-"[kp.tn&1], kp.qs, kp.qe, kp.qe-kp.qs, kp.ts, kp.te, kp.te-kp.ts, kp.sec);
+					// }
 				}
 				lp.sec = k - l;
 				kv_push(ul_ov_t, *u_cl, lp);
 			} else if(k - l == 1) {
 				m = get_unique_rctg_aln(uref, r_cl->a[l]>>32, l, ls, r_cl->len, NULL, u_cl, 1); 
+				// if(id == 123) {
+				// 	fprintf(stderr, "-1-[M::%s::]\tutg%.6dl(%c)\tq::[%d, %d)<l::%u>\tt::[%d, %d)<l::%u>\tsc::%d\n", __func__, 
+				// 						(int32_t)(kp.tn>>1)+1, "+-"[kp.tn&1], kp.qs, kp.qe, kp.qe-kp.qs, kp.ts, kp.te, kp.te-kp.ts, kp.sec);
+				// }
 			}
 
 			l = k; lp = kp0; ls = vs;
@@ -16412,7 +16470,10 @@ int64_t chain_offset)
 			t[i] = 1; i = p[i];
 		}
 		adjust_rev_tse(&(ch[n_u]), ug->g->seq[ch[n_u].tn].len, &its, &ite);
-		ch[n_u].ts = its; ch[n_u].te = ite; ch[n_u].sec = (sc>0x3FFFFFFF?0x3FFFFFFF:sc);
+		ch[n_u].ts = its; ch[n_u].te = ite; 
+		
+		sc = ((i < 0)?(sc):(sc-f[i])); 
+		ch[n_u].sec = (sc>0x3FFFFFFF?0x3FFFFFFF:sc);///this is calculated incorrectly
 		// ch[n_u].qn += chain_offset; //start idx of read alignment in chain
 		// ch[n_u].tn = k + chain_offset; //end idx of read alignment in chain
 		ch[n_u].qn = k + chain_offset; //end idx of read alignment in chain
@@ -16467,7 +16528,7 @@ int64_t bw, double diff_ec_ul, int64_t max_skip, int64_t ulid, Chain_Data* dp, c
 	kv_ul_ov_t *idx = &(ll->lo), *init = &(ll->tk); int64_t max_idx;
 	idx->n = init->n = 0;
 	// gl_rg2ug_gen(rch, idx, uref, 1, 2, ulid);
-	ctg_rg2ug_gen(rch, idx, uref);
+	ctg_rg2ug_gen(rch, idx, uref, ulid);
 
 	// uint32_t k;
 	// fprintf(stderr, "[M::%s] rch->len::%u, rch->n::%u, idx->n::%u\n", __func__, (uint32_t)rch->len, (uint32_t)rch->n, (uint32_t)idx->n);
@@ -16493,13 +16554,13 @@ int64_t bw, double diff_ec_ul, int64_t max_skip, int64_t ulid, Chain_Data* dp, c
 
 	kv_resize(uint64_t, ll->srt.a, gdp->l.n);
 	max_idx = ctg_chain_graph(b->km, uref, uref->ug, &(gdp->l), &(gdp->swap), &(gdp->dst), &(gdp->out),
-        &(gdp->path), rch->len, uopt, G_CHAIN_BW, N_GCHAIN_RATE, ll->srt.a.a, sps, dp, UG_SKIP_GRAPH_N, UG_ITER_N, /**UG_DIS_N**/UG_DIS_N*100);
+        &(gdp->path), rch->len, uopt, G_CHAIN_BW, N_GCHAIN_RATE, ll->srt.a.a, sps, dp, UG_SKIP_GRAPH_N, UG_ITER_N, /**UG_DIS_N**/UG_DIS_N*100, ulid);
 
 	//sps -> idx; (gdp->l) -> alignments
 	if(max_idx >= 0) {
 		max_idx = select_max_ctg_chain(b->km, uref, ulid, sps, &(gdp->l), &(ll->tk), uref->ug->g, &(gdp->dst_done), &(gdp->out), &(gdp->path), &(gdp->swap));
 		if(max_idx) {
-			push_ctg_res(res, &(gdp->swap));
+			push_ctg_res(res, &(gdp->swap), ulid);
 			return 1;
 		}
 	}
@@ -16557,7 +16618,7 @@ uint64_t pick_bubble(uc_block_t *a, uint64_t a_n, bubble_type *bub, uint64_t *r_
 	return 0;
 }
 
-uint64_t qry_bub_sc(const ul_idx_t *uref, ma_ug_t *gfa, scaf_res_t *ref_sc, bubble_type *bub, uint64_t bid, uint64_t qsidx, uint64_t qeidx, ul_vec_t *qstr, kv_ul_ov_t *res)
+uint64_t qry_bub_sc(const ul_idx_t *uref, ma_ug_t *gfa, scaf_res_t *ref_sc, bubble_type *bub, uint64_t bid, uint64_t qsidx, uint64_t qeidx, ul_vec_t *qstr, uint32_t avoid_id, kv_ul_ov_t *res)
 {
 	// fprintf(stderr, "qsidx::%lu(utg%.6u%c), qeidx::%lu(utg%.6u%c)\n", qsidx, (qstr->bb.a[qsidx].hid)+1, "lc"[gfa->u.a[qstr->bb.a[qsidx].hid].circ], qeidx, (qstr->bb.a[qeidx].hid)+1, "lc"[gfa->u.a[qstr->bb.a[qeidx].hid].circ]);
 	uint32_t beg, sink, v, w, z, si, ei, qrev = (uint32_t)-1, qv, qw, trev, nn = 0, tn;
@@ -16577,6 +16638,7 @@ uint64_t qry_bub_sc(const ul_idx_t *uref, ma_ug_t *gfa, scaf_res_t *ref_sc, bubb
 	for (i = 0; i < a_n; i++) {
 		// fprintf(stderr, "+(0)i::%lu\n", i);
 		if((a[i].u&1) != (v&1)) continue;
+		if((a[i].u>>1) == avoid_id) continue;
 		q = &(ref_sc->a[a[i].u>>1]); si = ei = a[i].off; 
 		assert((q->bb.a[si].hid == (v>>1)) && (q->bb.a[si].rev == (v&1)));
 		// fprintf(stderr, "+(1)i::%lu\n", i);
@@ -16603,6 +16665,7 @@ uint64_t qry_bub_sc(const ul_idx_t *uref, ma_ug_t *gfa, scaf_res_t *ref_sc, bubb
 	// fprintf(stderr, "-a_n::%lu\n", a_n);
 	for (i = 0; i < a_n; i++) {
 		if((a[i].u&1) != (v&1)) continue;
+		if((a[i].u>>1) == avoid_id) continue;
 		q = &(ref_sc->a[a[i].u>>1]); si = ei = a[i].off; 
 		assert((q->bb.a[si].hid == (v>>1)) && (q->bb.a[si].rev == (v&1)));
 		for (k = tn = 0; k < q->bb.n; k++) tn += q->bb.a[k].te - q->bb.a[k].ts;
@@ -16686,11 +16749,12 @@ uint64_t cc_bub_match(ul_ov_t *ch, int64_t ch_n) {
 	return k;
 }
 
-uint64_t extract_scaf_res_t(uc_block_t *in, const ul_idx_t *uref, scaf_res_t *ref_sc, kv_ul_ov_t *res)
+uint64_t extract_scaf_res_t(uc_block_t *in, const ul_idx_t *uref, scaf_res_t *ref_sc, uint32_t avid, kv_ul_ov_t *res)
 {
 	utg_rid_dt *a; uint64_t i, a_n, nn, nw; uc_block_t *ou; ul_ov_t p; memset(&p, 0, sizeof(p));
 	a = get_r_ug_region(uref->r_ug, &a_n, in->hid);
     for (i = nn = 0; i < a_n; i++) {
+		if((a[i].u>>1) == avid) continue;
 		ou = &(ref_sc->a[a[i].u>>1].bb.a[a[i].off]);
 		p.qn = (uint32_t)-1; p.qs = in->qs; p.qe = in->qe;
 		p.tn = a[i].u>>1; p.ts = ou->qs; p.te = ou->qe; 
@@ -16738,7 +16802,7 @@ uint64_t gen_trans_ovlp_scaf(ma_ug_t *gfa, u_trans_t *map, uc_block_t *qin, uc_b
 	return 1;
 }
 
-void extract_trans_scaf_res_t(uc_block_t *qin, const ul_idx_t *uref, scaf_res_t *ref_sc, ma_ug_t *gfa, kv_u_trans_t *ta, kv_ul_ov_t *res)
+void extract_trans_scaf_res_t(uc_block_t *qin, const ul_idx_t *uref, scaf_res_t *ref_sc, ma_ug_t *gfa, kv_u_trans_t *ta, uint32_t avid, kv_ul_ov_t *res)
 {
 	utg_rid_dt *a; uint64_t i, a_n; uc_block_t *rin; 
 	u_trans_t *u; uint64_t k, u_n;
@@ -16751,6 +16815,7 @@ void extract_trans_scaf_res_t(uc_block_t *qin, const ul_idx_t *uref, scaf_res_t 
 		// fprintf(stderr, "+[M::%s] utg%.6u%c->utg%.6u%c, q::[%u, %u), %c, t::[%u, %u)\n", __func__, qin->hid+1, "lc"[gfa->u.a[qin->hid].circ], u[k].tn+1, "lc"[gfa->u.a[u[k].tn].circ], u[k].qs, u[k].qe, "+-"[u[k].rev], u[k].ts, u[k].te);
 		a = get_r_ug_region(uref->r_ug, &a_n, u[k].tn);
     	for (i = 0; i < a_n; i++) {
+			if((a[i].u>>1) == avid) continue;
 			rin = &(ref_sc->a[a[i].u>>1].bb.a[a[i].off]);
 			if(gen_trans_ovlp_scaf(gfa, &(u[k]), qin, rin, &p)) {
 				p.tn = a[i].u>>1; p.qn = u[k].f; p.el = 0; p.sec = u[k].nw;
@@ -16762,9 +16827,9 @@ void extract_trans_scaf_res_t(uc_block_t *qin, const ul_idx_t *uref, scaf_res_t 
 	}
 }
 
-void cl_trans_gen(uint32_t qid, uint32_t qlen, ul_vec_t *qstr, kv_ul_ov_t *res, const ul_idx_t *uref, ma_ug_t *ref, scaf_res_t *ref_sc, ma_ug_t *gfa, bubble_type *bub, kv_u_trans_t *ta)
+void cl_trans_gen(uint32_t qid, uint32_t qlen, ul_vec_t *qstr, kv_ul_ov_t *res, const ul_idx_t *uref, ma_ug_t *ref, scaf_res_t *ref_sc, ma_ug_t *gfa, bubble_type *bub, kv_u_trans_t *ta, uint32_t is_self)
 {
-    uint64_t k, l, m = 0, mi, z, zn, a_n, bid, nw; uc_block_t *a; 
+    uint64_t k, l, m = 0, mi, z, zn, a_n, bid, nw; uc_block_t *a; uint32_t avid = ((is_self)?(qid):((uint32_t)-1));
     res->n = 0;
 	///identify bubble chain first
 	for (k = 0, a = qstr->bb.a; k < qstr->bb.n; k++) {
@@ -16772,7 +16837,7 @@ void cl_trans_gen(uint32_t qid, uint32_t qlen, ul_vec_t *qstr, kv_ul_ov_t *res, 
 		while (z < a_n) {
 			zn = 1;
 			zn = pick_bubble(a + z, a_n - z, bub, &bid);
-			if((!zn) || (!qry_bub_sc(uref, gfa, ref_sc, bub, bid, z, z + zn, qstr, res))) {///found a bubble; a[z] -> beg; a[z + zn] -> sink
+			if((!zn) || (!qry_bub_sc(uref, gfa, ref_sc, bub, bid, z, z + zn, qstr, avid, res))) {///found a bubble; a[z] -> beg; a[z + zn] -> sink
 				zn = 1;
 			}
 			z += zn;
@@ -16814,10 +16879,10 @@ void cl_trans_gen(uint32_t qid, uint32_t qlen, ul_vec_t *qstr, kv_ul_ov_t *res, 
 			if((mi < m) && (z >= res->a[mi].qs) && (z <= res->a[mi].qe)) continue;
 
 			///exact match
-			if(extract_scaf_res_t(&(qstr->bb.a[z]), uref, ref_sc, res)) continue;
+			if(extract_scaf_res_t(&(qstr->bb.a[z]), uref, ref_sc, avid, res)) continue;
 
 			///trans match
-			extract_trans_scaf_res_t(&(qstr->bb.a[z]), uref, ref_sc, gfa, ta, res);
+			extract_trans_scaf_res_t(&(qstr->bb.a[z]), uref, ref_sc, gfa, ta, avid, res);
 		}
 	}
 
@@ -16839,33 +16904,468 @@ void cl_trans_gen(uint32_t qid, uint32_t qlen, ul_vec_t *qstr, kv_ul_ov_t *res, 
 	// }
 }
 
-void ctg_trans_gp_chain(kv_ul_ov_t *res, kv_ul_ov_t *buf, const ul_idx_t *uref, const ug_opt_t *uopt, int64_t bw, 
-double diff_ec_ul, int64_t qlen, Chain_Data* dp)
+inline int64_t comput_linear_ctg_trans_sc(ul_ov_t *li, ul_ov_t *lj, double diff_ec_ul, double ovlp_max, int64_t bw)
+{	///li is the suffix of lj
+	int64_t dq, dt, dd, mm, os, oe;
+	if(lj->rev != li->rev) return INT32_MIN;
+	int64_t iqs, iqe, its, ite, jqs, jqe, jts, jte;
+	iqs = li->qs; iqe = li->qe; 
+	jqs = lj->qs; jqe = lj->qe; 
+	its = li->ts; ite = li->te;
+	jts = lj->ts; jte = lj->te;
+	// if(li->rev) {
+	// 	its = lj->ts; ite = lj->te;
+	// 	jts = li->ts; jte = li->te;
+	// } 
+	if(jte > ite) return INT32_MIN;
+	
+	
+
+
+	dq = iqs - jqe; 
+	dt = its - jte;
+	dd = (dq>dt? dq-dt:dt-dq); 
+
+	dq = iqe - jqs; 
+	dt = ite - jts;
+	mm = MAX(dq, dt); mm *= diff_ec_ul; if(mm < bw) mm = bw;
+	if(dd > mm) return INT32_MIN;
+
+	///too long overlap
+	dd = iqe - iqs; if(dd > jqe - jqs) dd = jqe - jqs;
+	dd *= ovlp_max; if(dd < bw) dd = bw;
+	os = MAX(iqs, jqs), oe = MIN(iqe, jqe);
+    mm = ((oe > os)? (oe - os):0);
+	if(mm > 0 && mm > dd) return INT32_MIN;
+
+	dd = ite - its; if(dd > jte - jts) dd = jte - jts;
+	dd *= ovlp_max; if(dd < bw) dd = bw;
+	os = MAX(its, jts), oe = MIN(ite, jte);
+    mm = ((oe > os)? (oe - os):0);
+	if(mm > dd) return INT32_MIN;
+
+	return li->sec;
+}
+
+uint64_t linear_ctg_trans_chain_dp(uint32_t qid, ul_ov_t *ch, int64_t ch_n, const ul_idx_t *uref, const ug_opt_t *uopt, int64_t bw, 
+double diff_ec_ul, double ovlp_max, double unmatch_max, int64_t qlen, int64_t tlen, int64_t max_skip, int64_t max_iter, int64_t max_dis, Chain_Data* dp, ul_ov_t *res, asg64_v *ea)
 {
-	uint64_t k/**, l, z, an, m**/;
-	for (k = 0; k < res->n; k++) {
+	memset(res, 0, sizeof((*res)));
+	if(ch_n == 0) return 0;
+    int64_t i, j, k, l, sc, csc, se, cse, mm_sc, mm_se, mm_idx, max, max_e, peak_sc, peak_e, peak_i, rts, rte, rqs, rqe;
+    ul_ov_t *li = NULL, *lj = NULL; int64_t *f, *e, st, plus, max_ii, n_skip, end_j; int32_t *p, *t;
+    resize_Chain_Data(dp, ch_n, NULL);
+    e = dp->tmp; f = dp->pre; p = dp->score; t = dp->indels;
+
+	i = 0;
+	if(i < ch_n) {
+		ch[i].tn >>= 1;
+		if(ch[i].rev) {
+			adjust_rev_tse(&(ch[i]), tlen, &rts, &rte);
+			ch[i].ts = rts; ch[i].te = rte; 
+		}
+	}
+
+	for (i = 1, j = 0; i <= ch_n; i++) {
+		if(i < ch_n) {
+			ch[i].tn >>= 1;
+			if(ch[i].rev) {
+				adjust_rev_tse(&(ch[i]), tlen, &rts, &rte);
+				ch[i].ts = rts; ch[i].te = rte; 
+			}
+		}
+        if (i == ch_n || ch[i].rev != ch[j].rev) {
+            if(i - j > 1) {
+				radix_sort_ul_ov_srt_qe(ch+j, ch+i);
+				for (k = j + 1, l = j; k <= i; k++) {
+					if(k == i || ch[k].qe != ch[l].qe) {
+						if(k - l > 1) radix_sort_ul_ov_srt_qs(ch+l, ch+k);
+						l = k;
+					}
+				}
+			}
+            j = i;
+        }
+    }
+
+    // fprintf(stderr, "[M::%s::] ch_n:%ld\n", __func__, ch_n);
+    memset(t, 0, (ch_n*sizeof((*t)))); peak_sc = peak_e = peak_i = INT32_MIN;
+    for (i = st = plus = 0, max_ii = -1; i < ch_n; ++i) {
+        li = &(ch[i]); csc = li->sec; cse = 0; 
+		if(li->el || li->qn == RC_0 || li->qn == RC_1) cse = li->qe - li->qs;
+
+        mm_sc = csc; mm_se = cse; mm_idx = -1; n_skip = 0; end_j = -1; 
+        st = (i<max_iter)?(0):(i-max_iter);
+		while (ch[i].rev != ch[st].rev) ++st;
+
+		// if(qid == 2 && qlen == 112183461 && ch[i].tn == 30 && tlen == 24761445) {
+		// 	 fprintf(stderr, "+(%ld)[M::%s] h2tg%.6u%c\t%ld\t%u\t%u\t%c\th1tg%.6u%c\t%ld\t%u\t%u\tsec(%u)\tel(%u)\tf(%u)\n", i, __func__,
+        //     	qid+1, "lc"[0], qlen, ch[i].qs, ch[i].qe, "+-"[ch[i].rev], ch[i].tn+1, "lc"[0], tlen, ch[i].ts, ch[i].te, ch[i].sec, ch[i].el, ch[i].qn);
+		// } else if(ch[i].tn == 2 && tlen == 112183461 && ch[i].qn == 30 && qlen == 24761445) {
+		// 	fprintf(stderr, "+(%ld)[M::%s] h1tg%.6u%c\t%ld\t%u\t%u\t%c\th2tg%.6u%c\t%ld\t%u\t%u\tsec(%u)\tel(%u)\tf(%u)\n", i, __func__,
+        //     	qid+1, "lc"[0], qlen, ch[i].qs, ch[i].qe, "+-"[ch[i].rev], ch[i].tn+1, "lc"[0], tlen, ch[i].ts, ch[i].te, ch[i].sec, ch[i].el, ch[i].qn);
+		// }
+
+        for (j = i-1; j >= st; --j) {
+            lj = &(ch[j]); 
+            sc = comput_linear_ctg_trans_sc(li, lj, diff_ec_ul, ovlp_max, bw); ///should allow contain
+            if(sc == INT32_MIN) continue;
+            sc += f[j]; se = cse + e[j];
+            if((sc > mm_sc) || (sc == mm_sc && se > mm_se)) {
+                mm_sc = sc, mm_se = se, mm_idx = j;
+                if (n_skip > 0) --n_skip;
+            } else if (t[j] == i) {
+                if (++n_skip > max_skip)
+                    break;
+            }
+            if (p[j] >= 0) t[p[j]] = i;
+        }
+
+
+        end_j = j;
+        if (max_ii < 0 || (ch[i].qe>(ch[max_ii].qe+max_dis))) {//too long
+            max = INT32_MIN; max_e = INT32_MIN; max_ii = -1;
+            for (j = i - 1; (j >= st) && (ch[i].qe<=(max_dis+ch[j].qe)); --j) {
+                if ((max < f[j]) || (max == f[j] && max_e < e[j])) {
+                    max = f[j], max_e = e[j], max_ii = j;
+                }
+            }
+        }
+        
+        if (max_ii >= 0 && max_ii < end_j) {///just have a try with a[i]<->a[max_ii]
+            lj = &(ch[max_ii]); 
+            sc = comput_linear_ctg_trans_sc(li, lj, diff_ec_ul, ovlp_max, bw); ///should allow contain
+            if(sc != INT32_MIN) {
+                sc += f[max_ii];
+				se = cse + e[max_ii];
+                if((sc > mm_sc) || (sc == mm_sc && se > mm_se)) {
+                    mm_sc = sc; mm_se = se; mm_idx = max_ii;
+                }
+            }
+        }
+		
+        f[i] = mm_sc; e[i] = mm_se; p[i] = mm_idx; 
+        if ((max_ii < 0) || ((ch[i].qe<=max_dis+ch[max_ii].qe) && ((f[max_ii]<f[i]) || (f[max_ii] == f[i] && e[max_ii] < e[i])))) {
+            max_ii = i;
+        }
+
+		if((f[i] > peak_sc) || (f[i] == peak_sc || e[i] > peak_e)) {
+			peak_sc = f[i]; peak_e = e[i]; peak_i = i;
+		}
+        // li->sec = (mm_idx<0?0x3FFFFFFF:i-mm_idx); 
+        // sv[i] = *li;
+        // fprintf(stderr, "##(%ld) %u\t%u\t%c\tutg%.6d%c(%u)\t%u\t%u\tmm_idx:%ld\tmm_sc:%ld\n", i, li->qs, li->qe, "+-"[li->rev], 
+        // (int32_t)(li->tn)+1, "lc"[uref->ug->u.a[li->tn].circ], uref->ug->u.a[li->tn].len, li->ts, li->te, mm_idx, mm_sc);
+        // track[i] = push_sc_pre(mm_sc, mm_idx); 
+        // li->sec = (mm_idx<0?0x3FFFFFFF:i-mm_idx); sv[i] = *li;
+    }
+
+	if(peak_i < 0) return 0;
+
+	uint64_t qs, qgap = 0, ts, tgap = 0, eqs = (uint64_t)-1, eqe = (uint64_t)-1, ea_n = ea->n;
+	i = peak_i; *res = ch[i]; 
+	res->qn = ((peak_sc>UINT32_MAX)?(UINT32_MAX):(peak_sc));
+	res->sec = 0; qs = res->qs; ts = res->ts; 
+
+	// memset(er, 0, sizeof((*er))); er->qs = er->qe = er->ts = er->te = (uint32_t)-1;
+	// er->qn = ((peak_e>UINT32_MAX)?(UINT32_MAX):(peak_e));
+    
+	///has been sorted by qe && te
+	while (i >= 0) {
+		if(ch[i].qe >= qs) {
+			if(ch[i].qs < qs) qs = ch[i].qs;
+		} else {
+			qgap += qs - ch[i].qe;
+			qs = ch[i].qs; 
+		}
+
+		if(ch[i].te >= ts) {
+			if(ch[i].ts < ts) ts = ch[i].ts;
+		} else {
+			tgap += ts - ch[i].te;
+			ts = ch[i].ts; 
+		} 
+
+		if(ch[i].el || ch[i].qn == RC_0 || ch[i].qn == RC_1) {///reliable
+			if ((ea->n > ea_n) && (ch[i].qe >= (ea->a[ea->n-1]>>32))) {
+				if(ch[i].qs < (ea->a[ea->n-1]>>32)) {
+					eqs = ch[i].qs; eqe = (uint32_t)(ea->a[ea->n-1]);
+					ea->a[ea->n-1] = eqs << 32; ea->a[ea->n-1] |= eqe;
+				}
+			} else {
+				eqs = ch[i].qs; eqe = ch[i].qe; eqs <<= 32; eqs |= eqe;
+				kv_push(uint64_t, *ea, eqs);
+				// ea->a[ea->n-1] = eqs << 32; ea->a[ea->n-1] |= eqe;
+			}
+		}
+
+		if(ch[i].qs < res->qs) res->qs = ch[i].qs;
+		if(ch[i].qe > res->qe) res->qe = ch[i].qe;
+		if(ch[i].ts < res->ts) res->ts = ch[i].ts;
+		if(ch[i].te > res->te) res->te = ch[i].te;
+		// if(qid == 2 && qlen == 112183461 && ch[i].tn == 30 && tlen == 24761445) {
+		// 	 fprintf(stderr, "-(%ld)[M::%s] h2tg%.6u%c\t%ld\t%u\t%u\t%c\th1tg%.6u%c\t%ld\t%u\t%u\tsec(%u)\tel(%u)\tf(%u)\n", i, __func__,
+        //     	qid+1, "lc"[0], qlen, ch[i].qs, ch[i].qe, "+-"[ch[i].rev], ch[i].tn+1, "lc"[0], tlen, ch[i].ts, ch[i].te, ch[i].sec, ch[i].el, ch[i].qn);
+		// } else if(ch[i].tn == 2 && tlen == 112183461 && ch[i].qn == 30 && qlen == 24761445) {
+		// 	fprintf(stderr, "-(%ld)[M::%s] h1tg%.6u%c\t%ld\t%u\t%u\t%c\th2tg%.6u%c\t%ld\t%u\t%u\tsec(%u)\tel(%u)\tf(%u)\n", i, __func__,
+        //     	qid+1, "lc"[0], qlen, ch[i].qs, ch[i].qe, "+-"[ch[i].rev], ch[i].tn+1, "lc"[0], tlen, ch[i].ts, ch[i].te, ch[i].sec, ch[i].el, ch[i].qn);
+		// }
+        i = p[i];
+    }
+	////0x3fffffff
+	// if(qgap > 0x3fffffff || tgap > 0x3fffffff) {
+	// 	ea->n = ea_n; return 0;
+	// }
+
+	adjust_rev_tse(res, tlen, &rts, &rte);
+	res->ts = rts; res->te = rte; 
+	extend_end_coord(NULL, res, qlen, tlen, &rqs, &rqe, &rts, &rte);
+	qgap += (rqe - rqs) - (res->qe - res->qs);
+	tgap += (rte - rts) - (res->te - res->ts);
+
+	// if(qid == 2 && qlen == 112183461 && ch[0].tn == 30 && tlen == 24761445) {
+	// 	fprintf(stderr, "+(%ld)[M::%s] h2tg%.6u%c\t%ld\t%ld(%u)\t%ld(%u)\t%c\th1tg%.6u%c\t%ld\t%ld(%u)\t%ld(%u)\tqgap(%ld)\ttgap(%ld)\n", i, __func__,
+	// 	qid+1, "lc"[0], qlen, rqs, res->qs, rqe, res->qe, "+-"[ch[0].rev], ch[0].tn+1, "lc"[0], tlen, rts, res->ts, rte, res->te, qgap, tgap);
+	// } else if(ch[i].tn == 2 && tlen == 112183461 && ch[0].qn == 30 && qlen == 24761445) {
+	// 	fprintf(stderr, "+(%ld)[M::%s] h2tg%.6u%c\t%ld\t%ld(%u)\t%ld(%u)\t%c\th1tg%.6u%c\t%ld\t%ld(%u)\t%ld(%u)\tqgap(%ld)\ttgap(%ld)\n", i, __func__,
+	// 	qid+1, "lc"[0], qlen, rqs, res->qs, rqe, res->qe, "+-"[ch[0].rev], ch[0].tn+1, "lc"[0], tlen, rts, res->ts, rte, res->te, qgap, tgap);
+	// }
+
+	// if(qgap > 0x3fffffff || tgap > 0x3fffffff) {
+	// 	ea->n = ea_n; return 0;
+	// }
+	if((qgap > ((rqe-rqs)*unmatch_max)) || (tgap > ((rte-rts)*unmatch_max))) {
+		ea->n = ea_n; return 0;
+	}
+
+	double qrate = ((double)((rqe-rqs)-qgap))/((double)(rqe-rqs));
+	double trate = ((double)((rte-rts)-tgap))/((double)(rte-rts));
+	double mrate = MIN(qrate, trate); if(mrate < 0) mrate = 0;
+	res->qn *= mrate; 
+	if(res->qn <= 0) {
+		ea->n = ea_n; return 0;
+	}
+
+	res->qs = rqs; res->qe = rqe; res->ts = rts; res->te = rte;
+	res->sec = (0x3fffffff);
+	if(ea->n > ea_n) {
+		uint64_t *a = ea->a + ea_n, an = ea->n - ea_n, ai, an1 = an>>1;
+		for(ai = 0; ai < an1; ai++) {
+			qs = a[ai]; a[ai] = a[an - ai - 1]; a[an - ai - 1] = qs;
+		}
+		res->sec = ea->n; kv_push(uint64_t, *ea, an);
+	}
+
+    return 1;
+}
+
+void ctg_trans_gp_chain(uint32_t qid, kv_ul_ov_t *res, const ul_idx_t *uref, const ug_opt_t *uopt, int64_t bw, double diff_ec_ul, int64_t qlen, Chain_Data* dp, ma_ug_t *ref, uint32_t is_self, asg64_v *b)
+{
+	uint64_t k, l, m = 0, rn = res->n; ul_ov_t rr; uint32_t avid = ((is_self)?(qid):((uint32_t)-1));
+	for (k = 0; k < rn; k++) {
 		res->a[k].tn <<= 1; res->a[k].tn |= res->a[k].rev;
 	}
-	radix_sort_ul_ov_srt_tn(res->a, res->a + res->n);
-	
-	
+	radix_sort_ul_ov_srt_tn(res->a, res->a + rn);
+
+	for (k = 1, l = 0, b->n = 0; k <= rn; k++) {
+		if((k == rn) || ((res->a[l].tn>>1) != (res->a[k].tn>>1))) {
+			// fprintf(stderr, "+[M::%s]\tutg%.6ul\n", __func__, (res->a[l].tn>>1) + 1);
+			if(((res->a[l].tn>>1) != avid) && (linear_ctg_trans_chain_dp(qid, res->a+l, k-l, uref, uopt, bw, diff_ec_ul, /**0.333333**/0.4, /**0.333333**/0.666666, qlen, ref->u.a[(res->a[l].tn>>1)].len, UG_SKIP_N, UG_ITER_N, UG_DIS_N, dp, &rr, b))) {
+				res->a[m++] = rr; 
+				// fprintf(stderr, "-[M::%s]\tutg%.6ul\n", __func__, rr.tn + 1);
+			}
+			l = k;
+		}
+	}
+	res->n = m;
+
+	// for (k = 0; k < res->n; k++) {
+    //     fprintf(stderr, "[M::%s]\tutg%.6ul(len::%ld)\tq::[%u, %u)\t%c\tutg%.6ul(len::%u)\tt::[%u, %u)\tel::%u\ttp::%u\n", __func__, qid + 1, qlen, res->a[k].qs, res->a[k].qe, "+-"[res->a[k].rev], res->a[k].tn+1, ref->u.a[res->a[k].tn].len, res->a[k].ts, res->a[k].te, res->a[k].el, res->a[k].qn);
+    // }
 }
 
 
+uint64_t cal_reliable_ovlp(ul_ov_t *z, asg64_v *in, uint64_t s, uint64_t e)
+{
+	if(z->sec >= in->n) return 0;
+	uint64_t k, zs, ze, os, oe, ovq, l = 0;
+	for (k = z->sec - in->a[z->sec]; k < z->sec; k++) {
+		zs = (in->a[k]>>32); ze = ((uint32_t)in->a[k]);
+		if(zs >= e) break;
+		if(ze <= s) continue;
+		os = MAX(s, zs); oe = MIN(e, ze);
+		ovq = ((oe > os)? (oe - os):0);
+		l += ovq;
+	}
+	return l;
+}
+
+
+uint64_t filter_ctg_trans(uint32_t qid, ma_ug_t *qry, ma_ug_t *ref, kv_ul_ov_t *aln, asg64_v *aln_e, asg64_v *srt, double reliable_rate, uint64_t reliable_len, double sec_rate, uint64_t sec_bd, double sec_sc, uint64_t soff, uint32_t is_self)
+{
+	if(aln->n <= 0) return 0;
+
+	uint64_t k, an, *ss, *hs, *bu, *wu, clen, m, wm, z, l, wl, le, os, oe, ovq; ul_ov_t *cz, *mz; uint32_t sce[2]; sce[0] = 0; sce[1] = 1;
+	for (k = 0; k < aln->n; k++) {
+		aln->a[k].el = 0; clen = 0;
+		if((!is_self) || (sce[(qid<soff)?0:1] != sce[(aln->a[k].tn<soff)?0:1])) {
+			if(aln->a[k].sec < aln_e->n) {///has reliable regions
+				for (z = aln->a[k].sec - aln_e->a[aln->a[k].sec]; z < aln->a[k].sec; z++) {
+					clen += ((uint32_t)aln_e->a[z]) - (aln_e->a[z]>>32);
+				}
+			}
+			if((clen > reliable_len) && (clen > ((aln->a[k].qe - aln->a[k].qs)*reliable_rate))) {
+				aln->a[k].el = 1;
+			}
+		}
+		aln->a[k].qn = ((uint32_t)-1) - aln->a[k].qn;
+
+		// if(qid == 2 && qry->u.a[qid].len == 112183461) {///h2tg000003l
+		// 	fprintf(stderr, "+[M::%s] h2tg%.6u%c\t%u\t%u\t%u\t%c\th1tg%.6u%c\t%u\t%u\t%u\tsec(%u)\tel(%u)\n", __func__,
+        // 	qid+1, "lc"[qry->u.a[qid].circ], qry->u.a[qid].len, aln->a[k].qs, aln->a[k].qe, "+-"[aln->a[k].rev],
+        // 	aln->a[k].tn+1, "lc"[ref->u.a[aln->a[k].tn].circ], ref->u.a[aln->a[k].tn].len, aln->a[k].ts, aln->a[k].te, aln->a[k].sec, aln->a[k].el);
+		// } else if(qid == 30 && qry->u.a[qid].len == 24761445) {///h1tg000031l
+		// 	fprintf(stderr, "+[M::%s] h1tg%.6u%c\t%u\t%u\t%u\t%c\th12g%.6u%c\t%u\t%u\t%u\tsec(%u)\tel(%u)\n", __func__,
+        // 	qid+1, "lc"[qry->u.a[qid].circ], qry->u.a[qid].len, aln->a[k].qs, aln->a[k].qe, "+-"[aln->a[k].rev],
+        // 	aln->a[k].tn+1, "lc"[ref->u.a[aln->a[k].tn].circ], ref->u.a[aln->a[k].tn].len, aln->a[k].ts, aln->a[k].te, aln->a[k].sec, aln->a[k].el);
+		// } else if(aln->a[k].tn == 2 && ref->u.a[aln->a[k].tn].len == 112183461) {///h2tg000003l
+		// 	fprintf(stderr, "+[M::%s] h1tg%.6u%c\t%u\t%u\t%u\t%c\th12g%.6u%c\t%u\t%u\t%u\tsec(%u)\tel(%u)\n", __func__,
+        // 	qid+1, "lc"[qry->u.a[qid].circ], qry->u.a[qid].len, aln->a[k].qs, aln->a[k].qe, "+-"[aln->a[k].rev],
+        // 	aln->a[k].tn+1, "lc"[ref->u.a[aln->a[k].tn].circ], ref->u.a[aln->a[k].tn].len, aln->a[k].ts, aln->a[k].te, aln->a[k].sec, aln->a[k].el);
+		// } else if(aln->a[k].tn == 30 && ref->u.a[aln->a[k].tn].len == 24761445) {
+		// 	fprintf(stderr, "+[M::%s] h2tg%.6u%c\t%u\t%u\t%u\t%c\th1tg%.6u%c\t%u\t%u\t%u\tsec(%u)\tel(%u)\n", __func__,
+        // 	qid+1, "lc"[qry->u.a[qid].circ], qry->u.a[qid].len, aln->a[k].qs, aln->a[k].qe, "+-"[aln->a[k].rev],
+        // 	aln->a[k].tn+1, "lc"[ref->u.a[aln->a[k].tn].circ], ref->u.a[aln->a[k].tn].len, aln->a[k].ts, aln->a[k].te, aln->a[k].sec, aln->a[k].el);
+		// }
+	}
+	if(aln->n > 1) radix_sort_ul_ov_srt_qn(aln->a, aln->a + aln->n);///qn->score
+	for (k = 0; k < aln->n; k++) aln->a[k].qn = ((uint32_t)-1) - aln->a[k].qn;
+
+	an = aln->n; an <<= 2;
+	srt->n = 0; kv_resize(uint64_t, *srt, an);
+	for (k = 0; k < aln->n; k++) {
+		srt->a[srt->n] = aln->a[k].qs;
+		srt->a[srt->n] <<= 32;
+		srt->a[srt->n] |= k;
+		srt->n++;
+	}
+
+	ss = srt->a; hs = ss + srt->n; bu = hs + srt->n; wu = bu + srt->n;
+	radix_sort_gfa64(ss, ss + aln->n);
+	for (k = 0; k < aln->n; k++) {
+		ss[k] = (uint32_t)ss[k]; hs[ss[k]] = k;
+	}
+	for (k = 0; k < aln->n; k++) {
+		if(aln->a[k].el) continue;
+		cz = &(aln->a[k]); clen = (cz->qe-cz->qs) * sec_rate; m = wm = 0;
+
+		for (z = l = wl = le = 0; z < aln->n; z++) {
+			if(z == hs[k]) {
+				assert(ss[z] == k);
+				continue;
+			}
+			if(ss[z] > k) continue;///smaller nw than a[k]
+			mz = &(aln->a[ss[z]]);
+			if(mz->qs >= cz->qe) break;
+			if(mz->tn == ((uint32_t)-1)) continue;///has been deleted
+			if((!(mz->el)) && (cz->qn > (mz->qn*0.9))) continue;
+			os = MAX(cz->qs, mz->qs); oe = MIN(cz->qe, mz->qe);
+			ovq = ((oe > os)? (oe - os):0);
+			if(!ovq) continue;
+			// if(is_connect_arc(cz, mz, s->ug, 0.04) || is_connect_arc(mz, cz, s->ug, 0.04)) continue;
+
+			if((m > 0) && (((uint32_t)bu[m-1]) >= os)) {
+				if(oe > ((uint32_t)bu[m-1])) {
+					le += cal_reliable_ovlp(cz, aln_e, ((uint32_t)bu[m-1]), oe);
+					l += (oe - ((uint32_t)bu[m-1]));
+					bu[m-1] += (oe - ((uint32_t)bu[m-1]));
+				}
+			} else {
+				le += cal_reliable_ovlp(cz, aln_e, os, oe);
+				l += oe - os;
+				bu[m] = os; bu[m] <<= 32; bu[m] |= oe; m++;
+			}
+
+			if((wm > 0) && (((uint32_t)wu[wm-1]) >= mz->qs)) {
+				if(mz->qe > ((uint32_t)wu[wm-1])) {
+					wl += (mz->qe - ((uint32_t)wu[wm-1]));
+					wu[wm-1] += (mz->qe - ((uint32_t)wu[wm-1]));
+				}
+			} else {
+				wl += mz->qe - mz->qs;
+				wu[wm] = mz->qs; wu[wm] <<= 32; wu[wm] |= mz->qe; wm++;
+			}
+
+			if((l > 0) && (l > sec_bd) && (le <= l*0.5)) {
+				if((l>=clen) || (l>=(wl*sec_rate))) {
+					///sc is small enough
+					if(cz->qn <= (mz->qn*sec_sc)) {
+						cz->tn = ((uint32_t)-1);
+						break;
+					}
+				}
+			}
+		}        
+	}
+
+	for (k = m = 0; k < aln->n; k++) {
+		if(aln->a[k].tn == ((uint32_t)-1)) continue;
+		// if(qid == 2 && qry->u.a[qid].len == 112183461) {///h2tg000003l
+		// 	fprintf(stderr, "-[M::%s] h2tg%.6u%c\t%u\t%u\t%u\t%c\th1tg%.6u%c\t%u\t%u\t%u\tsec(%u)\tel(%u)\n", __func__,
+        // 	qid+1, "lc"[qry->u.a[qid].circ], qry->u.a[qid].len, aln->a[k].qs, aln->a[k].qe, "+-"[aln->a[k].rev],
+        // 	aln->a[k].tn+1, "lc"[ref->u.a[aln->a[k].tn].circ], ref->u.a[aln->a[k].tn].len, aln->a[k].ts, aln->a[k].te, aln->a[k].sec, aln->a[k].el);
+		// } else if(qid == 30 && qry->u.a[qid].len == 24761445) {///h1tg000031l
+		// 	fprintf(stderr, "-[M::%s] h1tg%.6u%c\t%u\t%u\t%u\t%c\th12g%.6u%c\t%u\t%u\t%u\tsec(%u)\tel(%u)\n", __func__,
+        // 	qid+1, "lc"[qry->u.a[qid].circ], qry->u.a[qid].len, aln->a[k].qs, aln->a[k].qe, "+-"[aln->a[k].rev],
+        // 	aln->a[k].tn+1, "lc"[ref->u.a[aln->a[k].tn].circ], ref->u.a[aln->a[k].tn].len, aln->a[k].ts, aln->a[k].te, aln->a[k].sec, aln->a[k].el);
+		// } else if(aln->a[k].tn == 2 && ref->u.a[aln->a[k].tn].len == 112183461) {///h2tg000003l
+		// 	fprintf(stderr, "-[M::%s] h1tg%.6u%c\t%u\t%u\t%u\t%c\th12g%.6u%c\t%u\t%u\t%u\tsec(%u)\tel(%u)\n", __func__,
+        // 	qid+1, "lc"[qry->u.a[qid].circ], qry->u.a[qid].len, aln->a[k].qs, aln->a[k].qe, "+-"[aln->a[k].rev],
+        // 	aln->a[k].tn+1, "lc"[ref->u.a[aln->a[k].tn].circ], ref->u.a[aln->a[k].tn].len, aln->a[k].ts, aln->a[k].te, aln->a[k].sec, aln->a[k].el);
+		// } else if(aln->a[k].tn == 30 && ref->u.a[aln->a[k].tn].len == 24761445) {
+		// 	fprintf(stderr, "-[M::%s] h2tg%.6u%c\t%u\t%u\t%u\t%c\th1tg%.6u%c\t%u\t%u\t%u\tsec(%u)\tel(%u)\n", __func__,
+        // 	qid+1, "lc"[qry->u.a[qid].circ], qry->u.a[qid].len, aln->a[k].qs, aln->a[k].qe, "+-"[aln->a[k].rev],
+        // 	aln->a[k].tn+1, "lc"[ref->u.a[aln->a[k].tn].circ], ref->u.a[aln->a[k].tn].len, aln->a[k].ts, aln->a[k].te, aln->a[k].sec, aln->a[k].el);
+		// }
+		aln->a[m++] = aln->a[k];
+	}
+	aln->n = m;
+	// radix_sort_ul_ov_srt_qs(aln->a, aln->a + aln->n);
+	return aln->n;
+}
+
+void push_ctg_trans_res(uint32_t id, kv_ul_ov_t *in, kv_ul_ov_t *ou)
+{
+	uint32_t k;
+	kv_resize(ul_ov_t, *ou, ou->n + in->n);
+	for (k = 0; k < in->n; k++) {
+		in->a[k].sec = ((in->a[k].qn>=(0x3fffffff))?(0x3fffffff):(in->a[k].qn));
+		in->a[k].qn = id; kv_push(ul_ov_t, *ou, in->a[k]);
+	}
+}
+
 uint32_t direct_ctg_trans_chain(mg_tbuf_t *b, uint32_t id, glchain_t *ll, gdpchain_t *gdp, st_mt_t *sps, haplotype_evdience_alloc *hap, const ul_idx_t *uref, const ug_opt_t *uopt,
-int64_t bw, double diff_ec_ul, int64_t max_skip, int64_t ulid, Chain_Data* dp, ma_ug_t *qry, scaf_res_t *qry_sc, ma_ug_t *ref, scaf_res_t *ref_sc, ma_ug_t *gfa, bubble_type *bub, kv_u_trans_t *ta, const asg_t *rg)
+int64_t bw, double diff_ec_ul, int64_t max_skip, int64_t ulid, Chain_Data* dp, ma_ug_t *qry, scaf_res_t *qry_sc, ma_ug_t *ref, scaf_res_t *ref_sc, ma_ug_t *gfa, bubble_type *bub, kv_u_trans_t *ta, const asg_t *rg, uint64_t soff)
 {
 	// res->bb.n = 0;
 	// if(ulid != 86660) return 0;
 	kv_ul_ov_t *idx = &(ll->lo), *init = &(ll->tk); ///int64_t max_idx;
-	idx->n = init->n = 0;
-	cl_trans_gen(id, qry->u.a[id].len, &(qry_sc->a[id]), idx, uref, ref, ref_sc, gfa, bub, ta);
+	asg64_v b0, b1; uint32_t is_self = (qry?0:1); idx->n = 0;
+	
+	cl_trans_gen(id, qry?qry->u.a[id].len:ref->u.a[id].len, qry_sc?&(qry_sc->a[id]):&(ref_sc->a[id]), idx, uref, ref, ref_sc, gfa, bub, ta, is_self);
 	if(idx->n == 0) return 0;
 
-	ctg_trans_gp_chain(idx, init, uref, uopt, bw, diff_ec_ul, qry->u.a[id].len, dp);
-
+	copy_asg_arr(b0, (*sps)); 
+	ctg_trans_gp_chain(id, idx, uref, uopt, bw, diff_ec_ul, qry?qry->u.a[id].len:ref->u.a[id].len, dp, ref, is_self, &b0);
+	copy_asg_arr((*sps), b0); 
 	if(idx->n == 0) return 0;
 
+	copy_asg_arr(b0, (*sps)); copy_asg_arr(b1, ll->srt.a); 
+	filter_ctg_trans(id, qry, ref, idx, &b0, &b1, 0.5, 10000, /**0.333333**/0.85, 10000, 0.3, soff, is_self);
+	copy_asg_arr((*sps), b0); copy_asg_arr(ll->srt.a, b1); 
+	if(idx->n == 0) return 0;
+
+	push_ctg_trans_res(id, idx, init);
 
 	/**
 	// gl_rg2ug_gen(rch, idx, uref, 1, 2, ulid);
@@ -16971,7 +17471,154 @@ static void worker_for_ctg_trans_alignment(void *data, long i, int tid)
 
 	s->hab[tid]->num_read_base++; 
 	s->hab[tid]->num_correct_base += direct_ctg_trans_chain(s->buf[tid], i, &(s->ll[tid]), &(s->gdp[tid]), &(s->sps[tid]), &(s->hab[tid]->hap), s->uu, s->uopt, G_CHAIN_BW, s->opt->diff_ec_ul, UG_SKIP, i, &(s->hab[tid]->clist.chainDP), 
-	c->qry, c->qry_sc, c->ref, c->ref_sc, c->gfa, c->bub, c->ta, s->rg);
+	c->qry, c->qry_sc, c->ref, c->ref_sc, c->gfa, c->bub, c->ta, s->rg, c->soff);
+}
+
+void rm_dup_aln(u_trans_t *u, uint64_t u_n, asg64_v *b, double dup_cut)
+{
+	if(u_n <= 0) return;
+	uint64_t k, m, s, e, dp, old_dp, z, zs, ze, l, os, oe, ovq, cut; u_trans_t t;
+	b->n = 0;
+	for (k = 0; k < u_n; k++) {
+		s = u[k].qs; e = u[k].qe; u[k].occ = 0;
+		kv_push(uint64_t, *b, (s<<1)); 
+		kv_push(uint64_t, *b, (e<<1|1));
+	}
+	radix_sort_gfa64(b->a, b->a + b->n);
+
+	for (k = dp = old_dp = m = 0, s = e = (uint64_t)-1; k < b->n; k++) {
+		old_dp = dp;
+        //if a[j] is qe
+        if (b->a[k]&1) --dp;
+        else ++dp;
+
+		if (old_dp < 2 && dp >= 2) {///old_dp < dp, b.a[k] is qs
+            s = b->a[k]>>1;
+        } else if (old_dp >= 2 && dp < 2) {///old_dp > min_dp, b.a[k] is qe
+            e = b->a[k]>>1;
+			if(e > s) b->a[m++] = (s<<32)|e;///non-unique region
+        }
+	}
+
+	b->n = m;
+	for (k = m = 0; k < u_n; k++) {
+		l = 0; s = u[k].qs; e = u[k].qe; 
+		cut = (e - s)*dup_cut; 
+		if(!(u[k].f)) {//unreliable
+			for (z = 0; z < b->n; z++) {
+				zs = (b->a[z]>>32); ze = ((uint32_t)b->a[z]);
+				if(zs >= e) break;
+				if(ze <= s) continue;
+				os = MAX(s, zs); oe = MIN(e, ze);
+				ovq = ((oe > os)? (oe - os):0);
+				l += ovq;
+				if(l > cut) break;
+			}
+		}
+		if(((l <= 0) || (l <= cut)) && (l < (e - s))) {
+			if(m != k) { t = u[m]; u[m] = u[k]; u[k] = t;}
+			m++;
+		}
+	}
+
+	for (k = m; k < u_n; k++) u[k].del = 1;///delete 
+
+	for (k = b->n = 0; k < m; k++) {
+		dp = u[k].nw; dp <<= 32; dp |= k; kv_push(uint64_t, *b, dp);
+	}
+	radix_sort_gfa64(b->a, b->a + b->n); old_dp = 0;
+	for (k = 0; k < b->n; k++) {
+		assert(!u[((uint32_t)b->a[k])].del);
+		for (z = 0; z < b->n; z++) {
+			if(k == z) continue;
+			if(u[((uint32_t)b->a[z])].del) continue;
+			if(u[((uint32_t)b->a[k])].qs >= u[((uint32_t)b->a[z])].qs && u[((uint32_t)b->a[k])].qe <= u[((uint32_t)b->a[z])].qe) break;
+		}
+		if(z < b->n) {
+			u[((uint32_t)b->a[k])].del = 1; old_dp++;
+		}
+	}
+
+	if(old_dp) {
+		for (k = m = 0; k < u_n; k++) {
+			if(u[k].del) continue;
+			if(m != k) { t = u[m]; u[m] = u[k]; u[k] = t;}
+			m++;
+		}
+	}
+
+
+	///for debug is there is any contained overlaps in u[0, m)
+	for (k = 0; k < m; k++) {
+		for (z = 0; z < m; z++) {
+			if(k == z) continue;
+			if(u[k].qs >= u[z].qs && u[k].qe <= u[z].qe) break;
+		}
+		assert(z >= m);
+	}
+} 
+
+static void worker_for_ctg_trans_order(void *data, long i, int tid)
+{
+	ctdat_t *c = (ctdat_t*)data; utepdat_t *s = c->s; asg64_v b;
+	u_trans_t *a = NULL, *r_a = NULL, t; uint64_t n, r_n, k, z, m;
+
+	if(c->mm == 0) {
+		copy_asg_arr(b, (s->sps[tid]));
+		rm_dup_aln(u_trans_a(*(c->ta), i), u_trans_n(*(c->ta), i), &b, 0.25);
+		copy_asg_arr((s->sps[tid]), b); 
+	} else if(c->mm == 1) {
+			a = u_trans_a(*(c->ta), i); n = u_trans_n(*(c->ta), i);
+			for (k = 0; k < n; k++) {
+				if(a[k].tn < a[k].qn) continue;
+				r_a = u_trans_a(*(c->ta), a[k].tn); r_n = u_trans_n(*(c->ta), a[k].tn);
+				for(z = 0; (z < r_n) && (r_a[z].tn != a[k].qn); z++);
+				assert(z < r_n);
+				// if(a[k].del || r_a[z].del) {
+				// 	a[k].del = r_a[z].del = 1;
+				// }
+				///discard too short overlaps
+				if((!a[k].f) || (!r_a[z].f)) {
+					if((a[k].qe - a[k].qs <= asm_opt.self_scaf_min) || (a[k].te - a[k].ts <= asm_opt.self_scaf_min)) {
+						a[k].del = r_a[z].del = 1;
+					} else if((r_a[z].qe - r_a[z].qs <= asm_opt.self_scaf_min) || (r_a[z].te - r_a[z].ts <= asm_opt.self_scaf_min)) {
+						a[k].del = r_a[z].del = 1;
+					}
+				}
+
+				if(a[k].del != r_a[z].del) {
+					a[k].del = r_a[z].del = 0;
+					a[k].occ = r_a[z].occ = (uint32_t)-1;
+				}
+			}
+	} else {
+		a = u_trans_a(*(c->ta), i); n = u_trans_n(*(c->ta), i);
+		for (k = m = 0; k < n; k++) {
+			if((a[k].occ != (uint32_t)-1)) {
+				if(m != k) {t = a[k]; a[k] = a[m]; a[m] = t;}
+				m++;
+			}
+		}
+		radix_sort_u_trans_qs0(a, a + m);
+		radix_sort_u_trans_qs0(a + m, a + n);
+		a = a + m; n = n - m;
+		if(n) {//sort and merge unreliable regions
+			for (k = 0; k < n; k++) a[k].del = 1; 
+			for (k = m = 0; k < n; k++) {
+				if((m > 0) && (a[m-1].qe >= a[k].qs)) {
+					if(a[k].qe > a[m-1].qe) a[m-1].qe = a[k].qe;
+				} else {
+					a[m++] = a[k];
+				}
+			}
+
+			for(k = m; k < n; k++) {///not useful anymore
+				a[k].qn = a[k].qs = a[k].qe = (uint32_t)-1;
+				a[k].tn = a[k].ts = a[k].te = (uint32_t)-1;
+			}
+		}
+	}
+	
 }
 
 uint32_t inline is_rg_connect(const asg_t *rg, uint32_t v, uint32_t w)
@@ -18251,9 +18898,51 @@ scaf_res_t *work_ctg_path_gchains(uldat_t *sl)
 }
 
 
-kv_u_trans_t *work_ctg_path_trans(uldat_t *sl, asg_t *sg, ma_ug_t *qry, scaf_res_t *qry_sc, ma_ug_t *ref, scaf_res_t *ref_sc, ma_ug_t *gfa, kv_u_trans_t *ta)
+void fill_ctg_path_trans_idx(glchain_t *a, uint64_t n, uint64_t qn, uint32_t qoff, uint32_t toff, kv_u_trans_t *ou)
 {
-	kv_u_trans_t *res = NULL; CALLOC(res, 1);
+	kv_resize(uint64_t, ou->idx, qn);
+	memset(ou->idx.a, -1, sizeof((*(ou->idx.a)))*qn); 
+
+	uint64_t i, k, l, pn; kv_ul_ov_t *s = NULL; u_trans_t *z = NULL;
+	for(i = pn = 0; i < n; i++) {
+		s = &(a[i].tk); pn += s->n;
+		for (k = 1, l = 0; k <= s->n; k++) {
+			if(k == s->n || s->a[l].qn != s->a[k].qn) {
+				assert(ou->idx.a[s->a[l].qn] == (uint64_t)-1);
+				ou->idx.a[s->a[l].qn] = (i<<32)|l;
+				l = k;
+			}
+		}
+	}
+	kv_resize(u_trans_t, *ou, ou->n+(pn<<1)); l = ou->n;
+
+	for (i = 0; i < qn; i++) {
+		if(ou->idx.a[i] == (uint64_t)-1) {
+			ou->idx.a[i] = 0; continue;
+		}
+		s = &(a[ou->idx.a[i]>>32].tk);
+		for(k = l = (uint32_t)ou->idx.a[i]; k < s->n && s->a[l].qn == s->a[k].qn; k++) {
+			kv_pushp(u_trans_t, *ou, &z);
+			z->qn = s->a[k].qn+qoff; z->qs = s->a[k].qs; z->qe = s->a[k].qe; 
+			z->tn = s->a[k].tn+toff; z->ts = s->a[k].ts; z->te = s->a[k].te; 
+			z->rev = s->a[k].rev; 	 z->f = s->a[k].el;  z->nw = s->a[k].sec; 
+			z->occ = s->a[k].sec;    z->del = 0;
+
+
+			kv_pushp(u_trans_t, *ou, &z);
+			z->tn = s->a[k].qn+qoff; z->ts = s->a[k].qs; z->te = s->a[k].qe; 
+			z->qn = s->a[k].tn+toff; z->qs = s->a[k].ts; z->qe = s->a[k].te; 
+			z->rev = s->a[k].rev; 	 z->f = s->a[k].el;  z->nw = s->a[k].sec; 
+			z->occ = s->a[k].sec;    z->del = 0;
+
+		}
+		// p->idx.a[i] = pn - (k - l); p->idx.a[i] <<= 32; p->idx.a[i] |= k - l; ///pn += k - l;
+	}
+	// assert(l + (pn<<1) == ou->n);
+}
+
+void work_ctg_path_trans(uldat_t *sl, asg_t *sg, ma_ug_t *qry, scaf_res_t *qry_sc, ma_ug_t *ref, scaf_res_t *ref_sc, ma_ug_t *gfa, kv_u_trans_t *ta, uint32_t qoff, uint32_t toff, bubble_type *bu, kv_u_trans_t *res)
+{
 	utepdat_t s; uint64_t i; memset(&s, 0, sizeof(s)); 
 	s.id = 0; s.opt = sl->opt; s.ug = sl->ug; s.uopt = sl->uopt; s.rg = sl->rg; s.uu = sl->uu; 
 	CALLOC(s.hab, sl->n_thread); CALLOC(s.buf, sl->n_thread); CALLOC(s.ll, sl->n_thread); 
@@ -18263,7 +18952,7 @@ kv_u_trans_t *work_ctg_path_trans(uldat_t *sl, asg_t *sg, ma_ug_t *qry, scaf_res
 		s.hab[i] = ha_ovec_init(0, 0, 1); s.buf[i] = mg_tbuf_init();
 	}
 
-	ctdat_t c; memset(&c, 0, sizeof(c)); uint8_t *bf = NULL; c.bub = gen_bubble_chain(sg, gfa, (ug_opt_t *)(sl->uopt), &bf, 0); free(bf);
+	ctdat_t c; memset(&c, 0, sizeof(c)); c.soff = (uint64_t)-1; /**uint8_t *bf = NULL; c.bub = gen_bubble_chain(sg, gfa, (ug_opt_t *)(sl->uopt), &bf, 0); free(bf);**/c.bub = bu;
 	c.s = &(s); c.qry = qry; c.qry_sc = qry_sc; c.ref = ref; c.ref_sc = ref_sc; c.gfa = gfa; c.ta = ta;
 
 	// detect_outlier_len("+++work_ul_gchains");
@@ -18271,7 +18960,8 @@ kv_u_trans_t *work_ctg_path_trans(uldat_t *sl, asg_t *sg, ma_ug_t *qry, scaf_res
 	kt_for(sl->n_thread, worker_for_ctg_trans_alignment, &c, c.qry_sc->n);
 
 	// detect_outlier_len("---work_ul_gchains");
-	destory_bubbles(c.bub); free(c.bub);
+	/**destory_bubbles(c.bub); free(c.bub);**/
+	fill_ctg_path_trans_idx(s.ll, sl->n_thread, qry->u.n, qoff, toff, res);
 	for (i = 0; i < sl->n_thread; ++i) {
 		s.sum_len += s.hab[i]->num_read_base; s.n += s.hab[i]->num_correct_base;
 		ha_ovec_destroy(s.hab[i]); mg_tbuf_destroy(s.buf[i]); hc_glchain_destroy(&(s.ll[i]));
@@ -18280,7 +18970,36 @@ kv_u_trans_t *work_ctg_path_trans(uldat_t *sl, asg_t *sg, ma_ug_t *qry, scaf_res
 
 	free(s.hab); free(s.buf); free(s.ll); free(s.gdp); free(s.mzs); free(s.sps);
 	fprintf(stderr, "[M::%s::] # try:%d, # done:%d\n", __func__, s.sum_len, s.n); 
-	return res;
+}
+
+void work_ctg_path_trans_self(uldat_t *sl, asg_t *sg, ma_ug_t *db, scaf_res_t *db_sc, ma_ug_t *gfa, kv_u_trans_t *ta, uint64_t soff, bubble_type *bu, kv_u_trans_t *res)
+{
+	utepdat_t s; uint64_t i; memset(&s, 0, sizeof(s)); 
+	s.id = 0; s.opt = sl->opt; s.ug = sl->ug; s.uopt = sl->uopt; s.rg = sl->rg; s.uu = sl->uu; 
+	CALLOC(s.hab, sl->n_thread); CALLOC(s.buf, sl->n_thread); CALLOC(s.ll, sl->n_thread); 
+	CALLOC(s.gdp, sl->n_thread); CALLOC(s.mzs, sl->n_thread); CALLOC(s.sps, sl->n_thread); 
+
+	for (i = 0; i < sl->n_thread; ++i) {
+		s.hab[i] = ha_ovec_init(0, 0, 1); s.buf[i] = mg_tbuf_init();
+	}
+
+	ctdat_t c; memset(&c, 0, sizeof(c)); c.soff = soff; c.bub = bu;
+	c.s = &(s); c.qry = NULL; c.qry_sc = NULL; c.ref = db; c.ref_sc = db_sc; c.gfa = gfa; c.ta = ta;
+
+	// detect_outlier_len("+++work_ul_gchains");
+
+	kt_for(sl->n_thread, worker_for_ctg_trans_alignment, &c, db_sc->n);
+
+	// detect_outlier_len("---work_ul_gchains");
+	fill_ctg_path_trans_idx(s.ll, sl->n_thread, db->u.n, 0, 0, res);
+	for (i = 0; i < sl->n_thread; ++i) {
+		s.sum_len += s.hab[i]->num_read_base; s.n += s.hab[i]->num_correct_base;
+		ha_ovec_destroy(s.hab[i]); mg_tbuf_destroy(s.buf[i]); hc_glchain_destroy(&(s.ll[i]));
+		hc_gdpchain_destroy(&(s.gdp[i])); kv_destroy(s.mzs[i]); kv_destroy(s.sps[i]);
+	}
+
+	free(s.hab); free(s.buf); free(s.ll); free(s.gdp); free(s.mzs); free(s.sps);
+	fprintf(stderr, "[M::%s::] # try:%d, # done:%d\n", __func__, s.sum_len, s.n); 
 }
 
 
@@ -21199,7 +21918,7 @@ scaf_res_t *gen_contig_path(const ug_opt_t *uopt, asg_t *sg, ma_ug_t *ctg, ma_ug
 	return res;
 }
 
-kv_u_trans_t *gen_contig_trans(const ug_opt_t *uopt, asg_t *sg, ma_ug_t *qry, scaf_res_t *qry_sc, ma_ug_t *ref, scaf_res_t *ref_sc, ma_ug_t *gfa, kv_u_trans_t *ta)
+void gen_contig_trans(const ug_opt_t *uopt, asg_t *sg, ma_ug_t *qry, scaf_res_t *qry_sc, ma_ug_t *ref, scaf_res_t *ref_sc, ma_ug_t *gfa, kv_u_trans_t *ta, uint32_t qoff, uint32_t toff, bubble_type *bu, kv_u_trans_t *res)
 {
 	mg_idxopt_t opt; uldat_t sl; int32_t cutoff; 
 	init_aux_table(); ha_opt_update_cov(&asm_opt, asm_opt.hom_cov);
@@ -21208,9 +21927,55 @@ kv_u_trans_t *gen_contig_trans(const ug_opt_t *uopt, asg_t *sg, ma_ug_t *qry, sc
 	ul_idx_t *uu = gen_ul_idx_t_sc(ref, sg, ref_sc, gfa->u.n);
 	init_uldat_t(&sl, NULL, NULL, &opt, CHUNK_SIZE, asm_opt.thread_num, uopt, uu); sl.rg = sg; sl.ug = qry;
 
-	kv_u_trans_t *res = work_ctg_path_trans(&sl, sg, qry, qry_sc, ref, ref_sc, gfa, ta); uu->ug = NULL;
+	work_ctg_path_trans(&sl, sg, qry, qry_sc, ref, ref_sc, gfa, ta, qoff, toff, bu, res); uu->ug = NULL;
 	destroy_ul_idx_t(uu);
-	return res;
+}
+
+void gen_contig_self(const ug_opt_t *uopt, asg_t *sg, ma_ug_t *db, scaf_res_t *db_sc, ma_ug_t *gfa, kv_u_trans_t *ta, uint64_t soff, bubble_type *bu, kv_u_trans_t *res)
+{
+	mg_idxopt_t opt; uldat_t sl; int32_t cutoff; 
+	init_aux_table(); ha_opt_update_cov(&asm_opt, asm_opt.hom_cov);
+	cutoff = asm_opt.max_n_chain;
+	init_mg_opt(&opt, !(asm_opt.flag&HA_F_NO_HPC), 19, 10, cutoff, asm_opt.max_n_chain, asm_opt.ul_error_rate, asm_opt.ul_error_rate, asm_opt.ul_error_rate_low, asm_opt.ul_error_rate_hpc, asm_opt.ul_ec_round);
+	ul_idx_t *uu = gen_ul_idx_t_sc(db, sg, db_sc, gfa->u.n);
+	init_uldat_t(&sl, NULL, NULL, &opt, CHUNK_SIZE, asm_opt.thread_num, uopt, uu); sl.rg = sg; sl.ug = db;
+
+	work_ctg_path_trans_self(&sl, sg, db, db_sc, gfa, ta, soff, bu, res); uu->ug = NULL;
+	destroy_ul_idx_t(uu);
+}
+
+void order_contig_trans(kv_u_trans_t *in)
+{
+	utepdat_t s; uint64_t i, n_th = asm_opt.thread_num; memset(&s, 0, sizeof(s)); 
+    CALLOC(s.hab, n_th); CALLOC(s.buf, n_th); CALLOC(s.ll, n_th); 
+    CALLOC(s.gdp, n_th); CALLOC(s.mzs, n_th); CALLOC(s.sps, n_th); 
+
+    for (i = 0; i < n_th; ++i) {
+        s.hab[i] = ha_ovec_init(0, 0, 1); s.buf[i] = mg_tbuf_init();
+    }
+
+    ctdat_t c; memset(&c, 0, sizeof(c)); c.s = &(s); c.ta = in; 
+
+    c.mm = 0; kt_for(n_th, worker_for_ctg_trans_order, &c, in->idx.n);
+	c.mm = 1; kt_for(n_th, worker_for_ctg_trans_order, &c, in->idx.n);
+
+    for (i = 0; i < n_th; ++i) {
+        s.sum_len += s.hab[i]->num_read_base; s.n += s.hab[i]->num_correct_base;
+        ha_ovec_destroy(s.hab[i]); mg_tbuf_destroy(s.buf[i]); hc_glchain_destroy(&(s.ll[i]));
+        hc_gdpchain_destroy(&(s.gdp[i])); kv_destroy(s.mzs[i]); kv_destroy(s.sps[i]);
+    }
+
+    free(s.hab); free(s.buf); free(s.ll); free(s.gdp); free(s.mzs); free(s.sps);
+    fprintf(stderr, "[M::%s::] # try:%d, # done:%d\n", __func__, s.sum_len, s.n); 
+
+	uint64_t m;
+	for (i = m = 0; i < in->n; i++) {
+		if(in->a[i].del) continue;
+		in->a[m++] = in->a[i];
+	}
+	in->n = m;
+	kt_u_trans_t_idx(in, in->idx.n);
+	c.mm = 2; kt_for(n_th, worker_for_ctg_trans_order, &c, in->idx.n);
 }
 
 
