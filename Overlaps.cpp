@@ -861,6 +861,8 @@ void init_ma_hit_t_alloc(ma_hit_t_alloc* x)
     x->size = 0;
     x->buffer = NULL;
     x->length = 0;
+    x->is_fully_corrected = 0;
+	x->is_abnormal = 0;
 }
 
 void clear_ma_hit_t_alloc(ma_hit_t_alloc* x)
@@ -10743,6 +10745,7 @@ ma_hit_t_alloc* sources, R_to_U* ruIndex, int print_seq, const char* prefix, FIL
                 uint32_t x = p->a[j]>>33;
                 if(x<RNF->total_reads)
                 {
+
                     fprintf(fp, "A\t%s\t%d\t%c\t%.*s\t%d\t%d\tid:i:%d\tHG:A:%c\n", name, l, "+-"[p->a[j]>>32&1],
                     (int)Get_NAME_LENGTH((*RNF), x), Get_NAME((*RNF), x), 
                     coverage_cut?coverage_cut[x].s:0, coverage_cut?coverage_cut[x].e:(int)Get_READ_LENGTH((*RNF), x), x, 
@@ -10817,6 +10820,23 @@ ma_hit_t_alloc* sources, R_to_U* ruIndex, const char* prefix, FILE *fp)
 	ma_ug_print2(ug, &R_INF, read_g, coverage_cut, sources, ruIndex, 1, prefix, fp);
 }
 
+void prt_scaf_stats(sec_t *scp, ma_ug_t *ctg, const char* prefix, uint64_t id)
+{
+    uint64_t k, tl0, tl1; ma_utg_t *z = NULL; char name[32];
+    for (k = tl0 = tl1 = 0; k < scp->n; k++) {
+        z = &(ctg->u.a[((uint32_t)scp->a[k])>>1]); tl0 += z->len; tl1 += (scp->a[k]>>32);
+    }
+    sprintf(name, "%s%.6lu%c", prefix, id + 1, "lc"[scp->is_c]);
+
+    fprintf(stderr, "[M::%s] [M::%s] tot::%lu\tel::%lu\tnl::%lu\tis_c::%lu\t#::%lu\t%s\n", __func__, name, tl0+tl1, tl0, tl1, scp->is_c, (uint64_t)scp->n, ((scp->n>1)?"scf":"ctg"));
+    for (k = 0; k < scp->n; k++) {
+        z = &(ctg->u.a[((uint32_t)scp->a[k])>>1]);
+        fprintf(stderr, "%s%.6u%c(%c)\tlen::%u\tNs::%lu\n", 
+        prefix, (((uint32_t)scp->a[k])>>1)+1, "lc"[z->circ], "+-"[(((uint32_t)scp->a[k])&1)], z->len, (scp->a[k]>>32));
+    }
+    
+}
+
 void ma_scg_print(const kvect_sec_t *sc, All_reads *RNF, asg_t* read_g, const ma_sub_t *coverage_cut, ma_hit_t_alloc* sources, R_to_U* ruIndex, int print_seq, const char* prefix, FILE *fp)
 {
     uint8_t* primary_flag = read_g?(uint8_t*)calloc(read_g->n_seq, sizeof(uint8_t)):NULL;
@@ -10824,6 +10844,9 @@ void ma_scg_print(const kvect_sec_t *sc, All_reads *RNF, asg_t* read_g, const ma
 	char name[32]; uint64_t Rb, Cb, tRb, tCb, Cov; ma_utg_t *z = NULL; uint8_t c;
 	for (i = 0; i < sc->n; ++i) { // the Segment lines in GFA
         scp = &(sc->a[i]);
+        ///debug
+        prt_scaf_stats(scp, sc->ctg, prefix, i);
+
         for (j = tl = tRb = tCb = 0; j < scp->n; j++) {
             z = &(sc->ctg->u.a[((uint32_t)scp->a[j])>>1]); tl += z->len; tl += (scp->a[j]>>32);
             if(pc) {
@@ -22759,31 +22782,6 @@ void output_read_graph(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name
     fclose(output_file);
 }
 
-
-void read_ma(ma_hit_t* x, FILE* fp)
-{
-    int f_flag;
-    f_flag = fread(&(x->qns), sizeof(x->qns), 1, fp);
-    f_flag += fread(&(x->qe), sizeof(x->qe), 1, fp);
-    f_flag += fread(&(x->tn), sizeof(x->tn), 1, fp);
-    f_flag += fread(&(x->ts), sizeof(x->ts), 1, fp);
-    f_flag += fread(&(x->te), sizeof(x->te), 1, fp);
-    f_flag += fread(&(x->el), sizeof(x->el), 1, fp);
-    f_flag += fread(&(x->no_l_indel), sizeof(x->no_l_indel), 1, fp);
-
-    uint32_t t;
-    f_flag += fread(&(t), sizeof(t), 1, fp);
-    x->ml = t;
-
-    f_flag += fread(&(t), sizeof(t), 1, fp);
-    x->rev = t;
-    
-    f_flag += fread(&(t), sizeof(t), 1, fp);
-    x->bl = t;
-
-    f_flag += fread(&(t), sizeof(t), 1, fp);
-    x->del = t;
-}
 
 int load_ma_hit_ts(ma_hit_t_alloc** x, char* read_file_name)
 {

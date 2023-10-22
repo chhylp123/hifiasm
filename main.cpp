@@ -61,8 +61,9 @@ int main(int argc, char *argv[])
 	// ed_band_cal_global((char*)"ACTTTTTT", 8, (char*)"AATTTT", 6, 3),
 	// ed_band_cal_global_128bit((char*)"ACTTTTTT", 8, (char*)"AATTTT", 6, 3));
 	// exit(1);
-	if(!(asm_opt.dbg_ovec_cal)) ret = ha_assemble();
-	else ret = ha_assemble_ovec();
+	if(asm_opt.sec_in) ret = ha_assemble_pair();
+	else if(asm_opt.dbg_ovec_cal) ret = ha_assemble_ovec();
+	else ret = ha_assemble();
 	
     destory_opt(&asm_opt);
 	fprintf(stderr, "[M::%s] Version: %s\n", __func__, HA_VERSION);

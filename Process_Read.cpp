@@ -208,6 +208,157 @@ int load_All_reads(All_reads* r, char* read_file_name)
 	return 1;
 }
 
+void read_ma(ma_hit_t* x, FILE* fp)
+{
+    int f_flag;
+    f_flag = fread(&(x->qns), sizeof(x->qns), 1, fp);
+    f_flag += fread(&(x->qe), sizeof(x->qe), 1, fp);
+    f_flag += fread(&(x->tn), sizeof(x->tn), 1, fp);
+    f_flag += fread(&(x->ts), sizeof(x->ts), 1, fp);
+    f_flag += fread(&(x->te), sizeof(x->te), 1, fp);
+    f_flag += fread(&(x->el), sizeof(x->el), 1, fp);
+    f_flag += fread(&(x->no_l_indel), sizeof(x->no_l_indel), 1, fp);
+
+    uint32_t t;
+    f_flag += fread(&(t), sizeof(t), 1, fp);
+    x->ml = t;
+
+    f_flag += fread(&(t), sizeof(t), 1, fp);
+    x->rev = t;
+    
+    f_flag += fread(&(t), sizeof(t), 1, fp);
+    x->bl = t;
+
+    f_flag += fread(&(t), sizeof(t), 1, fp);
+    x->del = t;
+}
+
+
+int append_All_reads(All_reads* r, char *idx, uint32_t id)
+{
+	char *gfa_name = NULL; MALLOC(gfa_name, (strlen(idx)+100));
+	FILE *fp = NULL, *fpo = NULL;
+
+	sprintf(gfa_name, "%s.ec%u.bin", idx, id);
+    fp = fopen(gfa_name, "r");
+	if (!fp) {free(gfa_name); return 0;}
+
+	sprintf(gfa_name, "%s.ovlp%u.source.bin", idx, id);
+	fpo = fopen(gfa_name, "r");
+	if (!fpo) {free(gfa_name); fclose(fp); return 0;}
+	free(gfa_name);
+
+	int local_adapterLen, f_flag;
+    f_flag = fread(&local_adapterLen, sizeof(local_adapterLen), 1, fp);
+    if(local_adapterLen != asm_opt.adapterLen) {
+        fprintf(stderr, "the adapterLen of index is: %d, but the adapterLen set by user is: %d\n", 
+        local_adapterLen, asm_opt.adapterLen);
+		exit(1);
+    }
+	uint64_t index_size0, name_index_size0, total_reads0, total_reads_bases0, total_name_length0;
+	index_size0 = r->index_size; 
+	total_reads0 = r->total_reads; 
+	total_reads_bases0 = r->total_reads_bases;
+	total_name_length0 = r->total_name_length;
+	name_index_size0 = ((total_reads0)?(total_reads0+1):(0));///r->name_index_size;
+
+    f_flag += fread(&r->index_size, sizeof(r->index_size), 1, fp);
+	f_flag += fread(&r->name_index_size, sizeof(r->name_index_size), 1, fp);
+	f_flag += fread(&r->total_reads, sizeof(r->total_reads), 1, fp);
+	f_flag += fread(&r->total_reads_bases, sizeof(r->total_reads_bases), 1, fp);
+	f_flag += fread(&r->total_name_length, sizeof(r->total_name_length), 1, fp);
+
+	r->index_size += index_size0;
+	r->name_index_size += name_index_size0; if(name_index_size0) r->name_index_size--;
+	r->total_reads += total_reads0;
+	r->total_reads_bases += total_reads_bases0;
+	r->total_name_length += total_name_length0;
+
+
+	uint64_t i = 0, zero = 0, k;
+	REALLOC(r->N_site, r->total_reads);
+
+	for (i = total_reads0; i < r->total_reads; i++) {
+		f_flag += fread(&zero, sizeof(zero), 1, fp);
+
+		if (zero) {
+			r->N_site[i] = (uint64_t*)malloc(sizeof(uint64_t)*(zero + 1));
+			r->N_site[i][0] = zero;
+			if (r->N_site[i][0]) {
+				f_flag += fread(r->N_site[i]+1, sizeof(r->N_site[i][0]), r->N_site[i][0], fp);
+			}
+		} else {
+			r->N_site[i] = NULL;
+		}
+	}
+
+	REALLOC(r->read_length, r->total_reads);
+	f_flag += fread(r->read_length + total_reads0, sizeof(uint64_t), r->total_reads-total_reads0, fp);
+
+	REALLOC(r->read_size, r->total_reads);
+	memcpy (r->read_size + total_reads0, r->read_length + total_reads0, sizeof(uint64_t)*(r->total_reads-total_reads0));
+
+	REALLOC(r->read_sperate, r->total_reads);
+	for (i = total_reads0; i < r->total_reads; i++) {
+		r->read_sperate[i] = (uint8_t*)malloc(sizeof(uint8_t)*(r->read_length[i]/4+1));
+		f_flag += fread(r->read_sperate[i], sizeof(uint8_t), r->read_length[i]/4+1, fp);
+	}
+
+
+	REALLOC(r->name, r->total_name_length);
+	f_flag += fread(r->name + total_name_length0, sizeof(char), r->total_name_length - total_name_length0, fp);
+
+	REALLOC(r->name_index, r->name_index_size); uint64_t sft = 0;
+	if(name_index_size0) sft = r->name_index[--name_index_size0];
+	// fprintf(stderr, "name_index_size0::%lu, total_reads0::%lu, sft::%lu\n", name_index_size0, total_reads0, sft);
+	f_flag += fread(r->name_index + name_index_size0, sizeof(uint64_t), r->name_index_size-name_index_size0, fp);
+	if(sft) {
+		for (i = name_index_size0; i < r->name_index_size; i++) r->name_index[i] += sft;
+	}
+
+	/****************************may have bugs********************************/
+	REALLOC(r->trio_flag, r->total_reads);
+	f_flag += fread(r->trio_flag + total_reads0, sizeof(uint8_t), r->total_reads - total_reads0, fp);
+
+	int hom_cov0 = asm_opt.hom_cov, het_cov0 = asm_opt.het_cov;
+	f_flag += fread(&(asm_opt.hom_cov), sizeof(asm_opt.hom_cov), 1, fp); asm_opt.hom_cov += hom_cov0;
+    f_flag += fread(&(asm_opt.het_cov), sizeof(asm_opt.het_cov), 1, fp); asm_opt.het_cov += het_cov0;
+	/****************************may have bugs********************************/
+
+	REALLOC(r->cigars, r->total_reads);
+	REALLOC(r->second_round_cigar, r->total_reads);
+	for (i = total_reads0; i < r->total_reads; i++) {
+		r->second_round_cigar[i].size = r->cigars[i].size = 0;
+		r->second_round_cigar[i].length = r->cigars[i].length = 0;
+		r->second_round_cigar[i].record = r->cigars[i].record = NULL;
+
+		r->second_round_cigar[i].lost_base_size = r->cigars[i].lost_base_size = 0;
+		r->second_round_cigar[i].lost_base_length = r->cigars[i].lost_base_length = 0;
+		r->second_round_cigar[i].lost_base = r->cigars[i].lost_base = NULL;
+	}
+	///r->pb_regions = NULL;
+
+	REALLOC(r->paf, r->total_reads);
+	memset(r->paf+total_reads0, 0, sizeof((*(r->paf)))*(r->total_reads - total_reads0));
+	long long n_read; f_flag = fread(&n_read, sizeof(n_read), 1, fpo); ma_hit_t t;
+	for (i = total_reads0; i < r->total_reads; i++) {
+		f_flag += fread(&(r->paf[i].is_fully_corrected), sizeof(r->paf[i].is_fully_corrected), 1, fpo);
+        f_flag += fread(&(r->paf[i].is_abnormal), sizeof(r->paf[i].is_abnormal), 1, fpo);
+        f_flag += fread(&(r->paf[i].length), sizeof(r->paf[i].length), 1, fpo);
+
+        if(r->paf[i].length == 0) continue;
+        for (k = 0; k < r->paf[i].length; k++) read_ma(&t, fpo);
+		r->paf[i].length = 0;
+	}
+
+	REALLOC(r->reverse_paf, r->total_reads); 
+	memset(r->reverse_paf+total_reads0, 0, sizeof((*(r->reverse_paf)))*(r->total_reads - total_reads0));
+
+    fclose(fp); fclose(fpo);
+    fprintf(stderr, "Reads has been loaded.\n");
+	return 1;
+}
+
 
 int destory_read_bin(All_reads* r)
 {

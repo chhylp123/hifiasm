@@ -133,8 +133,8 @@ void add_ma_hit_t_alloc(ma_hit_t_alloc* x, ma_hit_t* element);
 void ma_hit_sort_tn(ma_hit_t *a, long long n);
 void ma_hit_sort_qns(ma_hit_t *a, long long n);
 
-int load_all_data_from_disk(ma_hit_t_alloc **sources, ma_hit_t_alloc **reverse_sources, 
-char* output_file_name);
+int load_all_data_from_disk(ma_hit_t_alloc **sources, ma_hit_t_alloc **reverse_sources, char* output_file_name);
+
 
 typedef struct {
 	uint32_t s:31, del:1, e;

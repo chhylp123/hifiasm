@@ -44,6 +44,7 @@ typedef struct {
 } ha_ovec_buf_t;
 
 int ha_assemble(void);
+int ha_assemble_pair(void);
 void ug_idx_build(ma_ug_t *ug, int hap_n);
 ha_ovec_buf_t *ha_ovec_init(int is_final, int save_ov, int is_ug);
 ha_ovec_buf_t *ha_ovec_buf_init(void *km, int is_final, int save_ov, int is_ug);

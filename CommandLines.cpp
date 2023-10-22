@@ -64,6 +64,7 @@ static ko_longopt_t long_options[] = {
     { "ul-cut",     ko_required_argument, 349},
     { "dual-scaf",     ko_no_argument, 350},
     { "scaf-gap",     ko_required_argument, 351},
+    { "sec-in",     ko_required_argument, 352},
     // { "path-round",     ko_required_argument, 348},
 	{ 0, 0, 0 }
 };
@@ -305,6 +306,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->self_scaf_min = 250000;
     asm_opt->self_scaf_reliable_min = 5000000;
     asm_opt->self_scaf_gap_max = 3000000;
+    asm_opt->sec_in = NULL;
 }
 
 void destory_enzyme(enzyme* f)
@@ -853,6 +855,7 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         else if (c == 349) asm_opt->ul_min_base = atol(opt.arg);
         else if (c == 350) asm_opt->self_scaf = 1;
         else if (c == 351) asm_opt->self_scaf_gap_max = atol(opt.arg);
+        else if (c == 352) get_hic_enzymes(opt.arg, &(asm_opt->sec_in), 0);
         else if (c == 'l') {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
             asm_opt->purge_level_primary = asm_opt->purge_level_trio = atoi(opt.arg);
         }

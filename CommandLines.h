@@ -5,7 +5,7 @@
 #include <pthread.h>
 #include <stdint.h>
 
-#define HA_VERSION "0.19.7-r598"
+#define HA_VERSION "0.19.8-r602"
 
 #define VERBOSE 0
 
@@ -45,6 +45,7 @@ typedef struct {
     enzyme *hic_reads[2];
     enzyme *hic_enzymes;
     enzyme *ar;
+    enzyme *sec_in;
 	int extract_iter;
     int thread_num;
     int k_mer_length;
