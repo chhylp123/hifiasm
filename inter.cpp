@@ -18178,7 +18178,9 @@ const ug_opt_t *uopt, const asg_t *rg, R_to_U *ri, int64_t bw, double diff_ec_ul
 {
 	uint64_t dn = dump->n, i, mqs, mqe; int64_t iqs, iqe, its, ite; idx->n = 0;
 	collect_nc_ovlps(rch, rch_i, idx, uopt, rg, ri, ulid, &mqs, &mqe);
-	assert(idx->n > 1); assert((mqs != ((uint64_t)-1)) && (mqe != ((uint64_t)-1)) && (mqe > mqs));
+	// assert(idx->n > 1); assert((mqs != ((uint64_t)-1)) && (mqe != ((uint64_t)-1)) && (mqe > mqs));
+	if((idx->n <= 1) || (mqs == ((uint64_t)-1)) || (mqe == ((uint64_t)-1)) || (mqe <= mqs)) return;
+	
 	gen_linear_rchains(idx, dump, rg, uopt, bw, diff_ec_ul, rch->rlen, dp, ulid);
 	assert(idx->n);
 	idx->n = gen_cns_chain_linear(idx->a, idx->n, /**dump->a+dn,**/ rg, ri, rch->rlen, bw, diff_ec_ul, dp, UG_SKIP_N, UG_ITER_N, UG_DIS_N, mqs, mqe, ulid);

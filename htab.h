@@ -74,7 +74,7 @@ extern void *ha_ct_table;
 
 void *ha_ft_ul_gen(const hifiasm_opt_t *asm_opt, ma_utg_v *us, int k, int w, int cutoff);
 void *ha_ft_ug_gen(const hifiasm_opt_t *asm_opt, ma_utg_v *us, int is_HPC, int k, int w, int min_freq, int max_freq);
-void *ha_ft_gen(const hifiasm_opt_t *asm_opt, All_reads *rs, int *hom_cov, int is_hp_mode);
+void *ha_ft_gen(const hifiasm_opt_t *asm_opt, All_reads *rs, int *hom_cov, int is_hp_mode, int read_from_store);
 int32_t ha_ft_cnt(const void *hh, uint64_t y);
 void ha_ft_destroy(void *h);
 
