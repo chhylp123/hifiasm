@@ -58,6 +58,9 @@ KRADIX_SORT_INIT(u_trans_ts, u_trans_t, u_trans_ts_key, member_size(u_trans_t, t
 #define ha_mzl_t_key(p) ((p).x)
 KRADIX_SORT_INIT(ha_mzl_t_srt1, ha_mzl_t, ha_mzl_t_key, member_size(ha_mzl_t, x))
 
+#define Uc_beg(z) ((uint32_t)((z).a[0]>>32))
+#define Uc_end(z) ((uint32_t)((z).a[(z).n-1]>>32)^1)
+
 #define UL_COV_THRES 2
 #define PHASE_SEP 64
 #define PHASE_SEF 2
@@ -19409,10 +19412,11 @@ ma_ug_t* gen_fg(ma_ug_t *ug, asg_t *rg, ma_hit_t_alloc* src, ma_sub_t *cov, int3
     uint64_t i, k, l, m, rv, rw, uv, uw, zn, z, nist = 0; ma_utg_t *u;
     for (k = 0; k < fg->u.n; k++) {
         u = &(ug->u.a[k]); fg->g->seq[k].c = PRIMARY_LABLE;
-        if(u->circ) continue;
-        m = k<<1; m |= (((uint64_t)u->start)<<32); kv_push(uint64_t, srt, m);
-        m = (k<<1)+1; m |= (((uint64_t)u->end)<<32); kv_push(uint64_t, srt, m);
+        if((u->circ) || (u->n == 0)) continue;
+        m = k<<1; m |= (((uint64_t)Uc_beg((*u)))<<32); kv_push(uint64_t, srt, m);///((uint32_t)(((*u)).a[0]>>32));
+        m = (k<<1)+1; m |= (((uint64_t)Uc_end((*u)))<<32); kv_push(uint64_t, srt, m);
     }
+    
 
     radix_sort_arch64(srt.a, srt.a+srt.n);
     for (k = 1, l = 0; k <= srt.n; k++) {
@@ -19427,9 +19431,9 @@ ma_ug_t* gen_fg(ma_ug_t *ug, asg_t *rg, ma_hit_t_alloc* src, ma_sub_t *cov, int3
     int32_t r; asg_arc_t t0, t1, *p;
     for (k = 0; k < fg->u.n; k++) {
         u = &(ug->u.a[k]);
-        if(u->circ) continue;
+        if((u->circ) || (u->n == 0)) continue;
 
-        uv = k<<1; rv = u->end^1;
+        uv = k<<1; rv = Uc_end((*u))^1;
         x = &(src[rv>>1]); 
         za = asg_arc_a(ug->g, uv); 
         zn = asg_arc_n(ug->g, uv); 
@@ -19446,6 +19450,8 @@ ma_ug_t* gen_fg(ma_ug_t *ug, asg_t *rg, ma_hit_t_alloc* src, ma_sub_t *cov, int3
             if((t0.ul>>32) != rv) continue;
             rw = t0.v;
             if(idx[rw>>1] == ((uint32_t)-1)) continue;
+            if(!(get_edge_from_source(src, cov, NULL, max_hang, min_ovlp, t0.ul>>32, t0.v, &t0))) continue;
+
             m = idx[rw>>1]; assert((srt.a[m]>>33) == (rw>>1));
             for (; m < srt.n && (srt.a[m]>>33) == (rw>>1); m++) {
                 if(rw == (srt.a[m]>>32)) {
@@ -19468,7 +19474,7 @@ ma_ug_t* gen_fg(ma_ug_t *ug, asg_t *rg, ma_hit_t_alloc* src, ma_sub_t *cov, int3
         }
 
 
-        uv = (k<<1)+1; rv = u->start^1;
+        uv = (k<<1)+1; rv = Uc_beg((*u))^1;
         x = &(src[rv>>1]); 
         za = asg_arc_a(ug->g, uv); 
         zn = asg_arc_n(ug->g, uv); 
@@ -19485,6 +19491,8 @@ ma_ug_t* gen_fg(ma_ug_t *ug, asg_t *rg, ma_hit_t_alloc* src, ma_sub_t *cov, int3
             if((t0.ul>>32) != rv) continue;
             rw = t0.v;
             if(idx[rw>>1] == ((uint32_t)-1)) continue;
+            if(!(get_edge_from_source(src, cov, NULL, max_hang, min_ovlp, t0.ul>>32, t0.v, &t0))) continue;
+
             m = idx[rw>>1]; assert((srt.a[m]>>33) == (rw>>1));
             for (; m < srt.n && (srt.a[m]>>33) == (rw>>1); m++) {
                 if(rw == (srt.a[m]>>32)) {
@@ -19521,6 +19529,7 @@ ma_ug_t* gen_fg(ma_ug_t *ug, asg_t *rg, ma_hit_t_alloc* src, ma_sub_t *cov, int3
     kv_destroy(srt); free(idx);
     return fg;
 }
+
 
 rd_hamming_fly_simp_t* gen_rd_hamming_fly_simp_t(ma_ug_t *ug, asg_t *rg, ma_hit_t_alloc* src, ma_sub_t *cov, int32_t max_hang, int32_t min_ovlp, int32_t gap_fuzz, kvec_asg_arc_t_warp *ae)
 {
@@ -25997,8 +26006,9 @@ static inline void asg_arc_rest(asg_t *des, asg_t *src, uint32_t v0, uint32_t w0
     for (i = 0; i < nv && av[i].ul < arc->ul; ++i);
     if(i >= nv) i = nv - 1; av[i] = *arc;
 
-    rv = ((v0&1)?(ug->u.a[v0>>1].start^1):(ug->u.a[v0>>1].end^1));
-    rw = ((w0&1)?(ug->u.a[w0>>1].end):(ug->u.a[w0>>1].start));
+
+    rv = ((v0&1)?(Uc_beg(ug->u.a[v0>>1])^1):(Uc_end(ug->u.a[v0>>1])^1));
+    rw = ((w0&1)?(Uc_end(ug->u.a[w0>>1])):(Uc_beg(ug->u.a[w0>>1])));
     assert(get_edge_from_source(src_e, cov, NULL, max_hang, min_ovlp, rv, rw, &t));
     kv_push(asg_arc_t, ae->a, t);
 
@@ -26126,7 +26136,8 @@ uint32_t positive_flag, uint32_t negative_flag, hap_cov_t *cov, utg_trans_t *o, 
         for (k = 0; k < an; k++) {
             ///s[av[k].v]&se:: in the existing graph
             if((!s[av[k].v]) || (s[av[k].v]&se)) continue; ///in the existing graph
-            if((av[k].v) == (v>>1)) continue;
+            // if((av[k].v) == (v>>1)) continue;///looks like a bug
+            if((av[k].v>>1) == (v>>1)) continue;
             av[k].del = 0;
             ra = asg_arc_a(fg->g, (av[k].v^1)); rn = asg_arc_n(fg->g, (av[k].v^1));
             for (ri = 0; ri < rn; ri++) {
@@ -37839,15 +37850,17 @@ void flat_bubbles_advance(asg_t *sg, ma_hit_t_alloc* sources, R_to_U* ruIndex, u
 void flat_soma_v(asg_t *sg, ma_hit_t_alloc* sources, R_to_U* ruIndex)
 {
     uint64_t dip_thre_max;
-    if(asm_opt.hom_global_coverage_set)
-    {
-        dip_thre_max = asm_opt.hom_global_coverage;
+    if(asm_opt.somatic_cov >= 0) {
+        dip_thre_max = asm_opt.somatic_cov;
+    } else {
+        if(asm_opt.hom_global_coverage_set) {
+            dip_thre_max = asm_opt.hom_global_coverage;
+        } else {
+            dip_thre_max = ((double)asm_opt.hom_global_coverage)/((double)HOM_PEAK_RATE);
+        }
+        dip_thre_max = (((double)(dip_thre_max)*1.15)/asm_opt.polyploidy);
     }
-    else
-    {
-        dip_thre_max = ((double)asm_opt.hom_global_coverage)/((double)HOM_PEAK_RATE);
-    }
-    flat_bubbles_advance(sg, sources, ruIndex, (((double)(dip_thre_max)*1.15)/asm_opt.polyploidy));
+    flat_bubbles_advance(sg, sources, ruIndex, dip_thre_max);
 }
 
 char *get_outfile_name(char* output_file_name)
