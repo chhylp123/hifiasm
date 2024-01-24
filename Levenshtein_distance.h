@@ -4596,6 +4596,7 @@ inline int Reserve_Banded_BPM_4(char *pattern1, char *pattern2, char *pattern3, 
                 Reserve_Banded_BPM(pattern3, p_length, text, t_length, errthold, &return_sites_error[2]);
         return_sites[3] =
                 Reserve_Banded_BPM(pattern4, p_length, text, t_length, errthold, &return_sites_error[3]);
+	return 1;
 }
 #endif
 
