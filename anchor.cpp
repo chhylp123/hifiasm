@@ -126,7 +126,7 @@ void ha_get_new_candidates(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_reg
 		ha_mz1_t *z = &ab->mz.a[i];
 		seed1_t *s = &ab->seed[i];
 		for (j = 0; j < s->n; ++j) {
-			const ha_idxpos_t *y = &s->a[j];
+			const ha_idxpos_t *y = &s->a[j];///Improve: filter out y->rid == rid
 			anchor1_t *an = &ab->a[k++];
 			uint8_t rev = z->rev == y->rev? 0 : 1;
 			an->other_off = y->pos;
@@ -152,7 +152,7 @@ void ha_get_new_candidates(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_reg
 		cl->size = ab->m_a;
 		REALLOC(cl->list, cl->size);
 	}
-	for (k = 0; k < ab->n_a; ++k) {
+	for (k = 0; k < ab->n_a; ++k) {///Improve: direct use ab->a instead of cl->list
 		k_mer_hit *p = &cl->list[k];
 		p->readID = ab->a[k].srt >> 33;
 		p->strand = ab->a[k].srt >> 32 & 1;
@@ -184,7 +184,7 @@ void ha_get_new_candidates(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_reg
 	}
 	#endif
 	
-	if ((int)overlap_list->length > max_n_chain) {
+	if ((int)overlap_list->length > max_n_chain) {///Improve: use HEAP to directly avoid chaining with too small scores
 		int32_t w, n[4], s[4];
 		n[0] = n[1] = n[2] = n[3] = 0, s[0] = s[1] = s[2] = s[3] = 0;
 		ks_introsort_or_ss(overlap_list->length, overlap_list->list);

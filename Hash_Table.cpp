@@ -1134,7 +1134,7 @@ void calculate_overlap_region_by_chaining(Candidates_list* candidates, overlap_r
         {
             continue;
         }
-
+        ///Improve: direct filter out too sparse chain before chaining
 		chain_DP(candidates->list + sub_region_beg,
 				sub_region_end - sub_region_beg + 1, &(candidates->chainDP), f_cigar, band_width_threshold,
 				25, /**Get_READ_LENGTH((*R_INF), (*f_cigar).x_id)**/readLength, 

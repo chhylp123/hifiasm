@@ -290,7 +290,7 @@ int* r_extra_begin, int* r_extra_end, long long* r_y_start, long long* r_y_lengt
     
     ///since Window_Len == x_len + (threshold << 1)
     if(y_start < 0 || currentIDLen <= y_start || 
-    currentIDLen - y_start + 2 * threshold + THRESHOLD_MAX_SIZE < Window_Len)
+    currentIDLen - y_start + 2 * threshold + THRESHOLD_MAX_SIZE < Window_Len)///if ylen is too small
     {
         return 0;
     }
@@ -1770,9 +1770,9 @@ inline int move_gap_greedy(char* path, int path_i, int path_length, char* x, int
 
     /**
          * 
-    GGCG-TGTGCCTGT
+    GGCG-TGTGCCTGT [Y]
         *
-    GGCAATGTGCCTGT
+    GGCAATGTGCCTGT [X]
         *
     00013000000000
     **/
@@ -1782,7 +1782,7 @@ inline int move_gap_greedy(char* path, int path_i, int path_length, char* x, int
     char oper = path[path_i];
     
 
-    if(oper == 3)///there are more x
+    if(oper == 3)///there are more x; path[] is in reverse order
     {
         path_i++;
         y_i--;
@@ -3197,7 +3197,7 @@ inline void recalcate_window_advance(overlap_region_alloc* overlap_list, All_rea
             //     z->w_list.a[i].x_start, z->w_list.a[i].x_end, w_e);
             // }
             assert(z->w_list.a[i].x_end == w_e);
-            total_y_start = z->w_list.a[i].y_end + 1 - z->w_list.a[i].extra_begin;
+            total_y_start = z->w_list.a[i].y_end + 1 - z->w_list.a[i].extra_begin;///since y_end has extra_begin
             for (k = w_id + 1; k < nw; k++) {
                 if(w_idx[k] != (uint64_t)-1) break;
                 w_s = w_e + 1;
@@ -9287,7 +9287,7 @@ int insert_snp_ee(haplotype_evdience_alloc* h, haplotype_evdience* a, uint64_t a
     uint32_t is_homopolymer = (uint32_t)-1; 
     if(occ_0 == 0 || diff <= 1) return 0;
     for (i = m = 0; i < 4; i++) {
-        if(occ_1[i] >= 2){
+        if(occ_1[i] >= 2){///Improve: it would be better to double check the bases around this snp at different overlapped reads to make sure this snp is real, instead of by chance 
             if(!km) kv_pushp(SnpStats, h->snp_stat, &p);
             else kv_pushp_km(km, SnpStats, h->snp_stat, &p);
             p->id = h->snp_stat.n-1;
@@ -9674,7 +9674,7 @@ void correct_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF,
 
     int flag = 0;
 
-    while(get_Window(&w_inf, &window_start, &window_end) && flag != -2)
+    while(get_Window(&w_inf, &window_start, &window_end) && flag != -2)///Improve: discard alignments with too many diff early
     {
         dumy->length = 0;
         dumy->lengthNT = 0;
@@ -9700,9 +9700,12 @@ void correct_overlap(overlap_region_alloc* overlap_list, All_reads* R_INF,
     
     // recalcate_window(overlap_list, R_INF, g_read, dumy, overlap_read);
     // partition_overlaps(overlap_list, R_INF, g_read, dumy, hap, force_repeat);
+    ///Improve: we should also use the base quality to avoid additional base-pair dp or even for the chaining
+    //////Improve: we may also consider to do quick conesensus among candidate overlapped reads to make sure if inforamtive sites are real 
     recalcate_window_advance(overlap_list, R_INF, NULL, g_read, dumy, overlap_read, v_idx, w_inf.window_length, asm_opt.max_ov_diff_ec, asm_opt.max_ov_diff_final);
     // fprintf(stderr, "[M::%s-beg] occ[0]->%lu, occ[1]->%lu, occ[2]->%lu, occ[3]->%lu\n", __func__, 
     // ovlp_occ(overlap_list, 0), ovlp_occ(overlap_list, 1), ovlp_occ(overlap_list, 2), ovlp_occ(overlap_list, 3));
+    ///Improve: only keeps specific number of trans overlaps to save memory
     partition_overlaps_advance(overlap_list, R_INF, g_read, overlap_read, dumy, hap, force_repeat);
     // fprintf(stderr, "[M::%s-after] occ[0]->%lu, occ[1]->%lu, occ[2]->%lu, occ[3]->%lu\n", __func__, 
     // ovlp_occ(overlap_list, 0), ovlp_occ(overlap_list, 1), ovlp_occ(overlap_list, 2), ovlp_occ(overlap_list, 3));
