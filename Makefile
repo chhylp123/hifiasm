@@ -1,6 +1,7 @@
 CXX=		g++
 CC=			gcc
-CXXFLAGS=	-g -O3 -msse4.2 -mpopcnt -fomit-frame-pointer -Wall
+ARCH_FLAGS=-msse4.2 -mpopcnt
+CXXFLAGS=	-g -O3 $(ARCH_FLAGS) -fomit-frame-pointer -Wall
 CFLAGS=		$(CXXFLAGS)
 CPPFLAGS=
 INCLUDES=
