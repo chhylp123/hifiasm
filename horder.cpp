@@ -714,7 +714,7 @@ void update_u_hits(kvec_pe_hit *u_hits, kvec_pe_hit *r_hits, ma_ug_t* ug, asg_t*
                 kv_pushp(hit_aux_t, x, &p);
                 p->ruid = u->a[i]>>32; 
                 p->ruid <<= 32;
-                p->ruid |= v;
+                p->ruid |= v;///rid|rev|uid
                 p->off = offset;
                 offset += (uint32_t)u->a[i];
             }
@@ -725,8 +725,8 @@ void update_u_hits(kvec_pe_hit *u_hits, kvec_pe_hit *r_hits, ma_ug_t* ug, asg_t*
         }
     }
 
-    radix_sort_hit_aux_ruid(x.a, x.a + x.n);
-    x.idx.n = x.idx.m = (x.n?(x.a[x.n-1].ruid>>33)+1:0);///how many unitigs
+    radix_sort_hit_aux_ruid(x.a, x.a + x.n);///sort by (rid|rev|uid)
+    x.idx.n = x.idx.m = (x.n?(x.a[x.n-1].ruid>>33)+1:0);///how many reads?
     CALLOC(x.idx.a, x.idx.n);
     for (k = 1, l = 0; k <= x.n; ++k) 
     {   
@@ -2185,7 +2185,7 @@ h_covs *res, h_covs *cov_buf, h_covs *b_points, uint64_t local_bound, int unique
         span_e = MIN(span_e, len-1) + 1;
         //if(span_e - span_s <= ulen*BREAK_CUTOFF)//need it or not?
         {
-            if(span_s >= sPos && span_e <= ePos)
+            if(span_s >= sPos && span_e <= ePos)///test the density of this local region; bug -> should use any HiC pairs that are overlapped with [sPos, sPoe), instead of fully covered by [sPos, sPoe)
             {
                 occ++;
                 if(unique_only && hit->a.a[i].id == 0) continue;
@@ -2590,18 +2590,18 @@ void update_h_w(h_w_t *e, dens_idx_t *idx, double *max_div)
             ii = 0;
             for (pi = l; pi < k; pi++)
             {
-                pos = e->a[pi].d>>32;///
+                pos = e->a[pi].d>>32;///loc of 3'-end
                 while (ii < idn)
                 {
                     if(((uint32_t)id[ii]) == pos)
                     {
-                        if(ori)
+                        if(ori)///the most left one
                         {
                             break;
                         }
                         else
                         {
-                            while (ii < idn && (((uint32_t)id[ii]) == pos))
+                            while (ii < idn && (((uint32_t)id[ii]) == pos))///the most right one
                             {
                                 ii++;
                             }
@@ -2612,7 +2612,7 @@ void update_h_w(h_w_t *e, dens_idx_t *idx, double *max_div)
                     ii++;
                 }
                 if(ii >= idn) fprintf(stderr, "ERROR-1\n");
-                e->a[pi].w += (ori? idn-ii: ii+1);
+                e->a[pi].w += (ori? idn-ii: ii+1);///the smaller the better
                 if(max_div) (*max_div) = MAX((*max_div), e->a[pi].w);
             }
             l = k;
@@ -2785,7 +2785,7 @@ void update_scg(horder_t *h, trans_col_t *t_idx)
         if(!hits->a.a[i].id) continue;//hom hits
         suid = get_hit_suid(*hits, i);
         euid = get_hit_euid(*hits, i);
-        if(suid == euid) continue;
+        if(suid == euid) continue;//same unitig
         slen = ug->u.a[suid].len;
         elen = ug->u.a[euid].len;
 
@@ -2987,7 +2987,7 @@ void get_backbone_layout(horder_t *h, sc_lay_t *sl, osg_t *lg, uint8_t *vis)
     {
         ///I guess this should be (!!(asg_arc_n(lg, k<<1)))^(!!(asg_arc_n(lg, (k<<1)+1)))?
         ///no, since asg_arc_n is at most 1
-        if((asg_arc_n(lg, k<<1))^(asg_arc_n(lg, (k<<1)+1)))
+        if((asg_arc_n(lg, k<<1))^(asg_arc_n(lg, (k<<1)+1)))///end scaffolding
         {
             v = (asg_arc_n(lg, k<<1)?(k<<1):((k<<1)+1));
             if(vis[k<<1] || vis[(k<<1)+1]) continue;
@@ -3512,7 +3512,7 @@ void generate_scaffold(ma_utg_t *su, lay_t *ly, ma_ug_t *pug, asg_t *rg)
         }
         if(i < ly->n - 2) kv_push(uint64_t, *su, (uint64_t)-1);
     }
-    if(ly->n != 2) is_circle = 0;
+    if(ly->n != 2) is_circle = 0;///ly-> == 2: single circle
 
     for (i = 0, totalLen = 0; i < su->n-1; i++)
     {

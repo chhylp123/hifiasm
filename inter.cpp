@@ -412,6 +412,7 @@ typedef struct { // global data structure for kt_pipeline()
 	kv_u_trans_t *ta;
 	uint64_t mm;
 	uint64_t soff;
+	uint64_t is_exact;
 } ctdat_t;
 
 
@@ -4964,6 +4965,10 @@ void fill_unaligned_alignments(ma_ug_t *ug, mg_lchain_t *a, int64_t a_n, int64_t
 			l = k;
 		}
 	}
+}
+
+void sort_uc_block_qe(uc_block_t* a, uint64_t a_n) {
+	radix_sort_uc_block_t_qe_srt(a, a + a_n); 
 }
 
 void update_ul_vec_t_ug(const ul_idx_t *uref, ul_vec_t *rch, vec_mg_lchain_t *uc, int64_t ulid)
@@ -16802,7 +16807,7 @@ uint64_t gen_trans_ovlp_scaf(ma_ug_t *gfa, u_trans_t *map, uc_block_t *qin, uc_b
 	return 1;
 }
 
-void extract_trans_scaf_res_t(uc_block_t *qin, const ul_idx_t *uref, scaf_res_t *ref_sc, ma_ug_t *gfa, kv_u_trans_t *ta, uint32_t avid, kv_ul_ov_t *res)
+void extract_trans_scaf_res_t(uc_block_t *qin, const ul_idx_t *uref, scaf_res_t *ref_sc, ma_ug_t *gfa, kv_u_trans_t *ta, uint32_t avid, uint32_t is_exact, kv_ul_ov_t *res)
 {
 	utg_rid_dt *a; uint64_t i, a_n; uc_block_t *rin; 
 	u_trans_t *u; uint64_t k, u_n;
@@ -16812,6 +16817,7 @@ void extract_trans_scaf_res_t(uc_block_t *qin, const ul_idx_t *uref, scaf_res_t 
 	u = u_trans_a(*ta, qin->hid); 
 	u_n = u_trans_n(*ta, qin->hid);
 	for (k = 0; k < u_n; k++) {
+		if(is_exact && u[k].f != RC_0 && u[k].f != RC_1) continue;
 		// fprintf(stderr, "+[M::%s] utg%.6u%c->utg%.6u%c, q::[%u, %u), %c, t::[%u, %u)\n", __func__, qin->hid+1, "lc"[gfa->u.a[qin->hid].circ], u[k].tn+1, "lc"[gfa->u.a[u[k].tn].circ], u[k].qs, u[k].qe, "+-"[u[k].rev], u[k].ts, u[k].te);
 		a = get_r_ug_region(uref->r_ug, &a_n, u[k].tn);
     	for (i = 0; i < a_n; i++) {
@@ -16827,7 +16833,7 @@ void extract_trans_scaf_res_t(uc_block_t *qin, const ul_idx_t *uref, scaf_res_t 
 	}
 }
 
-void cl_trans_gen(uint32_t qid, uint32_t qlen, ul_vec_t *qstr, kv_ul_ov_t *res, const ul_idx_t *uref, ma_ug_t *ref, scaf_res_t *ref_sc, ma_ug_t *gfa, bubble_type *bub, kv_u_trans_t *ta, uint32_t is_self)
+void cl_trans_gen(uint32_t qid, uint32_t qlen, ul_vec_t *qstr, kv_ul_ov_t *res, const ul_idx_t *uref, ma_ug_t *ref, scaf_res_t *ref_sc, ma_ug_t *gfa, bubble_type *bub, kv_u_trans_t *ta, uint32_t is_self, uint32_t is_exact)
 {
     uint64_t k, l, m = 0, mi, z, zn, a_n, bid, nw; uc_block_t *a; uint32_t avid = ((is_self)?(qid):((uint32_t)-1));
     res->n = 0;
@@ -16882,7 +16888,7 @@ void cl_trans_gen(uint32_t qid, uint32_t qlen, ul_vec_t *qstr, kv_ul_ov_t *res, 
 			if(extract_scaf_res_t(&(qstr->bb.a[z]), uref, ref_sc, avid, res)) continue;
 
 			///trans match
-			extract_trans_scaf_res_t(&(qstr->bb.a[z]), uref, ref_sc, gfa, ta, avid, res);
+			extract_trans_scaf_res_t(&(qstr->bb.a[z]), uref, ref_sc, gfa, ta, avid, is_exact, res);
 		}
 	}
 
@@ -17159,7 +17165,7 @@ double diff_ec_ul, double ovlp_max, double unmatch_max, int64_t qlen, int64_t tl
     return 1;
 }
 
-void ctg_trans_gp_chain(uint32_t qid, kv_ul_ov_t *res, const ul_idx_t *uref, const ug_opt_t *uopt, int64_t bw, double diff_ec_ul, int64_t qlen, Chain_Data* dp, ma_ug_t *ref, uint32_t is_self, asg64_v *b)
+void ctg_trans_gp_chain(uint32_t qid, kv_ul_ov_t *res, const ul_idx_t *uref, const ug_opt_t *uopt, int64_t bw, double diff_ec_ul, int64_t qlen, Chain_Data* dp, ma_ug_t *ref, uint32_t is_self, asg64_v *b, double unmatch_max)
 {
 	uint64_t k, l, m = 0, rn = res->n; ul_ov_t rr; uint32_t avid = ((is_self)?(qid):((uint32_t)-1));
 	for (k = 0; k < rn; k++) {
@@ -17170,7 +17176,7 @@ void ctg_trans_gp_chain(uint32_t qid, kv_ul_ov_t *res, const ul_idx_t *uref, con
 	for (k = 1, l = 0, b->n = 0; k <= rn; k++) {
 		if((k == rn) || ((res->a[l].tn>>1) != (res->a[k].tn>>1))) {
 			// fprintf(stderr, "+[M::%s]\tutg%.6ul\n", __func__, (res->a[l].tn>>1) + 1);
-			if(((res->a[l].tn>>1) != avid) && (linear_ctg_trans_chain_dp(qid, res->a+l, k-l, uref, uopt, bw, diff_ec_ul, /**0.333333**/0.4, /**0.333333**/0.666666, qlen, ref->u.a[(res->a[l].tn>>1)].len, UG_SKIP_N, UG_ITER_N, UG_DIS_N, dp, &rr, b))) {
+			if(((res->a[l].tn>>1) != avid) && (linear_ctg_trans_chain_dp(qid, res->a+l, k-l, uref, uopt, bw, diff_ec_ul, /**0.333333**/0.4, unmatch_max, qlen, ref->u.a[(res->a[l].tn>>1)].len, UG_SKIP_N, UG_ITER_N, UG_DIS_N, dp, &rr, b))) {
 				res->a[m++] = rr; 
 				// fprintf(stderr, "-[M::%s]\tutg%.6ul\n", __func__, rr.tn + 1);
 			}
@@ -17345,18 +17351,18 @@ void push_ctg_trans_res(uint32_t id, kv_ul_ov_t *in, kv_ul_ov_t *ou)
 }
 
 uint32_t direct_ctg_trans_chain(mg_tbuf_t *b, uint32_t id, glchain_t *ll, gdpchain_t *gdp, st_mt_t *sps, haplotype_evdience_alloc *hap, const ul_idx_t *uref, const ug_opt_t *uopt,
-int64_t bw, double diff_ec_ul, int64_t max_skip, int64_t ulid, Chain_Data* dp, ma_ug_t *qry, scaf_res_t *qry_sc, ma_ug_t *ref, scaf_res_t *ref_sc, ma_ug_t *gfa, bubble_type *bub, kv_u_trans_t *ta, const asg_t *rg, uint64_t soff)
+int64_t bw, double diff_ec_ul, int64_t max_skip, int64_t ulid, Chain_Data* dp, ma_ug_t *qry, scaf_res_t *qry_sc, ma_ug_t *ref, scaf_res_t *ref_sc, ma_ug_t *gfa, bubble_type *bub, kv_u_trans_t *ta, const asg_t *rg, uint64_t soff, uint64_t is_exact)
 {
 	// res->bb.n = 0;
 	// if(ulid != 86660) return 0;
 	kv_ul_ov_t *idx = &(ll->lo), *init = &(ll->tk); ///int64_t max_idx;
 	asg64_v b0, b1; uint32_t is_self = (qry?0:1); idx->n = 0;
 	
-	cl_trans_gen(id, qry?qry->u.a[id].len:ref->u.a[id].len, qry_sc?&(qry_sc->a[id]):&(ref_sc->a[id]), idx, uref, ref, ref_sc, gfa, bub, ta, is_self);
+	cl_trans_gen(id, qry?qry->u.a[id].len:ref->u.a[id].len, qry_sc?&(qry_sc->a[id]):&(ref_sc->a[id]), idx, uref, ref, ref_sc, gfa, bub, ta, is_self, is_exact);
 	if(idx->n == 0) return 0;
 
 	copy_asg_arr(b0, (*sps)); 
-	ctg_trans_gp_chain(id, idx, uref, uopt, bw, diff_ec_ul, qry?qry->u.a[id].len:ref->u.a[id].len, dp, ref, is_self, &b0);
+	ctg_trans_gp_chain(id, idx, uref, uopt, bw, diff_ec_ul, qry?qry->u.a[id].len:ref->u.a[id].len, dp, ref, is_self, &b0, ((is_exact)?(0.5):(0.666666)));
 	copy_asg_arr((*sps), b0); 
 	if(idx->n == 0) return 0;
 
@@ -17471,7 +17477,7 @@ static void worker_for_ctg_trans_alignment(void *data, long i, int tid)
 
 	s->hab[tid]->num_read_base++; 
 	s->hab[tid]->num_correct_base += direct_ctg_trans_chain(s->buf[tid], i, &(s->ll[tid]), &(s->gdp[tid]), &(s->sps[tid]), &(s->hab[tid]->hap), s->uu, s->uopt, G_CHAIN_BW, s->opt->diff_ec_ul, UG_SKIP, i, &(s->hab[tid]->clist.chainDP), 
-	c->qry, c->qry_sc, c->ref, c->ref_sc, c->gfa, c->bub, c->ta, s->rg, c->soff);
+	c->qry, c->qry_sc, c->ref, c->ref_sc, c->gfa, c->bub, c->ta, s->rg, c->soff, c->is_exact);
 }
 
 void rm_dup_aln(u_trans_t *u, uint64_t u_n, asg64_v *b, double dup_cut)
@@ -18974,7 +18980,7 @@ void work_ctg_path_trans(uldat_t *sl, asg_t *sg, ma_ug_t *qry, scaf_res_t *qry_s
 	fprintf(stderr, "[M::%s::] # try:%d, # done:%d\n", __func__, s.sum_len, s.n); 
 }
 
-void work_ctg_path_trans_self(uldat_t *sl, asg_t *sg, ma_ug_t *db, scaf_res_t *db_sc, ma_ug_t *gfa, kv_u_trans_t *ta, uint64_t soff, bubble_type *bu, kv_u_trans_t *res)
+void work_ctg_path_trans_self(uldat_t *sl, asg_t *sg, ma_ug_t *db, scaf_res_t *db_sc, ma_ug_t *gfa, kv_u_trans_t *ta, uint64_t soff, uint64_t is_exact, bubble_type *bu, kv_u_trans_t *res)
 {
 	utepdat_t s; uint64_t i; memset(&s, 0, sizeof(s)); 
 	s.id = 0; s.opt = sl->opt; s.ug = sl->ug; s.uopt = sl->uopt; s.rg = sl->rg; s.uu = sl->uu; 
@@ -18985,7 +18991,7 @@ void work_ctg_path_trans_self(uldat_t *sl, asg_t *sg, ma_ug_t *db, scaf_res_t *d
 		s.hab[i] = ha_ovec_init(0, 0, 1); s.buf[i] = mg_tbuf_init();
 	}
 
-	ctdat_t c; memset(&c, 0, sizeof(c)); c.soff = soff; c.bub = bu;
+	ctdat_t c; memset(&c, 0, sizeof(c)); c.soff = soff; c.bub = bu; c.is_exact = is_exact;
 	c.s = &(s); c.qry = NULL; c.qry_sc = NULL; c.ref = db; c.ref_sc = db_sc; c.gfa = gfa; c.ta = ta;
 
 	// detect_outlier_len("+++work_ul_gchains");
@@ -19003,7 +19009,6 @@ void work_ctg_path_trans_self(uldat_t *sl, asg_t *sg, ma_ug_t *db, scaf_res_t *d
 	free(s.hab); free(s.buf); free(s.ll); free(s.gdp); free(s.mzs); free(s.sps);
 	fprintf(stderr, "[M::%s::] # try:%d, # done:%d\n", __func__, s.sum_len, s.n); 
 }
-
 
 uint64_t work_ul_gchains_consensus(uldat_t *sl)
 {
@@ -21933,17 +21938,18 @@ void gen_contig_trans(const ug_opt_t *uopt, asg_t *sg, ma_ug_t *qry, scaf_res_t 
 	destroy_ul_idx_t(uu);
 }
 
-void gen_contig_self(const ug_opt_t *uopt, asg_t *sg, ma_ug_t *db, scaf_res_t *db_sc, ma_ug_t *gfa, kv_u_trans_t *ta, uint64_t soff, bubble_type *bu, kv_u_trans_t *res)
+void gen_contig_self(const ug_opt_t *uopt, asg_t *sg, ma_ug_t *db, scaf_res_t *db_sc, ma_ug_t *gfa, kv_u_trans_t *ta, uint64_t soff, bubble_type *bu, kv_u_trans_t *res, uint32_t is_exact)
 {
 	mg_idxopt_t opt; uldat_t sl; int32_t cutoff; 
 	init_aux_table(); ha_opt_update_cov(&asm_opt, asm_opt.hom_cov);
 	cutoff = asm_opt.max_n_chain;
-	init_mg_opt(&opt, !(asm_opt.flag&HA_F_NO_HPC), 19, 10, cutoff, asm_opt.max_n_chain, asm_opt.ul_error_rate, asm_opt.ul_error_rate, asm_opt.ul_error_rate_low, asm_opt.ul_error_rate_hpc, asm_opt.ul_ec_round);
+	init_mg_opt(&opt, !(asm_opt.flag&HA_F_NO_HPC), 19, 10, cutoff, asm_opt.max_n_chain, asm_opt.ul_error_rate, ((is_exact)?(0.333333):(asm_opt.ul_error_rate)), asm_opt.ul_error_rate_low, asm_opt.ul_error_rate_hpc, asm_opt.ul_ec_round);
 	ul_idx_t *uu = gen_ul_idx_t_sc(db, sg, db_sc, gfa->u.n);
 	init_uldat_t(&sl, NULL, NULL, &opt, CHUNK_SIZE, asm_opt.thread_num, uopt, uu); sl.rg = sg; sl.ug = db;
 
-	work_ctg_path_trans_self(&sl, sg, db, db_sc, gfa, ta, soff, bu, res); uu->ug = NULL;
-	destroy_ul_idx_t(uu);
+	work_ctg_path_trans_self(&sl, sg, db, db_sc, gfa, ta, soff, is_exact, bu, res); 
+
+	uu->ug = NULL; destroy_ul_idx_t(uu);
 }
 
 void order_contig_trans(kv_u_trans_t *in)
