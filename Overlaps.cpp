@@ -18,7 +18,9 @@
 #include "inter.h"
 #include "gfa_ut.h"
 #include "assert.h"
+#include "khash.h"
 
+KHASH_SET_INIT_INT64(64)
 
 uint32_t debug_purge_dup = 0;
 
@@ -167,6 +169,20 @@ typedef struct {
     ma_ug_t *ctg;
 } kvect_sec_t;
 
+
+typedef struct {
+    uint64_t n, mask;
+    uint8_t *hh;
+    uint64_t tlen, tm;
+} telo_end_t;
+
+typedef struct {
+    All_reads *Rinf;
+    UC_Read *aux;
+    telo_end_t *u;
+    khash_t(64) *h;
+} telo_end_pip_t;
+
 ///this value has been updated at the first line of build_string_graph_without_clean
 long long min_thres;
 
@@ -176,6 +192,36 @@ int asg_pop_bubble_primary_trio(ma_ug_t *ug, uint64_t* i_max_dist, uint32_t posi
 kv_u_trans_t *get_utg_ovlp(ma_ug_t **ug, asg_t* read_g, ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, ma_sub_t* coverage_cut, 
 R_to_U* ruIndex, int max_hang, int min_ovlp, kvec_asg_arc_t_warp* new_rtg_edges, bub_label_t* b_mask_t, uint8_t* r_het);
 void delete_useless_nodes(ma_ug_t **ug);
+
+telo_end_t* gen_telo_end_t(All_reads *in, const char* motif, uint64_t motif_len, uint64_t n_thread)
+{
+    uint64_t j, k, c, x; int absent;
+    telo_end_t* p = NULL; CALLOC(p, 1);
+    p->tlen = strlen(motif); p->mask = (1ULL<<(p->tlen<<1)) - 1;
+
+    for (j = 0, p->tm = 0; j < p->tlen; ++j) {
+        c = seq_nt6_table[(uint8_t)motif[j]];
+        assert(c >= 0 && c <= 3);
+        p->tm = (p->tm<<2)|(c);
+    }
+    p->n = in->total_reads; CALLOC(p->hh, p->n);
+
+    telo_end_pip_t *aux; CALLOC(aux, 1);
+    aux->Rinf = in; aux->u = p; CALLOC(aux->aux, n_thread); 
+    for (k = 0; k < n_thread; k++) init_UC_Read(&(aux->aux[k]));
+    aux->h = kh_init(64); // hash table for all roations of the telomere motif
+	kh_resize(64, aux->h, (p->tlen*2)); 
+    for (k = 0, x = p->tm; k < p->tlen; k++) {
+        kh_put(64, aux->h, x, &absent);
+        x = (((x>>((p->tlen-1)<<1))&(3ULL))|(x<<2))&p->mask;
+    }
+    assert(x == p->tm);
+    
+
+
+
+    return p;
+}
 
 void init_bub_label_t(bub_label_t* x, uint32_t n_thres, uint32_t n_reads)
 {
