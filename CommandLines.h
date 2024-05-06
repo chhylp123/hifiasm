@@ -5,7 +5,7 @@
 #include <pthread.h>
 #include <stdint.h>
 
-#define HA_VERSION "0.19.9-r606"
+#define HA_VERSION "0.19.9-r616"
 
 #define VERBOSE 0
 
@@ -83,6 +83,7 @@ typedef struct {
     int min_overlap_coverage;
     int max_short_tip;
     int max_short_ul_tip;
+    int max_contig_tip;
     int min_cnt;
     int mid_cnt;
     int purge_level_primary;
@@ -153,6 +154,11 @@ typedef struct {
     uint64_t self_scaf_reliable_min;
     int64_t self_scaf_gap_max;
     int64_t somatic_cov;
+
+    char *telo_motif;
+    int64_t telo_pen;
+    int64_t telo_drop;
+    int64_t telo_mic_sc;
 } hifiasm_opt_t;
 
 extern hifiasm_opt_t asm_opt;

@@ -86,6 +86,12 @@ typedef struct {
 } idx_emask_t;
 
 typedef struct {
+    uint64_t n, mask;
+    uint8_t *hh;
+    uint64_t tlen, tm;
+} telo_end_t;
+
+typedef struct {
 	///off: start idx in mg128_t * a[];
 	///cnt: how many eles in this chain
 	///a[off, off+cnt) saves the eles in this chain
@@ -1115,6 +1121,7 @@ typedef struct{
 	int64_t min_dp;
     bub_label_t* b_mask_t;
 	uint64_t* readLen;
+	telo_end_t *te;
 }ug_opt_t;
 
 typedef struct{
@@ -1129,7 +1136,6 @@ typedef struct{
 	int64_t max_hang;
 	int64_t mini_ovlp;
 }ul_renew_t;
-
 
 void adjust_utg_by_trio(ma_ug_t **ug, asg_t* read_g, uint8_t flag, float drop_rate,
 ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, ma_sub_t* coverage_cut, 

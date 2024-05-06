@@ -66,6 +66,11 @@ static ko_longopt_t long_options[] = {
     { "scaf-gap",     ko_required_argument, 351},
     { "sec-in",     ko_required_argument, 352},
     { "somatic-cov",     ko_required_argument, 353},
+    { "telo-m",     ko_required_argument, 354},
+    { "telo-p",     ko_required_argument, 355},
+    { "telo-d",     ko_required_argument, 356},
+    { "telo-s",     ko_required_argument, 357},
+    { "ctg-n",     ko_required_argument, 358},
     // { "path-round",     ko_required_argument, 348},
 	{ 0, 0, 0 }
 };
@@ -121,6 +126,9 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "                 break contigs at positions with <=FLOAT*coverage exact overlaps;\n");
     fprintf(stderr, "                 only work with '--b-cov' or '--h-cov'[%.2f]\n", asm_opt->m_rate);
     fprintf(stderr, "    --primary    output a primary assembly and an alternate assembly\n");
+    fprintf(stderr, "    --ctg-n      INT\n");
+    fprintf(stderr, "                 remove tip contigs composed of <=INT reads [%d]\n", asm_opt->max_contig_tip);
+    
     
 //	fprintf(stderr, "    --pri-range INT1[,INT2]\n");
 //	fprintf(stderr, "                keep contigs with coverage in this range in p_ctg.gfa; -1 to disable [auto,inf]\n");
@@ -188,6 +196,17 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "    --scaf-gap   INT\n");
     fprintf(stderr, "                 max gap size for scaffolding [%ld]\n", asm_opt->self_scaf_gap_max);
 
+    fprintf(stderr, "  Telomere-identification:\n");
+    fprintf(stderr, "    --telo-m     STR\n");
+    fprintf(stderr, "                 telomere motif at 5'-end; CCCTAA for human [%s]\n", ((asm_opt->telo_motif)?(asm_opt->telo_motif):("NULL")));///5'-end, check CCCTAA
+    fprintf(stderr, "    --telo-p     INT\n");
+    fprintf(stderr, "                 non-telomeric penalty [%ld]\n", asm_opt->telo_pen);
+    fprintf(stderr, "    --telo-d     INT\n");
+    fprintf(stderr, "                 max drop [%ld]\n", asm_opt->telo_drop);
+    fprintf(stderr, "    --telo-s     INT\n");
+    fprintf(stderr, "                 min score for telomere reads [%ld]\n", asm_opt->telo_mic_sc);
+
+
     fprintf(stderr, "Example: ./hifiasm -o NA12878.asm -t 32 NA12878.fq.gz\n");
     fprintf(stderr, "See `https://hifiasm.readthedocs.io/en/latest/' or `man ./hifiasm.1' for complete documentation.\n");
 }
@@ -244,6 +263,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->min_overlap_coverage = 0;
     asm_opt->max_short_tip = 3;
     asm_opt->max_short_ul_tip = 6;
+    asm_opt->max_contig_tip = 3;
     asm_opt->min_cnt = 2;
     asm_opt->mid_cnt = 5;
     asm_opt->purge_level_primary = 3;
@@ -309,6 +329,11 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->self_scaf_gap_max = 3000000;
     asm_opt->sec_in = NULL;
     asm_opt->somatic_cov = -1;
+
+    asm_opt->telo_motif = NULL;
+    asm_opt->telo_pen = 1;
+    asm_opt->telo_drop = 2000;
+    asm_opt->telo_mic_sc = 500;
 }
 
 void destory_enzyme(enzyme* f)
@@ -638,6 +663,22 @@ int check_option(hifiasm_opt_t* asm_opt)
         return 0;
     }
 
+    if(asm_opt->telo_motif) {
+        uint64_t k, tlen = strlen((asm_opt->telo_motif)); char c;
+        if(tlen > 32) {
+            fprintf(stderr, "[ERROR] [--telo-m] must be no longer than 32\n");
+            return 0;
+        }
+        for (k = 0; k < tlen; k++) {
+            c = asm_opt->telo_motif[k];
+            if(c != 'A' && c != 'C' && c != 'G' && c != 'T' &&
+                c != 'a' && c != 'c' && c != 'g' && c != 't') {
+                fprintf(stderr, "[ERROR] [--telo-m] must be A/C/G/T\n");
+                return 0;
+            }
+        }
+    }
+
     return 1;
 }
 
@@ -859,6 +900,11 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         else if (c == 351) asm_opt->self_scaf_gap_max = atol(opt.arg);
         else if (c == 352) get_hic_enzymes(opt.arg, &(asm_opt->sec_in), 0);
         else if (c == 353) asm_opt->somatic_cov = atol(opt.arg);
+        else if (c == 354) asm_opt->telo_motif = opt.arg;
+        else if (c == 355) asm_opt->telo_pen = atol(opt.arg);
+        else if (c == 356) asm_opt->telo_drop = atol(opt.arg);
+        else if (c == 357) asm_opt->telo_mic_sc = atol(opt.arg);
+        else if (c == 358) asm_opt->max_contig_tip = atol(opt.arg);
         else if (c == 'l') {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
             asm_opt->purge_level_primary = asm_opt->purge_level_trio = atoi(opt.arg);
         }
