@@ -3,10 +3,14 @@
 
 #define __STDC_LIMIT_MACROS
 #include <stdint.h>
+#ifdef __ARM_NEON
+#include "sse2neon.h"
+#else
 #include "emmintrin.h"
 #include "nmmintrin.h"
 #include "smmintrin.h"
 #include <immintrin.h>
+#endif // ~__ARM_NEON
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>

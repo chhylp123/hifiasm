@@ -3,19 +3,50 @@ name: CI
 on:
   push:
     branches:
-    - master
+      - master
   pull_request:
+    branches:
+      - master
 
 jobs:
   build:
+    name: Linux x86_64
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        compiler: [gcc]
 
     steps:
-    - name: Checkout minimap2
-      uses: actions/checkout@v2
+    - name: Checkout
+      uses: actions/checkout@v4
 
-    - name: Compile with ${{ matrix.compiler }}
-      run:  make CC=${{ matrix.compiler }}
+    - name: Build
+      run:  make -j
+    
+    - name: Check
+      run: |
+        file hifiasm | grep x86-64
+        ./hifiasm
+
+  build-aarch64:
+    name: Linux aarch64
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Build
+      uses: uraimo/run-on-arch-action@v2
+      with:
+        arch: aarch64
+        distro: ubuntu20.04
+        githubToken: ${{ github.token }}
+        dockerRunArgs: |
+          --volume "${PWD}:/hifiasm"
+        install: |
+          apt-get update -q -y
+          apt-get install -q -y make gcc-10 g++-10 zlib1g-dev file
+        run: |
+          cd /hifiasm
+          make CC=gcc-10 CXX=g++-10 ARCH_FLAGS="-march=native" -j
+          file hifiasm | grep aarch64
+          ./hifiasm
+    
