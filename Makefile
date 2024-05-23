@@ -1,14 +1,16 @@
+BUILD_DIR?= build
+SRC_DIR?=   src
 CXX=		g++
 CC=			gcc
 CXXFLAGS=	-g -O3 -msse4.2 -mpopcnt -fomit-frame-pointer -Wall
 CFLAGS=		$(CXXFLAGS)
 CPPFLAGS=
 INCLUDES=
-OBJS=		CommandLines.o Process_Read.o Assembly.o Hash_Table.o \
-			POA.o Correct.o Levenshtein_distance.o Overlaps.o Trio.o kthread.o Purge_Dups.o \
-			htab.o hist.o sketch.o anchor.o extract.o sys.o hic.o rcut.o horder.o \
-			tovlp.o inter.o kalloc.o gfa_ut.o gchain_map.o
-EXE=		hifiasm
+OBJS=		$(BUILD_DIR)/CommandLines.o $(BUILD_DIR)/Process_Read.o $(BUILD_DIR)/Assembly.o $(BUILD_DIR)/Hash_Table.o \
+			$(BUILD_DIR)/POA.o $(BUILD_DIR)/Correct.o $(BUILD_DIR)/Levenshtein_distance.o $(BUILD_DIR)/Overlaps.o $(BUILD_DIR)/Trio.o $(BUILD_DIR)/kthread.o $(BUILD_DIR)/Purge_Dups.o \
+			$(BUILD_DIR)/htab.o $(BUILD_DIR)/hist.o $(BUILD_DIR)/sketch.o $(BUILD_DIR)/anchor.o $(BUILD_DIR)/extract.o $(BUILD_DIR)/sys.o $(BUILD_DIR)/hic.o $(BUILD_DIR)/rcut.o $(BUILD_DIR)/horder.o \
+			$(BUILD_DIR)/tovlp.o $(BUILD_DIR)/inter.o $(BUILD_DIR)/kalloc.o $(BUILD_DIR)/gfa_ut.o $(BUILD_DIR)/gchain_map.o
+EXE=		$(BUILD_DIR)/hifiasm
 LIBS=		-lz -lpthread -lm
 
 ifneq ($(asan),)
@@ -19,64 +21,64 @@ endif
 .SUFFIXES:.cpp .c .o
 .PHONY:all clean depend
 
-.cpp.o:
-		$(CXX) -c $(CXXFLAGS) $(CPPFLAGS) $(INCLUDES) $< -o $@
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cpp
+		mkdir -p $(BUILD_DIR); $(CXX) -c $(CXXFLAGS) $(CPPFLAGS) $(INCLUDES) $< -o $@
 
-.c.o:
-		$(CC) -c $(CFLAGS) $(CPPFLAGS) $(INCLUDES) $< -o $@
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.c
+		mkdir -p $(BUILD_DIR); $(CC) -c $(CFLAGS) $(CPPFLAGS) $(INCLUDES) $< -o $@
 
 all:$(EXE)
 
-$(EXE):$(OBJS) main.o
-		$(CXX) $(CXXFLAGS) $^ -o $@ $(LIBS)
+$(EXE):$(OBJS) $(BUILD_DIR)/main.o
+		mkdir -p $(BUILD_DIR); $(CXX) $(CXXFLAGS) $^ -o $@ $(LIBS)
 
 clean:
-		rm -fr gmon.out *.o a.out $(EXE) *~ *.a *.dSYM
+	rm -rf $(BUILD_DIR) gmon.out $(EXE) *~ *.dSYM
 
 depend:
 		(LC_ALL=C; export LC_ALL; makedepend -Y -- $(CPPFLAGS) $(DFLAGS) -- *.cpp)
 
 # DO NOT DELETE
 
-Assembly.o: Assembly.h CommandLines.h Process_Read.h Overlaps.h kvec.h kdq.h
-Assembly.o: Hash_Table.h htab.h POA.h Correct.h Levenshtein_distance.h
-Assembly.o: kthread.h
-CommandLines.o: CommandLines.h ketopt.h
-Correct.o: Correct.h Hash_Table.h htab.h Process_Read.h Overlaps.h kvec.h
-Correct.o: kdq.h CommandLines.h Levenshtein_distance.h POA.h Assembly.h
-Correct.o: ksort.h
-Hash_Table.o: Hash_Table.h htab.h Process_Read.h Overlaps.h kvec.h kdq.h
-Hash_Table.o: CommandLines.h ksort.h
-Levenshtein_distance.o: Levenshtein_distance.h
-Output.o: Output.h CommandLines.h
-Overlaps.o: Overlaps.h kvec.h kdq.h ksort.h Process_Read.h CommandLines.h
-Overlaps.o: Hash_Table.h htab.h Correct.h Levenshtein_distance.h POA.h
-Overlaps.o: Purge_Dups.h
-POA.o: POA.h Hash_Table.h htab.h Process_Read.h Overlaps.h kvec.h kdq.h
-POA.o: CommandLines.h Correct.h Levenshtein_distance.h
-Process_Read.o: Process_Read.h Overlaps.h kvec.h kdq.h CommandLines.h
-Purge_Dups.o: ksort.h Purge_Dups.h kvec.h kdq.h Overlaps.h Hash_Table.h
-Purge_Dups.o: htab.h Process_Read.h CommandLines.h Correct.h
-Purge_Dups.o: Levenshtein_distance.h POA.h kthread.h
-Trio.o: khashl.h kthread.h kseq.h Process_Read.h Overlaps.h kvec.h kdq.h
-Trio.o: CommandLines.h htab.h
-anchor.o: htab.h Process_Read.h Overlaps.h kvec.h kdq.h CommandLines.h
-anchor.o: ksort.h Hash_Table.h
-extract.o: Process_Read.h Overlaps.h kvec.h kdq.h CommandLines.h khashl.h
-extract.o: kseq.h
-hist.o: htab.h Process_Read.h Overlaps.h kvec.h kdq.h CommandLines.h
-htab.o: kthread.h khashl.h kseq.h ksort.h htab.h Process_Read.h Overlaps.h
-htab.o: kvec.h kdq.h CommandLines.h
-kthread.o: kthread.h
-main.o: CommandLines.h Process_Read.h Overlaps.h kvec.h kdq.h Assembly.h
-main.o: Levenshtein_distance.h htab.h
-sketch.o: kvec.h htab.h Process_Read.h Overlaps.h kdq.h CommandLines.h
-sys.o: htab.h Process_Read.h Overlaps.h kvec.h kdq.h CommandLines.h
-hic.o: hic.h
-rcut.o: rcut.h
-horder.o: horder.h
-tovlp.o: tovlp.h
-inter.o: inter.h Process_Read.h
-kalloc.o: kalloc.h
-gfa_ut.o: Overlaps.h
-gchain_map.o: gchain_map.h
+$(BUILD_DIR)/Assembly.o: $(SRC_DIR)/Assembly.h $(SRC_DIR)/CommandLines.h $(SRC_DIR)/Process_Read.h $(SRC_DIR)/Overlaps.h $(SRC_DIR)/kvec.h $(SRC_DIR)/kdq.h
+$(BUILD_DIR)/Assembly.o: $(SRC_DIR)/Hash_Table.h $(SRC_DIR)/htab.h $(SRC_DIR)/POA.h $(SRC_DIR)/Correct.h $(SRC_DIR)/Levenshtein_distance.h
+$(BUILD_DIR)/Assembly.o: $(SRC_DIR)/kthread.h
+$(BUILD_DIR)/CommandLines.o: $(SRC_DIR)/CommandLines.h $(SRC_DIR)/ketopt.h
+$(BUILD_DIR)/Correct.o: $(SRC_DIR)/Correct.h $(SRC_DIR)/Hash_Table.h $(SRC_DIR)/htab.h $(SRC_DIR)/Process_Read.h $(SRC_DIR)/Overlaps.h $(SRC_DIR)/kvec.h
+$(BUILD_DIR)/Correct.o: $(SRC_DIR)/kdq.h $(SRC_DIR)/CommandLines.h $(SRC_DIR)/Levenshtein_distance.h $(SRC_DIR)/POA.h $(SRC_DIR)/Assembly.h
+$(BUILD_DIR)/Correct.o: $(SRC_DIR)/ksort.h
+$(BUILD_DIR)/Hash_Table.o: $(SRC_DIR)/Hash_Table.h $(SRC_DIR)/htab.h $(SRC_DIR)/Process_Read.h $(SRC_DIR)/Overlaps.h $(SRC_DIR)/kvec.h $(SRC_DIR)/kdq.h
+$(BUILD_DIR)/Hash_Table.o: $(SRC_DIR)/CommandLines.h $(SRC_DIR)/ksort.h
+$(BUILD_DIR)/Levenshtein_distance.o: $(SRC_DIR)/Levenshtein_distance.h
+$(BUILD_DIR)/Output.o: $(SRC_DIR)/Output.h $(SRC_DIR)/CommandLines.h
+$(BUILD_DIR)/Overlaps.o: $(SRC_DIR)/Overlaps.h $(SRC_DIR)/kvec.h $(SRC_DIR)/kdq.h $(SRC_DIR)/ksort.h $(SRC_DIR)/Process_Read.h $(SRC_DIR)/CommandLines.h
+$(BUILD_DIR)/Overlaps.o: $(SRC_DIR)/Hash_Table.h $(SRC_DIR)/htab.h $(SRC_DIR)/Correct.h $(SRC_DIR)/Levenshtein_distance.h $(SRC_DIR)/POA.h
+$(BUILD_DIR)/Overlaps.o: $(SRC_DIR)/Purge_Dups.h
+$(BUILD_DIR)/POA.o: $(SRC_DIR)/POA.h $(SRC_DIR)/Hash_Table.h $(SRC_DIR)/htab.h $(SRC_DIR)/Process_Read.h $(SRC_DIR)/Overlaps.h $(SRC_DIR)/kvec.h $(SRC_DIR)/kdq.h
+$(BUILD_DIR)/POA.o: $(SRC_DIR)/CommandLines.h $(SRC_DIR)/Correct.h $(SRC_DIR)/Levenshtein_distance.h
+$(BUILD_DIR)/Process_Read.o: $(SRC_DIR)/Process_Read.h $(SRC_DIR)/Overlaps.h $(SRC_DIR)/kvec.h $(SRC_DIR)/kdq.h $(SRC_DIR)/CommandLines.h
+$(BUILD_DIR)/Purge_Dups.o: $(SRC_DIR)/ksort.h $(SRC_DIR)/Purge_Dups.h $(SRC_DIR)/kvec.h $(SRC_DIR)/kdq.h $(SRC_DIR)/Overlaps.h $(SRC_DIR)/Hash_Table.h
+$(BUILD_DIR)/Purge_Dups.o: $(SRC_DIR)/htab.h $(SRC_DIR)/Process_Read.h $(SRC_DIR)/CommandLines.h $(SRC_DIR)/Correct.h
+$(BUILD_DIR)/Purge_Dups.o: $(SRC_DIR)/Levenshtein_distance.h $(SRC_DIR)/POA.h $(SRC_DIR)/kthread.h
+$(BUILD_DIR)/Trio.o: $(SRC_DIR)/khashl.h $(SRC_DIR)/kthread.h $(SRC_DIR)/kseq.h $(SRC_DIR)/Process_Read.h $(SRC_DIR)/Overlaps.h $(SRC_DIR)/kvec.h $(SRC_DIR)/kdq.h
+$(BUILD_DIR)/Trio.o: $(SRC_DIR)/CommandLines.h $(SRC_DIR)/htab.h
+$(BUILD_DIR)/anchor.o: $(SRC_DIR)/htab.h $(SRC_DIR)/Process_Read.h $(SRC_DIR)/Overlaps.h $(SRC_DIR)/kvec.h $(SRC_DIR)/kdq.h $(SRC_DIR)/CommandLines.h
+$(BUILD_DIR)/anchor.o: $(SRC_DIR)/ksort.h $(SRC_DIR)/Hash_Table.h
+$(BUILD_DIR)/extract.o: $(SRC_DIR)/Process_Read.h $(SRC_DIR)/Overlaps.h $(SRC_DIR)/kvec.h $(SRC_DIR)/kdq.h $(SRC_DIR)/CommandLines.h $(SRC_DIR)/khashl.h
+$(BUILD_DIR)/extract.o: $(SRC_DIR)/kseq.h
+$(BUILD_DIR)/hist.o: $(SRC_DIR)/htab.h $(SRC_DIR)/Process_Read.h $(SRC_DIR)/Overlaps.h $(SRC_DIR)/kvec.h $(SRC_DIR)/kdq.h $(SRC_DIR)/CommandLines.h
+$(BUILD_DIR)/htab.o: $(SRC_DIR)/kthread.h $(SRC_DIR)/khashl.h $(SRC_DIR)/kseq.h $(SRC_DIR)/ksort.h $(SRC_DIR)/htab.h $(SRC_DIR)/Process_Read.h $(SRC_DIR)/Overlaps.h
+$(BUILD_DIR)/htab.o: $(SRC_DIR)/kvec.h $(SRC_DIR)/kdq.h $(SRC_DIR)/CommandLines.h
+$(BUILD_DIR)/kthread.o: $(SRC_DIR)/kthread.h
+$(BUILD_DIR)/main.o: $(SRC_DIR)/CommandLines.h $(SRC_DIR)/Process_Read.h $(SRC_DIR)/Overlaps.h $(SRC_DIR)/kvec.h $(SRC_DIR)/kdq.h $(SRC_DIR)/Assembly.h
+$(BUILD_DIR)/main.o: $(SRC_DIR)/Levenshtein_distance.h $(SRC_DIR)/htab.h
+$(BUILD_DIR)/sketch.o: $(SRC_DIR)/kvec.h $(SRC_DIR)/htab.h $(SRC_DIR)/Process_Read.h $(SRC_DIR)/Overlaps.h $(SRC_DIR)/kdq.h $(SRC_DIR)/CommandLines.h
+$(BUILD_DIR)/sys.o: $(SRC_DIR)/htab.h $(SRC_DIR)/Process_Read.h $(SRC_DIR)/Overlaps.h $(SRC_DIR)/kvec.h $(SRC_DIR)/kdq.h $(SRC_DIR)/CommandLines.h
+$(BUILD_DIR)/hic.o: $(SRC_DIR)/hic.h
+$(BUILD_DIR)/rcut.o: $(SRC_DIR)/rcut.h
+$(BUILD_DIR)/horder.o: $(SRC_DIR)/horder.h
+$(BUILD_DIR)/tovlp.o: $(SRC_DIR)/tovlp.h
+$(BUILD_DIR)/inter.o: $(SRC_DIR)/inter.h $(SRC_DIR)/Process_Read.h
+$(BUILD_DIR)/kalloc.o: $(SRC_DIR)/kalloc.h
+$(BUILD_DIR)/gfa_ut.o: $(SRC_DIR)/Overlaps.h
+$(BUILD_DIR)/gchain_map.o: $(SRC_DIR)/gchain_map.h
