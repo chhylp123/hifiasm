@@ -8743,9 +8743,11 @@ ma_ug_t *ma_ug_gen(asg_t *g)
 	ug->g = asg_init();
     ///each node has two directions
 	mark = (int32_t*)calloc(n_vtx, 4);
+    int flag_circ = 0;
 
 	q = kdq_init(uint64_t);
 	for (v = 0; v < n_vtx; ++v) {
+        flag_circ = 0;
 		uint32_t w, x, l, start, end, len;
 		ma_utg_t *p;
         ///what's the usage of mark array
@@ -8778,8 +8780,8 @@ ma_ug_t *ma_ug_gen(asg_t *g)
 			l = asg_arc_len(arc_first(g, w));
 			kdq_push(uint64_t, q, (uint64_t)w<<32 | l);
 			end = x^1, len += l;
-			w = x;
-			if (x == v) break;
+			if (x == v) {flag_circ = 1; break;}  // keep current w, which will be the end vertex (use w^1)
+            w = x;
 		}
 		if (start != (end^1) || kdq_size(q) == 0) { // linear unitig
 			///length of seq, instead of edge
@@ -8787,7 +8789,7 @@ ma_ug_t *ma_ug_gen(asg_t *g)
 			kdq_push(uint64_t, q, (uint64_t)(end^1)<<32 | l);
 			len += l;
 		} else { // circular unitig
-			start = end = UINT32_MAX;
+			start = v; end = w^1; /*flag_circ = 1*/; // start = end = UINT32_MAX;
 			goto add_unitig; // then it is not necessary to do the backward
 		}
 		// backward
@@ -8809,9 +8811,10 @@ ma_ug_t *ma_ug_gen(asg_t *g)
 			x = w;
 		}
 add_unitig:
-		if (start != UINT32_MAX) mark[start] = mark[end] = 1;
+		// if (start != UINT32_MAX) mark[start] = mark[end] = 1;
+        mark[start] = mark[end] = 1;
 		kv_pushp(ma_utg_t, ug->u, &p);
-		p->s = 0, p->start = start, p->end = end, p->len = len, p->n = kdq_size(q), p->circ = (start == UINT32_MAX);
+		p->s = 0, p->start = start, p->end = end, p->len = len, p->n = kdq_size(q), p->circ = /*(start == UINT32_MAX)*/ flag_circ;
 		p->m = p->n;
 		kv_roundup32(p->m);
 		p->a = (uint64_t*)malloc(8 * p->m);
@@ -8852,6 +8855,30 @@ add_unitig:
             q->el = p->el;
 		}
 	}
+
+    // add arcs for circular utg
+    // (the same as above)
+    for (v = 0; v < n_vtx; ++v) mark[v] = -1;  // recycle `mark`
+	for (i = 0; i < ug->u.n; ++i) {  // collect start/end
+		if (!ug->u.a[i].circ) continue;
+		mark[ug->u.a[i].start] = i<<1 | 0;
+		mark[ug->u.a[i].end] = i<<1 | 1;
+	}
+    for (i = 0; i < g->n_arc; ++i) {  // find edges
+		asg_arc_t *p = &g->arc[i];
+		if (p->del) continue;
+		if (mark[p->ul>>32^1] >= 0 && mark[p->v] >= 0) {
+			asg_arc_t *q;
+			uint32_t u = mark[p->ul>>32^1]^1;
+			int l = ug->u.a[u>>1].len - p->ol;
+			if (l < 0) l = 1;
+			q = asg_arc_pushp(ug->g);
+			q->ol = p->ol, q->del = 0;
+			q->ul = (uint64_t)u<<32 | l;
+			q->v = mark[p->v];
+		}
+	}
+
 	for (i = 0; i < ug->u.n; ++i)
 		asg_seq_set(ug->g, i, ug->u.a[i].len, 0);
 	asg_cleanup(ug->g);
