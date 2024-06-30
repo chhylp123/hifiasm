@@ -108,6 +108,7 @@ uint64_t ha_abufl_mem(const ha_abufl_t *ab);
 
 double yak_cputime(void);
 void yak_reset_realtime(void);
+double yak_realtime_0(void);
 double yak_realtime(void);
 long yak_peakrss(void);
 double yak_peakrss_in_gb(void);

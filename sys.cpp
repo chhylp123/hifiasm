@@ -31,6 +31,12 @@ double yak_realtime(void)
 	return yak_realtime_core() - yak_realtime0;
 }
 
+double yak_realtime_0(void)
+{
+	return yak_realtime_core();
+}
+
+
 long yak_peakrss(void)
 {
 	struct rusage r;

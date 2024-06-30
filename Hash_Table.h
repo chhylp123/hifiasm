@@ -8,6 +8,7 @@
 
 #define WINDOW 375
 #define WINDOW_BOUNDARY 375
+#define WINDOW_HC 775
 ///for one side, the first or last WINDOW_UNCORRECT_SINGLE_SIDE_BOUNDARY bases should not be corrected
 #define WINDOW_UNCORRECT_SINGLE_SIDE_BOUNDARY 25
 #define THRESHOLD  15
@@ -230,6 +231,13 @@ uint64_t lchain_qdp_fix(k_mer_hit* a, int64_t a_n, Chain_Data* dp, int64_t max_s
 uint64_t lchain_simple(k_mer_hit* a, int64_t a_n, k_mer_hit* des, Chain_Data* dp, 
                                                         int64_t max_skip, int64_t max_iter);
 uint64_t lchain_qdp_mcopy(Candidates_list *cl, int64_t a_idx, int64_t a_n, int64_t des_idx, 
+              Chain_Data* dp, overlap_region_alloc* res, int64_t max_skip, int64_t max_iter, 
+              int64_t max_dis, double chn_pen_gap, double chn_pen_skip, double bw_rate, 
+              uint32_t xid, int64_t xl, int64_t yl, int64_t quick_check, uint32_t apend_be, 
+              int64_t gen_cigar, int64_t enable_mcopy, double mcopy_rate, int64_t mcopy_khit_cutoff, 
+              int64_t khit_n);
+
+uint64_t lchain_qdp_mcopy_fast(Candidates_list *cl, int64_t a_idx, int64_t a_n, int64_t des_idx, 
               Chain_Data* dp, overlap_region_alloc* res, int64_t max_skip, int64_t max_iter, 
               int64_t max_dis, double chn_pen_gap, double chn_pen_skip, double bw_rate, 
               uint32_t xid, int64_t xl, int64_t yl, int64_t quick_check, uint32_t apend_be, 

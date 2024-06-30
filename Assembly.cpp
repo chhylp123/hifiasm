@@ -12,6 +12,7 @@
 #include "kthread.h"
 #include "rcut.h"
 #include "kalloc.h"
+#include "ecovlp.h"
 
 void ha_get_candidates_interface(ha_abuf_t *ab, int64_t rid, UC_Read *ucr, overlap_region_alloc *overlap_list, overlap_region_alloc *overlap_list_hp, Candidates_list *cl, double bw_thres, 
 int max_n_chain, int keep_whole_chain, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* chain_idx, ma_hit_t_alloc* paf, ma_hit_t_alloc* rev_paf, overlap_region* f_cigar, kvec_t_u64_warp* dbg_ct, st_mt_t *sp);
@@ -595,9 +596,9 @@ static void worker_ovec(void *data, long i, int tid)
 {
 	ha_ovec_buf_t *b = ((ha_ovec_buf_t**)data)[tid];
 	int fully_cov, abnormal;
-    // if(i != 33) return;
+    // if(i != 12578) return;
     // fprintf(stderr, "[M::%s-beg] rid->%ld\n", __func__, i);
-    // if (memcmp("m64012_190920_173625/88015004/ccs", Get_NAME((R_INF), i), Get_NAME_LENGTH((R_INF),i)) == 0) {
+    // if (memcmp("7897e875-76e5-42c8-bc37-94b370c4cc8d", Get_NAME((R_INF), i), Get_NAME_LENGTH((R_INF),i)) == 0) {
     //     fprintf(stderr, "[M::%s-beg] rid->%ld\n", __func__, i);
     // } else {
     //     return;
@@ -605,6 +606,9 @@ static void worker_ovec(void *data, long i, int tid)
 
     ha_get_candidates_interface(b->ab, i, &b->self_read, &b->olist, &b->olist_hp, &b->clist, 
     0.02, asm_opt.max_n_chain, 1, NULL/**&(b->k_flag)**/, &b->r_buf, &(R_INF.paf[i]), &(R_INF.reverse_paf[i]), &(b->tmp_region), NULL, &(b->sp));
+
+    // prt_chain(&b->olist);
+    // return;
 
 	clear_Cigar_record(&b->cigar1);
 	clear_Round2_alignment(&b->round2);
@@ -967,6 +971,88 @@ void prt_dbg_rs(FILE *fp, Debug_reads* x, uint64_t round)
 }
 
 
+void ha_ec(int64_t round)
+{
+	int i, hom_cov, het_cov, r_out = 0;
+	ec_ovec_buf_t *b = NULL;
+	ha_ecsave_buf_t *e = NULL;
+    ha_flt_tab_hp = ha_idx_hp = NULL;
+
+    if((ha_idx == NULL)&&(asm_opt.flag & HA_F_VERBOSE_GFA)&&(round == asm_opt.number_of_round - 1)) r_out = 1;
+
+    if(asm_opt.required_read_name) init_Debug_reads(&R_INF_FLAG, asm_opt.required_read_name); // for debugging only
+	// overlap and correct reads
+    b = gen_ec_ovec_buf_t(asm_opt.thread_num, 0, (round == asm_opt.number_of_round - 1));
+	// CALLOC(b, asm_opt.thread_num);
+	// for (i = 0; i < asm_opt.thread_num; ++i)
+	// 	b[i] = ha_ovec_init(0, (round == asm_opt.number_of_round - 1),0);
+
+    
+    if(ha_idx) hom_cov = asm_opt.hom_cov;
+	if(ha_idx == NULL) ha_idx = ha_pt_gen(&asm_opt, ha_flt_tab, round == 0? 0 : 1, 0, &R_INF, &hom_cov, &het_cov); // build the index
+	///debug_adapter(&asm_opt, &R_INF);
+    if (round == 0 && ha_flt_tab == 0) // then asm_opt.hom_cov hasn't been updated
+		ha_opt_update_cov(&asm_opt, hom_cov);
+    het_cnt = NULL;
+    if(round == asm_opt.number_of_round-1 && asm_opt.is_dbg_het_cnt) CALLOC(het_cnt, R_INF.total_reads);
+
+    /**
+    // fprintf(stderr, "[M::%s-start]\n", __func__);
+	if (asm_opt.required_read_name)
+		kt_for(asm_opt.thread_num, worker_ovec_related_reads, b, R_INF.total_reads);
+	else
+		kt_for(asm_opt.thread_num, worker_ovec, b, R_INF.total_reads);///debug_for_fix
+    // fprintf(stderr, "[M::%s-end]\n", __func__);
+    **/
+    cal_ec_multiple(b, asm_opt.thread_num, R_INF.total_reads);
+    // kt_for(asm_opt.thread_num, worker_hap_ec, b, R_INF.total_reads);///debug_for_fix
+
+    if (r_out) write_pt_index(ha_flt_tab, ha_idx, &R_INF, &asm_opt, asm_opt.output_file_name);
+	ha_pt_destroy(ha_idx);
+	ha_idx = NULL;
+
+    if(het_cnt) {
+        print_het_cnt_log(het_cnt); free(het_cnt); het_cnt = NULL;
+    }
+
+    /**
+	// collect statistics
+	for (i = 0; i < asm_opt.thread_num; ++i) {
+		asm_opt.num_bases += b[i]->num_read_base;
+		asm_opt.num_corrected_bases += b[i]->num_correct_base;
+		asm_opt.num_recorrected_bases += b[i]->num_recorrect_base;
+		asm_opt.mem_buf += ha_ovec_mem(b[i], NULL);
+		ha_ovec_destroy(b[i]);
+	}
+	free(b);
+    **/
+    destroy_ec_ovec_buf_t(b);
+    exit(1);
+
+    if (asm_opt.required_read_name) prt_dbg_rs(R_INF_FLAG.fp_r0, &R_INF_FLAG, 0); // for debugging only
+    
+	// save corrected reads to R_INF
+	CALLOC(e, asm_opt.thread_num);
+	for (i = 0; i < asm_opt.thread_num; ++i) {
+		init_UC_Read(&e[i].g_read);
+		e[i].first_round_read_size = e[i].second_round_read_size = 50000;
+		CALLOC(e[i].first_round_read, e[i].first_round_read_size);
+		CALLOC(e[i].second_round_read, e[i].second_round_read_size);
+	}
+	kt_for(asm_opt.thread_num, worker_ec_save, e, R_INF.total_reads);
+	for (i = 0; i < asm_opt.thread_num; ++i) {
+		destory_UC_Read(&e[i].g_read);
+		free(e[i].first_round_read);
+		free(e[i].second_round_read);
+	}
+	free(e);
+
+    if (asm_opt.required_read_name) prt_dbg_rs(R_INF_FLAG.fp_r1, &R_INF_FLAG, 1); // for debugging only
+    if (asm_opt.required_read_name) destory_Debug_reads(&R_INF_FLAG), exit(0); // for debugging only
+    ///debug_print_pob_regions();
+}
+
+
 void ha_overlap_and_correct(int round)
 {
 	int i, hom_cov, het_cov, r_out = 0;
@@ -992,12 +1078,15 @@ void ha_overlap_and_correct(int round)
     het_cnt = NULL;
     if(round == asm_opt.number_of_round-1 && asm_opt.is_dbg_het_cnt) CALLOC(het_cnt, R_INF.total_reads);
     // fprintf(stderr, "[M::%s-start]\n", __func__);
+    // double tt0 = yak_realtime_0();
 	if (asm_opt.required_read_name)
 		kt_for(asm_opt.thread_num, worker_ovec_related_reads, b, R_INF.total_reads);
 	else
 		kt_for(asm_opt.thread_num, worker_ovec, b, R_INF.total_reads);///debug_for_fix
     // fprintf(stderr, "[M::%s-end]\n", __func__);
-
+    // fprintf(stderr, "[M::%s::%.3f] ==> chaining\n", __func__, yak_realtime_0()-tt0);
+    // exit(1);
+    
     if (r_out) write_pt_index(ha_flt_tab, ha_idx, &R_INF, &asm_opt, asm_opt.output_file_name);
 	ha_pt_destroy(ha_idx);
 	ha_idx = NULL;
@@ -1953,7 +2042,8 @@ int ha_assemble(void)
 		assert(asm_opt.number_of_round > 0);
 		for (r = ha_idx?asm_opt.number_of_round-1:0; r < asm_opt.number_of_round; ++r) {
 			ha_opt_reset_to_round(&asm_opt, r); // this update asm_opt.roundID and a few other fields
-			ha_overlap_and_correct(r);
+			// ha_overlap_and_correct(r);
+            ha_ec(r);
 			fprintf(stderr, "[M::%s::%.3f*%.2f@%.3fGB] ==> corrected reads for round %d\n", __func__, yak_realtime(),
 					yak_cpu_usage(), yak_peakrss_in_gb(), r + 1);
 			fprintf(stderr, "[M::%s] # bases: %lld; # corrected bases: %lld; # recorrected bases: %lld\n", __func__,

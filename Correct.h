@@ -1388,4 +1388,21 @@ int64_t get_rid_backward_cigar_err(rtrace_iter *it, ul_ov_t *aln, kv_rtrace_t *t
 const ul_idx_t *uref, char* qstr, UC_Read *tu, overlap_region_alloc *ol, overlap_region *o, 
 bit_extz_t *exz, double e_rate, int64_t qs);
 
+void gen_hc_r_alin(overlap_region_alloc* ol, Candidates_list *cl, All_reads *rref, UC_Read* qu, UC_Read* tu, bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t wl, int64_t rid, int64_t khit, int64_t move_gap, asg16_v* buf);
+void rphase_hc(overlap_region_alloc* ol, All_reads *rref, haplotype_evdience_alloc* hp, UC_Read* qu, UC_Read* tu, kv_ul_ov_t *c_idx, asg64_v* idx, asg64_v* buf, int64_t bd, int64_t wl, int64_t ql, uint8_t occ_thres);
+
+#define ovlp_id(x) ((x).tn)
+#define ovlp_min_wid(x) ((x).ts)
+#define ovlp_max_wid(x) ((x).te)
+#define ovlp_cur_wid(x) ((x).qn)
+#define ovlp_cur_xoff(x) ((x).qs)
+#define ovlp_cur_yoff(x) ((x).ts)
+#define ovlp_cur_ylen(x) ((x).te)
+#define ovlp_cur_coff(x) ((x).qe)
+#define ovlp_bd(x) ((x).sec)
+
+#define UC_Read_resize(v, s) do {\
+		if ((v).size<(s)) {REALLOC((v).seq,(s));(v).size=(s);}\
+	} while (0)
+    
 #endif

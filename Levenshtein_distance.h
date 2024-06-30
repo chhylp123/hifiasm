@@ -548,6 +548,24 @@ inline int32_t pop_trace_back(asg16_v *res, int32_t i, uint16_t *c, uint32_t *le
 	return i;
 }
 
+inline void push_trace_bp(asg16_v *res, uint16_t c, uint16_t b, uint32_t len, uint32_t is_append)
+{
+    uint16_t p; 
+	if((is_append) && (res->n)) {
+
+	}
+	
+	
+	
+	c <<= 14; 
+	while (len >= (0x3fff)) {
+		p = (c + (0x3fff)); kv_push(uint16_t, *res, p); len -= (0x3fff);
+	}
+	if(len) {
+		p = (c + len); kv_push(uint16_t, *res, p);
+	}
+}
+
 ///511 -> 16 64-bits
 // #define MAX_E 511
 // #define MAX_L 2500
@@ -601,7 +619,7 @@ inline uint32_t cigar_check(char *pstr, char *tstr, bit_extz_t *ez)
 		if(c == 0) {
 			for (k=0;(k<cl)&&(pstr[pi]==tstr[ti]);k++,pi++,ti++);
 			if(k!=cl) {
-				fprintf(stderr, "ERROR-d-0\n"); 
+				fprintf(stderr, "ERROR-d-0, pi::%d, ti::%d\n", pi, ti); 
 				return 0;
 			}
 		} else {
@@ -609,7 +627,7 @@ inline uint32_t cigar_check(char *pstr, char *tstr, bit_extz_t *ez)
 			if(c == 1) {
 				for (k=0;(k<cl)&&(pstr[pi]!=tstr[ti]);k++,pi++,ti++);
 				if(k!=cl) {
-					fprintf(stderr, "ERROR-d-1\n"); 
+					fprintf(stderr, "ERROR-d-1, pi::%d, ti::%d\n", pi, ti);  
 					return 0;
 				}
 			} else if(c == 2) {///more p
