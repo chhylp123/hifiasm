@@ -5,7 +5,7 @@
 #include <pthread.h>
 #include <stdint.h>
 
-#define HA_VERSION "0.19.9-r616"
+#define HA_VERSION "0.20.0-r631"
 
 #define VERBOSE 0
 
@@ -74,6 +74,7 @@ typedef struct {
     int load_index_from_disk;
     int write_index_to_disk;
     int number_of_round;
+    int number_of_pround;
     int adapterLen;
     int clean_round;
     int roundID;

@@ -125,6 +125,7 @@ int adj_m_peak_hom(int m_peak_hom, int max_i, int max2_i, int max3_i, int *peak_
 void print_hist_lines(int n_cnt, int start_cnt, const int64_t *cnt);
 void debug_adapter(const hifiasm_opt_t *asm_opt, All_reads *rs);
 
+
 inline int mz_low_b(int peak_hom, int peak_het)
 {
 	int low_freq = 2;

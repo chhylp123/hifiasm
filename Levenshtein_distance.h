@@ -548,22 +548,199 @@ inline int32_t pop_trace_back(asg16_v *res, int32_t i, uint16_t *c, uint32_t *le
 	return i;
 }
 
+///compact functions
+#define pop_trac_bpc(in, rc, rb, rl) do {	\
+		(rc) = ((in)>>14);\
+		if((rc) == 1 || (rc) == 2) {(rb) = (((in)>>12)&3); (rl) = ((in)&(0xfff));}\
+		else {(rl) = ((in)&(0x3fff));}\
+	} while (0)	
+
 inline void push_trace_bp(asg16_v *res, uint16_t c, uint16_t b, uint32_t len, uint32_t is_append)
 {
-    uint16_t p; 
+    uint16_t p, c0, b0, len0, mm; 
 	if((is_append) && (res->n)) {
+		b0 = b;
+		pop_trac_bpc(res->a[res->n-1], c0, b0, len0);
+		if((c == c0) && (b == b0)) {
+			res->n--; len += len0;
+		}
+	}
+	
+	mm = (0x3fff); c0 = c; c <<= 14;
+	if(c0 == 1 || c0 == 2) {
+		mm = (0xfff); c += ((b&3) << 12);
+	}
 
+	
+	while (len >= mm) {
+		p = (c + mm); kv_push(uint16_t, *res, p); len -= mm;
 	}
-	
-	
-	
-	c <<= 14; 
-	while (len >= (0x3fff)) {
-		p = (c + (0x3fff)); kv_push(uint16_t, *res, p); len -= (0x3fff);
-	}
+	// fprintf(stderr, "[M::%s] c::%u, len::%u\n", __func__, c, len);
 	if(len) {
 		p = (c + len); kv_push(uint16_t, *res, p);
 	}
+}
+
+inline uint32_t pop_trace_bp(asg16_v *res, uint32_t i, uint16_t *c, uint16_t *b, uint32_t *len)
+{
+	(*c) = (res->a[i]>>14); 
+	if((*c) == 1 || (*c) == 2) {
+		(*b) = ((res->a[i]>>12)&3); 
+		(*len) = (res->a[i]&(0xfff));
+	} else {
+		(*b) = (uint16_t)-1; 
+		(*len) = (res->a[i]&(0x3fff));
+	}
+
+	uint32_t sl; uint16_t sb;
+	for (i++; (i < res->n) && ((*c) == (res->a[i]>>14)); i++) {
+		if((*c) == 1 || (*c) == 2) {
+			sb = ((res->a[i]>>12)&3); sl = (res->a[i]&(0xfff));
+		} else {
+			sb = (uint16_t)-1; sl = (res->a[i]&(0x3fff));
+		}
+		if((*b) != sb) break;
+		(*len) += sl;
+	}
+	return i;
+}
+
+inline int64_t pop_trace_bp_rev(asg16_v *res, int64_t i, uint16_t *c, uint16_t *b, uint32_t *len)
+{
+	(*c) = (res->a[i]>>14); 
+	if((*c) == 1 || (*c) == 2) {
+		(*b) = ((res->a[i]>>12)&3); 
+		(*len) = (res->a[i]&(0xfff));
+	} else {
+		(*b) = (uint16_t)-1; 
+		(*len) = (res->a[i]&(0x3fff));
+	}
+
+	uint32_t sl; uint16_t sb;
+	for (i--; (i >= 0) && ((*c) == (res->a[i]>>14)); i--) {
+		if((*c) == 1 || (*c) == 2) {
+			sb = ((res->a[i]>>12)&3); sl = (res->a[i]&(0xfff));
+		} else {
+			sb = (uint16_t)-1; sl = (res->a[i]&(0x3fff));
+		}
+		if((*b) != sb) break;
+		(*len) += sl;
+	}
+	return i;
+}
+
+///full functions
+#define pop_trac_bpc_f(in, rc, rbq, rbt, rl) do {	\
+		(rc) = ((in)>>14);\
+		if((rc) == 2 || (rc) == 3) {(rbt) = (((in)>>12)&3); (rl) = ((in)&(0xfff));}\
+		else if((rc) == 1) {(rbt) = (((in)>>12)&3); (rbq) = (((in)>>10)&3); (rl) = ((in)&(0x3ff));}\
+		else {(rl) = ((in)&(0x3fff));}\
+	} while (0)	
+
+inline void push_trace_bp_f(asg16_v *res, uint16_t c, uint16_t bq, uint16_t bt, uint32_t len, uint32_t is_append)
+{
+    uint16_t p, c0 = c, bq0, bt0, len0, mm; 
+	if(c == 3) {
+		bt = bq; bq = (uint16_t)-1;
+	}
+	if((is_append) && (res->n)) {
+		bq0 = bq; bt0 = bt;
+		pop_trac_bpc_f(res->a[res->n-1], c0, bq0, bt0, len0);
+		if((c == c0) && (bq == bq0) && (bt == bt0)) {
+			res->n--; len += len0;
+		}
+	}
+
+
+	c0 = c; c <<= 14;
+	if(c0 == 2 || c0 == 3) {
+		mm = (0xfff); c += ((bt&3) << 12);
+	} else if(c0 == 1) {
+		mm = (0x3ff); c += ((bt&3) << 12); c += ((bq&3) << 10);
+	} else {
+		mm = (0x3fff);
+	}
+
+	
+	while (len >= mm) {
+		p = (c + mm); kv_push(uint16_t, *res, p); len -= mm;
+	}
+	// fprintf(stderr, "[M::%s] c::%u, len::%u\n", __func__, c, len);
+	if(len) {
+		p = (c + len); kv_push(uint16_t, *res, p);
+	}
+}
+
+inline uint32_t pop_trace_bp_f(asg16_v *res, uint32_t i, uint16_t *c, uint16_t *bq, uint16_t *bt, uint32_t *len)
+{
+	(*c) = (res->a[i]>>14); (*bq) = (*bt) = (uint16_t)-1;
+	if((*c) == 2 || (*c) == 3) {
+		(*bt) = ((res->a[i]>>12)&3); 
+		(*len) = (res->a[i]&(0xfff));
+	} else if((*c) == 1) {
+		(*bt) = ((res->a[i]>>12)&3);
+		(*bq) = ((res->a[i]>>10)&3);
+		(*len) = (res->a[i]&(0x3ff));
+	} else {
+		(*len) = (res->a[i]&(0x3fff));
+	}
+
+	uint32_t sl; uint16_t sbq, sbt;
+	for (i++; (i < res->n) && ((*c) == (res->a[i]>>14)); i++) {
+		sbq = sbt = (uint16_t)-1;
+		if((*c) == 2 || (*c) == 3) {
+			sbt = ((res->a[i]>>12)&3); 
+			sl = (res->a[i]&(0xfff));
+		} else if((*c) == 1) {
+			sbt = ((res->a[i]>>12)&3);
+			sbq = ((res->a[i]>>10)&3);
+			sl = (res->a[i]&(0x3ff));
+		} else {
+			sl = (res->a[i]&(0x3fff));
+		}
+		if((*bq) != sbq || (*bt) != sbt) break;
+		(*len) += sl;
+	}
+	if((*c) == 3) {
+		(*bq) = (*bt); (*bt) = (uint16_t)-1;
+	}
+	return i;
+}
+
+inline int64_t pop_trace_bp_rev_f(asg16_v *res, int64_t i, uint16_t *c, uint16_t *bq, uint16_t *bt, uint32_t *len)
+{
+	(*c) = (res->a[i]>>14); (*bq) = (*bt) = (uint16_t)-1;
+	if((*c) == 2 || (*c) == 3) {
+		(*bt) = ((res->a[i]>>12)&3); 
+		(*len) = (res->a[i]&(0xfff));
+	} else if((*c) == 1) {
+		(*bt) = ((res->a[i]>>12)&3);
+		(*bq) = ((res->a[i]>>10)&3);
+		(*len) = (res->a[i]&(0x3ff));
+	} else {
+		(*len) = (res->a[i]&(0x3fff));
+	}
+
+	uint32_t sl; uint16_t sbq, sbt;
+	for (i--; (i >= 0) && ((*c) == (res->a[i]>>14)); i--) {
+		sbq = sbt = (uint16_t)-1;
+		if((*c) == 2 || (*c) == 3) {
+			sbt = ((res->a[i]>>12)&3); 
+			sl = (res->a[i]&(0xfff));
+		} else if((*c) == 1) {
+			sbt = ((res->a[i]>>12)&3);
+			sbq = ((res->a[i]>>10)&3);
+			sl = (res->a[i]&(0x3ff));
+		} else {
+			sl = (res->a[i]&(0x3fff));
+		}
+		if((*bq) != sbq || (*bt) != sbt) break;
+		(*len) += sl;
+	}
+	if((*c) == 3) {
+		(*bq) = (*bt); (*bt) = (uint16_t)-1;
+	}
+	return i;
 }
 
 ///511 -> 16 64-bits

@@ -18,8 +18,8 @@ static ko_longopt_t long_options[] = {
 	{ "write-paf",     ko_no_argument, 302 },
 	{ "write-ec",      ko_no_argument, 303 },
 	{ "skip-triobin",  ko_no_argument, 304 },
-	{ "max-od-ec",     ko_no_argument, 305 },
-	{ "max-od-final",  ko_no_argument, 306 },
+	{ "max-od-ec",     ko_required_argument, 305 },
+	{ "max-od-final",  ko_required_argument, 306 },
 	{ "ex-list",       ko_required_argument, 307 },
 	{ "ex-iter",       ko_required_argument, 308 },
     { "hom-cov",     ko_required_argument, 309 },
@@ -249,6 +249,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->load_index_from_disk = 1;
     asm_opt->write_index_to_disk = 1;
     asm_opt->number_of_round = 3;
+    asm_opt->number_of_pround = 0/**3**/;
     asm_opt->adapterLen = 0;
     asm_opt->clean_round = 4;
     ///asm_opt->small_pop_bubble_size = 100000;

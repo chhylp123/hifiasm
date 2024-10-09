@@ -107,6 +107,8 @@ typedef struct
 #define CHAIN_MATCH 1
 #define CHAIN_UNMATCH 0.334
 
+#define NEC 1
+
 typedef struct
 {
 	uint64_t** N_site;

@@ -1242,4 +1242,8 @@ uint64_t trans_sec_cut0(kv_u_trans_t *ta, asg64_v *srt, uint32_t id, double sec_
 void clean_u_trans_t_idx_filter_mmhap_adv(kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g, ma_hit_t_alloc* src, ug_rid_cov_t *in);
 void gen_ug_rid_cov_t_by_ovlp(kv_u_trans_t *ta, ug_rid_cov_t *cc);
 
+#define UC_Read_resize(v, s) do {\
+		if ((v).size<(s)) {REALLOC((v).seq,(s));(v).size=(s);}\
+	} while (0)
+
 #endif

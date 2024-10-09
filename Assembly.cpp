@@ -970,86 +970,57 @@ void prt_dbg_rs(FILE *fp, Debug_reads* x, uint64_t round)
     destory_UC_Read(&g_read);
 }
 
-
-void ha_ec(int64_t round)
+void ha_ec(int64_t round, int num_pround, int des_idx, uint64_t *tot_b, uint64_t *tot_e)
 {
-	int i, hom_cov, het_cov, r_out = 0;
-	ec_ovec_buf_t *b = NULL;
-	ha_ecsave_buf_t *e = NULL;
-    ha_flt_tab_hp = ha_idx_hp = NULL;
+	int hom_cov, het_cov, r_out = 0;
+    ha_flt_tab_hp = ha_idx_hp = NULL; (*tot_b) = (*tot_e) = 0;
 
     if((ha_idx == NULL)&&(asm_opt.flag & HA_F_VERBOSE_GFA)&&(round == asm_opt.number_of_round - 1)) r_out = 1;
 
     if(asm_opt.required_read_name) init_Debug_reads(&R_INF_FLAG, asm_opt.required_read_name); // for debugging only
-	// overlap and correct reads
-    b = gen_ec_ovec_buf_t(asm_opt.thread_num, 0, (round == asm_opt.number_of_round - 1));
-	// CALLOC(b, asm_opt.thread_num);
-	// for (i = 0; i < asm_opt.thread_num; ++i)
-	// 	b[i] = ha_ovec_init(0, (round == asm_opt.number_of_round - 1),0);
-
     
     if(ha_idx) hom_cov = asm_opt.hom_cov;
-	if(ha_idx == NULL) ha_idx = ha_pt_gen(&asm_opt, ha_flt_tab, round == 0? 0 : 1, 0, &R_INF, &hom_cov, &het_cov); // build the index
+	if(ha_idx == NULL) {
+        ha_idx = ha_pt_gen(&asm_opt, ha_flt_tab, round == 0? 0 : 1, 0, &R_INF, &hom_cov, &het_cov); // build the index
+        asm_opt.hom_cov = hom_cov; asm_opt.het_cov = het_cov;
+    }
 	///debug_adapter(&asm_opt, &R_INF);
     if (round == 0 && ha_flt_tab == 0) // then asm_opt.hom_cov hasn't been updated
 		ha_opt_update_cov(&asm_opt, hom_cov);
     het_cnt = NULL;
     if(round == asm_opt.number_of_round-1 && asm_opt.is_dbg_het_cnt) CALLOC(het_cnt, R_INF.total_reads);
 
-    /**
-    // fprintf(stderr, "[M::%s-start]\n", __func__);
-	if (asm_opt.required_read_name)
-		kt_for(asm_opt.thread_num, worker_ovec_related_reads, b, R_INF.total_reads);
-	else
-		kt_for(asm_opt.thread_num, worker_ovec, b, R_INF.total_reads);///debug_for_fix
-    // fprintf(stderr, "[M::%s-end]\n", __func__);
-    **/
-    cal_ec_multiple(b, asm_opt.thread_num, R_INF.total_reads);
-    // kt_for(asm_opt.thread_num, worker_hap_ec, b, R_INF.total_reads);///debug_for_fix
-
     if (r_out) write_pt_index(ha_flt_tab, ha_idx, &R_INF, &asm_opt, asm_opt.output_file_name);
-	ha_pt_destroy(ha_idx);
-	ha_idx = NULL;
+
+    cal_ec_r(asm_opt.thread_num, round, num_pround, R_INF.total_reads, (round == (asm_opt.number_of_round-1))?1:0, tot_b, tot_e);
+
+    // exit(1);
+
+    // if (r_out) write_pt_index(ha_flt_tab, ha_idx, &R_INF, &asm_opt, asm_opt.output_file_name);
+    if(des_idx) {
+        ha_pt_destroy(ha_idx); ha_idx = NULL;
+    }
+	
 
     if(het_cnt) {
         print_het_cnt_log(het_cnt); free(het_cnt); het_cnt = NULL;
     }
 
-    /**
-	// collect statistics
-	for (i = 0; i < asm_opt.thread_num; ++i) {
-		asm_opt.num_bases += b[i]->num_read_base;
-		asm_opt.num_corrected_bases += b[i]->num_correct_base;
-		asm_opt.num_recorrected_bases += b[i]->num_recorrect_base;
-		asm_opt.mem_buf += ha_ovec_mem(b[i], NULL);
-		ha_ovec_destroy(b[i]);
-	}
-	free(b);
-    **/
-    destroy_ec_ovec_buf_t(b);
-    exit(1);
+    // exit(1);
+
 
     if (asm_opt.required_read_name) prt_dbg_rs(R_INF_FLAG.fp_r0, &R_INF_FLAG, 0); // for debugging only
     
 	// save corrected reads to R_INF
-	CALLOC(e, asm_opt.thread_num);
-	for (i = 0; i < asm_opt.thread_num; ++i) {
-		init_UC_Read(&e[i].g_read);
-		e[i].first_round_read_size = e[i].second_round_read_size = 50000;
-		CALLOC(e[i].first_round_read, e[i].first_round_read_size);
-		CALLOC(e[i].second_round_read, e[i].second_round_read_size);
-	}
-	kt_for(asm_opt.thread_num, worker_ec_save, e, R_INF.total_reads);
-	for (i = 0; i < asm_opt.thread_num; ++i) {
-		destory_UC_Read(&e[i].g_read);
-		free(e[i].first_round_read);
-		free(e[i].second_round_read);
-	}
-	free(e);
+	// sl_ec_r(asm_opt.thread_num, R_INF.total_reads);
 
     if (asm_opt.required_read_name) prt_dbg_rs(R_INF_FLAG.fp_r1, &R_INF_FLAG, 1); // for debugging only
     if (asm_opt.required_read_name) destory_Debug_reads(&R_INF_FLAG), exit(0); // for debugging only
     ///debug_print_pob_regions();
+
+    // Output_corrected_reads();
+
+    // exit(1);
 }
 
 
@@ -1927,6 +1898,25 @@ void ha_overlap_final(void)
     asm_opt.het_cov = het_cov;
 }
 
+void ha_ec_ff(int renew_idx)
+{
+	int hom_cov, het_cov;
+    ha_flt_tab_hp = ha_idx_hp = NULL;
+
+    if(ha_idx && renew_idx) {
+        ha_pt_destroy(ha_idx); ha_idx = NULL;
+    }
+
+    if(!ha_idx) {
+        ha_idx = ha_pt_gen(&asm_opt, ha_flt_tab, 1, 0, &R_INF, &hom_cov, &het_cov); // build the index
+        asm_opt.hom_cov = hom_cov; asm_opt.het_cov = het_cov;
+    }
+
+    cal_ov_r(asm_opt.thread_num, R_INF.total_reads, renew_idx);
+
+	ha_pt_destroy(ha_idx); ha_idx = NULL;
+}
+
 static void worker_ov_utg(void *data, long i, int tid)
 {
 	ha_ovec_buf_t *b = ((ha_ovec_buf_t**)data)[tid];
@@ -2016,7 +2006,7 @@ int ha_assemble(void)
     // debug_mc_gg_t(MC_NAME, 0, 0);
     // quick_debug_phasing(MC_NAME);
 	extern void ha_extract_print_list(const All_reads *rs, int n_rounds, const char *o);
-	int r, hom_cov = -1, ovlp_loaded = 0;
+	int r, hom_cov = -1, ovlp_loaded = 0; uint64_t tot_b, tot_e;
 	if (asm_opt.load_index_from_disk && load_all_data_from_disk(&R_INF.paf, &R_INF.reverse_paf, asm_opt.output_file_name)) {
 		ovlp_loaded = 1;
 		fprintf(stderr, "[M::%s::%.3f*%.2f] ==> loaded corrected reads and overlaps from disk\n", __func__, yak_realtime(), yak_cpu_usage());
@@ -2042,24 +2032,29 @@ int ha_assemble(void)
 		assert(asm_opt.number_of_round > 0);
 		for (r = ha_idx?asm_opt.number_of_round-1:0; r < asm_opt.number_of_round; ++r) {
 			ha_opt_reset_to_round(&asm_opt, r); // this update asm_opt.roundID and a few other fields
+            tot_b = tot_e = 0;
 			// ha_overlap_and_correct(r);
-            ha_ec(r);
+            ha_ec(r, asm_opt.number_of_pround, (r<asm_opt.number_of_round-1)?1:0, &tot_b, &tot_e);
 			fprintf(stderr, "[M::%s::%.3f*%.2f@%.3fGB] ==> corrected reads for round %d\n", __func__, yak_realtime(),
 					yak_cpu_usage(), yak_peakrss_in_gb(), r + 1);
-			fprintf(stderr, "[M::%s] # bases: %lld; # corrected bases: %lld; # recorrected bases: %lld\n", __func__,
-					asm_opt.num_bases, asm_opt.num_corrected_bases, asm_opt.num_recorrected_bases);
-			fprintf(stderr, "[M::%s] size of buffer: %.3fGB\n", __func__, asm_opt.mem_buf / 1073741824.0);
+            fprintf(stderr, "[M::%s] # bases: %lu; # corrected bases: %lu\n", __func__, tot_b, tot_e);
+			// fprintf(stderr, "[M::%s] # bases: %lld; # corrected bases: %lld; # recorrected bases: %lld\n", __func__,
+			// 		asm_opt.num_bases, asm_opt.num_corrected_bases, asm_opt.num_recorrected_bases);
+			// fprintf(stderr, "[M::%s] size of buffer: %.3fGB\n", __func__, asm_opt.mem_buf / 1073741824.0);
 		}
 		if (asm_opt.flag & HA_F_WRITE_EC) Output_corrected_reads();
 		// overlap between corrected reads
 		ha_opt_reset_to_round(&asm_opt, asm_opt.number_of_round);
-		ha_overlap_final();
-		fprintf(stderr, "[M::%s::%.3f*%.2f@%.3fGB] ==> found overlaps for the final round\n", __func__, yak_realtime(),
-				yak_cpu_usage(), yak_peakrss_in_gb());
-		ha_print_ovlp_stat(R_INF.paf, R_INF.reverse_paf, R_INF.total_reads);
+		// ha_overlap_final();
+        ha_ec_ff(1/**0**/);
+        fprintf(stderr, "[M::%s::%.3f*%.2f@%.3fGB] ==> found overlaps for the final round\n", __func__, yak_realtime(), yak_cpu_usage(), yak_peakrss_in_gb());
+		// fprintf(stderr, "\n[M::%s::%.3f*%.2f@%.3fGB] ==> found overlaps for the final round\n", __func__, yak_realtime(), yak_cpu_usage(), yak_peakrss_in_gb());
+		// ha_print_ovlp_stat(R_INF.paf, R_INF.reverse_paf, R_INF.total_reads);
 		ha_ft_destroy(ha_flt_tab);
 		if (asm_opt.flag & HA_F_WRITE_PAF) Output_PAF();
 		ha_triobin(&asm_opt);
+
+        // exit(1);
 	}
     if(ovlp_loaded == 2) ovlp_loaded = 0;
     ha_opt_update_cov_min(&asm_opt, asm_opt.hom_cov, MIN_N_CHAIN);

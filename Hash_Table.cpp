@@ -1512,6 +1512,34 @@ inline int32_t comput_sc_ch(const k_mer_hit *ai, const k_mer_hit *aj, double bw_
     return sc;
 }
 
+inline int32_t comput_sc_ch_ec(const k_mer_hit *ai, const k_mer_hit *aj, double bw_rate, double chn_pen_gap, double chn_pen_skip, int64_t sl, int64_t ol)
+{
+    ///ai is the suffix of aj
+    int32_t dq, dr, dd, dg, q_span, sc; 
+    dq = (int64_t)(ai->self_offset) - (int64_t)(aj->self_offset);
+    if(dq <= 0) return INT32_MIN;
+    dr = (int64_t)(ai->offset) - (int64_t)(aj->offset);
+    if(dr <= 0) return INT32_MIN;
+    dd = dr > dq? dr - dq : dq - dr;//gap
+    if((dd > 16) && (dd > cal_bw(ai, aj, bw_rate, sl, ol))) return INT32_MIN;
+    dg = dr < dq? dr : dq;//len
+    q_span = ai->cnt&(0xffu); 
+    sc = q_span < dg? q_span : dg;
+    sc = normal_w(sc, ((int32_t)(ai->cnt>>8)));
+    if (dd || (dg > q_span && dg > 0)) {
+        double lin_pen, a_pen;
+        lin_pen = (chn_pen_gap*(double)dd);
+        a_pen = ((double)(sc))*((((double)dd)/((double)dg))/bw_rate);
+        ///for long gap
+        // if(lin_pen > a_pen) lin_pen = a_pen;
+        if(dd < 4) lin_pen = ((lin_pen > a_pen)?(a_pen):(lin_pen));
+        else lin_pen = ((lin_pen < a_pen)?(a_pen):(lin_pen));
+        lin_pen += (chn_pen_skip*(double)dg);
+        sc -= (int32_t)lin_pen;
+    }
+    return sc;
+}
+
 inline int32_t comput_sc_ff(const k_mer_hit *ai, const k_mer_hit *aj, double bw_rate, double chn_pen_gap, double chn_pen_skip, int64_t sl, int64_t ol)
 {
     ///ai is the suffix of aj
@@ -1999,6 +2027,9 @@ int64_t *p, int64_t *t, int32_t *f, int32_t *ii, int64_t *plus, int64_t *msc, in
     for (k = 1, l = 0; k <= a_n; k++) {
         if(k == a_n || a[k].strand != a[l].strand) {
             t[k-1] = 0; ii[k-1] = 0;
+            // if(a_n && a[0].readID == 3125488) {
+            //     fprintf(stderr, "[M::%s::] ii::[%ld,%ld)(%c), is_srt::%ld, chn_pen_gap::%f, chn_pen_skip::%f, bw_rate::%f\n", __func__, l, k, "+-"[a[l].strand], is_srt, chn_pen_gap, chn_pen_skip, bw_rate);
+            // }
             if(is_srt) {
                 plus0 = 0; msc0 = msc_i0 = INT32_MIN; movl0 = INT32_MAX; ddt = 0;
 
@@ -2016,6 +2047,9 @@ int64_t *p, int64_t *t, int32_t *f, int32_t *ii, int64_t *plus, int64_t *msc, in
                     dr = (int64_t)(ai->offset) - (int64_t)(aj->offset);
                     if(dr <= 0) break;
                     dd = dr > dq? dr - dq : dq - dr;//gap
+                    // if(a_n && a[0].readID == 3125488) {
+                    //     fprintf(stderr, "%ld,", dd);
+                    // }
                     if((dd > 16) && (dd > cal_bw(&(a[z]), &(a[z-1]), bw_rate, xl, yl))) break;
                     dg = dr < dq? dr : dq;//len
                     q_span = ai->cnt&(0xffu); 
@@ -2024,7 +2058,10 @@ int64_t *p, int64_t *t, int32_t *f, int32_t *ii, int64_t *plus, int64_t *msc, in
                     if (dd || (dg > q_span && dg > 0)) {
                         lin_pen = (chn_pen_gap*(double)dd);
                         a_pen = ((double)(sc))*((((double)dd)/((double)dg))/bw_rate);
-                        if(lin_pen > a_pen) lin_pen = a_pen;
+                        ///for long gap
+                        // if(lin_pen > a_pen) lin_pen = a_pen;
+                        if(dd < 4) lin_pen = ((lin_pen > a_pen)?(a_pen):(lin_pen));
+                        else lin_pen = ((lin_pen < a_pen)?(a_pen):(lin_pen));
                         lin_pen += (chn_pen_skip*(double)dg);
                         sc -= (int32_t)lin_pen;
                     }
@@ -2036,6 +2073,10 @@ int64_t *p, int64_t *t, int32_t *f, int32_t *ii, int64_t *plus, int64_t *msc, in
                     if(f[z] < plus0) plus0 = f[z];
                 }
 
+                // if(a_n && a[0].readID == 3125488) {
+                //     fprintf(stderr, "\n");
+                //     fprintf(stderr, "[M::%s::] msc0::%ld, msc_i0::%ld, (%c)\n", __func__, msc0, msc_i0, "+-"[a[l].strand]);
+                // }
                 if((z >= k) && (msc_i0 == (k - 1))) {
                     if((k - l >= 2) && (ddt > 16) && (ddt > cal_bw(&(a[k-1]), &(a[l]), bw_rate, xl, yl))) msc_i0 = INT32_MIN;
                     if(msc_i0 == (k - 1)) {
@@ -2087,7 +2128,9 @@ uint64_t lchain_qdp_mcopy_fast(Candidates_list *cl, int64_t a_idx, int64_t a_n, 
         msc = msc_i = INT32_MIN; movl = INT32_MAX; plus = 0; si = 0; ei = a_n;
         memset(t, 0, (a_n*sizeof((*t))));
     }   
-    
+    // if(a_n && a[0].readID == 3125488) {
+    //     fprintf(stderr, "[M::%s::] si::%ld, ei::%ld, a_n::%ld\n", __func__, si, ei, a_n);
+    // }
     for (i = st = si, max_ii = -1; i < ei; ++i) {
         max_f = a[i].cnt&(0xffu); 
         n_skip = 0; max_j = end_j = -1;
@@ -2095,7 +2138,7 @@ uint64_t lchain_qdp_mcopy_fast(Candidates_list *cl, int64_t a_idx, int64_t a_n, 
         while (a[i].strand != a[st].strand) ++st;
 
         for (j = i - 1; j >= st; --j) {
-            sc = comput_sc_ch(&a[i], &a[j], bw_rate, chn_pen_gap, chn_pen_skip, xl, yl);
+            sc = comput_sc_ch_ec(&a[i], &a[j], bw_rate, chn_pen_gap, chn_pen_skip, xl, yl);
             if (sc == INT32_MIN) continue;
             sc += f[j];
             if (sc > max_f) {
@@ -2119,7 +2162,7 @@ uint64_t lchain_qdp_mcopy_fast(Candidates_list *cl, int64_t a_idx, int64_t a_n, 
         }
 
         if ((max_ii >= 0) && (max_ii < end_j) && (a[i].strand == a[max_ii].strand)) {///just have a try with a[i]<->a[max_ii]
-            tmp = comput_sc_ch(&a[i], &a[max_ii], bw_rate, chn_pen_gap, chn_pen_skip, xl, yl);
+            tmp = comput_sc_ch_ec(&a[i], &a[max_ii], bw_rate, chn_pen_gap, chn_pen_skip, xl, yl);
             if (tmp != INT32_MIN && max_f < tmp + f[max_ii])
                 max_f = tmp + f[max_ii], max_j = max_ii;
         }
