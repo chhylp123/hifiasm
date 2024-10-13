@@ -2108,7 +2108,7 @@ uint64_t lchain_qdp_mcopy_fast(Candidates_list *cl, int64_t a_idx, int64_t a_n, 
               Chain_Data* dp, overlap_region_alloc* res, int64_t max_skip, int64_t max_iter, 
               int64_t max_dis, double chn_pen_gap, double chn_pen_skip, double bw_rate, 
               uint32_t xid, int64_t xl, int64_t yl, int64_t quick_check, uint32_t apend_be, 
-              int64_t gen_cigar, int64_t enable_mcopy, double mcopy_rate, int64_t mcopy_khit_cutoff, 
+              int64_t gen_cigar, int64_t mcopy_num, double mcopy_rate, int64_t mcopy_khit_cutoff, 
               int64_t khit_n)
 {
     if(a_n <= 0) return 0;
@@ -2186,19 +2186,21 @@ uint64_t lchain_qdp_mcopy_fast(Candidates_list *cl, int64_t a_idx, int64_t a_n, 
     }
 
     for (i = msc_i, cL = 0; i >= 0; i = p[i]) { ii[i] = 1; t[cL++] = i;}///label the best chain
-    if((movl < xl) && enable_mcopy/**(movl < yl)**/) {
+
+
+    if(mcopy_num > 1) {
         if(cL >= mcopy_khit_cutoff) {///if there are too few k-mers, disable mcopy
             msc -= plus; min_sc = msc*mcopy_rate/**0.2**/; ii[msc_i] = 0;
             for (i = ch_n = 0; i < a_n; ++i) {///make all f[] positive
                 f[i] -= plus; if(i >= ch_n) t[i] = 0;
-                if((!(ii[i])) && (f[i] >= min_sc)) {
+                if((!(ii[i])) && (f[i] >= min_sc)) {///!(ii[i]): skip the best chain
                     t[ch_n] = ((uint64_t)f[i])<<32; t[ch_n] += (i<<1); ch_n++;
                 }
             }
             if(ch_n > 1) {
                 int64_t n_v, n_v0, ni, n_u, n_u0 = res->length; 
                 radix_sort_hc64i(t, t + ch_n);
-                for (k = ch_n-1, n_v = n_u = 0; k >= 0; --k) {
+                for (k = ch_n-1, n_v = n_u = 0; k >= 0 && n_u < mcopy_num; --k) {
                     n_v0 = n_v;
                     for (i = ((uint32_t)t[k])>>1; i >= 0 && (t[i]&1) == 0; ) {
                         ii[n_v++] = i; t[i] |= 1; i = p[i];
@@ -2209,10 +2211,11 @@ uint64_t lchain_qdp_mcopy_fast(Candidates_list *cl, int64_t a_idx, int64_t a_n, 
                         kv_pushp_ol(overlap_region, (*res), &z);
                         push_ovlp_chain_qgen(z, xid, xl, yl, sc+plus, &(a[ii[n_v-1]]), &(a[ii[n_v0]]));
                         ///mcopy_khit_cutoff <= 1: disable the mcopy_khit_cutoff filtering, for the realignment
-                        if((mcopy_khit_cutoff <= 1) || ((z->x_pos_e+1-z->x_pos_s) <= (movl<<2))) {
+                        // if((mcopy_khit_cutoff <= 1) || ((z->x_pos_e+1-z->x_pos_s) <= (movl<<2))) {
+                        if((!n_u) || (n_v - n_v0 > 1)) {
                             z->align_length = n_v-n_v0; z->x_id = n_v0;
                             n_u++;
-                        } else {///non-best is too long
+                        } else {///non-best is tiny
                             res->length--; n_v = n_v0;
                         }
                     } else {
@@ -2220,8 +2223,8 @@ uint64_t lchain_qdp_mcopy_fast(Candidates_list *cl, int64_t a_idx, int64_t a_n, 
                     }
                 }
 
-                if(n_u > 1) ks_introsort_or_sss(n_u, res->list + n_u0); 
-                res->length = n_u0 + filter_non_ovlp_xchains(res->list + n_u0, n_u, &n_v);
+                // if(n_u > 1) ks_introsort_or_sss(n_u, res->list + n_u0); 
+                // res->length = n_u0 + filter_non_ovlp_xchains(res->list + n_u0, n_u, &n_v);
                 n_u = res->length;
                 if(n_u > n_u0 + 1) {
                     kv_resize_cl(k_mer_hit, (*cl), (n_v+cl->length));
@@ -2264,6 +2267,9 @@ uint64_t lchain_qdp_mcopy_fast(Candidates_list *cl, int64_t a_idx, int64_t a_n, 
             }
         }
     }
+
+
+
     ///a[] has been sorted by self_offset
     // i = msc_i; cL = 0; 
     // while (i >= 0) {t[cL++] = i; i = p[i];}

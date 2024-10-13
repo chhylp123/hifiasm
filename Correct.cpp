@@ -16753,12 +16753,14 @@ char* qstr, char* tstr, bit_extz_t *exz, double e_rate, int64_t ql, int64_t tl, 
 uint64_t gen_hc_fast_cigar0(overlap_region *z, Candidates_list *cl, uint64_t wl, All_reads *rref, char* qstr, UC_Read *tu, bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t ql, uint64_t rid, int64_t h_khit, int64_t *re)
 {
     int64_t ch_idx = z->shared_seed, ch_n;
-    int64_t i, tl, id = z->y_id, m, tot_e, aln; 
+    int64_t i, tl, id = z->y_id, m, tot_e, aln, xe, ye; 
     k_mer_hit *ch_a = cl->list + ch_idx;
     tl = Get_READ_LENGTH((*rref), id);
     for (i = ch_idx; i < cl->length && cl->list[i].readID == cl->list[ch_idx].readID; i++); ch_n = i-ch_idx;
     if(ch_n <= 0) return 0;
-    
+
+    ///debug for memory
+    // snprintf(NULL, 0, "dwn::%u\tdcn::%u", (uint32_t)aux_o->w_list.n, (uint32_t)aux_o->w_list.c.n);
     
     // fprintf(stderr, "[M::%s::rid->%ld] utg%.6dl(%c), z::[%u, %u)\n", 
     // __func__, rid, (int32_t)z->y_id+1, "+-"[z->y_pos_strand],  z->x_pos_s, z->x_pos_e+1);
@@ -16799,7 +16801,9 @@ uint64_t gen_hc_fast_cigar0(overlap_region *z, Candidates_list *cl, uint64_t wl,
     aux_n = z->w_list.n;
     for (i = tot_e = aln = 0; i < aux_n; i++) {
         if(is_ualn_win(z->w_list.a[i])) {
-            tot_e += z->w_list.a[i].x_end + 1 - z->w_list.a[i].x_start;
+            xe = z->w_list.a[i].x_end + 1 - z->w_list.a[i].x_start; 
+            ye = z->w_list.a[i].y_end + 1 - z->w_list.a[i].y_start;
+            tot_e += ((xe >= ye)?(xe):(ye));
         } else {
             tot_e += z->w_list.a[i].error; aln += z->w_list.a[i].x_end + 1 - z->w_list.a[i].x_start;
         }
@@ -23495,6 +23499,9 @@ void gen_hc_r_alin_nec(overlap_region_alloc* ol, Candidates_list *cl, All_reads 
     resize_UC_Read(tu, bs<<1); 
     // fprintf(stderr, "[M::%s] window_length::%lld\n", __func__, w.window_length);
 
+    ///debug for memory
+    // snprintf(NULL, 0, "dwn::%u\tdcn::%u", (uint32_t)aux_o->w_list.n, (uint32_t)aux_o->w_list.c.n);
+
     for (i = k = 0; i < ol->length; i++) {
         z = &(ol->list[i]); 
         if(z->is_match != 1) {
@@ -23514,11 +23521,19 @@ void gen_hc_r_alin_nec(overlap_region_alloc* ol, Candidates_list *cl, All_reads 
             if (rr > err) continue;
             z->non_homopolymer_errors = re;
 
+            ///debug for memory
+            // snprintf(NULL, 0, "dwn::%u\tdcn::%u", (uint32_t)aux_o->w_list.n, (uint32_t)aux_o->w_list.c.n);
+
             if(!gen_hc_fast_cigar(z, cl, rref, w.window_length, qu->seq, tu, exz, aux_o, e_rate, ql, rid, khit, &re)) continue;
 
             // if(z->x_id == 3196 && z->y_id == 3199) fprintf(stderr, "-1-[M::%s] tid::%u\t%.*s\trr::%f\tre::%ld\n", __func__, z->y_id, (int)Get_NAME_LENGTH(R_INF, z->y_id), Get_NAME(R_INF, z->y_id), rr, re);
+            ///debug for memory
+            // snprintf(NULL, 0, "dwn::%u\tdcn::%u", (uint32_t)aux_o->w_list.n, (uint32_t)aux_o->w_list.c.n);
 
             reassign_gaps(z, aux_o, qu->seq, ql, NULL, -1, rref, tu, buf);
+
+            ///debug for memory
+            // snprintf(NULL, 0, "dwn::%u\tdcn::%u", (uint32_t)aux_o->w_list.n, (uint32_t)aux_o->w_list.c.n);
         }
 
         // if(z->x_id == 3196 && z->y_id == 3199) fprintf(stderr, "-2-[M::%s] tid::%u\t%.*s\trr::%f\tre::%u\n", __func__, z->y_id, (int)Get_NAME_LENGTH(R_INF, z->y_id), Get_NAME(R_INF, z->y_id), rr, z->non_homopolymer_errors);

@@ -1920,7 +1920,7 @@ void lchain_qgen_mcopy(Candidates_list* cl, overlap_region_alloc* ol, uint32_t r
 void lchain_qgen_mcopy_fast(Candidates_list* cl, overlap_region_alloc* ol, uint32_t rid, uint64_t rl, All_reads* rdb, 
 				uint32_t apend_be, uint64_t max_n_chain, int64_t max_skip, int64_t max_iter, 
 				int64_t max_dis, double chn_pen_gap, double chn_pen_skip, double bw_rate, int64_t quick_check, 
-				uint32_t gen_off, int64_t enable_mcopy, double mcopy_rate, uint32_t chain_cutoff, uint32_t mcopy_khit_cut, st_mt_t *sp)
+				uint32_t gen_off, int64_t mcopy_num, double mcopy_rate, uint32_t chain_cutoff, uint32_t mcopy_khit_cut, st_mt_t *sp)
 {
 	// fprintf(stderr, "+[M::%s] chain_cutoff::%u\n", __func__, chain_cutoff);
 	uint64_t i, k, l, m, cn = cl->length, yid, ol0, lch; overlap_region *r, t; ///srt = 0
@@ -1931,7 +1931,7 @@ void lchain_qgen_mcopy_fast(Candidates_list* cl, overlap_region_alloc* ol, uint3
 			if(cl->list[l].readID != rid) {
 				yid = cl->list[l].readID; ol0 = ol->length;
 				m += lchain_qdp_mcopy_fast(cl, l, k-l, m, &(cl->chainDP), ol, max_skip, max_iter, max_dis, chn_pen_gap, chn_pen_skip, bw_rate, 
-				rid, rl, Get_READ_LENGTH((*rdb), yid), quick_check, apend_be, gen_off, enable_mcopy, mcopy_rate, mcopy_khit_cut, 1);
+				rid, rl, Get_READ_LENGTH((*rdb), yid), quick_check, apend_be, gen_off, mcopy_num, mcopy_rate, mcopy_khit_cut, 1);
 				if((chain_cutoff >= 2) && (!lch)) {
 					for (i = ol0; (i<ol->length) && (!lch); i++) {
 						if(ol->list[i].align_length < chain_cutoff) lch = 1;
@@ -2224,7 +2224,7 @@ void ul_map_lchain(ha_abufl_t *ab, uint32_t rid, char* rs, uint64_t rl, uint64_t
 }
 
 void h_ec_lchain(ha_abuf_t *ab, uint32_t rid, char* rs, uint64_t rl, uint64_t mz_w, uint64_t mz_k, All_reads *rref, overlap_region_alloc *overlap_list, Candidates_list *cl, double bw_thres, 
-								 int max_n_chain, int apend_be, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct, st_mt_t *sp, uint32_t *high_occ, uint32_t *low_occ, uint32_t is_accurate, uint32_t gen_off, int64_t enable_mcopy, double mcopy_rate, uint32_t chain_cutoff, uint32_t mcopy_khit_cut)
+								 int max_n_chain, int apend_be, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct, st_mt_t *sp, uint32_t *high_occ, uint32_t *low_occ, uint32_t is_accurate, uint32_t gen_off, int64_t mcopy_num, double mcopy_rate, uint32_t chain_cutoff, uint32_t mcopy_khit_cut)
 {
 	extern void *ha_flt_tab;
 	extern ha_pt_t *ha_idx;
@@ -2235,7 +2235,7 @@ void h_ec_lchain(ha_abuf_t *ab, uint32_t rid, char* rs, uint64_t rl, uint64_t mz
 	// lchain_gen(cl, overlap_list, rid, rl, NULL, uref, apend_be, f_cigar, max_n_chain, max_skip, max_iter, max_dis, chn_pen_gap, chn_pen_skip, bw_thres, quick_check, gen_off);
 	// lchain_qgen(cl, overlap_list, rid, rl, NULL, uref, apend_be, f_cigar, max_n_chain, max_skip, max_iter, max_dis, chn_pen_gap, chn_pen_skip, bw_thres, quick_check, gen_off);
 	///no need to sort here, overlap_list has been sorted at lchain_gen
-	lchain_qgen_mcopy_fast(cl, overlap_list, rid, rl, rref, apend_be, max_n_chain, max_skip, max_iter, max_dis, chn_pen_gap, chn_pen_skip, bw_thres, quick_check, gen_off, enable_mcopy, mcopy_rate, chain_cutoff, mcopy_khit_cut, sp);
+	lchain_qgen_mcopy_fast(cl, overlap_list, rid, rl, rref, apend_be, max_n_chain, max_skip, max_iter, max_dis, chn_pen_gap, chn_pen_skip, bw_thres, quick_check, gen_off, mcopy_num, mcopy_rate, chain_cutoff, mcopy_khit_cut, sp);
 }
 
 void h_ec_lchain_amz(ha_abuf_t *ab, uint32_t rid, char* rs, uint64_t rl, uint64_t mz_w, uint64_t mz_k, All_reads *rref, overlap_region_alloc *overlap_list, Candidates_list *cl, double bw_thres, 

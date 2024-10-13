@@ -1329,7 +1329,7 @@ int load_ct_index(void **i_ct_idx, char* file_name)
 
 int write_pt_index(void *flt_tab, ha_pt_t *ha_idx, All_reads* r, hifiasm_opt_t* opt, char* file_name)
 {
-    char* gfa_name = (char*)malloc(strlen(file_name)+25);
+    char* gfa_name = (char*)malloc(strlen(file_name)+64);
     sprintf(gfa_name, "%s.pt_flt", file_name);
     FILE* fp = fopen(gfa_name, "w");
 	if (!fp) {
@@ -1372,15 +1372,29 @@ int write_pt_index(void *flt_tab, ha_pt_t *ha_idx, All_reads* r, hifiasm_opt_t* 
 
 	write_All_reads(r, gfa_name);
 
+	sprintf(gfa_name, "%s.pt_flt.paf.bin", file_name); 
+	fclose(fp); fp = fopen(gfa_name, "w"); uint64_t k;
+	if (!fp) {
+		free(gfa_name);
+        return 0;
+    }
+	fwrite(&(r->total_reads), sizeof(r->total_reads), 1, fp);
+	for (k = 0; k < r->total_reads; k++) {
+		fwrite(&(r->paf[k].is_fully_corrected), sizeof(r->paf[k].is_fully_corrected), 1, fp);
+        fwrite(&(r->paf[k].is_abnormal), sizeof(r->paf[k].is_abnormal), 1, fp);
+        fwrite(&(r->paf[k].length), sizeof(r->paf[k].length), 1, fp);
+        fwrite(r->paf[k].buffer, sizeof((*(r->paf[k].buffer))), r->paf[k].length, fp);
+	}
+
 	fprintf(stderr, "[M::%s] Index has been written.\n", __func__);
     free(gfa_name);
 	fclose(fp);
 	return 1;
 }
 
-int load_pt_index(void **r_flt_tab, ha_pt_t **r_ha_idx, All_reads* r, hifiasm_opt_t* opt, char* file_name)
+int load_pt_index(void **r_flt_tab, ha_pt_t **r_ha_idx, All_reads *r, hifiasm_opt_t* opt, char* file_name)
 {
-	char* gfa_name = (char*)malloc(strlen(file_name)+25);
+	char* gfa_name = (char*)malloc(strlen(file_name)+64);
     sprintf(gfa_name, "%s.pt_flt", file_name);
     FILE* fp = fopen(gfa_name, "r");
 	if (!fp) {
@@ -1460,7 +1474,7 @@ int load_pt_index(void **r_flt_tab, ha_pt_t **r_ha_idx, All_reads* r, hifiasm_op
 	f_flag += fread(&opt->max_n_chain, sizeof(opt->max_n_chain), 1, fp);
 
 
-	fclose(fp);
+	// fclose(fp);
 	
 	if(!load_All_reads(r, gfa_name))
 	{
@@ -1468,15 +1482,33 @@ int load_pt_index(void **r_flt_tab, ha_pt_t **r_ha_idx, All_reads* r, hifiasm_op
 		return 0;
 	}
 
-
 	memset(r->trio_flag, AMBIGU, r->total_reads*sizeof(uint8_t));
+
+	sprintf(gfa_name, "%s.pt_flt.paf.bin", file_name);
+	fclose(fp); fp = fopen(gfa_name, "r"); uint64_t k;
+    if (!fp) {
+        free(gfa_name);
+        return 0;
+    }
+	f_flag += fread(&(r->total_reads), sizeof(r->total_reads), 1, fp);
 	r->paf = (ma_hit_t_alloc*)malloc(sizeof(ma_hit_t_alloc)*r->total_reads);
     r->reverse_paf = (ma_hit_t_alloc*)malloc(sizeof(ma_hit_t_alloc)*r->total_reads);
-	for (i = 0; i < (long long)r->total_reads; i++)
-    {
-        init_ma_hit_t_alloc(&(r->paf[i]));
-        init_ma_hit_t_alloc(&(r->reverse_paf[i]));
+	for (k = 0; k < r->total_reads; k++) {
+        // init_ma_hit_t_alloc(&(r->paf[k]));
+        init_ma_hit_t_alloc(&(r->reverse_paf[k]));
+
+		f_flag += fread(&(r->paf[k].is_fully_corrected), sizeof(r->paf[k].is_fully_corrected), 1, fp);
+        f_flag += fread(&(r->paf[k].is_abnormal), sizeof(r->paf[k].is_abnormal), 1, fp);
+        f_flag += fread(&(r->paf[k].length), sizeof(r->paf[k].length), 1, fp);
+        r->paf[k].size = r->paf[k].length;
+
+        r->paf[k].buffer = NULL;
+        if(r->paf[k].length == 0) continue;
+        
+        r->paf[k].buffer = (ma_hit_t*)malloc(sizeof(ma_hit_t)*r->paf[k].length);
+        fread(r->paf[k].buffer, sizeof((*(r->paf[k].buffer))), r->paf[k].length, fp);
     }
+	fclose(fp);
 
 	fprintf(stderr, "[M::%s] Index has been loaded.\n", __func__);
 
