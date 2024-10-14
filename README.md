@@ -179,6 +179,14 @@ homologous region in haplotype 2 to scaffold haplotype 1. Below is an example us
 hifiasm -o NA12878.asm -t32 --dual-scaf HiFi-reads.fq.gz
 ```
 
+### <a name="ul"></a>Preserve more telomeres for T2T assemblies
+
+Hifiasm can preserve more telomeres by specifying the telomere motif using the `--telo-m` option. 
+Below is an example applied to human genome assembly.
+```sh
+hifiasm -o NA12878.asm -t32 --telo-m CCCTAA HiFi-reads.fq.gz
+```
+
 ### <a name="output"></a>Output files
 
 Hifiasm generates different types of assemblies based on the input data. 
