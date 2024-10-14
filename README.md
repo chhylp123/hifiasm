@@ -275,3 +275,8 @@ If you use hifiasm in your work, please cite:
 > Haplotype-resolved assembly of diploid genomes without parental data. 
 > *Nature Biotechnology*, **40**:1332–1335.
 > https://doi.org/10.1038/s41587-022-01261-x
+
+> Cheng, H., Asri, M., Lucas, J., Koren, S., Li, H. (2024)
+> Scalable telomere-to-telomere assembly for diploid and polyploid genomes with double graph. 
+> *Nat Methods*, **21**:967-970.
+> https://doi.org/10.1038/s41592-024-02269-8
