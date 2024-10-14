@@ -169,6 +169,16 @@ For the trio-binning telomere-to-telomere assembly；
 hifiasm -o NA12878.asm -t32 --ul ul.fq.gz -1 pat.yak -2 mat.yak HiFi-reads.fq.gz
 ```
 
+### <a name="ul"></a>Self-scaffolding
+
+For diploid haplotype-resolved genome assembly, hifiasm can further enhance assembly contiguity 
+by introducing scaffolding. It leverages the assemblies of the two haplotypes to scaffold each other. 
+Specifically, if there is a gap within the haplotype 1 assembly, hifiasm will use the corresponding 
+homologous region in haplotype 2 to scaffold haplotype 1. Below is an example using the `--dual-scaf` option:
+```sh
+hifiasm -o NA12878.asm -t32 --dual-scaf HiFi-reads.fq.gz
+```
+
 ### <a name="output"></a>Output files
 
 Hifiasm generates different types of assemblies based on the input data. 
