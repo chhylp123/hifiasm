@@ -164,7 +164,7 @@ For the single-sample telomere-to-telomere assembly with Hi-C reads:
 ```sh
 hifiasm -o NA12878.asm -t32 --ul ul.fq.gz --h1 read1.fq.gz --h2 read2.fq.gz HiFi-reads.fq.gz
 ```
-For the trio-binning telomere-to-telomere assembly；
+For the trio-binning telomere-to-telomere assembly:
 ```sh
 hifiasm -o NA12878.asm -t32 --ul ul.fq.gz -1 pat.yak -2 mat.yak HiFi-reads.fq.gz
 ```
@@ -174,7 +174,7 @@ hifiasm -o NA12878.asm -t32 --ul ul.fq.gz -1 pat.yak -2 mat.yak HiFi-reads.fq.gz
 For diploid haplotype-resolved genome assembly, hifiasm can further enhance assembly contiguity 
 by introducing scaffolding. It leverages the assemblies of the two haplotypes to scaffold each other. 
 Specifically, if there is a gap within the haplotype 1 assembly, hifiasm will use the corresponding 
-homologous region in haplotype 2 to scaffold haplotype 1. Below is an example using the `--dual-scaf` option:
+homologous region in haplotype 2 to scaffold haplotype 1. Below is an example using the `--dual-scaf` option.
 ```sh
 hifiasm -o NA12878.asm -t32 --dual-scaf HiFi-reads.fq.gz
 ```
