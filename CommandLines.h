@@ -5,7 +5,7 @@
 #include <pthread.h>
 #include <stdint.h>
 
-#define HA_VERSION "0.20.0-r639"
+#define HA_VERSION "0.20.0-r641"
 
 #define VERBOSE 0
 
@@ -160,6 +160,8 @@ typedef struct {
     int64_t telo_pen;
     int64_t telo_drop;
     int64_t telo_mic_sc;
+    
+    uint64_t is_ont;
 } hifiasm_opt_t;
 
 extern hifiasm_opt_t asm_opt;

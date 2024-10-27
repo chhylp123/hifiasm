@@ -2865,6 +2865,23 @@ void prt_ovlp_sam(overlap_region_alloc* ol, UC_Read* tu, char *ref_seq, int32_t 
     fclose(fp);
 }
 
+void stderr_phase_ovlp(overlap_region_alloc* ol)
+{
+    int64_t on = ol->length, k; overlap_region *z;
+    if(!on) return;
+    uint64_t qry_n = 0, rid, ref_n, qid;
+    rid = ol->list[0].x_id; ref_n = Get_NAME_LENGTH(R_INF, rid);
+    
+    for (k = 0; k < on; k++) {
+        z = &(ol->list[k]); qid = ol->list[k].y_id; 
+        qry_n = Get_NAME_LENGTH(R_INF, qid); 
+
+        fprintf(stderr, "%.*s(qid::%lu)\tql::%lu\tq::[%u,\t%u)\t%c\t%.*s(tid::%lu)\ttl::%lu\tt::[%u,\t%u)\ttrans::%u\n", 
+        (int32_t)Get_NAME_LENGTH(R_INF, rid), Get_NAME(R_INF, rid), rid, ref_n, z->x_pos_s, z->x_pos_e + 1, "+-"[z->y_pos_strand], 
+        (int32_t)Get_NAME_LENGTH(R_INF, qid), Get_NAME(R_INF, qid), qid, qry_n, z->y_pos_s, z->y_pos_e + 1, ((z->is_match==1)?(0):(1)));
+    }
+}
+
 void dedup_chains(overlap_region_alloc* ol)
 {
     uint64_t k, l, s, m, mm_k, mm_m, sf; int64_t sc, mm_sc, plus, minus; overlap_region *z, t; 
@@ -2931,11 +2948,11 @@ static void worker_hap_ec(void *data, long i, int tid)
     **/
     // if(i < 1100000 || i > 1400000) return;
     // if(i % 100000 == 0) fprintf(stderr, "-a-[M::%s-beg] rid->%ld\n", __func__, i);
-    // if (memcmp("m64062_190807_194840/180552420/ccs"/**"m64062_190803_042216/161743554/ccs"**//**"m64062_190806_063919/15403289/ccs"**/, Get_NAME((R_INF), i), Get_NAME_LENGTH((R_INF),i)) == 0) {
-    //     fprintf(stderr, "-a-[M::%s-beg] rid->%ld\n", __func__, i);
-    // } else {
-    //     return;
-    // }
+    if (memcmp("4da034b0-a94d-4576-8481-c0d9a9f96d40", Get_NAME((R_INF), i), Get_NAME_LENGTH((R_INF),i)) == 0) {
+        fprintf(stderr, "-a-[M::%s-beg] rid->%ld\n", __func__, i);
+    } else {
+        return;
+    }
 
     // if(i != 3028559) return;
     // if(i != 306) return;
@@ -2970,9 +2987,11 @@ static void worker_hap_ec(void *data, long i, int tid)
 
     // b->num_correct_base += b->olist.length;
 
-    copy_asg_arr(buf0, b->sp);
-    rphase_hc(&b->olist, &R_INF, &b->hap, &b->self_read, &b->ovlp_read, &b->pidx, &b->v64, &buf0, 0, WINDOW_MAX_SIZE, b->self_read.length, 1/**, 0**/, i);
+    copy_asg_arr(buf0, b->sp); 
+    rphase_hc(&b->olist, &R_INF, &b->hap, &b->self_read, &b->ovlp_read, &b->pidx, &b->v64, &buf0, 0, WINDOW_MAX_SIZE, b->self_read.length, 1/**, 0**/, i, (asm_opt.is_ont)?HPC_PL:0);
     copy_asg_arr(b->sp, buf0);
+
+    // stderr_phase_ovlp(&b->olist);
 
     dedup_chains(&b->olist);
 
@@ -4999,9 +5018,9 @@ static void worker_hap_dc_ec0(void *data, long i, int tid)
     
     b->cnt[0] += b->self_read.length;
 
-    copy_asg_arr(buf0, b->sp);
-    rphase_hc(&b->olist, &R_INF, &b->hap, &b->self_read, &b->ovlp_read, &b->pidx, &b->v64, &buf0, 0, WINDOW_MAX_SIZE, b->self_read.length, 1/**, 1**/, i);
-    copy_asg_arr(b->sp, buf0);
+    copy_asg_arr(buf0, b->sp); 
+    rphase_hc(&b->olist, &R_INF, &b->hap, &b->self_read, &b->ovlp_read, &b->pidx, &b->v64, &buf0, 0, WINDOW_MAX_SIZE, b->self_read.length, 1/**, 1**/, i, (asm_opt.is_ont)?HPC_PL:0);
+    copy_asg_arr(b->sp, buf0); 
 
     copy_asg_arr(buf0, b->sp);
     b->cnt[1] += wcns_gen(&b->olist, &R_INF, &b->self_read, &b->ovlp_read, &b->exz, &b->pidx, &b->v64, &buf0, 0, 512, b->self_read.length, 3, 0.500001, aux_o, &b->v32, &b->cns, 256, i);

@@ -71,6 +71,7 @@ static ko_longopt_t long_options[] = {
     { "telo-d",     ko_required_argument, 356},
     { "telo-s",     ko_required_argument, 357},
     { "ctg-n",     ko_required_argument, 358},
+    { "ont",       ko_no_argument, 359},
     // { "path-round",     ko_required_argument, 348},
 	{ 0, 0, 0 }
 };
@@ -91,6 +92,8 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "    -t INT       number of threads [%d]\n", asm_opt->thread_num);
     fprintf(stderr, "    -h           show help information\n");
     fprintf(stderr, "    --version    show version number\n");
+    fprintf(stderr, "  Preset options:\n");
+    fprintf(stderr, "    --ont        assemble Oxford Nanopore reads\n");
 	fprintf(stderr, "  Overlap/Error correction:\n");
     fprintf(stderr, "    -k INT       k-mer length (must be <64) [%d]\n", asm_opt->k_mer_length);
 	fprintf(stderr, "    -w INT       minimizer window size [%d]\n", asm_opt->mz_win);
@@ -335,6 +338,8 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->telo_pen = 1;
     asm_opt->telo_drop = 2000;
     asm_opt->telo_mic_sc = 500;
+
+    asm_opt->is_ont = 0;
 }
 
 void destory_enzyme(enzyme* f)
@@ -906,6 +911,7 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         else if (c == 356) asm_opt->telo_drop = atol(opt.arg);
         else if (c == 357) asm_opt->telo_mic_sc = atol(opt.arg);
         else if (c == 358) asm_opt->max_contig_tip = atol(opt.arg);
+        else if (c == 359) asm_opt->is_ont = 1;
         else if (c == 'l') {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
             asm_opt->purge_level_primary = asm_opt->purge_level_trio = atoi(opt.arg);
         }
