@@ -2948,11 +2948,11 @@ static void worker_hap_ec(void *data, long i, int tid)
     **/
     // if(i < 1100000 || i > 1400000) return;
     // if(i % 100000 == 0) fprintf(stderr, "-a-[M::%s-beg] rid->%ld\n", __func__, i);
-    if (memcmp("4da034b0-a94d-4576-8481-c0d9a9f96d40", Get_NAME((R_INF), i), Get_NAME_LENGTH((R_INF),i)) == 0) {
-        fprintf(stderr, "-a-[M::%s-beg] rid->%ld\n", __func__, i);
-    } else {
-        return;
-    }
+    // if (memcmp("4da034b0-a94d-4576-8481-c0d9a9f96d40", Get_NAME((R_INF), i), Get_NAME_LENGTH((R_INF),i)) == 0) {
+    //     fprintf(stderr, "-a-[M::%s-beg] rid->%ld\n", __func__, i);
+    // } else {
+    //     return;
+    // }
 
     // if(i != 3028559) return;
     // if(i != 306) return;
@@ -2973,8 +2973,7 @@ static void worker_hap_ec(void *data, long i, int tid)
     ///debug for memory
     // snprintf(NULL, 0, "dwn::%u\tdcn::%u", (uint32_t)aux_o->w_list.n, (uint32_t)aux_o->w_list.c.n);
 
-    // gen_hc_r_alin(&b->olist, &b->clist, &R_INF, &b->self_read, &b->ovlp_read, &b->exz, aux_o, asm_opt.max_ov_diff_ec, WINDOW_HC, i, E_KHIT/**asm_opt.k_mer_length**/, 1, &b->v16);
-    gen_hc_r_alin_ea(&b->olist, &b->clist, &R_INF, &b->self_read, &b->ovlp_read, &b->exz, aux_o, asm_opt.max_ov_diff_ec, WINDOW_HC, i, E_KHIT/**asm_opt.k_mer_length**/, 1, &b->v16, &b->v64, &(R_INF.paf[i]));
+    gen_hc_r_alin_ea(&b->olist, &b->clist, &R_INF, &b->self_read, &b->ovlp_read, &b->exz, aux_o, asm_opt.max_ov_diff_ec, (asm_opt.is_ont)?(WINDOW_OHC):(WINDOW_HC), i, E_KHIT/**asm_opt.k_mer_length**/, 1, &b->v16, &b->v64, &(R_INF.paf[i]));
 
     // prt_ovlp_sam(&b->olist, &b->ovlp_read, b->self_read.seq, b->self_read.length);
 
@@ -2988,7 +2987,7 @@ static void worker_hap_ec(void *data, long i, int tid)
     // b->num_correct_base += b->olist.length;
 
     copy_asg_arr(buf0, b->sp); 
-    rphase_hc(&b->olist, &R_INF, &b->hap, &b->self_read, &b->ovlp_read, &b->pidx, &b->v64, &buf0, 0, WINDOW_MAX_SIZE, b->self_read.length, 1/**, 0**/, i, (asm_opt.is_ont)?HPC_PL:0);
+    rphase_hc(&b->olist, &R_INF, &b->hap, &b->self_read, &b->ovlp_read, &b->pidx, &b->v64, &buf0, 0, WINDOW_MAX_SIZE, b->self_read.length, 1/**, 0**/, i, (asm_opt.is_ont)?HPC_PL:0, asm_opt.is_ont);
     copy_asg_arr(b->sp, buf0);
 
     // stderr_phase_ovlp(&b->olist);
@@ -3630,7 +3629,7 @@ overlap_region* h_ec_lchain_re(ha_abuf_t *ab, uint32_t rid, char* rs, uint64_t r
 								 int apend_be, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct, st_mt_t *sp, uint32_t *high_occ, uint32_t *low_occ, uint32_t is_accurate, uint32_t gen_off, int64_t enable_mcopy, double mcopy_rate, uint32_t mcopy_khit_cut, ma_hit_t_alloc *in0, ma_hit_t_alloc *in1)
 {
     // fprintf(stderr, "-mm-[M::%s]\tchain_cutoff::%u\n", __func__, chain_cutoff);
-    uint64_t on = 0, k, ol0, wl = WINDOW_HC, m; ma_hit_t *oa = NULL; overlap_region *z = NULL, *aux_o = NULL, t; Window_Pool w; double err = asm_opt.max_ov_diff_ec;
+    uint64_t on = 0, k, ol0, wl = (asm_opt.is_ont)?(WINDOW_OHC):(WINDOW_HC), m; ma_hit_t *oa = NULL; overlap_region *z = NULL, *aux_o = NULL, t; Window_Pool w; double err = asm_opt.max_ov_diff_ec;
 
     int64_t max_skip, max_iter, max_dis, quick_check; double chn_pen_gap, chn_pen_skip; 
 	set_lchain_dp_op(is_accurate, mz_k, &max_skip, &max_iter, &max_dis, &chn_pen_gap, &chn_pen_skip, &quick_check);
@@ -3737,7 +3736,7 @@ overlap_region* h_ec_lchain_re1(ha_abuf_t *ab, uint32_t rid, UC_Read *qu, UC_Rea
 								 int apend_be, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct, st_mt_t *sp, uint32_t *high_occ, uint32_t *low_occ, uint32_t is_accurate, uint32_t gen_off, int64_t enable_mcopy, double mcopy_rate, uint32_t mcopy_khit_cut, ma_hit_t_alloc *in0, ma_hit_t_alloc *in1)
 {
     // fprintf(stderr, "-mm-[M::%s]\tchain_cutoff::%u\n", __func__, chain_cutoff);
-    uint64_t on = 0, k, one = 0, ol0, wl = WINDOW_HC, m, m0, tid, trev; ma_hit_t *oa = NULL, *p = NULL; overlap_region *aux_o = NULL, *z = NULL, t; Window_Pool w; double err = asm_opt.max_ov_diff_ec;
+    uint64_t on = 0, k, one = 0, ol0, wl = (asm_opt.is_ont)?(WINDOW_OHC):(WINDOW_HC), m, m0, tid, trev; ma_hit_t *oa = NULL, *p = NULL; overlap_region *aux_o = NULL, *z = NULL, t; Window_Pool w; double err = asm_opt.max_ov_diff_ec;
     char* rs = qu->seq; uint64_t rl = qu->length; 
     int64_t max_skip, max_iter, max_dis, quick_check; double chn_pen_gap, chn_pen_skip; 
 	set_lchain_dp_op(is_accurate, mz_k, &max_skip, &max_iter, &max_dis, &chn_pen_gap, &chn_pen_skip, &quick_check);
@@ -3912,7 +3911,7 @@ overlap_region* h_ec_lchain_re2(ha_abuf_t *ab, uint32_t rid, UC_Read *qu, UC_Rea
 {
     // fprintf(stderr, "-0-[M::%s]\tnew_n::%lu\told_n::%u\n", __func__, ol->length, in0->length + in1->length);
     // fprintf(stderr, "-mm-[M::%s]\tchain_cutoff::%u\n", __func__, chain_cutoff);
-    uint64_t on = 0, k, l, i, one = 0, ol0, wl = WINDOW_HC, m, m0, tid, trev, max_cnt = UINT32_MAX, min_cnt = 0; ma_hit_t *oa = NULL, *p = NULL; overlap_region *aux_o = NULL, *z = NULL, t; Window_Pool w; double err = asm_opt.max_ov_diff_ec; tiny_queue_t tq; memset(&tq, 0, sizeof(tiny_queue_t));
+    uint64_t on = 0, k, l, i, one = 0, ol0, wl = (asm_opt.is_ont)?(WINDOW_OHC):(WINDOW_HC), m, m0, tid, trev, max_cnt = UINT32_MAX, min_cnt = 0; ma_hit_t *oa = NULL, *p = NULL; overlap_region *aux_o = NULL, *z = NULL, t; Window_Pool w; double err = asm_opt.max_ov_diff_ec; tiny_queue_t tq; memset(&tq, 0, sizeof(tiny_queue_t));
     char* rs = qu->seq; uint64_t rl = qu->length; int64_t n, zn, om;
     int64_t max_skip, max_iter, max_dis, quick_check; double chn_pen_gap, chn_pen_skip; 
 	set_lchain_dp_op(is_accurate, mz_k, &max_skip, &max_iter, &max_dis, &chn_pen_gap, &chn_pen_skip, &quick_check);
@@ -4067,7 +4066,7 @@ overlap_region* h_ec_lchain_fast(ha_abuf_t *ab, uint32_t rid, UC_Read *qu, UC_Re
 {
     // fprintf(stderr, "-0-[M::%s]\tnew_n::%lu\told_n::%u\n", __func__, ol->length, in0->length + in1->length);
     // fprintf(stderr, "-mm-[M::%s]\tchain_cutoff::%u\n", __func__, chain_cutoff);
-    uint64_t on = 0, k, l, i, one = 0, ol0, wl = WINDOW_HC, m, m0, tid, trev, max_cnt = UINT32_MAX, min_cnt = 0, is_match; ma_hit_t *oa = NULL, *p = NULL; overlap_region *aux_o = NULL, *z = NULL; Window_Pool w; double err = asm_opt.max_ov_diff_ec; tiny_queue_t tq; memset(&tq, 0, sizeof(tiny_queue_t));
+    uint64_t on = 0, k, l, i, one = 0, ol0, wl = (asm_opt.is_ont)?(WINDOW_OHC):(WINDOW_HC), m, m0, tid, trev, max_cnt = UINT32_MAX, min_cnt = 0, is_match; ma_hit_t *oa = NULL, *p = NULL; overlap_region *aux_o = NULL, *z = NULL; Window_Pool w; double err = asm_opt.max_ov_diff_ec; tiny_queue_t tq; memset(&tq, 0, sizeof(tiny_queue_t));
     char* rs = qu->seq; uint64_t rl = qu->length; int64_t n, zn, om; uint64_t aq[2], at[2], bq[2], bt[2], ovlp, os, oe;
     int64_t max_skip, max_iter, max_dis, quick_check; double chn_pen_gap, chn_pen_skip; 
 	set_lchain_dp_op(is_accurate, mz_k, &max_skip, &max_iter, &max_dis, &chn_pen_gap, &chn_pen_skip, &quick_check);
@@ -4399,7 +4398,7 @@ overlap_region* h_ec_lchain_re3(ha_abuf_t *ab, uint32_t rid, UC_Read *qu, UC_Rea
                                  int apend_be, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct, st_mt_t *sp, uint32_t *high_occ, uint32_t *low_occ, uint32_t is_accurate, uint32_t gen_off, int64_t enable_mcopy, double mcopy_rate, uint32_t mcopy_khit_cut, ma_hit_t_alloc *in0, ma_hit_t_alloc *in1)
 {
     // fprintf(stderr, "-mm-[M::%s]\tchain_cutoff::%u\n", __func__, chain_cutoff);
-    uint64_t on = 0, k, one = 0, ol0, wl = WINDOW_HC, m, m0, tid, trev; ma_hit_t *oa = NULL, *p = NULL; overlap_region *aux_o = NULL, *z = NULL, t; Window_Pool w; double err = asm_opt.max_ov_diff_ec;
+    uint64_t on = 0, k, one = 0, ol0, wl = (asm_opt.is_ont)?(WINDOW_OHC):(WINDOW_HC), m, m0, tid, trev; ma_hit_t *oa = NULL, *p = NULL; overlap_region *aux_o = NULL, *z = NULL, t; Window_Pool w; double err = asm_opt.max_ov_diff_ec;
     char* rs = qu->seq; uint64_t rl = qu->length; 
     int64_t max_skip, max_iter, max_dis, quick_check; double chn_pen_gap, chn_pen_skip; 
     set_lchain_dp_op(is_accurate, mz_k, &max_skip, &max_iter, &max_dis, &chn_pen_gap, &chn_pen_skip, &quick_check);
@@ -5019,7 +5018,7 @@ static void worker_hap_dc_ec0(void *data, long i, int tid)
     b->cnt[0] += b->self_read.length;
 
     copy_asg_arr(buf0, b->sp); 
-    rphase_hc(&b->olist, &R_INF, &b->hap, &b->self_read, &b->ovlp_read, &b->pidx, &b->v64, &buf0, 0, WINDOW_MAX_SIZE, b->self_read.length, 1/**, 1**/, i, (asm_opt.is_ont)?HPC_PL:0);
+    rphase_hc(&b->olist, &R_INF, &b->hap, &b->self_read, &b->ovlp_read, &b->pidx, &b->v64, &buf0, 0, WINDOW_MAX_SIZE, b->self_read.length, 1/**, 1**/, i, (asm_opt.is_ont)?HPC_PL:0, asm_opt.is_ont);
     copy_asg_arr(b->sp, buf0); 
 
     copy_asg_arr(buf0, b->sp);

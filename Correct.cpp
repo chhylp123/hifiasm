@@ -8832,7 +8832,9 @@ void prt_sub_cigar(overlap_region* z, uint64_t str_l, uint64_t site, uint64_t wi
     }
 }
 
-void generate_haplotypes_naive_HiFi(haplotype_evdience_alloc* hap, overlap_region_alloc* overlap_list, double up, UC_Read* g_read, void *km)
+#define is_st_bs(s, rr, mm) (((mm) != ((uint64_t)-1)) && (((s).overlap_num + mm) >= ((s).occ_0)) && ((((s).occ_0*(rr) + (s).overlap_num)) >= ((s).occ_0)))
+
+void generate_haplotypes_naive_HiFi(haplotype_evdience_alloc* hap, overlap_region_alloc* overlap_list, double up, UC_Read* g_read, uint64_t multi_check, double st_rate, uint64_t st_max)
 {
     // fprintf(stderr, "[M::%s::] Done\n", __func__);
     if(hap->length == 0) return;
@@ -8885,6 +8887,7 @@ void generate_haplotypes_naive_HiFi(haplotype_evdience_alloc* hap, overlap_regio
                 s = &(hap->snp_stat.a[hap->list[i].overlapSite]); 
                 assert(s->site == hap->list[i].site);
                 if(s->occ_0 < 2 || s->occ_1 < 2) continue;
+                if(is_st_bs((*s), st_rate, st_max)) continue;
                 if(s->occ_0 >= asm_opt.s_hap_cov && s->occ_1 >= asm_opt.infor_cov) o++;///allels must be real
             }
 
@@ -8929,8 +8932,7 @@ void generate_haplotypes_naive_HiFi(haplotype_evdience_alloc* hap, overlap_regio
             if(o > 0) {
                 o = ((uint32_t)-1) - o;
                 o <<= 32; o += l; 
-                if(!km) kv_push(uint64_t, hap->snp_srt, o);
-                else kv_push_km(km, uint64_t, hap->snp_srt, o);
+                kv_push(uint64_t, hap->snp_srt, o);
             }
             l = k;
         }
@@ -8944,16 +8946,17 @@ void generate_haplotypes_naive_HiFi(haplotype_evdience_alloc* hap, overlap_regio
                 if(hap->list[i].type!=1) continue;
                 s = &(hap->snp_stat.a[hap->list[i].overlapSite]);
                 if(s->occ_0 < 2 || s->occ_1 < 2) continue;
+                if(is_st_bs((*s), st_rate, st_max)) continue;
                 if(s->occ_0 >= asm_opt.s_hap_cov && s->occ_1 >= asm_opt.infor_cov) {
                     o++;
-                    if(overlap_list->list[hap->list[l].overlapID].y_id == 3276) {
-                        fprintf(stderr, "[M::%s-id::%u] occ_0->%u, occ_1->%u, occ_2->%u, site->%u\n", __func__, overlap_list->list[hap->list[l].overlapID].y_id, s->occ_0, s->occ_1, s->occ_2, s->site);
-                    }
+                    // if(overlap_list->list[hap->list[l].overlapID].y_id == 3276) {
+                    //     fprintf(stderr, "[M::%s-id::%u] occ_0->%u, occ_1->%u, occ_2->%u, site->%u\n", __func__, overlap_list->list[hap->list[l].overlapID].y_id, s->occ_0, s->occ_1, s->occ_2, s->site);
+                    // }
                 }
             }
-            if(overlap_list->list[hap->list[l].overlapID].y_id == 3276) {
-                fprintf(stderr, "***1***[M::%s-id::%u] o->%lu\n", __func__, overlap_list->list[hap->list[l].overlapID].y_id, o);
-            }
+            // if(overlap_list->list[hap->list[l].overlapID].y_id == 3276) {
+            //     fprintf(stderr, "***1***[M::%s-id::%u] o->%lu\n", __func__, overlap_list->list[hap->list[l].overlapID].y_id, o);
+            // }
             if(o == 0) continue;
 
             ii = hap->list[l].overlapID;
@@ -8971,6 +8974,10 @@ void generate_haplotypes_naive_HiFi(haplotype_evdience_alloc* hap, overlap_regio
                         if(s->site!=t->site) break;
                         t->occ_0 -= hap->list[i].cov;
                         assert(t->occ_0 >= 1);
+                        if((st_max != ((uint64_t)-1)) && (overlap_list->list[ii].y_pos_strand == 0)) {
+                            t->overlap_num -= hap->list[i].cov;
+                            assert(t->overlap_num >= 1);
+                        }
                     }
                 }
             }
@@ -8982,6 +8989,7 @@ void generate_haplotypes_naive_HiFi(haplotype_evdience_alloc* hap, overlap_regio
                 if(hap->list[i].type!=1) continue;
                 s = &(hap->snp_stat.a[hap->list[i].overlapSite]);
                 if(s->occ_0 < 2 || s->occ_1 < 2) continue;
+                if(is_st_bs((*s), st_rate, st_max)) continue;
                 if(s->score == 1) o++;
             }
             ii = hap->list[l].overlapID;
@@ -9011,52 +9019,53 @@ void generate_haplotypes_naive_HiFi(haplotype_evdience_alloc* hap, overlap_regio
     }
 
     
-
-    hap->snp_srt.n = 0;
-    for (k = 1, l = 0; k <= hap->length; ++k) {  
-        if (k == hap->length || hap->list[k].overlapID != hap->list[l].overlapID) {
-            if(overlap_list->list[hap->list[l].overlapID].is_match == 2) {
-                l = k;
-                continue;
-            }
-            for (i = l, o = 0; i < k; i++) {
-                if(hap->list[i].type!=1) continue;
-                s = &(hap->snp_stat.a[hap->list[i].overlapSite]);
-                if(s->occ_0 < 2 || s->occ_1 < 2) continue;
-                if(s->occ_0 >= asm_opt.s_hap_cov && s->occ_1 >= asm_opt.infor_cov) continue;
-                if(s->score == 1) continue;
-                o++; 
-                if(!km) kv_push(uint64_t, hap->snp_srt, hap->list[i].overlapSite);
-                else kv_push_km(km, uint64_t, hap->snp_srt, hap->list[i].overlapSite);
-            }
-            // if(overlap_list->list[hap->list[l].overlapID].y_id == 317 || overlap_list->list[hap->list[l].overlapID].y_id == 287) {
-            //     fprintf(stderr, "***2***[M::%s-id::%u] o->%lu\n", __func__, overlap_list->list[hap->list[l].overlapID].y_id, o);
-            // }
-            hap->snp_srt.n -= o;
-            ///there are at least two variants at one read
-            if(o>=(overlap_list->list[hap->list[l].overlapID].align_length*up)) {
-                radix_sort_bc64(hap->snp_srt.a + hap->snp_srt.n, hap->snp_srt.a + hap->snp_srt.n + o);
-                a = hap->snp_srt.a + hap->snp_srt.n;
-                for (i = z = 0; i < o; i++) {
-                    if(i > 0) s = &(hap->snp_stat.a[a[i-1]]);
-                    if(i + 1 < o) t = &(hap->snp_stat.a[a[i+1]]);
-                    if(s && s->site + 32 > hap->snp_stat.a[a[i]].site) continue;
-                    if(t && hap->snp_stat.a[a[i]].site + 32 > t->site) continue;
-                    a[z] = a[i];
-                    z++;
+    if(multi_check) {
+        hap->snp_srt.n = 0;
+        for (k = 1, l = 0; k <= hap->length; ++k) {  
+            if (k == hap->length || hap->list[k].overlapID != hap->list[l].overlapID) {
+                if(overlap_list->list[hap->list[l].overlapID].is_match == 2) {
+                    l = k;
+                    continue;
                 }
-                if(z >= 2) hap->snp_srt.n += z; 
+                for (i = l, o = 0; i < k; i++) {
+                    if(hap->list[i].type!=1) continue;
+                    s = &(hap->snp_stat.a[hap->list[i].overlapSite]);
+                    if(s->occ_0 < 2 || s->occ_1 < 2) continue;
+                    if(is_st_bs((*s), st_rate, st_max)) continue;
+                    if(s->occ_0 >= asm_opt.s_hap_cov && s->occ_1 >= asm_opt.infor_cov) continue;
+                    if(s->score == 1) continue;
+                    o++; 
+                    kv_push(uint64_t, hap->snp_srt, hap->list[i].overlapSite);
+                }
+                // if(overlap_list->list[hap->list[l].overlapID].y_id == 317 || overlap_list->list[hap->list[l].overlapID].y_id == 287) {
+                //     fprintf(stderr, "***2***[M::%s-id::%u] o->%lu\n", __func__, overlap_list->list[hap->list[l].overlapID].y_id, o);
+                // }
+                hap->snp_srt.n -= o;
+                ///there are at least two variants at one read
+                if(o>=(overlap_list->list[hap->list[l].overlapID].align_length*up)) {
+                    radix_sort_bc64(hap->snp_srt.a + hap->snp_srt.n, hap->snp_srt.a + hap->snp_srt.n + o);
+                    a = hap->snp_srt.a + hap->snp_srt.n;
+                    for (i = z = 0; i < o; i++) {
+                        if(i > 0) s = &(hap->snp_stat.a[a[i-1]]);
+                        if(i + 1 < o) t = &(hap->snp_stat.a[a[i+1]]);
+                        if(s && s->site + 32 > hap->snp_stat.a[a[i]].site) continue;
+                        if(t && hap->snp_stat.a[a[i]].site + 32 > t->site) continue;
+                        a[z] = a[i];
+                        z++;
+                    }
+                    if(z >= 2) hap->snp_srt.n += z; 
+                }
+                l = k;
             }
-            l = k;
         }
-    }
-    if (hap->snp_srt.n > 0) {
-        radix_sort_bc64(hap->snp_srt.a, hap->snp_srt.a + hap->snp_srt.n);
-        for (k = 1, l = 0; k <= hap->snp_srt.n; ++k) {  
-            if(k == hap->snp_srt.n || hap->snp_srt.a[k] != hap->snp_srt.a[l]) {
-                if(k - l >= 2) hap->snp_stat.a[hap->snp_srt.a[l]].score = 1;
+        if (hap->snp_srt.n > 0) {
+            radix_sort_bc64(hap->snp_srt.a, hap->snp_srt.a + hap->snp_srt.n);
+            for (k = 1, l = 0; k <= hap->snp_srt.n; ++k) {  
+                if(k == hap->snp_srt.n || hap->snp_srt.a[k] != hap->snp_srt.a[l]) {
+                    if(k - l >= 2) hap->snp_stat.a[hap->snp_srt.a[l]].score = 1;
+                }
+                l = k;
             }
-            l = k;
         }
     }
 
@@ -9071,7 +9080,7 @@ void generate_haplotypes_naive_HiFi(haplotype_evdience_alloc* hap, overlap_regio
                 for (i = l; i < k; i++) {
                     if(hap->list[i].type==1 || hap->list[i].type==0) {
                         s = &(hap->snp_stat.a[hap->list[i].overlapSite]);
-                        if(s->score == 1 && (!(s->occ_0 < 2 || s->occ_1 < 2))) {
+                        if(s->score == 1 && (!(s->occ_0 < 2 || s->occ_1 < 2)) && (!(is_st_bs((*s), st_rate, st_max)))) {
                             overlap_list->list[ii].strong = 1;
                             if(hap->list[i].type==1) {
                                 overlap_list->list[ii].is_match = 2;
@@ -9576,6 +9585,74 @@ int insert_snp_ee(haplotype_evdience_alloc* h, haplotype_evdience* a, uint64_t a
     return m;
 }
 
+int push_info(haplotype_evdience_alloc* h, haplotype_evdience* a, uint64_t a_n, haplotype_evdience* u_a, overlap_region *oa)
+{
+    uint64_t i, m, occ_0, occ_1[6], occ_2, diff, rev_n;
+    occ_0 = occ_2 = diff = rev_n = 0; memset(occ_1, 0, sizeof(uint64_t)*6);
+
+    for (i = 0; i < a_n; i++) {
+        if(a[i].type == 0){
+            occ_0 += a[i].cov;
+            if((oa) && (oa[a[i].overlapID].y_pos_strand == 0)) {
+                rev_n += a[i].cov;
+            }
+        }else if(a[i].type == 1){
+            occ_1[seq_nt6_table[(uint8_t)(a[i].misBase)]] += a[i].cov;
+            diff += a[i].cov;
+        }
+        occ_2 += a[i].cov;
+    }
+
+    /**
+     1. if occ_0 = 0, that means all overlaps are different with this read at this site
+     2. it is not possible that occ_1 = 0,
+     3. if occ_1 = 1, there are only one difference. It must be a sequencing error.
+        (for repeat, it maybe a snp at repeat. but ...)
+    **/
+    SnpStats *p = NULL; 
+    if(occ_0 == 0 || diff <= 1) return 0;
+    if((oa) && (rev_n == occ_0)) return 0;
+    if(!oa) {
+        rev_n = occ_2;
+    } else {
+        rev_n++;
+    }
+    for (i = m = 0; i < 4; i++) {
+        if(occ_1[i] >= 2){
+            kv_pushp(SnpStats, h->snp_stat, &p);
+            p->id = h->snp_stat.n-1;
+            p->occ_0 = 1 + occ_0;
+            p->occ_1 = occ_1[i];
+            p->occ_2 = occ_2 - p->occ_0 - p->occ_1;
+            p->site = a[0].site;
+            p->score = -1;
+            p->overlap_num = rev_n;
+            p->is_homopolymer = 0;
+            occ_1[i] = p->id;
+            m++;
+        } else {
+            occ_1[i] = (uint64_t)-1;
+        }
+    }
+    occ_1[4] = occ_1[5] = (uint64_t)-1;
+    if(m == 0) return 0;
+    
+    for (i = m = 0; i < a_n; i++) {
+        // fprintf(stderr, "[M::%s] a[%lu].misBase->%c\n", __func__, i, a[i].misBase);
+        if(a[i].type == 0) {
+            a[i].overlapSite = h->snp_stat.n-1;
+        } else if(occ_1[seq_nt6_table[(uint8_t)(a[i].misBase)]]!=(uint64_t)-1){
+            a[i].cov = a[i].overlapSite;///note: only renew cov here!!!
+            a[i].overlapSite = occ_1[seq_nt6_table[(uint8_t)(a[i].misBase)]];
+        } else {
+            continue;
+        }
+        u_a[m++] = a[i];
+    }
+
+    return m;
+}
+
 
 void partition_overlaps_advance(overlap_region_alloc* overlap_list, All_reads* R_INF, 
                         UC_Read* g_read, UC_Read* overlap_read, Correct_dumy* dumy, 
@@ -9626,7 +9703,7 @@ void partition_overlaps_advance(overlap_region_alloc* overlap_list, All_reads* R
     hap->length = m;
 
     // generate_haplotypes_naive_advance(hap, overlap_list, NULL);
-    generate_haplotypes_naive_HiFi(hap, overlap_list, 0.04, g_read, NULL);
+    generate_haplotypes_naive_HiFi(hap, overlap_list, 0.04, g_read, 1, 0, ((uint64_t)-1));
     // generate_haplotypes_DP(hap, overlap_list, R_INF, g_read->length, force_repeat);
     // generate_haplotypes_naive(hap, overlap_list, R_INF, g_read->length, force_repeat);
 
@@ -17449,17 +17526,58 @@ int64_t extract_sub_cigar_err_rr(overlap_region *z, int64_t s, int64_t e, ul_ov_
     return err;
 }
 
-uint64_t is_hpc_gen(char *p, int64_t l, int64_t s, int64_t e, int64_t hpc_r, int64_t target)
+uint8_t hpc_mask_ff(char *sa, int64_t sn, int64_t p, int64_t hpc_flk, int64_t hpc_rr, uint8_t *f, int64_t fn, int64_t fsift)
 {
-    return 1;
-}
+    int64_t s = ((p>=hpc_flk)?(p-hpc_flk):0), e = (((p+hpc_flk)<=sn)?(p+hpc_flk):(sn)), k, r, rc, zs, ze; 
 
-uint64_t tst_hpc(char *qstr, int64_t ql, int64_t qpos, char *tstr, int64_t tl, int64_t tpos)
-{
-    if(is_hpc_gen(qstr, ql, qpos - HPC_PL, qpos + HPC_PL, HPC_RR, qpos)) {
-        ;
+    for (r = 1; r <= hpc_rr; r++) {
+        rc = r * HPC_CC;
+        
+        ///inlcuding p
+        for (k = p + r; (k < e) && (sa[k] == sa[k-r]); k++); ze = k; if(ze > e) ze = e; 
+        for (k = p - 1; (k >= s) && (sa[k] == sa[k+r]); k--); zs = k + 1; if(zs < s) zs = s;
+        if(((ze - zs) > r) && ((ze - zs) >= rc)) {
+            // fprintf(stderr, "-0-[M::%s] p::%ld, hh::[%ld,%ld), f::%u, %.*s\n", __func__, p, zs, ze, f?1:0, (int32_t)(ze - zs), sa + zs);
+            if(f) {
+                for (k = MAX(p, zs); (k < ze) && (k - fsift < fn); k++) f[k - fsift] = 0; f[p - fsift] = 0;
+            }
+            return 1;
+        } 
+
+        ///do not inlcude p
+        for (k = p + r + 1; (k < e) && (sa[k] == sa[k-r]); k++); 
+        zs = p + 1; if(zs < s) zs = s; ze = k; if(ze > e) ze = e; 
+        if(((ze - zs) > r) && ((ze - zs) >= rc)) {
+            // fprintf(stderr, "-1-[M::%s] p::%ld, hh::[%ld,%ld), f::%u, %.*s\n", __func__, p, zs, ze, f?1:0, (int32_t)(ze - zs), sa + zs);
+            if(f) {
+                for (k = MAX(p, zs); (k < ze) && (k - fsift < fn); k++) f[k - fsift] = 0; f[p - fsift] = 0;
+            }
+            return 1;
+        }  
+
+        ///inlcuding p
+        for (k = p - r; (k >= s) && (sa[k] == sa[k+r]); k--); zs = k + 1; if(zs < s) zs = s; 
+        for (k = p + 1; (k < e) && (sa[k] == sa[k-r]); k++); ze = k; if(ze > e) ze = e; 
+        if(((ze - zs) > r) && ((ze - zs) >= rc)) {
+            // fprintf(stderr, "-2-[M::%s] p::%ld, hh::[%ld,%ld), f::%u, %.*s\n", __func__, p, zs, ze, f?1:0, (int32_t)(ze - zs), sa + zs);
+            if(f) {
+                for (k = MAX(p, zs); (k < ze) && (k - fsift < fn); k++) f[k - fsift] = 0; f[p - fsift] = 0;
+            }
+            return 1;
+        } 
+
+        ///do not inlcude p
+        for (k = p - r - 1; (k >= s) && (sa[k] == sa[k+r]); k--); 
+        zs = k + 1; if(zs < s) zs = s; ze = p; if(ze > e) ze = e; 
+        if(((ze - zs) > r) && ((ze - zs) >= rc)) {
+            // fprintf(stderr, "-3-[M::%s] p::%ld, hh::[%ld,%ld), f::%u, %.*s\n", __func__, p, zs, ze, f?1:0, (int32_t)(ze - zs), sa + zs);
+            if(f) {
+                for (k = MAX(p, zs); (k < ze) && (k - fsift < fn); k++) f[k - fsift] = 0; f[p - fsift] = 0;
+            }
+            return 1;
+        } 
     }
-
+    // fprintf(stderr, "-6-[M::%s] p::%ld, hh::[,), %.*s\n", __func__, p, (int32_t)(e - s), sa + s);
     return 0;
 }
 
@@ -17505,7 +17623,7 @@ int64_t extract_sub_cigar_hc(overlap_region *z, All_reads *rref, haplotype_evdie
 
     set_bit_extz_t(ez, (*z), wk);
     if(!ez.cigar.n) return -1;
-    int64_t cn = ez.cigar.n, op; int64_t ws, we, ovlp, xk0, yk0, ck0, xk1 = -1, yk1 = -1, ck1 = -1, yl; haplotype_evdience ev;
+    int64_t cn = ez.cigar.n, op; int64_t ws, we, ovlp, xk0, yk0, ck0, yk1 = -1, /**xk1 = -1, ck1 = -1,**/ yl; haplotype_evdience ev;
     xk0 = xk; yk0 = yk; ck0 = ck; ///for assertion
     if((ck < 0) || (ck > cn)) {//(*ck) == cn is allowed
         ck = 0; xk = ez.ts; yk = ez.ps;
@@ -17549,11 +17667,12 @@ int64_t extract_sub_cigar_hc(overlap_region *z, All_reads *rref, haplotype_evdie
                 for (t = os; t < oe; t++) {
                     f[t-s] = ((f[t-s]<=126)?(f[t-s]+1):(127));
                 }
-                if(!hpc_len) {
-                    yk1 = oe-xk+yk;
-                } else {
-                    yk1 = yk; xk1 = xk; ck1 = ck;
-                } 
+                // if(!hpc_len) {
+                //     yk1 = oe-xk+yk;
+                // } else {
+                //     yk1 = yk; xk1 = xk; ck1 = ck;
+                // } 
+                yk1 = oe-xk+yk;
             }
         } else {
             if(op == 0) {
@@ -17572,13 +17691,14 @@ int64_t extract_sub_cigar_hc(overlap_region *z, All_reads *rref, haplotype_evdie
                 for (t = os; t < oe; t++) {
                     if(f[t-s] > occ_thres) {
                         if(!ystr) {
-                            yk0 = ((hpc_len)?(detect_near_cc_tlen(&ez, ck, xk, yk, 1)):(t-xk+yk));
+                            // yk0 = ((hpc_len)?(detect_near_cc_tlen(&ez, ck, xk, yk, 1)):(t-xk+yk));
+                            yk0 = t-xk+yk;
                             yk0 -= hpc_len; if(yk0 < 0) yk0 = 0;
                             UC_Read_resize(*tu, (yk1 - yk0)); ystr = tu->seq; 
                             recover_UC_Read_sub_region(ystr, yk0, (yk1 - yk0), z->y_pos_strand, rref, z->y_id);
                         }
 
-                        if((!hpc_len) || (!tst_hpc(qstr, ql, t, ystr, yk1 - yk0, t-xk+yk-yk0))) {
+                        if((!hpc_len) || (!hpc_mask_ff(ystr, yk1 - yk0, t-xk+yk-yk0, hpc_len, HPC_RR, NULL, -1, -1))) {
                             ev.misBase = ystr[t-xk+yk-yk0];
                             ev.overlapID = ovlp_id(*p);
                             ev.site = t;
@@ -17598,9 +17718,9 @@ int64_t extract_sub_cigar_hc(overlap_region *z, All_reads *rref, haplotype_evdie
     if(set_f) {
         ovlp_cur_xoff(*p) = xk0; ovlp_cur_yoff(*p) = yk0; ovlp_cur_coff(*p) = ck0; 
         if(yk1 != -1) {
-            if((xk1 != -1) && (yk1 != -1)) {///detect nearby differences
-                yk1 = detect_near_cc_tlen(&ez, ck1, xk1, yk1, 0);
-            }
+            // if((xk1 != -1) && (yk1 != -1)) {///detect nearby differences
+            //     yk1 = detect_near_cc_tlen(&ez, ck1, xk1, yk1, 0);
+            // }
             yk1 += hpc_len;
             yl = Get_READ_LENGTH((*rref), z->y_id);
             if(yk1 > yl) yk1 = yl;
@@ -18239,54 +18359,7 @@ void debug_snp_site(overlap_region* ol, All_reads *rref, UC_Read *qu, haplotype_
     
 } 
 
-uint8_t hpc_mask_ff(char *sa, int64_t sn, int64_t p, int64_t hpc_flk, int64_t hpc_rr, uint8_t *f, int64_t fn, int64_t fsift)
-{
-    int64_t s = ((p>=hpc_flk)?(p-hpc_flk):0), e = (((p+hpc_flk)<=sn)?(p+hpc_flk):(sn)), k, r, rc, zs, ze; 
-
-    for (r = 1; r <= hpc_rr; r++) {
-        rc = r * HPC_CC;
-        
-        ///inlcuding p
-        for (k = p + r; (k < e) && (sa[k] == sa[k-r]); k++); ze = k; if(ze > e) ze = e; 
-        for (k = p - 1; (k >= s) && (sa[k] == sa[k+r]); k--); zs = k + 1; if(zs < s) zs = s;
-        if(((ze - zs) > r) && ((ze - zs) >= rc)) {
-            // fprintf(stderr, "-0-[M::%s] p::%ld, hh::[%ld,%ld), %.*s\n", __func__, p, zs, ze, (int32_t)(ze - zs), sa + zs);
-            for (k = MAX(p, zs); (k < ze) && (k - fsift < fn); k++) f[k - fsift] = 0; f[p - fsift] = 0;
-            return 1;
-        } 
-
-        ///do not inlcude p
-        for (k = p + r + 1; (k < e) && (sa[k] == sa[k-r]); k++); 
-        zs = p + 1; if(zs < s) zs = s; ze = k; if(ze > e) ze = e; 
-        if(((ze - zs) > r) && ((ze - zs) >= rc)) {
-            // fprintf(stderr, "-1-[M::%s] p::%ld, hh::[%ld,%ld), %.*s\n", __func__, p, zs, ze, (int32_t)(ze - zs), sa + zs);
-            for (k = MAX(p, zs); (k < ze) && (k - fsift < fn); k++) f[k - fsift] = 0; f[p - fsift] = 0;
-            return 1;
-        }  
-
-        ///inlcuding p
-        for (k = p - r; (k >= s) && (sa[k] == sa[k+r]); k--); zs = k + 1; if(zs < s) zs = s; 
-        for (k = p + 1; (k < e) && (sa[k] == sa[k-r]); k++); ze = k; if(ze > e) ze = e; 
-        if(((ze - zs) > r) && ((ze - zs) >= rc)) {
-            // fprintf(stderr, "-2-[M::%s] p::%ld, hh::[%ld,%ld), %.*s\n", __func__, p, zs, ze, (int32_t)(ze - zs), sa + zs);
-            for (k = MAX(p, zs); (k < ze) && (k - fsift < fn); k++) f[k - fsift] = 0; f[p - fsift] = 0;
-            return 1;
-        } 
-
-        ///do not inlcude p
-        for (k = p - r - 1; (k >= s) && (sa[k] == sa[k+r]); k--); 
-        zs = k + 1; if(zs < s) zs = s; ze = p; if(ze > e) ze = e; 
-        if(((ze - zs) > r) && ((ze - zs) >= rc)) {
-            // fprintf(stderr, "-3-[M::%s] p::%ld, hh::[%ld,%ld), %.*s\n", __func__, p, zs, ze, (int32_t)(ze - zs), sa + zs);
-            for (k = MAX(p, zs); (k < ze) && (k - fsift < fn); k++) f[k - fsift] = 0; f[p - fsift] = 0;
-            return 1;
-        } 
-    }
-    // fprintf(stderr, "-6-[M::%s] p::%ld, hh::[,), %.*s\n", __func__, p, (int32_t)(e - s), sa + s);
-    return 0;
-}
-
-void rphase_hc(overlap_region_alloc* ol, All_reads *rref, haplotype_evdience_alloc* hp, UC_Read* qu, UC_Read* tu, kv_ul_ov_t *c_idx, asg64_v* idx, asg64_v* buf, int64_t bd, int64_t wl, int64_t ql, uint8_t occ_thres/**, uint8_t is_dbg**/, uint64_t rid, uint64_t hpc_len)
+void rphase_hc_back(overlap_region_alloc* ol, All_reads *rref, haplotype_evdience_alloc* hp, UC_Read* qu, UC_Read* tu, kv_ul_ov_t *c_idx, asg64_v* idx, asg64_v* buf, int64_t bd, int64_t wl, int64_t ql, uint8_t occ_thres/**, uint8_t is_dbg**/, uint64_t rid, uint64_t hpc_len, uint64_t std_bs)
 {   
     int64_t on = ol->length, k, i, zwn, q[2]; 
     uint64_t m, l0, wi, wl0, si, ei, fi; overlap_region *z; ul_ov_t *cp;
@@ -18404,17 +18477,163 @@ void rphase_hc(overlap_region_alloc* ol, All_reads *rref, haplotype_evdience_all
     // debug_snp_site(ol->list, rref, qu, hp->list, hp->length);
 
 
-    SetSnpMatrix(hp, &(hp->nn_snp), &(ol->length), 0, NULL); srt_n = hp->length;
+    SetSnpMatrix(hp, &(hp->nn_snp), &(ol->length), 0, NULL); 
+    srt_n = hp->length; z = ((std_bs)?(ol->list):(NULL));
     for (k = 1, i = t = 0; k <= srt_n; ++k) {  
         if (k == srt_n || hp->list[k].site != hp->list[i].site) {
-            t += insert_snp_ee(hp, hp->list+i, k-i, hp->list+t, qu, NULL);
+            t += push_info(hp, hp->list+i, k-i, hp->list+t, z);
             i = k;
         }
     }
     hp->length = t;
 
     // generate_haplotypes_naive_advance(hap, overlap_list, NULL);
-    generate_haplotypes_naive_HiFi(hp, ol, 0.04, qu, NULL);
+    generate_haplotypes_naive_HiFi(hp, ol, 0.04, qu, ((std_bs)?(0):(1)), ((std_bs)?(0.05):(0)), ((std_bs)?(2):((uint64_t)-1)));
+    // generate_haplotypes_DP(hap, overlap_list, R_INF, g_read->length, force_repeat);
+    // generate_haplotypes_naive(hap, overlap_list, R_INF, g_read->length, force_repeat);
+
+    // lable_large_indels(overlap_list, g_read->length, dumy, asm_opt.max_ov_diff_ec);
+    
+
+    // for (i = k = 0, dp = old_dp = 0, beg = 0, end = -1; i < srt_n; ++i) {///[beg, end) but coordinates in idx is [, ]
+    //     ///if idx->a.a[] is qe
+    //     old_dp = dp;
+    //     if ((idx->a[i]>>32)&1) {
+    //         --dp; end = (idx->a[i]>>33)+1;
+    //     }else {
+    //         //meet a new overlap; the overlaps are pushed by the x_pos_s
+    //         ++dp; end = (idx->a[i]>>33);
+    //         kv_push(uint64_t, *idx, ((uint32_t)idx->a[i]));
+    //     }
+    //     if((end > beg) && (old_dp >= 2)) {
+    //         idx->n = srt_n + gen_region_phase_robust_rr(ol->list, idx->a+srt_n, idx->n-srt_n, beg, end, old_dp, c_idx->a, buf, mk);
+    //     }
+    //     beg = end;
+    // }
+
+}
+
+
+void rphase_hc(overlap_region_alloc* ol, All_reads *rref, haplotype_evdience_alloc* hp, UC_Read* qu, UC_Read* tu, kv_ul_ov_t *c_idx, asg64_v* idx, asg64_v* buf, int64_t bd, int64_t wl, int64_t ql, uint8_t occ_thres/**, uint8_t is_dbg**/, uint64_t rid, uint64_t hpc_len, uint64_t std_bs)
+{   
+    int64_t on = ol->length, k, i, zwn, q[2]; 
+    uint64_t m, l0, wi, wl0, si, ei, fi; overlap_region *z; ul_ov_t *cp;
+    kv_resize(uint64_t, *idx, (ol->length)); 
+    kv_resize(ul_ov_t, *c_idx, ol->length);
+
+    for (k = idx->n = c_idx->n = 0; k < on; k++) {
+        z = &(ol->list[k]); zwn = z->w_list.n; 
+        if(!zwn) continue;
+        for (i = 0; i < zwn; i++) {
+            if(is_ualn_win(z->w_list.a[i])) continue;
+            q[0] = z->w_list.a[i].x_start; q[1] = z->w_list.a[i].x_end;
+            q[0] += bd; q[1] -= bd;
+            if(q[1] >= q[0]) {
+                m = ((uint64_t)q[0]); m <<= 32; 
+                m += c_idx->n; kv_push(uint64_t, *idx, m);
+
+                kv_pushp(ul_ov_t, *c_idx, &cp);
+                ovlp_id(*cp) = k; ///ovlp id
+                ovlp_cur_wid(*cp) = i; ///cur id of windows
+                ovlp_cur_xoff(*cp) = z->w_list.a[i].x_start; ///cur xpos
+                ovlp_cur_yoff(*cp) = z->w_list.a[i].y_start; ///cur xpos
+                ovlp_cur_ylen(*cp) = 0;
+                ovlp_cur_coff(*cp) = 0; ///cur cigar off in cur window
+                ovlp_bd(*cp) = bd;
+            }
+        }
+    }
+
+    int64_t srt_n = idx->n, s, e, t, os, oe, rm_n, rr; i = 0;
+    radix_sort_bc64(idx->a, idx->a+idx->n);
+    for (k = 1, i = 0; k < srt_n; k++) {
+        if (k == srt_n || (idx->a[k]>>32) != (idx->a[i]>>32)) {
+            if(k - i > 1) {
+                for (t = i; t < k; t++) {
+                    cp = &(c_idx->a[(uint32_t)idx->a[t]]);
+                    // s = ol->list[ovlp_id(*cp)].w_list.a[ovlp_cur_wid(*cp)].x_start+ovlp_bd(*cp);
+                    // assert(s == (int64_t)(idx->a[i]>>32));
+                    m = ol->list[ovlp_id(*cp)].w_list.a[ovlp_cur_wid(*cp)].x_end+1-ovlp_bd(*cp);
+                    m <<= 32; m += ((uint32_t)idx->a[t]); idx->a[t] = m;
+                    // fprintf(stderr, "[M::%s] s::%ld\tsi::%lu\n", __func__, s, (idx->a[i]>>32));
+                }
+                radix_sort_bc64(idx->a + i, idx->a + k);
+            }
+            i = k;
+        }
+    }
+    
+    ResizeInitHaplotypeEvdience(hp);
+    i = 0; s = 0; e = wl; e = ((e<=ql)?e:ql); rr = 0;
+    for (; s < ql; ) {
+        if(rr) {
+            // rr = 0;
+            for (m = rm_n = srt_n; m < idx->n; m++) {
+                cp = &(c_idx->a[idx->a[m]]);
+                q[0] = ol->list[ovlp_id(*cp)].w_list.a[ovlp_cur_wid(*cp)].x_start+ovlp_bd(*cp);
+                q[1] = ol->list[ovlp_id(*cp)].w_list.a[ovlp_cur_wid(*cp)].x_end+1-ovlp_bd(*cp);
+                os = MAX(q[0], s); oe = MIN(q[1], e);
+                if(oe > os) {
+                    idx->a[rm_n++] = idx->a[m];
+                    // if(q[1] <= e) rr = 1;
+                }
+            }
+            idx->n = rm_n;
+        }
+
+        for (; i < srt_n; ++i) {
+            cp = &(c_idx->a[(uint32_t)idx->a[i]]);
+            q[0] = ol->list[ovlp_id(*cp)].w_list.a[ovlp_cur_wid(*cp)].x_start+ovlp_bd(*cp);
+            q[1] = ol->list[ovlp_id(*cp)].w_list.a[ovlp_cur_wid(*cp)].x_end+1-ovlp_bd(*cp);
+            if(q[0] >= e) break;
+            os = MAX(q[0], s); oe = MIN(q[1], e);
+            if(oe > os) {
+                kv_push(uint64_t, *idx, ((uint32_t)idx->a[i]));
+                // if(q[1] <= e) rr = 1;
+            }
+        }
+
+        // fprintf(stderr, "[M::%s] s::%ld, e::%ld, srt_n::%ld, idx->n::%ld\n", __func__, s, e, srt_n, (int64_t)idx->n);
+        // debug_inter(ol, c_idx, idx->a, srt_n, idx->a + srt_n, idx->n - srt_n, s, e);
+        l0 = hp->length;
+        // if(is_dbg) fprintf(stderr, "-1-[M::%s]\ts::%ld\te::%ld\n", __func__, s, e);
+        rr = hc_phase_robust_rr(ol->list, rref, hp, qu->seq, qu->length, tu, idx->a + srt_n, idx->n - srt_n, s, e, c_idx->a, 1, occ_thres, 0/**hpc_len**//**, is_dbg**/);
+        for (wi = fi = ei = 0, si = ((uint64_t)-1), wl0 = e - s; wi < wl0; wi++) {
+            if(hp->flag[wi] > 0) {
+                if((hp->flag[wi] > occ_thres)/** && ((!hpc_len) || (!hpc_mask_ff(qu->seq, qu->length, wi + s, hpc_len, HPC_RR, hp->flag, e - s, s)))**/) {
+                    fi = 1; hp->nn_snp++;
+                }
+                ei = wi + 1; if(si == ((uint64_t)-1)) si = wi;
+            }
+        }
+
+        if(fi) {
+            // if(is_dbg) fprintf(stderr, "-2-[M::%s]\ts::%ld\te::%ld\n", __func__, s, e);
+            rr = hc_phase_robust_rr(ol->list, rref, hp, qu->seq, qu->length, tu, idx->a + srt_n, idx->n - srt_n, s, e, c_idx->a, 0, occ_thres, 0/**hpc_len**//**, is_dbg**/);
+            if(hp->length > l0) radix_sort_haplotype_evdience_srt(hp->list + l0, hp->list + hp->length);
+        }
+
+        if(ei > si) memset(hp->flag + si, 0, (ei-si)*sizeof((*(hp->flag))));
+        // if(is_dbg) fprintf(stderr, "-3-[M::%s]\ts::%ld\te::%ld\n", __func__, s, e);
+
+        s += wl; e += wl; e = ((e<=ql)?e:ql);
+    }
+
+    // debug_snp_site(ol->list, rref, qu, hp->list, hp->length);
+
+
+    SetSnpMatrix(hp, &(hp->nn_snp), &(ol->length), 0, NULL); 
+    srt_n = hp->length; z = ((std_bs)?(ol->list):(NULL));
+    for (k = 1, i = t = 0; k <= srt_n; ++k) {  
+        if (k == srt_n || hp->list[k].site != hp->list[i].site) {
+            t += push_info(hp, hp->list+i, k-i, hp->list+t, z);
+            i = k;
+        }
+    }
+    hp->length = t;
+
+    // generate_haplotypes_naive_advance(hap, overlap_list, NULL);
+    generate_haplotypes_naive_HiFi(hp, ol, 0.04, qu, ((std_bs)?(0):(1)), ((std_bs)?(0.05):(0)), ((std_bs)?(2):((uint64_t)-1)));
     // generate_haplotypes_DP(hap, overlap_list, R_INF, g_read->length, force_repeat);
     // generate_haplotypes_naive(hap, overlap_list, R_INF, g_read->length, force_repeat);
 
@@ -23576,7 +23795,7 @@ void gen_hc_r_alin(overlap_region_alloc* ol, Candidates_list *cl, All_reads *rre
     init_Window_Pool(&w, ql, wl, (int)(1.0/err));
     bs = (w.window_length)+(THRESHOLD_MAX_SIZE<<1)+1;
     resize_UC_Read(tu, bs<<1); 
-    // fprintf(stderr, "[M::%s] window_length::%lld\n", __func__, w.window_length);
+    // fprintf(stderr, "[M::%s] window_length::%lld, err::%f\n", __func__, w.window_length, err);
 
     for (i = k = 0; i < ol->length; i++) {
         z = &(ol->list[i]); z->shared_seed = z->non_homopolymer_errors;///for index

@@ -911,8 +911,9 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         else if (c == 356) asm_opt->telo_drop = atol(opt.arg);
         else if (c == 357) asm_opt->telo_mic_sc = atol(opt.arg);
         else if (c == 358) asm_opt->max_contig_tip = atol(opt.arg);
-        else if (c == 359) asm_opt->is_ont = 1;
-        else if (c == 'l') {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
+        else if (c == 359) {
+            asm_opt->is_ont = 1; asm_opt->max_ov_diff_ec = 0.07;
+        } else if (c == 'l') {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
             asm_opt->purge_level_primary = asm_opt->purge_level_trio = atoi(opt.arg);
         }
         else if (c == 's') asm_opt->purge_simi_rate_l2 = asm_opt->purge_simi_rate_l3 = atof(opt.arg);
