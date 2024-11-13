@@ -42,6 +42,7 @@ typedef struct {
 	asg64_v v64;
 	asg32_v v32;
 	asg16_v v16;
+	asg8_v v8q, v8t;
 
     kvec_t_u8_warp k_flag;
 	st_mt_t sp;

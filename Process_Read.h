@@ -22,6 +22,7 @@
 #define Get_NAME_LENGTH(R_INF, ID) ((R_INF).name_index[(ID)+1] - (R_INF).name_index[(ID)])
 ///#define Get_READ(R_INF, ID) R_INF.read + (R_INF.index[ID]>>2) + ID
 #define Get_READ(R_INF, ID) (R_INF).read_sperate[(ID)]
+#define Get_QUAL(R_INF, ID) (R_INF).rsc[(ID)]
 #define Get_NAME(R_INF, ID) ((R_INF).name + (R_INF).name_index[(ID)])
 #define CHECK_BY_NAME(R_INF, NAME, ID) (Get_NAME_LENGTH((R_INF),(ID))==strlen((NAME)) && \
                                         memcmp((NAME), Get_NAME((R_INF), (ID)), Get_NAME_LENGTH((R_INF),(ID))) == 0)
@@ -37,6 +38,8 @@ extern char rc_Table[6];
 #define RC_CHAR(x) rc_Table[seq_nt6_table[(uint8_t)x]]
 
 void init_aux_table();
+
+typedef struct { size_t n, m; uint8_t *a; } asg8_v;
 
 typedef struct
 {
@@ -119,6 +122,7 @@ typedef struct
 	uint64_t* read_length;
 	uint64_t* read_size;
 	uint8_t* trio_flag;
+    uint8_t** rsc;
 
 	///seq start pos in uint8_t* read
 	///do not need it
@@ -223,6 +227,7 @@ void init_All_reads(All_reads* r);
 void malloc_All_reads(All_reads* r);
 void ha_insert_read_len(All_reads *r, int read_len, int name_len);
 void ha_compress_base(uint8_t* dest, char* src, uint64_t src_l, uint64_t** N_site_lis, uint64_t N_site_occ);
+void ha_compress_qual(uint8_t* dest, char* src, uint64_t src_l, uint64_t bitn, uint64_t sc_off);
 void init_UC_Read(UC_Read* r);
 void recover_UC_Read(UC_Read* r, const All_reads *R_INF, uint64_t ID);
 void recover_UC_Read_RC(UC_Read* r, All_reads* R_INF, uint64_t ID);
@@ -253,5 +258,18 @@ int64_t load_compress_base_disk(FILE *fp, uint64_t *ul_rid, char *dest, uint32_t
 scaf_res_t *init_scaf_res_t(uint32_t n);
 void destroy_scaf_res_t(scaf_res_t *p);
 void read_ma(ma_hit_t* x, FILE* fp);
+
+const uint64_t sc_tb[8] = { 
+	10, 20, 30, 40, 50, 60, 70, 80
+};
+
+#define sc_bn 2
+#define sc_bm ((((uint64_t)1)<<sc_bn)-1)
+#define sc_wn 5
+
+void convert_qual(uint8_t* dest, char* src, uint64_t src_l, uint64_t bitu, uint64_t rev, uint64_t sc_off);
+int64_t retrive_bqual(asg8_v *dv, uint8_t *ds, uint64_t id, int64_t s, int64_t e, uint8_t rev, int64_t bitn);
+void print_fastq(FILE *fp, char *id, char *bs, char *qual, uint64_t bitu, uint64_t sc_off);
+void ha_compress_qual_bit(uint8_t* dest, char* src, uint64_t src_l, uint64_t bitn);
 
 #endif

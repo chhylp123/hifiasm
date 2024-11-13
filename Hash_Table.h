@@ -10,6 +10,7 @@
 #define WINDOW_BOUNDARY 375
 #define WINDOW_HC 775
 #define WINDOW_OHC 475
+// #define WINDOW_OHC 375 ///ONT high error
 #define WINDOW_HC_FAST 512
 ///for one side, the first or last WINDOW_UNCORRECT_SINGLE_SIDE_BOUNDARY bases should not be corrected
 #define WINDOW_UNCORRECT_SINGLE_SIDE_BOUNDARY 25

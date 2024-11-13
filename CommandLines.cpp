@@ -72,6 +72,7 @@ static ko_longopt_t long_options[] = {
     { "telo-s",     ko_required_argument, 357},
     { "ctg-n",     ko_required_argument, 358},
     { "ont",       ko_no_argument, 359},
+    { "sc-n",       ko_no_argument, 360},
     // { "path-round",     ko_required_argument, 348},
 	{ 0, 0, 0 }
 };
@@ -340,7 +341,8 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->telo_mic_sc = 500;
 
     asm_opt->is_ont = 0;
-}
+    asm_opt->is_sc = 0;
+}   
 
 void destory_enzyme(enzyme* f)
 {
@@ -912,7 +914,9 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         else if (c == 357) asm_opt->telo_mic_sc = atol(opt.arg);
         else if (c == 358) asm_opt->max_contig_tip = atol(opt.arg);
         else if (c == 359) {
-            asm_opt->is_ont = 1; asm_opt->max_ov_diff_ec = 0.07;
+            asm_opt->is_ont = 1; asm_opt->max_ov_diff_ec = 0.07; ///asm_opt->mz_win = 37; asm_opt->k_mer_length = 37;
+        } else if (c == 360) {
+            asm_opt->is_sc = 1; 
         } else if (c == 'l') {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
             asm_opt->purge_level_primary = asm_opt->purge_level_trio = atoi(opt.arg);
         }

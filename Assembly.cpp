@@ -904,6 +904,29 @@ void Output_corrected_reads()
     fclose(output_file);
 }
 
+void Output_corrected_fastq()
+{
+    long long i; uint64_t k;
+    UC_Read g_read; asg8_v dv;
+    init_UC_Read(&g_read); kv_init(dv);
+    char* gfa_name = (char*)malloc(strlen(asm_opt.output_file_name)+35);
+    sprintf(gfa_name, "%s.ec.fq", asm_opt.output_file_name);
+    FILE* fp = fopen(gfa_name, "w");
+    free(gfa_name);
+
+    for (i = 0; i < (long long)R_INF.total_reads; i++) {
+        recover_UC_Read(&g_read, &R_INF, i);
+        fprintf(fp, "@%.*s\n", (int32_t)Get_NAME_LENGTH(R_INF, i), Get_NAME(R_INF, i));
+        fprintf(fp, "%.*s\n", (int32_t)g_read.length, g_read.seq);        
+        fprintf(fp, "+\n");
+        retrive_bqual(&dv, NULL, i, -1, -1, 0, sc_bn);
+        for (k = 0; k < dv.n; k++) fprintf(fp, "%c", (char)(sc_tb[dv.a[k]] + 33 - 1));
+        fprintf(fp, "\n");
+    }
+    destory_UC_Read(&g_read); kv_destroy(dv);
+    fclose(fp);
+}
+
 void debug_print_pob_regions()
 {
     uint64_t i, total = 0;
@@ -992,9 +1015,12 @@ void ha_ec(int64_t round, int num_pround, int des_idx, uint64_t *tot_b, uint64_t
 
     if (r_out) write_pt_index(ha_flt_tab, ha_idx, &R_INF, &asm_opt, asm_opt.output_file_name);
 
+    // Output_corrected_fastq();
+
+
     cal_ec_r(asm_opt.thread_num, round, num_pround, R_INF.total_reads, (round == (asm_opt.number_of_round-1))?1:0, tot_b, tot_e);
 
-    // exit(1);
+    // exit(1);    
 
     // if (r_out) write_pt_index(ha_flt_tab, ha_idx, &R_INF, &asm_opt, asm_opt.output_file_name);
     if(des_idx) {
@@ -2014,7 +2040,10 @@ int ha_assemble(void)
 			ha_extract_print_list(&R_INF, asm_opt.extract_iter, asm_opt.extract_list);
 			exit(0);
 		}
-		if (asm_opt.flag & HA_F_WRITE_EC) Output_corrected_reads();
+		if (asm_opt.flag & HA_F_WRITE_EC) {
+            if(asm_opt.is_sc) Output_corrected_fastq();
+            else Output_corrected_reads();
+        }
 		if (asm_opt.flag & HA_F_WRITE_PAF) Output_PAF();
         if (asm_opt.het_cov == -1024) hap_recalculate_peaks(asm_opt.output_file_name), ovlp_loaded = 2;
 	}
@@ -2042,7 +2071,10 @@ int ha_assemble(void)
 			// 		asm_opt.num_bases, asm_opt.num_corrected_bases, asm_opt.num_recorrected_bases);
 			// fprintf(stderr, "[M::%s] size of buffer: %.3fGB\n", __func__, asm_opt.mem_buf / 1073741824.0);
 		}
-		if (asm_opt.flag & HA_F_WRITE_EC) Output_corrected_reads();
+		if (asm_opt.flag & HA_F_WRITE_EC) {
+            if(asm_opt.is_sc) Output_corrected_fastq();
+            else Output_corrected_reads();
+        }
 		// overlap between corrected reads
 		ha_opt_reset_to_round(&asm_opt, asm_opt.number_of_round);
 		// ha_overlap_final();

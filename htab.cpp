@@ -692,6 +692,7 @@ static inline void sf##_pt_insert_buf(sf##_ch_buf_t *buf, int p, const HType *y)
 static void *sf##_worker_count(void *data, int step, void *in) /** callback for kt_pipeline()**/\
 {\
 	pl_data_t *p = (pl_data_t*)data;\
+	/**uint8_t src_a[1000000], des_a[1000000];**/\
 	if (step == 0) { /** step 1: read a block of sequences**/\
 		int ret;\
 		sf##_st_data_t *s;\
@@ -762,6 +763,16 @@ static void *sf##_worker_count(void *data, int step, void *in) /** callback for 
 								++n_N;\
 						ha_compress_base(Get_READ(*p->rs_out, p->n_seq), p->ks->seq.s+p->opt->adaLen, l, &p->rs_out->N_site[p->n_seq], n_N);\
 						memcpy(&p->rs_out->name[p->rs_out->name_index[p->n_seq]], p->ks->name.s, p->ks->name.l);\
+						if(p->rs_out->rsc) {\
+							ha_compress_qual(Get_QUAL(*p->rs_out, p->n_seq), p->ks->qual.s+p->opt->adaLen, l, sc_bn, 33);\
+							/**print_fastq(NULL, p->ks->name.s, p->ks->seq.s, p->ks->qual.s, (1<<sc_bn), 33);**/\
+							/**if(l <= 1000000) {\
+								convert_qual(src_a, p->ks->qual.s+p->opt->adaLen, l, (1<<sc_bn), 0, 33);\
+								retrive_bqual(NULL, des_a, p->n_seq, -1, -1, 0, sc_bn);\
+								if(memcmp(src_a, des_a, l)!=0) fprintf(stderr, "ERROR: incorrect qual values\n");\
+								else fprintf(stderr, "Correct: correct qual values\n");\
+							}**/\
+						}\
 					}\
 				}\
 				if (s->n_seq == s->m_seq) {\

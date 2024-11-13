@@ -27,7 +27,7 @@ cc_v scc = {0, 0, NULL, NULL};
 cc_v scb = {0, 0, NULL, NULL};
 cc_v sca = {0, 0, NULL, NULL};
 
-typedef struct {size_t n, m; char *a; UC_Read z;} sl_v;
+typedef struct {size_t n, m; char *a; UC_Read z; asg8_v q;} sl_v;
 
 
 void h_ec_lchain(ha_abuf_t *ab, uint32_t rid, char* rs, uint64_t rl, uint64_t mz_w, uint64_t mz_k, All_reads *rref, overlap_region_alloc *overlap_list, Candidates_list *cl, double bw_thres, 
@@ -77,6 +77,8 @@ ec_ovec_buf_t* gen_ec_ovec_buf_t(uint32_t n)
 	    kv_init(z->v64);
         kv_init(z->v32);
         kv_init(z->v16);
+        kv_init(z->v8q);
+        kv_init(z->v8t);
         init_bit_extz_t(&(z->exz), 31);
 
         z->ab = ha_abuf_init();
@@ -117,6 +119,8 @@ void destroy_ec_ovec_buf_t(ec_ovec_buf_t *p)
 	    kv_destroy(z->v64);
         kv_destroy(z->v32);
         kv_destroy(z->v16);
+        kv_destroy(z->v8q);
+        kv_destroy(z->v8t);
         destroy_bit_extz_t(&(z->exz));
 
         ha_abuf_destroy(z->ab);
@@ -148,6 +152,8 @@ inline void refresh_ec_ovec_buf_t0(ec_ovec_buf_t0 *z, uint64_t n)
         kv_destroy(z->v64); kv_init(z->v64);
         kv_destroy(z->v32); kv_init(z->v32);
         kv_destroy(z->v16); kv_init(z->v16);
+        kv_destroy(z->v8q); kv_init(z->v8q);
+        kv_destroy(z->v8t); kv_init(z->v8t);
 
         destroy_bit_extz_t(&(z->exz)); init_bit_extz_t(&(z->exz), 31);
 
@@ -2930,6 +2936,56 @@ void dedup_chains(overlap_region_alloc* ol)
     }
 }
 
+void debug_retrive_bqual(asg8_v *vq, asg8_v *vt, uint64_t id, uint64_t rn)
+{
+    uint64_t k, n, z[2], s, e, rev;
+    retrive_bqual(vq, NULL, id, -1, -1, 0, sc_bn); n = vq->n;
+    retrive_bqual(vt, NULL, id, -1, -1, 1, sc_bn);
+    assert(vq->n == vt->n);
+    for (k = 0; k < vq->n && vq->a[k] == vt->a[vt->n - k - 1]; k++);
+    // if((k == vq->n)) {
+    //     fprintf(stderr, "[M::%s] id::%lu, k::%lu, n::%lu\n", __func__, id, k, ((uint64_t)vq->n));
+    // }
+    assert(k == vq->n);
+
+    // if(id == 0) {
+    //     s = 21519; e = 22332; rev = 0;
+    //     retrive_bqual(vt, NULL, id, s, e, rev, sc_bn);
+    //     if(memcmp(vq->a + s, vt->a, e - s)) {
+    //         fprintf(stderr, "+[M::%s] id::%lu, t::[%lu, %lu), rev::%lu\n", __func__, id, s, e, rev);
+    //         exit(1);
+    //     }
+
+    // }
+    // return;
+
+    for (k = 0, rev = 0; k < rn; k++) {
+        z[0] = rand()%(n + 1); 
+        z[1] = rand()%(n + 1); 
+        if(z[0] == z[1]) continue;
+        s = MIN(z[0], z[1]); e = MAX(z[0], z[1]);
+        retrive_bqual(vt, NULL, id, s, e, rev, sc_bn);
+        if(memcmp(vq->a + s, vt->a, e - s)) {
+            fprintf(stderr, "[M::%s] id::%lu, t::[%lu, %lu), rev::%lu\n", __func__, id, s, e, rev);
+            exit(1);
+        }
+    }
+    
+
+    retrive_bqual(vq, NULL, id, -1, -1, 1, sc_bn);
+    for (k = 0, rev = 1; k < rn; k++) {
+        z[0] = rand()%(n + 1); 
+        z[1] = rand()%(n + 1); 
+        if(z[0] == z[1]) continue;
+        s = MIN(z[0], z[1]); e = MAX(z[0], z[1]);
+        retrive_bqual(vt, NULL, id, s, e, rev, sc_bn);
+        if(memcmp(vq->a + s, vt->a, e - s)) {
+            fprintf(stderr, "[M::%s] id::%lu, t::[%lu, %lu), rev::%lu\n", __func__, id, s, e, rev);
+            exit(1);
+        }
+    }
+}
+
 static void worker_hap_ec(void *data, long i, int tid)
 {
 	ec_ovec_buf_t0 *b = &(((ec_ovec_buf_t*)data)->a[tid]);
@@ -2948,7 +3004,9 @@ static void worker_hap_ec(void *data, long i, int tid)
     **/
     // if(i < 1100000 || i > 1400000) return;
     // if(i % 100000 == 0) fprintf(stderr, "-a-[M::%s-beg] rid->%ld\n", __func__, i);
-    // if (memcmp("4da034b0-a94d-4576-8481-c0d9a9f96d40", Get_NAME((R_INF), i), Get_NAME_LENGTH((R_INF),i)) == 0) {
+    // if (memcmp("c42804f3-0e13-43a0-8a71-b91b40accf9a", Get_NAME((R_INF), i), Get_NAME_LENGTH((R_INF),i)) == 0) {
+    // if (memcmp("b2e68ecf-381a-439c-b676-c1e6831d6acf", Get_NAME((R_INF), i), Get_NAME_LENGTH((R_INF),i)) == 0) {
+    // if (memcmp("0aec8c4f-c849-4c31-85ba-4ffb297eeb28", Get_NAME((R_INF), i), Get_NAME_LENGTH((R_INF),i)) == 0) {
     //     fprintf(stderr, "-a-[M::%s-beg] rid->%ld\n", __func__, i);
     // } else {
     //     return;
@@ -2961,9 +3019,11 @@ static void worker_hap_ec(void *data, long i, int tid)
     // if(i != 2243244) return;
     // if(i != 19350) return;
 
+    // debug_retrive_bqual(D, &b->v8t, i, 256); return;
+
     recover_UC_Read(&b->self_read, &R_INF, i); qlen = b->self_read.length; 
 
-    h_ec_lchain(b->ab, i, b->self_read.seq, b->self_read.length, asm_opt.mz_win, asm_opt.k_mer_length, &R_INF, &b->olist, &b->clist, 0.02, asm_opt.max_n_chain, 1, NULL, NULL, &(b->sp), &high_occ, &low_occ, 1, 1, 3, 0.7, 2, 32);
+    h_ec_lchain(b->ab, i, b->self_read.seq, b->self_read.length, asm_opt.mz_win, asm_opt.k_mer_length, &R_INF, &b->olist, &b->clist, /**((asm_opt.is_ont)?(0.05):(0.02))**/0.02, asm_opt.max_n_chain, 1, NULL, NULL, &(b->sp), &high_occ, &low_occ, 1, 1, 3, 0.7, 2, 32);///ONT high error
 
     // b->num_read_base += b->olist.length;
     b->cnt[0] += b->self_read.length;
@@ -2987,7 +3047,7 @@ static void worker_hap_ec(void *data, long i, int tid)
     // b->num_correct_base += b->olist.length;
 
     copy_asg_arr(buf0, b->sp); 
-    rphase_hc(&b->olist, &R_INF, &b->hap, &b->self_read, &b->ovlp_read, &b->pidx, &b->v64, &buf0, 0, WINDOW_MAX_SIZE, b->self_read.length, 1/**, 0**/, i, (asm_opt.is_ont)?HPC_PL:0, asm_opt.is_ont);
+    rphase_hc(&b->olist, &R_INF, &b->hap, &b->self_read, &b->ovlp_read, &b->pidx, &b->v64, &buf0, 0, WINDOW_MAX_SIZE, b->self_read.length, 1/**, 0**/, i, (asm_opt.is_ont)?HPC_PL:0, asm_opt.is_ont, ((asm_opt.is_ont)?&(b->clist.chainDP):NULL), ((asm_opt.is_sc)?&(b->v8q):NULL), ((asm_opt.is_sc)?&(b->v8t):NULL));
     copy_asg_arr(b->sp, buf0);
 
     // stderr_phase_ovlp(&b->olist);
@@ -3495,6 +3555,12 @@ static void worker_hap_post_rev(void *data, long i, int tid)
     }
 
     ha_compress_base(Get_READ(R_INF, i), a, l, &R_INF.N_site[i], nn);
+
+    if(asm_opt.is_sc) {
+        retrive_bqual(&(b->v8q), NULL, i, -1, -1, 0, sc_bn);
+        for (k = 0; k < l; k++) a[l - k - 1] = b->v8q.a[k];
+        ha_compress_qual_bit(Get_QUAL(R_INF, i), a, l, sc_bn);
+    }
 }
 
 static void worker_hap_dc_ec_gen(void *data, long i, int tid)
@@ -5018,7 +5084,7 @@ static void worker_hap_dc_ec0(void *data, long i, int tid)
     b->cnt[0] += b->self_read.length;
 
     copy_asg_arr(buf0, b->sp); 
-    rphase_hc(&b->olist, &R_INF, &b->hap, &b->self_read, &b->ovlp_read, &b->pidx, &b->v64, &buf0, 0, WINDOW_MAX_SIZE, b->self_read.length, 1/**, 1**/, i, (asm_opt.is_ont)?HPC_PL:0, asm_opt.is_ont);
+    rphase_hc(&b->olist, &R_INF, &b->hap, &b->self_read, &b->ovlp_read, &b->pidx, &b->v64, &buf0, 0, WINDOW_MAX_SIZE, b->self_read.length, 1/**, 1**/, i, (asm_opt.is_ont)?HPC_PL:0, asm_opt.is_ont, ((asm_opt.is_ont)?&(b->clist.chainDP):NULL), ((asm_opt.is_sc)?&(b->v8q):NULL), ((asm_opt.is_sc)?&(b->v8t):NULL));
     copy_asg_arr(b->sp, buf0); 
 
     copy_asg_arr(buf0, b->sp);
@@ -5165,7 +5231,7 @@ static void worker_sl_ec(void *data, long i, int tid)
 {
     // if(i != 0) return;
 
-	sl_v *p = &(((sl_v*)data)[tid]);
+	sl_v *p = &(((sl_v*)data)[tid]); uint8_t *oa = NULL; char *na = NULL; uint64_t tqual, wqual;
     uint32_t ci = 0, len, xk, yk, wx[2], wy[2], k, Nn, yn = 0, tot_e; uint16_t c, bq, bt; 
 
 
@@ -5213,11 +5279,13 @@ static void worker_sl_ec(void *data, long i, int tid)
     }
 
     // if(i == 700) fprintf(stderr, "|\n");
+    if(asm_opt.is_sc) retrive_bqual(&(p->q), NULL, i, -1, -1, 0, sc_bn);
 
 
     if (R_INF.read_size[i] < yn) {
 		R_INF.read_size[i] = yn;
 		REALLOC(R_INF.read_sperate[i], R_INF.read_size[i]/4+1);
+        if(asm_opt.is_sc) REALLOC(R_INF.rsc[i], ((R_INF.read_size[i]/sc_bn) + ((R_INF.read_size[i]%sc_bn)?1:0)));
 	}
 	R_INF.read_length[i] = yn;
     // if(Nn > 0) fprintf(stderr, "[M::%s] Nn->%u\n", __func__, Nn);
@@ -5236,7 +5304,25 @@ static void worker_sl_ec(void *data, long i, int tid)
 
 
 	ha_compress_base(Get_READ(R_INF, i), p->a, yn, &R_INF.N_site[i], Nn);
-
+    if(asm_opt.is_sc) {
+        oa = p->q.a; na = p->a; 
+        ci = 0; xk = yk = 0; Nn = 0;
+        while (ci < scc.a[i].n) {
+            wx[0] = xk; wy[0] = yk;
+            ci = pop_trace_bp_f(&scc.a[i], ci, &c, &bq, &bt, &len);
+            if(c != 2) xk += len;
+            if(c != 3) yk += len;
+            wx[1] = xk; wy[1] = yk;
+            if(c == 0 || c == 1) {
+                memcpy(na + wy[0], oa + wx[0], (wx[1]-wx[0])*sizeof((*oa)));
+            } else if(c == 2) {
+                get_wqual(i, wx[0], 0, NULL, oa, sc_wn, &tqual, &wqual);
+                for (k = wy[0]; k < wy[1]; k++) na[k] = wqual;
+            }
+        }
+        assert(yk == yn);
+        ha_compress_qual_bit(Get_QUAL(R_INF, i), na, yn, sc_bn);
+    }
 }
 
 uint64_t cal_ec_multiple(ec_ovec_buf_t *b, uint64_t n_thre, uint64_t n_a, uint64_t *r_base)
@@ -5496,7 +5582,7 @@ void sl_ec_r(uint64_t n_thre, uint64_t n_a)
     sl_v *b = NULL; uint64_t k; MALLOC(b, n_thre);
     for (k = 0; k < n_thre; k++) {
         b[k].a = NULL; b[k].n = b[k].m = 0;
-        init_UC_Read(&b[k].z);
+        init_UC_Read(&b[k].z); kv_init(b[k].q);
     }
 
     kt_for(n_thre, worker_sl_ec, b, n_a);///debug_for_fix

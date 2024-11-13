@@ -51,6 +51,7 @@ void destory_All_reads(All_reads* r)
 		if (r->read_sperate[i]) free(r->read_sperate[i]);
 		if (r->paf && r->paf[i].buffer) free(r->paf[i].buffer);
 		if (r->reverse_paf && r->reverse_paf[i].buffer) free(r->reverse_paf[i].buffer);
+		if(r->rsc && r->rsc[i]) free(r->rsc[i]);
 		///if (r->pb_regions) kv_destroy(r->pb_regions[i].a);
 	}
 	free(r->paf);
@@ -61,6 +62,7 @@ void destory_All_reads(All_reads* r)
 	free(r->name_index);
 	free(r->read_length);
 	free(r->trio_flag);
+	free(r->rsc);
 	///if (r->pb_regions) free(r->pb_regions);
 }
 
@@ -107,6 +109,14 @@ void write_All_reads(All_reads* r, char* read_file_name)
 	fwrite(r->trio_flag, sizeof(uint8_t), r->total_reads, fp);
 	fwrite(&(asm_opt.hom_cov), sizeof(asm_opt.hom_cov), 1, fp);
 	fwrite(&(asm_opt.het_cov), sizeof(asm_opt.het_cov), 1, fp);
+
+	uint64_t mm = 1;
+	if(asm_opt.is_sc) {
+		fwrite(&mm, sizeof(mm), 1, fp);
+		for (i = 0; i < r->total_reads; i++) {
+			fwrite(r->rsc[i], sizeof(uint8_t), ((r->read_length[i]/sc_bn) + ((r->read_length[i]%sc_bn)?1:0)), fp);
+		}
+	}
 
     free(index_name);    
 	fflush(fp);
@@ -200,6 +210,19 @@ int load_All_reads(All_reads* r, char* read_file_name)
 		r->second_round_cigar[i].lost_base = r->cigars[i].lost_base = NULL;
 	}
 	///r->pb_regions = NULL;
+
+	uint64_t mm = 0;
+	if (!feof(fp)) {
+		if((fread(&mm, sizeof(mm), 1, fp)) && (mm == 1)) {
+			MALLOC(r->rsc, r->total_reads);
+			for (i = 0; i < r->total_reads; i++) {
+				MALLOC(r->rsc[i], (r->read_length[i]/sc_bn) + ((r->read_length[i]%sc_bn)?1:0));
+				f_flag += fread(r->rsc[i], sizeof(uint8_t), (r->read_length[i]/sc_bn) + ((r->read_length[i]%sc_bn)?1:0), fp);
+			}
+		}
+	}
+
+
 
     free(index_name);    
     fclose(fp);
@@ -412,10 +435,13 @@ void malloc_All_reads(All_reads* r)
 	memcpy(r->read_size, r->read_length, sizeof(uint64_t)*r->total_reads);
 
 	r->read_sperate = (uint8_t**)malloc(sizeof(uint8_t*)*r->total_reads);
+	if(asm_opt.is_sc) MALLOC(r->rsc, r->total_reads);
+
 	long long i = 0;
 	for (i = 0; i < (long long)r->total_reads; i++)
 	{
 		r->read_sperate[i] = (uint8_t*)malloc(sizeof(uint8_t)*(r->read_length[i]/4+1));
+		if(r->rsc) MALLOC(r->rsc[i], (r->read_length[i]/sc_bn) + ((r->read_length[i]%sc_bn)?1:0));
 	}
 
 	r->cigars = (Compressed_Cigar_record*)malloc(sizeof(Compressed_Cigar_record)*r->total_reads);
@@ -823,6 +849,131 @@ void ha_compress_base(uint8_t* dest, char* src, uint64_t src_l, uint64_t** N_sit
 	}
 }
 
+void convert_qual(uint8_t* dest, char* src, uint64_t src_l, uint64_t bitu, uint64_t rev, uint64_t sc_off)
+{
+	uint64_t i = 0; uint8_t c = 0, sc;
+	// fprintf(stderr, "\n[M::%s]\n", __func__);
+	for (i = 0; i < src_l; i++) {
+		for (c = 0, sc = ((uint8_t)src[i]) - sc_off; (c < bitu) && (sc_tb[c] < sc); c++);
+		if(c >= bitu) c = bitu - 1;
+		dest[(rev?(src_l-i-1):(i))] = c;
+		// fprintf(stderr, "%u->%u\n", sc, c);
+	}
+}
+
+void ha_compress_qual_bit(uint8_t* dest, char* src, uint64_t src_l, uint64_t bitn)
+{
+
+	uint64_t i = 0, k, bit_r = 8/bitn, dest_i = 0;
+	uint8_t tmp = 0, c = 0;
+
+	for (i = 0; i + bit_r <= src_l;) {
+		for (k = tmp = 0; k < bit_r; k++) {
+			c = ((uint8_t)src[i]);
+			tmp <<= bitn; tmp |= c; i++;
+		}
+		dest[dest_i++] = tmp;
+	}
+
+	if(i < src_l) {
+		for (k = tmp = 0; i < src_l; k++) {
+			c = ((uint8_t)src[i]);
+			tmp <<= bitn; tmp |= c; i++;
+		}
+		 
+		dest[dest_i++] = (tmp<<(8-(bitn*k)));
+	}
+}
+
+void ha_compress_qual(uint8_t* dest, char* src, uint64_t src_l, uint64_t bitn, uint64_t sc_off)
+{
+
+	uint64_t i = 0, k, bit_r = 8/bitn, dest_i = 0, bitu = (1<<bitn);
+	uint8_t tmp = 0, c = 0, sc;
+
+	for (i = 0; i + bit_r <= src_l;) {
+		for (k = tmp = 0; k < bit_r; k++) {
+			for (c = 0, sc = ((uint8_t)src[i]) - sc_off; (c < bitu) && (sc_tb[c] < sc); c++);
+			if(c >= bitu) c = bitu - 1;
+			tmp <<= bitn; tmp |= c; i++;
+		}
+		dest[dest_i++] = tmp;
+	}
+
+	if(i < src_l) {
+		for (k = tmp = 0; i < src_l; k++) {
+			for (c = 0, sc = ((uint8_t)src[i]) - sc_off; (c < bitu) && (sc_tb[c] < sc); c++);
+			if(c >= bitu) c = bitu - 1;
+			tmp <<= bitn; tmp |= c; i++;
+		}
+		 
+		dest[dest_i++] = (tmp<<(8-(bitn*k)));
+	}
+}
+
+///[s, e)
+int64_t retrive_bqual(asg8_v *dv, uint8_t *ds, uint64_t id, int64_t s, int64_t e, uint8_t rev, int64_t bitn)
+{
+	int64_t rl = Get_READ_LENGTH(R_INF, id), l; 
+	if(s < 0) s = 0; if(e < 0) e = rl;
+	if(s >= e || e > rl) return -1;
+
+	uint8_t *da = NULL, *src = Get_QUAL(R_INF, id), mm = (((uint8_t)1)<<bitn)-1, mlf = 8 - bitn, mrf;
+	int64_t bitr = 8/bitn, dk, sk, swk;
+	l = e - s;
+	if(dv) {
+		kv_resize(uint8_t, *dv, ((uint64_t)l)); da = dv->a;
+	} else {
+		da = ds;
+	}
+
+	if(!rev) {
+		dk = 0; sk = s;
+
+		mrf = ((s%bitr)*bitn);
+		// if(s == 21519 && e == 22332) {
+		// 	fprintf(stderr, "+[M::%s] id::%lu, in::[%ld, %ld), rev::%u, bitn::%ld, bitr::%ld, mrf::%u\n", __func__, id, s, e, rev, bitn, bitr, mrf);
+		// }
+		if(mrf) {
+			for (swk = sk/bitr; mrf < 8 && sk < e; mrf += bitn, sk++) da[dk++] = ((src[swk]<<mrf)>>mlf)&mm;
+		}
+		
+		for (swk = sk/bitr; (sk + bitr) <= e; sk += bitr, swk++) {
+			for (mrf = 0; mrf < 8; mrf += bitn) da[dk++] = ((src[swk]<<mrf)>>mlf)&mm;
+		}
+
+		if(sk < e) {
+			for (mrf = 0; sk < e; mrf += bitn, sk++) da[dk++] = ((src[swk]<<mrf)>>mlf)&mm;
+		}
+		// if(dk != l) {
+		// 	fprintf(stderr, "+[M::%s] id::%lu, in::[%ld, %ld), rev::%u, bitn::%ld, bitr::%ld\n", __func__, id, s, e, rev, bitn, bitr);
+		// }
+		assert(dk == l);
+	} else {
+		sk = s; s = e; e = sk;
+		s = rl - s; e = rl - e;
+		dk = l; sk = s; 
+
+		mrf = ((s%bitr)*bitn);
+		if(mrf) {
+			for (swk = sk/bitr; mrf < 8 && sk < e; mrf += bitn, sk++) da[--dk] = ((src[swk]<<mrf)>>mlf)&mm;
+		}
+		
+		for (swk = sk/bitr; (sk + bitr) <= e; sk += bitr, swk++) {
+			for (mrf = 0; mrf < 8; mrf += bitn) da[--dk] = ((src[swk]<<mrf)>>mlf)&mm;
+		}
+
+		if(sk < e) {
+			for (mrf = 0; sk < e; mrf += bitn, sk++) da[--dk] = ((src[swk]<<mrf)>>mlf)&mm;
+		}
+		
+		assert(dk == 0);
+	}
+	dv->n = l;
+
+	return l;
+}
+
 void reverse_complement(char* pattern, uint64_t length)
 {
 	uint64_t i = 0;
@@ -843,6 +994,24 @@ void reverse_complement(char* pattern, uint64_t length)
 	{
 		pattern[end] = RC_CHAR(pattern[end]);
 	}
+}
+
+void print_fastq(FILE *fp, char *id, char *bs, char *qual, uint64_t bitu, uint64_t sc_off)
+{
+	uint64_t i = 0, ql = strlen(qual); uint8_t c = 0, sc;
+	
+	if(fp) fprintf(fp, "@%s\n%s\n+\n", id, bs);
+	else fprintf(stdout, "@%s\n%s\n+\n", id, bs);
+
+	for (i = 0; i < ql; i++) {
+		for (c = 0, sc = ((uint8_t)qual[i]) - sc_off; (c < bitu) && (sc_tb[c] < sc); c++);
+		if(c >= bitu) c = bitu - 1;
+		if(fp) fprintf(fp, "%u", c);
+		else fprintf(stdout, "%u", c);
+	}
+
+	if(fp) fprintf(fp, "\n");
+	else fprintf(stdout, "\n");
 }
 
 
