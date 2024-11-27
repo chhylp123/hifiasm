@@ -7,6 +7,9 @@
 #include <sys/time.h>
 #include "CommandLines.h"
 #include "ketopt.h"
+#include "kseq.h"
+
+KSEQ_INIT(gzFile, gzread)
 
 #define DEFAULT_OUTPUT "hifiasm.asm"
 
@@ -72,7 +75,9 @@ static ko_longopt_t long_options[] = {
     { "telo-s",     ko_required_argument, 357},
     { "ctg-n",     ko_required_argument, 358},
     { "ont",       ko_no_argument, 359},
-    { "sc-n",       ko_no_argument, 360},
+    // { "sc-n",       ko_no_argument, 360},
+    { "chem-c",     ko_required_argument, 361},
+    { "chem-f",     ko_required_argument, 362},
     // { "path-round",     ko_required_argument, 348},
 	{ 0, 0, 0 }
 };
@@ -210,6 +215,14 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "    --telo-s     INT\n");
     fprintf(stderr, "                 min score for telomere reads [%ld]\n", asm_opt->telo_mic_sc);
 
+    fprintf(stderr, "  ONT simplex assembly (beta):\n");
+    fprintf(stderr, "    --ont        assemble ONT simplex reads in fastq format\n");
+    // fprintf(stderr, "    --sc-n       consider base qual value for assembly\n");
+    fprintf(stderr, "    --chem-c     INT\n");
+    fprintf(stderr, "                 detect chemical reads with <=INT other reads support [%lu]\n", asm_opt->chemical_cov);
+    fprintf(stderr, "    --chem-f     INT\n");
+    fprintf(stderr, "                 length of flanking regions for chemical read detection [%lu]\n", asm_opt->chemical_flank);
+
 
     fprintf(stderr, "Example: ./hifiasm -o NA12878.asm -t 32 NA12878.fq.gz\n");
     fprintf(stderr, "See `https://hifiasm.readthedocs.io/en/latest/' or `man ./hifiasm.1' for complete documentation.\n");
@@ -342,6 +355,8 @@ void init_opt(hifiasm_opt_t* asm_opt)
 
     asm_opt->is_ont = 0;
     asm_opt->is_sc = 0;
+    asm_opt->chemical_cov = 1;
+    asm_opt->chemical_flank = 256;
 }   
 
 void destory_enzyme(enzyme* f)
@@ -692,25 +707,33 @@ int check_option(hifiasm_opt_t* asm_opt)
 
 void get_queries(int argc, char *argv[], ketopt_t* opt, hifiasm_opt_t* asm_opt)
 {
-    if(opt->ind == argc)
-    {
+    if(opt->ind == argc) {
         return;
     }
 
     asm_opt->num_reads = argc - opt->ind;
     asm_opt->read_file_names = (char**)malloc(sizeof(char*)*asm_opt->num_reads);
     
-    long long i;
-    gzFile dfp;
-    for (i = 0; i < asm_opt->num_reads; i++)
-    {
+    long long i; int ret;
+    gzFile dfp; kseq_t *ks = NULL;
+    for (i = 0; i < asm_opt->num_reads; i++) {
         asm_opt->read_file_names[i] = argv[i + opt->ind];
         dfp = gzopen(asm_opt->read_file_names[i], "r");
-        if (dfp == 0)
-        {
+        if (dfp == 0) {
             fprintf(stderr, "[ERROR] Cannot find the input read file: %s\n", 
                     asm_opt->read_file_names[i]);
 		    exit(0);
+        } else if(asm_opt->is_sc){
+            ks = kseq_init(dfp);
+            while (((ret = kseq_read(ks)) >= 0)) {
+                if((ks->qual.l == 0) || (ks->qual.s == NULL)) {
+                    fprintf(stderr, "[ERROR] %s is in fasta format rather than fastq format\n", asm_opt->read_file_names[i]);
+                    asm_opt->is_sc = 0;
+                    exit(0);
+                }
+                break;
+            }
+            kseq_destroy(ks); ks = NULL;
         }
         gzclose(dfp);
     }
@@ -914,9 +937,13 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         else if (c == 357) asm_opt->telo_mic_sc = atol(opt.arg);
         else if (c == 358) asm_opt->max_contig_tip = atol(opt.arg);
         else if (c == 359) {
-            asm_opt->is_ont = 1; asm_opt->max_ov_diff_ec = 0.07; ///asm_opt->mz_win = 37; asm_opt->k_mer_length = 37;
-        } else if (c == 360) {
+            asm_opt->is_ont = 1; asm_opt->max_ov_diff_ec = 0.07; asm_opt->is_sc = 1; ///asm_opt->mz_win = 37; asm_opt->k_mer_length = 37;
+        } /**else if (c == 360) {
             asm_opt->is_sc = 1; 
+        }**/ else if (c == 361) {
+            asm_opt->chemical_cov = atol(opt.arg);
+        } else if (c == 362) {
+            asm_opt->chemical_flank = atol(opt.arg);
         } else if (c == 'l') {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
             asm_opt->purge_level_primary = asm_opt->purge_level_trio = atoi(opt.arg);
         }

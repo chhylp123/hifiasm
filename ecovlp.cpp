@@ -14,6 +14,56 @@
 #define del_cns_nn(z, nn_i) ((z).a[(nn_i)].sc == CNS_DEL_V)
 #define REFRESH_N 128 
 
+KDQ_INIT(uint32_t)
+
+typedef struct {
+	uint32_t v:31, f:1;
+	uint32_t sc;
+} cns_arc;
+typedef struct {size_t n, m, nou; cns_arc *a; } cns_arc_v;
+
+typedef struct {
+	// uint16_t c:2, t:2, f:1, sc:3;
+	uint32_t c:2, f:1, sc:29;
+	cns_arc_v arc;
+}cns_t;
+
+typedef struct {
+	size_t n, m; 
+	cns_t *a;
+	uint32_t si, ei, off, bn, bb0, bb1, cns_g_wl;
+	kdq_t(uint32_t) *q;
+}cns_gfa;
+
+typedef struct {
+	// chaining and overlapping related buffers
+	UC_Read self_read, ovlp_read;
+	Candidates_list clist;
+	overlap_region_alloc olist;
+	ha_abuf_t *ab;
+	// int64_t num_read_base, num_correct_base, num_recorrect_base;
+	uint64_t cnt[6], rr;
+	haplotype_evdience_alloc hap;
+	bit_extz_t exz;
+	kv_ul_ov_t pidx;
+	asg64_v v64;
+	asg32_v v32;
+	asg16_v v16;
+	asg8_v v8q, v8t;
+
+    kvec_t_u8_warp k_flag;
+	st_mt_t sp;
+	cns_gfa cns;	
+} ec_ovec_buf_t0;
+
+typedef struct {
+	ec_ovec_buf_t0 *a;
+	uint32_t n, rev;
+} ec_ovec_buf_t;
+
+ec_ovec_buf_t* gen_ec_ovec_buf_t(uint32_t n);
+void destroy_ec_ovec_buf_t(ec_ovec_buf_t *p);
+
 
 #define generic_key(x) (x)
 KRADIX_SORT_INIT(ec16, uint16_t, generic_key, 2)
@@ -2608,6 +2658,7 @@ void push_ff_ovlp(ma_hit_t_alloc* paf, overlap_region_alloc* ov, uint32_t flag, 
                 if(z->el == 1) cnt[4]++;
                 if(z->no_l_indel) cnt[5]++;
             }
+            z->del = 0;
         }
     }
 
@@ -2729,7 +2780,7 @@ inline uint64_t exact_ec_check(char *qstr, uint64_t ql, char *tstr, uint64_t tl,
     return 0;
 }
 
-void gen_hc_r_alin_ea(overlap_region_alloc* ol, Candidates_list *cl, All_reads *rref, UC_Read* qu, UC_Read* tu, bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t wl, int64_t rid, int64_t khit, int64_t move_gap, asg16_v *buf, asg64_v *srt, ma_hit_t_alloc *in)
+void gen_hc_r_alin_ea(overlap_region_alloc* ol, Candidates_list *cl, All_reads *rref, UC_Read* qu, UC_Read* tu, bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t wl, int64_t rid, int64_t khit, int64_t move_gap, asg16_v *buf, asg64_v *srt, ma_hit_t_alloc *in, uint8_t chem_drop)
 {
     if(ol->length <= 0) return;
 
@@ -2744,7 +2795,7 @@ void gen_hc_r_alin_ea(overlap_region_alloc* ol, Candidates_list *cl, All_reads *
     }
 
     if(!(srt->n)) {
-        gen_hc_r_alin(ol, cl, rref, qu, tu, exz, aux_o, e_rate, wl, rid, khit, move_gap, buf);
+        gen_hc_r_alin(ol, cl, rref, qu, tu, exz, aux_o, e_rate, wl, rid, khit, move_gap, buf, chem_drop);
     } else {
         ///debug for memory
         // snprintf(NULL, 0, "dwn::%u\tdcn::%u", (uint32_t)aux_o->w_list.n, (uint32_t)aux_o->w_list.c.n);
@@ -2778,7 +2829,7 @@ void gen_hc_r_alin_ea(overlap_region_alloc* ol, Candidates_list *cl, All_reads *
         ///debug for memory
         // snprintf(NULL, 0, "dwn::%u\tdcn::%u", (uint32_t)aux_o->w_list.n, (uint32_t)aux_o->w_list.c.n);
 
-        if(on > nec) gen_hc_r_alin_nec(ol, cl, rref, qu, tu, exz, aux_o, e_rate, wl, rid, khit, move_gap, buf);
+        if(on > nec) gen_hc_r_alin_nec(ol, cl, rref, qu, tu, exz, aux_o, e_rate, wl, rid, khit, move_gap, buf, chem_drop);
 
         ///debug for memory
         // snprintf(NULL, 0, "dwn::%u\tdcn::%u", (uint32_t)aux_o->w_list.n, (uint32_t)aux_o->w_list.c.n);
@@ -2986,6 +3037,158 @@ void debug_retrive_bqual(asg8_v *vq, asg8_v *vt, uint64_t id, uint64_t rn)
     }
 }
 
+uint32_t is_uncorrected_read(overlap_region_alloc* ov, asg64_v *idx, int64_t len, int64_t min_len)
+{
+    uint64_t k, s, e; int64_t dp, old_dp, st = 0, ed;
+    for (k = idx->n = 0; k < ov->length; k++) {
+        s = ov->list[k].x_pos_s; e = ov->list[k].x_pos_e + 1;
+        kv_push(uint64_t, (*idx), (s<<1));
+        kv_push(uint64_t, (*idx), (e<<1)|1);
+    }
+
+    radix_sort_ec64(idx->a, idx->a + idx->n);
+    for (k = 0, dp = 0, st = ed = 0; k < idx->n; ++k) {
+        old_dp = dp;
+        ///if a[j] is qe
+        if (idx->a[k]&1) --dp;
+        else ++dp;
+
+        ed = idx->a[k]>>1;
+        if(ed > st) {
+            if(old_dp == 0) {
+                if((ed - st) >= min_len) return 1;
+            }
+        }
+        st = ed;
+    }
+
+
+    ed = len; old_dp = dp;
+    if(ed > st) {
+        if(old_dp == 0) {
+            if((ed - st) >= min_len) return 1;
+            if((ed - st) >= len) return 1;
+        }
+    }
+    
+    return 0;
+}
+
+uint32_t is_chemical_r_qual(overlap_region_alloc *ov, asg64_v *idx, int64_t len, int64_t cov, int64_t frank_len, asg8_v *qv, uint64_t rid)
+{
+    uint64_t k, s, e; int64_t dp, old_dp, st = 0, ed, s0, s1, e0, e1, rr, qk;
+    if((frank_len) > (len *0.01)) frank_len = len *0.01;
+    for (k = idx->n = 0; k < ov->length; k++) {
+        s = ov->list[k].x_pos_s; e = ov->list[k].x_pos_e + 1;
+        kv_push(uint64_t, (*idx), (s<<1));
+        kv_push(uint64_t, (*idx), (e<<1)|1);
+        // fprintf(stderr, "[M::%s]\trid::%lu\ts::%lu\te::%lu\n", __func__, rid, s, e);
+    }
+
+    radix_sort_ec64(idx->a, idx->a + idx->n); s0 = s1 = e0 = e1 = rr = -1;
+    for (k = 0, dp = 0, st = ed = 0; k < idx->n; ++k) {
+        old_dp = dp;
+        ///if a[j] is qe
+        if (idx->a[k]&1) --dp;
+        else ++dp;
+
+        ed = idx->a[k]>>1;
+        if(ed > st) {
+            if(old_dp <= cov) {
+                rr = 1;
+            } else {
+                if(s0 < 0) {
+                    s0 = st; s1 = ed;
+                }
+                e0 = st; e1 = ed;
+            }
+        }
+        st = ed;
+    }
+
+
+    ed = len; old_dp = dp;
+    if(ed > st) {
+        if(old_dp <= cov) {
+            rr = 1;
+        } else {
+            if(s0 < 0) {
+                s0 = st; s1 = ed;
+            }
+            e0 = st; e1 = ed;
+        }
+    }
+
+
+    if((s0 != e0) && (s1 != e1) && (s0 <= frank_len) && ((len - e1) <= frank_len) && (rr > 0)) {
+        for (k = 0, dp = 0, st = ed = 0; k < idx->n; ++k) {
+            old_dp = dp;
+            ///if a[j] is qe
+            if (idx->a[k]&1) --dp;
+            else ++dp;
+
+            ed = idx->a[k]>>1;
+            if(ed > st) {
+                if((old_dp <= cov) && (st >= s0) && (ed <= e1)) {
+                    retrive_bqual(qv, NULL, rid, -1, -1, 0, sc_bn); 
+                    fprintf(stderr, "[M::%s]\tlf::[%ld,%ld)\trt::[%ld,%ld)\tmd::[%ld,%ld)\tcov::%ld\n", __func__, s0, s1, e0, e1, st, ed, old_dp);
+                    for (qk = st; qk < ed; qk++) fprintf(stderr, "%u", qv->a[qk]);
+                    fprintf(stderr, "\n");
+                    return 1;
+                }
+            }
+            st = ed;
+        }
+
+
+        ed = len; old_dp = dp;
+        if(ed > st) {
+            if((old_dp <= cov) && (st >= s0) && (ed <= e1)) {
+                retrive_bqual(qv, NULL, rid, -1, -1, 0, sc_bn);
+                fprintf(stderr, "[M::%s]\tlf::[%ld,%ld)\trt::[%ld,%ld)\tmd::[%ld,%ld)\tcov::%ld\n", __func__, s0, s1, e0, e1, st, ed, old_dp);
+                for (qk = st; qk < ed; qk++) fprintf(stderr, "%u", qv->a[qk]);
+                fprintf(stderr, "\n");
+                return 1;
+            }
+        }
+    }
+
+
+    // for (k = 0, dp = 0, st = ed = 0; k < idx->n; ++k) {
+    //     old_dp = dp;
+    //     ///if a[j] is qe
+    //     if (idx->a[k]&1) --dp;
+    //     else ++dp;
+
+    //     ed = idx->a[k]>>1;
+    //     if(ed > st) {
+    //         if((old_dp <= cov)) {
+    //             retrive_bqual(qv, NULL, rid, -1, -1, 0, sc_bn); 
+    //             fprintf(stderr, "[M::%s]\tlf::[%ld,%ld)\trt::[%ld,%ld)\tmd::[%ld,%ld)\tcov::%ld\n", __func__, s0, s1, e0, e1, st, ed, old_dp);
+    //             for (qk = st; qk < ed; qk++) fprintf(stderr, "%u", qv->a[qk]);
+    //             fprintf(stderr, "\n");
+    //             return 1;
+    //         }
+    //     }
+    //     st = ed;
+    // }
+
+
+    // ed = len; old_dp = dp;
+    // if(ed > st) {
+    //     if((old_dp <= cov)) {
+    //         retrive_bqual(qv, NULL, rid, -1, -1, 0, sc_bn);
+    //         fprintf(stderr, "[M::%s]\tlf::[%ld,%ld)\trt::[%ld,%ld)\tmd::[%ld,%ld)\tcov::%ld\n", __func__, s0, s1, e0, e1, st, ed, old_dp);
+    //         for (qk = st; qk < ed; qk++) fprintf(stderr, "%u", qv->a[qk]);
+    //         fprintf(stderr, "\n");
+    //         return 1;
+    //     }
+    // }
+    
+    return 0;
+}
+
+
 static void worker_hap_ec(void *data, long i, int tid)
 {
 	ec_ovec_buf_t0 *b = &(((ec_ovec_buf_t*)data)->a[tid]);
@@ -3006,7 +3209,7 @@ static void worker_hap_ec(void *data, long i, int tid)
     // if(i % 100000 == 0) fprintf(stderr, "-a-[M::%s-beg] rid->%ld\n", __func__, i);
     // if (memcmp("c42804f3-0e13-43a0-8a71-b91b40accf9a", Get_NAME((R_INF), i), Get_NAME_LENGTH((R_INF),i)) == 0) {
     // if (memcmp("b2e68ecf-381a-439c-b676-c1e6831d6acf", Get_NAME((R_INF), i), Get_NAME_LENGTH((R_INF),i)) == 0) {
-    // if (memcmp("0aec8c4f-c849-4c31-85ba-4ffb297eeb28", Get_NAME((R_INF), i), Get_NAME_LENGTH((R_INF),i)) == 0) {
+    // if (memcmp("64b2c27d-86b8-451e-9330-6ba62be2ffcc", Get_NAME((R_INF), i), Get_NAME_LENGTH((R_INF),i)) == 0) {
     //     fprintf(stderr, "-a-[M::%s-beg] rid->%ld\n", __func__, i);
     // } else {
     //     return;
@@ -3023,7 +3226,7 @@ static void worker_hap_ec(void *data, long i, int tid)
 
     recover_UC_Read(&b->self_read, &R_INF, i); qlen = b->self_read.length; 
 
-    h_ec_lchain(b->ab, i, b->self_read.seq, b->self_read.length, asm_opt.mz_win, asm_opt.k_mer_length, &R_INF, &b->olist, &b->clist, /**((asm_opt.is_ont)?(0.05):(0.02))**/0.02, asm_opt.max_n_chain, 1, NULL, NULL, &(b->sp), &high_occ, &low_occ, 1, 1, 3, 0.7, 2, 32);///ONT high error
+    h_ec_lchain(b->ab, i, b->self_read.seq, b->self_read.length, asm_opt.mz_win, asm_opt.k_mer_length, &R_INF, &b->olist, &b->clist, ((asm_opt.is_ont)?(0.05):(0.02)), asm_opt.max_n_chain, 1, NULL, NULL, &(b->sp), &high_occ, &low_occ, 1, 1, 3, 0.7, 2, 32);///ONT high error
 
     // b->num_read_base += b->olist.length;
     b->cnt[0] += b->self_read.length;
@@ -3033,7 +3236,7 @@ static void worker_hap_ec(void *data, long i, int tid)
     ///debug for memory
     // snprintf(NULL, 0, "dwn::%u\tdcn::%u", (uint32_t)aux_o->w_list.n, (uint32_t)aux_o->w_list.c.n);
 
-    gen_hc_r_alin_ea(&b->olist, &b->clist, &R_INF, &b->self_read, &b->ovlp_read, &b->exz, aux_o, asm_opt.max_ov_diff_ec, (asm_opt.is_ont)?(WINDOW_OHC):(WINDOW_HC), i, E_KHIT/**asm_opt.k_mer_length**/, 1, &b->v16, &b->v64, &(R_INF.paf[i]));
+    gen_hc_r_alin_ea(&b->olist, &b->clist, &R_INF, &b->self_read, &b->ovlp_read, &b->exz, aux_o, asm_opt.max_ov_diff_ec, (asm_opt.is_ont)?(WINDOW_OHC):(WINDOW_HC), i, E_KHIT/**asm_opt.k_mer_length**/, 1, &b->v16, &b->v64, &(R_INF.paf[i]), asm_opt.is_ont);
 
     // prt_ovlp_sam(&b->olist, &b->ovlp_read, b->self_read.seq, b->self_read.length);
 
@@ -3061,7 +3264,10 @@ static void worker_hap_ec(void *data, long i, int tid)
     push_nec_re(aux_o, &(scc.a[i]));
     push_nec_re(aux_o, &(scb.a[i]));
 
-    
+    // if((asm_opt.is_ont) && is_chemical_r_qual(&b->olist, &b->v64, qlen, 1, 16, &(b->v8q), i)/**(is_uncorrected_read(&b->olist, &b->v64, qlen, 1600))**/) {
+    //     // b->olist.length = 0;
+    //     fprintf(stderr, "[M::%s] rid::%ld\t%.*s\n\n", __func__, i, (int)Get_NAME_LENGTH(R_INF, i), Get_NAME(R_INF, i));
+    // }
 
     push_ne_ovlp(&(R_INF.paf[i]), &b->olist, 1, &R_INF, &(scc.a[i])/**, i, &b->self_read, &b->ovlp_read**/);
     push_ne_ovlp(&(R_INF.reverse_paf[i]), &b->olist, 2, &R_INF, NULL/**, i, NULL, NULL**/);
@@ -3605,9 +3811,9 @@ static void worker_hap_dc_ec_gen_new_idx(void *data, long i, int tid)
     
     ec_ovec_buf_t0 *b = &(((ec_ovec_buf_t*)data)->a[tid]);
     uint32_t high_occ = asm_opt.hom_cov * (2.0 - HA_KMER_GOOD_RATIO);
-    uint32_t low_occ = asm_opt.hom_cov * HA_KMER_GOOD_RATIO;
+    uint32_t low_occ = asm_opt.hom_cov * HA_KMER_GOOD_RATIO; uint32_t qlen = 0;
 
-    recover_UC_Read(&b->self_read, &R_INF, i); 
+    recover_UC_Read(&b->self_read, &R_INF, i); qlen = b->self_read.length; 
 
     h_ec_lchain(b->ab, i, b->self_read.seq, b->self_read.length, asm_opt.mz_win, asm_opt.k_mer_length, &R_INF, &b->olist, &b->clist, /**0.02**/0.001, asm_opt.max_n_chain, 1, NULL, NULL, &(b->sp), &high_occ, &low_occ, 1, 1, 3, 0.7, 2, 32);
 
@@ -3624,6 +3830,11 @@ static void worker_hap_dc_ec_gen_new_idx(void *data, long i, int tid)
 
     h_ec_lchain_fast_new(b->ab, i, &b->self_read, &b->ovlp_read, &R_INF, &b->olist, &b->clist, &b->exz, &b->v16, &b->v64, &(R_INF.paf[i]), &(R_INF.reverse_paf[i]), 0.866666);
 
+    if((asm_opt.is_ont) && (is_uncorrected_read(&b->olist, &b->v64, qlen, 1600))) {
+        b->olist.length = 0;
+        // fprintf(stderr, "[M::%s] rid::%ld\t%.*s\n", __func__, i, (int)Get_NAME_LENGTH(R_INF, i), Get_NAME(R_INF, i));
+    }
+
     push_ff_ovlp(&(R_INF.paf[i]), &b->olist, 1, &R_INF, b->cnt);
     push_ff_ovlp(&(R_INF.reverse_paf[i]), &b->olist, 2, &R_INF, b->cnt);
 
@@ -3638,6 +3849,236 @@ static void worker_hap_dc_ec_gen_new_idx(void *data, long i, int tid)
     }
     copy_asg_arr(b->sp, buf0);
     **/
+   refresh_ec_ovec_buf_t0(b, REFRESH_N);
+}
+
+uint32_t is_chemical_r(ma_hit_t_alloc *ov, asg64_v *idx, int64_t len, int64_t cov, int64_t frank_len)
+{
+    uint64_t k, s, e; int64_t dp, old_dp, st = 0, ed, s0, s1, e0, e1, rr;
+    if((frank_len) > (len *0.01)) frank_len = len *0.01;
+    for (k = idx->n = 0; k < ov->length; k++) {
+        s = (uint32_t)ov->buffer[k].qns; e = ov->buffer[k].qe;
+        kv_push(uint64_t, (*idx), (s<<1));
+        kv_push(uint64_t, (*idx), (e<<1)|1);
+    }
+
+    radix_sort_ec64(idx->a, idx->a + idx->n); s0 = s1 = e0 = e1 = rr = -1;
+    for (k = 0, dp = 0, st = ed = 0; k < idx->n; ++k) {
+        old_dp = dp;
+        ///if a[j] is qe
+        if (idx->a[k]&1) --dp;
+        else ++dp;
+
+        ed = idx->a[k]>>1;
+        if(ed > st) {
+            if(old_dp <= cov) {
+                rr = 1;
+            } else {
+                if(s0 < 0) {
+                    s0 = st; s1 = ed;
+                }
+                e0 = st; e1 = ed;
+            }
+        }
+        st = ed;
+    }
+
+
+    ed = len; old_dp = dp;
+    if(ed > st) {
+        if(old_dp <= cov) {
+            rr = 1;
+        } else {
+            if(s0 < 0) {
+                s0 = st; s1 = ed;
+            }
+            e0 = st; e1 = ed;
+        }
+    }
+
+
+    if((s0 != e0) && (s1 != e1) && (s0 <= frank_len) && ((len - e1) <= frank_len) && (rr > 0)) {
+        for (k = 0, dp = 0, st = ed = 0; k < idx->n; ++k) {
+            old_dp = dp;
+            ///if a[j] is qe
+            if (idx->a[k]&1) --dp;
+            else ++dp;
+
+            ed = idx->a[k]>>1;
+            if(ed > st) {
+                if((old_dp <= cov) && (st >= s0) && (ed <= e1)) {
+                    // if((ov->buffer[0].qns>>32) == 3364) fprintf(stderr, "[M::%s]\tlf::[%ld,%ld)\trt::[%ld,%ld)\tmd::[%ld,%ld)\tcov::%ld\n", __func__, s0, s1, e0, e1, st, ed, old_dp);
+                    return 1;
+                }
+            }
+            st = ed;
+        }
+
+
+        ed = len; old_dp = dp;
+        if(ed > st) {
+            if((old_dp <= cov) && (st >= s0) && (ed <= e1)) {
+                // if((ov->buffer[0].qns>>32) == 3364) fprintf(stderr, "[M::%s]\tlf::[%ld,%ld)\trt::[%ld,%ld)\tmd::[%ld,%ld)\tcov::%ld\n", __func__, s0, s1, e0, e1, st, ed, old_dp);
+                return 1;
+            }
+        }
+    }
+    
+    return 0;
+}
+
+
+uint32_t is_chemical_r_adv(ma_hit_t_alloc *ov, asg64_v *idx, int64_t len, int64_t cov, int64_t cut_len, double dup_rate)
+{
+    uint64_t k, s, e; int64_t dp, old_dp, st = 0, ed, s0, e0, rr, lt;
+    for (k = idx->n = 0; k < ov->length; k++) {
+        s0 = (uint32_t)ov->buffer[k].qns; e0 = ov->buffer[k].qe;
+        if(s0 > 0) s0 += cut_len;
+        if(e0 < len) e0 -= cut_len;
+        if(e0 <= s0) continue;
+        s = s0; e = e0;
+
+        lt = Get_READ_LENGTH((R_INF), ov->buffer[k].tn);
+        rr = (lt >= len)?(lt - len):(len - lt);
+        if((rr <= (len*dup_rate)) && (rr <= (lt*dup_rate)) && (ov->buffer[k].rev)) {
+            dp = (ov->buffer[k].qe) - ((uint32_t)ov->buffer[k].qns); dp = len - dp;
+            old_dp = ov->buffer[k].te - ov->buffer[k].ts; old_dp = lt - old_dp;
+            if((dp <= (len*dup_rate)) && (old_dp <= (lt*dup_rate))) continue;
+        } 
+
+        kv_push(uint64_t, (*idx), (s<<1));
+        kv_push(uint64_t, (*idx), (e<<1)|1);
+    }
+
+    radix_sort_ec64(idx->a, idx->a + idx->n); s0 = e0 = rr = -1;
+    for (k = 0, dp = 0, st = ed = 0; k < idx->n; ++k) {
+        old_dp = dp;
+        ///if a[j] is qe
+        if (idx->a[k]&1) --dp;
+        else ++dp;
+
+        ed = idx->a[k]>>1;
+        if(ed > st) {
+            // if(ov->length && ((ov->buffer[0].qns>>32) == 5045637)) {
+            //     fprintf(stderr, "[M::%s]\tmd::[%ld,%ld)\tcov::%ld\tlen::%ld\tid::%lu\n", __func__, st, ed, old_dp, len, ov->buffer[0].qns>>32);
+            // }
+            if(old_dp <= cov) {
+                // if(ov->length && (ov->buffer[0].qns>>32) == 22344) fprintf(stderr, "[M::%s]\tmd::[%ld,%ld)\tcov::%ld\tlen::%ld\n", __func__, st, ed, old_dp, len);
+                return 1;
+            } 
+        }
+        st = ed;
+    }
+
+
+    ed = len; old_dp = dp;
+    if(ed > st) {
+        // if(ov->length && ((ov->buffer[0].qns>>32) == 5045637)) {
+        //     fprintf(stderr, "[M::%s]\tmd::[%ld,%ld)\tcov::%ld\tlen::%ld\tid::%lu\n", __func__, st, ed, old_dp, len, ov->buffer[0].qns>>32);
+        // }
+        if(old_dp <= cov) {
+            // if(ov->length && (ov->buffer[0].qns>>32) == 22344) fprintf(stderr, "[M::%s]\tmd::[%ld,%ld)\tcov::%ld\tlen::%ld\n", __func__, st, ed, old_dp, len);
+            return 1;
+        }
+    }
+    
+    return 0;
+}
+
+void prt_dbg_rid_paf(ma_hit_t_alloc *ov, UC_Read *ra, asg8_v *qa)
+{
+    if(!(ov->length)) return;
+    uint64_t k, qn = (ov->buffer[0].qns>>32), qn_n, i, m; char *nn = NULL; FILE *fp = NULL; ma_hit_t *h = NULL;
+    qn_n = Get_NAME_LENGTH((R_INF), qn) + 64; MALLOC(nn, qn_n);
+
+    sprintf(nn, "%.*s.qry.fq", (int)Get_NAME_LENGTH(R_INF, qn), Get_NAME((R_INF), qn)); fp = fopen(nn, "w");
+    for (k = 0; k < ov->length; k++) {
+        i = ov->buffer[k].tn;
+        recover_UC_Read(ra, &R_INF, i);
+        fprintf(fp, "@%.*s\n", (int32_t)Get_NAME_LENGTH(R_INF, i), Get_NAME(R_INF, i));
+        fprintf(fp, "%.*s\n", (int32_t)ra->length, ra->seq);        
+        fprintf(fp, "+\n");
+        retrive_bqual(qa, NULL, i, -1, -1, 0, sc_bn);
+        for (m = 0; m < qa->n; m++) fprintf(fp, "%c", (char)(sc_tb[qa->a[m]] + 33 - 1));
+        fprintf(fp, "\n");
+    }
+    fclose(fp);
+
+    sprintf(nn, "%.*s.ref.fq", (int)Get_NAME_LENGTH(R_INF, qn), Get_NAME((R_INF), qn)); fp = fopen(nn, "w");
+    i = qn;
+    recover_UC_Read(ra, &R_INF, i);
+    fprintf(fp, "@%.*s\n", (int32_t)Get_NAME_LENGTH(R_INF, i), Get_NAME(R_INF, i));
+    fprintf(fp, "%.*s\n", (int32_t)ra->length, ra->seq);        
+    fprintf(fp, "+\n");
+    retrive_bqual(qa, NULL, i, -1, -1, 0, sc_bn);
+    for (m = 0; m < qa->n; m++) fprintf(fp, "%c", (char)(sc_tb[qa->a[m]] + 33 - 1));
+    fprintf(fp, "\n");
+    fclose(fp);
+
+    sprintf(nn, "%.*s.ref.fa", (int)Get_NAME_LENGTH(R_INF, qn), Get_NAME((R_INF), qn)); fp = fopen(nn, "w");
+    i = qn;
+    recover_UC_Read(ra, &R_INF, i);
+    fprintf(fp, ">%.*s\n", (int32_t)Get_NAME_LENGTH(R_INF, i), Get_NAME(R_INF, i));
+    fprintf(fp, "%.*s\n", (int32_t)ra->length, ra->seq);        
+    // fprintf(fp, "+\n");
+    // retrive_bqual(qa, NULL, i, -1, -1, 0, sc_bn);
+    // for (m = 0; m < qa->n; m++) fprintf(fp, "%c", (char)(sc_tb[qa->a[m]] + 33 - 1));
+    // fprintf(fp, "\n");
+    fclose(fp);
+
+    sprintf(nn, "%.*s.ov.paf", (int)Get_NAME_LENGTH(R_INF, qn), Get_NAME((R_INF), qn)); fp = fopen(nn, "w");
+    for (k = 0; k < ov->length; k++) {
+        h = &(ov->buffer[k]);
+        fprintf(fp, "%.*s(qn::%u)\t%u\t%u\t%u\t%c\t%.*s(tn::%u)\t%u\t%u\t%u\t%u\t%u\t255\n", (int)Get_NAME_LENGTH(R_INF, Get_qn(*h)), Get_NAME((R_INF), Get_qn(*h)), Get_qn(*h), (uint32_t)Get_READ_LENGTH(R_INF, Get_qn(*h)), Get_qs(*h), Get_qe(*h), "+-"[h->rev], 
+        (int)Get_NAME_LENGTH(R_INF, Get_tn(*h)), Get_NAME((R_INF), Get_tn(*h)), Get_tn(*h), (uint32_t)Get_READ_LENGTH(R_INF, Get_tn(*h)), Get_ts(*h), Get_te(*h), h->ml, h->bl);
+    }
+    fclose(fp);
+
+    free(nn);
+}
+
+static void worker_hap_dc_ec_chemical_r(void *data, long i, int tid)
+{
+    ec_ovec_buf_t0 *b = &(((ec_ovec_buf_t*)data)->a[tid]);
+    ma_hit_t_alloc *paf = &(R_INF.paf[i]); uint64_t k, m;
+
+    // if (memcmp("3ed80bc4-1169-4948-a9ff-9c2463b7f7a2", Get_NAME((R_INF), i), Get_NAME_LENGTH((R_INF),i)) == 0) {
+    //     fprintf(stderr, "-a-[M::%s-beg] rid->%ld, b->rr->%lu\n", __func__, i, b->rr);
+    // } 
+    if(b->cnt[1] == 0) {
+        // if(i == 6204620) prt_dbg_rid_paf(&(R_INF.paf[i]), &(b->self_read), &(b->v8q));
+        // if(is_chemical_r(&(R_INF.paf[i]), &b->v64, Get_READ_LENGTH((R_INF), i), 3, 16)) {
+        if(is_chemical_r_adv(&(R_INF.paf[i]), &b->v64, Get_READ_LENGTH((R_INF), i), asm_opt.chemical_cov, asm_opt.chemical_flank, 0.02)) {
+            // fprintf(stderr, "-um-[M::%s]\tqn::%u::%.*s\n\n", __func__, (uint32_t)(i), (int)Get_NAME_LENGTH(R_INF, i), Get_NAME((R_INF), i));
+            R_INF.paf[i].length = 0; b->cnt[0]++;
+        } 
+    } else if(b->cnt[1] == 1) {
+        for (k = 0; k < paf->length; k++) {
+            if(R_INF.paf[paf->buffer[k].tn].length == 0) {
+                paf->buffer[k].tn = (uint32_t)-1; b->cnt[0]++;
+            }
+        }
+    } else {
+        for (k = m = 0; k < paf->length; k++) {
+            if(paf->buffer[k].tn == ((uint32_t)-1)) continue;
+            paf->buffer[m++] = paf->buffer[k];
+        }
+        paf->length = m;
+    }
+
+   refresh_ec_ovec_buf_t0(b, REFRESH_N);
+}
+
+static void worker_hap_dc_ec_chemical_arc(void *data, long i, int tid)
+{
+    ec_ovec_buf_t0 *b = &(((ec_ovec_buf_t*)data)->a[tid]);
+    ma_hit_t_alloc *paf = &(R_INF.paf[i]); uint64_t k;
+
+    if(is_chemical_r_adv(&(R_INF.paf[i]), &b->v64, Get_READ_LENGTH((R_INF), i), asm_opt.chemical_cov, asm_opt.chemical_flank, 0.02)) {
+        // fprintf(stderr, "-um-[M::%s]\tqn::%u::%.*s\n\n", __func__, (uint32_t)(i), (int)Get_NAME_LENGTH(R_INF, i), Get_NAME((R_INF), i));   
+        for (k = 0; k < paf->length; k++) paf->buffer[k].del = 1; b->cnt[0]++;
+    }
+
    refresh_ec_ovec_buf_t0(b, REFRESH_N);
 }
 
@@ -3843,7 +4284,7 @@ overlap_region* h_ec_lchain_re1(ha_abuf_t *ab, uint32_t rid, UC_Read *qu, UC_Rea
 
     // fprintf(stderr, "-0-[M::%s]\n", __func__);
 
-    gen_hc_r_alin(ol, cl, rref, qu, tu, exz, aux_o, asm_opt.max_ov_diff_ec, w.window_length, rid, E_KHIT, 1, buf); rs = qu->seq; 
+    gen_hc_r_alin(ol, cl, rref, qu, tu, exz, aux_o, asm_opt.max_ov_diff_ec, w.window_length, rid, E_KHIT, 1, buf, 0); rs = qu->seq; 
 
     // fprintf(stderr, "-1-[M::%s]\n", __func__);
 
@@ -4507,7 +4948,7 @@ overlap_region* h_ec_lchain_re3(ha_abuf_t *ab, uint32_t rid, UC_Read *qu, UC_Rea
 
     // fprintf(stderr, "-0-[M::%s]\n", __func__);
 
-    gen_hc_r_alin(ol, cl, rref, qu, tu, exz, aux_o, asm_opt.max_ov_diff_ec, w.window_length, rid, E_KHIT, 1, buf); rs = qu->seq; 
+    gen_hc_r_alin(ol, cl, rref, qu, tu, exz, aux_o, asm_opt.max_ov_diff_ec, w.window_length, rid, E_KHIT, 1, buf, 0); rs = qu->seq; 
 
     // fprintf(stderr, "-1-[M::%s]\n", __func__);
 
@@ -5588,7 +6029,55 @@ void sl_ec_r(uint64_t n_thre, uint64_t n_a)
     kt_for(n_thre, worker_sl_ec, b, n_a);///debug_for_fix
 
     for (k = 0; k < n_thre; k++) {
-        free(b[k].a); destory_UC_Read(&b[k].z);
+        free(b[k].a); destory_UC_Read(&b[k].z); kv_destroy(b[k].q);
     }
     free(b);
+}
+
+void handle_chemical_r(uint64_t n_thre, uint64_t n_a)
+{
+    ec_ovec_buf_t *b = NULL; uint64_t k, chem_n = 0, dedup = 0;
+    b = gen_ec_ovec_buf_t(n_thre);
+    for (k = 0; k < n_thre; ++k) {
+        b->a[k].cnt[0] = 0; b->a[k].cnt[1] = 0;
+    }
+
+    kt_for(n_thre, worker_hap_dc_ec_chemical_r, b, n_a);
+
+    for (k = 0; k < n_thre; ++k) {
+        chem_n += b->a[k].cnt[0]; 
+        b->a[k].cnt[0] = 0; b->a[k].cnt[1] = 1;
+    }
+
+    kt_for(n_thre, worker_hap_dc_ec_chemical_r, b, n_a);
+    
+    for (k = 0; k < n_thre; ++k) {
+        dedup += b->a[k].cnt[0]; 
+        b->a[k].cnt[1] = 2;
+    }
+
+    kt_for(n_thre, worker_hap_dc_ec_chemical_r, b, n_a);
+
+    fprintf(stderr, "[M::%s] # chemical reads: %lu, # arcs:: %lu\n", __func__, chem_n, dedup);
+
+    destroy_ec_ovec_buf_t(b);
+}
+
+void handle_chemical_arc(uint64_t n_thre, uint64_t n_a)
+{
+    ec_ovec_buf_t *b = NULL; uint64_t k, chem_n = 0;
+    b = gen_ec_ovec_buf_t(n_thre);
+    for (k = 0; k < n_thre; ++k) {
+        b->a[k].cnt[0] = 0; 
+    }
+
+    kt_for(n_thre, worker_hap_dc_ec_chemical_arc, b, n_a);
+
+    for (k = 0; k < n_thre; ++k) {
+        chem_n += b->a[k].cnt[0]; 
+    }
+
+    fprintf(stderr, "[M::%s] # chemical reads: %lu\n", __func__, chem_n);
+
+    destroy_ec_ovec_buf_t(b);
 }

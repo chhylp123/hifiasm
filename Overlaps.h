@@ -35,6 +35,7 @@
 // #define ALTER_LABLE 2
 // #define HAP_LABLE 4
 #define ug_ext_len 75000
+#define UL_COV_THRES 2
 
 #define Get_qn(RECORD) ((uint32_t)((RECORD).qns>>32))
 #define Get_qs(RECORD) ((uint32_t)((RECORD).qns))

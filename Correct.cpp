@@ -24531,7 +24531,108 @@ void reassign_gaps(overlap_region *z, overlap_region *aux, char* qstr, int64_t q
     // }
 }
 
-void gen_hc_r_alin(overlap_region_alloc* ol, Candidates_list *cl, All_reads *rref, UC_Read* qu, UC_Read* tu, bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t wl, int64_t rid, int64_t khit, int64_t move_gap, asg16_v* buf)
+uint32_t is_ovlp_debug(int64_t s, int64_t e, int64_t ws, int64_t we, int64_t op)
+{
+    int64_t os, oe, ovlp;
+    os = MAX(s, ws); oe = MIN(e, we);
+    ovlp = ((oe>os)? (oe-os):0); 
+    if(op != 2) {
+        return (!!ovlp);
+    } else {
+        if(ws >= s && we <= e) return 1;
+    }
+    return 0;
+}
+
+uint32_t inline ff_tend(overlap_region *z, int64_t wn, int64_t dn, double dr, double er, int64_t min_err)
+{
+    int64_t k, zwn = z->w_list.n, err, mm, qi, ci, cn, ql, ws, we, zs, ze, s, e, os, oe, ovlp; bit_extz_t ez; uint32_t cl; uint16_t c;
+    zs = z->x_pos_s; ze = z->x_pos_e + 1; ql = ze - zs; 
+    if(ql < wn) return 0; if(dn > (ql*dr)) dn = ql*dr; if(dn < wn) return 0; if(ql < dn) return 0;
+    
+    s = zs; e = zs + dn;
+    // if(z->y_id == 27) fprintf(stderr, "-a-[M::%s] tid::%u\t%.*s\tz::[%ld,%ld)\ti::[%ld,%ld)\n", __func__, z->y_id, (int)Get_NAME_LENGTH(R_INF, z->y_id), Get_NAME(R_INF, z->y_id), zs, ze, s, e);
+    for (k = err = mm = 0, qi = zs; (k < zwn) && (z->w_list.a[k].x_start < e); k++) {
+        // if(z->y_id == 27) fprintf(stderr, "-a-[M::%s] tid::%u\t%.*s\tw::[%d,%d)\terr::%d\n", __func__, z->y_id, (int)Get_NAME_LENGTH(R_INF, z->y_id), Get_NAME(R_INF, z->y_id), z->w_list.a[k].x_start, z->w_list.a[k].x_end + 1, z->w_list.a[k].error);
+        if(!(is_ualn_win(z->w_list.a[k]))) {
+            set_bit_extz_t(ez, (*z), k); 
+            ci = 0; cn = ez.cigar.n; qi = ez.ts; //ti = ez.ps;
+            while (ci < cn && qi < e) {
+                ws = qi;
+                ci = pop_trace(&(ez.cigar), ci, &c, &cl);
+                if(c!=2) qi += cl;
+                // if(c!=3) ti += cl; 
+                we = qi; 
+
+                if(c == 0) {
+                    os = MAX(s, ws); oe = MIN(e, we);
+                    ovlp = ((oe>os)? (oe-os):0); mm += ovlp;
+                } else {
+                    err += cl;
+                }
+                // assert(is_ovlp_debug(s, e, ws, we, c));
+
+                if((err > min_err) && ((mm + err) > wn) && (err > ((mm + err)*er))) {
+                    // fprintf(stderr, "-0-[M::%s] tid::%u\t%.*s\tmm::%ld\terr::%ld\tdn::%ld\twn::%ld\tdif::%f\n", __func__, z->y_id, (int)Get_NAME_LENGTH(R_INF, z->y_id), Get_NAME(R_INF, z->y_id), mm, err, dn, wn, er);
+                    return 1;
+                }
+            }
+        } else {
+            ws = z->w_list.a[k].x_start; we = z->w_list.a[k].x_end + 1;
+            err += we - ws;
+
+            // assert(is_ovlp_debug(s, e, ws, we, -1));
+
+            if((err > min_err) && ((mm + err) > wn) && (err > ((mm + err)*er))) {
+                // fprintf(stderr, "-1-[M::%s] tid::%u\t%.*s\tmm::%ld\terr::%ld\tdn::%ld\twn::%ld\tdif::%f\n", __func__, z->y_id, (int)Get_NAME_LENGTH(R_INF, z->y_id), Get_NAME(R_INF, z->y_id), mm, err, dn, wn, er);
+                return 1;
+            }
+        } 
+    }
+
+    s = ze - dn; e = ze;
+    for (k = zwn - 1, err = mm = 0, qi = ze; (k >= 0) && ((z->w_list.a[k].x_end + 1) > s); k--) {
+        if(!(is_ualn_win(z->w_list.a[k]))) {
+            set_bit_extz_t(ez, (*z), k); 
+            ci = ((int64_t)ez.cigar.n) - 1; qi = ez.te + 1; //ti = ez.pe + 1;
+            while (ci >= 0 && qi > s) {
+                we = qi;
+                ci = pop_trace_back(&(ez.cigar), ci, &c, &cl);
+                if(c!=2) qi -= cl;
+                // if(c!=3) ti += cl; 
+                ws = qi; 
+
+                if(c == 0) {
+                    os = MAX(s, ws); oe = MIN(e, we);
+                    ovlp = ((oe>os)? (oe-os):0); mm += ovlp;
+                } else {
+                    err += cl;
+                }
+
+                // assert(is_ovlp_debug(s, e, ws, we, c));
+
+                if((err > min_err) && ((mm + err) > wn) && (err > ((mm + err)*er))) {
+                    // fprintf(stderr, "-2-[M::%s] tid::%u\t%.*s\tmm::%ld\terr::%ld\tdn::%ld\twn::%ld\tdif::%f\n", __func__, z->y_id, (int)Get_NAME_LENGTH(R_INF, z->y_id), Get_NAME(R_INF, z->y_id), mm, err, dn, wn, er);
+                    return 1;
+                }
+            }
+        } else {
+            ws = z->w_list.a[k].x_start; we = z->w_list.a[k].x_end + 1;
+            err += we - ws;
+
+            // assert(is_ovlp_debug(s, e, ws, we, -1));
+
+            if((err > min_err) && ((mm + err) > wn) && (err > ((mm + err)*er))) {
+                // fprintf(stderr, "-3-[M::%s] tid::%u\t%.*s\tmm::%ld\terr::%ld\tdn::%ld\twn::%ld\tdif::%f\n", __func__, z->y_id, (int)Get_NAME_LENGTH(R_INF, z->y_id), Get_NAME(R_INF, z->y_id), mm, err, dn, wn, er);
+                return 1;
+            }
+        } 
+    }
+    
+    return 0;
+}
+
+void gen_hc_r_alin(overlap_region_alloc* ol, Candidates_list *cl, All_reads *rref, UC_Read* qu, UC_Read* tu, bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t wl, int64_t rid, int64_t khit, int64_t move_gap, asg16_v* buf, uint8_t chem_drop)
 {
     uint64_t i, bs, k, ql = qu->length; Window_Pool w; double err, e_max, rr; int64_t re;
     overlap_region t; overlap_region *z; //asg64_v iidx, buf, buf1;
@@ -24565,6 +24666,9 @@ void gen_hc_r_alin(overlap_region_alloc* ol, Candidates_list *cl, All_reads *rre
 
         if(!gen_hc_fast_cigar(z, cl, rref, w.window_length, qu->seq, tu, exz, aux_o, e_rate, ql, rid, khit, &re)) continue;
 
+        if(chem_drop && ff_tend(z, 384, 2000, 0.1, (((e_rate*10)<0.36)?(e_rate*10):(0.36)), 128)) continue;
+
+
         // if(z->x_id == 3196 && z->y_id == 3199) fprintf(stderr, "-1-[M::%s] tid::%u\t%.*s\trr::%f\tre::%ld\n", __func__, z->y_id, (int)Get_NAME_LENGTH(R_INF, z->y_id), Get_NAME(R_INF, z->y_id), rr, re);
 
         reassign_gaps(z, aux_o, qu->seq, ql, NULL, -1, rref, tu, buf);
@@ -24586,7 +24690,7 @@ void gen_hc_r_alin(overlap_region_alloc* ol, Candidates_list *cl, All_reads *rre
 }
 
 
-void gen_hc_r_alin_nec(overlap_region_alloc* ol, Candidates_list *cl, All_reads *rref, UC_Read* qu, UC_Read* tu, bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t wl, int64_t rid, int64_t khit, int64_t move_gap, asg16_v* buf)
+void gen_hc_r_alin_nec(overlap_region_alloc* ol, Candidates_list *cl, All_reads *rref, UC_Read* qu, UC_Read* tu, bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t wl, int64_t rid, int64_t khit, int64_t move_gap, asg16_v* buf, uint8_t chem_drop)
 {
     uint64_t i, bs, k, ql = qu->length; Window_Pool w; double err, e_max, rr; int64_t re;
     overlap_region t; overlap_region *z; //asg64_v iidx, buf, buf1;
@@ -24627,6 +24731,8 @@ void gen_hc_r_alin_nec(overlap_region_alloc* ol, Candidates_list *cl, All_reads 
             // snprintf(NULL, 0, "dwn::%u\tdcn::%u", (uint32_t)aux_o->w_list.n, (uint32_t)aux_o->w_list.c.n);
 
             if(!gen_hc_fast_cigar(z, cl, rref, w.window_length, qu->seq, tu, exz, aux_o, e_rate, ql, rid, khit, &re)) continue;
+
+            if(chem_drop && ff_tend(z, 384, 2000, 0.1, (((e_rate*10)<0.36)?(e_rate*10):(0.36)), 128)) continue;
 
             // if(z->x_id == 3196 && z->y_id == 3199) fprintf(stderr, "-1-[M::%s] tid::%u\t%.*s\trr::%f\tre::%ld\n", __func__, z->y_id, (int)Get_NAME_LENGTH(R_INF, z->y_id), Get_NAME(R_INF, z->y_id), rr, re);
             ///debug for memory

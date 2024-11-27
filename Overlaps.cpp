@@ -19,6 +19,7 @@
 #include "gfa_ut.h"
 #include "assert.h"
 #include "khash.h"
+#include "ecovlp.h"
 
 KHASH_SET_INIT_INT64(64)
 
@@ -63,7 +64,6 @@ KRADIX_SORT_INIT(ha_mzl_t_srt1, ha_mzl_t, ha_mzl_t_key, member_size(ha_mzl_t, x)
 #define Uc_beg(z) ((uint32_t)((z).a[0]>>32))
 #define Uc_end(z) ((uint32_t)((z).a[(z).n-1]>>32)^1)
 
-#define UL_COV_THRES 2
 #define PHASE_SEP 64
 #define PHASE_SEF 2
 #define PHASE_SEP_RATE 0.04
@@ -2969,10 +2969,18 @@ int max_hang, int min_ovlp)
 
 void prt_specific_overlap(ma_hit_t_alloc *src, uint64_t qn, uint64_t tn, const char *cmd)
 {
-    int64_t idx = get_specific_overlap(&(src[qn]), qn, tn);
-    const ma_hit_t *h = &(src[qn].buffer[idx]);
-    fprintf(stderr, "%s::idx::%ld[M::%s::] qn::%u, tn::%u, del::%u, bl::%u, ml::%u\n", cmd, idx, __func__, 
-    Get_qn(*h), Get_tn(*h), h->del, h->bl, h->ml);
+    ma_hit_t *h = NULL; int64_t idx = -1, k;
+    if(tn != ((uint64_t)-1)) {
+        idx = get_specific_overlap(&(src[qn]), qn, tn); h = &(src[qn].buffer[idx]);
+        fprintf(stderr, "%s::idx::%ld[M::%s::] qn::%u, tn::%u, del::%u, bl::%u, ml::%u\n", cmd, idx, __func__, 
+        Get_qn(*h), Get_tn(*h), h->del, h->bl, h->ml);
+    } else {
+        for (k = 0; k < src[qn].length; k++) {
+            h = &(src[qn].buffer[k]);
+            fprintf(stderr, "%s::idx::%ld[M::%s::] qn::%u, tn::%u, del::%u, bl::%u, ml::%u\n", cmd, idx, __func__, 
+            Get_qn(*h), Get_tn(*h), h->del, h->bl, h->ml); 
+        }
+    }
 }
 
 asg_t *ma_sg_gen_ul(ma_hit_t_alloc* sources, int64_t n_read, const ma_sub_t *coverage_cut, 
@@ -5667,8 +5675,12 @@ long long weakID, uint32_t w_qs, uint32_t w_qe)
         {
             strongID = Get_tn(aim_paf->buffer[i]);
             index = get_specific_overlap(&(reverse_paf_list[strongID]), strongID, weakID);
-            if(index != -1)
-            {
+            if(index != -1) {
+                // if((Get_qn(aim_paf->buffer[i]) == 27087 && weakID == 27128) || (Get_qn(aim_paf->buffer[i]) == 27128 && weakID == 27087)) {
+                //     ma_hit_t *h = &(aim_paf->buffer[i]);
+                //     fprintf(stderr, "[M::%s]\t%.*s(qn::%u)\t%u\t%u\t%u\t%c\t%.*s(tn::%u)\t%u\t%u\t%u\t%u\t%u\t255\n", __func__, (int)Get_NAME_LENGTH(R_INF, Get_qn(*h)), Get_NAME((R_INF), Get_qn(*h)), Get_qn(*h), (uint32_t)Get_READ_LENGTH(R_INF, Get_qn(*h)), Get_qs(*h), Get_qe(*h), "+-"[h->rev], 
+                //         (int)Get_NAME_LENGTH(R_INF, Get_tn(*h)), Get_NAME((R_INF), Get_tn(*h)), Get_tn(*h), (uint32_t)Get_READ_LENGTH(R_INF, Get_tn(*h)), Get_ts(*h), Get_te(*h), h->ml, h->bl);
+                // }
                 return 0;
             }
         }
@@ -11193,6 +11205,11 @@ void clean_weak_ma_hit_t(ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_source
                     index = get_specific_overlap(&(sources[tn]), tn, qn);
                     // if(index < 0 || index >= sources[tn].length) fprintf(stderr, "sb, tn: %u, qn: %u, index: %ld, length: %u\n", tn, qn, index, sources[tn].length);
                     sources[tn].buffer[index].bl |= ((uint32_t)0x40000000);
+                    // ma_hit_t *h = &(sources[i].buffer[j]);
+                    // if((Get_qn(*h) == 27087 && Get_tn(*h) == 27128) || (Get_tn(*h) == 27087 && Get_qn(*h) == 27128)) {
+                    //     fprintf(stderr, "[M::%s]\t%.*s(qn::%u)\t%u\t%u\t%u\t%c\t%.*s(tn::%u)\t%u\t%u\t%u\t%u\t%u\t255\n", __func__, (int)Get_NAME_LENGTH(R_INF, Get_qn(*h)), Get_NAME((R_INF), Get_qn(*h)), Get_qn(*h), (uint32_t)Get_READ_LENGTH(R_INF, Get_qn(*h)), Get_qs(*h), Get_qe(*h), "+-"[h->rev], 
+                    //         (int)Get_NAME_LENGTH(R_INF, Get_tn(*h)), Get_NAME((R_INF), Get_tn(*h)), Get_tn(*h), (uint32_t)Get_READ_LENGTH(R_INF, Get_tn(*h)), Get_ts(*h), Get_te(*h), h->ml, h->bl);
+                    // }
                 }
             }
         }
@@ -38528,17 +38545,43 @@ void prt_dbg_gfa(asg_t *sg, const char *suffix, ma_sub_t *cov, ma_hit_t_alloc* s
     free(gfa_name); free(o_file);
 }
 
+void prt_dbg_rid_ovlp(ma_hit_t_alloc *ov, int64_t rid, char *rn, const char *cmd)
+{
+    uint64_t k; ma_hit_t *h = NULL;
+    if(rid < 0) {
+        for (k = 0; k < R_INF.total_reads; k++) {
+            if (memcmp(rn, Get_NAME((R_INF), k), Get_NAME_LENGTH((R_INF), k)) == 0) break;
+        }
+        if(k >= R_INF.total_reads) return;
+        rid = k;
+    }
+
+    fprintf(stderr, "\n[M::%s::%s::id::%ld]\n", __func__, cmd, rid);
+    for (k = 0; k < ov[rid].length; k++) {
+        h = &(ov[rid].buffer[k]);
+        if(h->del) continue;
+        fprintf(stderr, "%.*s(qn::%u)\t%u\t%u\t%u\t%c\t%.*s(tn::%u)\t%u\t%u\t%u\t%u\t%u\t255\n", (int)Get_NAME_LENGTH(R_INF, Get_qn(*h)), Get_NAME((R_INF), Get_qn(*h)), Get_qn(*h), (uint32_t)Get_READ_LENGTH(R_INF, Get_qn(*h)), Get_qs(*h), Get_qe(*h), "+-"[h->rev], 
+        (int)Get_NAME_LENGTH(R_INF, Get_tn(*h)), Get_NAME((R_INF), Get_tn(*h)), Get_tn(*h), (uint32_t)Get_READ_LENGTH(R_INF, Get_tn(*h)), Get_ts(*h), Get_te(*h), h->ml, h->bl);
+    }
+}
+
 asg_t *gen_init_sg(int32_t min_dp, uint64_t n_read, int64_t mini_overlap_length, int64_t max_hang_length, int64_t gap_fuzz,
 ma_hit_t_alloc* src, uint64_t* readLen, R_to_U* ruIndex, bub_label_t *b_mask_t, ma_sub_t** cov, all_ul_t *ul, telo_end_t *te)
 {
     asg_t *sg = NULL; 
-    // prt_specific_overlap(src, 22233, 22235, "1");
+    // prt_dbg_rid_ovlp(src, 3700, NULL, "1");
     if(ul) rescue_src_ul(src, n_read, UL_COV_THRES);
+    // prt_dbg_rid_ovlp(src, 3700, NULL, "2");
     ma_hit_sub(min_dp, src, n_read, readLen, mini_overlap_length, cov);
+    // prt_dbg_rid_ovlp(src, 3700, NULL, "3");
     detect_chimeric_reads(src, n_read, readLen, *cov, asm_opt.max_ov_diff_final*2.0, ul, UL_COV_THRES);
+    // prt_dbg_rid_ovlp(src, 3700, NULL, "4");
     ma_hit_cut(src, n_read, readLen, mini_overlap_length, cov);
+    // prt_dbg_rid_ovlp(src, 3700, NULL, "5");
     ma_hit_flt(src, n_read, *cov, max_hang_length, mini_overlap_length);
+    // prt_dbg_rid_ovlp(src, 3700, NULL, "6");
     ma_hit_contained_advance(src, n_read, *cov, ruIndex, max_hang_length, mini_overlap_length);
+    // prt_dbg_rid_ovlp(src, 3700, NULL, "7");
 
     if(!ul) {
         sg = ma_sg_gen(src, n_read, *cov, max_hang_length, mini_overlap_length);
@@ -38650,6 +38693,8 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
     }
     ///just for debug
     renew_graph_init(sources, reverse_sources, sg, coverage_cut, ruIndex, n_read);
+    // if(asm_opt.is_ont) handle_chemical_arc(asm_opt.thread_num, R_INF.total_reads);
+    // if(asm_opt.is_ont) handle_chemical_r(asm_opt.thread_num, R_INF.total_reads);
     
     ///it's hard to say which function is better       
     ///normalize_ma_hit_t_single_side(sources, n_read);
@@ -38681,7 +38726,9 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
     } 
     // prt_specific_overlap(sources, 22233, 22235, "0-b");
     // prt_specific_overlap(sources, 22235, 22233, "0-b");
-    clean_weak_ma_hit_t(sources, reverse_sources, n_read, asm_opt.ar?UL_COV_THRES:(uint32_t)-1);
+    // prt_dbg_rid_ovlp(sources, 27087, NULL, "0-a");
+    if(!(asm_opt.is_ont)) clean_weak_ma_hit_t(sources, reverse_sources, n_read, asm_opt.ar?UL_COV_THRES:(uint32_t)-1);
+    // prt_dbg_rid_ovlp(sources, 27087, NULL, "0-b");
     // prt_specific_overlap(sources, 22233, 22235, "0-c");
     // prt_specific_overlap(sources, 22235, 22233, "0-c");
     sg = gen_init_sg(min_dp, n_read, mini_overlap_length, max_hang_length, gap_fuzz, sources, readLen, ruIndex, 
@@ -39006,7 +39053,9 @@ long long bubble_dist, int read_graph, int write)
 
     if (!(asm_opt.flag & HA_F_BAN_ASSEMBLY))
     {
+        if(asm_opt.is_ont) handle_chemical_r(asm_opt.thread_num, R_INF.total_reads);
         try_rescue_overlaps(sources, reverse_sources, n_read, 4); 
+        
         clean_graph(min_dp, sources, reverse_sources, n_read, readLen, mini_overlap_length, 
         max_hang_length, clean_round, gap_fuzz, min_ovlp_drop_ratio, max_ovlp_drop_ratio, 
         output_file_name, bubble_dist, read_graph, &ruIndex, &sg, &coverage_cut, 0);
