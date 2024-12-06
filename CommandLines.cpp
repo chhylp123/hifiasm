@@ -219,9 +219,9 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "    --ont        assemble ONT simplex reads in fastq format\n");
     // fprintf(stderr, "    --sc-n       consider base qual value for assembly\n");
     fprintf(stderr, "    --chem-c     INT\n");
-    fprintf(stderr, "                 detect chemical reads with <=INT other reads support [%lu]\n", asm_opt->chemical_cov);
+    fprintf(stderr, "                 detect chimeric reads with <=INT other reads support [%lu]\n", asm_opt->chemical_cov);
     fprintf(stderr, "    --chem-f     INT\n");
-    fprintf(stderr, "                 length of flanking regions for chemical read detection [%lu]\n", asm_opt->chemical_flank);
+    fprintf(stderr, "                 length of flanking regions for chimeric read detection [%lu]\n", asm_opt->chemical_flank);
 
 
     fprintf(stderr, "Example: ./hifiasm -o NA12878.asm -t 32 NA12878.fq.gz\n");
