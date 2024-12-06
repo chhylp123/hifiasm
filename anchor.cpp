@@ -1943,10 +1943,11 @@ void lchain_qgen_mcopy_fast(Candidates_list* cl, overlap_region_alloc* ol, uint3
 	}
 	cl->length = m;
 
+	// fprintf(stderr, "[M::%s::] rn::%lu\tmax_n_chain::%lu\n", __func__, ol->length, max_n_chain);
 	// for (k = 0; k < ol->length; k++) {
-	// 	fprintf(stderr, "---[M::%s::utg%.6dl] q[%d, %d), t[%d, %d), khit_off::%u\n", __func__, 
-    //     (int32_t)ol->list[k].y_id+1, ol->list[k].x_pos_s, ol->list[k].x_pos_e+1,
-	// 	ol->list[k].y_pos_s, ol->list[k].y_pos_e+1, ol->list[k].non_homopolymer_errors);
+	// 	fprintf(stderr, "---[M::%s::%.*s(qid::%u)] q[%d, %d), t[%d, %d), khit_off::%u\n", __func__, 
+	// 	(int32_t)Get_NAME_LENGTH(R_INF, ol->list[k].y_id), Get_NAME(R_INF, ol->list[k].y_id), ol->list[k].y_id,
+	// 	ol->list[k].x_pos_s, ol->list[k].x_pos_e+1, ol->list[k].y_pos_s, ol->list[k].y_pos_e+1, ol->list[k].non_homopolymer_errors);
 	// }
 
 	k = ol->length;

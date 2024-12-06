@@ -3220,7 +3220,7 @@ static void worker_hap_ec(void *data, long i, int tid)
     // if(i != 1124) return;
     // if(i != 700) return;
     // if(i != 2243244) return;
-    // if(i != 19350) return;
+    // if(i != 15139) return;
 
     // debug_retrive_bqual(D, &b->v8t, i, 256); return;
 
@@ -3232,6 +3232,8 @@ static void worker_hap_ec(void *data, long i, int tid)
     b->cnt[0] += b->self_read.length;
 
     aux_o = fetch_aux_ovlp(&b->olist);///must be here
+
+    // stderr_phase_ovlp(&b->olist);
 
     ///debug for memory
     // snprintf(NULL, 0, "dwn::%u\tdcn::%u", (uint32_t)aux_o->w_list.n, (uint32_t)aux_o->w_list.c.n);
@@ -4849,7 +4851,12 @@ void h_ec_lchain_fast_new(ha_abuf_t *ab, uint32_t rid, UC_Read *qu, UC_Read *tu,
     oa = in0->buffer; on = in0->length;
     for (k = 0; k < on; k++) {
         if(oa[k].el) {
-            z = &(ol->list[ol->length++]);
+            // z = &(ol->list[ol->length++]);
+            kv_pushp_ol(overlap_region, (*ol), &z);
+            clear_fake_cigar(&(z->f_cigar));
+            clear_window_list_alloc(&(z->w_list));
+            clear_window_list_alloc(&(z->boundary_cigars));
+            
             z->x_id = rid; z->y_id = oa[k].tn;
             z->x_pos_strand = 0; z->y_pos_strand = oa[k].rev;
             z->x_pos_s = (uint32_t)oa[k].qns;

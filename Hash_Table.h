@@ -248,4 +248,13 @@ uint64_t lchain_qdp_mcopy_fast(Candidates_list *cl, int64_t a_idx, int64_t a_n, 
               int64_t gen_cigar, int64_t enable_mcopy, double mcopy_rate, int64_t mcopy_khit_cutoff, 
               int64_t khit_n);
 
+#define kv_pushp_ol(type, v, p) do {									\
+		if ((v).length == (v).size) {										\
+			(v).list = (type*)realloc((v).list, sizeof(type)*((v).size?((v).size<<1):(2)));	\
+            memset((v).list+(v).size, 0, sizeof(overlap_region)*(((v).size?((v).size<<1):2)-(v).size));\
+            (v).size = (v).size?((v).size<<1):(2);							\
+		}															\
+		*(p) = &((v).list[(v).length++]); \
+	} while (0)
+
 #endif

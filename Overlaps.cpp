@@ -17664,6 +17664,7 @@ long long gap_fuzz, ug_opt_t *opt)
     set_trio_flag_by_cov(ug, sg, cov);
     // print_r_het(cov, R_INF.trio_flag, "out-1");
     // print_debug_gfa(ug, sg, coverage_cut, output_file_name, sources, ruIndex);
+    // exit(1);
 
     destory_hap_cov_t(&cov);
     ma_ug_destroy(ug);

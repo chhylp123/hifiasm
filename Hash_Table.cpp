@@ -1749,16 +1749,6 @@ uint64_t lchain_qdp(k_mer_hit* a, int64_t a_n, k_mer_hit* des, Chain_Data* dp, o
     return cL;
 }
 
-
-#define kv_pushp_ol(type, v, p) do {									\
-		if ((v).length == (v).size) {										\
-			(v).list = (type*)realloc((v).list, sizeof(type)*((v).size?((v).size<<1):(2)));	\
-            memset((v).list+(v).size, 0, sizeof(overlap_region)*(((v).size?((v).size<<1):2)-(v).size));\
-            (v).size = (v).size?((v).size<<1):(2);							\
-		}															\
-		*(p) = &((v).list[(v).length++]); \
-	} while (0)
-
 void push_ovlp_chain_qgen(overlap_region* o, uint32_t xid, int64_t xl, int64_t yl, int64_t sc, 
 k_mer_hit *beg, k_mer_hit *end)
 {
