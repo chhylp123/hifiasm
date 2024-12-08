@@ -1136,7 +1136,7 @@ void set_reverse_overlap(ma_hit_t* dest, ma_hit_t* source)
 
 
 
-void normalize_ma_hit_t_single_side_advance(ma_hit_t_alloc* sources, long long num_sources)
+void normalize_ma_hit_t_single_side_advance(ma_hit_t_alloc* sources, long long num_sources, uint32_t recuse_el)
 {
     double startTime = Get_T();
 
@@ -1160,38 +1160,35 @@ void normalize_ma_hit_t_single_side_advance(ma_hit_t_alloc* sources, long long n
 
 
             ///if(index != -1 && sources[tn].buffer[index].del == 0)
-            if(index != -1)
-            {
+            if(index != -1) {
                 is_del = 0;
-                if(sources[i].buffer[j].del || sources[tn].buffer[index].del)
-                {
+                if(sources[i].buffer[j].del || sources[tn].buffer[index].del) {
                     is_del = 1;
                 }
 
                 qLen_0 = Get_qe(sources[i].buffer[j]) - Get_qs(sources[i].buffer[j]);
                 qLen_1 = Get_qe(sources[tn].buffer[index]) - Get_qs(sources[tn].buffer[index]);
 
-                if(qLen_0 == qLen_1)
-                {
+                if(qLen_0 == qLen_1) {
                     ///qn must be not equal to tn
                     ///make sources[qn] = sources[tn] if qn > tn
-                    if(qn < tn)
-                    {
+                    if(qn < tn) {
                         set_reverse_overlap(&(sources[tn].buffer[index]), &(sources[i].buffer[j]));
                     }
-                }
-                else if(qLen_0 > qLen_1)
-                {
+                } else if(qLen_0 > qLen_1) {
                     set_reverse_overlap(&(sources[tn].buffer[index]), &(sources[i].buffer[j]));
                 }
+
+                if(recuse_el && sources[i].buffer[j].el && sources[tn].buffer[index].el) is_del = 0;
                 
                 sources[i].buffer[j].del = is_del;
                 sources[tn].buffer[index].del = is_del;
-            }
-            else ///means this edge just occurs in one direction
-            {
+            } else {///means this edge just occurs in one direction
                 set_reverse_overlap(&ele, &(sources[i].buffer[j]));
                 sources[i].buffer[j].del = ele.del = 1;
+                if(recuse_el && sources[i].buffer[j].el && ele.el) {
+                    sources[i].buffer[j].del = ele.del = 0;
+                }
                 add_ma_hit_t_alloc(&(sources[tn]), &ele);
             }
         }
@@ -38700,9 +38697,9 @@ ma_sub_t **coverage_cut_ptr, int debug_g)
     ///it's hard to say which function is better       
     ///normalize_ma_hit_t_single_side(sources, n_read);
 
-    normalize_ma_hit_t_single_side_advance(sources, n_read);
+    normalize_ma_hit_t_single_side_advance(sources, n_read, asm_opt.is_ont);
     // normalize_ma_hit_t_single_side_advance_mult(sources, n_read, asm_opt.thread_num);
-    normalize_ma_hit_t_single_side_advance(reverse_sources, n_read);
+    normalize_ma_hit_t_single_side_advance(reverse_sources, n_read, 0);
     // normalize_ma_hit_t_single_side_advance_mult(reverse_sources, n_read, asm_opt.thread_num);
 
     if (ha_opt_triobin(&asm_opt))

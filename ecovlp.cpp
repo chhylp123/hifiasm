@@ -13,6 +13,7 @@
 #define CNS_DEL_V (0x1fffffffu)
 #define del_cns_nn(z, nn_i) ((z).a[(nn_i)].sc == CNS_DEL_V)
 #define REFRESH_N 128 
+#define COV_W 3072
 
 KDQ_INIT(uint32_t)
 
@@ -81,9 +82,9 @@ typedef struct {size_t n, m; char *a; UC_Read z; asg8_v q;} sl_v;
 
 
 void h_ec_lchain(ha_abuf_t *ab, uint32_t rid, char* rs, uint64_t rl, uint64_t mz_w, uint64_t mz_k, All_reads *rref, overlap_region_alloc *overlap_list, Candidates_list *cl, double bw_thres, 
-								 int max_n_chain, int apend_be, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct, st_mt_t *sp, uint32_t *high_occ, uint32_t *low_occ, uint32_t is_accurate, uint32_t gen_off, int64_t mcopy_num, double mcopy_rate, uint32_t chain_cutoff, uint32_t mcopy_khit_cut);
+								 int max_n_chain, int apend_be, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct, st_mt_t *sp, uint32_t *high_occ, uint32_t *low_occ, uint32_t is_accurate, uint32_t gen_off, int64_t mcopy_num, double mcopy_rate, uint32_t chain_cutoff, uint32_t mcopy_khit_cut, uint64_t ocv_w);
 void h_ec_lchain_amz(ha_abuf_t *ab, uint32_t rid, char* rs, uint64_t rl, uint64_t mz_w, uint64_t mz_k, All_reads *rref, overlap_region_alloc *overlap_list, Candidates_list *cl, double bw_thres, 
-								 int max_n_chain, int apend_be, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct, st_mt_t *sp, uint32_t *high_occ, uint32_t *low_occ, uint32_t is_accurate, uint32_t gen_off, int64_t enable_mcopy, double mcopy_rate, uint32_t chain_cutoff, uint32_t mcopy_khit_cut);
+								 int max_n_chain, int apend_be, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct, st_mt_t *sp, uint32_t *high_occ, uint32_t *low_occ, uint32_t is_accurate, uint32_t gen_off, int64_t enable_mcopy, double mcopy_rate, uint32_t chain_cutoff, uint32_t mcopy_khit_cut, uint64_t ocv_w);
 void h_ec_lchain_re_gen(ha_abuf_t *ab, uint32_t rid, char* rs, uint64_t rl, uint64_t mz_w, uint64_t mz_k, ha_pt_t *ha_idx, All_reads *rref, overlap_region_alloc *overlap_list, Candidates_list *cl, double bw_thres, 
 								 int apend_be, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct, st_mt_t *sp, uint32_t *high_occ, uint32_t *low_occ, uint32_t gen_off, int64_t enable_mcopy, double mcopy_rate, uint32_t mcopy_khit_cut, 
 								 int64_t max_skip, int64_t max_iter, int64_t max_dis, int64_t quick_check, double chn_pen_gap, double chn_pen_skip, UC_Read *tu, asg64_v *oidx, asg16_v *scc);
@@ -3226,7 +3227,7 @@ static void worker_hap_ec(void *data, long i, int tid)
 
     recover_UC_Read(&b->self_read, &R_INF, i); qlen = b->self_read.length; 
 
-    h_ec_lchain(b->ab, i, b->self_read.seq, b->self_read.length, asm_opt.mz_win, asm_opt.k_mer_length, &R_INF, &b->olist, &b->clist, ((asm_opt.is_ont)?(0.05):(0.02)), asm_opt.max_n_chain, 1, NULL, NULL, &(b->sp), &high_occ, &low_occ, 1, 1, 3, 0.7, 2, 32);///ONT high error
+    h_ec_lchain(b->ab, i, b->self_read.seq, b->self_read.length, asm_opt.mz_win, asm_opt.k_mer_length, &R_INF, &b->olist, &b->clist, ((asm_opt.is_ont)?(0.05):(0.02)), asm_opt.max_n_chain, 1, NULL, NULL, &(b->sp), &high_occ, &low_occ, 1, 1, 3, 0.7, 2, 32, COV_W);///ONT high error
 
     // b->num_read_base += b->olist.length;
     b->cnt[0] += b->self_read.length;
@@ -3817,7 +3818,7 @@ static void worker_hap_dc_ec_gen_new_idx(void *data, long i, int tid)
 
     recover_UC_Read(&b->self_read, &R_INF, i); qlen = b->self_read.length; 
 
-    h_ec_lchain(b->ab, i, b->self_read.seq, b->self_read.length, asm_opt.mz_win, asm_opt.k_mer_length, &R_INF, &b->olist, &b->clist, /**0.02**/0.001, asm_opt.max_n_chain, 1, NULL, NULL, &(b->sp), &high_occ, &low_occ, 1, 1, 3, 0.7, 2, 32);
+    h_ec_lchain(b->ab, i, b->self_read.seq, b->self_read.length, asm_opt.mz_win, asm_opt.k_mer_length, &R_INF, &b->olist, &b->clist, /**0.02**/0.001, asm_opt.max_n_chain, 1, NULL, NULL, &(b->sp), &high_occ, &low_occ, 1, 1, 3, 0.7, 2, 32, COV_W);
 
     overlap_region_sort_y_id(b->olist.list, b->olist.length);
 
