@@ -3,7 +3,11 @@
 #include "ksw2.h"
 
 #ifdef __SSE2__
+#ifdef __ARM_NEON
+#include "sse2neon.h"
+#else
 #include <emmintrin.h>
+#endif // ~__ARM_NEON
 
 #ifdef KSW_SSE2_ONLY
 #undef __SSE4_1__
