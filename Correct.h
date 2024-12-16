@@ -1415,4 +1415,6 @@ void get_wqual(uint64_t zid, uint64_t zpos, uint64_t zrev, asg8_v *v, uint8_t *v
 #define HPC_RR 4
 #define HPC_CC 2
 
+// #define FORCE_CUT 1
+
 #endif

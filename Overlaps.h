@@ -632,7 +632,7 @@ static inline int count_out_without_del(const asg_t *g, uint32_t v)
 
 void build_string_graph_without_clean(
 int min_dp, ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, 
-long long n_read, uint64_t* readLen, long long mini_overlap_length, 
+uint64_t n_read, uint64_t* readLen, long long mini_overlap_length, 
 long long max_hang_length, long long clean_round, long long gap_fuzz,
 float min_ovlp_drop_ratio, float max_ovlp_drop_ratio, char* output_file_name, 
 long long bubble_dist, int read_graph, int write);
@@ -927,7 +927,7 @@ ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, int m
 void rescue_bubble_by_chain(asg_t *sg, ma_sub_t *coverage_cut, ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, 
 long long tipsLen, float tip_drop_ratio, long long stops_threshold, R_to_U* ruIndex, 
 float chimeric_rate, float drop_ratio, int max_hang, int min_ovlp, uint32_t chainLenThres, long long gap_fuzz, 
-bub_label_t* b_mask_t, long long no_trio_recover);
+bub_label_t* b_mask_t, long long no_trio_recover, uint8_t *cmk);
 
 typedef struct{
     double weight;
@@ -1242,6 +1242,9 @@ uint64_t infer_mmhap_copy(ma_ug_t *ug, asg_t *sg, ma_hit_t_alloc *src, uint8_t *
 uint64_t trans_sec_cut0(kv_u_trans_t *ta, asg64_v *srt, uint32_t id, double sec_rate, uint64_t bd, ma_ug_t *ug);
 void clean_u_trans_t_idx_filter_mmhap_adv(kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g, ma_hit_t_alloc* src, ug_rid_cov_t *in);
 void gen_ug_rid_cov_t_by_ovlp(kv_u_trans_t *ta, ug_rid_cov_t *cc);
+void rescue_chimeric_reads_aggressive(ma_ug_t *i_ug, asg_t *rg, ma_hit_t_alloc* sources, ma_sub_t *coverage_cut,
+R_to_U* ruIndex, int max_hang, int min_ovlp, uint32_t chainLenThres, uint32_t is_bubble_check, uint32_t is_primary_check, kvec_asg_arc_t_warp* new_rtg_edges, 
+kvec_t_u32_warp* new_rtg_nodes, bub_label_t* b_mask_t, uint8_t *cmk);
 
 #define UC_Read_resize(v, s) do {\
 		if ((v).size<(s)) {REALLOC((v).seq,(s));(v).size=(s);}\

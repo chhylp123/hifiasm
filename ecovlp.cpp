@@ -60,6 +60,7 @@ typedef struct {
 typedef struct {
 	ec_ovec_buf_t0 *a;
 	uint32_t n, rev;
+    uint8_t *cr;
 } ec_ovec_buf_t;
 
 ec_ovec_buf_t* gen_ec_ovec_buf_t(uint32_t n);
@@ -180,7 +181,7 @@ void destroy_ec_ovec_buf_t(ec_ovec_buf_t *p)
         destroy_cns_gfa(&(z->cns));
 
     }
-    free(p->a); free(p);
+    free(p->a); free(p->cr); free(p);
 
     // fprintf(stderr, "[M::%s-chains] #->%lld\n", __func__, asm_opt.num_bases);
     // fprintf(stderr, "[M::%s-passed-chains-0] #->%lld\n", __func__, asm_opt.num_corrected_bases);
@@ -3931,10 +3932,11 @@ uint32_t is_chemical_r(ma_hit_t_alloc *ov, asg64_v *idx, int64_t len, int64_t co
 }
 
 
-uint32_t is_chemical_r_adv(ma_hit_t_alloc *ov, asg64_v *idx, int64_t len, int64_t cov, int64_t cut_len, double dup_rate)
+uint32_t is_chemical_r_adv(ma_hit_t_alloc *ov, asg64_v *idx, int64_t len, int64_t cov, int64_t cut_len, double dup_rate, uint64_t is_del)
 {
     uint64_t k, s, e; int64_t dp, old_dp, st = 0, ed, s0, e0, rr, lt;
     for (k = idx->n = 0; k < ov->length; k++) {
+        if(is_del && ov->buffer[k].del) continue;
         s0 = (uint32_t)ov->buffer[k].qns; e0 = ov->buffer[k].qe;
         if(s0 > 0) s0 += cut_len;
         if(e0 < len) e0 -= cut_len;
@@ -3986,6 +3988,64 @@ uint32_t is_chemical_r_adv(ma_hit_t_alloc *ov, asg64_v *idx, int64_t len, int64_
     }
     
     return 0;
+}
+
+int64_t cal_chemical_r_adv(ma_hit_t_alloc *ov, asg64_v *idx, int64_t len, int64_t cut_len, double dup_rate, uint64_t is_del)
+{
+    uint64_t k, s, e; int64_t dp, old_dp, st = 0, ed, s0, e0, rr, lt, min_cov;
+    for (k = idx->n = 0; k < ov->length; k++) {
+        if(is_del && ov->buffer[k].del) continue;
+        s0 = (uint32_t)ov->buffer[k].qns; e0 = ov->buffer[k].qe;
+        if(s0 > 0) s0 += cut_len;
+        if(e0 < len) e0 -= cut_len;
+        if(e0 <= s0) continue;
+        s = s0; e = e0;
+
+        lt = Get_READ_LENGTH((R_INF), ov->buffer[k].tn);
+        rr = (lt >= len)?(lt - len):(len - lt);
+        if((rr <= (len*dup_rate)) && (rr <= (lt*dup_rate)) && (ov->buffer[k].rev)) {
+            dp = (ov->buffer[k].qe) - ((uint32_t)ov->buffer[k].qns); dp = len - dp;
+            old_dp = ov->buffer[k].te - ov->buffer[k].ts; old_dp = lt - old_dp;
+            if((dp <= (len*dup_rate)) && (old_dp <= (lt*dup_rate))) continue;
+        } 
+
+        kv_push(uint64_t, (*idx), (s<<1));
+        kv_push(uint64_t, (*idx), (e<<1)|1);
+    }
+
+    radix_sort_ec64(idx->a, idx->a + idx->n); s0 = e0 = rr = -1; min_cov = INT64_MAX;
+    for (k = 0, dp = 0, st = ed = 0; k < idx->n; ++k) {
+        old_dp = dp;
+        ///if a[j] is qe
+        if (idx->a[k]&1) --dp;
+        else ++dp;
+
+        ed = idx->a[k]>>1;
+        if(ed > st) {
+            // if(ov->length && ((ov->buffer[0].qns>>32) == 5045637)) {
+            //     fprintf(stderr, "[M::%s]\tmd::[%ld,%ld)\tcov::%ld\tlen::%ld\tid::%lu\n", __func__, st, ed, old_dp, len, ov->buffer[0].qns>>32);
+            // }
+            if(old_dp <= min_cov) {
+                // if(ov->length && (ov->buffer[0].qns>>32) == 22344) fprintf(stderr, "[M::%s]\tmd::[%ld,%ld)\tcov::%ld\tlen::%ld\n", __func__, st, ed, old_dp, len);
+                min_cov = old_dp;
+            } 
+        }
+        st = ed;
+    }
+
+
+    ed = len; old_dp = dp;
+    if(ed > st) {
+        // if(ov->length && ((ov->buffer[0].qns>>32) == 5045637)) {
+        //     fprintf(stderr, "[M::%s]\tmd::[%ld,%ld)\tcov::%ld\tlen::%ld\tid::%lu\n", __func__, st, ed, old_dp, len, ov->buffer[0].qns>>32);
+        // }
+        if(old_dp <= min_cov) {
+            // if(ov->length && (ov->buffer[0].qns>>32) == 22344) fprintf(stderr, "[M::%s]\tmd::[%ld,%ld)\tcov::%ld\tlen::%ld\n", __func__, st, ed, old_dp, len);
+            min_cov = old_dp;
+        }
+    }
+    
+    return min_cov;
 }
 
 void prt_dbg_rid_paf(ma_hit_t_alloc *ov, UC_Read *ra, asg8_v *qa)
@@ -4051,7 +4111,7 @@ static void worker_hap_dc_ec_chemical_r(void *data, long i, int tid)
     if(b->cnt[1] == 0) {
         // if(i == 6204620) prt_dbg_rid_paf(&(R_INF.paf[i]), &(b->self_read), &(b->v8q));
         // if(is_chemical_r(&(R_INF.paf[i]), &b->v64, Get_READ_LENGTH((R_INF), i), 3, 16)) {
-        if(is_chemical_r_adv(&(R_INF.paf[i]), &b->v64, Get_READ_LENGTH((R_INF), i), asm_opt.chemical_cov, asm_opt.chemical_flank, 0.02)) {
+        if(is_chemical_r_adv(&(R_INF.paf[i]), &b->v64, Get_READ_LENGTH((R_INF), i), asm_opt.chemical_cov, asm_opt.chemical_flank, 0.02, 0)) {
             // fprintf(stderr, "-um-[M::%s]\tqn::%u::%.*s\n\n", __func__, (uint32_t)(i), (int)Get_NAME_LENGTH(R_INF, i), Get_NAME((R_INF), i));
             R_INF.paf[i].length = 0; b->cnt[0]++;
         } 
@@ -4075,11 +4135,56 @@ static void worker_hap_dc_ec_chemical_r(void *data, long i, int tid)
 static void worker_hap_dc_ec_chemical_arc(void *data, long i, int tid)
 {
     ec_ovec_buf_t0 *b = &(((ec_ovec_buf_t*)data)->a[tid]);
-    ma_hit_t_alloc *paf = &(R_INF.paf[i]); uint64_t k;
+    ma_hit_t_alloc *paf = &(R_INF.paf[i]), *rev; uint64_t k, z;
 
-    if(is_chemical_r_adv(&(R_INF.paf[i]), &b->v64, Get_READ_LENGTH((R_INF), i), asm_opt.chemical_cov, asm_opt.chemical_flank, 0.02)) {
-        // fprintf(stderr, "-um-[M::%s]\tqn::%u::%.*s\n\n", __func__, (uint32_t)(i), (int)Get_NAME_LENGTH(R_INF, i), Get_NAME((R_INF), i));   
-        for (k = 0; k < paf->length; k++) paf->buffer[k].del = 1; b->cnt[0]++;
+    if(b->cnt[1] == 0) {
+        if(is_chemical_r_adv(&(R_INF.paf[i]), &b->v64, Get_READ_LENGTH((R_INF), i), asm_opt.chemical_cov, asm_opt.chemical_flank, 0.02, 1)) {
+            // fprintf(stderr, "-um-[M::%s]\tqn::%u::%.*s\n\n", __func__, (uint32_t)(i), (int)Get_NAME_LENGTH(R_INF, i), Get_NAME((R_INF), i));   
+            for (k = 0; k < paf->length; k++) paf->buffer[k].del = 1; b->cnt[0]++;
+        }
+    } else if(b->cnt[1] == 1) {
+        for (k = 0; k < paf->length; k++) {
+            if((Get_qn(paf->buffer[k])) > (Get_tn(paf->buffer[k]))) continue;
+            rev = &(R_INF.paf[paf->buffer[k].tn]);
+            for (z = 0; z < rev->length; z++) {
+                if((rev->buffer[z].tn == (Get_qn(paf->buffer[k])))) {
+                    if(paf->buffer[k].del != rev->buffer[z].del) {
+                        paf->buffer[k].del = rev->buffer[z].del = 1;
+                    }
+                }
+            }
+        }
+    }
+
+   refresh_ec_ovec_buf_t0(b, REFRESH_N);
+}
+
+static void worker_hap_dc_ec_chemical_arc_mark(void *data, long i, int tid)
+{
+    ec_ovec_buf_t0 *b = &(((ec_ovec_buf_t*)data)->a[tid]);
+    ma_hit_t_alloc *paf = &(R_INF.paf[i]), *rev; uint64_t k, z; int64_t cov, msk_cut = asm_opt.chemical_cov;
+    uint8_t *msk = ((ec_ovec_buf_t*)data)->cr;
+
+    if(b->cnt[1] == 0) {
+        msk[i] = (uint8_t)-1;
+        cov = cal_chemical_r_adv(&(R_INF.paf[i]), &b->v64, Get_READ_LENGTH((R_INF), i), asm_opt.chemical_flank, 0.02, 1);
+        if(cov <= msk_cut) msk[i] = cov;
+        if(cov <= msk_cut/**FORCE_CUT**/) {
+            // fprintf(stderr, "-um-[M::%s]\tqn::%u::%.*s\n\n", __func__, (uint32_t)(i), (int)Get_NAME_LENGTH(R_INF, i), Get_NAME((R_INF), i));   
+            for (k = 0; k < paf->length; k++) paf->buffer[k].del = 1; b->cnt[0]++;
+        }
+    } else if(b->cnt[1] == 1) {
+        for (k = 0; k < paf->length; k++) {
+            if((Get_qn(paf->buffer[k])) > (Get_tn(paf->buffer[k]))) continue;
+            rev = &(R_INF.paf[paf->buffer[k].tn]);
+            for (z = 0; z < rev->length; z++) {
+                if((rev->buffer[z].tn == (Get_qn(paf->buffer[k])))) {
+                    if((paf->buffer[k].del != rev->buffer[z].del) || (msk[Get_qn(paf->buffer[k])] <= msk_cut/**FORCE_CUT**/) || (msk[Get_tn(paf->buffer[k])] <= msk_cut/**FORCE_CUT**/)) {
+                        paf->buffer[k].del = rev->buffer[z].del = 1;
+                    }
+                }
+            }
+        }
     }
 
    refresh_ec_ovec_buf_t0(b, REFRESH_N);
@@ -6066,7 +6171,7 @@ void handle_chemical_r(uint64_t n_thre, uint64_t n_a)
 
     kt_for(n_thre, worker_hap_dc_ec_chemical_r, b, n_a);
 
-    fprintf(stderr, "[M::%s] # chemical reads: %lu, # arcs:: %lu\n", __func__, chem_n, dedup);
+    fprintf(stderr, "[M::%s] # chimeric reads: %lu, # arcs:: %lu\n", __func__, chem_n, dedup);
 
     destroy_ec_ovec_buf_t(b);
 }
@@ -6076,16 +6181,44 @@ void handle_chemical_arc(uint64_t n_thre, uint64_t n_a)
     ec_ovec_buf_t *b = NULL; uint64_t k, chem_n = 0;
     b = gen_ec_ovec_buf_t(n_thre);
     for (k = 0; k < n_thre; ++k) {
-        b->a[k].cnt[0] = 0; 
+        b->a[k].cnt[0] = 0; b->a[k].cnt[1] = 0;
     }
 
     kt_for(n_thre, worker_hap_dc_ec_chemical_arc, b, n_a);
 
     for (k = 0; k < n_thre; ++k) {
         chem_n += b->a[k].cnt[0]; 
+        b->a[k].cnt[0] = 0; b->a[k].cnt[1] = 1;
     }
 
-    fprintf(stderr, "[M::%s] # chemical reads: %lu\n", __func__, chem_n);
+    kt_for(n_thre, worker_hap_dc_ec_chemical_arc, b, n_a);
+
+    fprintf(stderr, "[M::%s] # chimeric reads: %lu\n", __func__, chem_n);
 
     destroy_ec_ovec_buf_t(b);
+}
+
+uint8_t* gen_chemical_arc_rf(uint64_t n_thre, uint64_t n_a)
+{
+    ec_ovec_buf_t *b = NULL; uint64_t k, chem_n = 0; uint8_t *ra = NULL;
+    b = gen_ec_ovec_buf_t(n_thre);
+    for (k = 0; k < n_thre; ++k) {
+        b->a[k].cnt[0] = 0; b->a[k].cnt[1] = 0;
+    }
+    MALLOC(ra, n_a); ///memset(ra, -1, sizeof((*ra))*n_a); 
+    b->cr = ra;
+
+    kt_for(n_thre, worker_hap_dc_ec_chemical_arc_mark, b, n_a);
+
+    for (k = 0; k < n_thre; ++k) {
+        chem_n += b->a[k].cnt[0]; 
+        b->a[k].cnt[0] = 0; b->a[k].cnt[1] = 1;
+    }
+
+    kt_for(n_thre, worker_hap_dc_ec_chemical_arc_mark, b, n_a);
+
+    fprintf(stderr, "[M::%s] # chimeric reads: %lu\n", __func__, chem_n);
+
+    b->cr = NULL; destroy_ec_ovec_buf_t(b);
+    return ra;
 }

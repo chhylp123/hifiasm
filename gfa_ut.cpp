@@ -1574,6 +1574,107 @@ uint32_t is_topo, uint32_t min_diff, uint32_t min_ou, uint32_t test_bub, ma_hit_
 }
 
 
+void asg_arc_cut_chimeric_cmk(asg_t *g, asg64_v *in, int32_t max_ext, float len_rat, float ou_rat, uint32_t is_ou, uint32_t is_topo, uint32_t min_ou, uint32_t test_bub, uint8_t *cmk, uint32_t cmk_cut)
+{
+    asg64_v tx = {0,0,0}, *b = NULL; asg_arc_t *av, *aw, *ve, *we; 
+    uint32_t i, k, v, w, n_vtx = g->n_seq<<1, nv, nw, kv, kw, ol_max, ou_max, to_del, cnt = 0, mm_ol, mm_ou;
+    
+    if(in) b = in;
+    else b = &tx;
+	b->n = 0;
+
+    for (v = 0; v < n_vtx; ++v) {
+        // if((v>>1)==17078) fprintf(stderr, "[M::%s::] v:%u, del:%u, seq_vis:%u\n", __func__, v, g->seq[v>>1].del, g->seq_vis[v]);
+        if (g->seq[v>>1].del) continue;
+        if (cmk[v>>1] > cmk_cut) continue;
+        if((test_bub == 0) || (g->seq_vis[v] == 0)) {
+            av = asg_arc_a(g, v); nv = asg_arc_n(g, v);
+            if (nv < 2) continue;
+
+            for (i = kv = 0; i < nv; ++i) {
+                if(av[i].del) continue;
+                kv++;
+            }
+            if(kv < 2) continue;
+
+            for (i = 0; i < nv; ++i) {
+                if(av[i].del) continue;
+                kv_push(uint64_t, *b, (((uint64_t)av[i].ol)<<32) | ((uint64_t)(av-g->arc+i)));
+            }
+        }
+	}
+
+    radix_sort_srt64(b->a, b->a + b->n);
+    for (k = 0; k < b->n; k++) {
+        if(g->arc[(uint32_t)b->a[k]].del) continue;
+
+        v = g->arc[(uint32_t)b->a[k]].ul>>32; w = g->arc[(uint32_t)b->a[k]].v^1;
+        if(g->seq[v>>1].del || g->seq[w>>1].del) continue;
+        nv = asg_arc_n(g, v); nw = asg_arc_n(g, w);
+        av = asg_arc_a(g, v); aw = asg_arc_a(g, w);
+        if(nv<=1 && nw <= 1) continue;
+
+        ve = &(g->arc[(uint32_t)b->a[k]]);
+        for (i = 0; i < nw; ++i) {
+            if (aw[i].v == (v^1)) {
+                we = &(aw[i]);
+                break;
+            }
+        }
+        ///mm_ol and mm_ou are used to make edge with long indel more easy to be cutted
+        mm_ol = MIN(ve->ol, we->ol); mm_ou = MIN(ve->ou, we->ou);
+
+        for (i = kv = ol_max = ou_max = 0; i < nv; ++i) {
+            if(av[i].del) continue;
+            kv++;
+            
+            if(ol_max < av[i].ol) ol_max = av[i].ol;
+            if(ou_max < av[i].ou) ou_max = av[i].ou;
+        }
+        if (kv < 1) continue;
+        if (kv >= 2) {
+            if (mm_ol > ol_max*len_rat) continue;
+            if (is_ou && mm_ou > ou_max*ou_rat && mm_ou > min_ou) continue;
+        }
+        
+
+        for (i = kw = ol_max = ou_max = 0; i < nw; ++i) {
+            if(aw[i].del) continue;
+            kw++;
+
+            if(ol_max < aw[i].ol) ol_max = aw[i].ol;
+            if(ou_max < aw[i].ou) ou_max = aw[i].ou;
+        }
+        if (kw < 1) continue;
+        if (kw >= 2) {
+            if (mm_ol > ol_max*len_rat) continue;
+            if (is_ou && mm_ou > ou_max*ou_rat && mm_ou > min_ou) continue;
+        }
+
+        if (kv <= 1 && kw <= 1) continue;
+
+        to_del = 0;
+        if(is_topo) {
+            if (kv > 1 && kw > 1) {
+                to_del = 1;
+            } else if (kw == 1) {
+                if (asg_topocut_aux(g, w^1, max_ext) < max_ext) to_del = 1;
+            } else if (kv == 1) {
+                if (asg_topocut_aux(g, v^1, max_ext + 1) < max_ext + 1) to_del = 1;
+            }
+        }
+
+        if (to_del) {
+            asg_seq_del(g, v>>1); ++cnt;
+        }
+    }
+    // stats_sysm(g);
+    if(!in) free(tx.a);
+    if (cnt > 0) asg_cleanup(g);
+
+    // fprintf(stderr, "[M::%s::] cnt:%u\n", __func__, cnt);
+}
+
 
 void asg_arc_cut_length_adv(asg_t *g, asg64_v *in, int32_t max_ext, float len_rat, float ou_rat, uint32_t is_ou, uint32_t is_trio, 
 uint32_t is_topo, uint32_t min_diff, ma_hit_t_alloc *rev, R_to_U* rI, uint32_t *max_drop_len)
@@ -2909,22 +3010,22 @@ void print_raw_u2rgfa_seq(all_ul_t *aln, R_to_U* rI, uint32_t is_detail)
 }
 
 
-void post_rescue(ug_opt_t *uopt, asg_t *sg, ma_hit_t_alloc *src, ma_hit_t_alloc *rev, R_to_U* rI, bub_label_t *b_mask_t, long long no_trio_recover)
+void post_rescue(ug_opt_t *uopt, asg_t *sg, ma_hit_t_alloc *src, ma_hit_t_alloc *rev, R_to_U* rI, bub_label_t *b_mask_t, long long no_trio_recover, uint8_t *cmk)
 {
     rescue_contained_reads_aggressive(NULL, sg, src, uopt->coverage_cut, rI, uopt->max_hang, uopt->min_ovlp, 10, 1, 0, NULL, NULL, b_mask_t);
     rescue_missing_overlaps_aggressive(NULL, sg, src, uopt->coverage_cut, rI, uopt->max_hang, uopt->min_ovlp, 1, 0, NULL, b_mask_t);
     rescue_missing_overlaps_backward(NULL, sg, src, uopt->coverage_cut, rI, uopt->max_hang, uopt->min_ovlp, 10, 1, 0, b_mask_t);
+    if(cmk) rescue_chimeric_reads_aggressive(NULL, sg, src, uopt->coverage_cut, rI, uopt->max_hang, uopt->min_ovlp, 10, 1, 0, NULL, NULL, b_mask_t, cmk);
     // rescue_wrong_overlaps_to_unitigs(NULL, sg, sources, reverse_sources, coverage_cut, ruIndex, 
     // max_hang_length, mini_overlap_length, bubble_dist, NULL);
     // rescue_no_coverage_aggressive(sg, sources, reverse_sources, &coverage_cut, ruIndex, max_hang_length, 
     // mini_overlap_length, bubble_dist, 10);
     set_hom_global_coverage(&asm_opt, sg, uopt->coverage_cut, src, rev, rI, uopt->max_hang, uopt->min_ovlp);
-    rescue_bubble_by_chain(sg, uopt->coverage_cut, src, rev, (asm_opt.max_short_tip*2), 0.15, 3, rI, 0.05, 0.9, uopt->max_hang, 
-    uopt->min_ovlp, 10, uopt->gap_fuzz, b_mask_t, no_trio_recover);
+    rescue_bubble_by_chain(sg, uopt->coverage_cut, src, rev, (asm_opt.max_short_tip*2), 0.15, 3, rI, 0.05, 0.9, uopt->max_hang, uopt->min_ovlp, 10, uopt->gap_fuzz, b_mask_t, no_trio_recover, cmk);
 }
 
 void ul_clean_gfa(ug_opt_t *uopt, asg_t *sg, ma_hit_t_alloc *src, ma_hit_t_alloc *rev, R_to_U* rI, int64_t clean_round, double min_ovlp_drop_ratio, double max_ovlp_drop_ratio, 
-double ou_drop_rate, int64_t max_tip, int64_t gap_fuzz, bub_label_t *b_mask_t, int32_t is_ou, int32_t is_trio, uint32_t ou_thres, char *o_file)
+double ou_drop_rate, int64_t max_tip, int64_t gap_fuzz, bub_label_t *b_mask_t, int32_t is_ou, int32_t is_trio, uint32_t ou_thres, uint8_t *cmk, char *o_file)
 {
     #define HARD_OU_DROP 0.75
     #define HARD_OL_DROP 0.6
@@ -3010,6 +3111,14 @@ double ou_drop_rate, int64_t max_tip, int64_t gap_fuzz, bub_label_t *b_mask_t, i
         //     print_debug_gfa(sg, NULL, uopt->coverage_cut, "UL.dirty3.debug", uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 1, 0, 0);
         //     // exit(1);
         // }
+        /**
+        if(cmk && asm_opt.chemical_cov > FORCE_CUT) {
+            asg_arc_identify_simple_bubbles_multi(sg, b_mask_t, 0);
+            asg_arc_cut_chimeric_cmk(sg, &bu, max_tip, 1.1, 1.1, is_ou, 1, 1, 1, cmk, asm_opt.chemical_cov);
+            asg_arc_cut_tips(sg, max_tip, &bu, is_ou, is_ou?rI:NULL, uopt->te);
+        }
+        **/
+
 
         if(is_ou) {
             if(ul_refine_alignment(uopt, sg)) update_sg_uo(sg, src);
@@ -3074,7 +3183,7 @@ double ou_drop_rate, int64_t max_tip, int64_t gap_fuzz, bub_label_t *b_mask_t, i
     set_hom_global_coverage(&asm_opt, sg, uopt->coverage_cut, src, rev, rI, uopt->max_hang, uopt->min_ovlp);
     rescue_bubble_by_chain(sg, uopt->coverage_cut, src, rev, (asm_opt.max_short_tip*2), 0.15, 3, rI, 0.05, 0.9, uopt->max_hang, uopt->min_ovlp, 10, uopt->gap_fuzz, b_mask_t);
     **/
-    post_rescue(uopt, sg, src, rev, rI, b_mask_t, is_ou);
+    post_rescue(uopt, sg, src, rev, rI, b_mask_t, is_ou, cmk);
     
     ug_ext_gfa(uopt, sg, ug_ext_len);
 
@@ -17580,7 +17689,7 @@ ul_renew_t *ropt, const char *bin_file, uint64_t free_uld, uint64_t is_bridg, ui
     (*(ropt->src)) = R_INF.paf; (*(ropt->r_src)) = R_INF.reverse_paf;
     (*(ropt->n_read)) = R_INF.total_reads; (*(ropt->readLen)) = R_INF.read_length;
     renew_R_to_U(ng, (*(ropt->src)), (*(ropt->r_src)), (*(ropt->n_read)), (*(ropt->cov)), ropt->ruIndex, ropt->max_hang, ropt->mini_ovlp);
-    post_rescue(uopt, (*(ropt->sg)), (*(ropt->src)), (*(ropt->r_src)), ropt->ruIndex, ropt->b_mask_t, 0);
+    post_rescue(uopt, (*(ropt->sg)), (*(ropt->src)), (*(ropt->r_src)), ropt->ruIndex, ropt->b_mask_t, 0, NULL);
     // print_raw_uls_aln(uidx, asm_opt.output_file_name);
     // exit(0);
 }
