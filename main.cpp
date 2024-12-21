@@ -62,7 +62,7 @@ int main(int argc, char *argv[])
 	// ed_band_cal_global_128bit((char*)"ACTTTTTT", 8, (char*)"AATTTT", 6, 3));
 	// exit(1);
 	if(asm_opt.sec_in) ret = ha_assemble_pair();
-	else if(asm_opt.dbg_ovec_cal) ret = ha_assemble_ovec();
+	else if(asm_opt.dbg_ovec_cal) ret = ha_ec_dbg();
 	else ret = ha_assemble();
 	
     destory_opt(&asm_opt);

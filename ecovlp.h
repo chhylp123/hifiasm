@@ -15,5 +15,6 @@ void cal_ov_r(uint64_t n_thre, uint64_t n_a, uint64_t new_idx);
 void handle_chemical_r(uint64_t n_thre, uint64_t n_a);
 void handle_chemical_arc(uint64_t n_thre, uint64_t n_a);
 uint8_t* gen_chemical_arc_rf(uint64_t n_thre, uint64_t n_a);
+void cal_ec_r_dbg(uint64_t n_thre, uint64_t n_a);
 
 #endif

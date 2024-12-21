@@ -63,6 +63,23 @@ typedef struct {
     uint8_t *cr;
 } ec_ovec_buf_t;
 
+typedef struct {
+	uint32_t n_thread, n_a, chunk_size, cn;
+    FILE *fp;
+} cal_ec_r_dbg_t;
+
+typedef struct {
+	ma_hit_t *a;
+    size_t n, m;
+    asg16_v ec;
+} r_dbg_step_res_t;
+
+typedef struct { // data structure for each step in kt_pipeline()
+    ec_ovec_buf_t *buf;
+    r_dbg_step_res_t *res;
+    uint32_t si, ei;
+} cal_ec_r_dbg_step_t;
+
 ec_ovec_buf_t* gen_ec_ovec_buf_t(uint32_t n);
 void destroy_ec_ovec_buf_t(ec_ovec_buf_t *p);
 
@@ -3352,6 +3369,61 @@ static void worker_hap_ec(void *data, long i, int tid)
     **/
 }
 
+static void worker_hap_ec_dbg_paf(void *data, long i, int tid)
+{
+	ec_ovec_buf_t0 *b = &(((cal_ec_r_dbg_step_t*)data)->buf->a[tid]);
+    r_dbg_step_res_t *rr = &(((cal_ec_r_dbg_step_t*)data)->res[tid]);
+    uint32_t high_occ = asm_opt.hom_cov * (2.0 - HA_KMER_GOOD_RATIO);
+    uint32_t low_occ = asm_opt.hom_cov * HA_KMER_GOOD_RATIO;
+    overlap_region *aux_o = NULL; i += ((cal_ec_r_dbg_step_t*)data)->si;
+
+    // debug_retrive_bqual(D, &b->v8t, i, 256); return;
+
+    recover_UC_Read(&b->self_read, &R_INF, i); 
+
+    h_ec_lchain(b->ab, i, b->self_read.seq, b->self_read.length, asm_opt.mz_win, asm_opt.k_mer_length, &R_INF, &b->olist, &b->clist, ((asm_opt.is_ont)?(0.05):(0.02)), asm_opt.max_n_chain, 1, NULL, NULL, &(b->sp), &high_occ, &low_occ, 1, 1, 3, 0.7, 2, 32, COV_W);///ONT high error
+
+    aux_o = fetch_aux_ovlp(&b->olist);///must be here
+
+    // stderr_phase_ovlp(&b->olist);
+    gen_hc_r_alin_ea(&b->olist, &b->clist, &R_INF, &b->self_read, &b->ovlp_read, &b->exz, aux_o, asm_opt.max_ov_diff_ec, (asm_opt.is_ont)?(WINDOW_OHC):(WINDOW_HC), i, E_KHIT, 1, &b->v16, &b->v64, &(R_INF.paf[i]), 0);
+
+    uint32_t k, m, tl; overlap_region *z; bit_extz_t ez; ma_hit_t *t; 
+    for (k = 0; k < b->olist.length; k++) {
+        z = &(b->olist.list[k]);
+        if(!(z->w_list.n)) continue;
+
+        tl = Get_READ_LENGTH((R_INF), z->y_id);
+        for (m = 0; m < z->w_list.n; m++) {
+            if(is_ualn_win(z->w_list.a[m])) continue;
+            set_bit_extz_t(ez, (*z), m);
+            kv_pushp(ma_hit_t, *rr, &t);
+
+            t->qns = z->x_id; t->qns = t->qns << 32;
+            t->tn = z->y_id;
+
+            t->qns = t->qns | (uint64_t)(z->w_list.a[m].x_start);
+            t->qe = z->w_list.a[m].x_end + 1;
+
+            t->ts = z->w_list.a[m].y_start;
+            t->te = z->w_list.a[m].y_end + 1;
+
+            t->rev = z->y_pos_strand;
+            
+            t->bl = rr->ec.n;
+            kv_resize(uint16_t, rr->ec, rr->ec.n + ez.cigar.n);
+            memcpy(rr->ec.a + rr->ec.n, ez.cigar.a, ez.cigar.n * sizeof((*(rr->ec.a))));
+            rr->ec.n += ez.cigar.n;
+            t->cc = rr->ec.n - t->bl;
+
+            if(t->rev) {
+                t->ts = tl - z->w_list.a[m].y_end - 1;
+                t->te = tl - z->w_list.a[m].y_start;
+            }
+        }
+    }
+}
+
 uint32_t adjust_exact_match(asg16_v *in, int64_t xs0, int64_t xe0, int64_t ys0, int64_t ye0, uint64_t *rxs, uint64_t *rxe, uint64_t *rys, uint64_t *rye, uint32_t rev)
 {
     *rxs = *rxe = *rys = *rye = 0; 
@@ -6104,6 +6176,72 @@ void cal_ec_r(uint64_t n_thre, uint64_t round, uint64_t n_round, uint64_t n_a, u
     //     if(scc.f[z]) continue;
     //     fprintf(stderr, "[M::%s]\tid::%lu::%.*s\n", __func__, z, (int)Get_NAME_LENGTH(R_INF, z), Get_NAME((R_INF), z));
     // }
+}
+
+void print_ov_dbg_paf(FILE *fp, char *ref_str, char *ref_id, int32_t ref_id_n, char *qry_str, char *qry_id, int32_t qry_id_n, uint64_t rs, uint64_t re, uint64_t rl, uint64_t qs, uint64_t qe, uint64_t ql, uint64_t rev, bit_extz_t *ez, char *ezh)
+{
+    uint64_t ci = 0; uint16_t c; uint32_t cl;
+    fprintf(fp, "%.*s\t%lu\t%lu\t%lu\t", qry_id_n, qry_id, ql, qs, qe);
+    fprintf(fp, "%c\t", "+-"[rev]);
+    fprintf(fp, "%.*s\t%lu\t%lu\t%lu\t", ref_id_n, ref_id, rl, rs, re);
+    fprintf(fp, "255\tcg:Z:");
+    while (ci < ez->cigar.n) {
+        ci = pop_trace(&(ez->cigar), ci, &c, &cl);
+        fprintf(fp, "%u%c", cl, ezh[c]);
+    }
+    fprintf(fp, "\n");
+}
+
+static void *worker_ov_dbg_pipeline(void *data, int step, void *in) // callback for kt_pipeline()
+{
+    cal_ec_r_dbg_t *p = (cal_ec_r_dbg_t*)data; char cm[4]; cm[0] = 'M'; cm[1] = 'M'; cm[2] = 'I'; cm[3] = 'D'; 
+    // cal_ec_r_dbg_step_t
+    if (step == 0) { // step 1: read a block of sequences
+        cal_ec_r_dbg_step_t *s; CALLOC(s, 1);
+        s->si = p->cn; p->cn += p->chunk_size; 
+        if(p->cn > p->n_a) p->cn = p->n_a; s->ei = p->cn;
+        if(s->si >= s->ei) free(s);
+        else return s;
+    } else if (step == 1) { // step 2: alignment
+        cal_ec_r_dbg_step_t *s = (cal_ec_r_dbg_step_t*)in;
+        s->buf = gen_ec_ovec_buf_t(p->n_thread); CALLOC(s->res, p->n_thread);  
+        kt_for(p->n_thread, worker_hap_ec_dbg_paf, s, (s->ei - s->si));
+        destroy_ec_ovec_buf_t(s->buf);
+        return s;
+    } else if (step == 2) { // step 3: dump
+        cal_ec_r_dbg_step_t *s = (cal_ec_r_dbg_step_t*)in; uint64_t k, z; bit_extz_t ez; memset(&ez, 0, sizeof(ez));
+        // UC_Read qu; UC_Read tu; init_UC_Read(&qu); init_UC_Read(&tu); 
+        for (k = 0; k < p->n_thread; k++) {
+            for (z = 0; z < s->res[k].n; z++) {
+                ez.cigar.a = s->res[k].ec.a + s->res[k].a[z].bl; ez.cigar.n = ez.cigar.m = s->res[k].a[z].cc;
+
+                // UC_Read_resize(qu, (s->res[k].a[z].qe - ((uint32_t)s->res[k].a[z].qns))); 
+                // recover_UC_Read_sub_region(qu.seq, ((uint32_t)s->res[k].a[z].qns), (s->res[k].a[z].qe - ((uint32_t)s->res[k].a[z].qns)), 0, &R_INF, (s->res[k].a[z].qns>>32));
+
+                // UC_Read_resize(tu, (s->res[k].a[z].te - s->res[k].a[z].ts));
+                // recover_UC_Read_sub_region(tu.seq, s->res[k].a[z].ts, s->res[k].a[z].te - s->res[k].a[z].ts, 0, &R_INF, s->res[k].a[z].tn); 
+
+                print_ov_dbg_paf(p->fp, NULL/**qu.seq**/, Get_NAME(R_INF, (s->res[k].a[z].qns>>32)), Get_NAME_LENGTH(R_INF, (s->res[k].a[z].qns>>32)), 
+                            NULL/**tu.seq**/, Get_NAME(R_INF, (s->res[k].a[z].tn)), Get_NAME_LENGTH(R_INF, (s->res[k].a[z].tn)), (uint32_t)s->res[k].a[z].qns, s->res[k].a[z].qe, Get_READ_LENGTH(R_INF, (s->res[k].a[z].qns>>32)), s->res[k].a[z].ts, s->res[k].a[z].te, Get_READ_LENGTH(R_INF, (s->res[k].a[z].tn)), s->res[k].a[z].rev, &ez, cm);
+            }
+            free(s->res[k].a); free(s->res[k].ec.a);
+        }
+        free(s->res); free(s); ///destory_UC_Read(&qu); destory_UC_Read(&tu);
+    }
+    return 0;
+}
+
+void cal_ec_r_dbg(uint64_t n_thre, uint64_t n_a)
+{
+    char *paf = NULL; MALLOC(paf, (strlen(asm_opt.output_file_name)+64));
+    sprintf(paf, "%s.ovlp.paf", asm_opt.output_file_name); 
+
+    cal_ec_r_dbg_t sl; memset(&sl, 0, sizeof(sl));
+    sl.n_thread = n_thre; sl.n_a = n_a; sl.chunk_size = 2000; sl.cn = 0; sl.fp = fopen(paf, "w");
+
+    kt_pipeline(3, worker_ov_dbg_pipeline, &sl, 3);
+
+    fclose(sl.fp); free(paf);
 }
 
 void destroy_cc_v(cc_v *z)

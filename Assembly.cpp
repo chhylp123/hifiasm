@@ -1050,6 +1050,21 @@ void ha_ec(int64_t round, int num_pround, int des_idx, uint64_t *tot_b, uint64_t
 }
 
 
+int ha_ec_dbg(void)
+{
+	int hom_cov, het_cov;
+
+    ha_idx = ha_pt_gen(&asm_opt, 0, 0, 0, &R_INF, &hom_cov, &het_cov); // build the index
+    asm_opt.hom_cov = hom_cov; asm_opt.het_cov = het_cov;
+	ha_opt_update_cov(&asm_opt, hom_cov);
+
+    cal_ec_r_dbg(asm_opt.thread_num, R_INF.total_reads);
+
+    ha_pt_destroy(ha_idx); ha_idx = NULL;
+
+    return 0;
+}
+
 void ha_overlap_and_correct(int round)
 {
 	int i, hom_cov, het_cov, r_out = 0;
@@ -2003,8 +2018,7 @@ int ha_assemble_ovec(void)
     ha_flt_tab = ha_idx = NULL;
 
     // construct hash table for high occurrence k-mers
-    if (!(asm_opt.flag & HA_F_NO_KMER_FLT) && ha_flt_tab == NULL) 
-    {
+    if (!(asm_opt.flag & HA_F_NO_KMER_FLT) && ha_flt_tab == NULL) {
         ha_flt_tab = ha_ft_gen(&asm_opt, &R_INF, &hom_cov, 0, 0);
         ha_opt_update_cov(&asm_opt, hom_cov);
     }
@@ -2022,6 +2036,18 @@ int ha_assemble_ovec(void)
     Output_PAF0(R_INF.reverse_paf, "1");
     if (asm_opt.flag & HA_F_WRITE_PAF) Output_PAF();
 
+	destory_All_reads(&R_INF);
+	return 0;
+}
+
+int ha_assemble_ovec_cc(void)
+{
+    ha_idx = NULL;
+
+    ha_opt_reset_to_round(&asm_opt, 0); // this update asm_opt.roundID and a few other fields
+    ha_ec_dbg();
+
+    // Output_PAF0(R_INF.paf, "0");
 	destory_All_reads(&R_INF);
 	return 0;
 }
