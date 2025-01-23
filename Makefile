@@ -1,5 +1,9 @@
 CXX=		g++
 CC=			gcc
+# -g：デバッグ情報の作成を有効にする
+# -O3：強力な最適化を行う
+# -fomit-frame-pointer：フレーム・ポインタを必要としない関数においては、 フレーム・ポインタをレジスタ内に保持しません。 これにより、 フレーム・ポインタの待避、 セットアップ、 復元を行う命令を使わずに済むようになります。 また、 多くの関数において、 レジスタを余分に利用することができるようになります。 
+# -Wall：警告をすべて出力
 CXXFLAGS=	-g -O3 -msse4.2 -mpopcnt -fomit-frame-pointer -Wall
 CFLAGS=		$(CXXFLAGS)
 CPPFLAGS=
@@ -9,24 +13,32 @@ OBJS=		CommandLines.o Process_Read.o Assembly.o Hash_Table.o \
 			htab.o hist.o sketch.o anchor.o extract.o sys.o hic.o rcut.o horder.o ecovlp.o\
 			tovlp.o inter.o kalloc.o gfa_ut.o gchain_map.o
 EXE=		hifiasm
+# ライブラリのリンク。lz：zlib、lpthread：マルチスレッド対応、lm：算術演算
 LIBS=		-lz -lpthread -lm
 
+# address sanitizerがオンになっていればコマンドにオプション（-fsanitize=address）を追加する
 ifneq ($(asan),)
 	CXXFLAGS+=-fsanitize=address
 	LIBS+=-fsanitize=address
 endif
 
 .SUFFIXES:.cpp .c .o
+# 疑似ターゲット（.PHONY）を宣言
+# もしタスク名と同名のファイルやディレクトリがあると混乱するため
 .PHONY:all clean depend
 
+# $@:ターゲットファイル名、$<:最初の依存するファイルの名前
 .cpp.o:
 		$(CXX) -c $(CXXFLAGS) $(CPPFLAGS) $(INCLUDES) $< -o $@
 
+# .c.o: というターゲットは，.oというファイルが必要になれば，これを.cからつくる というルールである
 .c.o:
 		$(CC) -c $(CFLAGS) $(CPPFLAGS) $(INCLUDES) $< -o $@
 
+# makeコマンドのあとに何も書かない場合、EXE（=hifiasm）を実行
 all:$(EXE)
 
+# hifiasmを実行した場合の動作
 $(EXE):$(OBJS) main.o
 		$(CXX) $(CXXFLAGS) $^ -o $@ $(LIBS)
 
