@@ -48,6 +48,7 @@ See [tutorial][tutorial] for more details.
 - [Why Hifiasm?](#why)
 - [Usage](#use)
   - [Assembling HiFi reads without additional data types](#hifionly)
+  - [Assembling ONT reads](#ontonly)
   - [Hi-C integration](#hic)
   - [Trio binning](#trio)
   - [Ultra-long ONT integration](#ul)
@@ -118,6 +119,16 @@ both ends of reads by 20bp. For small genomes, use `-f0` to disable the initial
 bloom filter which takes 16GB memory at the beginning. For genomes much larger
 than human, applying `-f38` or even `-f39` is preferred to save memory on k-mer
 counting.
+
+### <a name="ontonly"></a>Assembling ONT reads
+
+Since version 0.21.0 (r686), hifiasm can support ONT assembly using ONT simplex R10 reads. 
+To enable this feature, add the `--ont` option as shown below:
+```sh
+hifiasm -t64 --ont -o ONT.asm ONT.read.fastq.gz
+```
+Please note that this module requires input reads in FASTQ format.
+
 
 ### <a name="hic"></a>Hi-C integration
 
