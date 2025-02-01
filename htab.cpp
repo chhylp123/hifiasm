@@ -991,8 +991,18 @@ ha_ct_t *ha_count(const hifiasm_opt_t *asm_o, int flag, int HPC, int k, int w, h
 	opt.adaLen = (keep_adapter? asm_o->adapterLen : 0);
 	opt.min_rcnt = (low_freq?*low_freq:-1);
 	opt.uq = (unique_only?1:0);
+	
+	n_bs = 0;
+	///pending for integration
+	/**
+	if(rs && asm_o->ar && asm_o->ul_mod) {
+		for (i = 0; i < asm_o->ar->n; ++i){
+			h = yak_count(&opt, asm_o->ar->a[i], flag|HAF_CREATE_NEW, p0, h, flt_tab, rs, us, &n_seq);
+			if(h) n_bs += h->bs;
+		}
+	}**/
 	///asm_opt->num_reads is the number of fastq files
-	for (i = n_bs = 0; i < (us?1:asm_o->num_reads); ++i){
+	for (i = 0; i < (us?1:asm_o->num_reads); ++i){
 		h = yak_count(&opt, asm_o->read_file_names[i], flag|HAF_CREATE_NEW, p0, h, flt_tab, rs, us, &n_seq);
 		if(h) n_bs += h->bs;
 	}

@@ -15,6 +15,9 @@ hifiasm -o CHM13.asm -t32 -l0 CHM13-HiFi.fa.gz 2> CHM13.asm.log
 # Assemble heterozygous genomes with built-in duplication purging
 hifiasm -o HG002.asm -t32 HG002-file1.fq.gz HG002-file2.fq.gz
 
+# Assemble genomes with ONT R10 reads rather than PacBio HiFi reads using the latest release of hifiasm (>0.21.0-r686)
+hifiasm -o HG002.asm --ont -t32 HG002-ont.fq.gz
+
 # Hi-C phasing with paired-end short reads in two FASTQ files
 hifiasm -o HG002.asm --h1 read1.fq.gz --h2 read2.fq.gz HG002-HiFi.fq.gz
 

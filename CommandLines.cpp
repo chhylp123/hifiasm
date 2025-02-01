@@ -78,6 +78,7 @@ static ko_longopt_t long_options[] = {
     // { "sc-n",       ko_no_argument, 360},
     { "chem-c",     ko_required_argument, 361},
     { "chem-f",     ko_required_argument, 362},
+    { "ul-m",     ko_required_argument, 363},
     // { "path-round",     ko_required_argument, 348},
 	{ 0, 0, 0 }
 };
@@ -186,6 +187,11 @@ void Print_H(hifiasm_opt_t* asm_opt)
 
     fprintf(stderr, "  Ultra-Long-integration:\n");
     fprintf(stderr, "    --ul FILEs   file names of Ultra-Long reads [r1.fq,r2.fq,...]\n");
+    ///pending for integration
+    /**
+    fprintf(stderr, "    --ul-m       INT\n");
+    fprintf(stderr, "                 hybrid assembly mode. 0: fast and memory efficent; 1: may produce better assembly with ONT R10 [%d]\n", asm_opt->ul_mod);
+    **/
     fprintf(stderr, "    --ul-rate    FLOAT\n");
     fprintf(stderr, "                 error rate of Ultra-Long reads [%.3g]\n", asm_opt->ul_error_rate);
     fprintf(stderr, "    --ul-tip     INT\n");
@@ -357,6 +363,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->is_sc = 0;
     asm_opt->chemical_cov = 1;
     asm_opt->chemical_flank = 256;
+    asm_opt->ul_mod = 0;
 }   
 
 void destory_enzyme(enzyme* f)
@@ -430,10 +437,39 @@ static int check_file(char* name, const char* opt)
 
 static int check_hic_reads(enzyme* f, const char* opt)
 {
-    int i;
-    for (i = 0; i < f->n; i++)
-    {
+    int32_t i;
+    for (i = 0; i < f->n; i++) {
         if(check_file(f->a[i], opt) == 0) return 0;
+    }
+    return 1;
+}
+
+static int check_fq_files(enzyme* f, const char* opt, int32_t is_fq)
+{
+    int32_t i, ret; gzFile dfp; kseq_t *ks = NULL;
+    for (i = 0; i < f->n; i++) {
+        if(!(f->a[i])) {
+            fprintf(stderr, "[ERROR] input file does not exist (%s)\n", opt);
+            return 0;
+        }
+
+        dfp = gzopen(f->a[i], "r");
+        if (dfp == 0) {
+            fprintf(stderr, "[ERROR] Cannot find the input file: %s (%s)\n", f->a[i], opt);
+            return 0;
+        } else if(is_fq){
+            ks = kseq_init(dfp);
+            while (((ret = kseq_read(ks)) >= 0)) {
+                if((ks->qual.l == 0) || (ks->qual.s == NULL)) {
+                    fprintf(stderr, "[ERROR] %s is in fasta format rather than fastq format (%s)\n", f->a[i], opt);
+                    fprintf(stderr, "[ERROR] set --ul-m 0 for fasta files\n");
+                    return 0;
+                }
+                break;
+            }
+            kseq_destroy(ks); ks = NULL;
+        }
+        gzclose(dfp);
     }
     return 1;
 }
@@ -637,7 +673,7 @@ int check_option(hifiasm_opt_t* asm_opt)
         return 0;
     }
 
-    if(asm_opt->ar != NULL && check_hic_reads(asm_opt->ar, "UL") == 0) return 0;
+    if(asm_opt->ar != NULL && check_fq_files(asm_opt->ar, "--ul", asm_opt->ul_mod) == 0) return 0;
     if(asm_opt->ar != NULL && asm_opt->ar->n == 0)
     {
         fprintf(stderr, "[ERROR] wrong UL reads (--ul)\n");
@@ -683,6 +719,11 @@ int check_option(hifiasm_opt_t* asm_opt)
     if(asm_opt->hg_size < -1)
     {
         fprintf(stderr, "[ERROR] [--hg-size] wrong genome size\n");
+        return 0;
+    }
+
+    if(asm_opt->ul_mod != 0 && asm_opt->ul_mod != 1) {
+        fprintf(stderr, "[ERROR] must be 0 or 1 (--ul-m)\n");
         return 0;
     }
 
@@ -944,6 +985,11 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
             asm_opt->chemical_cov = atol(opt.arg);
         } else if (c == 362) {
             asm_opt->chemical_flank = atol(opt.arg);
+        ///pending for integration
+        /**        
+        } else if (c == 363) {
+            asm_opt->ul_mod = atol(opt.arg); 
+        **/
         } else if (c == 'l') {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
             asm_opt->purge_level_primary = asm_opt->purge_level_trio = atoi(opt.arg);
         }

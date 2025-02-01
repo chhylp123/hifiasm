@@ -137,6 +137,7 @@ typedef struct {
     int64_t infor_cov, s_hap_cov, trio_cov_het_ovlp;
     double ul_error_rate, ul_error_rate_low, ul_error_rate_hpc;
     int32_t ul_ec_round;
+    int32_t ul_mod;
     uint8_t is_dbg_het_cnt;
     uint8_t is_low_het_ul;
     uint8_t is_base_trans;
