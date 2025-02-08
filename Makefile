@@ -1,7 +1,7 @@
-CXX=		g++
-CC=			gcc
-CXXFLAGS=	-g -O3 -msse4.2 -mpopcnt -fomit-frame-pointer -Wall
-CFLAGS=		$(CXXFLAGS)
+CXX ?=	g++
+CC  ?=	gcc
+CXXFLAGS ?= $(CXXFLAGS)	-g -O3 -msse4.2 -mpopcnt -fomit-frame-pointer -Wall
+CFLAGS ?= $(CXXFLAGS)
 CPPFLAGS=
 INCLUDES=
 OBJS=		CommandLines.o Process_Read.o Assembly.o Hash_Table.o \
