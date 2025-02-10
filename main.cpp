@@ -10,6 +10,7 @@ int main(int argc, char *argv[])
 {
 	int i, ret;
 	yak_reset_realtime();
+    //asm_optはhifiasm_opt_tクラス
     init_opt(&asm_opt);
     if (!CommandLine_process(argc, argv, &asm_opt)) return 0;
 	
