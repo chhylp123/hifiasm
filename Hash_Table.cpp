@@ -2118,7 +2118,7 @@ uint64_t lchain_qdp_mcopy_fast(Candidates_list *cl, int64_t a_idx, int64_t a_n, 
         msc = msc_i = INT32_MIN; movl = INT32_MAX; plus = 0; si = 0; ei = a_n;
         memset(t, 0, (a_n*sizeof((*t))));
     }   
-    // if(a_n && a[0].readID == 3125488) {
+    // if(a_n && a[0].readID == 4412344) {
     //     fprintf(stderr, "[M::%s::] si::%ld, ei::%ld, a_n::%ld\n", __func__, si, ei, a_n);
     // }
     for (i = st = si, max_ii = -1; i < ei; ++i) {
@@ -2168,17 +2168,19 @@ uint64_t lchain_qdp_mcopy_fast(Candidates_list *cl, int64_t a_idx, int64_t a_n, 
         }
         if(f[i] < plus) plus = f[i];
         ii[i] = 0;///for mcopy, not here
-        // if(a_n && a[0].readID == 0) {
-        //     fprintf(stderr, "i::%ld[M::%s::utg%.6dl::%c] x::%u, y::%u, st::%ld, max_ii::%ld, f[i]::%d, p[i]::%ld, msc_i::%ld, msc::%ld, movl::%ld\n", 
-        //                     i, __func__, (int32_t)a[i].readID+1, "+-"[a[i].strand], 
+        // if(a_n && a[0].readID == 4412344) {
+        //     fprintf(stderr, "i::%ld[M::%s::%c] q::%u, t::%u, st::%ld, max_ii::%ld, f[i]::%d, p[i]::%ld, msc_i::%ld, msc::%ld, movl::%ld\n", 
+        //                     i, __func__, "+-"[a[i].strand], 
         //                     a[i].self_offset, a[i].offset, st, max_ii, f[i], p[i], msc_i, msc, movl);
         // }
     }
 
     for (i = msc_i, cL = 0; i >= 0; i = p[i]) { ii[i] = 1; t[cL++] = i;}///label the best chain
 
-
     if(mcopy_num > 1) {
+        // if(a[0].readID == 4412344) {
+        //     fprintf(stderr, "[M::%s::] msc::%ld, cL::%ld\n", __func__, msc, cL);
+        // }
         if(cL >= mcopy_khit_cutoff) {///if there are too few k-mers, disable mcopy
             msc -= plus; min_sc = msc*mcopy_rate/**0.2**/; ii[msc_i] = 0;
             for (i = ch_n = 0; i < a_n; ++i) {///make all f[] positive
@@ -2187,6 +2189,9 @@ uint64_t lchain_qdp_mcopy_fast(Candidates_list *cl, int64_t a_idx, int64_t a_n, 
                     t[ch_n] = ((uint64_t)f[i])<<32; t[ch_n] += (i<<1); ch_n++;
                 }
             }
+            // if(a[0].readID == 4412344) {
+            //     fprintf(stderr, "[M::%s::] msc::%ld, min_sc::%ld, cL::%ld, ch_n::%ld, mcopy_num::%ld\n", __func__, msc, min_sc, cL, ch_n, mcopy_num);
+            // }
             if(ch_n > 1) {
                 int64_t n_v, n_v0, ni, n_u, n_u0 = res->length; 
                 radix_sort_hc64i(t, t + ch_n);
@@ -2197,9 +2202,15 @@ uint64_t lchain_qdp_mcopy_fast(Candidates_list *cl, int64_t a_idx, int64_t a_n, 
                     }
                     if(n_v0 == n_v) continue;
                     sc = (i<0?(t[k]>>32):((t[k]>>32)-f[i]));
+                    // if(a[0].readID == 4412344) {
+                    //     fprintf(stderr, "+[M::%s::] sc::%ld, n_a::%ld\n", __func__, sc, n_v-n_v0);
+                    // }
                     if(sc >= min_sc) {
                         kv_pushp_ol(overlap_region, (*res), &z);
                         push_ovlp_chain_qgen(z, xid, xl, yl, sc+plus, &(a[ii[n_v-1]]), &(a[ii[n_v0]]));
+                        // if(a[0].readID == 4412344) {
+                        //     fprintf(stderr, "-[M::%s::] sc::%ld, n_a::%ld, q::[%u,%u), t::[%u,%u), %c\n", __func__, sc, n_v-n_v0, z->x_pos_s, z->x_pos_e + 1, z->y_pos_s, z->y_pos_e + 1, "+-"[z->y_pos_strand]);
+                        // }
                         ///mcopy_khit_cutoff <= 1: disable the mcopy_khit_cutoff filtering, for the realignment
                         // if((mcopy_khit_cutoff <= 1) || ((z->x_pos_e+1-z->x_pos_s) <= (movl<<2))) {
                         if((!n_u) || (n_v - n_v0 > 1)) {

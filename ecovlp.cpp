@@ -14,6 +14,8 @@
 #define del_cns_nn(z, nn_i) ((z).a[(nn_i)].sc == CNS_DEL_V)
 #define REFRESH_N 128 
 #define COV_W 3072
+#define RES_K 19
+#define RES_W 19
 
 KDQ_INIT(uint32_t)
 
@@ -2803,6 +2805,7 @@ void gen_hc_r_alin_ea(overlap_region_alloc* ol, Candidates_list *cl, All_reads *
 {
     if(ol->length <= 0) return;
 
+
     // uint64_t k, l, i, s, m, mm_k, *ei, en, *oi, on, tid, trev, nec; int64_t sc, mm_sc, plus, minus; overlap_region *z, t; ma_hit_t *p;
     uint64_t k, i, m, *ei, en, *oi, on, tid, trev, nec; overlap_region *z; ma_hit_t *p;
     srt->n = 0;
@@ -2848,7 +2851,9 @@ void gen_hc_r_alin_ea(overlap_region_alloc* ol, Candidates_list *cl, All_reads *
         ///debug for memory
         // snprintf(NULL, 0, "dwn::%u\tdcn::%u", (uint32_t)aux_o->w_list.n, (uint32_t)aux_o->w_list.c.n);
 
-        if(on > nec) gen_hc_r_alin_nec(ol, cl, rref, qu, tu, exz, aux_o, e_rate, wl, rid, khit, move_gap, buf, chem_drop);
+        if(on > nec) {
+            gen_hc_r_alin_nec(ol, cl, rref, qu, tu, exz, aux_o, e_rate, wl, rid, khit, move_gap, buf, chem_drop);
+        }
 
         ///debug for memory
         // snprintf(NULL, 0, "dwn::%u\tdcn::%u", (uint32_t)aux_o->w_list.n, (uint32_t)aux_o->w_list.c.n);
@@ -2889,20 +2894,31 @@ void gen_hc_r_alin_ea(overlap_region_alloc* ol, Candidates_list *cl, All_reads *
     **/
 }
 
-void prt_ovlp_sam_0(char *cm, FILE *fp, char *ref_id, int32_t ref_id_n, char *qry_id, int32_t qry_id_n, char *qry_seq, uint64_t qry_seq_n, uint64_t rs, uint64_t re, uint64_t qs, uint64_t qe, uint64_t flag, uint64_t err, bit_extz_t *ez)
+void prt_ovlp_sam_0(char *cm, FILE *fp, char *ref_id, int32_t ref_id_n, char *qry_id, int32_t qry_id_n, char *qry_seq, uint64_t qry_seq_n, uint64_t rs, uint64_t re, uint64_t qs, uint64_t qe, uint64_t flag, uint64_t err0, bit_extz_t *ez)
 {
-    uint64_t ci = 0; uint16_t c; uint32_t cl;
+    uint64_t ci = 0, err1 = 0; uint16_t c; uint32_t cl, cl0 = 0; char c0 = (char)-1;
     fprintf(fp, "%.*s\t%lu\t%.*s\t%lu\t60\t", qry_id_n, qry_id, flag, ref_id_n, ref_id, rs + 1);
 
     if(qs) fprintf(fp, "%luS", qs);
     while (ci < ez->cigar.n) {
         ci = pop_trace(&(ez->cigar), ci, &c, &cl);
-        fprintf(fp, "%u%c", cl, cm[c]);
+        if(c0 == cm[c]) {
+            cl0 += cl;
+        } else {
+            if(c0 != ((char)-1)) {
+                fprintf(fp, "%u%c", cl0, c0);
+            }
+            cl0 = cl; c0 = cm[c];
+        }
+        // fprintf(fp, "%u%c", cl, cm[c]);
+        if(c != 0) err1 += cl;
     }
+    if(cl0) fprintf(fp, "%u%c", cl0, c0);
     if(qry_seq_n > qe) fprintf(fp, "%luS", qry_seq_n - qe);
     fprintf(fp, "\t*\t0\t0\t%.*s\t", (int32_t)qry_seq_n, qry_seq);
     for (ci = 0; ci < qry_seq_n; ci++) fprintf(fp, "~");
-    fprintf(fp, "\tNM:i:%lu\n", err);
+    assert(err0 == err1);
+    fprintf(fp, "\tNM:i:%lu\n", err0);
 }
 
 
@@ -2911,7 +2927,7 @@ void prt_ovlp_sam(overlap_region_alloc* ol, UC_Read* tu, char *ref_seq, int32_t 
     int64_t on = ol->length, k, i, zwn; overlap_region *z; bit_extz_t ez;
     char *qry = NULL, *ref = Get_NAME(R_INF, ol->list[0].x_id); 
     uint64_t qry_n = 0, ref_n = Get_NAME_LENGTH(R_INF, ol->list[0].x_id), qid, rev;
-    char cm[4]; cm[0] = 'M'; cm[1] = 'S'; cm[2] = 'I'; cm[3] = 'D';  
+    char cm[4]; cm[0] = 'M'; cm[1] = 'M'; cm[2] = 'I'; cm[3] = 'D';  
     FILE *fp = fopen("aln.sam", "w");
     fprintf(fp, "@HD\tVN:1.6\tSO:unknown\n");
     fprintf(fp, "@SQ\tSN:%.*s\tLN:%lu\n", (int32_t)ref_n, ref, Get_READ_LENGTH(R_INF, ol->list[0].x_id));
@@ -3228,18 +3244,19 @@ static void worker_hap_ec(void *data, long i, int tid)
     // if(i % 100000 == 0) fprintf(stderr, "-a-[M::%s-beg] rid->%ld\n", __func__, i);
     // if (memcmp("c42804f3-0e13-43a0-8a71-b91b40accf9a", Get_NAME((R_INF), i), Get_NAME_LENGTH((R_INF),i)) == 0) {
     // if (memcmp("b2e68ecf-381a-439c-b676-c1e6831d6acf", Get_NAME((R_INF), i), Get_NAME_LENGTH((R_INF),i)) == 0) {
-    // if (memcmp("64b2c27d-86b8-451e-9330-6ba62be2ffcc", Get_NAME((R_INF), i), Get_NAME_LENGTH((R_INF),i)) == 0) {
+    // if (memcmp("e3f3f43a-e200-4cac-8acd-3f85428f3811", Get_NAME((R_INF), i), Get_NAME_LENGTH((R_INF),i)) == 0) {
+    // if (memcmp("b4bd5ccb-2fe3-447e-b7b8-7a7b26fa0f7a", Get_NAME((R_INF), i), Get_NAME_LENGTH((R_INF),i)) == 0) {
     //     fprintf(stderr, "-a-[M::%s-beg] rid->%ld\n", __func__, i);
     // } else {
     //     return;
     // }
 
-    // if(i != 3028559) return;
-    // if(i != 306) return;
-    // if(i != 1124) return;
-    // if(i != 700) return;
-    // if(i != 2243244) return;
-    // if(i != 15139) return;
+    // if(i != 4080965) return;
+    // if(i != 4325346) return;
+    // if(i != 4378784) return;
+    ///for debug indel
+    // if(i != 1238) return;
+    // if(i != 2410) return;
 
     // debug_retrive_bqual(D, &b->v8t, i, 256); return;
 
@@ -3256,14 +3273,15 @@ static void worker_hap_ec(void *data, long i, int tid)
 
     ///debug for memory
     // snprintf(NULL, 0, "dwn::%u\tdcn::%u", (uint32_t)aux_o->w_list.n, (uint32_t)aux_o->w_list.c.n);
+    ///mz1_ha_sketch(rs, rl, mz_w, mz_k, 0, !(asm_opt.flag & HA_F_NO_HPC), &ab->mz, ha_flt_tab, asm_opt.mz_sample_dist, k_flag, dbg_ct, NULL, -1, asm_opt.dp_min_len, -1, sp, asm_opt.mz_rewin, 0, NULL);
+    // if((asm_opt.is_ont) && (b->olist.length)) get_mz1(qu->seq, qu->length, RES_W, RES_K, 0, !(asm_opt.flag & HA_F_NO_HPC), b->ab, NULL, NULL, asm_opt.mz_sample_dist, NULL, NULL, NULL, -1, asm_opt.dp_min_len, -1, &(b->sp), asm_opt.mz_rewin, 0, NULL, 0);
 
     gen_hc_r_alin_ea(&b->olist, &b->clist, &R_INF, &b->self_read, &b->ovlp_read, &b->exz, aux_o, asm_opt.max_ov_diff_ec, (asm_opt.is_ont)?(WINDOW_OHC):(WINDOW_HC), i, E_KHIT/**asm_opt.k_mer_length**/, 1, &b->v16, &b->v64, &(R_INF.paf[i]), asm_opt.is_ont);
-
+    ///for debug indel
     // prt_ovlp_sam(&b->olist, &b->ovlp_read, b->self_read.seq, b->self_read.length);
 
 
-    // fprintf(stderr, "\n[M::%s] rid::%ld\t%.*s\tlen::%lld\tocc::%lu\n", __func__, i, (int)Get_NAME_LENGTH(R_INF, i), 
-    //             Get_NAME(R_INF, i), b->self_read.length, b->olist.length);
+    // fprintf(stderr, "\n[M::%s] rid::%ld\t%.*s\tlen::%lld\tocc::%lu\n", __func__, i, (int)Get_NAME_LENGTH(R_INF, i), Get_NAME(R_INF, i), b->self_read.length, b->olist.length);
 
     // fprintf(stderr, "[M::%s] rid::%ld\n", __func__, i);
     // debug_mm_exact_cigar(&b->olist, i, &b->self_read, &b->ovlp_read);
@@ -3271,9 +3289,9 @@ static void worker_hap_ec(void *data, long i, int tid)
     // b->num_correct_base += b->olist.length;
 
     copy_asg_arr(buf0, b->sp); 
-    rphase_hc(&b->olist, &R_INF, &b->hap, &b->self_read, &b->ovlp_read, &b->pidx, &b->v64, &buf0, 0, WINDOW_MAX_SIZE, b->self_read.length, 1/**, 0**/, i, (asm_opt.is_ont)?HPC_PL:0, asm_opt.is_ont, ((asm_opt.is_ont)?&(b->clist.chainDP):NULL), ((asm_opt.is_sc)?&(b->v8q):NULL), ((asm_opt.is_sc)?&(b->v8t):NULL));
+    rphase_hc(&b->olist, &R_INF, &b->hap, &b->self_read, &b->ovlp_read, &b->pidx, &b->v64, &buf0, 0, WINDOW_MAX_SIZE, b->self_read.length, 1/**, 0**/, i, (asm_opt.is_ont)?HPC_PL:0, asm_opt.is_ont, ((asm_opt.is_ont)?&(b->clist.chainDP):NULL), ((asm_opt.is_sc)?&(b->v8q):NULL), ((asm_opt.is_sc)?&(b->v8t):NULL), (asm_opt.is_ont)?1:0);
     copy_asg_arr(b->sp, buf0);
-
+    ///for debug indel
     // stderr_phase_ovlp(&b->olist);
 
     dedup_chains(&b->olist);
@@ -3301,7 +3319,7 @@ static void worker_hap_ec(void *data, long i, int tid)
     // for (k = 0; k < b->olist.length; k++) {
     //     if(b->olist.list[k].is_match == 1) b->num_recorrect_base++;
     // }
-
+    ///for debug indel
     // exit(1);
     
     
@@ -5710,7 +5728,7 @@ static void worker_hap_dc_ec0(void *data, long i, int tid)
     b->cnt[0] += b->self_read.length;
 
     copy_asg_arr(buf0, b->sp); 
-    rphase_hc(&b->olist, &R_INF, &b->hap, &b->self_read, &b->ovlp_read, &b->pidx, &b->v64, &buf0, 0, WINDOW_MAX_SIZE, b->self_read.length, 1/**, 1**/, i, (asm_opt.is_ont)?HPC_PL:0, asm_opt.is_ont, ((asm_opt.is_ont)?&(b->clist.chainDP):NULL), ((asm_opt.is_sc)?&(b->v8q):NULL), ((asm_opt.is_sc)?&(b->v8t):NULL));
+    rphase_hc(&b->olist, &R_INF, &b->hap, &b->self_read, &b->ovlp_read, &b->pidx, &b->v64, &buf0, 0, WINDOW_MAX_SIZE, b->self_read.length, 1/**, 1**/, i, (asm_opt.is_ont)?HPC_PL:0, asm_opt.is_ont, ((asm_opt.is_ont)?&(b->clist.chainDP):NULL), ((asm_opt.is_sc)?&(b->v8q):NULL), ((asm_opt.is_sc)?&(b->v8t):NULL), (asm_opt.is_ont)?1:0);
     copy_asg_arr(b->sp, buf0); 
 
     copy_asg_arr(buf0, b->sp);
@@ -6143,6 +6161,8 @@ void write_ec_reads(const char *suffix_ou)
 void cal_ec_r(uint64_t n_thre, uint64_t round, uint64_t n_round, uint64_t n_a, uint64_t is_sv, uint64_t *tot_b, uint64_t *tot_e)
 {
     // write_ec_reads("ec0.fa");
+
+    fprintf(stderr, "[M::%s]\tn_thre::%lu, round::%lu, n_round::%lu, n_a::%lu, is_sv::%lu\n", __func__, n_thre, round, n_round, n_a, is_sv);
 
     ec_ovec_buf_t *b = NULL; uint64_t k, is_cr = (round&1);
     (*tot_b) = (*tot_e) = 0;
