@@ -32,6 +32,8 @@
 #include <string.h>
 #include <stdlib.h>
 
+//文字列を定数に置換するオブジェクト形式マクロ（文字列は大文字）
+//https://qiita.com/Yuzu2yan/items/0e7bcf2e8bc1aa1c030b
 #define KS_SEP_SPACE 0 // isspace(): \t, \n, \v, \f, \r
 #define KS_SEP_TAB   1 // isspace() && !' '
 #define KS_SEP_LINE  2 // line separator: "\n" (Unix) or "\r\n" (Windows)
@@ -45,13 +47,20 @@
 #endif
 #endif /* klib_unused */
 
+//マクロ（各行末にバックスペースを書く）
+//https://qiita.com/Yuzu2yan/items/0e7bcf2e8bc1aa1c030b
 #define __KS_TYPE(type_t)						\
+        //kstream_tの構造体を定義
 	typedef struct __kstream_t {				\
+                //unsignedは符号なし文字列（charと別物、オーバーフローなどの挙動が安定している）
+                //https://zenn.dev/hyppyboy/articles/8438ca9815bbbe
 		unsigned char *buf;						\
 		int begin, end, is_eof;					\
 		type_t f;								\
 	} kstream_t;
 
+//関数マクロ
+//https://qiita.com/Yuzu2yan/items/0e7bcf2e8bc1aa1c030b
 #define ks_err(ks) ((ks)->end == -1)
 #define ks_eof(ks) ((ks)->is_eof && (ks)->begin >= (ks)->end)
 #define ks_rewind(ks) ((ks)->is_eof = (ks)->begin = (ks)->end = 0)
