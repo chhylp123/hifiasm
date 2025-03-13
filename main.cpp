@@ -10,7 +10,8 @@ int main(int argc, char *argv[])
 {
 	int i, ret;
 	yak_reset_realtime();
-    //asm_optはhifiasm_opt_tクラス
+    //asm_optはhifiasm_opt_tクラス(Commandlines.h)
+    //init_optは変数の初期値の代入(Commandlines.cpp)
     init_opt(&asm_opt);
     if (!CommandLine_process(argc, argv, &asm_opt)) return 0;
 	
