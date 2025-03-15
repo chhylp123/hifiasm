@@ -177,6 +177,7 @@ void ha_opt_update_cov_min(hifiasm_opt_t *opt, int hom_cov, int min_chain);
 int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt);
 double Get_T(void);
 
+//inlineはコンパイル時に当該関数をインライン展開するように指示するコマンド
 static inline int ha_opt_triobin(const hifiasm_opt_t *opt)
 {
 	return ((opt->fn_bin_yak[0] && opt->fn_bin_yak[1]) || (opt->fn_bin_list[0] && opt->fn_bin_list[1]));

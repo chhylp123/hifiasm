@@ -6,6 +6,7 @@
 #include "Levenshtein_distance.h"
 #include "htab.h"
 
+//argcはコマンドプロンプトからの引数の数、argvは引数の配列
 int main(int argc, char *argv[])
 {
 	int i, ret;
@@ -13,6 +14,7 @@ int main(int argc, char *argv[])
     //asm_optはhifiasm_opt_tクラス(Commandlines.h)
     //init_optは変数の初期値の代入(Commandlines.cpp)
     init_opt(&asm_opt);
+	//if文はカッコ内が非ゼロなら実行されるので、CommandLine_processがreturn 0なら実行される
     if (!CommandLine_process(argc, argv, &asm_opt)) return 0;
 	
 	// bit_extz_t exz, exz64; init_bit_extz_t(&exz, 2); init_bit_extz_t(&exz64, 2);
