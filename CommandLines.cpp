@@ -79,6 +79,8 @@ static ko_longopt_t long_options[] = {
     { "chem-c",     ko_required_argument, 361},
     { "chem-f",     ko_required_argument, 362},
     { "ul-m",     ko_required_argument, 363},
+    { "rl-cut",     ko_required_argument, 364},
+    { "sc-cut",     ko_required_argument, 365},
     // { "path-round",     ko_required_argument, 348},
 	{ 0, 0, 0 }
 };
@@ -228,6 +230,10 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "                 detect chimeric reads with <=INT other reads support [%lu]\n", asm_opt->chemical_cov);
     fprintf(stderr, "    --chem-f     INT\n");
     fprintf(stderr, "                 length of flanking regions for chimeric read detection [%lu]\n", asm_opt->chemical_flank);
+    fprintf(stderr, "    --rl-cut     INT\n");
+    fprintf(stderr, "                 filter out ONT simplex reads shorter than <INT> for assembly [%ld]\n", asm_opt->rl_cut);
+    fprintf(stderr, "    --sc-cut     INT\n");
+    fprintf(stderr, "                 filter out ONT simplex reads with a mean base quality score below <INT> [%ld]\n", asm_opt->sc_cut);
 
 
     fprintf(stderr, "Example: ./hifiasm -o NA12878.asm -t 32 NA12878.fq.gz\n");
@@ -364,6 +370,9 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->chemical_cov = 1;
     asm_opt->chemical_flank = 256;
     asm_opt->ul_mod = 0;
+
+    asm_opt->rl_cut = 1000;
+    asm_opt->sc_cut = 10;
 }   
 
 void destory_enzyme(enzyme* f)
@@ -990,6 +999,10 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         } else if (c == 363) {
             asm_opt->ul_mod = atol(opt.arg); 
         **/
+        } else if (c == 364) {
+            asm_opt->rl_cut = atol(opt.arg);
+        } else if (c == 365) {
+            asm_opt->sc_cut = atol(opt.arg);
         } else if (c == 'l') {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
             asm_opt->purge_level_primary = asm_opt->purge_level_trio = atoi(opt.arg);
         }
@@ -1027,6 +1040,9 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
 
     // fprintf(stderr, "[M::%s::] post join::%u\n", __func__, (uint32_t)(!(asm_opt->flag & HA_F_BAN_POST_JOIN)));
     // exit(1);
+    if(!(asm_opt->is_ont)) {
+        asm_opt->rl_cut = -1; asm_opt->sc_cut = 1;
+    }
 
     return check_option(asm_opt);
 }

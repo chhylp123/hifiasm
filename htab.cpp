@@ -546,6 +546,21 @@ const int ha_pt_cnt(const ha_pt_t *h, uint64_t hash)
 	return kh_key(g->h, k) & YAK_MAX_COUNT;
 }
 
+inline uint64_t flt_quals(char *sc_a, uint64_t sc_l, uint64_t sc_off, int64_t sc_cut)
+{
+	int64_t sc_min = sc_l * sc_cut, sc_tot; uint64_t k;
+	for (k = sc_tot = 0; (k < sc_l) && (sc_tot < sc_min); k++) {
+		sc_tot += (((uint8_t)sc_a[k]) - sc_off);
+	}
+
+	// if(sc_tot < sc_min) {
+	// 	fprintf(stderr, "[M::%s] sc_tot::%ld, sc_min::%ld, sc_l::%lu\n", __func__, sc_tot, sc_min, sc_l);
+	// }
+
+	if(sc_tot < sc_min) return 0;
+	return 1;
+}
+
 /**********************************
  * Buffer for counting all k-mers *
  **********************************/
@@ -745,7 +760,8 @@ static void *sf##_worker_count(void *data, int step, void *in) /** callback for 
 		} else {\
 			while ((ret = kseq_read(p->ks)) >= 0) {\
 				int l = (int)(p->ks->seq.l) - (int)(p->opt->adaLen) - (int)(p->opt->adaLen);\
-				if(l <= 0) continue;\
+				if((l <= 0) || (l < asm_opt.rl_cut)) continue;\
+				if((asm_opt.is_sc) && (asm_opt.sc_cut > 0) && (!flt_quals(p->ks->qual.s+p->opt->adaLen, l, 33, asm_opt.sc_cut))) continue;\
 				if (p->n_seq >= 1<<28) {\
 					fprintf(stderr, "ERROR: this implementation supports no more than %d reads\n", 1<<28);\
 					exit(1);\
