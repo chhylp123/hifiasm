@@ -1091,7 +1091,10 @@ typedef struct
     /****************************may have bugs********************************/
 
     int path_length;
+
+#if defined(__x86_64__) || defined(__x86__)
     __m128i Peq_SSE[256];
+#endif
 } Correct_dumy;
 
 typedef struct

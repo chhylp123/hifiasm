@@ -436,9 +436,15 @@ char* r_string)
 
         if (groupLen == GROUP_SIZE)
         {
-            Reserve_Banded_BPM_4_SSE_only(dumy->overlap_region_group[0], dumy->overlap_region_group[1], 
+#if defined(__x86_64__) || defined(__x86__)
+            Reserve_Banded_BPM_4_SSE_only(dumy->overlap_region_group[0], dumy->overlap_region_group[1],
             dumy->overlap_region_group[2], dumy->overlap_region_group[3], Window_Len, x_string, WINDOW,
                 return_sites, return_sites_error, THRESHOLD, dumy->Peq_SSE);
+#else
+            Reserve_Banded_BPM_4(dumy->overlap_region_group[0], dumy->overlap_region_group[1],
+            dumy->overlap_region_group[2], dumy->overlap_region_group[3], Window_Len, x_string, WINDOW,
+                return_sites, return_sites_error, THRESHOLD);
+#endif
             groupLen = 0;
 
             
@@ -493,10 +499,15 @@ char* r_string)
     }
     else if (groupLen > 1)
     {
-        Reserve_Banded_BPM_4_SSE_only(dumy->overlap_region_group[0], dumy->overlap_region_group[1], 
-                dumy->overlap_region_group[2], dumy->overlap_region_group[3], Window_Len, x_string, WINDOW,
-			        return_sites, return_sites_error, THRESHOLD, dumy->Peq_SSE);
-
+#if defined(__x86_64__) || defined(__x86__)
+            Reserve_Banded_BPM_4_SSE_only(dumy->overlap_region_group[0], dumy->overlap_region_group[1],
+            dumy->overlap_region_group[2], dumy->overlap_region_group[3], Window_Len, x_string, WINDOW,
+                return_sites, return_sites_error, THRESHOLD, dumy->Peq_SSE);
+#else
+            Reserve_Banded_BPM_4(dumy->overlap_region_group[0], dumy->overlap_region_group[1],
+            dumy->overlap_region_group[2], dumy->overlap_region_group[3], Window_Len, x_string, WINDOW,
+                return_sites, return_sites_error, THRESHOLD);
+#endif
         for (i = 0; i < groupLen; i++)
         {
             if (return_sites_error[i]!=(unsigned int)-1) {
@@ -11220,10 +11231,12 @@ void clear_Cigar_record(Cigar_record* dummy)
 void init_Correct_dumy_buf(Correct_dumy* list, void *km)
 {
     memset(list, 0, sizeof(Correct_dumy));
+#if defined(__x86_64__) || defined(__x86__)
     int i;
     for (i = 0; i < 256; i++){
 		list->Peq_SSE[i] = _mm_setzero_si128();
 	}
+#endif
 }
 
 
@@ -11234,11 +11247,13 @@ void init_Correct_dumy(Correct_dumy* list)
     list->lengthNT = 0;
     list->start_i = 0;
     list->overlapID = NULL;
+#if defined(__x86_64__) || defined(__x86__)
     int i;
     for (i = 0; i < 256; i++)
 	{
 		list->Peq_SSE[i] = _mm_setzero_si128();
 	}
+#endif
 
 
     list->corrected_read_size = 1000;

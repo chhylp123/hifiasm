@@ -3,10 +3,9 @@
 
 #define __STDC_LIMIT_MACROS
 #include <stdint.h>
-#include "emmintrin.h"
-#include "nmmintrin.h"
-#include "smmintrin.h"
+#if defined(__x86_64__) || defined(__i386__)
 #include <immintrin.h>
+#endif
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -4473,6 +4472,7 @@ inline int Reserve_Banded_BPM_PATH
 	return return_site;
 }
 
+#if defined(__x86_64__) || defined(__i386__)
 ////four patterns have the same p_length
 inline int Reserve_Banded_BPM_4_SSE_only(char *pattern1, char *pattern2, char *pattern3, char *pattern4, int p_length, char *text, int t_length,
 	int* return_sites, unsigned int* return_sites_error, unsigned short errthold, __m128i* Peq_SSE)
@@ -4780,6 +4780,21 @@ inline int Reserve_Banded_BPM_4_SSE_only(char *pattern1, char *pattern2, char *p
 
 	return 1;
 }
+#else
+inline int Reserve_Banded_BPM_4(char *pattern1, char *pattern2, char *pattern3, char *pattern4, int p_length, char *text, int t_length,
+	int* return_sites, unsigned int* return_sites_error, unsigned short errthold) {
+        return_sites[0] =
+                Reserve_Banded_BPM(pattern1, p_length, text, t_length, errthold, &return_sites_error[0]);
+        return_sites[1] =
+                Reserve_Banded_BPM(pattern2, p_length, text, t_length, errthold, &return_sites_error[1]);
+        return_sites[2] =
+                Reserve_Banded_BPM(pattern3, p_length, text, t_length, errthold, &return_sites_error[2]);
+        return_sites[3] =
+                Reserve_Banded_BPM(pattern4, p_length, text, t_length, errthold, &return_sites_error[3]);
+	return 1;
+}
+#endif
+
 
 
 // void move_trace_gap(uint16_t *trace, int32_t trace_n, int32_t trace_i, 
