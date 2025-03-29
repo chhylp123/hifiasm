@@ -28,7 +28,7 @@ endif
 all:$(EXE)
 
 $(EXE):$(OBJS) main.o
-		$(CXX) $(CXXFLAGS) $^ -o $@ $(LIBS)
+		$(CXX) $(CXXFLAGS) $(LDFLAGS) $^ -o $@ $(LIBS)
 
 clean:
 		rm -fr gmon.out *.o a.out $(EXE) *~ *.a *.dSYM
