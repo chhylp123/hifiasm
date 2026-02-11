@@ -385,7 +385,7 @@ ha_pt_t *ha_pt_gen(ha_ct_t *ct, int n_thread, int is_l)
 	ha_ct_destroy_bf(ct);
 	CALLOC(pt, 1);
 	pt->k = ct->k, pt->pre = ct->pre, pt->tot = ct->tot;
-	CALLOC(pt->h, 1<<pt->pre);
+	CALLOC(pt->h, (((uint64_t)1)<<pt->pre));
 	for (i = 0; i < 1<<pt->pre; ++i) {
 		pt->h[i].h = yak_pt_init();
 		yak_pt_resize(pt->h[i].h, kh_size(ct->h[i].h));
@@ -422,7 +422,7 @@ ha_pt_t *ha_pt_gen_count(ha_ct_t *ct, int n_thread)
 	ha_ct_destroy_bf(ct);
 	CALLOC(pt, 1);
 	pt->k = ct->k, pt->pre = ct->pre, pt->tot = ct->tot;
-	CALLOC(pt->h, 1<<pt->pre);
+	CALLOC(pt->h, (((uint64_t)1)<<pt->pre));
 	for (i = 0; i < 1<<pt->pre; ++i) {
 		pt->h[i].h = yak_pt_init();
 		yak_pt_resize(pt->h[i].h, kh_size(ct->h[i].h));
@@ -578,7 +578,7 @@ KSEQ_INIT(gzFile, gzread)
 typedef struct { // global data structure for kt_pipeline()
 	const yak_copt_t *opt;
 	const void *flt_tab;
-	int flag, create_new, is_store, uq;
+	int flag, create_new, is_store, uq, ifq;
 	uint64_t n_mz, n_seq; ///number of total reads
 	kseq_t *ks;
 	UC_Read ucr;
@@ -761,7 +761,7 @@ static void *sf##_worker_count(void *data, int step, void *in) /** callback for 
 			while ((ret = kseq_read(p->ks)) >= 0) {\
 				int l = (int)(p->ks->seq.l) - (int)(p->opt->adaLen) - (int)(p->opt->adaLen);\
 				if((l <= 0) || (l < asm_opt.rl_cut)) continue;\
-				if((asm_opt.is_sc) && (asm_opt.sc_cut > 0) && (!flt_quals(p->ks->qual.s+p->opt->adaLen, l, 33, asm_opt.sc_cut))) continue;\
+				if((p->ifq) && (asm_opt.sc_cut > 0) && (!flt_quals(p->ks->qual.s+p->opt->adaLen, l, 33, asm_opt.sc_cut))) continue;\
 				if (p->n_seq >= 1<<28) {\
 					fprintf(stderr, "ERROR: this implementation supports no more than %d reads\n", 1<<28);\
 					exit(1);\
@@ -779,7 +779,7 @@ static void *sf##_worker_count(void *data, int step, void *in) /** callback for 
 								++n_N;\
 						ha_compress_base(Get_READ(*p->rs_out, p->n_seq), p->ks->seq.s+p->opt->adaLen, l, &p->rs_out->N_site[p->n_seq], n_N);\
 						memcpy(&p->rs_out->name[p->rs_out->name_index[p->n_seq]], p->ks->name.s, p->ks->name.l);\
-						if(p->rs_out->rsc) {\
+						if(p->ifq) {\
 							ha_compress_qual(Get_QUAL(*p->rs_out, p->n_seq), p->ks->qual.s+p->opt->adaLen, l, sc_bn, 33);\
 							/**print_fastq(NULL, p->ks->name.s, p->ks->seq.s, p->ks->qual.s, (1<<sc_bn), 33);**/\
 							/**if(l <= 1000000) {\
@@ -836,7 +836,7 @@ static void *sf##_worker_count(void *data, int step, void *in) /** callback for 
 			uint32_t j;\
 			/**s->n_seq is how many reads at this buffer**/\
 			/**s->mz && s->mz_buf are lists of minimzer vectors**/\
-			CALLOC(s->mz, s->n_seq), CALLOC(s->mz_buf, p->opt->n_thread), CALLOC(s->mt, p->opt->n_thread);\
+			CALLOC(s->mz, s->n_seq); CALLOC(s->mz_buf, p->opt->n_thread); CALLOC(s->mt, p->opt->n_thread);\
 			/**calculate minimzers for each read, each read corresponds to one thread**/\
 			kt_for(p->opt->n_thread, sf##_worker_for_mz, s, s->n_seq);\
 			for (i = 0; i < p->opt->n_thread; ++i) free(s->mt[i].a), free(s->mz_buf[i].a);\
@@ -927,7 +927,7 @@ void debug_adapter(const hifiasm_opt_t *asm_opt, All_reads *rs)
 	exit(1);
 }
 
-static ha_ct_t *yak_count(const yak_copt_t *opt, const char *fn, int flag, ha_pt_t *p0, ha_ct_t *c0, const void *flt_tab, All_reads *rs, ma_utg_v *us, int64_t *n_seq)
+static ha_ct_t *yak_count(const yak_copt_t *opt, const char *fn, int flag, ha_pt_t *p0, ha_ct_t *c0, const void *flt_tab, All_reads *rs, ma_utg_v *us, int64_t *n_seq, uint8_t ifq)
 {
 	///for 0-th counting, flag = HAF_COUNT_ALL|HAF_RS_WRITE_LEN|HAF_CREATE_NEW
 	int read_rs = (rs && (flag & HAF_RS_READ));
@@ -935,7 +935,7 @@ static ha_ct_t *yak_count(const yak_copt_t *opt, const char *fn, int flag, ha_pt
 	pl_data_t pl;
 	gzFile fp = 0;
 	memset(&pl, 0, sizeof(pl_data_t));
-	pl.n_seq = *n_seq; 
+	pl.n_seq = *n_seq; pl.ifq = ifq;
 	if(ug_rs) {
 		pl.us_in = us;
 	} else if (read_rs) {
@@ -1019,9 +1019,26 @@ ha_ct_t *ha_count(const hifiasm_opt_t *asm_o, int flag, int HPC, int k, int w, h
 	}**/
 	///asm_opt->num_reads is the number of fastq files
 	for (i = 0; i < (us?1:asm_o->num_reads); ++i){
-		h = yak_count(&opt, asm_o->read_file_names[i], flag|HAF_CREATE_NEW, p0, h, flt_tab, rs, us, &n_seq);
+		h = yak_count(&opt, asm_o->read_file_names[i], flag|HAF_CREATE_NEW, p0, h, flt_tab, rs, us, &n_seq, asm_opt.is_sc);
 		if(h) n_bs += h->bs;
 	}
+
+	if((rs) && (flag & HAF_RS_WRITE_LEN) && (asm_opt.is_sc)) {
+		rs->tqn = rs->total_reads; rs->tr[0] = rs->total_reads_bases;
+	}
+
+	if((asm_o->hf) && (!us)) {
+		for (i = 0; i < asm_o->hf->n; ++i) {
+			h = yak_count(&opt, asm_o->hf->a[i], flag|HAF_CREATE_NEW, p0, h, flt_tab, rs, us, &n_seq, 0);
+			if(h) n_bs += h->bs;
+		}
+	}
+	if((rs) && (flag & HAF_RS_WRITE_LEN) && (asm_opt.is_sc)) {
+		rs->tr[1] = rs->total_reads_bases - rs->tr[0];
+	}
+
+	// fprintf(stderr, "[M::%s]\t# tqn::%lu, Ont base::%lu, # HiFi bases::%lu\n", __func__, R_INF.tqn, R_INF.tr[0], R_INF.tr[1]);
+
 	if(h) h->bs = n_bs;	
 	if (h && opt.bf_shift > 0)
 		ha_ct_destroy_bf(h);
@@ -1141,7 +1158,7 @@ void *ha_ft_gen(const hifiasm_opt_t *asm_opt, All_reads *rs, int *hom_cov, int i
 	if(is_hp_mode) ex_flag = HAF_RS_READ|HAF_SKIP_READ;
 	ha_ct_t *h; 
 	h = ha_count(asm_opt, HAF_COUNT_ALL|ex_flag|((read_from_store)?(HAF_RS_READ):(HAF_RS_WRITE_LEN)), !(asm_opt->flag&HA_F_NO_HPC), asm_opt->k_mer_length, asm_opt->mz_win, NULL, NULL, rs, NULL, 1, NULL, 0);
-	if((asm_opt->flag & HA_F_VERBOSE_GFA))
+	if((asm_opt->flag & HA_F_VERBOSE_GFA) || (asm_opt->restart))
 	{
 		write_ct_index((void*)h, asm_opt->output_file_name);
 		// load_ct_index(&ha_ct_table, asm_opt->output_file_name);
@@ -1154,10 +1171,20 @@ void *ha_ft_gen(const hifiasm_opt_t *asm_opt, All_reads *rs, int *hom_cov, int i
 	{
 		ha_ct_hist(h, cnt, asm_opt->thread_num);
 		peak_hom = ha_analyze_count(YAK_N_COUNTS, asm_opt->min_hist_kmer_cnt, asm_opt->hg_size>0?(h->bs/asm_opt->hg_size):(-1), cnt, &peak_het);
+		///r850
+		fprintf(stderr, "[M::%s::auto] inferred peak_hom: %d; peak_het: %d\n", __func__, peak_hom, peak_het);
+		if((asm_opt->het_cov_ss > 0) || (asm_opt->hmo_cov_ss > 0)) {
+			fprintf(stderr, "[M::%s::user] override requested peak_hom: %ld; peak_het: %ld\n", __func__, asm_opt->hmo_cov_ss, asm_opt->het_cov_ss);
+			if(asm_opt->hmo_cov_ss > 0) peak_hom = asm_opt->hmo_cov_ss;
+			if(asm_opt->het_cov_ss > 0) peak_het = asm_opt->het_cov_ss;
+		}
 		if (hom_cov) *hom_cov = peak_hom;
-		if (peak_hom > 0) fprintf(stderr, "[M::%s] peak_hom: %d; peak_het: %d\n", __func__, peak_hom, peak_het);
+		if (peak_hom > 0) fprintf(stderr, "[M::%s::final] using peak_hom: %d; peak_het: %d\n", __func__, peak_hom, peak_het);
+
 		///in default, asm_opt->high_factor = 5.0
+		///r833
 		cutoff = (int)(peak_hom * asm_opt->high_factor);
+		if(cutoff < asm_opt->hf_cutoff) cutoff = asm_opt->hf_cutoff;
 		if (cutoff > YAK_MAX_COUNT - 1) cutoff = YAK_MAX_COUNT - 1;
 	}
 	ha_ct_shrink(h, cutoff, YAK_MAX_COUNT, asm_opt->thread_num);
@@ -1252,9 +1279,16 @@ ha_pt_t *ha_pt_gen(const hifiasm_opt_t *asm_opt, const void *flt_tab, int read_f
 	ha_ct_hist(ct, cnt, asm_opt->thread_num);
 	fprintf(stderr, "[M::%s] count[%d] = %ld (for sanity check)\n", __func__, YAK_MAX_COUNT, (long)cnt[YAK_MAX_COUNT]);
 	peak_hom = ha_analyze_count(YAK_N_COUNTS, asm_opt->min_hist_kmer_cnt, asm_opt->hg_size>0?(ct->bs/asm_opt->hg_size):(-1), cnt, &peak_het);
+	///r850
+	fprintf(stderr, "[M::%s::auto] inferred peak_hom: %d; peak_het: %d\n", __func__, peak_hom, peak_het);
+	if((asm_opt->het_cov_ss > 0) || (asm_opt->hmo_cov_ss > 0)) {
+		fprintf(stderr, "[M::%s::user] override requested peak_hom: %ld; peak_het: %ld\n", __func__, asm_opt->hmo_cov_ss, asm_opt->het_cov_ss);
+		if(asm_opt->hmo_cov_ss > 0) peak_hom = asm_opt->hmo_cov_ss;
+		if(asm_opt->het_cov_ss > 0) peak_het = asm_opt->het_cov_ss;
+	}
 	if (hom_cov) *hom_cov = peak_hom;
 	if (het_cov) *het_cov = peak_het;
-	if (peak_hom > 0) fprintf(stderr, "[M::%s] peak_hom: %d; peak_het: %d\n", __func__, peak_hom, peak_het);
+	if (peak_hom > 0) fprintf(stderr, "[M::%s::final] using peak_hom: %d; peak_het: %d\n", __func__, peak_hom, peak_het);
 	///here ha_ct_shrink is mostly used to remove k-mer appearing only 1 time
 	if (flt_tab == 0) {
 		int cutoff = (int)(peak_hom * asm_opt->high_factor);
@@ -1367,7 +1401,8 @@ int load_ct_index(void **i_ct_idx, char* file_name)
 int write_pt_index(void *flt_tab, ha_pt_t *ha_idx, All_reads* r, hifiasm_opt_t* opt, char* file_name)
 {
     char* gfa_name = (char*)malloc(strlen(file_name)+64);
-    sprintf(gfa_name, "%s.pt_flt", file_name);
+    if(r) sprintf(gfa_name, "%s.pt_flt", file_name);
+	else sprintf(gfa_name, "%s.pt_flt.bin", file_name);
     FILE* fp = fopen(gfa_name, "w");
 	if (!fp) {
 		free(gfa_name);
@@ -1406,21 +1441,22 @@ int write_pt_index(void *flt_tab, ha_pt_t *ha_idx, All_reads* r, hifiasm_opt_t* 
 	fwrite(&opt->het_cov, sizeof(opt->het_cov), 1, fp);
 	fwrite(&opt->max_n_chain, sizeof(opt->max_n_chain), 1, fp);
 
+	if(r) {
+		write_All_reads(r, gfa_name);
 
-	write_All_reads(r, gfa_name);
-
-	sprintf(gfa_name, "%s.pt_flt.paf.bin", file_name); 
-	fclose(fp); fp = fopen(gfa_name, "w"); uint64_t k;
-	if (!fp) {
-		free(gfa_name);
-        return 0;
-    }
-	fwrite(&(r->total_reads), sizeof(r->total_reads), 1, fp);
-	for (k = 0; k < r->total_reads; k++) {
-		fwrite(&(r->paf[k].is_fully_corrected), sizeof(r->paf[k].is_fully_corrected), 1, fp);
-        fwrite(&(r->paf[k].is_abnormal), sizeof(r->paf[k].is_abnormal), 1, fp);
-        fwrite(&(r->paf[k].length), sizeof(r->paf[k].length), 1, fp);
-        fwrite(r->paf[k].buffer, sizeof((*(r->paf[k].buffer))), r->paf[k].length, fp);
+		sprintf(gfa_name, "%s.pt_flt.paf.bin", file_name); 
+		fclose(fp); fp = fopen(gfa_name, "w"); uint64_t k;
+		if (!fp) {
+			free(gfa_name);
+			return 0;
+		}
+		fwrite(&(r->total_reads), sizeof(r->total_reads), 1, fp);
+		for (k = 0; k < r->total_reads; k++) {
+			fwrite(&(r->paf[k].is_fully_corrected), sizeof(r->paf[k].is_fully_corrected), 1, fp);
+			fwrite(&(r->paf[k].is_abnormal), sizeof(r->paf[k].is_abnormal), 1, fp);
+			fwrite(&(r->paf[k].length), sizeof(r->paf[k].length), 1, fp);
+			fwrite(r->paf[k].buffer, sizeof((*(r->paf[k].buffer))), r->paf[k].length, fp);
+		}
 	}
 
 	fprintf(stderr, "[M::%s] Index has been written.\n", __func__);
@@ -1432,7 +1468,9 @@ int write_pt_index(void *flt_tab, ha_pt_t *ha_idx, All_reads* r, hifiasm_opt_t* 
 int load_pt_index(void **r_flt_tab, ha_pt_t **r_ha_idx, All_reads *r, hifiasm_opt_t* opt, char* file_name)
 {
 	char* gfa_name = (char*)malloc(strlen(file_name)+64);
-    sprintf(gfa_name, "%s.pt_flt", file_name);
+	if(r) sprintf(gfa_name, "%s.pt_flt", file_name);
+	else sprintf(gfa_name, "%s.pt_flt.bin", file_name);
+	// fprintf(stderr, "[M::%s]\tgfa_name::%s\n", __func__, gfa_name);
     FILE* fp = fopen(gfa_name, "r");
 	if (!fp) {
 		free(gfa_name);
@@ -1512,44 +1550,108 @@ int load_pt_index(void **r_flt_tab, ha_pt_t **r_ha_idx, All_reads *r, hifiasm_op
 
 
 	// fclose(fp);
-	
-	if(!load_All_reads(r, gfa_name))
-	{
-		free(gfa_name);
-		return 0;
+	if(r) {
+		if(!load_All_reads(r, gfa_name)) {
+			free(gfa_name);
+			return 0;
+		}
+
+		memset(r->trio_flag, AMBIGU, r->total_reads*sizeof(uint8_t));
+
+		sprintf(gfa_name, "%s.pt_flt.paf.bin", file_name);
+		fclose(fp); fp = fopen(gfa_name, "r"); uint64_t k;
+		if (!fp) {
+			free(gfa_name);
+			return 0;
+		}
+		f_flag += fread(&(r->total_reads), sizeof(r->total_reads), 1, fp);
+		r->paf = (ma_hit_t_alloc*)malloc(sizeof(ma_hit_t_alloc)*r->total_reads);
+		r->reverse_paf = (ma_hit_t_alloc*)malloc(sizeof(ma_hit_t_alloc)*r->total_reads);
+		for (k = 0; k < r->total_reads; k++) {
+			// init_ma_hit_t_alloc(&(r->paf[k]));
+			init_ma_hit_t_alloc(&(r->reverse_paf[k]));
+
+			f_flag += fread(&(r->paf[k].is_fully_corrected), sizeof(r->paf[k].is_fully_corrected), 1, fp);
+			f_flag += fread(&(r->paf[k].is_abnormal), sizeof(r->paf[k].is_abnormal), 1, fp);
+			f_flag += fread(&(r->paf[k].length), sizeof(r->paf[k].length), 1, fp);
+			r->paf[k].size = r->paf[k].length;
+
+			r->paf[k].buffer = NULL;
+			if(r->paf[k].length == 0) continue;
+			
+			r->paf[k].buffer = (ma_hit_t*)malloc(sizeof(ma_hit_t)*r->paf[k].length);
+			fread(r->paf[k].buffer, sizeof((*(r->paf[k].buffer))), r->paf[k].length, fp);
+		}
 	}
-
-	memset(r->trio_flag, AMBIGU, r->total_reads*sizeof(uint8_t));
-
-	sprintf(gfa_name, "%s.pt_flt.paf.bin", file_name);
-	fclose(fp); fp = fopen(gfa_name, "r"); uint64_t k;
-    if (!fp) {
-        free(gfa_name);
-        return 0;
-    }
-	f_flag += fread(&(r->total_reads), sizeof(r->total_reads), 1, fp);
-	r->paf = (ma_hit_t_alloc*)malloc(sizeof(ma_hit_t_alloc)*r->total_reads);
-    r->reverse_paf = (ma_hit_t_alloc*)malloc(sizeof(ma_hit_t_alloc)*r->total_reads);
-	for (k = 0; k < r->total_reads; k++) {
-        // init_ma_hit_t_alloc(&(r->paf[k]));
-        init_ma_hit_t_alloc(&(r->reverse_paf[k]));
-
-		f_flag += fread(&(r->paf[k].is_fully_corrected), sizeof(r->paf[k].is_fully_corrected), 1, fp);
-        f_flag += fread(&(r->paf[k].is_abnormal), sizeof(r->paf[k].is_abnormal), 1, fp);
-        f_flag += fread(&(r->paf[k].length), sizeof(r->paf[k].length), 1, fp);
-        r->paf[k].size = r->paf[k].length;
-
-        r->paf[k].buffer = NULL;
-        if(r->paf[k].length == 0) continue;
-        
-        r->paf[k].buffer = (ma_hit_t*)malloc(sizeof(ma_hit_t)*r->paf[k].length);
-        fread(r->paf[k].buffer, sizeof((*(r->paf[k].buffer))), r->paf[k].length, fp);
-    }
 	fclose(fp);
 
 	fprintf(stderr, "[M::%s] Index has been loaded.\n", __func__);
 
 	free(gfa_name);
+	return 1;
+}
+
+void refresh_pt_idx(void **flt_tab, ha_pt_t **ha_idx, All_reads *r, hifiasm_opt_t *opt, char *file_name, uint8_t is_w)
+{
+	char* gfa_name = (char*)malloc(strlen(file_name)+64);
+    sprintf(gfa_name, "%s.ad", file_name);
+
+	if(is_w) {
+		write_pt_index(*flt_tab, *ha_idx, NULL, opt, gfa_name);
+	} else {
+		load_pt_index(flt_tab, ha_idx, NULL, opt, gfa_name);
+	}
+
+	free(gfa_name);
+}
+
+
+uint64_t tmp_pt_pro(void **r_flt_tab, ha_pt_t **r_ha_idx, All_reads *r, hifiasm_opt_t *opt, char *file_name, uint64_t rr, uint64_t tot_rr, uint64_t is_load)
+{
+	char* gfa_name = (char*)malloc(strlen(file_name)+64);
+	FILE *fp = NULL; int f_flag = 0; uint64_t rr0 = (uint64_t)-1, tot_rr0 = (uint64_t)-1;
+
+
+	if(is_load) {
+		sprintf(gfa_name, "%s.r%lu.ht.bin", file_name, rr);
+		fp = fopen(gfa_name, "r");
+		if (!fp) {
+			free(gfa_name);
+			return 0;
+		}
+		f_flag += fread(&rr0, sizeof(rr0), 1, fp);
+		f_flag += fread(&tot_rr0, sizeof(tot_rr0), 1, fp);
+		fclose(fp);
+		if(rr0 != rr || tot_rr0 != tot_rr) {
+			free(gfa_name); 
+			return 0;
+		}
+
+
+
+		sprintf(gfa_name, "%s.r%lu", file_name, rr);
+		if(!load_pt_index(r_flt_tab, r_ha_idx, r, opt, gfa_name)) {
+			free(gfa_name); 
+			return 0;
+		}
+	} else {
+		sprintf(gfa_name, "%s.r%lu", file_name, rr);
+		write_pt_index(*r_flt_tab, *r_ha_idx, r, opt, gfa_name);
+
+
+
+		sprintf(gfa_name, "%s.r%lu.ht.bin", file_name, rr);
+		fp = fopen(gfa_name, "w");
+		if (!fp) {
+			free(gfa_name);
+			return 0;
+		}
+		fwrite(&rr, sizeof(rr), 1, fp);
+		fwrite(&tot_rr, sizeof(tot_rr), 1, fp);
+		fclose(fp);
+	}
+
+	free(gfa_name); 
 	return 1;
 }
 

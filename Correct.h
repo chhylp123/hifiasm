@@ -1387,18 +1387,71 @@ typedef struct {
 	int64_t k, q[2], t[2], cq[2], ct[2], ci[2], werr, werr0, cerr;
 	int64_t qoff, f, toff, coff, cur_qoff;
 } rtrace_iter;
+
+typedef struct
+{
+    overlap_region_alloc *ol;
+    Candidates_list *cl;
+    All_reads *rref;
+    UC_Read *qu; 
+    UC_Read *tu;
+    bit_extz_t *exz;
+    overlap_region *aux_o, *rse_o;
+    double e_rate[2];
+    int64_t wl[2];
+    int64_t rid; 
+    int64_t khit;
+    int64_t move_gap;
+    asg16_v *buf; 
+    asg64_v *srt; 
+    asg8_v *hpz;
+    ma_hit_t_alloc *in;
+
+    int8_t chem_drop[2]; 
+    double align_gap_rate[2]; 
+    int64_t align_gap_max[2];
+
+    uint64_t sec_aln_win; 
+    uint64_t sec_aln_cov; 
+    double sec_aln_err_rate; 
+    double sec_aln_max; 
+    asg64_v *kp;
+
+    asg32_v *v32; 
+    asg64_v *bp; 
+    ha_abuf_t *ab; 
+    uint64_t max_n_chain; 
+    uint64_t max_n_chain_f; 
+    uint64_t chain_cutoff; 
+    uint64_t ave_cov_min;
+    uint64_t ocw;
+
+    uint64_t t_cut;
+} gen_hc_aln_t;
 int64_t get_rid_backward_cigar_err(rtrace_iter *it, ul_ov_t *aln, kv_rtrace_t *trace, rtrace_t *tc,
 const ul_idx_t *uref, char* qstr, UC_Read *tu, overlap_region_alloc *ol, overlap_region *o, 
 bit_extz_t *exz, double e_rate, int64_t qs);
 
-void gen_hc_r_alin(overlap_region_alloc* ol, Candidates_list *cl, All_reads *rref, UC_Read* qu, UC_Read* tu, bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t wl, int64_t rid, int64_t khit, int64_t move_gap, asg16_v* buf, uint8_t chem_drop, double align_gap_rate, int64_t align_gap_max);
-void gen_hc_r_alin_nec(overlap_region_alloc* ol, Candidates_list *cl, All_reads *rref, UC_Read* qu, UC_Read* tu, bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t wl, int64_t rid, int64_t khit, int64_t move_gap, asg16_v* buf, uint8_t chem_drop, double align_gap_rate, int64_t align_gap_max);
+
+void gen_hc_r_alin_adp_smp(overlap_region_alloc* ol, Candidates_list *cl, All_reads *rref, UC_Read* qu, UC_Read* tu, bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t wl, int64_t rid, int64_t khit, int64_t move_gap, asg16_v* buf, uint8_t chem_drop, double align_gap_rate, int64_t align_gap_max, uint64_t sec_aln_win, uint64_t sec_aln_cov, double sec_aln_err_rate, double sec_aln_max, 
+    asg64_v *sp, uint64_t ocw, uint8_t *hpf, uint32_t *a_cu, uint32_t *a_ci, uint32_t *ocn, uint32_t *osc, uint64_t *idx_cu, uint64_t n_cu, asg64_v *bp, uint64_t max_n_chain, uint64_t max_n_chain_f, uint64_t chain_cutoff, uint64_t ave_cov_min, uint8_t set_match);
+void gen_hc_r_alin_adv_adp_smp(gen_hc_aln_t *ez, uint32_t *a_cu, uint32_t *a_ci, uint32_t *ocn, uint32_t *osc, uint64_t *idx_cu, uint64_t n_cu, uint8_t set_match);
+void pp_chn_a(overlap_region *z, Candidates_list *cl, uint8_t is_raw);
+void gen_hc_r_alin(overlap_region_alloc* ol, Candidates_list *cl, All_reads *rref, UC_Read* qu, UC_Read* tu, bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t wl, int64_t rid, int64_t khit, int64_t move_gap, asg16_v* buf, uint8_t chem_drop, double align_gap_rate, int64_t align_gap_max, uint64_t sec_aln_win, uint64_t sec_aln_cov, double sec_aln_err_rate, double sec_aln_max, asg64_v *kp, uint8_t *hpf);
+void gen_hc_r_alin_flt(overlap_region_alloc* ol, Candidates_list *cl, All_reads *rref, UC_Read* qu, UC_Read* tu, bit_extz_t *exz, overlap_region *aux_o, overlap_region *aux_b, double e_rate, int64_t wl, int64_t rid, int64_t khit, int64_t move_gap, asg16_v* buf, uint8_t chem_drop, double align_gap_rate, int64_t align_gap_max, uint64_t sec_aln_win, uint64_t sec_aln_cov, double sec_aln_err_rate, double sec_aln_max, 
+    asg64_v *kp, asg64_v *sp, uint64_t ocw, uint8_t *hpf, uint32_t *a_cu, uint32_t *a_ci, uint32_t *ocn, uint32_t *osc, uint64_t *idx_cu, uint64_t n_cu, asg64_v *bp, uint64_t max_n_chain, uint64_t max_n_chain_f, uint64_t chain_cutoff, uint64_t ave_cov_min);
+void gen_hc_r_alin_adp(overlap_region_alloc* ol, Candidates_list *cl, All_reads *rref, UC_Read* qu, UC_Read* tu, bit_extz_t *exz, overlap_region *aux_o, overlap_region *aux_b, double e_rate, int64_t wl, int64_t rid, int64_t khit, int64_t move_gap, asg16_v* buf, uint8_t chem_drop, double align_gap_rate, int64_t align_gap_max, uint64_t sec_aln_win, uint64_t sec_aln_cov, double sec_aln_err_rate, double sec_aln_max, 
+    asg64_v *kp, asg64_v *sp, uint64_t ocw, uint8_t *hpf, uint32_t *a_cu, uint32_t *a_ci, uint32_t *ocn, uint32_t *osc, uint64_t *idx_cu, uint64_t n_cu, asg64_v *bp, uint64_t max_n_chain, uint64_t max_n_chain_f, uint64_t chain_cutoff, uint64_t ave_cov_min);
+void gen_hc_r_alin_adv(gen_hc_aln_t *ez);
+void gen_hc_r_alin_nec(overlap_region_alloc* ol, Candidates_list *cl, All_reads *rref, UC_Read* qu, UC_Read* tu, bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t wl, int64_t rid, int64_t khit, int64_t move_gap, asg16_v* buf, uint8_t chem_drop, double align_gap_rate, int64_t align_gap_max, uint64_t sec_aln_win, uint64_t sec_aln_cov, double sec_aln_err_rate, double sec_aln_max, asg64_v *kp, uint8_t *hpf);
+void gen_hc_r_alin_nec_adv(gen_hc_aln_t *ez);
 uint64_t gen_hc_r_alin_re(overlap_region* z, Candidates_list *cl, char* qstr, uint64_t ql, char* tstr, uint64_t tl, bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t wl, int64_t rid, int64_t khit, int64_t move_gap, asg16_v* buf);
-void rphase_hc(overlap_region_alloc* ol, All_reads *rref, haplotype_evdience_alloc* hp, UC_Read* qu, UC_Read* tu, kv_ul_ov_t *c_idx, asg64_v* idx, asg64_v* buf, int64_t bd, int64_t wl, int64_t ql, uint8_t occ_thres/**, uint8_t is_dbg**/, uint64_t rid, uint64_t hpc_len, uint64_t std_bs, Chain_Data *dp, asg8_v *q8, asg8_v *t8, uint8_t lindel);
+void rphase_hc(overlap_region_alloc* ol, All_reads *rref, haplotype_evdience_alloc* hp, UC_Read* qu, UC_Read* tu, kv_ul_ov_t *c_idx, asg64_v* idx, asg64_v* buf, int64_t bd, int64_t wl, int64_t ql, uint8_t occ_thres/**, uint8_t is_dbg**/, uint64_t rid, uint64_t hpc_len, uint64_t std_bs, Chain_Data *dp, asg8_v *q8, asg8_v *t8, uint8_t lindel, uint64_t tcut, uint64_t site_sc, int64_t h0_w, asg32_v *b32);
 void set_exact_exz(bit_extz_t *exz, int64_t qs, int64_t qe, int64_t ts, int64_t te);
 void push_alnw(overlap_region *aux_o, bit_extz_t *exz);
 void cal_exz_global(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t thre, bit_extz_t *ez);
 void get_wqual(uint64_t zid, uint64_t zpos, uint64_t zrev, asg8_v *v, uint8_t *va, uint64_t scw, uint64_t *tqual, uint64_t *wqual);
+void gen_reseed_re(overlap_region_alloc *ol, Candidates_list *cl, overlap_region *aux_o, overlap_region *rse_o, All_reads *rref, UC_Read* qu, UC_Read *tu, bit_extz_t *exz, kv_ul_ov_t *c_idx, asg64_v *idx, asg64_v *res, int64_t bd, int64_t mzw, int64_t kl, int64_t rid, double err_h, double err_l, asg16_v *b16, uint64_t tqn, uint8_t *hpf);
 
 
 #define ovlp_id(x) ((x).tn)
@@ -1410,11 +1463,24 @@ void get_wqual(uint64_t zid, uint64_t zpos, uint64_t zrev, asg8_v *v, uint8_t *v
 #define ovlp_cur_ylen(x) ((x).te)
 #define ovlp_cur_coff(x) ((x).qe)
 #define ovlp_bd(x) ((x).sec)
+#define ovlp_hf(x) ((x).el)
 
 #define HPC_PL 12
 #define HPC_RR 4
 #define HPC_CC 2
+#define HPC_RR_Q 5
+#define HPC_CC_Q 3
+#define HC_MF_R 0.5
+#define HC_AV_MIN 0.7
 
 // #define FORCE_CUT 1
+
+// overlap_region_alloc* ol, Candidates_list *cl, All_reads *rref, UC_Read* qu, UC_Read* tu, bit_extz_t *exz, overlap_region *aux_o, 
+
+// double e_rate, int64_t wl, int64_t rid, int64_t khit, int64_t move_gap, asg16_v *buf, asg64_v *srt, ma_hit_t_alloc *in, uint8_t chem_drop, double align_gap_rate, int64_t align_gap_max,
+//     uint64_t sec_aln_win, uint64_t sec_aln_cov, double sec_aln_err_rate, double sec_aln_max, asg64_v *kp
+
+// uint64_t gen_hc_r_alin_ea_hybrid(overlap_region_alloc* ol, uint64_t bi, uint64_t bn, uint64_t tk, Candidates_list *cl, All_reads *rref, UC_Read* qu, UC_Read* tu, bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t wl, int64_t rid, int64_t khit, int64_t move_gap, asg16_v *buf, uint8_t ec_filter, ma_hit_t_alloc *in, uint8_t chem_drop, double align_gap_rate, int64_t align_gap_max,
+//     uint64_t sec_aln_win, uint64_t sec_aln_cov, double sec_aln_err_rate, double sec_aln_max, asg64_v *kp)
 
 #endif

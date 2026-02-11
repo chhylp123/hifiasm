@@ -5,7 +5,7 @@
 #include <pthread.h>
 #include <stdint.h>
 
-#define HA_VERSION "0.25.0-r726"
+#define HA_VERSION "0.25.0-r852"
 
 #define VERBOSE 0
 
@@ -41,10 +41,12 @@ typedef struct {
 	char *fn_bin_yak[2];
 	char *fn_bin_list[2];
     char *fn_bin_poy;
+    char *fn_chr_bin;
 	char *extract_list;
     enzyme *hic_reads[2];
     enzyme *hic_enzymes;
     enzyme *ar;
+    enzyme *hf;
     enzyme *sec_in;
 	int extract_iter;
     int thread_num;
@@ -63,6 +65,7 @@ typedef struct {
 	int max_kmer_cnt;
 	double high_factor; // coverage cutoff set to high_factor*hom_cov
 	double max_ov_diff_ec;
+    double max_ov_diff_ec_sec;
 	double max_ov_diff_final;
 	int hom_cov;
     int het_cov;
@@ -169,7 +172,26 @@ typedef struct {
 
     int64_t rl_cut;
     int64_t sc_cut;
+    uint8_t gpath;
 
+    uint64_t hf_rate;///cannot be larger than 128?
+    uint64_t hf_rate_max;///cannot be larger than 128?
+    uint64_t ont_rate;///cannot be 0, should be 1 in anyway
+
+    int64_t het_cov_set;
+    int64_t restart;
+
+    int64_t hf_cutoff;
+
+    uint8_t write_pos_idx;
+
+    int hom_cov_0;
+    int het_cov_0;
+	int max_n_chain_0; // fall-back max number of chains to consider
+
+    int64_t hmo_cov_ss;
+    int64_t het_cov_ss;
+    int64_t chn_occ;
 } hifiasm_opt_t;
 
 extern hifiasm_opt_t asm_opt;

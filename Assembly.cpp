@@ -883,16 +883,14 @@ static void worker_ec_save(void *data, long i, int tid)
 
 void Output_corrected_reads()
 {
-    long long i;
-    UC_Read g_read;
+    uint64_t i; UC_Read g_read;
     init_UC_Read(&g_read);
     char* gfa_name = (char*)malloc(strlen(asm_opt.output_file_name)+35);
     sprintf(gfa_name, "%s.ec.fa", asm_opt.output_file_name);
-    FILE* output_file = fopen(gfa_name, "w");
+    FILE *output_file = fopen(gfa_name, "w");
     free(gfa_name);
 
-    for (i = 0; i < (long long)R_INF.total_reads; i++)
-    {
+    for (i = 0; i < R_INF.total_reads; i++) {
         recover_UC_Read(&g_read, &R_INF, i);
         fwrite(">", 1, 1, output_file);
         fwrite(Get_NAME(R_INF, i), 1, Get_NAME_LENGTH(R_INF, i), output_file);
@@ -906,7 +904,7 @@ void Output_corrected_reads()
 
 void Output_corrected_fastq()
 {
-    long long i; uint64_t k;
+    uint64_t i, k;
     UC_Read g_read; asg8_v dv;
     init_UC_Read(&g_read); kv_init(dv);
     char* gfa_name = (char*)malloc(strlen(asm_opt.output_file_name)+35);
@@ -914,13 +912,24 @@ void Output_corrected_fastq()
     FILE* fp = fopen(gfa_name, "w");
     free(gfa_name);
 
-    for (i = 0; i < (long long)R_INF.total_reads; i++) {
+    for (i = 0; i < R_INF.tqn; i++) {
         recover_UC_Read(&g_read, &R_INF, i);
         fprintf(fp, "@%.*s\n", (int32_t)Get_NAME_LENGTH(R_INF, i), Get_NAME(R_INF, i));
         fprintf(fp, "%.*s\n", (int32_t)g_read.length, g_read.seq);        
         fprintf(fp, "+\n");
         retrive_bqual(&dv, NULL, i, -1, -1, 0, sc_bn);
         for (k = 0; k < dv.n; k++) fprintf(fp, "%c", (char)(sc_tb[dv.a[k]] + 33 - 1));
+        fprintf(fp, "\n");
+    }
+
+    for (; i < R_INF.total_reads; i++) {
+        recover_UC_Read(&g_read, &R_INF, i);
+        fprintf(fp, "@%.*s\n", (int32_t)Get_NAME_LENGTH(R_INF, i), Get_NAME(R_INF, i));
+        fprintf(fp, "%.*s\n", (int32_t)g_read.length, g_read.seq);        
+        fprintf(fp, "+\n");
+        // retrive_bqual(&dv, NULL, i, -1, -1, 0, sc_bn);
+        // for (k = 0; k < dv.n; k++) fprintf(fp, "%c", (char)(sc_tb[dv.a[k]] + 33 - 1));
+        for (k = 0; k < (uint64_t)g_read.length; k++) fprintf(fp, "%c", (char)(3 + 33 - 1));
         fprintf(fp, "\n");
     }
     destory_UC_Read(&g_read); kv_destroy(dv);
@@ -993,7 +1002,7 @@ void prt_dbg_rs(FILE *fp, Debug_reads* x, uint64_t round)
     destory_UC_Read(&g_read);
 }
 
-void ha_ec(int64_t round, int num_pround, int des_idx, uint64_t *tot_b, uint64_t *tot_e)
+void ha_ec(int64_t round, int num_pround, int des_idx, uint64_t *tot_b, uint64_t *tot_e, uint64_t w_tmp)
 {
 	int hom_cov, het_cov, r_out = 0;
     ha_flt_tab_hp = ha_idx_hp = NULL; (*tot_b) = (*tot_e) = 0;
@@ -1013,7 +1022,11 @@ void ha_ec(int64_t round, int num_pround, int des_idx, uint64_t *tot_b, uint64_t
     het_cnt = NULL;
     if(round == asm_opt.number_of_round-1 && asm_opt.is_dbg_het_cnt) CALLOC(het_cnt, R_INF.total_reads);
 
-    if (r_out) write_pt_index(ha_flt_tab, ha_idx, &R_INF, &asm_opt, asm_opt.output_file_name);
+    if (r_out) {
+        write_pt_index(ha_flt_tab, ha_idx, &R_INF, &asm_opt, asm_opt.output_file_name);
+        if((asm_opt.flag & HA_F_VERBOSE_GFA) && (asm_opt.bin_only == 1)) exit(1);///just for debug
+    }
+    if (w_tmp) tmp_pt_pro(&ha_flt_tab, &ha_idx, &R_INF, &asm_opt, asm_opt.output_file_name, round, asm_opt.number_of_round, 0);
 
     // Output_corrected_fastq();
 
@@ -1955,7 +1968,12 @@ void ha_ec_ff(int renew_idx)
 
     cal_ov_r(asm_opt.thread_num, R_INF.total_reads, renew_idx);
 
-	ha_pt_destroy(ha_idx); ha_idx = NULL;
+    if(asm_opt.write_pos_idx) {
+        refresh_pt_idx(&ha_flt_tab, &ha_idx, NULL, &asm_opt, asm_opt.output_file_name, 1);
+        // write_pt_index(ha_flt_tab, ha_idx, NULL, &asm_opt, asm_opt.output_file_name);
+    } else {
+        ha_pt_destroy(ha_idx); ha_idx = NULL;
+    }	
 }
 
 static void worker_ov_utg(void *data, long i, int tid)
@@ -2058,7 +2076,7 @@ int ha_assemble(void)
     // debug_mc_gg_t(MC_NAME, 0, 0);
     // quick_debug_phasing(MC_NAME);
 	extern void ha_extract_print_list(const All_reads *rs, int n_rounds, const char *o);
-	int r, hom_cov = -1, ovlp_loaded = 0; uint64_t tot_b, tot_e;
+	int r, r0 = -1, hom_cov = -1, ovlp_loaded = 0; uint64_t tot_b, tot_e;
 	if (asm_opt.load_index_from_disk && load_all_data_from_disk(&R_INF.paf, &R_INF.reverse_paf, asm_opt.output_file_name)) {
 		ovlp_loaded = 1;
 		fprintf(stderr, "[M::%s::%.3f*%.2f] ==> loaded corrected reads and overlaps from disk\n", __func__, yak_realtime(), yak_cpu_usage());
@@ -2076,20 +2094,29 @@ int ha_assemble(void)
 	if (!ovlp_loaded) {
         ha_flt_tab = ha_idx = NULL;
         if((asm_opt.flag & HA_F_VERBOSE_GFA)) load_pt_index(&ha_flt_tab, &ha_idx, &R_INF, &asm_opt, asm_opt.output_file_name), load_ct_index(&ha_ct_table, asm_opt.output_file_name);
+        r = ha_idx?asm_opt.number_of_round-1:0;
+        if((!ha_idx) && (asm_opt.restart)) {
+            for (r = asm_opt.number_of_round - 1; r >= 0; --r) {
+                if(tmp_pt_pro(&ha_flt_tab, &ha_idx, &R_INF, &asm_opt, asm_opt.output_file_name, r, asm_opt.number_of_round, 1)) {
+                    load_ct_index(&ha_ct_table, asm_opt.output_file_name); r0 = r;
+                    break;
+                }
+            }
+            if(r < 0) r = 0;
+        }
 
 		// construct hash table for high occurrence k-mers
-		if (!(asm_opt.flag & HA_F_NO_KMER_FLT) && ha_flt_tab == NULL) 
-        {
+		if (!(asm_opt.flag & HA_F_NO_KMER_FLT) && ha_flt_tab == NULL) {
 			ha_flt_tab = ha_ft_gen(&asm_opt, &R_INF, &hom_cov, 0, 0);
 			ha_opt_update_cov(&asm_opt, hom_cov);
 		}
 		// error correction
 		assert(asm_opt.number_of_round > 0);
-		for (r = ha_idx?asm_opt.number_of_round-1:0; r < asm_opt.number_of_round; ++r) {
+		for (; r < asm_opt.number_of_round; ++r) {
 			ha_opt_reset_to_round(&asm_opt, r); // this update asm_opt.roundID and a few other fields
             tot_b = tot_e = 0;
 			// ha_overlap_and_correct(r);
-            ha_ec(r, asm_opt.number_of_pround, (r<asm_opt.number_of_round-1)?1:0, &tot_b, &tot_e);
+            ha_ec(r, asm_opt.number_of_pround, (r<asm_opt.number_of_round-1)?1:0, &tot_b, &tot_e, ((r > r0) && (asm_opt.restart))?1:0);
 			fprintf(stderr, "[M::%s::%.3f*%.2f@%.3fGB] ==> corrected reads for round %d\n", __func__, yak_realtime(),
 					yak_cpu_usage(), yak_peakrss_in_gb(), r + 1);
             fprintf(stderr, "[M::%s] # bases: %lu; # corrected bases: %lu\n", __func__, tot_b, tot_e);
@@ -2108,7 +2135,7 @@ int ha_assemble(void)
         fprintf(stderr, "[M::%s::%.3f*%.2f@%.3fGB] ==> found overlaps for the final round\n", __func__, yak_realtime(), yak_cpu_usage(), yak_peakrss_in_gb());
 		// fprintf(stderr, "\n[M::%s::%.3f*%.2f@%.3fGB] ==> found overlaps for the final round\n", __func__, yak_realtime(), yak_cpu_usage(), yak_peakrss_in_gb());
 		// ha_print_ovlp_stat(R_INF.paf, R_INF.reverse_paf, R_INF.total_reads);
-		ha_ft_destroy(ha_flt_tab);
+		if(!(asm_opt.write_pos_idx)) ha_ft_destroy(ha_flt_tab);
 		if (asm_opt.flag & HA_F_WRITE_PAF) Output_PAF();
 		ha_triobin(&asm_opt);
 

@@ -796,7 +796,7 @@ inline uint32_t cigar_check(char *pstr, char *tstr, bit_extz_t *ez)
 		if(c == 0) {
 			for (k=0;(k<cl)&&(pstr[pi]==tstr[ti]);k++,pi++,ti++);
 			if(k!=cl) {
-				fprintf(stderr, "ERROR-d-0, pi::%d, ti::%d\n", pi, ti); 
+				fprintf(stderr, "ERROR-d-0, pi::%d, ti::%d, ci::%u\n", pi, ti, ci); 
 				return 0;
 			}
 		} else {
@@ -804,7 +804,7 @@ inline uint32_t cigar_check(char *pstr, char *tstr, bit_extz_t *ez)
 			if(c == 1) {
 				for (k=0;(k<cl)&&(pstr[pi]!=tstr[ti]);k++,pi++,ti++);
 				if(k!=cl) {
-					fprintf(stderr, "ERROR-d-1, pi::%d, ti::%d\n", pi, ti);  
+					fprintf(stderr, "ERROR-d-1, pi::%d, ti::%d, ci::%u\n", pi, ti, ci);
 					return 0;
 				}
 			} else if(c == 2) {///more p
@@ -814,10 +814,20 @@ inline uint32_t cigar_check(char *pstr, char *tstr, bit_extz_t *ez)
 			}
 		}
 	}
+	
 	if(err != ez->err) {
 		fprintf(stderr, "ERROR-err\n"); 
 		return 0;
 	}
+	if(pi != ez->pe + 1) {
+		fprintf(stderr, "ERROR-pi\n"); 
+		return 0;
+	}
+	if(ti != ez->te + 1) {
+		fprintf(stderr, "ERROR-ti\n"); 
+		return 0;
+	}
+	
 	return 1;
 }
 

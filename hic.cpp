@@ -6569,7 +6569,7 @@ min_cut_t* m, hc_links* link, G_partition* x)
     if(res->full_bub == 0)
     {
         res->a.n = 0;
-        uint32_t v, u = 0, uv, k_n, pre_n = x->n;
+        uint32_t v, u = 0, uv = UINT32_MAX, k_n, pre_n = x->n;
         hc_linkeage* t = NULL;
         x->n--;
         for (i = 0; i < n; i++)

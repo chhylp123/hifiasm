@@ -81,6 +81,13 @@ static ko_longopt_t long_options[] = {
     { "ul-m",     ko_required_argument, 363},
     { "rl-cut",     ko_required_argument, 364},
     { "sc-cut",     ko_required_argument, 365},
+    { "hf",     ko_required_argument, 366},
+    { "cb",     ko_required_argument, 367},
+    { "gpath",       ko_no_argument, 368},
+    { "het-cov",     ko_required_argument, 369},
+    { "resume",     ko_no_argument, 370},
+    { "flt-kocc",     ko_required_argument, 371},
+    { "chn-occ",     ko_required_argument, 372},
     // { "path-round",     ko_required_argument, 348},
 	{ 0, 0, 0 }
 };
@@ -107,7 +114,9 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "    -k INT       k-mer length (must be <64) [%d]\n", asm_opt->k_mer_length);
 	fprintf(stderr, "    -w INT       minimizer window size [%d]\n", asm_opt->mz_win);
 	fprintf(stderr, "    -f INT       number of bits for bloom filter; 0 to disable [%d]\n", asm_opt->bf_shift);
-	fprintf(stderr, "    -D FLOAT     drop k-mers occurring >FLOAT*coverage times [%.1f]\n", asm_opt->high_factor);
+	fprintf(stderr, "    -D FLOAT     drop k-mers occurring >FLOAT*coverage times [%.1f]; work with --flt-kocc or -N\n", asm_opt->high_factor);
+    fprintf(stderr, "    --flt-kocc   INT\n");
+    fprintf(stderr, "                 drop k-mers occurring >max(-D*coverage,--flt-kocc) times [%ld]\n", asm_opt->hf_cutoff);    
 	fprintf(stderr, "    -N INT       consider up to max(-D*coverage,-N) overlaps for each oriented read [%d]\n", asm_opt->max_n_chain);
     fprintf(stderr, "    -r INT       round of correction [%d]\n", asm_opt->number_of_round);
     fprintf(stderr, "    -z INT       length of adapters that should be removed [%d]\n", asm_opt->adapterLen);
@@ -115,6 +124,13 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "                 employ k-mers occurring <INT times to rescue repetitive overlaps [%d]\n", asm_opt->max_kmer_cnt);
     fprintf(stderr, "    --hg-size    INT(k, m or g)\n");
     fprintf(stderr, "                 estimated haploid genome size used for inferring read coverage [auto]\n");
+    fprintf(stderr, "    --resume     resume from the previously incomplete assembly [%ld]\n", asm_opt->restart);
+    fprintf(stderr, "    --het-cov    INT\n");
+    fprintf(stderr, "                 heterozygous read coverage [auto]; used for error correction and assembly; manual value overrides auto\n");
+    fprintf(stderr, "    --hom-cov    INT\n");
+    fprintf(stderr, "                 homozygous read coverage [auto]; used for error correction and assembly; manual value overrides auto\n");
+    fprintf(stderr, "    --chn-occ    INT\n");
+    fprintf(stderr, "                 discard overlaps supported by <INT minimizers [%ld]\n", asm_opt->chn_occ);
     fprintf(stderr, "  Assembly:\n");
     fprintf(stderr, "    -a INT       round of assembly cleaning [%d]\n", asm_opt->clean_round);
     fprintf(stderr, "    -m INT       pop bubbles of <INT in size in contig graphs [%lld]\n", asm_opt->large_pop_bubble_size);
@@ -126,8 +142,6 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "    -u           post-join step for contigs which may improve N50; 0 to disable; 1 to enable\n");
     fprintf(stderr, "                 [%u] and [%u] in default for the UL+HiFi assembly and the HiFi assembly, respectively\n",
                                       asm_opt->ul_pst_join, asm_opt->hifi_pst_join);
-    fprintf(stderr, "    --hom-cov    INT\n");
-    fprintf(stderr, "                 homozygous read coverage [auto]\n");
     fprintf(stderr, "    --lowQ       INT\n");
     fprintf(stderr, "                 output contig regions with >=INT%% inconsistency in BED format; 0 to disable [%d]\n", asm_opt->bed_inconsist_rate);
     fprintf(stderr, "    --b-cov      INT\n");
@@ -140,6 +154,7 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "    --primary    output a primary assembly and an alternate assembly\n");
     fprintf(stderr, "    --ctg-n      INT\n");
     fprintf(stderr, "                 remove tip contigs composed of <=INT reads [%d]\n", asm_opt->max_contig_tip);
+    fprintf(stderr, "    --gpath      output the corresponding path of each contig (p_ctg) within the assembly graph (d_utg.noseq.gfa)\n");
     
     
 //	fprintf(stderr, "    --pri-range INT1[,INT2]\n");
@@ -223,17 +238,18 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "    --telo-s     INT\n");
     fprintf(stderr, "                 min score for telomere reads [%ld]\n", asm_opt->telo_mic_sc);
 
-    fprintf(stderr, "  ONT simplex assembly (beta):\n");
-    fprintf(stderr, "    --ont        assemble ONT simplex reads in fastq format\n");
+    fprintf(stderr, "  ONT Simplex assembly (beta):\n");
+    fprintf(stderr, "    --ont        assemble ONT Simplex reads in fastq format\n");
     // fprintf(stderr, "    --sc-n       consider base qual value for assembly\n");
     fprintf(stderr, "    --chem-c     INT\n");
     fprintf(stderr, "                 detect chimeric reads with <=INT other reads support [%lu]\n", asm_opt->chemical_cov);
     fprintf(stderr, "    --chem-f     INT\n");
     fprintf(stderr, "                 length of flanking regions for chimeric read detection [%lu]\n", asm_opt->chemical_flank);
     fprintf(stderr, "    --rl-cut     INT\n");
-    fprintf(stderr, "                 filter out ONT simplex reads shorter than <INT> for assembly [%ld]\n", asm_opt->rl_cut);
+    fprintf(stderr, "                 filter out ONT Simplex reads shorter than <INT> for assembly [%ld]\n", asm_opt->rl_cut);
     fprintf(stderr, "    --sc-cut     INT\n");
-    fprintf(stderr, "                 filter out ONT simplex reads with a mean base quality score below <INT> [%ld]\n", asm_opt->sc_cut);
+    fprintf(stderr, "                 filter out ONT Simplex reads with a mean base quality score below <INT> [%ld]\n", asm_opt->sc_cut);
+    fprintf(stderr, "    --hf FILEs   file names of HiFi reads\n");
 
 
     fprintf(stderr, "Example: ./hifiasm -o NA12878.asm -t 32 NA12878.fq.gz\n");
@@ -254,6 +270,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->hic_reads[0] = NULL;
     asm_opt->hic_reads[1] = NULL;
     asm_opt->fn_bin_poy = NULL;
+    asm_opt->fn_chr_bin = NULL;
     asm_opt->ar = NULL;
     asm_opt->thread_num = 1;
     asm_opt->k_mer_length = 51;
@@ -270,6 +287,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
 	asm_opt->max_kmer_cnt = 2000;
 	asm_opt->high_factor = 5.0;
 	asm_opt->max_ov_diff_ec = 0.04;
+    asm_opt->max_ov_diff_ec_sec = 0.04;
 	asm_opt->max_ov_diff_final = 0.03;
 	asm_opt->hom_cov = 20;
     asm_opt->het_cov = -1024;
@@ -373,6 +391,30 @@ void init_opt(hifiasm_opt_t* asm_opt)
 
     asm_opt->rl_cut = 1000;
     asm_opt->sc_cut = 10;
+
+    asm_opt->hf = NULL;
+
+    asm_opt->gpath = 0;
+
+    asm_opt->hf_rate = 4;
+    asm_opt->ont_rate = 1;///must be 1 or 0
+    asm_opt->hf_rate_max = 4;
+
+    asm_opt->het_cov_set = -1;
+    asm_opt->restart = 0;
+
+    asm_opt->hf_cutoff = -1;
+
+    asm_opt->write_pos_idx = 1;
+
+    asm_opt->hom_cov_0 = -1;
+    asm_opt->het_cov_0 = -1;
+	asm_opt->max_n_chain_0 = -1;
+
+
+    asm_opt->hmo_cov_ss = -1;
+    asm_opt->het_cov_ss = -1;
+    asm_opt->chn_occ = 2;
 }   
 
 void destory_enzyme(enzyme* f)
@@ -752,6 +794,12 @@ int check_option(hifiasm_opt_t* asm_opt)
         }
     }
 
+
+    if((asm_opt->hf) && (!(asm_opt->is_ont))) {
+        fprintf(stderr, "[ERROR] [--hf] must work with [--ont]\n");
+        return 0;
+    }
+
     return 1;
 }
 
@@ -920,12 +968,14 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
 		else if (c == 306) asm_opt->max_ov_diff_final = atof(opt.arg);
 		else if (c == 307) asm_opt->extract_list = opt.arg;
 		else if (c == 308) asm_opt->extract_iter = atoi(opt.arg);
-        else if (c == 309)
-        {
-            asm_opt->hom_global_coverage = atoi(opt.arg);
+        else if (c == 309) {
+            asm_opt->hom_global_coverage = asm_opt->hmo_cov_ss = atoi(opt.arg);
             asm_opt->hom_global_coverage_set = 1;
-        } 
-        else if (c == 310)
+            if(asm_opt->hmo_cov_ss <= 0) {
+                fprintf(stderr, "[ERROR] homozygous read coverage should be > 0 (--hom-cov)");
+			    return 1;
+            }
+        } else if (c == 310)
         {
             char* s = NULL;
             asm_opt->recover_atg_cov_min = strtol(opt.arg, &s, 10);
@@ -1003,7 +1053,30 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
             asm_opt->rl_cut = atol(opt.arg);
         } else if (c == 365) {
             asm_opt->sc_cut = atol(opt.arg);
-        } else if (c == 'l') {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
+        } else if (c == 366) {
+            get_hic_enzymes(opt.arg, &(asm_opt->hf), 0);
+        } else if (c == 367) {
+            asm_opt->fn_chr_bin = opt.arg;
+        } else if (c == 368) {
+            asm_opt->gpath = 1;
+        } else if (c == 369) {
+            asm_opt->het_cov_set = asm_opt->het_cov_ss = atoi(opt.arg);
+            if(asm_opt->het_cov_ss <= 0) {
+                fprintf(stderr, "[ERROR] heterozygous read coverage should be > 0 (--het-cov)");
+			    return 1;
+            }
+        } else if (c == 370) {
+            asm_opt->restart = 1;
+        } else if (c == 371) {
+            asm_opt->hf_cutoff = atoi(opt.arg);
+        } else if (c == 372) {
+            asm_opt->chn_occ = atoi(opt.arg);
+            if(asm_opt->chn_occ <= 0) {
+                fprintf(stderr, "[ERROR] chain cutoff should be > 0 (--chn-occ)");
+			    return 1;
+            }
+        }        
+        else if (c == 'l') {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
             asm_opt->purge_level_primary = asm_opt->purge_level_trio = atoi(opt.arg);
         }
         else if (c == 's') asm_opt->purge_simi_rate_l2 = asm_opt->purge_simi_rate_l3 = atof(opt.arg);

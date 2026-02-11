@@ -17,6 +17,8 @@
 #define WINDOW_UNCORRECT_SINGLE_SIDE_BOUNDARY 25
 #define THRESHOLD  15
 #define OVERLAP_THRESHOLD_HIFI_FILTER 0.9
+#define OVERLAP_THRESHOLD_HIFI_FF_FILTER 0.6
+#define OVERLAP_THRESHOLD_HIFI_FF_DE_FILTER 0.5
 #define OVERLAP_THRESHOLD_NOSI_FILTER 0.7
 #define OVERLAP_THRESHOLD_FILTER_HPC 0.75
 #define HIGH_HET_OVERLAP_THRESHOLD_FILTER 0.3
@@ -234,6 +236,9 @@ uint64_t lchain_qdp_fix(k_mer_hit* a, int64_t a_n, Chain_Data* dp, int64_t max_s
                 int64_t left_fix, int64_t right_fix);
 uint64_t lchain_simple(k_mer_hit* a, int64_t a_n, k_mer_hit* des, Chain_Data* dp, 
                                                         int64_t max_skip, int64_t max_iter);
+uint64_t lchain_simple0(k_mer_hit* a, int64_t a_n, k_mer_hit* des, Chain_Data* dp, int64_t max_skip, int64_t max_iter);
+void push_ovlp_chain_qgen(overlap_region* o, uint32_t xid, int64_t xl, int64_t yl, int64_t sc, k_mer_hit *beg, k_mer_hit *end);
+
 uint64_t lchain_qdp_mcopy(Candidates_list *cl, int64_t a_idx, int64_t a_n, int64_t des_idx, 
               Chain_Data* dp, overlap_region_alloc* res, int64_t max_skip, int64_t max_iter, 
               int64_t max_dis, double chn_pen_gap, double chn_pen_skip, double bw_rate, 

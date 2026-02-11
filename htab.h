@@ -88,11 +88,13 @@ const int ha_pt_cnt(const ha_pt_t *h, uint64_t hash);
 
 int write_pt_index(void *flt_tab, ha_pt_t *ha_idx, All_reads* r, hifiasm_opt_t* opt, char* file_name);
 int load_pt_index(void **r_flt_tab, ha_pt_t **r_ha_idx, All_reads* r, hifiasm_opt_t* opt, char* file_name);
+void refresh_pt_idx(void **flt_tab, ha_pt_t **ha_idx, All_reads *r, hifiasm_opt_t *opt, char *file_name, uint8_t is_w);
 int uidx_write(void *flt_tab, ha_pt_t *ha_idx, char* file_name, ma_ug_t *ug);
 int uidx_load(void **r_flt_tab, ha_pt_t **r_ha_idx, char* file_name, ma_ug_t *ug);
 int write_ct_index(void *ct_idx, char* file_name);
 int load_ct_index(void **ct_idx, char* file_name);
 int query_ct_index(void* ct_idx, uint64_t hash);
+uint64_t tmp_pt_pro(void **r_flt_tab, ha_pt_t **r_ha_idx, All_reads *r, hifiasm_opt_t *opt, char *file_name, uint64_t rr, uint64_t tot_rr, uint64_t is_load);
 
 ha_abuf_t *ha_abuf_init_buf(void *km);
 ha_abufl_t *ha_abufl_init_buf(void *km);
@@ -117,6 +119,7 @@ double yak_cpu_usage(void);
 void ha_triobin(const hifiasm_opt_t *opt);
 uint32_t test_yak_binning(char* fn, char *cmd);
 uint32_t *ha_polybin_list(const hifiasm_opt_t *opt);
+uint32_t *ha_charbin_list(const hifiasm_opt_t *opt, uint8_t **idx, uint32_t *idx_n);
 
 void mz1_ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mz1_v *p, const void *hf, int sample_dist, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct, ha_pt_t *pt, int min_freq, int32_t dp_min_len, float dp_e, st_mt_t *mt, int32_t ws, int32_t is_unique, void *km);
 void mz2_ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, ha_mzl_v *p, const void *hf, int sample_dist, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct, ha_pt_t *pt, int min_freq, int32_t dp_min_len, float dp_e, st_mt_t *mt, int32_t ws, int32_t is_unique, void *km);
@@ -166,7 +169,7 @@ static inline uint64_t yak_hash_long(uint64_t x[4])
 	return yak_hash64_64(x[j<<1|0]) + yak_hash64_64(x[j<<1|1]);
 }
 
-#define CALLOC(ptr, len) ((ptr) = (__typeof__(ptr))calloc((len), sizeof(*(ptr))))
+#define CALLOC(ptr, len) ((ptr) = ((((len)*sizeof(*(ptr))) <= 9223372036854775807)?((__typeof__(ptr))calloc((len), sizeof(*(ptr)))):(NULL)))
 #define MALLOC(ptr, len) ((ptr) = (__typeof__(ptr))malloc((len) * sizeof(*(ptr))))
 #define REALLOC(ptr, len) ((ptr) = (__typeof__(ptr))realloc((ptr), (len) * sizeof(*(ptr))))
 #define MEMCPY(dest, src, len) (memcpy((dest), (src), (len) * sizeof(*(src))))

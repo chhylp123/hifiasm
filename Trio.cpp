@@ -388,6 +388,31 @@ inline void phrase_hstatus(char *s, char **rname, uint32_t *hid)
 	*hid = atoi(id);
 }
 
+inline void phrase_hchar(char *s, char **rname, uint32_t *hid)
+{
+	*rname = NULL; *hid = (uint32_t)-1;
+	uint32_t tot = 0, k, l, z, sl = strlen(s); 
+	for (k = 1, l = 0; k <= sl; k++) {
+		if((k == sl) || (s[k] == '\t') || (s[k] == ' ')) {
+			if(k > l) {
+				s[k] = 0; 
+				if(tot == 0) {
+					*rname = s + l;
+				} else if(tot == 1) {
+					for (z = l; (z < k) && (s[z] >= '0') && (s[z] <= '9'); ++z);
+					if(z < k) {
+						fprintf(stderr, "ERROR: wrong hap id\n");
+						return;
+					}
+					*hid = atoi(s + l);
+				}
+				tot++;
+			}
+			l = k + 1;
+		}
+	}
+}
+
 uint32_t *ha_polybin_list(const hifiasm_opt_t *opt)
 {
 	int64_t i;
@@ -443,6 +468,74 @@ uint32_t *ha_polybin_list(const hifiasm_opt_t *opt)
 		if (kh_exist(h, k))
 			free((char*)kh_key(h, k));
 	cstr_ht_destroy(h);
+	fprintf(stderr, "[M::%s::%.3f*%.2f] ==> partitioned reads with external lists\n", __func__, yak_realtime(), yak_cpu_usage());
+	return ss;
+}
+
+uint32_t *ha_charbin_list(const hifiasm_opt_t *opt, uint8_t **idx, uint32_t *idx_n)
+{
+	int64_t i;
+	khint_t k;
+	cstr_ht_t *h; (*idx) = NULL; *idx_n = 0;
+	assert(R_INF.total_reads < (uint32_t)-1);
+	h = cstr_ht_init();
+	for (i = 0; i < (int64_t)R_INF.total_reads; ++i) {
+		int absent;
+		char *str = (char*)calloc(Get_NAME_LENGTH(R_INF, i) + 1, 1);
+		strncpy(str, Get_NAME(R_INF, i), Get_NAME_LENGTH(R_INF, i));
+		k = cstr_ht_put(h, str, &absent);
+		if (absent) kh_val(h, k) = i;
+	}
+	fprintf(stderr, "[M::%s::%.3f*%.2f] created the hash table for read names\n", __func__, yak_realtime(), yak_cpu_usage());
+
+	gzFile fp;
+	kstream_t *ks;
+	kstring_t str = {0,0,0};
+	char *rname = NULL;
+	uint32_t hid, mhid = 0, *ss = NULL;
+	int dret;
+	int64_t n_tot = 0, n_bin = 0;
+	fp = gzopen(opt->fn_chr_bin, "r");
+	if (fp == 0) {
+		fprintf(stderr, "ERROR: failed to open file '%s'\n", opt->fn_chr_bin);
+		for (k = 0; k < kh_end(h); ++k)
+			if (kh_exist(h, k))
+				free((char*)kh_key(h, k));
+		cstr_ht_destroy(h);
+		return NULL;
+	}
+	MALLOC(ss, R_INF.total_reads); memset(ss, -1, sizeof((*ss))*R_INF.total_reads);
+	ks = ks_init(fp);
+	while (ks_getuntil(ks, KS_SEP_LINE, &str, &dret) >= 0) {
+		khint_t k; ++n_tot;
+		phrase_hchar(str.s, &rname, &hid);
+		if((!(*rname)) || hid == (uint32_t)-1) {
+			fprintf(stderr, "ERROR: wrong hap id\n");
+			continue;
+		}
+		k = cstr_ht_get(h, rname);
+		if (k != kh_end(h)) {
+			ss[kh_val(h, k)] = hid;
+			if(hid > mhid) mhid = hid;
+			++n_bin;
+			// fprintf(stderr, "%s\t%u\trid::%ld\n", rname, hid, kh_val(h, k));
+		}
+	}
+	free(str.s);
+	ks_destroy(ks);
+	gzclose(fp);
+	
+	for (k = 0; k < kh_end(h); ++k)
+		if (kh_exist(h, k))
+			free((char*)kh_key(h, k));
+	cstr_ht_destroy(h);
+
+	mhid++; CALLOC((*idx), mhid); 
+	for (i = 0; i < (int64_t)R_INF.total_reads; ++i) {
+		if(ss[i] >= mhid) continue;
+		(*idx)[ss[i]] = 1;
+	}
+	*idx_n = mhid;
 	fprintf(stderr, "[M::%s::%.3f*%.2f] ==> partitioned reads with external lists\n", __func__, yak_realtime(), yak_cpu_usage());
 	return ss;
 }

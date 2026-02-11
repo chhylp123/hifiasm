@@ -1381,8 +1381,8 @@ const int64_t qlen, const int64_t rlen, int32_t *r_qs, int32_t *r_qe, int32_t *r
         re = rlen - 1; qe += rtail; 
     }
 
-	if(r_qs) (*r_qs) = qs; if(r_qe) (*r_qe) = qe + 1;
-	if(r_rs) (*r_rs) = rs; if(r_re) (*r_re) = re + 1;
+	if(r_qs) {(*r_qs) = qs;} if(r_qe) {(*r_qe) = qe + 1;}
+	if(r_rs) {(*r_rs) = rs;} if(r_re) {(*r_re) = re + 1;}
     if(rev) {
         if(r_rs) (*r_rs) = rlen - re - 1; 
 		if(r_re) (*r_re) = rlen - rs;
@@ -1413,8 +1413,8 @@ int32_t *r_qs, int32_t *r_qe, int32_t *r_rs, int32_t *r_re)
         re = rlen - 1; qe += rtail; 
     }
 
-	if(r_qs) (*r_qs) = qs; if(r_qe) (*r_qe) = qe + 1;
-	if(r_rs) (*r_rs) = rs; if(r_re) (*r_re) = re + 1;
+	if(r_qs) {(*r_qs) = qs;} if(r_qe) {(*r_qe) = qe + 1;}
+	if(r_rs) {(*r_rs) = rs;} if(r_re) {(*r_re) = re + 1;}
     if(ri->v&1) {
         if(r_rs) (*r_rs) = rlen - re - 1; 
 		if(r_re) (*r_re) = rlen - rs;
@@ -4500,7 +4500,7 @@ int64_t g_adjacent_dis(const asg_t *g, uint32_t v, uint32_t w)
 
 void get_r_offset(ma_ug_t *ug, mg_lchain_t *x, int64_t *rs, int64_t *re, int64_t *qs, int64_t *qe)
 {
-	if(qs) *qs = x->qs; if(qe) *qe = x->qe;
+	if(qs) {*qs = x->qs;} if(qe) {*qe = x->qe;}
 	if(!(x->score&1)) {
 		if(rs) *rs = x->rs + x->off;
 		if(re) *re = x->re + x->off;
@@ -4512,7 +4512,7 @@ void get_r_offset(ma_ug_t *ug, mg_lchain_t *x, int64_t *rs, int64_t *re, int64_t
 
 void get_u_offset(ma_ug_t *ug, mg_lchain_t *x, int64_t *rs, int64_t *re, int64_t *qs, int64_t *qe)
 {
-	if(qs) *qs = x->qs; if(qe) *qe = x->qe;
+	if(qs) {*qs = x->qs;} if(qe) {*qe = x->qe;}
 	if(!(x->v&1)) {
 		if(rs) *rs = x->rs + x->off;
 		if(re) *re = x->re + x->off;
@@ -6730,13 +6730,13 @@ int64_t comput_sc_partial_cigar(int64_t sc, int64_t ol, double err_sc_r, overlap
 	// pk = (*wi); pe = (*werr);
 	if(k < 0) {
 		k = 0; err = 0;
-		if(wi) (*wi) = k; if(werr) (*werr) = err;
+		if(wi) {(*wi) = k;} if(werr) {(*werr) = err;}
 		// assert(e <= z->w_list.a[0].x_start);
 	} else {
 		if(z->w_list.a[k].y_end != -1) {
 			err -= z->w_list.a[k].error;
 		}
-		if(wi) (*wi) = k; if(werr) (*werr) = err;
+		if(wi) {(*wi) = k;} if(werr) {(*werr) = err;}
 	
 		// if(!(err >= 0 && k >= 0 && k < wn && z->w_list.a[k].x_start < e && z->w_list.a[k].x_end + 1 >= e)){
 		// 	fprintf(stderr, "[M::%s] ol::%ld, e::%ld, z::[%u, %u], k::%ld, wn::%ld, w::[%d, %d], err::%ld\n", __func__, 
@@ -8817,7 +8817,7 @@ double e_rate, kv_rtrace_t *trace, uint32_t rechain_w, ul_ov_t *res, ul_ov_t *rr
 	for (i = k = 0; i < nv; i++) {
 		if(res[i].qn == (uint32_t)-1) continue;
 		res[k] = res[i]; 
-		if(res[k].sec&mm) res[k].sec -= mm; k++;
+		if(res[k].sec&mm) {res[k].sec -= mm;} k++;
 		// res[k] = res[i]; 
 		// id[k] = res[k].sec; 
 		// if(id[k]&mm) id[k] -= mm; 
@@ -10099,7 +10099,7 @@ uint32_t test_het_aln(ma_ug_t *ug, uint64_t rid, u_trans_t *a, uint64_t a_n, st_
 
 uint32_t is_mmhom_node(uint64_t *ca, ma_utg_t *u, asg_t *sg, uint64_t cov_bd, double cut_rate)
 {
-	if(cut_rate < 0) cut_rate = 0; if(cut_rate > 1.0) cut_rate = 1.0;
+	if(cut_rate < 0) {cut_rate = 0;} if(cut_rate > 1.0) {cut_rate = 1.0;}
 	uint64_t k, a, na, a_cut = u->n*cut_rate, na_cut = u->n*(1.0-cut_rate);
 	for (k = a = na = 0; k < u->n; k++) {
 		if(ca[k] > (cov_bd*((uint64_t)sg->seq[u->a[k]>>33].len))) {
@@ -13637,8 +13637,8 @@ void gen_end_coord(ul_ov_t *z, int64_t qlen, int64_t tlen, int64_t *r_qs, int64_
         te = tlen; qe += ttail; 
     }
 
-	if(r_qs) (*r_qs) = qs; if(r_qe) (*r_qe) = qe;
-	if(r_ts) (*r_ts) = ts; if(r_te) (*r_te) = te;
+	if(r_qs) {(*r_qs) = qs;} if(r_qe) {(*r_qe) = qe;}
+	if(r_ts) {(*r_ts) = ts;} if(r_te) {(*r_te) = te;}
     if(z->rev) {
         if(r_ts) (*r_ts) = tlen - te; 
 		if(r_te) (*r_te) = tlen - ts;
@@ -13822,8 +13822,8 @@ void extend_end_coord(mg_lchain_t *li, ul_ov_t *ui, const int64_t qlen, const in
         re = rlen; qe += rtail; 
     }
 
-	if(r_qs) (*r_qs) = qs; if(r_qe) (*r_qe) = qe;
-	if(r_rs) (*r_rs) = rs; if(r_re) (*r_re) = re;
+	if(r_qs) {(*r_qs) = qs;} if(r_qe) {(*r_qe) = qe;}
+	if(r_rs) {(*r_rs) = rs;} if(r_re) {(*r_re) = re;}
     if(rev) {
         if(r_rs) (*r_rs) = rlen - re; 
 		if(r_re) (*r_re) = rlen - rs;
@@ -14327,7 +14327,7 @@ uint64_t detect_mul_way, float len_dif)
 int64_t hc_chain_backtrack(int64_t n, const int64_t *f, const uint64_t *p, uint64_t *srt, uint64_t *u, uint64_t *v, 
 int64_t *n_u_, int64_t *n_v_)
 {
-	if(n_u_) *n_u_ = 0; if(n_v_) *n_v_ = 0;
+	if(n_u_) {*n_u_ = 0;} if(n_v_) {*n_v_ = 0;}
 	int64_t i, k, n_v, n_srt, n_v0, n_u, sc;
 	if (n == 0) return 0;
 	// v[] keeps the peak score up to i; f[] is the score ending at i, not always the peak
@@ -14351,7 +14351,7 @@ int64_t *n_u_, int64_t *n_v_)
 		u[n_u++] = (((uint64_t)sc)<<32) | ((uint64_t)(n_v-n_v0));
 	}
 
-	if(n_u_) *n_u_ = n_u; if(n_v_) *n_v_ = n_v;
+	if(n_u_) {*n_u_ = n_u;} if(n_v_) {*n_v_ = n_v;}
 	return n_u;
 }
 
@@ -15532,7 +15532,7 @@ void update_rovlp_chain_qse(ma_ug_t *ug, int64_t sidx, int64_t eidx, mg_lchain_t
 		for (i = sidx+1; i < eidx; i++) {
 			get_r_offset(ug, &(a[i]), &rs, &re, NULL, NULL);
 			a[i].qe = cal_qext_coor(left_r[1], re, left_q[1], left_q[1] + re - left_r[1], re);
-			if(a[i].qe < 0) a[i].qe = 0; if(a[i].qe > qlen) a[i].qe = qlen;
+			if(a[i].qe < 0) {a[i].qe = 0;} if(a[i].qe > qlen) {a[i].qe = qlen;}
 			a[i].qs = cal_qext_coor(left_r[0], (a[i].qe<=left_q[1])?re:left_r[1], 
 											left_q[0], (a[i].qe<=left_q[1])?a[i].qe:left_q[1], rs);
 			assert(a[i].qs >= 0 && a[i].qs <= qlen);
@@ -15553,7 +15553,7 @@ void update_rovlp_chain_qse(ma_ug_t *ug, int64_t sidx, int64_t eidx, mg_lchain_t
 			a[i].qe = cal_qext_coor(right_r[0], right_r[1], right_q[0], right_q[1], re);
 			assert(a[i].qe >= 0 && a[i].qe <= qlen);
 			a[i].qs = cal_qext_coor(rs, right_r[0], right_q[0]-(right_r[0]-rs), right_q[0], rs);
-			if(a[i].qs < 0) a[i].qs = 0; if(a[i].qs > qlen) a[i].qs = qlen;
+			if(a[i].qs < 0) {a[i].qs = 0;} if(a[i].qs > qlen) {a[i].qs = qlen;}
 			if(a[i].qs > a[i].qe) {
 				tt = a[i].qs; a[i].qs = a[i].qe; a[i].qe = tt;
 			}
@@ -16345,8 +16345,8 @@ void ctg_rg2ug_gen(ma_utg_t *r_cl, kv_ul_ov_t *u_cl, const ul_idx_t *uref, uint6
 				for (i = l; i < k; i++) {///could be merged
 					m = get_unique_rctg_aln(uref, r_cl->a[i]>>32, i, ls, r_cl->len, &kp, NULL, ((uint32_t)-1)); 
 					assert(m == 1); assert(kp.tn == lp.tn); assert(kp.qn == lp.qn + i - l); assert(kp.sec == lp.sec + i - l);
-					if(kp.qs < lp.qs) lp.qs = kp.qs; if(kp.qe > lp.qe) lp.qe = kp.qe;
-					if(kp.ts < lp.ts) lp.ts = kp.ts; if(kp.te > lp.te) lp.te = kp.te;
+					if(kp.qs < lp.qs) {lp.qs = kp.qs;} if(kp.qe > lp.qe) {lp.qe = kp.qe;}
+					if(kp.ts < lp.ts) {lp.ts = kp.ts;} if(kp.te > lp.te) {lp.te = kp.te;}
 					ls += (uint32_t)(r_cl->a[i]); 
 
 					// if(id == 123) {
@@ -18590,7 +18590,7 @@ void collect_pp_ovlps(ul_ov_t *a, uint64_t a_n, kv_ul_ov_t *res, const ug_opt_t 
         if(((*mqe) == ((uint64_t)-1)) || ((*mqe) < a[i].qe)) (*mqe) = a[i].qe;
 		
 	}
-	if(st) (*mqs) = st->qs; if(et) (*mqe) = et->qe;
+	if(st) {(*mqs) = st->qs;} if(et) {(*mqe) = et->qe;}
 }
 
 uint64_t gen_cns_chain_linear_hard(ul_ov_t *a, int64_t a_n, const asg_t *rg, int64_t qlen, int64_t bw, double diff_thre, Chain_Data* dp, 
@@ -21768,7 +21768,7 @@ void asg_arc_push_contain_trans(asg_t *g, ma_hit_t_alloc* ov, int64_t min_ovlp, 
 		nv = asg_arc_n(g, v); av = asg_arc_a(g, v); avi = g->idx[v]>>32;
 		while(nv) {
 			for (i = nc = cc = 0; i < nv; ++i) {
-				if(av[i].del) continue; w = av[i].v;
+				if(av[i].del) {continue;} w = av[i].v;
 				if(!(is_contain_r((*ri), (w>>1)))) continue;///new arcs must be bridged by contained reads
 				assert(!(g->seq[w>>1].del));
 				nw = asg_arc_n(g, w); aw = asg_arc_a(g, w); awi = g->idx[w]>>32;

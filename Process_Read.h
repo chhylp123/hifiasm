@@ -133,8 +133,10 @@ typedef struct
 	uint64_t* name_index;
 	uint64_t name_index_size;
 	uint64_t total_reads;
+    uint64_t tqn;
 	uint64_t total_reads_bases;
 	uint64_t total_name_length;
+    uint64_t tr[2];
 
 	Compressed_Cigar_record* cigars; 
 	Compressed_Cigar_record* second_round_cigar;

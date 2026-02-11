@@ -75,7 +75,7 @@ KRADIX_SORT_INIT(ha_mzl_t_srt1, ha_mzl_t, ha_mzl_t_key, member_size(ha_mzl_t, x)
 KSORT_INIT_GENERIC(uint32_t)
 
 void reduce_hamming_error_adv(ma_ug_t *iug, asg_t *sg, ma_hit_t_alloc* sources, ma_sub_t *coverage_cut, 
-int max_hang, int min_ovlp, long long gap_fuzz, R_to_U *ru, bubble_type* bub);
+int max_hang, int min_ovlp, long long gap_fuzz, R_to_U *ru, bubble_type* bub, uint32_t max_ext);
 void print_vw_edge(asg_t *sg, uint32_t vid, uint32_t wid, const char *cmd);
 void output_trio_graph_joint(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name, 
 ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, long long tipsLen, float tip_drop_ratio, 
@@ -8966,7 +8966,7 @@ add_unitig:
             if((ct != FATHER) && (ct != MOTHER)) ct = AMBIGU; 
             pt = ct;
             fn0 = fn; mn0 = mn; uidx.n = fn = mn = 0; 
-            if(ct == FATHER) fn++; if(ct == MOTHER) mn++;
+            if(ct == FATHER) {fn++;} if(ct == MOTHER) {mn++;}
             for (k = 1, l = 0; k <= kdq_size(q); k++) {
                 st = 0; ct = AMBIGU;
                 if(k == kdq_size(q)) {
@@ -8990,7 +8990,7 @@ add_unitig:
                     fn = mn = 0; l = k;
                 }
                 if(ct != AMBIGU) pt = ct;
-                if(ct == FATHER) fn++; if(ct == MOTHER) mn++;
+                if(ct == FATHER) {fn++;} if(ct == MOTHER) {mn++;}
             }
 
 
@@ -9025,7 +9025,7 @@ add_unitig:
                             p->a[i] = kdq_at(q, i);
                             ct = R_INF.trio_flag[p->a[i]>>33];
                             if((ct != FATHER) && (ct != MOTHER)) ct = AMBIGU; 
-                            if(ct == FATHER) fn1++; if(ct == MOTHER) mn1++;
+                            if(ct == FATHER) {fn1++;} if(ct == MOTHER) {mn1++;}
                         }
                     } else {
                         p->s = 0; p->len = 0; p->circ = 0;
@@ -9038,13 +9038,13 @@ add_unitig:
                             p->a[z] = kdq_at(q, i); p->len += (uint32_t)p->a[z];
                             ct = R_INF.trio_flag[p->a[z]>>33];
                             if((ct != FATHER) && (ct != MOTHER)) ct = AMBIGU; 
-                            if(ct == FATHER) fn1++; if(ct == MOTHER) mn1++;
+                            if(ct == FATHER) {fn1++;} if(ct == MOTHER) {mn1++;}
                         }
                         p->a[z] = kdq_at(q, i); p->a[z] >>= 32; p->a[z] <<= 32; 
                         p->a[z] |= g->seq[p->a[z]>>33].len; p->len += (uint32_t)p->a[z];
                         ct = R_INF.trio_flag[p->a[z]>>33];
                         if((ct != FATHER) && (ct != MOTHER)) ct = AMBIGU; 
-                        if(ct == FATHER) fn1++; if(ct == MOTHER) mn1++;
+                        if(ct == FATHER) {fn1++;} if(ct == MOTHER) {mn1++;}
                     }
                     fn = mn = 0; l = k;
                     if(k < uidx.n) {
@@ -10755,7 +10755,7 @@ uint32_t get_ug_coverage(ma_utg_t* u, asg_t* read_g, const ma_sub_t* coverage_cu
     uint32_t k, j, rId, tn, is_Unitig;
     long long R_bases = 0, C_bases = 0;
     ma_hit_t *h;
-    if(rR) (*rR) = 0; if(rC) (*rC) = 0;
+    if(rR) {(*rR) = 0;} if(rC) {(*rC) = 0;}
     if(u->m == 0) return 0;
 
     for (k = 0; k < u->n; k++)
@@ -10795,7 +10795,7 @@ uint32_t get_ug_coverage(ma_utg_t* u, asg_t* read_g, const ma_sub_t* coverage_cu
         r_flag[rId] = 0;
     }
 
-    if(rR) (*rR) = R_bases; if(rC) (*rC) = C_bases;
+    if(rR) {(*rR) = R_bases;} if(rC) {(*rC) = C_bases;}
     return R_bases == 0? 0:C_bases/R_bases;
 }
 
@@ -11099,6 +11099,64 @@ void ma_scg_print(const kvect_sec_t *sc, All_reads *RNF, asg_t* read_g, const ma
         }
 	}
     free(primary_flag);    
+}
+
+void ma_scg_gpath_print(const kvect_sec_t *sc, const char* prefix, scaf_res_t *gpt, ma_ug_t *gpt_u, FILE *fp)
+{
+    uc_block_t *a; uint64_t i, j, k, zk, tl, scl, a_n; sec_t *scp; ul_vec_t *idx;
+	char name[32]; ma_utg_t *z = NULL; 
+	for (i = 0; i < sc->n; ++i) { // the Segment lines in GFA
+        scp = &(sc->a[i]);
+        ///debug
+        // prt_scaf_stats(scp, sc->ctg, prefix, i);
+        sprintf(name, "%s%.6lu%c", prefix, i + 1, "lc"[scp->is_c]);
+        for (j = scl = 0; j < scp->n; j++) {
+            z = &(sc->ctg->u.a[((uint32_t)scp->a[j])>>1]); 
+            scl += z->len; scl += (scp->a[j]>>32);
+        }
+
+        for (j = tl = 0; j < scp->n; j++) {
+            z = &(sc->ctg->u.a[((uint32_t)scp->a[j])>>1]); ///each contig
+            idx = &(gpt->a[((uint32_t)scp->a[j])>>1]); ///alignment path
+            if(!(((uint32_t)scp->a[j])&1)) {///forward
+                for (k = 0; k < idx->bb.n; k++) {
+                    a = idx->bb.a + idx->bb.a[k].ts; a_n = idx->bb.a[k].te - idx->bb.a[k].ts;
+                    for (zk = 0; zk < a_n; zk++) {///alignment
+                        fprintf(fp, "%s\t%lu\t%lu\t%lu\t%c\tutg%.6u%c\t%u\t%u\t%u\n", name, scl, tl + a[zk].qs, tl + a[zk].qe, "+-"[a[zk].rev], 
+                            (a[zk].hid)+1, "lc"[gpt_u->u.a[a[zk].hid].circ], gpt_u->u.a[a[zk].hid].len, a[zk].ts, a[zk].te);
+                    }
+                }
+            } else {///revrse
+                for (k = 0; k < idx->bb.n; k++) {
+                    a = idx->bb.a + idx->bb.a[idx->bb.n-k-1].ts; a_n = idx->bb.a[idx->bb.n-k-1].te - idx->bb.a[idx->bb.n-k-1].ts;
+                    for (zk = 0; zk < a_n; zk++) {
+                        fprintf(fp, "%s\t%lu\t%lu\t%lu\t%c\tutg%.6u%c\t%u\t%u\t%u\n", name, scl, tl + z->len - a[a_n-zk-1].qe, tl + z->len - a[a_n-zk-1].qs, "+-"[a[a_n-zk-1].rev^1], 
+                            (a[a_n-zk-1].hid)+1, "lc"[gpt_u->u.a[a[a_n-zk-1].hid].circ], gpt_u->u.a[a[a_n-zk-1].hid].len, a[a_n-zk-1].ts, a[a_n-zk-1].te);
+                    }
+                }
+            }
+            tl += z->len; tl += (scp->a[j]>>32);
+        }
+	}
+}
+
+void ma_ug_gpath_print(const char* prefix, scaf_res_t *gpt, ma_ug_t *ctg_u, ma_ug_t *ref_u, FILE *fp)
+{
+    uc_block_t *a; uint64_t i, k, zk, a_n; ul_vec_t *idx;
+	char name[32]; ma_utg_t *z = NULL; 
+	for (i = 0; i < ctg_u->u.n; ++i) { // the Segment lines in GFA
+        ///debug
+        // prt_scaf_stats(scp, sc->ctg, prefix, i);
+        z = &(ctg_u->u.a[i]); idx = &(gpt->a[i]); ///alignment path
+        sprintf(name, "%s%.6lu%c", prefix, i + 1, "lc"[z->circ]);
+        for (k = 0; k < idx->bb.n; k++) {
+            a = idx->bb.a + idx->bb.a[k].ts; a_n = idx->bb.a[k].te - idx->bb.a[k].ts;
+            for (zk = 0; zk < a_n; zk++) {///alignment
+                fprintf(fp, "%s\t%u\t%u\t%u\t%c\tutg%.6u%c\t%u\t%u\t%u\n", name, z->len, a[zk].qs, a[zk].qe, "+-"[a[zk].rev], 
+                    (a[zk].hid)+1, "lc"[ref_u->u.a[a[zk].hid].circ], ref_u->u.a[a[zk].hid].len, a[zk].ts, a[zk].te);
+            }
+        }
+	}
 }
 
 int asg_cut_internal(asg_t *g, int max_ext)
@@ -14679,6 +14737,7 @@ void debug_hapS(uint32_t *hapS, uint32_t rn)
         free(occ); free(freq);
     }
 }
+
 void output_poly_trio(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name, ma_hit_t_alloc* sources, 
 ma_hit_t_alloc* reverse_sources, long long tipsLen, float tip_drop_ratio, long long stops_threshold, 
 R_to_U* ruIndex, float chimeric_rate, float drop_ratio, int max_hang, int min_ovlp, int gap_fuzz, int is_bench, 
@@ -14695,6 +14754,37 @@ bub_label_t* b_mask_t, uint32_t hapN)
         stops_threshold, ruIndex, chimeric_rate, drop_ratio, max_hang, min_ovlp, gap_fuzz, is_bench, b_mask_t, fp, NULL, NULL);
     }
     free(fp); free(hapS);
+}
+
+void output_chr_bin_trio(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name, ma_hit_t_alloc* sources, 
+ma_hit_t_alloc* reverse_sources, long long tipsLen, float tip_drop_ratio, long long stops_threshold, 
+R_to_U* ruIndex, float chimeric_rate, float drop_ratio, int max_hang, int min_ovlp, int gap_fuzz, int is_bench, 
+bub_label_t* b_mask_t)
+{
+    uint32_t i, k, idx_n = 0, na; uint8_t *idx = NULL;
+    uint32_t *hapS = ha_charbin_list(&asm_opt, &idx, &idx_n);
+    fprintf(stderr, "[M::%s] # reads: %u\n", __func__, sg->n_seq);
+    // debug_hapS(hapS, sg->n_seq);
+    char *fp = NULL; MALLOC(fp, 100);
+    for (i = 0; i < idx_n; i++){
+        if(!idx[i]) continue;
+        for (k = na = 0; k < sg->n_seq; k++) {
+            if(R_INF.trio_flag[k] == DROP) continue;
+            R_INF.trio_flag[k] = AMBIGU;
+            if(hapS[k] == ((uint32_t)-1)) continue;
+            if(hapS[k] == i) {
+                R_INF.trio_flag[k] = FATHER; na++;
+            } else {
+                R_INF.trio_flag[k] = MOTHER;
+            }
+        }
+        if(!na) continue;
+        sprintf(fp, "hap%u", i);
+        fprintf(stderr, "[M::%s] # %s reads: %u\n", __func__, fp, na);
+        output_trio_unitig_graph(sg, coverage_cut, output_file_name, FATHER, sources, reverse_sources, tipsLen, tip_drop_ratio, 
+        stops_threshold, ruIndex, chimeric_rate, drop_ratio, max_hang, min_ovlp, gap_fuzz, is_bench, b_mask_t, fp, NULL, NULL);
+    }    
+    free(fp); free(hapS); free(idx);
 }
 
 uint32_t test_dbug(ma_ug_t* ug, FILE* fp)
@@ -15166,7 +15256,7 @@ void deep_clean_u_trans(kv_u_trans_t *ta, u_trans_t *mz, ma_ug_t *ug, asg64_v *s
         mz->occ = cz->occ = 0; return;
     } else {
         a = u_trans_a(*ta, mz->qn); n = u_trans_n(*ta, mz->qn);
-        for (k = 0; (k < n) && (a[k].tn != mz->tn); k++); assert(k < n);
+        for (k = 0; (k < n) && (a[k].tn != mz->tn); k++){;} assert(k < n);
         if(!test_arc_rm(ug, a, n, k, ug->u.a[mz->qn].len, srt, len_cut, rate_cut)) {
             mz->occ = cz->occ = 0; return;
         }
@@ -15562,7 +15652,7 @@ void clean_u_trans_t_idx_filter_adv(kv_u_trans_t *ta, ma_ug_t *ug, asg_t *read_g
     sl.cu = gen_u_trans_cluster(ta);
     kt_for(sl.n_thread, worker_for_trans_sec_cut, &sl, sl.cu->idx.n);
     free(sl.cu->idx.a); free(sl.cu->z.a); free(sl.cu);
-    for (k = 0; k < sl.n_thread; k++) free(sl.srt[k].a); free(sl.srt);
+    for (k = 0; k < sl.n_thread; k++) {free(sl.srt[k].a);} free(sl.srt);
 
     for (k = st = 0; k < ta->n; k++) {
         if(ta->a[k].occ == ((uint32_t)-1)) continue;
@@ -16771,7 +16861,7 @@ long long gap_fuzz, bub_label_t* b_mask_t)
     asg_cleanup(sg);
 
     // reduce_hamming_error(sg, sources, coverage_cut, max_hang, min_ovlp, gap_fuzz);
-    reduce_hamming_error_adv(NULL, sg, sources, coverage_cut, max_hang, min_ovlp, gap_fuzz, opt.ruIndex, NULL);
+    reduce_hamming_error_adv(NULL, sg, sources, coverage_cut, max_hang, min_ovlp, gap_fuzz, opt.ruIndex, NULL, tipsLen);
 
     output_trio_unitig_graph(sg, coverage_cut, output_file_name, FATHER, sources, reverse_sources, (asm_opt.max_short_tip*2), 0.15, 3, ruIndex, 
     0.05, 0.9, max_hang, min_ovlp, gap_fuzz, 0, b_mask_t, NULL, NULL, NULL);
@@ -21282,6 +21372,45 @@ void output_hap_sc_graph(kvect_sec_t *ug, asg_t *sg, /**kvec_asg_arc_t_warp *arc
     free(gfa_name);
 }
 
+scaf_res_t *gen_scaf_res_t(ug_opt_t *opt, ma_ug_t *sug, asg_t *rg, ma_ug_t *iug, ma_ug_t **res_ug)
+{
+    ma_ug_t *ug = (iug?(iug):(ma_ug_gen(rg)));
+    scaf_res_t *sc = gen_contig_path(opt, rg, sug, ug);
+    if(res_ug) (*res_ug) = ug;
+    return sc;
+}
+
+void output_hap_sc_gpath(kvect_sec_t *ug, char* output_file_name, uint8_t flag, scaf_res_t *gpt, ma_ug_t *gpt_u, char *f_prefix)
+{
+    char* gfa_name = (char*)malloc(strlen(output_file_name)+100);
+    sprintf(gfa_name, "%s.%s.p_ctg.path.paf", output_file_name, f_prefix?f_prefix:(flag==FATHER?"hap1":"hap2"));
+    FILE* output_file = fopen(gfa_name, "w");
+
+    fprintf(stderr, "Writing %s to disk... \n", gfa_name);
+
+    // ma_ug_seq(ug->ctg, sg, coverage_cut, sources, arcs, max_hang, min_ovlp, 0, 1);
+    // ma_ug_print(ug, sg, coverage_cut, sources, ruIndex, (flag==FATHER?"h1tg":"h2tg"), output_file);
+    ma_scg_gpath_print(ug, (flag==FATHER?"h1tg":"h2tg"), gpt, gpt_u, output_file);
+    fclose(output_file);
+
+    free(gfa_name);
+}
+
+void output_hap_bp_gpath(ug_opt_t *opt, ma_ug_t *ug, asg_t *sg, char* output_file_name, uint8_t flag, ma_ug_t *gpt_u, char *f_prefix)
+{
+    scaf_res_t *gpt = gen_scaf_res_t(opt, ug, sg, gpt_u, NULL);
+    char* gfa_name = (char*)malloc(strlen(output_file_name)+100);
+    sprintf(gfa_name, "%s.%s.p_ctg.path.paf", output_file_name, f_prefix?f_prefix:(flag==FATHER?"hap1":"hap2"));
+    FILE* output_file = fopen(gfa_name, "w");
+    fprintf(stderr, "Writing %s to disk... \n", gfa_name);
+
+    ma_ug_gpath_print((flag==FATHER?"h1tg":"h2tg"), gpt, ug, gpt_u, output_file);
+
+    destroy_scaf_res_t(gpt); 
+    fclose(output_file);
+    free(gfa_name);
+}
+
 
 void filter_set_kug(uint8_t* trio_flag, asg_t *rg, uint8_t *rf, kvec_asg_arc_t_warp *r_edges, float f_rate, ma_ug_t **ug)
 {
@@ -21327,7 +21456,7 @@ ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, long long tipsLen, flo
 long long stops_threshold, R_to_U* ruIndex, float chimeric_rate, float drop_ratio, int max_hang, 
 int min_ovlp, int is_bench, long long gap_fuzz, ug_opt_t *opt, bub_label_t* b_mask_t)
 {
-    reduce_hamming_error_adv(NULL, sg, sources, coverage_cut, max_hang, min_ovlp, gap_fuzz, opt->ruIndex, NULL);
+    reduce_hamming_error_adv(NULL, sg, sources, coverage_cut, max_hang, min_ovlp, gap_fuzz, opt->ruIndex, NULL, tipsLen);
     uint8_t *rf = NULL;
 
     if(asm_opt.kpt_rate > 0) CALLOC(rf, sg->n_seq); 
@@ -21421,7 +21550,7 @@ int64_t cal_exact_ug_o(dedup_idx_t *idx, ma_utg_t *u, uint64_t f)
 {
     if(u->n <= 0) return INT32_MIN;
     uint64_t sv, *sa, sn, ev, *ea, en, si, ei, zn, *za, rev, k, nf = (uint64_t)-1, m, fn, nfn; ma_utg_t *z;
-    if(f == FATHER) nf = MOTHER; if(f == MOTHER) nf = FATHER;
+    if(f == FATHER) {nf = MOTHER;} if(f == MOTHER) {nf = FATHER;}
     sv = u->a[0]>>32; sa = idx->ra + idx->ridx[sv>>1]; sn = idx->ridx[(sv>>1)+1]-idx->ridx[sv>>1];
     ev = u->a[u->n-1]>>32; ea = idx->ra + idx->ridx[ev>>1]; en = idx->ridx[(ev>>1)+1] - idx->ridx[ev>>1];
     for (si = 0; si < sn; si++) {
@@ -22705,8 +22834,8 @@ void gen_double_scaffold_gfa(ma_ug_t *ref, ma_ug_t *hu1, ma_ug_t *hu2, scaf_res_
         r = u_trans_a(*os, k); rn = u_trans_n(*os, k); p = d = NULL; pn = dn = 0;
         // fprintf(stderr, "[M::%s::] # k:%lu, rn::%lu\n", __func__, k, rn); 
         if(rn <= 1) continue;
-        for (z = 0, p = r; (z < rn) && (!(r[z].del)); z++); pn = z;
-        for (d = r + z; (z < rn) && (r[z].qs != ((uint32_t)-1)); z++); dn = z - pn;
+        for (z = 0, p = r; (z < rn) && (!(r[z].del)); z++){;} pn = z;
+        for (d = r + z; (z < rn) && (r[z].qs != ((uint32_t)-1)); z++){;} dn = z - pn;
         // fprintf(stderr, "[M::%s::] # k:%lu, pn::%lu, dn::%lu\n", __func__, k, pn, dn); 
         if(pn <= 1) continue;///no scaf
         s = e = (uint64_t)-1;
@@ -23241,6 +23370,17 @@ void merge_kvec_asg_arc_t_warp(kvec_asg_arc_t_warp *a, kvec_asg_arc_t_warp *b, k
     memcpy(m->a.a + a->a.n, b->a.a, sizeof((*(b->a.a)))*b->a.n);
 }
 
+void output_noseq_gfa(ma_ug_t *ug, asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name, ma_hit_t_alloc* sources, R_to_U* ruIndex)
+{
+    char* gfa_name = (char*)malloc(strlen(output_file_name)+100);
+    sprintf(gfa_name, "%s.d_utg.noseq.gfa", output_file_name);
+    FILE* output_file = fopen(gfa_name, "w");
+    fprintf(stderr, "Writing %s to disk... \n", gfa_name);
+    ma_ug_print_simple(ug, sg, coverage_cut, sources, ruIndex, "utg", output_file);
+    fclose(output_file);
+    free(gfa_name);
+}
+
 void output_trio_graph_joint(asg_t *sg, ma_sub_t* coverage_cut, char* output_file_name, 
 ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, long long tipsLen, float tip_drop_ratio, 
 long long stops_threshold, R_to_U* ruIndex, float chimeric_rate, float drop_ratio, int max_hang, 
@@ -23249,7 +23389,10 @@ int min_ovlp, long long gap_fuzz, bub_label_t* b_mask_t, ma_ug_t **rhu0, ma_ug_t
     ma_ug_t *hu0 = NULL, *hu1 = NULL; kvec_asg_arc_t_warp arcs0, arcs1; 
     memset(&arcs0, 0, sizeof(arcs0)); memset(&arcs1, 0, sizeof(arcs1));
 
-    reduce_hamming_error_adv(NULL, sg, sources, coverage_cut, max_hang, min_ovlp, gap_fuzz, ruIndex, NULL);
+    reduce_hamming_error_adv(NULL, sg, sources, coverage_cut, max_hang, min_ovlp, gap_fuzz, ruIndex, NULL, tipsLen);
+    //debug
+    // print_debug_gfa(sg, NULL, opt->coverage_cut, "rd.hamm.debug", opt->sources, opt->ruIndex, opt->max_hang, opt->min_ovlp, 1, 0, 0);
+    // exit(1);
     
     hu0 = output_trio_unitig_graph(sg, coverage_cut, output_file_name, FATHER, sources, 
         reverse_sources, tipsLen, tip_drop_ratio, stops_threshold, ruIndex, chimeric_rate, 
@@ -23276,26 +23419,40 @@ int min_ovlp, long long gap_fuzz, bub_label_t* b_mask_t, ma_ug_t **rhu0, ma_ug_t
     fprintf(stderr, "[M::%s] dedup_base::%lu, miss_base::%lu\n", __func__, dedup_base, miss_base);
 
     if((asm_opt.self_scaf) && (!rhu0) && (!rhu1)) {
-        kvect_sec_t *sc0 = NULL, *sc1 = NULL; ma_ug_t *mug = NULL;  /**kv_u_trans_t *rs_trans = NULL;**/ kvec_asg_arc_t_warp ma; memset(&ma, 0, sizeof(ma));
+        kvect_sec_t *sc0 = NULL, *sc1 = NULL; ma_ug_t *mug = NULL;  /**kv_u_trans_t *rs_trans = NULL;**/ kvec_asg_arc_t_warp ma; memset(&ma, 0, sizeof(ma)); 
+        scaf_res_t *gpt = NULL; ma_ug_t *gpt_u = NULL; 
+        
         merge_kvec_asg_arc_t_warp(&arcs0, &arcs1, &ma); kv_destroy(arcs0.a); kv_destroy(arcs1.a);
         gen_self_scaf(opt, hu0, hu1, sg, coverage_cut, sources, reverse_sources, ruIndex, tipsLen, tip_drop_ratio, stops_threshold, chimeric_rate, drop_ratio, max_hang, min_ovlp, b_mask_t, &sc0, &sc1, &mug, &ma, /**&rs_trans**/NULL);
         ma_ug_destroy(hu0); ma_ug_destroy(hu1); kv_destroy(ma.a);
 
         ///output scaf trans
         /**kv_destroy((*rs_trans)); kv_destroy(rs_trans->idx); free(rs_trans);**/
+        if(asm_opt.gpath) gpt = gen_scaf_res_t(opt, mug, sg, NULL, &gpt_u);
 
         sc0->ctg = mug;
         output_hap_sc_graph(sc0, sg, /**&arcs0,**/ coverage_cut, output_file_name, FATHER, sources, ruIndex, /**max_hang, min_ovlp,**/ NULL); 
+        if(asm_opt.gpath) output_hap_sc_gpath(sc0, output_file_name, FATHER, gpt, gpt_u, NULL);
         destory_kvect_sec_t(sc0); free(sc0); 
 
         sc1->ctg = mug;
         output_hap_sc_graph(sc1, sg, /**&arcs1,**/ coverage_cut, output_file_name, MOTHER, sources, ruIndex, /**max_hang, min_ovlp,**/ NULL);
+        if(asm_opt.gpath) output_hap_sc_gpath(sc1, output_file_name, MOTHER, gpt, gpt_u, NULL);
         destory_kvect_sec_t(sc1); free(sc1); 
 
-        ma_ug_destroy(mug);
+        if(asm_opt.gpath) {
+            output_noseq_gfa(gpt_u, sg, coverage_cut, output_file_name, sources, ruIndex);
+            ma_ug_destroy(gpt_u);
+        }
+
+        ma_ug_destroy(mug); if(gpt) destroy_scaf_res_t(gpt); 
     } else {
+        ma_ug_t *gpt_u = NULL; 
+        if((asm_opt.gpath) && ((!rhu0) || (!rhu1))) gpt_u = ma_ug_gen(sg);
+
         if(!rhu0) {
             output_hap_graph(hu0, sg, &arcs0, coverage_cut, output_file_name, FATHER, sources, ruIndex, max_hang, min_ovlp, NULL);
+            if(asm_opt.gpath) output_hap_bp_gpath(opt, hu0, sg, output_file_name, FATHER, gpt_u, NULL);
             ma_ug_destroy(hu0); 
         } else {
             (*rhu0) = hu0;
@@ -23305,11 +23462,17 @@ int min_ovlp, long long gap_fuzz, bub_label_t* b_mask_t, ma_ug_t **rhu0, ma_ug_t
         
         if(!rhu1) {
             output_hap_graph(hu1, sg, &arcs1, coverage_cut, output_file_name, MOTHER, sources, ruIndex, max_hang, min_ovlp, NULL);
+            if(asm_opt.gpath) output_hap_bp_gpath(opt, hu1, sg, output_file_name, MOTHER, gpt_u, NULL);
             ma_ug_destroy(hu1); 
         } else {
             (*rhu1) = hu1; // ma_ug_destroy(hu1); 
         }
         kv_destroy(arcs1.a);
+
+        if(gpt_u) {
+            output_noseq_gfa(gpt_u, sg, coverage_cut, output_file_name, sources, ruIndex);
+            ma_ug_destroy(gpt_u);
+        }
     }
 }
 
@@ -23623,6 +23786,18 @@ int load_all_data_from_disk(ma_hit_t_alloc **sources, ma_hit_t_alloc **reverse_s
 		return 0;
 	}
 	free(gfa_name);
+
+    if(asm_opt.write_pos_idx) {
+        int32_t m;
+        asm_opt.hom_cov_0 = asm_opt.hom_cov;
+        asm_opt.het_cov_0 = asm_opt.het_cov;
+        asm_opt.max_n_chain_0 = asm_opt.max_n_chain;
+        refresh_pt_idx(&ha_flt_tab, &ha_idx, NULL, &asm_opt, output_file_name, 0);
+        // load_pt_index(&ha_flt_tab, &ha_idx, NULL, &asm_opt, output_file_name);
+        m = asm_opt.hom_cov_0; asm_opt.hom_cov_0 = asm_opt.hom_cov; asm_opt.hom_cov = m;
+        m = asm_opt.het_cov_0; asm_opt.het_cov_0 = asm_opt.het_cov; asm_opt.het_cov = m;
+        m = asm_opt.max_n_chain_0; asm_opt.max_n_chain_0 = asm_opt.max_n_chain; asm_opt.max_n_chain = m;
+    }
 	return 1;
 }
 
@@ -24693,6 +24868,17 @@ int asg_arc_del_trans_aux(asg_t *g, asg_t *aux, uint8_t *mark, int fuzz)
             for (j = 0; j < nw1 && asg_arc_len(aw1[j]) + asg_arc_len(av0[i]) <= L; ++j)
                 if (mark[aw1[j].v]) mark[aw1[j].v] = 2;
         }
+        for (i = 0; i < nv1; ++i) {
+            //w is an out-node of v
+            w = av1[i].v; if (mark[w] != 1) continue; ///w has already been reduced
+            nw0 = asg_arc_n(g, w); aw0 = asg_arc_a(g, w);
+            nw1 = asg_arc_n(aux, w); aw1 = asg_arc_a(aux, w);
+
+            for (j = 0; j < nw0 && asg_arc_len(aw0[j]) + asg_arc_len(av1[i]) <= L; ++j)
+                if (mark[aw0[j].v]) mark[aw0[j].v] = 2;
+            for (j = 0; j < nw1 && asg_arc_len(aw1[j]) + asg_arc_len(av1[i]) <= L; ++j)
+                if (mark[aw1[j].v]) mark[aw1[j].v] = 2;
+        }
         //remove edges
         for (i = 0; i < nv0; ++i) {
             if (mark[av0[i].v] == 2) {
@@ -24700,6 +24886,7 @@ int asg_arc_del_trans_aux(asg_t *g, asg_t *aux, uint8_t *mark, int fuzz)
             }
             mark[av0[i].v] = 0;
         }
+        for (i = 0; i < nv1; ++i) mark[av1[i].v] = 0;
     }
 
     if (n_reduced) {
@@ -25411,15 +25598,272 @@ void rd_hamming_symm_simple(rd_hamming_t *s, uint32_t st, uint32_t ed) // callba
     }
 }
 
-
-uint32_t rd_hamming_symm_simple0(buf_t *b, asg_t *ref, asg_t *g, uint32_t st, uint32_t ed, uint64_t max_dist, uint64_t *r_max_dist) // callback for kt_for()
+uint32_t pp_cut(uint32_t vi0, uint32_t v0, asg_t *g, asg_t *ref, asg32_v *sa, asg32_v *sb, uint32_t max_ext)
 {
+    //e078bbb4-47b8-49af-9221-889e67f7097a	0	47735	id:i:1477089 (w)
+    //f552c01e-a9ea-47f2-b1ab-a56f6afa3121	0	42133	id:i:1477068 (v)
+    // if((vi0>>1) == 1476811 || (vi0>>1) == 1479120) {
+    //     fprintf(stderr, "\n\ns1s[M::%s] S\t%.*s(%c)\n", __func__,
+    //                     (int)Get_NAME_LENGTH(R_INF, v0>>1), Get_NAME(R_INF, v0>>1), "+-"[v0&1]);
+    // }
+    uint32_t k, i, nv, nw, kv, kw, w, v = v0, ntip = 0, f; asg_arc_t *av, *aw; 
+    nv = asg_arc_n(g, v); av = asg_arc_a(g, v);
+    for (k = 0; k < nv && av[k].del; ++k);
+    if(k >= nv) return 1;///no new arcs
+
+    // if((vi0>>1) == 1476811 || (vi0>>1) == 1479120) {
+    //     fprintf(stderr, "s2s[M::%s] S\t%.*s(%c)\n", __func__,
+    //                     (int)Get_NAME_LENGTH(R_INF, v0>>1), Get_NAME(R_INF, v0>>1), "+-"[v0&1]);
+    // }
+
+    sa->n = sb->n = 0;
+    nv = asg_arc_n(ref, v); av = asg_arc_a(ref, v);
+    for (k = kv = 0; k < nv; ++k) {
+        if(av[k].del) continue;
+        kv++; w = av[k].v^1; 
+        kv_push(u_int32_t, *sb, av-ref->arc + k + g->n_arc);
+        av[k].del = 1;
+         
+        nw = asg_arc_n(ref, w); aw = asg_arc_a(ref, w);
+        for (i = kw = f = 0; i < nw; i++) {
+            if(aw[i].del) continue;
+            if(aw[i].v == (v^1)) {
+                kv_push(u_int32_t, *sb, aw-ref->arc + i + g->n_arc);
+                aw[i].del = 1; f = 1;
+            } else {
+                // if(((vi0>>1) == 1476811 || (vi0>>1) == 1479120) && ((v>>1) == 1477068) && ((w>>1) == 1477089)) {
+                //     fprintf(stderr, "arc_0[M::%s] L\t%.*s(%c)\t%.*s(%c)\tkw::%u\n", __func__,
+                //             (int)Get_NAME_LENGTH(R_INF, aw[i].ul>>33), Get_NAME(R_INF, aw[i].ul>>33), "+-"[(aw[i].ul>>32)&1],
+                //             (int)Get_NAME_LENGTH(R_INF, aw[i].v>>1), Get_NAME(R_INF, aw[i].v>>1), "+-"[aw[i].v&1], kw);
+                // }
+                kw++;
+            }   
+        }
+        assert(f);
+        nw = asg_arc_n(g, w); aw = asg_arc_a(g, w);
+        for (i = 0; i < nw; i++) {
+            if(aw[i].del) continue;
+            // if(((vi0>>1) == 1476811 || (vi0>>1) == 1479120) && ((v>>1) == 1477068) && ((w>>1) == 1477089)) {
+            //     fprintf(stderr, "arc_1[M::%s] L\t%.*s(%c)\t%.*s(%c)\tkw::%u\n", __func__,
+            //         (int)Get_NAME_LENGTH(R_INF, aw[i].ul>>33), Get_NAME(R_INF, aw[i].ul>>33), "+-"[(aw[i].ul>>32)&1],
+            //         (int)Get_NAME_LENGTH(R_INF, aw[i].v>>1), Get_NAME(R_INF, aw[i].v>>1), "+-"[aw[i].v&1], kw);
+            // }
+            kw++;
+        }
+
+        // if((vi0>>1) == 1476811 || (vi0>>1) == 1479120) {
+        //     fprintf(stderr, "init_a[M::%s] L\t%.*s(%c)\t%.*s(%c)\tkw::%u\n", __func__,
+        //             (int)Get_NAME_LENGTH(R_INF, v>>1), Get_NAME(R_INF, v>>1), "+-"[v&1],
+        //             (int)Get_NAME_LENGTH(R_INF, w>>1), Get_NAME(R_INF, w>>1), "+-"[w&1], kw);
+        // }
+
+        if(!kw) {///a new tip
+            // if((vi0>>1) == 1476811 || (vi0>>1) == 1479120) {
+            //     fprintf(stderr, "[M::%s] L\t%.*s(%c)\t%.*s(%c)\n", __func__,
+            //             (int)Get_NAME_LENGTH(R_INF, v0>>1), Get_NAME(R_INF, v0>>1), "+-"[v0&1],
+            //             (int)Get_NAME_LENGTH(R_INF, w>>1), Get_NAME(R_INF, w>>1), "+-"[w&1]);
+            // }
+            kv_push(uint32_t, *sa, (w^1)); ntip++;
+        }
+    }
+
+    while (sa->n) {
+        v = kv_pop(*sa);
+
+        nv = asg_arc_n(ref, v); av = asg_arc_a(ref, v);
+        for (k = kv = 0; k < nv; ++k) {
+            if(av[k].del) continue;
+            kv_push(u_int32_t, *sb, av-ref->arc + k + g->n_arc);
+            av[k].del = 1; kv++; w = av[k].v^1; f = 0;
+
+            nw = asg_arc_n(ref, w); aw = asg_arc_a(ref, w);
+            for (i = kw = 0; i < nw; i++) {
+                if(aw[i].del) continue;
+                if(aw[i].v == (v^1)) {
+                    kv_push(u_int32_t, *sb, aw-ref->arc + i + g->n_arc);
+                    aw[i].del = 1; f = 1;
+                } else {
+                    // if(((vi0>>1) == 1476811 || (vi0>>1) == 1479120) && ((v>>1) == 1477068) && ((w>>1) == 1477089)) {
+                    //     fprintf(stderr, "arc_0_a[M::%s] L\t%.*s(%c)\t%.*s(%c)\tkw::%u\n", __func__,
+                    //         (int)Get_NAME_LENGTH(R_INF, aw[i].ul>>33), Get_NAME(R_INF, aw[i].ul>>33), "+-"[(aw[i].ul>>32)&1],
+                    //         (int)Get_NAME_LENGTH(R_INF, aw[i].v>>1), Get_NAME(R_INF, aw[i].v>>1), "+-"[aw[i].v&1], kw);
+                    // }
+                    kw++;
+                }   
+            }
+            assert(f);
+            nw = asg_arc_n(g, w); aw = asg_arc_a(g, w);
+            for (i = 0; i < nw; i++) {
+                if(aw[i].del) continue;
+                // if(((vi0>>1) == 1476811 || (vi0>>1) == 1479120) && ((v>>1) == 1477068) && ((w>>1) == 1477089)) {
+                //     fprintf(stderr, "arc_1_a[M::%s] L\t%.*s(%c)\t%.*s(%c)\tkw::%u\n", __func__,
+                //         (int)Get_NAME_LENGTH(R_INF, aw[i].ul>>33), Get_NAME(R_INF, aw[i].ul>>33), "+-"[(aw[i].ul>>32)&1],
+                //         (int)Get_NAME_LENGTH(R_INF, aw[i].v>>1), Get_NAME(R_INF, aw[i].v>>1), "+-"[aw[i].v&1], kw);
+                // }
+                kw++;
+            }
+
+            // if((vi0>>1) == 1476811 || (vi0>>1) == 1479120) {
+            //     fprintf(stderr, "init_b[M::%s] L\t%.*s(%c)\t%.*s(%c)\tkw::%u\n", __func__,
+            //             (int)Get_NAME_LENGTH(R_INF, v>>1), Get_NAME(R_INF, v>>1), "+-"[v&1],
+            //             (int)Get_NAME_LENGTH(R_INF, w>>1), Get_NAME(R_INF, w>>1), "+-"[w&1], kw);
+            // }
+
+            if(!kw) {
+                // if((vi0>>1) == 1476811 || (vi0>>1) == 1479120) {
+                //     fprintf(stderr, "[M::%s] L\t%.*s(%c)\t%.*s(%c)\n", __func__,
+                //             (int)Get_NAME_LENGTH(R_INF, v0>>1), Get_NAME(R_INF, v0>>1), "+-"[v0&1],
+                //             (int)Get_NAME_LENGTH(R_INF, w>>1), Get_NAME(R_INF, w>>1), "+-"[w&1]);
+                // }
+                kv_push(uint32_t, *sa, (w^1)); ntip++;
+            }
+        }
+
+        nv = asg_arc_n(g, v); av = asg_arc_a(g, v);
+        for (k = 0; k < nv; ++k) {
+            if(av[k].del) continue;
+            kv_push(u_int32_t, *sb, av-g->arc + k);
+            av[k].del = 1; kv++; w = av[k].v^1; f = 0;
+
+            nw = asg_arc_n(ref, w); aw = asg_arc_a(ref, w);
+            for (i = kw = 0; i < nw; i++) {
+                if(aw[i].del) continue;
+                // if(((vi0>>1) == 1476811 || (vi0>>1) == 1479120) && ((v>>1) == 1477068) && ((w>>1) == 1477089)) {
+                //     fprintf(stderr, "arc_2_a[M::%s] L\t%.*s(%c)\t%.*s(%c)\tkw::%u\n", __func__,
+                //         (int)Get_NAME_LENGTH(R_INF, aw[i].ul>>33), Get_NAME(R_INF, aw[i].ul>>33), "+-"[(aw[i].ul>>32)&1],
+                //         (int)Get_NAME_LENGTH(R_INF, aw[i].v>>1), Get_NAME(R_INF, aw[i].v>>1), "+-"[aw[i].v&1], kw);
+                // }
+                kw++;
+            }
+            nw = asg_arc_n(g, w); aw = asg_arc_a(g, w);
+            for (i = 0; i < nw; i++) {
+                if(aw[i].del) continue;
+                if(aw[i].v == (v^1)) {
+                    kv_push(u_int32_t, *sb, aw-g->arc + i);
+                    aw[i].del = 1; f = 1;
+                } else {
+                    // if(((vi0>>1) == 1476811 || (vi0>>1) == 1479120) && ((v>>1) == 1477068) && ((w>>1) == 1477089)) {
+                    //     fprintf(stderr, "arc_2_b[M::%s] L\t%.*s(%c)\t%.*s(%c)\tkw::%u\n", __func__,
+                    //         (int)Get_NAME_LENGTH(R_INF, aw[i].ul>>33), Get_NAME(R_INF, aw[i].ul>>33), "+-"[(aw[i].ul>>32)&1],
+                    //         (int)Get_NAME_LENGTH(R_INF, aw[i].v>>1), Get_NAME(R_INF, aw[i].v>>1), "+-"[aw[i].v&1], kw);
+                    // }
+                    kw++;
+                }   
+            }
+            assert(f);
+
+            // if((vi0>>1) == 1476811 || (vi0>>1) == 1479120) {
+            //     fprintf(stderr, "init_c[M::%s] L\t%.*s(%c)\t%.*s(%c)\tkw::%u\n", __func__,
+            //             (int)Get_NAME_LENGTH(R_INF, v>>1), Get_NAME(R_INF, v>>1), "+-"[v&1],
+            //             (int)Get_NAME_LENGTH(R_INF, w>>1), Get_NAME(R_INF, w>>1), "+-"[w&1], kw);
+            // }
+
+            if(!kw) {
+                // if((vi0>>1) == 1476811 || (vi0>>1) == 1479120) {
+                //     fprintf(stderr, "[M::%s] L\t%.*s(%c)\t%.*s(%c)\n", __func__,
+                //             (int)Get_NAME_LENGTH(R_INF, v0>>1), Get_NAME(R_INF, v0>>1), "+-"[v0&1],
+                //             (int)Get_NAME_LENGTH(R_INF, w>>1), Get_NAME(R_INF, w>>1), "+-"[w&1]);
+                // }
+                kv_push(uint32_t, *sa, (w^1)); ntip++;
+            }
+        }
+    }
+
+    for (i = 0; i < sb->n; i++) {
+        if(sb->a[i] < g->n_arc) {
+            assert(g->arc[sb->a[i]].del);
+            g->arc[sb->a[i]].del = 0;
+        } else {
+            assert(ref->arc[sb->a[i] - g->n_arc].del);
+            ref->arc[sb->a[i] - g->n_arc].del = 0;
+        } 
+    }
+    
+
+    if(ntip > 0 && ntip >= max_ext) return 0;
+    return 1;
+}
+
+uint32_t refine_rd_hamming_symm(asg_t *g, asg_t *ref, uint32_t v0, uint32_t v1, buf_t *z, uint32_t max_ext)
+{
+    // if((v0>>1) == 1476811 || (v0>>1) == 1479120) {
+    //     fprintf(stderr, "[M::%s]\n", __func__);
+    // }
+
+    uint32_t i, ncut = 0;
+    uint32_t v, w, nv, k; asg_arc_t *av; 
+    if (g->seq[v0>>1].del) return 0; // already deleted    
+    asg32_v ai, bi, ci;
+    copy_asg_arr(ai, z->S); copy_asg_arr(bi, z->T); copy_asg_arr(ci, z->b); 
+    ai.n = bi.n = ci.n = 0;
+
+
+    kv_push(uint32_t, ai, v0);    
+    while(ai.n) {
+        v = kv_pop(ai); 
+        if(z->a[v].s) continue;
+        z->a[v].s = 1; 
+        kv_push(uint32_t, bi, v); // save it for revert
+        nv = asg_arc_n(ref, v); av = asg_arc_a(ref, v);
+        for (k = 0; k < nv; ++k) { // loop through v's neighbors
+            if (av[k].del) continue;
+            w = av[k].v;
+            if(z->a[w].s || w == v1) continue;
+            kv_push(uint32_t, ai, w);
+        }
+    }
+    ncut = 1;
+    while (ncut) {
+        for (i = ncut = 0; i < bi.n; ++i) { // clear the states of visited vertices
+            v = bi.a[i]; z->a[v].s = 0;
+            if(v == v0 || v == v1) continue;
+            if(!pp_cut(v0, v, g, ref, &ai, &ci, max_ext)) {
+                nv = asg_arc_n(g, v); av = asg_arc_a(g, v);
+                for (k = 0; k < nv; ++k) { // loop through v's neighbors
+                    if (av[k].del) continue;
+                    w = av[k].v; av[k].del = 1;
+                    asg_arc_del(g, av[k].v^1, (av[k].ul>>32)^1, 1); ncut++;
+                    // fprintf(stderr, "L\t%.*s(%c)\t%.*s(%c)\n",
+                    //     (int)Get_NAME_LENGTH(R_INF, (av[k].ul>>33)), Get_NAME(R_INF, (av[k].ul>>33)), "+-"[(av[k].ul>>32)&1],
+                    //     (int)Get_NAME_LENGTH(R_INF, (av[k].v>>1)), Get_NAME(R_INF, (av[k].v>>1)), "+-"[av[k].v&1]);
+                }
+            }
+            if(!pp_cut(v0, v^1, g, ref, &ai, &ci, max_ext)) {
+                nv = asg_arc_n(g, v^1); av = asg_arc_a(g, v^1);
+                for (k = 0; k < nv; ++k) { // loop through v's neighbors
+                    if (av[k].del) continue;
+                    w = av[k].v; av[k].del = 1;
+                    asg_arc_del(g, av[k].v^1, (av[k].ul>>32)^1, 1); ncut++;
+                    // fprintf(stderr, "L\t%.*s(%c)\t%.*s(%c)\n",
+                    //     (int)Get_NAME_LENGTH(R_INF, (av[k].ul>>33)), Get_NAME(R_INF, (av[k].ul>>33)), "+-"[(av[k].ul>>32)&1],
+                    //     (int)Get_NAME_LENGTH(R_INF, (av[k].v>>1)), Get_NAME(R_INF, (av[k].v>>1)), "+-"[av[k].v&1]);
+                }
+            }
+        }
+    }
+
+    ai.n = bi.n = ci.n = 0;
+    copy_asg_arr(z->S, ai); copy_asg_arr(z->T, bi); copy_asg_arr(z->b, ci); 
+    return ncut;
+}
+
+
+uint32_t rd_hamming_symm_simple0(buf_t *b, asg_t *ref, asg_t *g, uint32_t st, uint32_t ed, uint64_t max_dist, uint64_t *r_max_dist, uint32_t max_ext) // callback for kt_for()
+{
+    // if((st>>1) == 1476811 || (st>>1) == 1479120) {
+    //     fprintf(stderr, "[M::%s]\tst>>1::%u(%c)\ted>>1::%u(%c)\n", __func__, st>>1, "+-"[st&1], ed>>1, "+-"[ed&1]);
+    // }
+    
     double step = 0.2, cuttoff; 
     uint32_t p, k, ncut;
     p = rd_hm_bub(g, ref, st, max_dist, b);
     if(p) {
+        // if((st>>1) == 1476811 || (st>>1) == 1479120) {
+        //     fprintf(stderr, "-a-[M::%s]\tst>>1::%u(%c)\ted>>1::%u(%c)\n", __func__, st>>1, "+-"[st&1], ed>>1, "+-"[ed&1]);
+        // }
         assert(b->S.a[0] == (ed^1));
         if(r_max_dist) (*r_max_dist) = max_dist;
+        refine_rd_hamming_symm(g, ref, st, ed^1, b, max_ext);
         return 1;
     }
     ///recalculate max_dist
@@ -25437,8 +25881,12 @@ uint32_t rd_hamming_symm_simple0(buf_t *b, asg_t *ref, asg_t *g, uint32_t st, ui
     max_dist += ref->seq[b->S.a[0]>>1].len;
     p = rd_hm_bub(g, ref, st, max_dist, b);
     if(p) {
+        // if((st>>1) == 1476811 || (st>>1) == 1479120) {
+        //     fprintf(stderr, "-b-[M::%s]\tst>>1::%u(%c)\ted>>1::%u(%c)\n", __func__, st>>1, "+-"[st&1], ed>>1, "+-"[ed&1]);
+        // }
         assert(b->S.a[0] == (ed^1));
         if(r_max_dist) (*r_max_dist) = max_dist;
+        refine_rd_hamming_symm(g, ref, st, ed^1, b, max_ext);
         return 1;
     }
 
@@ -25447,8 +25895,12 @@ uint32_t rd_hamming_symm_simple0(buf_t *b, asg_t *ref, asg_t *g, uint32_t st, ui
     ncut = rd_hm_drop(g, ref, st, ed^1, cuttoff, 1, b);
     p = rd_hm_bub(g, ref, st, max_dist, b);
     if(p) {
+        // if((st>>1) == 1476811 || (st>>1) == 1479120) {
+        //     fprintf(stderr, "-c-[M::%s]\tst>>1::%u(%c)\ted>>1::%u(%c)\n", __func__, st>>1, "+-"[st&1], ed>>1, "+-"[ed&1]);
+        // }
         assert(b->S.a[0] == (ed^1));
         if(r_max_dist) (*r_max_dist) = max_dist;
+        refine_rd_hamming_symm(g, ref, st, ed^1, b, max_ext);
         return 1;
     }
 
@@ -25456,8 +25908,12 @@ uint32_t rd_hamming_symm_simple0(buf_t *b, asg_t *ref, asg_t *g, uint32_t st, ui
         ncut = rd_hm_drop(g, ref, st, ed^1, cuttoff, 0, b);
         p = rd_hm_bub(g, ref, st, max_dist, b);
         if(p) {
+            // if((st>>1) == 1476811 || (st>>1) == 1479120) {
+            //     fprintf(stderr, "-d-[M::%s]\tst>>1::%u(%c)\ted>>1::%u(%c)\n", __func__, st>>1, "+-"[st&1], ed>>1, "+-"[ed&1]);
+            // }
             assert(b->S.a[0] == (ed^1));
             if(r_max_dist) (*r_max_dist) = max_dist;
+            refine_rd_hamming_symm(g, ref, st, ed^1, b, max_ext);
             return 1;
         }
         if(!ncut) break;
@@ -25470,8 +25926,55 @@ uint32_t rd_hamming_symm_simple0(buf_t *b, asg_t *ref, asg_t *g, uint32_t st, ui
     return 0;
 }
 
+uint32_t prt_arc_status(asg_t *g, uint32_t v0, uint32_t w0, const char *cmd)
+{
+    uint32_t v, w, i, nv; asg_arc_t *av;
+
+    v = v0<<1; w = w0;
+    nv = asg_arc_n(g, v); av = asg_arc_a(g, v);
+    for (i = 0; i < nv; ++i) {
+        if (((av[i].v>>1) == w) && (!av[i].del)) {
+            fprintf(stderr, "%s\tL\t%.*s(%c)\t%.*s(%c)\n", cmd,
+                        (int)Get_NAME_LENGTH(R_INF, (av[i].ul>>33)), Get_NAME(R_INF, (av[i].ul>>33)), "+-"[(av[i].ul>>32)&1],
+                        (int)Get_NAME_LENGTH(R_INF, (av[i].v>>1)), Get_NAME(R_INF, (av[i].v>>1)), "+-"[av[i].v&1]);
+        }
+    }
+
+    v = (v0<<1) + 1; w = w0;
+    nv = asg_arc_n(g, v); av = asg_arc_a(g, v);
+    for (i = 0; i < nv; ++i) {
+        if (((av[i].v>>1) == w) && (!av[i].del)) {
+            fprintf(stderr, "%s\tL\t%.*s(%c)\t%.*s(%c)\n", cmd,
+                        (int)Get_NAME_LENGTH(R_INF, (av[i].ul>>33)), Get_NAME(R_INF, (av[i].ul>>33)), "+-"[(av[i].ul>>32)&1],
+                        (int)Get_NAME_LENGTH(R_INF, (av[i].v>>1)), Get_NAME(R_INF, (av[i].v>>1)), "+-"[av[i].v&1]);
+        }
+    }
+
+    v = w0<<1; w = v0;
+    nv = asg_arc_n(g, v); av = asg_arc_a(g, v);
+    for (i = 0; i < nv; ++i) {
+        if (((av[i].v>>1) == w) && (!av[i].del)) {
+            fprintf(stderr, "%s\tL\t%.*s(%c)\t%.*s(%c)\n", cmd,
+                        (int)Get_NAME_LENGTH(R_INF, (av[i].ul>>33)), Get_NAME(R_INF, (av[i].ul>>33)), "+-"[(av[i].ul>>32)&1],
+                        (int)Get_NAME_LENGTH(R_INF, (av[i].v>>1)), Get_NAME(R_INF, (av[i].v>>1)), "+-"[av[i].v&1]);
+        }
+    }
+
+    v = (w0<<1) + 1; w = v0;
+    nv = asg_arc_n(g, v); av = asg_arc_a(g, v);
+    for (i = 0; i < nv; ++i) {
+        if (((av[i].v>>1) == w) && (!av[i].del)) {
+            fprintf(stderr, "%s\tL\t%.*s(%c)\t%.*s(%c)\n", cmd,
+                        (int)Get_NAME_LENGTH(R_INF, (av[i].ul>>33)), Get_NAME(R_INF, (av[i].ul>>33)), "+-"[(av[i].ul>>32)&1],
+                        (int)Get_NAME_LENGTH(R_INF, (av[i].v>>1)), Get_NAME(R_INF, (av[i].v>>1)), "+-"[av[i].v&1]);
+        }
+    }
+
+    return 1;
+}
+
 void reduce_hamming_error_adv(ma_ug_t *iug, asg_t *sg, ma_hit_t_alloc* sources, ma_sub_t *coverage_cut, 
-int max_hang, int min_ovlp, long long gap_fuzz, R_to_U *ru, bubble_type* bub)
+int max_hang, int min_ovlp, long long gap_fuzz, R_to_U *ru, bubble_type* bub, uint32_t max_ext)
 {
     double index_time = yak_realtime();
     ma_ug_t *ug = NULL; ug = (iug)?(iug):(ma_ug_gen_primary(sg, PRIMARY_LABLE));
@@ -25479,7 +25982,7 @@ int max_hang, int min_ovlp, long long gap_fuzz, R_to_U *ru, bubble_type* bub)
     uint32_t fix_bub = 0; asg_t *g = ug->g;
     uint32_t v, n_vtx = g->n_seq * 2, n_arc, n_arc_0 = sg->n_arc, nv, i;
     uint64_t n_pop = 0, max_dist; asg_arc_t *p;
-    asg_arc_t *av; asg_t *ig = asg_init(); asg64_v sv; kv_init(sv);
+    asg_arc_t *av; asg_t *ig = asg_init(); asg64_v sv; kv_init(sv); 
     buf_t b; memset(&b, 0, sizeof(buf_t));
     b.a = (binfo_t*)calloc(n_vtx, sizeof(binfo_t));
     uint8_t* bs_flag = NULL; CALLOC(bs_flag, n_vtx);
@@ -25534,13 +26037,23 @@ int max_hang, int min_ovlp, long long gap_fuzz, R_to_U *ru, bubble_type* bub)
     free(bs_flag); if(!iug) ma_ug_destroy(ug);    
 
     if(sv.n > 0) {
+        
+
         ig->n_seq = ig->m_seq = sg->n_seq; 
         MALLOC(ig->seq, ig->n_seq);
         memcpy(ig->seq, sg->seq, (sizeof((*(ig->seq)))*ig->n_seq));
         asg_cleanup(ig); asg_arc_del_trans_aux(ig, sg, vis_flag, gap_fuzz);
         REALLOC(b.a, (ig->n_seq<<1)); memset(b.a, 0, sizeof((*(b.a)))*(ig->n_seq<<1));
 
-        for (i = 0; i < sv.n; i++) rd_hamming_symm_simple0(&b, sg, ig, sv.a[i]>>32, (uint32_t)(sv.a[i]), max_dist, NULL);
+        // prt_arc_status(ig, 1477050, 1477089, "init");
+
+        for (i = 0; i < sv.n; i++) {
+            rd_hamming_symm_simple0(&b, sg, ig, sv.a[i]>>32, (uint32_t)(sv.a[i]), max_dist, NULL, max_ext);
+            // fprintf(stderr, "[M::%s]\tst>>1::%lu(%c)\ted>>1::%u(%c)\n", __func__, (sv.a[i]>>32)>>1, "+-"[(sv.a[i]>>32)&1], ((uint32_t)(sv.a[i]))>>1, "+-"[(uint32_t)(sv.a[i])&1]);
+            // prt_arc_status(ig, 1477050, 1477089, "mm");
+        }
+
+        // prt_arc_status(ig, 1477050, 1477089, "end");
         /**
         rd_hamming_t aux_t; memset((&aux_t), 0, sizeof(aux_t));
         aux_t.n_thread = 1; // aux_t.n_thread = asm_opt.thread_num; 
@@ -25561,6 +26074,8 @@ int max_hang, int min_ovlp, long long gap_fuzz, R_to_U *ru, bubble_type* bub)
     }
     free(sv.a); free(vis_flag);
 
+    // prt_arc_status(ig, 1477050, 1477089, "fin");
+
     for (i = n_pop = 0; i < ig->n_arc; i++) {
         if(ig->arc[i].del) continue;
         p = asg_arc_pushp(sg); *p = (ig->arc[i]); n_pop++;
@@ -25570,9 +26085,15 @@ int max_hang, int min_ovlp, long long gap_fuzz, R_to_U *ru, bubble_type* bub)
         sg->idx = 0;
         sg->is_srt = 0;
         asg_cleanup(sg);
+        // prt_arc_status(sg, 1477050, 1477089, "ff0");
         asg_symm(sg);
+        // prt_arc_status(sg, 1477050, 1477089, "ff1");
         asg_arc_del_trans(sg, gap_fuzz);
+        // prt_arc_status(sg, 1477050, 1477089, "ff2");
     }
+
+    // prt_arc_status(sg, 1477050, 1477089, "ffe");
+
     free(b.a); free(b.S.a); free(b.T.a); free(b.b.a); free(b.e.a); asg_destroy(ig);
     fprintf(stderr, "[M::%s::%.3f] # inserted edges: %u, # fixed bubbles: %u\n", 
                         __func__, yak_realtime() - index_time, sg->n_arc - n_arc_0, fix_bub);
@@ -25819,8 +26340,7 @@ hap_cov_t *cov, uint32_t is_update_chain, uint32_t keep_d, utg_trans_t *o)
 		///v is a node that all incoming edges have been visited
 		///d is the distance from v0 to v
 		uint32_t v = kv_pop(b->S), d = b->a[v].d, c = b->a[v].c, m = b->a[v].m, nc = b->a[v].nc, np = b->a[v].np;
-		uint32_t nv = asg_arc_n(g, v);
-		asg_arc_t *av = asg_arc_a(g, v);
+		uint32_t nv = asg_arc_n(g, v); asg_arc_t *av = asg_arc_a(g, v);
 		///why we have this assert?
 		///assert(nv > 0);
 		///all out-edges of v
@@ -26530,7 +27050,7 @@ static inline void asg_arc_rest(asg_t *des, asg_t *src, uint32_t v0, uint32_t w0
     assert(nv);
 	for (i = 0; i < nv; ++i) assert(av[i].del);
     for (i = 0; i < nv && av[i].ul < arc->ul; ++i);
-    if(i >= nv) i = nv - 1; av[i] = *arc;
+    if(i >= nv) {i = nv - 1;} av[i] = *arc;
 
     v = w0^1; w = v0^1;
     av = asg_arc_a(src, v); nv = asg_arc_n(src, v);
@@ -26544,7 +27064,7 @@ static inline void asg_arc_rest(asg_t *des, asg_t *src, uint32_t v0, uint32_t w0
     assert(nv);
 	for (i = 0; i < nv; ++i) assert(av[i].del);
     for (i = 0; i < nv && av[i].ul < arc->ul; ++i);
-    if(i >= nv) i = nv - 1; av[i] = *arc;
+    if(i >= nv) {i = nv - 1;} av[i] = *arc;
 
 
     rv = ((v0&1)?(Uc_beg(ug->u.a[v0>>1])^1):(Uc_end(ug->u.a[v0>>1])^1));
@@ -26711,7 +27231,7 @@ uint32_t positive_flag, uint32_t negative_flag, hap_cov_t *cov, utg_trans_t *o, 
     }
 
 
-    is_update = rd_hamming_symm_simple0(b, ug->g, fg->g, v0, v1^1, max_dist, &max_dist);
+    is_update = rd_hamming_symm_simple0(b, ug->g, fg->g, v0, v1^1, max_dist, &max_dist, (asm_opt.max_short_tip*2));
 
     // if(((v0>>1) == 7536) && ((v1>>1) == 99223)) {
     //     fprintf(stderr, "v0::utg%.6lul(%c)\tv1::utg%.6lul(%c)\n", (v0>>1) + 1, "+-"[(v0&1)], (v1>>1) + 1, "+-"[(v1&1)]);
@@ -39241,7 +39761,7 @@ ma_hit_t_alloc* src, uint64_t* readLen, R_to_U* ruIndex, bub_label_t *b_mask_t, 
     ma_hit_flt(src, n_read, *cov, max_hang_length, mini_overlap_length);
     // prt_dbg_rid_ovlp(src, -1, (char*)"c85c2e91-0490-438b-977b-b7d056973996", "6");
     ma_hit_contained_advance(src, n_read, *cov, ruIndex, max_hang_length, mini_overlap_length);
-    // prt_dbg_rid_ovlp(src, -1, (char*)"c85c2e91-0490-438b-977b-b7d056973996", "7");
+    // prt_dbg_rid_ovlp(src, -1, (char*)"7b70a587-f56c-48ac-adf8-b98a67365063_2", "7");
 
     if(!ul) {
         sg = ma_sg_gen(src, n_read, *cov, max_hang_length, mini_overlap_length);
@@ -39265,6 +39785,7 @@ ma_hit_t_alloc* src, uint64_t* readLen, R_to_U* ruIndex, bub_label_t *b_mask_t, 
     
     init_bub_label_t(b_mask_t, MIN(10, asm_opt.thread_num), sg->n_seq);
     asm_opt.coverage = get_coverage(src, *cov, n_read);
+    // prt_specfic_sge(sg, 22708, 22646, "--#--");   
     return sg;
 }
 
@@ -39611,8 +40132,12 @@ ma_sub_t **coverage_cut_ptr, uint8_t *cmk, int debug_g)
         write_debug_graph(sg, sources, coverage_cut, output_file_name, n_read, reverse_sources, ruIndex);
         debug_gfa:;
     }**/
-
-    if(asm_opt.fn_bin_poy)
+    if(asm_opt.fn_chr_bin) {
+        if(asm_opt.flag & HA_F_PARTITION) asm_opt.flag -= HA_F_PARTITION;
+        output_chr_bin_trio(sg, coverage_cut, o_file, sources, reverse_sources, (asm_opt.max_short_tip*2), 0.15, 3, ruIndex, 
+        0.05, 0.9, max_hang_length, mini_overlap_length, gap_fuzz, 0, &b_mask_t);
+    }
+    else if(asm_opt.fn_bin_poy)
     {
         if(asm_opt.flag & HA_F_PARTITION) asm_opt.flag -= HA_F_PARTITION;
         output_poly_trio(sg, coverage_cut, o_file, sources, reverse_sources, (asm_opt.max_short_tip*2), 0.15, 3, ruIndex, 

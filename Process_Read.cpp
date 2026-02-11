@@ -46,14 +46,20 @@ void init_All_reads(All_reads* r)
 void destory_All_reads(All_reads* r)
 {
 	uint64_t i = 0;
-	for (i = 0; i < r->total_reads; i++) {
+	for (i = 0; i < r->tqn; i++) {
 		if (r->N_site[i]) free(r->N_site[i]);
 		if (r->read_sperate[i]) free(r->read_sperate[i]);
 		if (r->paf && r->paf[i].buffer) free(r->paf[i].buffer);
 		if (r->reverse_paf && r->reverse_paf[i].buffer) free(r->reverse_paf[i].buffer);
 		if(r->rsc && r->rsc[i]) free(r->rsc[i]);
-		///if (r->pb_regions) kv_destroy(r->pb_regions[i].a);
 	}
+	for (; i < r->total_reads; i++) {
+		if (r->N_site[i]) free(r->N_site[i]);
+		if (r->read_sperate[i]) free(r->read_sperate[i]);
+		if (r->paf && r->paf[i].buffer) free(r->paf[i].buffer);
+		if (r->reverse_paf && r->reverse_paf[i].buffer) free(r->reverse_paf[i].buffer);
+	}
+
 	free(r->paf);
 	free(r->reverse_paf);
 	free(r->N_site);
@@ -110,10 +116,11 @@ void write_All_reads(All_reads* r, char* read_file_name)
 	fwrite(&(asm_opt.hom_cov), sizeof(asm_opt.hom_cov), 1, fp);
 	fwrite(&(asm_opt.het_cov), sizeof(asm_opt.het_cov), 1, fp);
 
-	uint64_t mm = 1;
+	uint64_t mm = 2;///1;
 	if(asm_opt.is_sc) {
 		fwrite(&mm, sizeof(mm), 1, fp);
-		for (i = 0; i < r->total_reads; i++) {
+		fwrite(&(r->tqn), sizeof(r->tqn), 1, fp);
+		for (i = 0; i < r->tqn; i++) {
 			fwrite(r->rsc[i], sizeof(uint8_t), ((r->read_length[i]/sc_bn) + ((r->read_length[i]%sc_bn)?1:0)), fp);
 		}
 	}
@@ -133,6 +140,7 @@ int load_All_reads(All_reads* r, char* read_file_name)
 		free(index_name);
         return 0;
     }
+	// fprintf(stderr, "[M::%s]\tindex_name::%s\n", __func__, index_name);
 	int local_adapterLen;
 	int f_flag;
     f_flag = fread(&local_adapterLen, sizeof(local_adapterLen), 1, fp);
@@ -213,9 +221,17 @@ int load_All_reads(All_reads* r, char* read_file_name)
 
 	uint64_t mm = 0;
 	if (!feof(fp)) {
-		if((fread(&mm, sizeof(mm), 1, fp)) && (mm == 1)) {
-			MALLOC(r->rsc, r->total_reads);
-			for (i = 0; i < r->total_reads; i++) {
+		if((fread(&mm, sizeof(mm), 1, fp)) && (mm == 1 || mm == 2)) {
+			if(mm == 1) {
+				mm = r->total_reads;
+			} else {
+				assert(mm == 2);
+				fread(&mm, sizeof(mm), 1, fp);
+			}
+			r->tqn = mm;
+
+			MALLOC(r->rsc, r->tqn);
+			for (i = 0; i < r->tqn; i++) {
 				MALLOC(r->rsc[i], (r->read_length[i]/sc_bn) + ((r->read_length[i]%sc_bn)?1:0));
 				f_flag += fread(r->rsc[i], sizeof(uint8_t), (r->read_length[i]/sc_bn) + ((r->read_length[i]%sc_bn)?1:0), fp);
 			}
@@ -274,8 +290,8 @@ int append_All_reads(All_reads* r, char *idx, uint32_t id)
 	int local_adapterLen, f_flag;
     f_flag = fread(&local_adapterLen, sizeof(local_adapterLen), 1, fp);
     if(local_adapterLen != asm_opt.adapterLen) {
-        fprintf(stderr, "the adapterLen of index is: %d, but the adapterLen set by user is: %d\n", 
-        local_adapterLen, asm_opt.adapterLen);
+        fprintf(stderr, "[M::%s] the adapterLen of index is: %d, but the adapterLen set by user is: %d\n", 
+		__func__, local_adapterLen, asm_opt.adapterLen);
 		exit(1);
     }
 	uint64_t index_size0, name_index_size0, total_reads0, total_reads_bases0, total_name_length0;
@@ -429,19 +445,24 @@ void ha_insert_read_len(All_reads *r, int read_len, int name_len)
 	r->name_index[r->total_reads] = r->name_index[r->total_reads - 1] + name_len;
 }
 
-void malloc_All_reads(All_reads* r)
+void malloc_All_reads(All_reads *r)
 {
 	r->read_size = (uint64_t*)malloc(sizeof(uint64_t)*r->total_reads);
 	memcpy(r->read_size, r->read_length, sizeof(uint64_t)*r->total_reads);
 
 	r->read_sperate = (uint8_t**)malloc(sizeof(uint8_t*)*r->total_reads);
-	if(asm_opt.is_sc) MALLOC(r->rsc, r->total_reads);
+	if(asm_opt.is_sc && r->tqn) MALLOC(r->rsc, r->tqn);
+	assert(r->tqn <= r->total_reads);
 
-	long long i = 0;
-	for (i = 0; i < (long long)r->total_reads; i++)
-	{
-		r->read_sperate[i] = (uint8_t*)malloc(sizeof(uint8_t)*(r->read_length[i]/4+1));
-		if(r->rsc) MALLOC(r->rsc[i], (r->read_length[i]/sc_bn) + ((r->read_length[i]%sc_bn)?1:0));
+	uint64_t i = 0;
+	if(r->rsc) {
+		for (i = 0; i < r->tqn; i++) {
+			MALLOC(r->read_sperate[i], (r->read_length[i]/4+1));
+			MALLOC(r->rsc[i], (r->read_length[i]/sc_bn) + ((r->read_length[i]%sc_bn)?1:0));
+		}
+	}
+	for (; i < r->total_reads; i++) {
+		MALLOC(r->read_sperate[i], (r->read_length[i]/4+1));
 	}
 
 	r->cigars = (Compressed_Cigar_record*)malloc(sizeof(Compressed_Cigar_record)*r->total_reads);
@@ -450,8 +471,7 @@ void malloc_All_reads(All_reads* r)
 	r->reverse_paf = (ma_hit_t_alloc*)malloc(sizeof(ma_hit_t_alloc)*r->total_reads);
 	///r->pb_regions = (kvec_t_u64_warp*)malloc(r->total_reads*sizeof(kvec_t_u64_warp));
 
-	for (i = 0; i < (long long)r->total_reads; i++)
-	{
+	for (i = 0; i < r->total_reads; i++) {
 		r->second_round_cigar[i].size = r->cigars[i].size = 0;
 		r->second_round_cigar[i].length = r->cigars[i].length = 0;
 		r->second_round_cigar[i].record = r->cigars[i].record = NULL;
@@ -915,14 +935,14 @@ void ha_compress_qual(uint8_t* dest, char* src, uint64_t src_l, uint64_t bitn, u
 int64_t retrive_bqual(asg8_v *dv, uint8_t *ds, uint64_t id, int64_t s, int64_t e, uint8_t rev, int64_t bitn)
 {
 	int64_t rl = Get_READ_LENGTH(R_INF, id), l; 
-	if(s < 0) s = 0; if(e < 0) e = rl;
+	if(s < 0) {s = 0;} if(e < 0) {e = rl;}
 	if(s >= e || e > rl) return -1;
 
 	uint8_t *da = NULL, *src = Get_QUAL(R_INF, id), mm = (((uint8_t)1)<<bitn)-1, mlf = 8 - bitn, mrf;
 	int64_t bitr = 8/bitn, dk, sk, swk;
 	l = e - s;
 	if(dv) {
-		kv_resize(uint8_t, *dv, ((uint64_t)l)); da = dv->a;
+		kv_resize(uint8_t, *dv, ((uint64_t)l)); da = dv->a; dv->n = l;
 	} else {
 		da = ds;
 	}
@@ -969,7 +989,6 @@ int64_t retrive_bqual(asg8_v *dv, uint8_t *ds, uint64_t id, int64_t s, int64_t e
 		
 		assert(dk == 0);
 	}
-	dv->n = l;
 
 	return l;
 }
@@ -1499,7 +1518,7 @@ void append_ul_t(all_ul_t *x, uint64_t *rid, char* id, int64_t id_l, char* str, 
 		p->rlen = str_l; 
 		// fprintf(stderr, "str_l->%ld, str->%u\n", str_l, str?1:0);
 		
-		if(o == NULL || on == 0) on = 0; en = 0;
+		if(o == NULL || on == 0) {on = 0;} en = 0;
 		for (i = on-1, st = et = str_l; i >= 0; i--) {
 			z = &(o[i]);
 			if(z->el) {

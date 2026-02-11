@@ -806,8 +806,19 @@ uint32_t mc_edges_symm(mc_match_t *ma)
 
 static void normalize_mb_edge(mb_edge_t *a, mb_edge_t *b)
 {
-	if(a->w >= b->w)
-	{
+	uint8_t f = 0;
+	if(a->w[0] > b->w[0]) {
+		f = 1;
+	} else if(a->w[0] == b->w[0] && a->w[1] > b->w[1]) {
+		f = 1;
+	} else if(a->w[0] == b->w[0] && a->w[1] == b->w[1] && a->w[2] > b->w[2]) {
+		f = 1;
+	} else if(a->w[0] == b->w[0] && a->w[1] == b->w[1] && a->w[2] == b->w[2] && a->w[3] > b->w[3]) {
+		f = 1;
+	}
+
+	// if(a->w >= b->w) {
+	if(f) {
 		b->x = (uint32_t)a->x;
 		b->x <<= 32;
 		b->x |= (a->x>>32);
@@ -815,9 +826,7 @@ static void normalize_mb_edge(mb_edge_t *a, mb_edge_t *b)
 		b->w[3] = a->w[3];
 		b->w[1] = a->w[2];
 		b->w[2] = a->w[1];
-	}
-	else
-	{
+	} else {
 		a->x = (uint32_t)b->x;
 		a->x <<= 32;
 		a->x |= (b->x>>32);
@@ -847,7 +856,7 @@ uint32_t mb_edges_symm(mb_match_t *ma)
 		{
 			del[i] = 1, ++n;///self overlap
 			continue;
-		} 
+		}
 		normalize_mb_edge(m, t);
 	}
 
@@ -3346,7 +3355,7 @@ mc_clus_t *init_mc_clus_t(const mc_opt_t *opt, mc_g_t *mg, bubble_type* bub, uin
 	mc_clus_t *p; CALLOC(p, 1); 
 	p->bub = bub; p->opt = opt; p->mg = mg; p->n = bub->ug->g->n_seq;
 	CALLOC(p->lock, p->n);
-	if(n_thread > 64) n_thread = 64; p->n_thread = n_thread;
+	if(n_thread > 64) {n_thread = 64;} p->n_thread = n_thread;
 	CALLOC(p->aux, p->n_thread);
 	uint32_t k, ss = (p->n>>3)+(!!(p->n&7));
 	for (k = 0; k < p->n_thread; k++) {
