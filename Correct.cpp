@@ -20731,9 +20731,9 @@ uint64_t gen_hc_fast_cigar0(overlap_region *z, Candidates_list *cl, uint64_t wl,
     ///debug for memory
     // snprintf(NULL, 0, "dwn::%u\tdcn::%u", (uint32_t)aux_o->w_list.n, (uint32_t)aux_o->w_list.c.n);
     
-    // fprintf(stderr, "[M::%s::rid->%ld] utg%.6dl(%c), z::[%u, %u)\n", 
-    // __func__, rid, (int32_t)z->y_id+1, "+-"[z->y_pos_strand],  z->x_pos_s, z->x_pos_e+1);
+    // fprintf(stderr, "+[M::%s::qid->%ld::tid->%u]\n", __func__, rid, z->y_id);
     aux_o->w_list.n = aux_o->w_list.c.n = 0; 
+    // fprintf(stderr, "-[M::%s::qid->%ld::tid->%u]\n", __func__, rid, z->y_id);
     aux_o->y_id = z->y_id; aux_o->y_pos_strand = z->y_pos_strand;
     aux_o->x_pos_s = z->x_pos_s; aux_o->x_pos_e = z->x_pos_e;
     aux_o->y_pos_s = z->y_pos_s; aux_o->y_pos_e = z->y_pos_e;

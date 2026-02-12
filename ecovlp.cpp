@@ -20,6 +20,13 @@
 #define RES_W 19
 #define HC0_W 6
 
+#define DBG_TIME 0
+typedef struct {
+	uint64_t fbs, faln;
+	double chn_tm, aln_tm, phs_tm, cns_tm;
+} dbg_cnt_ss;
+dbg_cnt_ss *dbg_a = NULL;
+
 KDQ_INIT(uint32_t)
 
 typedef struct {
@@ -277,8 +284,10 @@ overlap_region *fetch_aux_ovlp(overlap_region_alloc* o, overlap_region **aux) //
     // if(ol->length + 1 >= ol->size) {
     //     fprintf(stderr, "[M::%s] length::%lu, size::%lu\n", __func__, ol->length, ol->size);
     // }
-    if(aux) (*aux) = &(o->list[o->length+2]);
-	return &(o->list[o->length+1]);
+    // if(aux) (*aux) = &(o->list[o->length+2]);
+	// return &(o->list[o->length+1]);
+    if(aux) (*aux) = &(o->list[o->length+1]);
+	return &(o->list[o->length]);
 }
 
 typedef struct {
@@ -3735,7 +3744,28 @@ static void worker_hap_ec(void *data, long i, int tid)
     overlap_region *aux_o = NULL/**, *rse_o = NULL**/; asg64_v buf0; uint32_t qlen = 0, qw = 0;
     b->v8q.n = b->v8t.n = 0;
 
+    // if((i != 733166) && (i != 858708) && (i != 858732) && (i != 859819) && (i != 859899) && (i != 863486) && (i != 872165) && (i != 899887) && (i != 902298) && 
+    //    (i != 906808) && (i != 946173) && (i != 952685) && (i != 983977) && (i != 1000227) && (i != 1011228) && (i != 1042858) && (i != 1045860) && (i != 1118558) && 
+    //    (i != 1143886) && (i != 1155956) && (i != 1159490) && (i != 1179151) && (i != 1180199) && (i != 1230524) && (i != 1232338) && (i != 1244031) && (i != 1268467) && 
+    //    (i != 1288505) && (i != 1311559) && (i != 1311639) && (i != 1321349) && (i != 1324262) && (i != 1342272) && (i != 1355560) && (i != 1384437) && (i != 1397085) && 
+    //    (i != 1413259) && (i != 1439382) && (i != 1450866) && (i != 1456019) && (i != 1456201) && (i != 1456432) && (i != 1456601) && (i != 1456762) && (i != 1456842) && 
+    //    (i != 1456856) && (i != 1456902) && (i != 1457036) && (i != 1457092) && (i != 1457183) && (i != 1457207) && (i != 1458806) && (i != 1458843) && (i != 1459234) && 
+    //    (i != 1460641) && (i != 1460721) && (i != 1462541) && (i != 1463555) && (i != 1464608) && (i != 1528392) && (i != 1561025) && (i != 1564625) && (i != 1605328) && (i != 1721621)){
+    //     return;
+    // }
+    // if((i != 733166) && (i != 858708) && (i != 858796) && (i != 859819) && (i != 859899) && (i != 863486) && (i != 872165) && (i != 899887) && (i != 902298) && 
+    //    (i != 906808) && (i != 946173) && (i != 952685) && (i != 983977) && (i != 1000227) && (i != 1011228) && (i != 1042858) && (i != 1045860) && (i != 1118558) && 
+    //    (i != 1143886) && (i != 1155956) && (i != 1159490) && (i != 1179151) && (i != 1180199) && (i != 1230524) && (i != 1232338) && (i != 1244031) && (i != 1268467) && 
+    //    (i != 1288505) && (i != 1311559) && (i != 1311639) && (i != 1321349) && (i != 1324262) && (i != 1342272) && (i != 1355560) && (i != 1384437) && (i != 1397085) && 
+    //    (i != 1413323) && (i != 1439382) && (i != 1450866) && (i != 1456019) && (i != 1456201) && (i != 1456432) && (i != 1456601) && (i != 1456762) && (i != 1456842) && 
+    //    (i != 1456856) && (i != 1456902) && (i != 1457036) && (i != 1457092) && (i != 1457183) && (i != 1457207) && (i != 1458806) && (i != 1458843) && (i != 1459234) && 
+    //    (i != 1460641) && (i != 1460721) && (i != 1462541) && (i != 1463555) && (i != 1464608) && (i != 1528392) && (i != 1561025) && (i != 1564625) && (i != 1605328) && (i != 1721621)) {
+    //     return;
+    // }
 
+    // if(i < 1230524) return;
+
+    // fprintf(stderr, "+[M::%s]\trid::%ld\t%.*s\n", __func__, i, (int)Get_NAME_LENGTH(R_INF, i), Get_NAME(R_INF, i));
     // 25e396cf-a58d-4f67-a391-33f36fb3891f	0	48396	id:i:1477155
     // 8583bdfa-f38f-4976-be74-2357e1905852	0	43608	id:i:2857459
 
@@ -3948,6 +3978,7 @@ static void worker_hap_ec(void *data, long i, int tid)
     /**
     fprintf(stderr, "%ld\t---\n", i);
     **/
+    //fprintf(stderr, "-[M::%s]\trid::%ld\t%.*s\n", __func__, i, (int)Get_NAME_LENGTH(R_INF, i), Get_NAME(R_INF, i));
 }
 
 static void worker_hap_ec_hybrid(void *data, long i, int tid)
@@ -6949,6 +6980,11 @@ void write_ec_reads(const char *suffix_ou)
     fclose(ou); destory_UC_Read(&qstr); destory_UC_Read(&tstr);
 }
 
+// dbg_cnt_ss* gen_dbg_cnt_ss(uint64_t n_a)
+// {
+//     dbg_cnt_ss *p = NULL; CALLOC(p, n_a);
+//     return p;
+// }
 
 void cal_ec_r(uint64_t n_thre, uint64_t round, uint64_t n_round, uint64_t n_a, uint64_t is_sv, uint64_t *tot_b, uint64_t *tot_e)
 {
@@ -6960,7 +6996,7 @@ void cal_ec_r(uint64_t n_thre, uint64_t round, uint64_t n_round, uint64_t n_a, u
     ec_ovec_buf_t *b = NULL; uint64_t k, is_cr = (round&1);
     (*tot_b) = (*tot_e) = 0;
 
-
+    // if(DBG_TIME) dbg_a = gen_dbg_cnt_ss(n_a);
     b = gen_ec_ovec_buf_t(n_thre);
     (*tot_e) += cal_ec_multiple(b, n_thre, n_a, tot_b); ///exit(1);
     sl_ec_r(n_thre, n_a);

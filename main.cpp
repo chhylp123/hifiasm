@@ -8,6 +8,7 @@
 
 int main(int argc, char *argv[])
 {
+	// setvbuf(stderr, NULL, _IONBF, 0);
 	int i, ret;
 	yak_reset_realtime();
     init_opt(&asm_opt);
