@@ -109,7 +109,7 @@ void Print_H(hifiasm_opt_t* asm_opt)
 	fprintf(stderr, "    -f INT       number of bits for bloom filter; 0 to disable [%d]\n", asm_opt->bf_shift);
 	fprintf(stderr, "    -D FLOAT     drop k-mers occurring >FLOAT*coverage times [%.1f]\n", asm_opt->high_factor);
 	fprintf(stderr, "    -N INT       consider up to max(-D*coverage,-N) overlaps for each oriented read [%d]\n", asm_opt->max_n_chain);
-    fprintf(stderr, "    -r INT       round of correction [%d]\n", asm_opt->number_of_round);
+    fprintf(stderr, "    -r INT       round of correction (0 to skip) [%d]\n", asm_opt->number_of_round);
     fprintf(stderr, "    -z INT       length of adapters that should be removed [%d]\n", asm_opt->adapterLen);
     fprintf(stderr, "    --max-kocc   INT\n");
     fprintf(stderr, "                 employ k-mers occurring <INT times to rescue repetitive overlaps [%d]\n", asm_opt->max_kmer_cnt);
@@ -504,9 +504,9 @@ int check_option(hifiasm_opt_t* asm_opt)
     }
 
 
-    if(asm_opt->number_of_round < 1)
+    if(asm_opt->number_of_round < 0)
     {
-        fprintf(stderr, "[ERROR] the number of rounds for correction must be > 0 (-r)\n");
+        fprintf(stderr, "[ERROR] the number of rounds for correction must be >= 0 (-r)\n");
         return 0;
     }
 
