@@ -15378,7 +15378,7 @@ uint32_t align_ul_ed_post_extz(overlap_region *z, const ul_idx_t *uref, hpc_t *h
 
 uint32_t align_hc_ed_post_extz(overlap_region *z, All_reads *rref, char* qstr, char *tstr, bit_extz_t *exz, double e_rate, int64_t w_l, double ovlp_cut, int64_t force_aln, uint64_t *tot_b)
 {
-    int64_t q_s, q_e, nw, k, q_l, t_l, t_tot_l, aux_beg, aux_end, t_s, thre, aln_l, t_pri_l;
+    int64_t q_s, q_e, nw, k, q_l, t_l, t_tot_l, aux_beg, aux_end, t_s, thre, aln_l, t_pri_l; ///uint64_t tot_b0 = 0;
     char *q_string, *t_string; 
     z->w_list.n = 0; z->is_match = 0; z->align_length = 0;
     nw = get_num_wins(z->x_pos_s, z->x_pos_e+1, w_l);
@@ -15415,6 +15415,13 @@ uint32_t align_hc_ed_post_extz(overlap_region *z, All_reads *rref, char* qstr, c
             ed_band_cal_semi_64_w_absent_diag(t_string, t_l, q_string, q_l, thre, aux_beg, exz);
 
             if(tot_b) (*tot_b) += q_l;
+
+            // if(z->y_id == 5544) {
+            //     fprintf(stderr, "-z-[M::%s]\ttid::%u\t%.*s(%c)\tq::[%ld,%ld)\terr::%d\ttot_b::%lu\n", __func__, z->y_id, (int)Get_NAME_LENGTH(R_INF, z->y_id), Get_NAME(R_INF, z->y_id), "+-"[z->y_pos_strand], 
+            // q_s, q_e + 1, exz->err, (*tot_b) - tot_b0);
+            //     tot_b0 = (*tot_b);
+            // }
+            
 
             // if(z->x_id == 5569 && z->y_id == 5557 && q_s == 10075 && q_e == 10849) {
             //     fprintf(stderr, "\n[M::%s::semi::t_s->%ld::t_pri_l->%ld::aux_beg->%ld::aux_end->%ld::thre->%ld] exz->ps::%d, exz->pe::%d, exz->ts::%d, exz->te::%d, exz->err::%d, exz->cigar.n::%d, thre::%ld\n", 
@@ -31255,12 +31262,12 @@ uint64_t qick_realign(Candidates_list *cl, overlap_region *a, uint64_t n_a, uint
     return k;
 }
 
-void gen_hc_r_alin(overlap_region_alloc* ol, Candidates_list *cl, All_reads *rref, UC_Read* qu, UC_Read* tu, bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t wl, int64_t rid, int64_t khit, int64_t move_gap, asg16_v* buf, uint8_t chem_drop, double align_gap_rate, int64_t align_gap_max, uint64_t sec_aln_win, uint64_t sec_aln_cov, double sec_aln_err_rate, double sec_aln_max, asg64_v *kp, uint8_t *hpf)
+uint64_t gen_hc_r_alin(overlap_region_alloc* ol, Candidates_list *cl, All_reads *rref, UC_Read* qu, UC_Read* tu, bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t wl, int64_t rid, int64_t khit, int64_t move_gap, asg16_v* buf, uint8_t chem_drop, double align_gap_rate, int64_t align_gap_max, uint64_t sec_aln_win, uint64_t sec_aln_cov, double sec_aln_err_rate, double sec_aln_max, asg64_v *kp, uint8_t *hpf)
 {
-    uint64_t i, bs, k, ql = qu->length, ks = 0, ke = sec_aln_win, kcnt = sec_aln_cov; Window_Pool w; double err, e_max, rr; int64_t re, kk;
+    uint64_t i, bs, k, ql = qu->length, ks = 0, ke = sec_aln_win, kcnt = sec_aln_cov, tot_b = 0/**, tot_b0 = 0**/; Window_Pool w; double err, e_max, rr; int64_t re, kk;
     overlap_region t; overlap_region *z; //asg64_v iidx, buf, buf1;
     ol->mapped_overlaps_length = 0;
-    if(ol->length <= 0) return;
+    if(ol->length <= 0) return tot_b;
     // if(ol->length && ol->list[0].x_id == 19350) e_rate = 0.1;
 
     ///base alignment
@@ -31271,12 +31278,22 @@ void gen_hc_r_alin(overlap_region_alloc* ol, Candidates_list *cl, All_reads *rre
     // fprintf(stderr, "+[M::%s] window_length::%lld, err::%f\n", __func__, w.window_length, err);
     // if(kp) kp->n = 0;
 
+    // fprintf(stderr, "-0-[M::%s] tot_b::%lu\n", __func__, tot_b);
+
     for (i = k = 0; i < ol->length; i++) {
         z = &(ol->list[i]); z->shared_seed = z->non_homopolymer_errors; z->non_homopolymer_errors = (uint32_t)-1;///for index
 
         // if(z->y_id == 234) fprintf(stderr, "-z-[M::%s] tid::%u\t%.*s\n", __func__, z->y_id, (int)Get_NAME_LENGTH(R_INF, z->y_id), Get_NAME(R_INF, z->y_id));
-        
-        if(!align_hc_ed_post_extz(z, rref, qu->seq, tu->seq, exz, err, w.window_length, OVERLAP_THRESHOLD_HIFI_FILTER, 0, NULL)) continue;
+        //tot_b0 = tot_b;
+        if(!align_hc_ed_post_extz(z, rref, qu->seq, tu->seq, exz, err, w.window_length, OVERLAP_THRESHOLD_HIFI_FILTER, 0, &tot_b)) { 
+            // fprintf(stderr, "-m-[M::%s]\ttid::%u\t%.*s(%c)\tq::[%u,%u)\tt::[%u,%u)\ttot_b::%lu\n", __func__, z->y_id, (int)Get_NAME_LENGTH(R_INF, z->y_id), Get_NAME(R_INF, z->y_id), "+-"[z->y_pos_strand], 
+            // z->x_pos_s, z->x_pos_e + 1, z->y_pos_s, z->y_pos_e + 1, tot_b - tot_b0);
+            continue;
+        } 
+        // else {
+        //     fprintf(stderr, "-im-[M::%s]\ttid::%u\t%.*s(%c)\tq::[%u,%u)\tt::[%u,%u)\ttot_b::%lu\n", __func__, z->y_id, (int)Get_NAME_LENGTH(R_INF, z->y_id), Get_NAME(R_INF, z->y_id), "+-"[z->y_pos_strand], 
+        //     z->x_pos_s, z->x_pos_e + 1, z->y_pos_s, z->y_pos_e + 1, tot_b - tot_b0);
+        // }
 
         // if(z->y_id == 234) fprintf(stderr, "-m-[M::%s] tid::%u\t%.*s\n", __func__, z->y_id, (int)Get_NAME_LENGTH(R_INF, z->y_id), Get_NAME(R_INF, z->y_id));
 
@@ -31328,6 +31345,8 @@ void gen_hc_r_alin(overlap_region_alloc* ol, Candidates_list *cl, All_reads *rre
         }
     }
 
+    // fprintf(stderr, "-1-[M::%s] tot_b::%lu\n", __func__, tot_b);
+
     // fprintf(stderr, "-[M::%s] window_length::%lld, err::%f\n", __func__, w.window_length, err);
 
     if((kp) && (kcnt < sec_aln_cov)) {
@@ -31338,7 +31357,8 @@ void gen_hc_r_alin(overlap_region_alloc* ol, Candidates_list *cl, All_reads *rre
     // fprintf(stderr, "--[M::%s] window_length::%lld, err::%f\n", __func__, w.window_length, err);
 
     ol->length = k;
-    if(ol->length <= 0) return;
+    // if(ol->length <= 0) return;
+    return tot_b;
 }
 
 
@@ -32445,7 +32465,7 @@ uint8_t inline gen_hc_r_alin_flt_1_smp(overlap_region *z, Candidates_list *cl, A
     //     fprintf(stderr, "-0-[M::%s]\ttid::%u\t%.*s\n", __func__, z->y_id, (int)Get_NAME_LENGTH(R_INF, z->y_id), Get_NAME(R_INF, z->y_id));
     // }
 
-    f = align_hc_ed_post_extz(z, rref, qu->seq, tu->seq, exz, err, wsl, OVERLAP_THRESHOLD_NOSI_FILTER, 0, tot_b);    
+    f = align_hc_ed_post_extz(z, rref, qu->seq, tu->seq, exz, err, wsl, OVERLAP_THRESHOLD_HIFI_FILTER/**OVERLAP_THRESHOLD_NOSI_FILTER**/, 0, tot_b);    
     // if(z->x_id == 142 && z->y_id == 207) {
     //     fprintf(stderr, "-a-[M::%s::]\tqid::%u\ttid::%u\t%.*s\tq::[%u,%u)\tt::[%u,%u)\tis_match::%u\terr::%u\n", __func__, z->x_id,
     //         z->y_id, (int)Get_NAME_LENGTH(R_INF, z->y_id), Get_NAME(R_INF, z->y_id), 
@@ -33292,15 +33312,15 @@ void rescue_cu_aln_adv(gen_hc_aln_t *ez, int64_t ql, uint64_t *wcut, uint64_t wc
 
 
 ///need to consider coverage, this information is missing right now (currently only use numbers)
-void gen_hc_r_alin_adp_smp(overlap_region_alloc* ol, Candidates_list *cl, All_reads *rref, UC_Read* qu, UC_Read* tu, bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t wl, int64_t rid, int64_t khit, int64_t move_gap, asg16_v* buf, uint8_t chem_drop, double align_gap_rate, int64_t align_gap_max, uint64_t sec_aln_win, uint64_t sec_aln_cov, double sec_aln_err_rate, double sec_aln_max, 
-    asg64_v *sp, uint64_t ocw, uint8_t *hpf, uint32_t *a_cu, uint32_t *a_ci, uint32_t *ocn, uint32_t *osc, uint64_t *idx_cu, uint64_t n_cu, asg64_v *bp, uint64_t max_n_chain, uint64_t max_n_chain_f, uint64_t chain_cutoff, uint64_t ave_cov_min, uint8_t set_match)
+uint64_t gen_hc_r_alin_adp_smp(overlap_region_alloc* ol, Candidates_list *cl, All_reads *rref, UC_Read* qu, UC_Read* tu, bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t wl, int64_t rid, int64_t khit, int64_t move_gap, asg16_v* buf, uint8_t chem_drop, double align_gap_rate, int64_t align_gap_max, uint64_t sec_aln_win, uint64_t sec_aln_cov, double sec_aln_err_rate, double sec_aln_max, 
+    asg64_v *sp, uint64_t ocw, uint8_t *hpf, uint32_t *a_cu, uint32_t *a_ci, uint32_t *ocn, uint32_t *osc, uint64_t *idx_cu, uint64_t n_cu, asg64_v *bp, uint64_t max_n_chain, uint64_t max_n_chain_f, uint64_t chain_cutoff, uint64_t ave_cov_min, uint8_t set_match, uint8_t is_dedup)
 {
-    uint64_t i, k, bs, ql = qu->length, *wcut = NULL, wcut_n = 0, *wsrt = NULL, wsrt_n = 0, lch = 0, wsrt_n0, spn0 = 0, tz, tot_b = 0, t_cov0, z_cov, focv = 0, fcov_0 = 0, rescue_b_cut = 0; Window_Pool w; double err, e_max; 
+    uint64_t i, k, bs, ql = qu->length, *wcut = NULL, wcut_n = 0, *wsrt = NULL, wsrt_n = 0, lch = 0, wsrt_n0, spn0 = 0, tz, tot_b = 0, t_cov0, z_cov, focv = 0, fcov_0 = 0, rescue_b_cut = 0/**, tot_b0 = 0**/; Window_Pool w; double err, e_max; 
     overlap_region *z, t; uint8_t fc = (((ol->length > max_n_chain) && (n_cu > 0))?(1):(0)), wf, ff; int32_t s[4]; s[0] = s[1] = s[2] = s[3] = 0; uint32_t scn[4]; 
     scn[0] = scn[1] = scn[2] = scn[3] = 0;
 
     ol->mapped_overlaps_length = 0;
-    if(ol->length <= 0 || ql <= 0) return;
+    if(ol->length <= 0 || ql <= 0) return tot_b;
 
     // prt_chain_cluster(ol, cl, a_cu, a_ci, ocn, osc, idx_cu, n_cu, 0, NULL);
 
@@ -33329,7 +33349,7 @@ void gen_hc_r_alin_adp_smp(overlap_region_alloc* ol, Candidates_list *cl, All_re
         rescue_b_cut = (fcov_0*0.75)*ql;
     }
     
-
+    // fprintf(stderr, "-0-[M::%s] tot_b::%lu\n", __func__, tot_b);
     // fprintf(stderr, "-0-[M::%s] focv::%lu, ave_cov_min::%lu, fcov_0::%lu, max_n_chain::%lu, wcut_n::%lu, ql::%lu, chain_cutoff::%lu\n", __func__, focv, ave_cov_min, fcov_0, max_n_chain, wcut_n, ql, chain_cutoff);
 
     ////this is very important!!! main issues coming from uneven read length, some short reads may have too many chains need to be calculated?
@@ -33412,10 +33432,16 @@ void gen_hc_r_alin_adp_smp(overlap_region_alloc* ol, Candidates_list *cl, All_re
             //     osc[i], ocn[i], z->is_match, z->non_homopolymer_errors);
         // }
 
-
+        // tot_b0 = tot_b;
         if((z->is_match == 0) && (!gen_hc_r_alin_flt_1_smp(&(ol->list[i]), cl, rref, qu, tu, exz, aux_o, err, e_max, e_rate, w.window_length, ql, rid, khit, chem_drop, align_gap_rate, align_gap_max, hpf, buf, &tot_b))) {
+            // fprintf(stderr, "-m-[M::%s]\ttid::%u\t%.*s(%c)\tq::[%u,%u)\tt::[%u,%u)\ttot_b::%lu\n", __func__, z->y_id, (int)Get_NAME_LENGTH(R_INF, z->y_id), Get_NAME(R_INF, z->y_id), "+-"[z->y_pos_strand], 
+            // z->x_pos_s, z->x_pos_e + 1, z->y_pos_s, z->y_pos_e + 1, tot_b - tot_b0);
             continue;
-        }
+        } 
+        // else {
+        //     fprintf(stderr, "-im-[M::%s]\ttid::%u\t%.*s(%c)\tq::[%u,%u)\tt::[%u,%u)\ttot_b::%lu\n", __func__, z->y_id, (int)Get_NAME_LENGTH(R_INF, z->y_id), Get_NAME(R_INF, z->y_id), "+-"[z->y_pos_strand], 
+        //     z->x_pos_s, z->x_pos_e + 1, z->y_pos_s, z->y_pos_e + 1, tot_b - tot_b0);
+        // }
 
         // if(z->x_id == 142 && z->y_id == 207) {
             // fprintf(stderr, "-5-[M::%s::]\tqid::%u\ttid::%u\t%.*s\tq::[%u,%u)\tt::[%u,%u)\tsc::%u\tcn::%u\tis_match::%u\terr::%u\n", __func__, z->x_id,
@@ -33435,6 +33461,8 @@ void gen_hc_r_alin_adp_smp(overlap_region_alloc* ol, Candidates_list *cl, All_re
     //         z->x_id, z->y_id, (int)Get_NAME_LENGTH(R_INF, z->y_id), Get_NAME(R_INF, z->y_id),
     //         (uint32_t)wsrt[i], wsrt[i]>>32);
     // }
+
+    // fprintf(stderr, "-1-[M::%s] tot_b::%lu\n", __func__, tot_b);
 
     if(fc && wsrt_n) {
         t_cov0 = cal_mm_wins_cov(wcut, wcut_n, ocw, ql, fcov_0);
@@ -33511,14 +33539,25 @@ void gen_hc_r_alin_adp_smp(overlap_region_alloc* ol, Candidates_list *cl, All_re
         tot_b += z_cov;
     }
 
+    // fprintf(stderr, "-2-[M::%s] tot_b::%lu\n", __func__, tot_b);
+
     if(lch) {
         gen_hc_aln_small_chn_smp(ol, cl, rref, qu, tu, exz, aux_o, err, e_max, e_rate, w.window_length, ql, rid, khit, chem_drop, align_gap_rate, align_gap_max, hpf, buf, &tot_b,
         wcut, wcut_n, ocw, wsrt, wsrt_n, ocn, osc, chain_cutoff, /**3, 3**/16, 16);
     }
 
+    // fprintf(stderr, "-3-[M::%s] tot_b::%lu\n", __func__, tot_b);
+
     if(rescue_b_cut > 0 && n_cu > 0) {
         tot_b += rescue_cu_aln(ol, cl, rref, qu, tu, exz, aux_o, err, e_max, e_rate, w.window_length, ql, rid, khit, chem_drop, align_gap_rate, align_gap_max, hpf, buf, 
             wcut, wcut_n, ocw, wsrt, a_cu, a_ci, idx_cu, n_cu, rescue_b_cut);
+    }
+
+    // fprintf(stderr, "-4-[M::%s] tot_b::%lu\n", __func__, tot_b);
+
+    if(!is_dedup) {
+        sp->n = spn0; 
+        return tot_b;
     }
 
 
@@ -33550,7 +33589,8 @@ void gen_hc_r_alin_adp_smp(overlap_region_alloc* ol, Candidates_list *cl, All_re
     // fprintf(stderr, "-[M::%s]\trid::%ld\ttot_b::%lu\tql::%lu\tmax_n_chain::%ld\ttot_b_cov:::%ld\n", __func__, rid, tot_b, ql, max_n_chain, tot_b/ql);
     // exit(1);
     sp->n = spn0; 
-    if(ol->length <= 0) return;
+    // if(ol->length <= 0) return tot_b;
+    return tot_b;
 }
 
 
@@ -33908,12 +33948,12 @@ void gen_hc_r_alin_adv_adp_smp(gen_hc_aln_t *ez, uint32_t *a_cu, uint32_t *a_ci,
 
 
 
-void gen_hc_r_alin_nec(overlap_region_alloc* ol, Candidates_list *cl, All_reads *rref, UC_Read* qu, UC_Read* tu, bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t wl, int64_t rid, int64_t khit, int64_t move_gap, asg16_v* buf, uint8_t chem_drop, double align_gap_rate, int64_t align_gap_max, uint64_t sec_aln_win, uint64_t sec_aln_cov, double sec_aln_err_rate, double sec_aln_max, asg64_v *kp, uint8_t *hpf)
+uint64_t gen_hc_r_alin_nec(overlap_region_alloc* ol, Candidates_list *cl, All_reads *rref, UC_Read* qu, UC_Read* tu, bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t wl, int64_t rid, int64_t khit, int64_t move_gap, asg16_v* buf, uint8_t chem_drop, double align_gap_rate, int64_t align_gap_max, uint64_t sec_aln_win, uint64_t sec_aln_cov, double sec_aln_err_rate, double sec_aln_max, asg64_v *kp, uint8_t *hpf)
 {
-    uint64_t i, bs, k, ql = qu->length, ks = 0, ke = sec_aln_win, kcnt = sec_aln_cov; Window_Pool w; double err, e_max, rr; int64_t re, kk;
+    uint64_t i, bs, k, ql = qu->length, ks = 0, ke = sec_aln_win, kcnt = sec_aln_cov, tot_b = 0;; Window_Pool w; double err, e_max, rr; int64_t re, kk;
     overlap_region t; overlap_region *z; //asg64_v iidx, buf, buf1;
     ol->mapped_overlaps_length = 0;
-    if(ol->length <= 0) return;
+    if(ol->length <= 0) return tot_b;
     // if(ol->length && ol->list[0].x_id == 19350) e_rate = 0.1;
 
     ///base alignment
@@ -33933,7 +33973,7 @@ void gen_hc_r_alin_nec(overlap_region_alloc* ol, Candidates_list *cl, All_reads 
 
             // if(z->x_id == 19350 && z->y_id == 19324) fprintf(stderr, "-z-[M::%s] tid::%u\t%.*s\n", __func__, z->y_id, (int)Get_NAME_LENGTH(R_INF, z->y_id), Get_NAME(R_INF, z->y_id));
             
-            if(!align_hc_ed_post_extz(z, rref, qu->seq, tu->seq, exz, err, w.window_length, OVERLAP_THRESHOLD_HIFI_FILTER, 0, NULL)) continue;
+            if(!align_hc_ed_post_extz(z, rref, qu->seq, tu->seq, exz, err, w.window_length, OVERLAP_THRESHOLD_HIFI_FILTER, 0, &tot_b)) continue;
 
             // if(z->x_id == 19350 && z->y_id == 19324) fprintf(stderr, "-m-[M::%s] tid::%u\t%.*s\n", __func__, z->y_id, (int)Get_NAME_LENGTH(R_INF, z->y_id), Get_NAME(R_INF, z->y_id));
 
@@ -33993,7 +34033,8 @@ void gen_hc_r_alin_nec(overlap_region_alloc* ol, Candidates_list *cl, All_reads 
 
 
     ol->length = k;
-    if(ol->length <= 0) return;
+    // if(ol->length <= 0) return;
+    return tot_b;
 }
 
 void gen_hc_r_alin_nec_adv(gen_hc_aln_t *ez)

@@ -263,6 +263,7 @@ typedef struct { size_t n, m; uint64_t *a; } asg64_v;
 typedef struct { size_t n, m; uint32_t *a; } asg32_v;
 typedef struct { size_t n, m; ma_utg_t *a;} ma_utg_v;
 typedef struct { asg64_v idx; kv_ul_ov_t srt;} mask_ul_ov_t;
+typedef struct { uint64_t n, m; char *a; } asgchr_v;
 
 typedef struct {
 	ma_utg_v u;

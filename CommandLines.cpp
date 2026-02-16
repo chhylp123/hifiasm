@@ -88,6 +88,8 @@ static ko_longopt_t long_options[] = {
     { "resume",     ko_no_argument, 370},
     { "flt-kocc",     ko_required_argument, 371},
     { "chn-occ",     ko_required_argument, 372},
+    { "dbg-in1",     ko_required_argument, 373},
+    { "dbg-in2",     ko_required_argument, 374},
     // { "path-round",     ko_required_argument, 348},
 	{ 0, 0, 0 }
 };
@@ -415,6 +417,9 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->hmo_cov_ss = -1;
     asm_opt->het_cov_ss = -1;
     asm_opt->chn_occ = 2;
+
+    asm_opt->dbg_run_1 = NULL;
+    asm_opt->dbg_run_2 = NULL;
 }   
 
 void destory_enzyme(enzyme* f)
@@ -1075,8 +1080,11 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
                 fprintf(stderr, "[ERROR] chain cutoff should be > 0 (--chn-occ)");
 			    return 1;
             }
-        }        
-        else if (c == 'l') {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
+        } else if (c == 373) {
+            asm_opt->dbg_run_1 = opt.arg;
+        } else if (c == 374) {
+            asm_opt->dbg_run_2 = opt.arg;
+        } else if (c == 'l') {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
             asm_opt->purge_level_primary = asm_opt->purge_level_trio = atoi(opt.arg);
         }
         else if (c == 's') asm_opt->purge_simi_rate_l2 = asm_opt->purge_simi_rate_l3 = atof(opt.arg);
