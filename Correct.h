@@ -1432,7 +1432,7 @@ int64_t get_rid_backward_cigar_err(rtrace_iter *it, ul_ov_t *aln, kv_rtrace_t *t
 const ul_idx_t *uref, char* qstr, UC_Read *tu, overlap_region_alloc *ol, overlap_region *o, 
 bit_extz_t *exz, double e_rate, int64_t qs);
 
-
+uint64_t gen_hc_r_alin_adp_smp_ff_ec(overlap_region_alloc* ol, Candidates_list *cl, All_reads *rref, UC_Read* qu, UC_Read* tu, bit_extz_t *exz, int64_t rid, asg64_v *sp, uint64_t ocw, uint32_t *ocn, uint32_t *osc, uint64_t max_n_chain, uint64_t max_n_chain_f, uint64_t chain_cutoff, uint64_t ave_cov_min);
 uint64_t gen_hc_r_alin_adp_smp(overlap_region_alloc* ol, Candidates_list *cl, All_reads *rref, UC_Read* qu, UC_Read* tu, bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t wl, int64_t rid, int64_t khit, int64_t move_gap, asg16_v* buf, uint8_t chem_drop, double align_gap_rate, int64_t align_gap_max, uint64_t sec_aln_win, uint64_t sec_aln_cov, double sec_aln_err_rate, double sec_aln_max, 
     asg64_v *sp, uint64_t ocw, uint8_t *hpf, uint32_t *a_cu, uint32_t *a_ci, uint32_t *ocn, uint32_t *osc, uint64_t *idx_cu, uint64_t n_cu, asg64_v *bp, uint64_t max_n_chain, uint64_t max_n_chain_f, uint64_t chain_cutoff, uint64_t ave_cov_min, uint8_t set_match, uint8_t is_dedup);
 void gen_hc_r_alin_adv_adp_smp(gen_hc_aln_t *ez, uint32_t *a_cu, uint32_t *a_ci, uint32_t *ocn, uint32_t *osc, uint64_t *idx_cu, uint64_t n_cu, uint8_t set_match);
@@ -1452,7 +1452,12 @@ void push_alnw(overlap_region *aux_o, bit_extz_t *exz);
 void cal_exz_global(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t thre, bit_extz_t *ez);
 void get_wqual(uint64_t zid, uint64_t zpos, uint64_t zrev, asg8_v *v, uint8_t *va, uint64_t scw, uint64_t *tqual, uint64_t *wqual);
 void gen_reseed_re(overlap_region_alloc *ol, Candidates_list *cl, overlap_region *aux_o, overlap_region *rse_o, All_reads *rref, UC_Read* qu, UC_Read *tu, bit_extz_t *exz, kv_ul_ov_t *c_idx, asg64_v *idx, asg64_v *res, int64_t bd, int64_t mzw, int64_t kl, int64_t rid, double err_h, double err_l, asg16_v *b16, uint64_t tqn, uint8_t *hpf);
-
+inline uint64_t exact_ec_check(char *qstr, uint64_t ql, char *tstr, uint64_t tl, int64_t qs, int64_t qe, int64_t ts, int64_t te)
+{
+    if(qe - qs != te - ts) return 0;
+    if(memcmp(qstr + qs, tstr + ts, qe - qs) == 0) return 1;
+    return 0;
+}
 
 #define ovlp_id(x) ((x).tn)
 #define ovlp_min_wid(x) ((x).ts)
