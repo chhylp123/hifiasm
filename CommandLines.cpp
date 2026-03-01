@@ -90,6 +90,8 @@ static ko_longopt_t long_options[] = {
     { "chn-occ",     ko_required_argument, 372},
     { "dbg-in1",     ko_required_argument, 373},
     { "dbg-in2",     ko_required_argument, 374},
+    { "ec-only",     ko_no_argument, 375},
+    { "hyb-syn",     ko_required_argument, 376},
     // { "path-round",     ko_required_argument, 348},
 	{ 0, 0, 0 }
 };
@@ -133,6 +135,7 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "                 homozygous read coverage [auto]; used for error correction and assembly; manual value overrides auto\n");
     fprintf(stderr, "    --chn-occ    INT\n");
     fprintf(stderr, "                 discard overlaps supported by <INT minimizers [%ld]\n", asm_opt->chn_occ);
+    fprintf(stderr, "    --ec-only    error correction only; disable overlapping and assembly\n");
     fprintf(stderr, "  Assembly:\n");
     fprintf(stderr, "    -a INT       round of assembly cleaning [%d]\n", asm_opt->clean_round);
     fprintf(stderr, "    -m INT       pop bubbles of <INT in size in contig graphs [%lld]\n", asm_opt->large_pop_bubble_size);
@@ -251,7 +254,13 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "                 filter out ONT Simplex reads shorter than <INT> for assembly [%ld]\n", asm_opt->rl_cut);
     fprintf(stderr, "    --sc-cut     INT\n");
     fprintf(stderr, "                 filter out ONT Simplex reads with a mean base quality score below <INT> [%ld]\n", asm_opt->sc_cut);
-    fprintf(stderr, "    --hf FILEs   file names of HiFi reads\n");
+    fprintf(stderr, "    --hf FILEs    HiFi read file(s)\n");
+    fprintf(stderr, "    --hyb-syn    INT\n");
+    fprintf(stderr, "                 hybrid correction mode (requires --hf) [%d]:\n", asm_opt->hyb_syn);
+    fprintf(stderr, "                 1: all-vs-all (ONT<-all, HiFi<-all)\n");
+    fprintf(stderr, "                 2: ONT<-all, HiFi<-HiFi\n");
+    fprintf(stderr, "                 3: mode 2 + ONT/HiFi sync to reduce bias\n");
+
 
 
     fprintf(stderr, "Example: ./hifiasm -o NA12878.asm -t 32 NA12878.fq.gz\n");
@@ -420,6 +429,10 @@ void init_opt(hifiasm_opt_t* asm_opt)
 
     asm_opt->dbg_run_1 = NULL;
     asm_opt->dbg_run_2 = NULL;
+
+    asm_opt->ec_only = 0;
+    asm_opt->hyb_syn = 1;
+    asm_opt->step_rd = 128;
 }   
 
 void destory_enzyme(enzyme* f)
@@ -805,6 +818,11 @@ int check_option(hifiasm_opt_t* asm_opt)
         return 0;
     }
 
+    if((asm_opt->hyb_syn != 1) && (asm_opt->hyb_syn != 2) && (asm_opt->hyb_syn != 3)) {
+        fprintf(stderr, "[ERROR] [--hyb-syn] must be 1/2/3\n");
+        return 0;
+    }
+
     return 1;
 }
 
@@ -1084,6 +1102,10 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
             asm_opt->dbg_run_1 = opt.arg;
         } else if (c == 374) {
             asm_opt->dbg_run_2 = opt.arg;
+        } else if (c == 375) {
+            asm_opt->ec_only = 1;
+        } else if (c == 376) {
+            asm_opt->hyb_syn = atoi(opt.arg);
         } else if (c == 'l') {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
             asm_opt->purge_level_primary = asm_opt->purge_level_trio = atoi(opt.arg);
         }

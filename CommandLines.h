@@ -5,7 +5,7 @@
 #include <pthread.h>
 #include <stdint.h>
 
-#define HA_VERSION "0.25.0-r861"
+#define HA_VERSION "0.25.0-r866"
 
 #define VERBOSE 0
 
@@ -148,6 +148,7 @@ typedef struct {
     uint8_t is_topo_trans;
     uint8_t is_bub_trans;
     uint8_t bin_only;
+    uint8_t ec_only;
     int32_t ul_clean_round;
     int32_t prt_dbg_gfa;
     int32_t integer_correct_round;
@@ -195,6 +196,9 @@ typedef struct {
 
     char *dbg_run_1, *dbg_run_2;
 
+    int32_t hyb_syn;
+
+    int64_t step_rd;
 } hifiasm_opt_t;
 
 extern hifiasm_opt_t asm_opt;

@@ -144,6 +144,8 @@ typedef struct
     ma_hit_t_alloc* paf;
     ma_hit_t_alloc* reverse_paf;
 
+    uint8_t is_syn;
+
     ///kvec_t_u64_warp* pb_regions;
 } All_reads;
 

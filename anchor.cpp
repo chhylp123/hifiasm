@@ -985,7 +985,7 @@ uint32_t *low_occ)
 
 
 uint64_t minimizers_qgen0(ha_abuf_t *ab, char* rs, int64_t rl, uint64_t mz_w, uint64_t mz_k, Candidates_list *cl, kvec_t_u8_warp* k_flag, 
-void *ha_flt_tab, ha_pt_t *ha_idx, All_reads* rdb, kvec_t_u64_warp* dbg_ct, st_mt_t *sp, uint32_t *high_occ, uint32_t *low_occ, uint64_t ti_cut)
+void *ha_flt_tab, ha_pt_t *ha_idx, All_reads* rdb, kvec_t_u64_warp* dbg_ct, st_mt_t *sp, uint32_t *high_occ, uint32_t *low_occ, uint64_t ti_cut, uint8_t flt_chh)
 {
 	// fprintf(stderr, "+[M::%s]\n", __func__);
 	uint64_t i, k, l, max_cnt = UINT32_MAX, min_cnt = 0; int n, j; ha_mz1_t *z; seed1_t *s; 
@@ -1009,7 +1009,6 @@ void *ha_flt_tab, ha_pt_t *ha_idx, All_reads* rdb, kvec_t_u64_warp* dbg_ct, st_m
 	}
 
 	for (i = 0, ab->n_a = 0; i < ab->mz.n; ++i) {
-
 		ab->seed[i].a = ha_pt_get(ha_idx, ab->mz.a[i].x, &n);
 		ab->seed[i].n = n;
 		ab->n_a += n;
@@ -1025,6 +1024,7 @@ void *ha_flt_tab, ha_pt_t *ha_idx, All_reads* rdb, kvec_t_u64_warp* dbg_ct, st_m
 		z = &ab->mz.a[i]; s = &ab->seed[i];
 		for (j = 0; j < s->n; ++j) {
 			const ha_idxpos_t *y = &s->a[j];
+			if((flt_chh) && (y->rid < ti_cut)) continue;///ONT
 			anchor1_t *an = &ab->a[k++];
 			uint8_t rev = z->rev == y->rev? 0 : 1;
 			an->other_off = rev?((uint32_t)-1)-1-(y->pos+1-y->span):y->pos;
@@ -1035,6 +1035,7 @@ void *ha_flt_tab, ha_pt_t *ha_idx, All_reads* rdb, kvec_t_u64_warp* dbg_ct, st_m
 			an->srt = (uint64_t)y->rid<<33 | (uint64_t)rev<<32 | an->self_off;
 		}
 	}
+	ab->n_a = k;
 
 	// copy over to _cl_
 	if (ab->m_a >= (uint64_t)cl->size) {
@@ -2682,7 +2683,7 @@ void h_ec_lchain(ha_abuf_t *ab, uint32_t rid, char* rs, uint64_t rl, uint64_t mz
 	int64_t max_skip, max_iter, max_dis, quick_check; double chn_pen_gap, chn_pen_skip;
 	set_lchain_dp_op(is_accurate, mz_k, &max_skip, &max_iter, &max_dis, &chn_pen_gap, &chn_pen_skip, &quick_check);
 	// minimizers_gen(ab, rs, rl, mz_w, mz_k, cl, k_flag, ha_flt_tab, ha_idx, dbg_ct, sp, high_occ, low_occ);
-	minimizers_qgen0(ab, rs, rl, mz_w, mz_k, cl, k_flag, ha_flt_tab, ha_idx, rref, dbg_ct, sp, high_occ, low_occ, ((uint64_t)-1));
+	minimizers_qgen0(ab, rs, rl, mz_w, mz_k, cl, k_flag, ha_flt_tab, ha_idx, rref, dbg_ct, sp, high_occ, low_occ, ((uint64_t)-1), 0);
 	// lchain_gen(cl, overlap_list, rid, rl, NULL, uref, apend_be, f_cigar, max_n_chain, max_skip, max_iter, max_dis, chn_pen_gap, chn_pen_skip, bw_thres, quick_check, gen_off);
 	// lchain_qgen(cl, overlap_list, rid, rl, NULL, uref, apend_be, f_cigar, max_n_chain, max_skip, max_iter, max_dis, chn_pen_gap, chn_pen_skip, bw_thres, quick_check, gen_off);
 	///no need to sort here, overlap_list has been sorted at lchain_gen
@@ -2690,14 +2691,14 @@ void h_ec_lchain(ha_abuf_t *ab, uint32_t rid, char* rs, uint64_t rl, uint64_t mz
 }
 
 void h_ec_lchain_hybrid(ha_abuf_t *ab, uint32_t rid, char* rs, uint64_t rl, uint64_t mz_w, uint64_t mz_k, All_reads *rref, overlap_region_alloc *overlap_list, Candidates_list *cl, double bw_thres_h, double bw_thres_l,  
-	int max_n_chain, int apend_be, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct, st_mt_t *sp, uint32_t *high_occ, uint32_t *low_occ, uint32_t is_accurate, uint32_t gen_off, int64_t mcopy_num, double mcopy_rate, uint32_t chain_cutoff, uint32_t mcopy_khit_cut, uint64_t ocv_w, uint64_t ti_cut, uint8_t is_raw_chain)
+	int max_n_chain, int apend_be, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct, st_mt_t *sp, uint32_t *high_occ, uint32_t *low_occ, uint32_t is_accurate, uint32_t gen_off, int64_t mcopy_num, double mcopy_rate, uint32_t chain_cutoff, uint32_t mcopy_khit_cut, uint64_t ocv_w, uint64_t ti_cut, uint8_t flt_chh, uint8_t is_raw_chain)
 {
 	extern void *ha_flt_tab;
 	extern ha_pt_t *ha_idx;
 	int64_t max_skip, max_iter, max_dis, quick_check; double chn_pen_gap, chn_pen_skip; uint64_t tcut_n = 0;
 	set_lchain_dp_op(is_accurate, mz_k, &max_skip, &max_iter, &max_dis, &chn_pen_gap, &chn_pen_skip, &quick_check);
 	// minimizers_gen(ab, rs, rl, mz_w, mz_k, cl, k_flag, ha_flt_tab, ha_idx, dbg_ct, sp, high_occ, low_occ);
-	tcut_n = minimizers_qgen0(ab, rs, rl, mz_w, mz_k, cl, k_flag, ha_flt_tab, ha_idx, rref, dbg_ct, sp, high_occ, low_occ, ti_cut);
+	tcut_n = minimizers_qgen0(ab, rs, rl, mz_w, mz_k, cl, k_flag, ha_flt_tab, ha_idx, rref, dbg_ct, sp, high_occ, low_occ, ti_cut, flt_chh);
 	// lchain_gen(cl, overlap_list, rid, rl, NULL, uref, apend_be, f_cigar, max_n_chain, max_skip, max_iter, max_dis, chn_pen_gap, chn_pen_skip, bw_thres, quick_check, gen_off);
 	// lchain_qgen(cl, overlap_list, rid, rl, NULL, uref, apend_be, f_cigar, max_n_chain, max_skip, max_iter, max_dis, chn_pen_gap, chn_pen_skip, bw_thres, quick_check, gen_off);
 	///no need to sort here, overlap_list has been sorted at lchain_gen
