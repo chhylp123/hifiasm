@@ -1455,14 +1455,14 @@ void push_alnw(overlap_region *aux_o, bit_extz_t *exz);
 void cal_exz_global(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t thre, bit_extz_t *ez);
 void get_wqual(uint64_t zid, uint64_t zpos, uint64_t zrev, asg8_v *v, uint8_t *va, uint64_t scw, uint64_t *tqual, uint64_t *wqual);
 void gen_reseed_re(overlap_region_alloc *ol, Candidates_list *cl, overlap_region *aux_o, overlap_region *rse_o, All_reads *rref, UC_Read* qu, UC_Read *tu, bit_extz_t *exz, kv_ul_ov_t *c_idx, asg64_v *idx, asg64_v *res, int64_t bd, int64_t mzw, int64_t kl, int64_t rid, double err_h, double err_l, asg16_v *b16, uint64_t tqn, uint8_t *hpf);
-void est_rep_err_rate(overlap_region_alloc* ol, asg64_v *ix, kv_ul_ov_t *c_idx, int64_t ql, int64_t wl, uint64_t *ou_a);
 inline uint64_t exact_ec_check(char *qstr, uint64_t ql, char *tstr, uint64_t tl, int64_t qs, int64_t qe, int64_t ts, int64_t te)
 {
     if(qe - qs != te - ts) return 0;
     if(memcmp(qstr + qs, tstr + ts, qe - qs) == 0) return 1;
     return 0;
 }
-
+// void est_rep_err_rate(overlap_region_alloc* ol, asg64_v *ix, kv_ul_ov_t *c_idx, int64_t ql, int64_t wl, uint64_t *ou_a, uint64_t min_dp, int64_t ph_cov, uint8_t flg_ov, double flg_ov_sec_rate, double flg_cov_rate, uint64_t *ave_e, uint64_t *bd_e, uint64_t *tot_cov);
+void est_rep_err_rate(overlap_region_alloc* ol, asg64_v *ix, kv_ul_ov_t *c_idx, int64_t ql, int64_t wl, uint64_t *ou_a, uint64_t min_dp, int64_t ph_cov, uint8_t flg_ov, double flg_ov_sec_rate, double flg_cov_rate, uint64_t *ave_e, uint64_t *bd_e, uint64_t *tot_cov);
 #define ovlp_id(x) ((x).tn)
 #define ovlp_min_wid(x) ((x).ts)
 #define ovlp_max_wid(x) ((x).te)

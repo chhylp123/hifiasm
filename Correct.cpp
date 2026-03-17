@@ -21506,7 +21506,7 @@ int64_t extract_sub_cigar_hc(overlap_region *z, All_reads *rref, haplotype_evdie
 }
 
 
-int64_t extract_sub_err_hc(overlap_region *z, uint64_t ql, int64_t s, int64_t e, ul_ov_t *p, int64_t *rerr)
+int64_t extract_sub_err_hc(overlap_region *z, int64_t ql, int64_t s, int64_t e, ul_ov_t *p, int64_t *rerr)
 {
     int64_t wk = ovlp_cur_wid(*p), xk = ovlp_cur_xoff(*p), yk = ovlp_cur_yoff(*p), ck = ovlp_cur_coff(*p), os, oe;
     bit_extz_t ez; int64_t s0, e0; (*rerr) = INT64_MAX;
@@ -21553,6 +21553,16 @@ int64_t extract_sub_err_hc(overlap_region *z, uint64_t ql, int64_t s, int64_t e,
             (*rerr) += ovlp;
         } else if(op == 2) {
             (*rerr) += (ez.cigar.a[ck-1]&(0x3fff));
+        }
+    }
+
+    if((ck < cn) && (xk == e) && (e == ql)) {
+        while (ck < cn) {//[s, e)
+            op = ez.cigar.a[ck]>>14;
+            if(op != 2) break;
+            yk += (ez.cigar.a[ck]&(0x3fff)); ///op == 2
+            (*rerr) += (ez.cigar.a[ck]&(0x3fff));
+            ck++; 
         }
     }
 
@@ -22279,7 +22289,7 @@ uint64_t hc_est_robust_rr_diff_gap(overlap_region* ol, uint64_t ql, uint64_t *id
 
 
 uint64_t hc_est_robust_rr(overlap_region* ol, uint64_t ql, uint64_t *id_a, uint64_t id_n, uint64_t *srt_a, uint64_t *srt_b, uint64_t s, uint64_t e, double k_mad, ul_ov_t *c_idx, 
-    int64_t *max_est_err, int64_t *ave_est_err, uint8_t is_dbg)
+    int64_t *max_est_err, int64_t *ave_est_err, uint64_t min_dp, uint8_t is_dbg)
 {
     uint64_t k, q[2], rr = 0, os, oe, srt_n = 0, cut; int64_t rerr, mm_cut = 0; ul_ov_t *p; overlap_region *z;
     *max_est_err = *ave_est_err = INT64_MAX;
@@ -22303,7 +22313,7 @@ uint64_t hc_est_robust_rr(overlap_region* ol, uint64_t ql, uint64_t *id_a, uint6
         }
     }
 
-    if(srt_n > 0) {
+    if((srt_n > 0) && (srt_n >= min_dp)) {
         double mad; uint64_t med_f, mad_f, thr;
         radix_sort_bc64(srt_a, srt_a + srt_n);
         // if(is_dbg) {
@@ -23333,19 +23343,790 @@ void gen_qvec_hvec(All_reads *rref, asg8_v *t, uint8_t **hf, uint8_t **qual, uin
     }
 }
 
-void est_rep_err_rate(overlap_region_alloc* ol, asg64_v *ix, kv_ul_ov_t *c_idx, int64_t ql, int64_t wl, uint64_t *ou_a)
+inline void iter_win_err(int64_t err_pos, int64_t err_bp, uint8_t self_axis, uint8_t is_err, int64_t wl, int64_t w_tot, int64_t *ws, int64_t *werr, int64_t *dif_a_len, int64_t *dif_b_len, double dif_a, double dif_b, uint8_t is_dbg)
 {
-    overlap_region *z; uint64_t m, *wea = NULL, iin = 0, ewn = (ql/wl) + (((ql%wl)>0)?1:0), ewk; ul_ov_t *cp; uint8_t fm;
+    int64_t ws0 = *ws, we0 = (*ws) + wl; if(we0 > w_tot) we0 = w_tot;
+    // if(we0 <= ws0) return;
+    int64_t zs = err_pos, ze = err_pos + ((self_axis)?(err_bp):(0)), cs, ce, os, oe, ovlp, sl;
+    // fprintf(stderr, "[M::%s]\terr_pos::%ld, err_bp::%ld, self_axis::%u, is_err::%u, wl::%ld, w_tot::%ld, ws0::%ld, we0::%ld, zs::%ld, ze::%ld\n", __func__, 
+    //     err_pos, err_bp, self_axis, is_err, wl, w_tot, ws0, we0, zs, ze);
+    assert((err_pos < w_tot && ws0 <= zs && zs < we0) || (err_pos == w_tot && we0 == w_tot && ws0 <= zs && zs <= we0));
+
+    if(zs == ze) {
+        if(is_err) {
+            (*werr) += err_bp;
+            // if(err_pos == w_tot && ws0 == w_tot && we0 == w_tot) {
+            //     (*werr) = 0;
+            // }
+        }
+
+        if(ze >= we0) {
+            sl = we0 - ws0;
+            if(is_dbg) fprintf(stderr, "[M::%s]\tws0::%ld,\twe0::%ld,\t(*werr)::%ld,\tw_tot::%ld,\twl::%ld\n", __func__, ws0, we0, (*werr), w_tot, wl);
+            if((*werr) <= 0) {
+                (*dif_a_len) += sl; (*dif_b_len) += sl;
+            } else {
+                if((*werr) <= (sl*dif_a)) (*dif_a_len) += sl;
+                if((*werr) <= (sl*dif_b)) (*dif_b_len) += sl;
+            }
+            (*werr) = 0;
+            ws0 += wl; if(ws0 > w_tot) ws0 = w_tot;
+            we0 = ws0 + wl; if(we0 > w_tot) we0 = w_tot;
+        }
+    } else {
+        while (zs < ze) {
+            cs = zs; ce = ((zs/wl)+1)*wl; if(ce > ze) ce = ze;
+
+            os = MAX(cs, ws0); oe = MIN(ce, we0);
+            ovlp = ((oe>os)? (oe-os):0);
+
+            if(is_err) *werr += ovlp;
+
+            if(ce >= we0) {
+                sl = we0 - ws0;
+                if(is_dbg) fprintf(stderr, "[M::%s]\tws0::%ld,\twe0::%ld,\t(*werr)::%ld,\tw_tot::%ld,\twl::%ld\n", __func__, ws0, we0, (*werr), w_tot, wl);
+                if((*werr) <= 0) {
+                    (*dif_a_len) += sl; (*dif_b_len) += sl;
+                } else {
+                    if((*werr) <= (sl*dif_a)) (*dif_a_len) += sl;
+                    if((*werr) <= (sl*dif_b)) (*dif_b_len) += sl;
+                }
+                (*werr) = 0;
+                ws0 += wl; if(ws0 > w_tot) ws0 = w_tot;
+                we0 = ws0 + wl; if(we0 > w_tot) we0 = w_tot;
+            }
+            zs += wl; if(zs > w_tot) zs = w_tot;
+        }
+    }
+
+    *ws = ws0;
+}
+
+inline int64_t cal_close_werr(int64_t s, int64_t e, int64_t wl, uint64_t *wea, int64_t wea_tot, double uncov_err, int64_t *ucovl, int64_t werr_bd, double werr_rate/**, uint8_t is_dbg**/)
+{
+    int64_t ws, we, os, oe, wk, ovlp; int64_t uclen = 0, wave = 0, mmov = -1, mmwerr = INT64_MAX, bp;
+    ws = (s/wl)*wl; if(ws >= wea_tot) ws = wea_tot;
+    we = ws + wl; if(we >= wea_tot) we = wea_tot;
+    // if(is_dbg) fprintf(stderr, "[M::%s]\tq::[%ld,%ld)\tw::[%ld,%ld)\ts/wl::%ld\t(s/wl)*wl::%ld\n", __func__, s, e, ws, we, s/wl, (s/wl)*wl);
+    while (ws < e) {
+        os = MAX(s, ws); oe = MIN(e, we);
+        ovlp = ((oe>os)? (oe-os):0);
+        if(ovlp > 0) {
+            wk = ws/wl;
+            if(wea[wk] == ((uint64_t)-1)) {
+                uclen += ovlp;
+            } else {
+                wave = (uint32_t)wea[wk];
+                if((ovlp > mmov) || ((ovlp == mmov) && (wave < mmwerr))) {
+                    mmov = ovlp; mmwerr = wave;
+                }
+
+            }
+        }
+        ws += wl; if(ws >= wea_tot) ws = wea_tot;
+        we += wl; if(we >= wea_tot) we = wea_tot;
+    }
+    if(uclen > 0) {
+        if(uclen > mmov) {
+            mmov = uclen; mmwerr = uclen*uncov_err;
+        }
+    }
+    (*ucovl) += uclen;
+    // if(is_dbg) fprintf(stderr, "[M::%s]\tq::[%ld,%ld)\tw::[%ld,%ld)\tuclen::%ld\n", __func__, s, e, ws, we, uclen);
+
+    if(mmwerr != INT64_MAX) {
+        bp = mmwerr*werr_rate;
+        if(bp < werr_bd) bp = werr_bd;
+        return mmwerr + bp;
+    } else {
+        return INT64_MIN;
+    }
+}
+
+inline int64_t cal_close_werr_qonly(int64_t s, int64_t e, int64_t wl, uint64_t *wea, int64_t wea_tot, double uncov_err, int64_t *ucovl, int64_t werr_bd, double werr_rate/**, uint8_t is_dbg**/)
+{
+    int64_t ws, we, os, oe, wk, ovlp; int64_t uclen = 0, wave = 0, mmov = -1, mmwerr = INT64_MAX, bp;
+    if(e > s) {
+        ws = (s/wl)*wl; if(ws >= wea_tot) ws = wea_tot;
+        we = ws + wl; if(we >= wea_tot) we = wea_tot;
+        assert(ws <= s && we >= e);
+        wk = ws/wl;
+        if(wea[wk] == ((uint64_t)-1)) {
+            uclen = e - s;
+        } else {
+            mmwerr = (uint32_t)wea[wk];
+        }
+    } else {
+        ;
+    }
+
+
+    
+    // if(is_dbg) fprintf(stderr, "[M::%s]\tq::[%ld,%ld)\tw::[%ld,%ld)\ts/wl::%ld\t(s/wl)*wl::%ld\n", __func__, s, e, ws, we, s/wl, (s/wl)*wl);
+    while (ws < e) {
+        os = MAX(s, ws); oe = MIN(e, we);
+        ovlp = ((oe>os)? (oe-os):0);
+        if(ovlp > 0) {
+            wk = ws/wl;
+            if(wea[wk] == ((uint64_t)-1)) {
+                uclen += ovlp;
+            } else {
+                wave = (uint32_t)wea[wk];
+                if((ovlp > mmov) || ((ovlp == mmov) && (wave < mmwerr))) {
+                    mmov = ovlp; mmwerr = wave;
+                }
+
+            }
+        }
+        ws += wl; if(ws >= wea_tot) ws = wea_tot;
+        we += wl; if(we >= wea_tot) we = wea_tot;
+    }
+    if(uclen > 0) {
+        if(uclen > mmov) {
+            mmov = uclen; mmwerr = uclen*uncov_err;
+        }
+    }
+    (*ucovl) += uclen;
+    // if(is_dbg) fprintf(stderr, "[M::%s]\tq::[%ld,%ld)\tw::[%ld,%ld)\tuclen::%ld\n", __func__, s, e, ws, we, uclen);
+
+    if(mmwerr != INT64_MAX) {
+        bp = mmwerr*werr_rate;
+        if(bp < werr_bd) bp = werr_bd;
+        return mmwerr + bp;
+    } else {
+        return INT64_MIN;
+    }
+}
+
+inline void iter_win_err_adv(int64_t err_pos, int64_t err_bp, uint8_t self_axis, uint8_t is_err, int64_t wl, int64_t w_tot, int64_t *ws, int64_t *wsf, int64_t *werr, int64_t werr_bd, double werr_rate,
+    int64_t *dif_a_len, int64_t *dif_b_len, int64_t *ucov_len, double uncov_err, double dif_a, uint64_t *wea, int64_t wea_tot, int64_t werr_pos, uint8_t werr_pos_mv/**, uint8_t is_dbg**/)
+{
+    int64_t ws0 = *ws, we0 = (((*ws)/wl)*wl) + wl, wfs0 = (*wsf), wcut; if(we0 > w_tot) we0 = w_tot; 
+    int64_t zs = err_pos, ze = err_pos + ((self_axis)?(err_bp):(0)), cs, ce, os, oe, ovlp, sl;
+    int64_t zfe = werr_pos + ((werr_pos_mv)?(err_bp):(0));
+    // fprintf(stderr, "[M::%s]\terr_pos::%ld, err_bp::%ld, self_axis::%u, is_err::%u, wl::%ld, w_tot::%ld, ws0::%ld, we0::%ld, zs::%ld, ze::%ld\n", __func__, 
+    //     err_pos, err_bp, self_axis, is_err, wl, w_tot, ws0, we0, zs, ze);
+    assert((err_pos < w_tot && ws0 <= zs && zs < we0) || (err_pos == w_tot && we0 == w_tot && ws0 <= zs && zs <= we0));
+
+    if(zs == ze) {
+        if(is_err) (*werr) += err_bp;
+
+        if(ze >= we0) {
+            sl = we0 - ws0;
+            if((*werr) <= 0) {
+                (*dif_a_len) += sl; (*dif_b_len) += sl;
+                // if(is_dbg) fprintf(stderr, "[M::%s]\tws0::%ld,\twe0::%ld,\t(*werr)::%ld,\tw_tot::%ld,\twl::%ld\n", __func__, ws0, we0, (*werr), w_tot, wl);
+            } else {
+                if((*werr) <= (sl*dif_a)) (*dif_a_len) += sl;
+                wcut = cal_close_werr(wfs0, zfe, wl, wea, wea_tot, uncov_err, ucov_len, werr_bd, werr_rate/**, is_dbg**/);
+                if((*werr) <= wcut) (*dif_b_len) += sl;
+                // if(is_dbg) fprintf(stderr, "[M::%s]\tws0::%ld,\twe0::%ld,\t(*werr)::%ld,\tw_tot::%ld,\twl::%ld\twcut::%ld\n", __func__, ws0, we0, (*werr), w_tot, wl, wcut);
+            }
+            (*werr) = 0;
+            ws0 = (ws0/wl)*wl; ws0 += wl; if(ws0 > w_tot) ws0 = w_tot;
+            we0 = ws0 + wl; if(we0 > w_tot) we0 = w_tot;
+            wfs0 = zfe;
+        }
+    } else {
+        while (zs < ze) {
+            cs = zs; ce = ((zs/wl)+1)*wl; if(ce > ze) ce = ze;
+
+            os = MAX(cs, ws0); oe = MIN(ce, we0);
+            ovlp = ((oe>os)? (oe-os):0);
+
+            if(is_err) *werr += ovlp;
+
+            if(ce >= we0) {
+                sl = we0 - ws0;
+                if((*werr) <= 0) {
+                    (*dif_a_len) += sl; (*dif_b_len) += sl;
+                    // if(is_dbg) fprintf(stderr, "[M::%s]\tws0::%ld,\twe0::%ld,\t(*werr)::%ld,\tw_tot::%ld,\twl::%ld\n", __func__, ws0, we0, (*werr), w_tot, wl);
+                } else {
+                    if((*werr) <= (sl*dif_a)) (*dif_a_len) += sl;
+                    wcut = cal_close_werr(wfs0, (!werr_pos_mv)?(zfe):(werr_pos + we0 - err_pos), wl, wea, wea_tot, uncov_err, ucov_len, werr_bd, werr_rate/**, is_dbg**/);
+                    if((*werr) <= wcut) (*dif_b_len) += sl;
+                    // if(is_dbg) fprintf(stderr, "[M::%s]\tws0::%ld,\twe0::%ld,\t(*werr)::%ld,\tw_tot::%ld,\twl::%ld\twcut::%ld\n", __func__, ws0, we0, (*werr), w_tot, wl, wcut);
+                    // if((*werr) <= (sl*dif_b)) (*dif_b_len) += sl;
+                }
+                (*werr) = 0;
+                ws0 = (ws0/wl)*wl; ws0 += wl; if(ws0 > w_tot) ws0 = w_tot;
+                we0 = ws0 + wl; if(we0 > w_tot) we0 = w_tot;
+                if(!werr_pos_mv) {
+                    wfs0 = zfe;
+                } else {
+                    wfs0 = werr_pos + ws0 - err_pos;
+                }
+            }
+            cs = zs;
+            zs = ((zs/wl)+1)*wl; if(zs > w_tot) zs = w_tot;
+        }
+    }
+    *ws = ws0; *wsf = wfs0;
+}
+
+
+
+inline void iter_win_err_adv_qonly(int64_t qk, int64_t ol, uint8_t op, int64_t wl, int64_t q_tot, int64_t *wqk, int64_t *wtk, int64_t *werr, uint64_t *wea, int64_t wea_tot, int64_t tk, int64_t t_tot, 
+    uint64_t *srt/**int64_t max_wtl, uint64_t max_wtl_bit, int64_t max_werr, uint64_t max_werr_bit**/)
+{
+    int64_t wqs0 = (*wqk), wqe0 = (((*wqk)/wl)*wl) + wl; if(wqe0 > q_tot) wqe0 = q_tot; 
+    int64_t wts0 = (*wtk);///wte0 is larger than the real win end
+    int64_t zqs = qk, zqe = qk + ((op!=2)?(ol):(0)), zte = tk + ((op!=3)?(ol):(0)), cqs, cqe, os, oe, ovlp, st, wi;
+    // uint64_t wtl, wdif; uint64_t *wp;
+    // fprintf(stderr, "[M::%s]\terr_pos::%ld, err_bp::%ld, self_axis::%u, is_err::%u, wl::%ld, w_tot::%ld, ws0::%ld, we0::%ld, zs::%ld, ze::%ld\n", __func__, 
+    //     err_pos, err_bp, self_axis, is_err, wl, w_tot, ws0, we0, zs, ze);
+    // assert((qk < q_tot && wqs0 <= zqs && zqs < wqe0) || (qk == q_tot && wqe0 == q_tot && wqs0 <= zqs && zqs <= wqe0));
+
+    if(zqs == zqe) {
+        if(op) (*werr) += ol;
+
+        assert(zqs >= wqs0 && zqe <= wqe0 && zte >= wts0);
+        if((zqe >= wqe0) && ((zqe < q_tot) || (zqe >= q_tot && zte >= t_tot))) {
+            st = zte - wts0;
+
+            /**
+            wtl = ((st <= max_wtl)?st:max_wtl);
+            wdif = (((*werr) <= max_werr)?(*werr):max_werr);
+            wp = &(wea[wqs0/wl]); *wp <<= 32; *wp >>= 32; 
+            *wp |= (((wtl<<max_werr_bit)|wdif)<<32);
+            **/
+            wi = wqs0/wl; srt[wi] = (*werr); srt[wi] <<= 32; srt[wi] |= st;
+
+            (*werr) = 0;
+            wqs0 = ((wqs0/wl)*wl) + wl; if(wqs0 > q_tot) wqs0 = q_tot;
+            wqe0 = wqs0 + wl; if(wqe0 > q_tot) wqe0 = q_tot;
+            wts0 = zte;
+        }
+    } else {
+        while (zqs < zqe) {
+            cqs = zqs; cqe = ((zqs/wl)+1)*wl; if(cqe > zqe) cqe = zqe;
+
+            os = MAX(cqs, wqs0); oe = MIN(cqe, wqe0);
+            ovlp = ((oe>os)? (oe-os):0);
+
+            if(op) *werr += ovlp;
+            if(op!=3) zte = tk + cqe - qk;
+            
+            assert(cqs >= wqs0 && cqe <= wqe0 && zte >= wts0);
+            if((cqe >= wqe0) && ((cqe < q_tot) || (cqe >= q_tot && zte >= t_tot))) {
+                st = zte - wts0;
+
+                /**
+                wtl = ((st <= max_wtl)?st:max_wtl);
+                wdif = (((*werr) <= max_werr)?(*werr):max_werr);
+                wp = &(wea[wqs0/wl]); *wp <<= 32; *wp >>= 32; 
+                *wp |= (((wtl<<max_werr_bit)|wdif)<<32);
+                **/
+               wi = wqs0/wl; srt[wi] = (*werr); srt[wi] <<= 32; srt[wi] |= st;
+
+                (*werr) = 0;
+                wqs0 = ((wqs0/wl)*wl) + wl; if(wqs0 > q_tot) wqs0 = q_tot;
+                wqe0 = wqs0 + wl; if(wqe0 > q_tot) wqe0 = q_tot;
+                wts0 = zte;
+            }
+            zqs = ((zqs/wl)+1)*wl; if(zqs > q_tot) zqs = q_tot;
+        }
+    }
+    *wqk = wqs0; *wtk = wts0;
+}
+
+
+
+
+void extrac_bi_ccg(overlap_region *z, int64_t ql, int64_t tl, int64_t wl, double dif_a, double dif_b, double mm_ovlp_rate, uint8_t *a_match, uint8_t *b_match)
+{
+    uint64_t wk; int64_t ck, cn, qs, qe, ts, te, qk, tk, qbeg, tbeg, cqws, cqw_tot, ctws, ctw_tot, qerr, terr; bit_extz_t ez;
+    int64_t ol, qk0, tk0; uint8_t op; int64_t dif_a_ql = 0, dif_b_ql = 0, dif_a_tl = 0, dif_b_tl = 0; *a_match = *b_match = 0;
+
+    qk = z->x_pos_s; tk = z->y_pos_s; qerr = terr = 0;
+    cqws = qbeg = z->x_pos_s; cqw_tot = z->x_pos_e + 1; cqw_tot -= cqws; cqws = 0;
+    ctws = tbeg = z->y_pos_s; ctw_tot = z->y_pos_e + 1; ctw_tot -= ctws; ctws = 0;
+    // fprintf(stderr, "[M::%s]\tw_list_n::%u\n", __func__, (uint32_t)z->w_list.n);
+
+    for (wk = 0; wk < z->w_list.n; wk++) {
+        if(is_ualn_win(z->w_list.a[wk])) continue;
+        qs = z->w_list.a[wk].x_start;
+        qe = z->w_list.a[wk].x_end + 1;
+        ts = z->w_list.a[wk].y_start;
+        te = z->w_list.a[wk].y_end + 1;
+        if(qs >= qe || ts >= te) continue;
+        set_bit_extz_t(ez, (*z), wk);
+        if(!ez.cigar.n) continue;
+
+        // wqs = qk; wqe = qs;
+        // wts = tk; wte = ts;
+        assert(qk <= qs && tk <= ts);
+
+        if(qs > qk) {
+            op = 3; ol = qs - qk;
+            iter_win_err(qk - qbeg, ol, 1, 1, wl, cqw_tot, &cqws, &qerr, &dif_a_ql, &dif_b_ql, dif_a, dif_b, 0);
+            iter_win_err(tk - tbeg, ol, 0, 1, wl, ctw_tot, &ctws, &terr, &dif_a_tl, &dif_b_tl, dif_a, dif_b, 0);
+            qk = qs;
+        }
+
+        if(ts > tk) {
+            op = 2; ol = ts - tk;
+            iter_win_err(qk - qbeg, ol, 0, 1, wl, cqw_tot, &cqws, &qerr, &dif_a_ql, &dif_b_ql, dif_a, dif_b, 0);
+            iter_win_err(tk - tbeg, ol, 1, 1, wl, ctw_tot, &ctws, &terr, &dif_a_tl, &dif_b_tl, dif_a, dif_b, 0);
+            tk = ts;
+        }
+
+        set_bit_extz_t(ez, (*z), wk); cn = ez.cigar.n; ck = 0;
+        while (ck < cn) {
+            op = ez.cigar.a[ck]>>14; ol = (ez.cigar.a[ck]&(0x3fff));
+            qk0 = qk; tk0 = tk;
+            if(op!=2) qk += ol; ///op == 3
+            if(op!=3) tk += ol; ///op == 2
+
+            if(z->x_id == 3 && z->y_id == 57 && op > 0) fprintf(stderr, "[M::%s]\tq::[%ld,%ld)\tt::[%ld,%ld)\tck::%ld\tcn::%ld\top::%u\tol::%ld\n", __func__, qk0, qk, tk0, tk, ck, cn, op, ol);
+            ck++;
+
+            iter_win_err(qk0 - qbeg, ol, qk>qk0?1:0, op!=0?1:0, wl, cqw_tot, &cqws, &qerr, &dif_a_ql, &dif_b_ql, dif_a, dif_b, (z->x_id == 3 && z->y_id == 57)?1:0);
+            iter_win_err(tk0 - tbeg, ol, tk>tk0?1:0, op!=0?1:0, wl, ctw_tot, &ctws, &terr, &dif_a_tl, &dif_b_tl, dif_a, dif_b, (z->x_id == 3 && z->y_id == 57)?1:0);
+
+        }
+    }
+
+    qs = z->x_pos_e + 1; ts = z->y_pos_e + 1;
+    assert(qk <= qs && tk <= ts);
+
+    if(qs > qk) {
+        op = 3; ol = qs - qk;
+        iter_win_err(qk - qbeg, ol, 1, 1, wl, cqw_tot, &cqws, &qerr, &dif_a_ql, &dif_b_ql, dif_a, dif_b, 0);
+        iter_win_err(tk - tbeg, ol, 0, 1, wl, ctw_tot, &ctws, &terr, &dif_a_tl, &dif_b_tl, dif_a, dif_b, 0);
+        qk = qs;
+    }
+
+    if(ts > tk) {
+        op = 2; ol = ts - tk;
+        iter_win_err(qk - qbeg, ol, 0, 1, wl, cqw_tot, &cqws, &qerr, &dif_a_ql, &dif_b_ql, dif_a, dif_b, 0);
+        iter_win_err(tk - tbeg, ol, 1, 1, wl, ctw_tot, &ctws, &terr, &dif_a_tl, &dif_b_tl, dif_a, dif_b, 0);
+        tk = ts;
+    }
+
+    fprintf(stderr, "[M::%s]\tdif_qa::%ld\tqaln::%u\tdif_ta::%ld\tqtln::%u\n", __func__, dif_a_ql, (z->x_pos_e + 1 - z->x_pos_s), dif_a_tl, (z->y_pos_e + 1 - z->y_pos_s));
+    fprintf(stderr, "[M::%s]\tdif_qb::%ld\tqaln::%u\tdif_tb::%ld\tqtln::%u\n", __func__, dif_b_ql, (z->x_pos_e + 1 - z->x_pos_s), dif_b_tl, (z->y_pos_e + 1 - z->y_pos_s));
+    assert(qerr == 0 && terr == 0);
+    if((dif_a_ql) && (dif_a_ql >= ((z->x_pos_e + 1 - z->x_pos_s)*dif_a)) && (dif_a_tl) && (dif_a_tl >= ((z->y_pos_e + 1 - z->y_pos_s)*dif_a))) *a_match = 1;
+    if((dif_b_ql) && (dif_b_ql >= ((z->x_pos_e + 1 - z->x_pos_s)*dif_b)) && (dif_b_tl) && (dif_b_tl >= ((z->y_pos_e + 1 - z->y_pos_s)*dif_b))) *b_match = 1;
+}
+
+
+void extrac_bi_ccg_adv(overlap_region *z, int64_t ql, int64_t tl, int64_t wl, double ucov_err, double dif_a, uint64_t *wea, double mm_ovlp_rate, double wbp_r, int64_t wbp_b, uint8_t *a_match, uint8_t *b_match)
+{
+    uint64_t wk; int64_t ck, cn, qs, qe, ts, te, qk, tk, cqws, cqw_tot, ctws, cqws_fp, ctws_fp, ctw_tot, qerr, terr; bit_extz_t ez;
+    int64_t ol, qk0, tk0; uint8_t op; int64_t dif_a_ql = 0, dif_b_ql = 0, dif_a_tl = 0, dif_b_tl = 0, ucov_ql = 0, ucov_tl = 0; *a_match = *b_match = 0;
+
+    qk = z->x_pos_s; tk = z->y_pos_s; qerr = terr = 0;
+    cqws = z->x_pos_s; cqw_tot = z->x_pos_e + 1; 
+    ctws = z->y_pos_s; ctw_tot = z->y_pos_e + 1; 
+    cqws_fp = ctws_fp = cqws;
+    // fprintf(stderr, "[M::%s]\tw_list_n::%u\twl::%ld\n", __func__, (uint32_t)z->w_list.n, wl);
+
+    for (wk = 0; wk < z->w_list.n; wk++) {
+        if(is_ualn_win(z->w_list.a[wk])) continue;
+        qs = z->w_list.a[wk].x_start;
+        qe = z->w_list.a[wk].x_end + 1;
+        ts = z->w_list.a[wk].y_start;
+        te = z->w_list.a[wk].y_end + 1;
+        if(qs >= qe || ts >= te) continue;
+        set_bit_extz_t(ez, (*z), wk);
+        if(!ez.cigar.n) continue;
+
+        // wqs = qk; wqe = qs;
+        // wts = tk; wte = ts;
+        assert(qk <= qs && tk <= ts);
+
+        if(qs > qk) {
+            op = 3; ol = qs - qk;
+            // inline void iter_win_err_adv(int64_t err_pos, int64_t err_bp, uint8_t self_axis, uint8_t is_err, int64_t wl, int64_t w_tot, int64_t *ws, int64_t *wsf, int64_t *werr, int64_t werr_bd, double werr_rate,
+            //     int64_t *dif_a_len, int64_t *dif_b_len, int64_t *ucov_len, double uncov_err, double dif_a, uint64_t *wea, int64_t wea_tot, int64_t werr_pos, uint8_t werr_pos_mv, uint8_t is_dbg)
+            iter_win_err_adv(qk, ol, 1, 1, wl, cqw_tot, &cqws, &cqws_fp, &qerr, wbp_b, wbp_r, &dif_a_ql, &dif_b_ql, &ucov_ql, ucov_err, dif_a, wea, ql, qk, 1/**, 0**/);
+            iter_win_err_adv(tk, ol, 0, 1, wl, ctw_tot, &ctws, &ctws_fp, &terr, wbp_b, wbp_r, &dif_a_tl, &dif_b_tl, &ucov_tl, ucov_err, dif_a, wea, ql, qk, 1/**, 0**/);
+            qk = qs;
+        }
+
+        if(ts > tk) {
+            op = 2; ol = ts - tk;
+            iter_win_err_adv(qk, ol, 0, 1, wl, cqw_tot, &cqws, &cqws_fp, &qerr, wbp_b, wbp_r, &dif_a_ql, &dif_b_ql, &ucov_ql, ucov_err, dif_a, wea, ql, qk, 0/**, 0**/);
+            iter_win_err_adv(tk, ol, 1, 1, wl, ctw_tot, &ctws, &ctws_fp, &terr, wbp_b, wbp_r, &dif_a_tl, &dif_b_tl, &ucov_tl, ucov_err, dif_a, wea, ql, qk, 0/**, 0**/);
+            tk = ts;
+        }
+
+        set_bit_extz_t(ez, (*z), wk); cn = ez.cigar.n; ck = 0;
+        while (ck < cn) {
+            op = ez.cigar.a[ck]>>14; ol = (ez.cigar.a[ck]&(0x3fff));
+            qk0 = qk; tk0 = tk;
+            if(op!=2) qk += ol; ///op == 3
+            if(op!=3) tk += ol; ///op == 2
+
+            // if(z->x_id == 3 && z->y_id == 57 && op > 0) fprintf(stderr, "[M::%s]\tq::[%ld,%ld)\tt::[%ld,%ld)\tck::%ld\tcn::%ld\top::%u\tol::%ld\n", __func__, qk0, qk, tk0, tk, ck, cn, op, ol);
+            ck++;
+
+            iter_win_err_adv(qk0, ol, qk>qk0?1:0, op!=0?1:0, wl, cqw_tot, &cqws, &cqws_fp, &qerr, wbp_b, wbp_r, &dif_a_ql, &dif_b_ql, &ucov_ql, ucov_err, dif_a, wea, ql, qk0, op!=2?1:0/**, (z->x_id == 3 && z->y_id == 57)?1:0**/);
+            iter_win_err_adv(tk0, ol, tk>tk0?1:0, op!=0?1:0, wl, ctw_tot, &ctws, &ctws_fp, &terr, wbp_b, wbp_r, &dif_a_tl, &dif_b_tl, &ucov_tl, ucov_err, dif_a, wea, ql, qk0, op!=2?1:0/**, (z->x_id == 3 && z->y_id == 57)?1:0**/);
+
+        }
+    }
+
+    qs = z->x_pos_e + 1; ts = z->y_pos_e + 1;
+    assert(qk <= qs && tk <= ts);
+
+    if(qs > qk) {
+        op = 3; ol = qs - qk;
+        iter_win_err_adv(qk, ol, 1, 1, wl, cqw_tot, &cqws, &cqws_fp, &qerr, wbp_b, wbp_r, &dif_a_ql, &dif_b_ql, &ucov_ql, ucov_err, dif_a, wea, ql, qk, 1/**, 0**/);
+        iter_win_err_adv(tk, ol, 0, 1, wl, ctw_tot, &ctws, &ctws_fp, &terr, wbp_b, wbp_r, &dif_a_tl, &dif_b_tl, &ucov_tl, ucov_err, dif_a, wea, ql, qk, 1/**, 0**/);
+        qk = qs;
+    }
+
+    if(ts > tk) {
+        op = 2; ol = ts - tk;
+        iter_win_err_adv(qk, ol, 0, 1, wl, cqw_tot, &cqws, &cqws_fp, &qerr, wbp_b, wbp_r, &dif_a_ql, &dif_b_ql, &ucov_ql, ucov_err, dif_a, wea, ql, qk, 0/**, 0**/);
+        iter_win_err_adv(tk, ol, 1, 1, wl, ctw_tot, &ctws, &ctws_fp, &terr, wbp_b, wbp_r, &dif_a_tl, &dif_b_tl, &ucov_tl, ucov_err, dif_a, wea, ql, qk, 0/**, 0**/);
+        tk = ts;
+    }
+
+    assert(qerr == 0 && terr == 0);
+    if((dif_a_ql == (z->x_pos_e + 1 - z->x_pos_s)) && (dif_a_tl == (z->y_pos_e + 1 - z->y_pos_s))) *a_match = 1;
+    if((dif_b_ql == (z->x_pos_e + 1 - z->x_pos_s)) && (dif_b_tl == (z->y_pos_e + 1 - z->y_pos_s))) *b_match = 1;
+
+    uint8_t ffu = 1;
+    if((ucov_ql > 0) && (ucov_ql > ((z->x_pos_e + 1 - z->x_pos_s)*(1-mm_ovlp_rate)))) ffu = 0;
+    if(ffu) {
+        if((dif_a_ql) && (dif_a_ql >= ((z->x_pos_e + 1 - z->x_pos_s)*mm_ovlp_rate)) && (dif_a_tl) && (dif_a_tl >= ((z->y_pos_e + 1 - z->y_pos_s)*mm_ovlp_rate))) *a_match = 1;
+        if((dif_b_ql) && (dif_b_ql >= ((z->x_pos_e + 1 - z->x_pos_s)*mm_ovlp_rate)) && (dif_b_tl) && (dif_b_tl >= ((z->y_pos_e + 1 - z->y_pos_s)*mm_ovlp_rate))) *b_match = 1;
+    }
+    // fprintf(stderr, "[M::%s]\tdif_qa::%ld\tqaln::%u\tdif_ta::%ld\tqtln::%u\ta_match::%u\n", __func__, dif_a_ql, (z->x_pos_e + 1 - z->x_pos_s), dif_a_tl, (z->y_pos_e + 1 - z->y_pos_s), *a_match);
+    // fprintf(stderr, "[M::%s]\tdif_qb::%ld\tqaln::%u\tdif_tb::%ld\tqtln::%u\tb_match::%u\n", __func__, dif_b_ql, (z->x_pos_e + 1 - z->x_pos_s), dif_b_tl, (z->y_pos_e + 1 - z->y_pos_s), *b_match);
+}
+
+
+void extrac_bi_ccg_adv_qonly(overlap_region *z, int64_t ql, int64_t tl, int64_t wl, uint64_t *wea, uint64_t *srt /**uint64_t max_wtl, uint64_t max_wtl_bit, uint64_t max_werr, uint64_t max_werr_bit**/)
+{
+    uint64_t wk; int64_t ck, cn, qs, qe, ts, te, qk, tk, cqws, cqw_tot, ctws, ctw_tot, werr; bit_extz_t ez;
+    int64_t ol, qk0, tk0; uint8_t op; 
+
+    qk = z->x_pos_s; tk = z->y_pos_s; werr = 0;
+    cqws = z->x_pos_s; cqw_tot = z->x_pos_e + 1; 
+    ctws = z->y_pos_s; ctw_tot = z->y_pos_e + 1; 
+    // fprintf(stderr, "[M::%s]\tw_list_n::%u\twl::%ld\n", __func__, (uint32_t)z->w_list.n, wl);
+
+    for (wk = 0; wk < z->w_list.n; wk++) {
+        if(is_ualn_win(z->w_list.a[wk])) continue;
+        qs = z->w_list.a[wk].x_start;
+        qe = z->w_list.a[wk].x_end + 1;
+        ts = z->w_list.a[wk].y_start;
+        te = z->w_list.a[wk].y_end + 1;
+        if(qs >= qe || ts >= te) continue;
+        set_bit_extz_t(ez, (*z), wk);
+        if(!ez.cigar.n) continue;
+
+        // wqs = qk; wqe = qs;
+        // wts = tk; wte = ts;
+        assert(qk <= qs && tk <= ts);
+
+        if(qs > qk) {
+            op = 3; ol = qs - qk;
+            iter_win_err_adv_qonly(qk, ol, op, wl, cqw_tot, &cqws, &ctws, &werr, wea, ql, tk, ctw_tot, srt/**max_wtl, max_wtl_bit, max_werr, max_werr_bit**/);
+            qk = qs;
+        }
+
+        if(ts > tk) {
+            op = 2; ol = ts - tk;
+            iter_win_err_adv_qonly(qk, ol, op, wl, cqw_tot, &cqws, &ctws, &werr, wea, ql, tk, ctw_tot, srt/**max_wtl, max_wtl_bit, max_werr, max_werr_bit**/);
+            tk = ts;
+        }
+
+        set_bit_extz_t(ez, (*z), wk); cn = ez.cigar.n; ck = 0;
+        while (ck < cn) {
+            op = ez.cigar.a[ck]>>14; ol = (ez.cigar.a[ck]&(0x3fff));
+            qk0 = qk; tk0 = tk;
+            if(op!=2) qk += ol; ///op == 3
+            if(op!=3) tk += ol; ///op == 2
+
+            // if(z->x_id == 3 && z->y_id == 57 && op > 0) fprintf(stderr, "[M::%s]\tq::[%ld,%ld)\tt::[%ld,%ld)\tck::%ld\tcn::%ld\top::%u\tol::%ld\n", __func__, qk0, qk, tk0, tk, ck, cn, op, ol);
+            ck++;
+
+            iter_win_err_adv_qonly(qk0, ol, op, wl, cqw_tot, &cqws, &ctws, &werr, wea, ql, tk0, ctw_tot, srt/**max_wtl, max_wtl_bit, max_werr, max_werr_bit**/);
+        }
+    }
+
+    qs = z->x_pos_e + 1; ts = z->y_pos_e + 1;
+    assert(qk <= qs && tk <= ts);
+
+    if(qs > qk) {
+        op = 3; ol = qs - qk;
+        iter_win_err_adv_qonly(qk, ol, op, wl, cqw_tot, &cqws, &ctws, &werr, wea, ql, tk, ctw_tot, srt/**max_wtl, max_wtl_bit, max_werr, max_werr_bit**/);
+        qk = qs;
+    }
+
+    if(ts > tk) {
+        op = 2; ol = ts - tk;
+        iter_win_err_adv_qonly(qk, ol, op, wl, cqw_tot, &cqws, &ctws, &werr, wea, ql, tk, ctw_tot, srt/**max_wtl, max_wtl_bit, max_werr, max_werr_bit**/);
+        tk = ts;
+    }
+
+    assert(werr == 0);
+    // fprintf(stderr, "[M::%s]\tdif_qa::%ld\tqaln::%u\tdif_ta::%ld\tqtln::%u\ta_match::%u\n", __func__, dif_a_ql, (z->x_pos_e + 1 - z->x_pos_s), dif_a_tl, (z->y_pos_e + 1 - z->y_pos_s), *a_match);
+    // fprintf(stderr, "[M::%s]\tdif_qb::%ld\tqaln::%u\tdif_tb::%ld\tqtln::%u\tb_match::%u\n", __func__, dif_b_ql, (z->x_pos_e + 1 - z->x_pos_s), dif_b_tl, (z->y_pos_e + 1 - z->y_pos_s), *b_match);
+}
+
+
+
+void msk_est_rep_err_rate(overlap_region_alloc *ol, uint64_t *wea, int64_t ql, uint64_t wl, double flg_ov_sec_rate, double flg_cov_rate, double mm_len_rate)
+{
+    uint64_t sum_e, k, i, zwn; int64_t eq, et, qs, ts, l0, l1; uint8_t ff[2], fm[2]; overlap_region *z = NULL;
+    for (k = 0; k < ol->length; k++) {
+        z = &(ol->list[k]); zwn = z->w_list.n; 
+        z->x_pos_strand = 0; /// this is the flag?
+        if((!zwn) || ((z->is_match != 1) && (z->is_match != 2))) continue;
+        fprintf(stderr, "\n[M::%s]\t%.*s(qid::%u)\tql::%lu\tq::[%u,\t%u)\t%c\t%.*s(tid::%u)\ttl::%lu\tt::[%u,\t%u)\ttrans::%u\terr::%u\n", __func__,
+            (int32_t)Get_NAME_LENGTH(R_INF, z->x_id), Get_NAME(R_INF, z->x_id), z->x_id, Get_READ_LENGTH(R_INF, z->x_id), z->x_pos_s, z->x_pos_e + 1, "+-"[z->y_pos_strand], 
+            (int32_t)Get_NAME_LENGTH(R_INF, z->y_id), Get_NAME(R_INF, z->y_id), z->y_id, Get_READ_LENGTH(R_INF, z->y_id), z->y_pos_s, z->y_pos_e + 1, ((z->is_match==1)?(0):(1)), z->non_homopolymer_errors);
+        sum_e = 0; ff[0] = ff[1] = 1;
+        eq = z->x_pos_s; et = z->y_pos_s;
+        for (i = 0; i < zwn; i++) {
+            if(is_ualn_win(z->w_list.a[i])) continue;
+            qs = z->w_list.a[i].x_start; ts = z->w_list.a[i].y_start; 
+            sum_e += z->w_list.a[i].error;
+            assert(qs>=eq); sum_e += qs - eq;
+            // sum_e += ((qs>=eq)?(qs-eq):(eq-qs));
+            assert(ts>=et); sum_e += ts - et;
+            // sum_e += ((ts>=et)?(ts-et):(et-ts));
+            eq = z->w_list.a[i].x_end + 1;
+            et = z->w_list.a[i].y_end + 1;
+        }
+
+        qs = z->x_pos_e + 1; ts = z->y_pos_e + 1;
+        assert(qs>=eq); sum_e += qs - eq;
+        // sum_e += ((qs>=eq)?(qs-eq):(eq-qs));
+        assert(ts>=et); sum_e += ts - et;
+        // sum_e += ((ts>=et)?(ts-et):(et-ts));
+        l0 = z->x_pos_e + 1 - z->x_pos_s; l1 = z->y_pos_e + 1 - z->y_pos_s;
+
+        fprintf(stderr, "[M::%s]\tsum_e::%lu\tqaln::%ld\ttaln::%ld\tcut0::%f\tcut1::%f\n", __func__, sum_e, l0, l1, flg_ov_sec_rate, flg_cov_rate);
+
+        if(sum_e) {
+            if(sum_e > (l0*flg_ov_sec_rate) || sum_e > (l1*flg_ov_sec_rate)) ff[0] = 0;
+            if(sum_e > (l0*flg_cov_rate) || sum_e > (l1*flg_cov_rate)) ff[1] = 0;
+            if(ff[0] == 0 && ff[1] == 0) continue;
+        }
+
+        extrac_bi_ccg(z, ql, Get_READ_LENGTH(R_INF, z->y_id), wl, flg_ov_sec_rate, flg_cov_rate, mm_len_rate, &(fm[0]), &(fm[1]));
+    }
+}
+
+void msk_est_rep_err_rate_adv(overlap_region_alloc *ol, uint64_t *wea, int64_t ql, uint64_t wl, double wbp_r, int64_t wbp_b, double flg_ov_sec_rate, double mm_len_rate)
+{
+    uint64_t sum_e, k, i, zwn, re_cut; int64_t eq, et, qs, ts, l0, l1, ews, ewe, ewk, rre; uint8_t ff[2], fm[2]; overlap_region *z = NULL;
+    for (k = 0; k < ol->length; k++) {
+        z = &(ol->list[k]); zwn = z->w_list.n; 
+        z->x_pos_strand = 0; /// this is the flag?
+        if((!zwn) || ((z->is_match != 1) && (z->is_match != 2))) continue;
+
+        // fprintf(stderr, "\n[M::%s]\t%.*s(qid::%u)\tql::%lu\tq::[%u,\t%u)\t%c\t%.*s(tid::%u)\ttl::%lu\tt::[%u,\t%u)\ttrans::%u\terr::%u\n", __func__,
+        //     (int32_t)Get_NAME_LENGTH(R_INF, z->x_id), Get_NAME(R_INF, z->x_id), z->x_id, Get_READ_LENGTH(R_INF, z->x_id), z->x_pos_s, z->x_pos_e + 1, "+-"[z->y_pos_strand], 
+        //     (int32_t)Get_NAME_LENGTH(R_INF, z->y_id), Get_NAME(R_INF, z->y_id), z->y_id, Get_READ_LENGTH(R_INF, z->y_id), z->y_pos_s, z->y_pos_e + 1, ((z->is_match==1)?(0):(1)), z->non_homopolymer_errors);
+        
+        eq = z->x_pos_s; et = z->x_pos_e + 1;
+        rre = re_cut = 0; ews = (eq/wl)*wl; ewe = ews + wl; if(ewe > ql) ewe = ql;
+        while (ews < et) {
+            ewk = ews/wl;
+            if(wea[ewk] != ((uint64_t)-1)) {///no sufficent coverage
+                l0 = (uint32_t)wea[ewk];
+                rre += l0;
+                l1 = l0*wbp_r; if(l1 < wbp_b) l1 = wbp_b;
+                re_cut += l0 + l1;
+            }
+            ews += wl; ewe += wl; if(ewe > ql) ewe = ql;
+        }
+
+        sum_e = 0; ff[0] = ff[1] = 1;
+        eq = z->x_pos_s; et = z->y_pos_s;
+        for (i = 0; i < zwn; i++) {
+            if(is_ualn_win(z->w_list.a[i])) continue;
+            qs = z->w_list.a[i].x_start; ts = z->w_list.a[i].y_start; 
+            sum_e += z->w_list.a[i].error;
+            assert(qs>=eq); sum_e += qs - eq;
+            // sum_e += ((qs>=eq)?(qs-eq):(eq-qs));
+            assert(ts>=et); sum_e += ts - et;
+            // sum_e += ((ts>=et)?(ts-et):(et-ts));
+            eq = z->w_list.a[i].x_end + 1;
+            et = z->w_list.a[i].y_end + 1;
+        }
+
+        qs = z->x_pos_e + 1; ts = z->y_pos_e + 1;
+        assert(qs>=eq); sum_e += qs - eq;
+        // sum_e += ((qs>=eq)?(qs-eq):(eq-qs));
+        assert(ts>=et); sum_e += ts - et;
+        // sum_e += ((ts>=et)?(ts-et):(et-ts));
+        l0 = z->x_pos_e + 1 - z->x_pos_s; l1 = z->y_pos_e + 1 - z->y_pos_s;
+
+        // fprintf(stderr, "[M::%s]\tsum_e::%lu\tqaln::%ld\ttaln::%ld\tcut0::%f\tre_cut::%ld\n", __func__, sum_e, l0, l1, flg_ov_sec_rate, re_cut);
+
+        if(sum_e) {
+            if(sum_e > (l0*flg_ov_sec_rate) || sum_e > (l1*flg_ov_sec_rate)) ff[0] = 0;
+            if(sum_e > re_cut) ff[1] = 0;
+            if(ff[0] == 0 && ff[1] == 0) continue;
+        }
+
+        extrac_bi_ccg_adv(z, ql, Get_READ_LENGTH(R_INF, z->y_id), wl, 0.01, flg_ov_sec_rate, wea, mm_len_rate, wbp_r, wbp_b, &(fm[0]), &(fm[1]));
+    }
+}
+
+uint64_t inline bits_u64_portable(uint64_t x)
+{
+    uint64_t n = 0; if(x <= 0) x = 1;
+    while (x) {
+        n++; x >>= 1;
+    }
+    return n;
+}
+
+inline uint64_t max_u64_from_bits(uint64_t bits) {
+    if (bits == 0) return 0;
+    if (bits >= 64) return UINT64_MAX;  // avoid undefined shift
+    return (1ULL << bits) - 1;
+}
+
+void gen_var_occ(int64_t qs, int64_t qe, int64_t wl, uint64_t *wea, uint64_t *wcur)
+{
+    int64_t ws = (qs/wl)*wl, wk, ave, cur, zqs, zqe, ztl;
+    fprintf(stderr, "[M::%s]\twin_diff::", __func__);
+    while (ws < qe) {
+        wk = ws/wl;
+        cur = wcur[wk]>>32; ztl = (uint32_t)wcur[wk];
+        ave = -1; 
+        if(((uint32_t)wea[wk]) != ((uint32_t)-1)) ave = (uint32_t)wea[wk];
+        zqs = ws; if(zqs < qs) zqs = qs;
+        zqe = ws + wl; if(zqe > qe) zqe = qe;
+        fprintf(stderr, "a::%ld(c::%ld)->q::%ld(t::%ld)\t", ave, cur, zqe - zqs, ztl);
+        ws += wl;
+    }
+    fprintf(stderr, "\n");
+    
+}
+
+void msk_est_rep_err_rate_adv_qonly(overlap_region_alloc *ol, uint64_t *wea, int64_t ql, int64_t wl, double wbp_r, int64_t wbp_b, double flg_ov_sec_rate, double mm_len_rate, double ucov_err, uint64_t *sc_a)
+{
+    uint64_t sum_e, k, i, zwn, re_cut/**, mwl, merr**/; int64_t eq, et, qs, ts, l0, l1, ews, ewk, rre; uint8_t ff[2]; overlap_region *z = NULL;
+    for (k = 0; k < ol->length; k++) {
+        z = &(ol->list[k]); zwn = z->w_list.n; 
+        z->x_pos_strand = 0; /// this is the flag?
+        if((!zwn) || ((z->is_match != 1) && (z->is_match != 2))) continue;
+
+        fprintf(stderr, "\n[M::%s]\t%.*s(qid::%u)\tql::%lu\tq::[%u,\t%u)\t%c\t%.*s(tid::%u)\ttl::%lu\tt::[%u,\t%u)\ttrans::%u\terr::%u\n", __func__,
+            (int32_t)Get_NAME_LENGTH(R_INF, z->x_id), Get_NAME(R_INF, z->x_id), z->x_id, Get_READ_LENGTH(R_INF, z->x_id), z->x_pos_s, z->x_pos_e + 1, "+-"[z->y_pos_strand], 
+            (int32_t)Get_NAME_LENGTH(R_INF, z->y_id), Get_NAME(R_INF, z->y_id), z->y_id, Get_READ_LENGTH(R_INF, z->y_id), z->y_pos_s, z->y_pos_e + 1, ((z->is_match==1)?(0):(1)), z->non_homopolymer_errors);
+        
+        eq = z->x_pos_s; et = z->x_pos_e + 1;
+        rre = re_cut = 0; ews = (eq/wl)*wl; 
+        while (ews < et) {
+            ewk = ews/wl;
+            // wea[ewk] <<= 32; wea[ewk] >>= 32;///reset
+            if(((uint32_t)wea[ewk]) != ((uint32_t)-1)) {///no sufficent coverage
+                l0 = (uint32_t)wea[ewk];
+            } else {
+                l0 = et - ews; if(l0 > wl) l0 = wl; l0 *= ucov_err;
+            }
+            rre += l0;
+            l1 = l0*wbp_r; if(l1 < wbp_b) l1 = wbp_b;
+            re_cut += l0 + l1;
+
+            ews += wl; 
+        }
+
+        sum_e = 0; ff[0] = ff[1] = 1;
+        eq = z->x_pos_s; et = z->y_pos_s;
+        for (i = 0; i < zwn; i++) {
+            if(is_ualn_win(z->w_list.a[i])) continue;
+            qs = z->w_list.a[i].x_start; ts = z->w_list.a[i].y_start; 
+            sum_e += z->w_list.a[i].error;
+            assert(qs>=eq); sum_e += qs - eq;
+            // sum_e += ((qs>=eq)?(qs-eq):(eq-qs));
+            assert(ts>=et); sum_e += ts - et;
+            // sum_e += ((ts>=et)?(ts-et):(et-ts));
+            eq = z->w_list.a[i].x_end + 1;
+            et = z->w_list.a[i].y_end + 1;
+        }
+
+        qs = z->x_pos_e + 1; ts = z->y_pos_e + 1;
+        assert(qs>=eq); sum_e += qs - eq;
+        // sum_e += ((qs>=eq)?(qs-eq):(eq-qs));
+        assert(ts>=et); sum_e += ts - et;
+        // sum_e += ((ts>=et)?(ts-et):(et-ts));
+        l0 = z->x_pos_e + 1 - z->x_pos_s; l1 = z->y_pos_e + 1 - z->y_pos_s;
+
+        // fprintf(stderr, "[M::%s]\tsum_e::%lu\tqaln::%ld\ttaln::%ld\tcut0::%f\tre_cut::%ld\n", __func__, sum_e, l0, l1, flg_ov_sec_rate, re_cut);
+
+        if(sum_e) {
+            if(sum_e > (l0*flg_ov_sec_rate) || sum_e > (l1*flg_ov_sec_rate)) ff[0] = 0;
+            if(sum_e > re_cut) ff[1] = 0;
+            if(ff[0] == 0 && ff[1] == 0) continue;
+        }
+
+        // mwl = bits_u64_portable(z->y_pos_e + 1 - z->y_pos_s); merr = 32 - mwl;
+        extrac_bi_ccg_adv_qonly(z, ql, Get_READ_LENGTH(R_INF, z->y_id), wl, wea, sc_a/**max_u64_from_bits(mwl), mwl, max_u64_from_bits(merr), merr**/);
+        gen_var_occ(z->x_pos_s, z->x_pos_e + 1, wl, wea, sc_a);
+    }
+}
+
+void est_rep_err_rate(overlap_region_alloc* ol, asg64_v *ix, kv_ul_ov_t *c_idx, int64_t ql, int64_t wl, uint64_t *ou_a, uint64_t min_dp, int64_t ph_cov, uint8_t flg_ov, double flg_ov_sec_rate, double flg_cov_rate,
+    uint64_t *ave_e, uint64_t *bd_e, uint64_t *tot_cov)
+{
+    overlap_region *z; uint64_t m, *wea = NULL, iin = 0, ewn = (ql/wl) + (((ql%wl)>0)?1:0), ewk; ul_ov_t *cp; uint8_t fm = 0;
+    int64_t k, i, ixn0 = ix->n, on = ol->length, zwn, q[2], est_e, est_bd; uint64_t tot_e_av = 0, tot_e_bd = 0, tot_cov_l = 0; *ave_e = *bd_e = *tot_cov = 0;
+
+    if(ph_cov < INT64_MAX) {
+        int64_t dp, old_dp, st = 0, ed; fm = 1;
+        for (k = 0, ixn0 = ix->n; k < on; k++) {
+            z = &(ol->list[k]); zwn = z->w_list.n; 
+            if((!zwn) || (z->is_match != 1)) continue;///only for is_match = 1
+            for (i = 0; i < zwn; i++) {
+                if(is_ualn_win(z->w_list.a[i])) continue;
+                q[0] = z->w_list.a[i].x_start; q[1] = z->w_list.a[i].x_end;
+                if(q[1] >= q[0]) {
+                    kv_push(uint64_t, (*ix), (((uint64_t)q[0])<<1));
+                    kv_push(uint64_t, (*ix), (((uint64_t)q[1])<<1)|1);
+                }
+            }
+        }
+
+        int64_t ixn1 = ix->n;
+        radix_sort_bc64(ix->a + ixn0, ix->a + ix->n);
+        for (k = ixn0, dp = 0, st = ed = 0; k < ixn1; ++k) {
+            old_dp = dp;
+            ///if a[j] is qe
+            if (ix->a[k]&1) --dp;
+            else ++dp;
+
+            ed = ix->a[k]>>1;
+            if(ed > st) {
+                if(old_dp < ph_cov) {
+                    fm = 0; break;
+                }
+            }
+            st = ed;
+        }
+
+        ed = ql; old_dp = dp;
+        if(ed > st) {
+            if(old_dp < ph_cov) fm = 0;
+        }
+
+        ix->n = ixn0;
+    }
+
     if(ou_a) {
         wea = ou_a;
     } else {
         iin = ewn;
         ix->n += iin; kv_resize(uint64_t, *ix, ix->n);
     }
-    int64_t k, i, ixn0 = ix->n, on = ol->length, zwn, q[2], est_e, est_bd; uint64_t tot_e_av = 0, tot_e_bd = 0, tot_cov_l = 0;
-    for (k = 0; k < on; k++) {
+    for (k = 0, ixn0 = ix->n; k < on; k++) {
         z = &(ol->list[k]); zwn = z->w_list.n; 
         if((!zwn) || ((z->is_match != 1) && (z->is_match != 2))) continue;
+        if((fm == 1) && (z->is_match != 1)) continue;
 
         for (i = 0; i < zwn; i++) {
             if(is_ualn_win(z->w_list.a[i])) continue;
@@ -23366,7 +24147,7 @@ void est_rep_err_rate(overlap_region_alloc* ol, asg64_v *ix, kv_ul_ov_t *c_idx, 
         }
     }
 
-    int64_t srt_n = ix->n, s, e, t, os, oe, rm_n, rr; i = 0;
+    int64_t srt_n = ix->n, s, e, t, os, oe, rm_n, rr; i = 0; fm = 0;
     radix_sort_bc64(ix->a + ixn0, ix->a + ix->n);
     for (k = ixn0 + 1, i = ixn0; k <= srt_n; k++) {
         if (k == srt_n || (ix->a[k]>>32) != (ix->a[i]>>32)) {
@@ -23384,6 +24165,8 @@ void est_rep_err_rate(overlap_region_alloc* ol, asg64_v *ix, kv_ul_ov_t *c_idx, 
             i = k;
         }
     }
+
+
 
 
     i = ixn0; s = 0; e = wl; e = ((e<=ql)?e:ql); rr = 0; ewk = 0;
@@ -23419,7 +24202,7 @@ void est_rep_err_rate(overlap_region_alloc* ol, asg64_v *ix, kv_ul_ov_t *c_idx, 
 
         m = ix->n + ix->n - srt_n + ix->n - srt_n; kv_resize(uint64_t, *ix, m);
         // rr = hc_est_robust_rr_diff_gap(ol->list, ql, ix->a + srt_n, ix->n - srt_n, ix->a + ix->n, ix->a + ix->n + ix->n - srt_n, s, e, 64, 5.0, c_idx->a, &est_e, 1);
-        rr = hc_est_robust_rr(ol->list, ql, ix->a + srt_n, ix->n - srt_n, ix->a + ix->n, ix->a + ix->n + ix->n - srt_n, s, e, 2.0, c_idx->a, &est_bd, &est_e, 0);
+        rr = hc_est_robust_rr(ol->list, ql, ix->a + srt_n, ix->n - srt_n, ix->a + ix->n, ix->a + ix->n + ix->n - srt_n, s, e, 2.0, c_idx->a, &est_bd, &est_e, min_dp, 0);
         // fprintf(stderr, "[M::%s-0-]\tq::[%ld,%ld)\test_bd::%ld\test_e::%ld\n", __func__, s, e, est_bd, est_e);
 
         if(!ou_a) wea = ix->a + ixn0 - iin; 
@@ -23434,18 +24217,18 @@ void est_rep_err_rate(overlap_region_alloc* ol, asg64_v *ix, kv_ul_ov_t *c_idx, 
     }
     assert(ewn == ewk);
 
-    if(!ou_a) wea = ix->a + ixn0 - iin; 
-    for (ewk = tot_e_av = tot_e_bd = tot_cov_l = 0; ewk < ewn; ewk++) {
-        if(wea[ewk] == ((uint64_t)-1)) continue;
-        s = ewk*wl; e = s + wl;
-        if((int64_t)s >= ql) s = ql; 
-        if((int64_t)e >= ql) e = ql;
-        tot_cov_l += e - s;
-        tot_e_av += (uint32_t)wea[ewk];
-        tot_e_bd += wea[ewk]>>32;
-    }
-    fprintf(stderr, "-a-[M::%s]\test_err::%lu(%f),\tmax_err::%lu(%f),\tql::%ld,\ttot_cov_l::%lu\n", 
-        __func__, tot_e_av, tot_cov_l?((double)tot_e_av)/((double)tot_cov_l):0, tot_e_bd, tot_cov_l?((double)tot_e_bd)/((double)tot_cov_l):0, ql, tot_cov_l);
+    // if(!ou_a) wea = ix->a + ixn0 - iin; 
+    // for (ewk = tot_e_av = tot_e_bd = tot_cov_l = 0; ewk < ewn; ewk++) {
+    //     if(wea[ewk] == ((uint64_t)-1)) continue;
+    //     s = ewk*wl; e = s + wl;
+    //     if((int64_t)s >= ql) s = ql; 
+    //     if((int64_t)e >= ql) e = ql;
+    //     tot_cov_l += e - s;
+    //     tot_e_av += (uint32_t)wea[ewk];
+    //     tot_e_bd += wea[ewk]>>32;
+    // }
+    // fprintf(stderr, "-a-[M::%s]\test_err::%lu(%f),\tmax_err::%lu(%f),\tql::%ld,\ttot_cov_l::%lu\n", 
+    //     __func__, tot_e_av, tot_cov_l?((double)tot_e_av)/((double)tot_cov_l):0, tot_e_bd, tot_cov_l?((double)tot_e_bd)/((double)tot_cov_l):0, ql, tot_cov_l);
 
     // fprintf(stderr, "[M::%s]\tn0::%ld\tc_idx->n::%u\n", __func__, srt_n - ixn0, (uint32_t)c_idx->n);
 
@@ -23499,7 +24282,7 @@ void est_rep_err_rate(overlap_region_alloc* ol, asg64_v *ix, kv_ul_ov_t *c_idx, 
 
             m = ix->n + ix->n - srt_n + ix->n - srt_n; kv_resize(uint64_t, *ix, m);
             // rr = hc_est_robust_rr_diff_gap(ol->list, ql, ix->a + srt_n, ix->n - srt_n, ix->a + ix->n, ix->a + ix->n + ix->n - srt_n, s, e, 64, 5.0, c_idx->a, &est_e, 1);
-            rr = hc_est_robust_rr(ol->list, ql, ix->a + srt_n, ix->n - srt_n, ix->a + ix->n, ix->a + ix->n + ix->n - srt_n, s, e, 2.0, c_idx->a, &est_bd, &est_e, 0);
+            rr = hc_est_robust_rr(ol->list, ql, ix->a + srt_n, ix->n - srt_n, ix->a + ix->n, ix->a + ix->n + ix->n - srt_n, s, e, 2.0, c_idx->a, &est_bd, &est_e, min_dp, 0);
 
             if(!ou_a) wea = ix->a + ixn0 - iin; 
             if(est_bd == INT64_MAX || est_e == INT64_MAX) {
@@ -23512,24 +24295,42 @@ void est_rep_err_rate(overlap_region_alloc* ol, asg64_v *ix, kv_ul_ov_t *c_idx, 
             s += wl; e += wl; e = ((e<=ql)?e:ql);
         }
         assert(ewn == ewk);
-        if(!ou_a) wea = ix->a + ixn0 - iin; 
-        for (ewk = tot_e_av = tot_e_bd = tot_cov_l = 0; ewk < ewn; ewk++) {
-            if(wea[ewk] == ((uint64_t)-1)) continue;
-            s = ewk*wl; e = s + wl;
-            if((int64_t)s >= ql) s = ql; 
-            if((int64_t)e >= ql) e = ql;
-            tot_cov_l += e - s;
-            tot_e_av += (uint32_t)wea[ewk];
-            tot_e_bd += wea[ewk]>>32;
-        }
-        fprintf(stderr, "-b-[M::%s]\test_err::%lu(%f),\tmax_err::%lu(%f),\tql::%ld,\ttot_cov_l::%lu\n", 
-            __func__, tot_e_av, tot_cov_l?((double)tot_e_av)/((double)tot_cov_l):0, tot_e_bd, tot_cov_l?((double)tot_e_bd)/((double)tot_cov_l):0, ql, tot_cov_l);
+        // if(!ou_a) wea = ix->a + ixn0 - iin; 
+        // for (ewk = tot_e_av = tot_e_bd = tot_cov_l = 0; ewk < ewn; ewk++) {
+        //     if(wea[ewk] == ((uint64_t)-1)) continue;
+        //     s = ewk*wl; e = s + wl;
+        //     if((int64_t)s >= ql) s = ql; 
+        //     if((int64_t)e >= ql) e = ql;
+        //     tot_cov_l += e - s;
+        //     tot_e_av += (uint32_t)wea[ewk];
+        //     tot_e_bd += wea[ewk]>>32;
+        // }
+        // fprintf(stderr, "-b-[M::%s]\test_err::%lu(%f),\tmax_err::%lu(%f),\tql::%ld,\ttot_cov_l::%lu\n", 
+        //     __func__, tot_e_av, tot_cov_l?((double)tot_e_av)/((double)tot_cov_l):0, tot_e_bd, tot_cov_l?((double)tot_e_bd)/((double)tot_cov_l):0, ql, tot_cov_l);
     }
 
-    
+    if(!ou_a) wea = ix->a + ixn0 - iin; 
+    for (ewk = tot_e_av = tot_e_bd = tot_cov_l = 0; ewk < ewn; ewk++) {
+        if(wea[ewk] == ((uint64_t)-1)) continue;
+        s = ewk*wl; e = s + wl;
+        if((int64_t)s >= ql) s = ql; 
+        if((int64_t)e >= ql) e = ql;
+        tot_cov_l += e - s;
+        tot_e_av += (uint32_t)wea[ewk];
+        tot_e_bd += wea[ewk]>>32;
+    }
+    *ave_e = tot_e_av; *bd_e = tot_e_bd; *tot_cov = tot_cov_l;
+    // fprintf(stderr, "-c-[M::%s]\test_err::%lu(%f),\tmax_err::%lu(%f),\tql::%ld,\ttot_cov_l::%lu\n", 
+    //         __func__, tot_e_av, tot_cov_l?((double)tot_e_av)/((double)tot_cov_l):0, tot_e_bd, tot_cov_l?((double)tot_e_bd)/((double)tot_cov_l):0, ql, tot_cov_l);
+
+    if(flg_ov && tot_cov_l) {
+        // msk_est_rep_err_rate(ol, wea, ql, wl, flg_ov_sec_rate, (((double)tot_e_av)/((double)tot_cov_l)) + 0.0005, flg_cov_rate);
+        m = srt_n + ewn; kv_resize(uint64_t, *ix, m);
+        if(!ou_a) wea = ix->a + ixn0 - iin; 
+        msk_est_rep_err_rate_adv_qonly(ol, wea, ql, wl, 0.0005, 1, flg_ov_sec_rate, flg_cov_rate, 0.01, ix->a + srt_n);
+    }
 
     ix->n = ixn0 - iin; 
-
 }
 
 void rphase_hc(overlap_region_alloc* ol, All_reads *rref, haplotype_evdience_alloc* hp, UC_Read* qu, UC_Read* tu, kv_ul_ov_t *c_idx, asg64_v* idx, asg64_v* buf, int64_t bd, int64_t wl, int64_t ql, uint8_t occ_thres/**, uint8_t is_dbg**/, uint64_t rid, uint64_t hpc_len, uint64_t std_bs, Chain_Data *dp, asg8_v *q8, asg8_v *t8, uint8_t lindel, uint64_t tcut, uint64_t site_sc, int64_t h0_w, asg32_v *b32, 
