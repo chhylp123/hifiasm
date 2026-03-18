@@ -10,6 +10,9 @@ wget https://github.com/chhylp123/hifiasm/releases/download/v0.7/chr11-2M.fa.gz
 ./hifiasm -o test -t4 -f0 chr11-2M.fa.gz 2> test.log
 awk '/^S/{print ">"$2;print $3}' test.bp.p_ctg.gfa > test.p_ctg.fa  # get primary contigs in FASTA
 
+# Run directly on PacBio unaligned bam files
+hifiasm -o HG002.asm -t32 HG002.hifi_reads.bam
+
 # Assemble inbred/homozygous genomes (-l0 disables duplication purging)
 hifiasm -o CHM13.asm -t32 -l0 CHM13-HiFi.fa.gz 2> CHM13.asm.log
 # Assemble heterozygous genomes with built-in duplication purging
@@ -93,9 +96,14 @@ Its latest release could support the telomere-to-telomere assembly by utilizing 
 A typical hifiasm command line looks like:
 ```sh
 hifiasm -o NA12878.asm -t 32 NA12878.fq.gz
+# or
+hifiasm -o NA12878.asm -t 32 NA12878.hifi_reads.bam
 ```
-where `NA12878.fq.gz` provides the input reads, `-t` sets the number of CPUs in
-use and `-o` specifies the prefix of output files. For this example, the
+where `NA12878.fq.gz` or `NA12878.hifi_reads.bam` provides the input reads, `-t` sets the number of CPUs in
+use and `-o` specifies the prefix of output files. The primary HiFi input may
+also be provided as native unaligned PacBio BAM. FASTA/FASTQ inputs may be plain
+text or gzip-compressed. For BAM input, hifiasm accepts unaligned records
+directly without FASTQ conversion. For this example, the
 primary contigs are written to `NA12878.asm.bp.p_ctg.gfa`. 
 Since v0.15, hifiasm also produces two sets of
 partially phased contigs at `NA12878.asm.bp.hap?.p_ctg.gfa`. This pair of files

@@ -9,6 +9,7 @@
 #include "ksort.h"
 #include "htab.h"
 #include "Process_Read.h"
+#include "seq_reader.h"
 
 #define YAK_COUNTER_BITS 12
 #define YAK_N_COUNTS     (1<<YAK_COUNTER_BITS)
@@ -580,7 +581,7 @@ typedef struct { // global data structure for kt_pipeline()
 	const void *flt_tab;
 	int flag, create_new, is_store, uq;
 	uint64_t n_mz, n_seq; ///number of total reads
-	kseq_t *ks;
+	ha_seq_reader_t *sr;
 	UC_Read ucr;
 	ha_ct_t *ct;
 	ha_pt_t *pt;
@@ -758,10 +759,10 @@ static void *sf##_worker_count(void *data, int step, void *in) /** callback for 
 					break;\
 			}\
 		} else {\
-			while ((ret = kseq_read(p->ks)) >= 0) {\
-				int l = (int)(p->ks->seq.l) - (int)(p->opt->adaLen) - (int)(p->opt->adaLen);\
+			while ((ret = ha_seq_read(p->sr)) >= 0) {\
+				int l = (int)(p->sr->rec.seq.l) - (int)(p->opt->adaLen) - (int)(p->opt->adaLen);\
 				if((l <= 0) || (l < asm_opt.rl_cut)) continue;\
-				if((asm_opt.is_sc) && (asm_opt.sc_cut > 0) && (!flt_quals(p->ks->qual.s+p->opt->adaLen, l, 33, asm_opt.sc_cut))) continue;\
+				if((asm_opt.is_sc) && (asm_opt.sc_cut > 0) && (!flt_quals(p->sr->rec.qual.s+p->opt->adaLen, l, 33, asm_opt.sc_cut))) continue;\
 				if (p->n_seq >= 1<<28) {\
 					fprintf(stderr, "ERROR: this implementation supports no more than %d reads\n", 1<<28);\
 					exit(1);\
@@ -770,20 +771,20 @@ static void *sf##_worker_count(void *data, int step, void *in) /** callback for 
 					/**for 0-th count, just insert read length to R_INF, instead of read**/\
 					if (p->flag & HAF_RS_WRITE_LEN) {\
 						assert(p->n_seq == p->rs_out->total_reads);\
-						ha_insert_read_len(p->rs_out, l, p->ks->name.l);\
+						ha_insert_read_len(p->rs_out, l, p->sr->rec.name.l);\
 					} else if (p->flag & HAF_RS_WRITE_SEQ) {\
 						int i, n_N;\
 						assert(l == (int)p->rs_out->read_length[p->n_seq]);\
 						for (i = n_N = 0; i < l; ++i) /** count number of ambiguous bases**/\
-							if (seq_nt4_table[(uint8_t)p->ks->seq.s[i+p->opt->adaLen]] >= 4)\
+							if (seq_nt4_table[(uint8_t)p->sr->rec.seq.s[i+p->opt->adaLen]] >= 4)\
 								++n_N;\
-						ha_compress_base(Get_READ(*p->rs_out, p->n_seq), p->ks->seq.s+p->opt->adaLen, l, &p->rs_out->N_site[p->n_seq], n_N);\
-						memcpy(&p->rs_out->name[p->rs_out->name_index[p->n_seq]], p->ks->name.s, p->ks->name.l);\
+						ha_compress_base(Get_READ(*p->rs_out, p->n_seq), p->sr->rec.seq.s+p->opt->adaLen, l, &p->rs_out->N_site[p->n_seq], n_N);\
+						memcpy(&p->rs_out->name[p->rs_out->name_index[p->n_seq]], p->sr->rec.name.s, p->sr->rec.name.l);\
 						if(p->rs_out->rsc) {\
-							ha_compress_qual(Get_QUAL(*p->rs_out, p->n_seq), p->ks->qual.s+p->opt->adaLen, l, sc_bn, 33);\
-							/**print_fastq(NULL, p->ks->name.s, p->ks->seq.s, p->ks->qual.s, (1<<sc_bn), 33);**/\
+							ha_compress_qual(Get_QUAL(*p->rs_out, p->n_seq), p->sr->rec.qual.s+p->opt->adaLen, l, sc_bn, 33);\
+							/**print_fastq(NULL, p->sr->rec.name.s, p->sr->rec.seq.s, p->sr->rec.qual.s, (1<<sc_bn), 33);**/\
 							/**if(l <= 1000000) {\
-								convert_qual(src_a, p->ks->qual.s+p->opt->adaLen, l, (1<<sc_bn), 0, 33);\
+								convert_qual(src_a, p->sr->rec.qual.s+p->opt->adaLen, l, (1<<sc_bn), 0, 33);\
 								retrive_bqual(NULL, des_a, p->n_seq, -1, -1, 0, sc_bn);\
 								if(memcmp(src_a, des_a, l)!=0) fprintf(stderr, "ERROR: incorrect qual values\n");\
 								else fprintf(stderr, "Correct: correct qual values\n");\
@@ -797,7 +798,7 @@ static void *sf##_worker_count(void *data, int step, void *in) /** callback for 
 					REALLOC(s->seq, s->m_seq);\
 				}\
 				MALLOC(s->seq[s->n_seq], l);\
-				memcpy(s->seq[s->n_seq], p->ks->seq.s+p->opt->adaLen, l);\
+				memcpy(s->seq[s->n_seq], p->sr->rec.seq.s+p->opt->adaLen, l);\
 				s->len[s->n_seq++] = l;\
 				++p->n_seq;\
 				s->sum_len += l;\
@@ -805,6 +806,10 @@ static void *sf##_worker_count(void *data, int step, void *in) /** callback for 
 				/**p->opt->chunk_size is the block max size**/\
 				if (s->sum_len >= p->opt->chunk_size)\
 					break;\
+			}\
+			if (ret == -2) {\
+				fprintf(stderr, "[ERROR] %s\n", ha_seq_error(p->sr));\
+				exit(1);\
 			}\
 		}\
 		if (s->sum_len == 0) free(s);\
@@ -933,7 +938,7 @@ static ha_ct_t *yak_count(const yak_copt_t *opt, const char *fn, int flag, ha_pt
 	int read_rs = (rs && (flag & HAF_RS_READ));
 	int ug_rs = (us && (flag & HAF_UG_READ));
 	pl_data_t pl;
-	gzFile fp = 0;
+	ha_seq_reader_t sr;
 	memset(&pl, 0, sizeof(pl_data_t));
 	pl.n_seq = *n_seq; 
 	if(ug_rs) {
@@ -942,8 +947,11 @@ static ha_ct_t *yak_count(const yak_copt_t *opt, const char *fn, int flag, ha_pt
 		pl.rs_in = rs;
 		init_UC_Read(&pl.ucr);
 	} else {///for 0-th counting, go into here
-		if ((fp = gzopen(fn, "r")) == 0) return 0;
-		pl.ks = kseq_init(fp);
+		if (!ha_seq_open(&sr, fn)) {
+			fprintf(stderr, "[ERROR] %s\n", ha_seq_error(&sr));
+			return 0;
+		}
+		pl.sr = &sr;
 	}
 	///for 0-th counting, read all reads into pl.rs_out
 	if (rs && (flag & (HAF_RS_WRITE_LEN|HAF_RS_WRITE_SEQ)))
@@ -972,8 +980,7 @@ static ha_ct_t *yak_count(const yak_copt_t *opt, const char *fn, int flag, ha_pt
 	if (read_rs) {
 		destory_UC_Read(&pl.ucr);
 	} else if(!read_rs && !ug_rs) {
-		kseq_destroy(pl.ks);
-		gzclose(fp);
+		ha_seq_close(&sr);
 	}
 	*n_seq = pl.n_seq;
 	if (pl.opt->w > 1) fprintf(stderr, "[M::%s] collected %ld minimizers\n", __func__, (long)pl.n_mz);

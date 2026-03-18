@@ -10,7 +10,7 @@ Synopsis
 Assembly only with HiFi reads:
 ::
 
-  hifiasm -o [prefix] -t [nThreads] [options] input1.fq [input2.fq [...]]
+  hifiasm -o [prefix] -t [nThreads] [options] input1.fq|input1.fa|input1.bam [input2 [...]]
 
 Trio binning assembly with yak dumps:
 ::

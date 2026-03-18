@@ -8,6 +8,7 @@
 #include "CommandLines.h"
 #include "ketopt.h"
 #include "kseq.h"
+#include "seq_reader.h"
 
 KSEQ_INIT(gzFile, gzread)
 
@@ -94,7 +95,7 @@ double Get_T(void)
 
 void Print_H(hifiasm_opt_t* asm_opt)
 {
-    fprintf(stderr, "Usage: hifiasm [options] <in_1.fq> <in_2.fq> <...>\n");
+    fprintf(stderr, "Usage: hifiasm [options] <in_1.[fa|fq|bam]> <in_2.[fa|fq|bam]> <...>\n");
     fprintf(stderr, "Options:\n");
 	fprintf(stderr, "  Input/Output:\n");
     fprintf(stderr, "    -o STR       prefix of output files [%s]\n", asm_opt->output_file_name);
@@ -237,6 +238,7 @@ void Print_H(hifiasm_opt_t* asm_opt)
 
 
     fprintf(stderr, "Example: ./hifiasm -o NA12878.asm -t 32 NA12878.fq.gz\n");
+    fprintf(stderr, "         ./hifiasm -o NA12878.asm -t 32 NA12878.hifi_reads.bam\n");
     fprintf(stderr, "See `https://hifiasm.readthedocs.io/en/latest/' or `man ./hifiasm.1' for complete documentation.\n");
 }
 
@@ -765,27 +767,27 @@ void get_queries(int argc, char *argv[], ketopt_t* opt, hifiasm_opt_t* asm_opt)
     asm_opt->read_file_names = (char**)malloc(sizeof(char*)*asm_opt->num_reads);
     
     long long i; int ret;
-    gzFile dfp; kseq_t *ks = NULL;
+    ha_seq_reader_t sr;
     for (i = 0; i < asm_opt->num_reads; i++) {
         asm_opt->read_file_names[i] = argv[i + opt->ind];
-        dfp = gzopen(asm_opt->read_file_names[i], "r");
-        if (dfp == 0) {
-            fprintf(stderr, "[ERROR] Cannot find the input read file: %s\n", 
-                    asm_opt->read_file_names[i]);
-		    exit(0);
+        if (!ha_seq_open(&sr, asm_opt->read_file_names[i])) {
+            fprintf(stderr, "[ERROR] %s\n", ha_seq_error(&sr));
+            exit(0);
         } else if(asm_opt->is_sc){
-            ks = kseq_init(dfp);
-            while (((ret = kseq_read(ks)) >= 0)) {
-                if((ks->qual.l == 0) || (ks->qual.s == NULL)) {
-                    fprintf(stderr, "[ERROR] %s is in fasta format rather than fastq format\n", asm_opt->read_file_names[i]);
-                    asm_opt->is_sc = 0;
-                    exit(0);
-                }
-                break;
+            ret = ha_seq_read(&sr);
+            if (ret == -2) {
+                fprintf(stderr, "[ERROR] %s (%s)\n", ha_seq_error(&sr), asm_opt->read_file_names[i]);
+                ha_seq_close(&sr);
+                exit(0);
             }
-            kseq_destroy(ks); ks = NULL;
+            if(ret >= 0 && ((sr.rec.qual.l == 0) || (sr.rec.qual.s == NULL))) {
+                fprintf(stderr, "[ERROR] %s does not contain qualities required for fastq-style input\n", asm_opt->read_file_names[i]);
+                asm_opt->is_sc = 0;
+                ha_seq_close(&sr);
+                exit(0);
+            }
         }
-        gzclose(dfp);
+        ha_seq_close(&sr);
     }
 }
 
