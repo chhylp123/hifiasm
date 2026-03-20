@@ -2120,7 +2120,6 @@ void chain_aln_de(ha_abuf_t *ab, overlap_region_alloc *ol, Candidates_list *cl, 
 
 }
 
-
 void gen_chain_clus(ha_abuf_t *ab, overlap_region_alloc *ol, Candidates_list *cl, asg32_v *ik)
 {
 	if(ol->length <= 0) return;

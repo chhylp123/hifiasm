@@ -432,7 +432,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
 
     asm_opt->ec_only = 0;
     asm_opt->hyb_syn = 1;
-    asm_opt->step_rd = 128;
+    asm_opt->step_rd = -1/**128**/;
 }   
 
 void destory_enzyme(enzyme* f)

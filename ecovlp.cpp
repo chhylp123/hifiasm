@@ -3346,6 +3346,71 @@ uint64_t gen_hc_r_alin_ea_flt(ha_abuf_t *ab, overlap_region_alloc* ol, Candidate
     return tot_b;
 }
 
+
+uint64_t gen_hc_r_alin_ea_flt_mmp(ha_abuf_t *ab, overlap_region_alloc* ol, Candidates_list *cl, All_reads *rref, UC_Read* qu, UC_Read* tu, bit_extz_t *exz, overlap_region *aux_o, uint64_t max_n_chain, uint64_t max_n_chain_f, uint64_t chain_cutoff, double e_rate, int64_t wl, int64_t rid, int64_t khit, int64_t move_gap, asg16_v *buf, asg64_v *srt, ma_hit_t_alloc *in, uint8_t chem_drop, double align_gap_rate, int64_t align_gap_max,
+    uint64_t sec_aln_win, uint64_t sec_aln_cov, double sec_aln_err_rate, double sec_aln_max, asg64_v *bp, uint64_t ocw, asg8_v *hpz, asg32_v *v32)
+{
+    if(ol->length <= 0) return 0;
+
+    uint64_t k, tot_b = 0; v32->n = 0; uint64_t i, m, *ei, en, *oi, on, tid, trev, nec; overlap_region *z; ma_hit_t *p;
+    v32->n = ol->length<<1; kv_resize(uint32_t, *v32, v32->n); 
+    for (i = 0; i < ol->length; i++) {
+        v32->a[i] = ol->list[i].align_length;
+        v32->a[i+ol->length] = ol->list[i].shared_seed;
+        ol->list[i].align_length = 0;
+    }
+
+    for (k = srt->n = 0; k < in->length; k++) {
+        if(in->buffer[k].el) {
+            m = in->buffer[k].tn; m <<= 1; m |= in->buffer[k].rev; 
+            m <<= 32; m |= k; kv_push(uint64_t, (*srt), m);
+        }
+    }
+
+    if(!(srt->n)) {
+        gen_ff_hpc(hpz, qu->seq, qu->length, HPC_RR_Q, HPC_CC_Q);
+        tot_b = gen_hc_r_alin_adp_mmp(ol, cl, rref, qu, tu, exz, aux_o, e_rate, wl, rid, khit, move_gap, buf, chem_drop, align_gap_rate, align_gap_max, sec_aln_win, sec_aln_cov, sec_aln_err_rate, sec_aln_max, srt, ocw, hpz->a, 
+            v32, bp, max_n_chain>0?max_n_chain:1, max_n_chain_f>0?max_n_chain_f:1, chain_cutoff, ((asm_opt.hom_cov*HC_AV_MIN)>0)?(asm_opt.hom_cov*HC_AV_MIN):(1), 1);
+    } else {
+        kv_resize(uint64_t, *srt, (srt->n + ol->length));
+        ei = srt->a; en = srt->n; oi = srt->a + srt->n; on = ol->length;
+        for (k = 0; k < on; k++) {
+            z = &(ol->list[k]); z->is_match = z->strong = z->without_large_indel = 0;
+            oi[k] = z->y_id; oi[k] <<= 1; oi[k] |= z->y_pos_strand;
+            oi[k] <<= 32; oi[k] |= k;
+        }
+
+        radix_sort_ec64(ei, ei + en); radix_sort_ec64(oi, oi + on);
+        for (k = i = nec = 0; k < on; k++) {
+            z = &(ol->list[(uint32_t)oi[k]]); tid = z->y_id; trev = z->y_pos_strand;
+            for (; (i < en) && ((ei[i]>>32) < ((tid<<1)|trev)); i++);
+            if((i < en) && ((ei[i]>>32) == ((tid<<1)|trev))) {
+                p = &(in->buffer[(uint32_t)ei[i]]);
+                if((z->x_pos_s == ((uint32_t)p->qns)) && (z->x_pos_e + 1 == p->qe) && 
+                            (z->y_pos_s == p->ts) && (z->y_pos_e + 1 == p->te)) {
+                    resize_UC_Read(tu, p->te - p->ts); recover_UC_Read_sub_region(tu->seq, p->ts, p->te - p->ts, trev, rref, tid);
+                    if(exact_ec_check(qu->seq, qu->length, tu->seq, p->te - p->ts, ((uint32_t)p->qns), p->qe, 0, p->te - p->ts)) {
+                        z->is_match = 1; z->shared_seed = z->non_homopolymer_errors;///for index
+                        z->non_homopolymer_errors = 0; z->strong = z->without_large_indel = 0;
+                        set_exact_exz(exz, z->x_pos_s, z->x_pos_e + 1, z->y_pos_s, z->y_pos_e + 1); push_alnw(z, exz);
+                        nec++;
+                    }
+                }
+            }
+        }
+
+        if(on > nec) {
+            gen_ff_hpc(hpz, qu->seq, qu->length, HPC_RR_Q, HPC_CC_Q);
+            tot_b = gen_hc_r_alin_adp_mmp(ol, cl, rref, qu, tu, exz, aux_o, e_rate, wl, rid, khit, move_gap, buf, chem_drop, align_gap_rate, align_gap_max, sec_aln_win, sec_aln_cov, sec_aln_err_rate, sec_aln_max, srt, ocw, hpz->a, 
+                v32, bp, max_n_chain>0?max_n_chain:1, max_n_chain_f>0?max_n_chain_f:1, chain_cutoff, ((asm_opt.hom_cov*HC_AV_MIN)>0)?(asm_opt.hom_cov*HC_AV_MIN):(1), 0);
+        }
+    }
+
+    if(ol->length) srt_olst(ol);
+
+    return tot_b;
+}
+
 uint64_t gen_hc_r_alin_ea(overlap_region_alloc* ol, Candidates_list *cl, All_reads *rref, UC_Read* qu, UC_Read* tu, bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t wl, int64_t rid, int64_t khit, int64_t move_gap, asg16_v *buf, asg64_v *srt, ma_hit_t_alloc *in, uint8_t chem_drop, double align_gap_rate, int64_t align_gap_max,
     uint64_t sec_aln_win, uint64_t sec_aln_cov, double sec_aln_err_rate, double sec_aln_max, asg64_v *kp, asg8_v *hpz)
 {
@@ -4118,7 +4183,7 @@ static void worker_hap_ec(void *data, long i, int tid)
     //     return;
     // }
 
-    // if(i < 1230524) return;
+    // if(i != 0) return;
 
     // fprintf(stderr, "+[M::%s]\trid::%ld\t%.*s\n", __func__, i, (int)Get_NAME_LENGTH(R_INF, i), Get_NAME(R_INF, i));
     // 25e396cf-a58d-4f67-a391-33f36fb3891f	0	48396	id:i:1477155
@@ -4199,11 +4264,13 @@ static void worker_hap_ec(void *data, long i, int tid)
     ///r789: kp (gen_hc_r_alin_ea) -> NULL; site_sc (rphase_hc) -> 0
     ///r791: kp (gen_hc_r_alin_ea) -> buf0; site_sc (rphase_hc) -> 0
     copy_asg_arr(buf0, b->sp); 
-    tot_b = gen_hc_r_alin_ea_flt(b->ab, &b->olist, &b->clist, &R_INF, &b->self_read, &b->ovlp_read, &b->exz, aux_o, asm_opt.max_n_chain, asm_opt.max_n_chain*HC_MF_R, asm_opt.chn_occ, asm_opt.max_ov_diff_ec, (asm_opt.is_ont)?(WINDOW_OHC):(WINDOW_HC), i, E_KHIT, 
-    1, &b->v16, &b->v64, &(R_INF.paf[i]), asm_opt.is_ont, (asm_opt.is_ont)?(0.006):(-1), (asm_opt.is_ont)?(64):(-1), (asm_opt.is_ont)?(512):(0), (asm_opt.is_ont)?(6):(0), 
-    (asm_opt.is_ont)?(1.5):(-1), (asm_opt.is_ont)?(0.1):(-1), &buf0, qw, &b->v8q, &b->v32, 1);
+    // tot_b = gen_hc_r_alin_ea_flt(b->ab, &b->olist, &b->clist, &R_INF, &b->self_read, &b->ovlp_read, &b->exz, aux_o, asm_opt.max_n_chain, asm_opt.max_n_chain*HC_MF_R, asm_opt.chn_occ, asm_opt.max_ov_diff_ec, (asm_opt.is_ont)?(WINDOW_OHC):(WINDOW_HC), i, E_KHIT, 
+    // 1, &b->v16, &b->v64, &(R_INF.paf[i]), asm_opt.is_ont, (asm_opt.is_ont)?(0.006):(-1), (asm_opt.is_ont)?(64):(-1), (asm_opt.is_ont)?(512):(0), (asm_opt.is_ont)?(6):(0), (asm_opt.is_ont)?(1.5):(-1), (asm_opt.is_ont)?(0.1):(-1), &buf0, qw, &b->v8q, &b->v32, 1);
+    tot_b = gen_hc_r_alin_ea_flt_mmp(b->ab, &b->olist, &b->clist, &R_INF, &b->self_read, &b->ovlp_read, &b->exz, aux_o, asm_opt.max_n_chain, asm_opt.max_n_chain*HC_MF_R, asm_opt.chn_occ, asm_opt.max_ov_diff_ec, (asm_opt.is_ont)?(WINDOW_OHC):(WINDOW_HC), i, E_KHIT, 
+    1, &b->v16, &b->v64, &(R_INF.paf[i]), asm_opt.is_ont, (asm_opt.is_ont)?(0.006):(-1), (asm_opt.is_ont)?(64):(-1), (asm_opt.is_ont)?(512):(0), (asm_opt.is_ont)?(6):(0), (asm_opt.is_ont)?(1.5):(-1), (asm_opt.is_ont)?(0.1):(-1), &buf0, qw, &b->v8q, &b->v32);
     copy_asg_arr(b->sp, buf0); 
 
+    // exit(1);
     /**
     copy_asg_arr(buf0, b->sp); 
     //kp: r763 -> r765: buf0 -> NULL
@@ -8863,7 +8930,7 @@ void cal_ec_r(uint64_t n_thre, uint64_t round, uint64_t n_round, uint64_t n_a, u
     fprintf(stderr, "-2-[M::%s]\t# tqn::%lu, Ont base::%lu, # HiFi bases::%lu\n", __func__, R_INF.tqn, R_INF.tr[0], R_INF.tr[1]);
 
     // prt_nel_ovlp(R_INF.paf, n_a);
-    exit(1);
+    // exit(1);
 
     if((!is_sv) || (is_sv && is_cr)) {
         kt_for(n_thre, worker_hap_post_rev, b, n_a);
