@@ -3369,7 +3369,7 @@ uint64_t gen_hc_r_alin_ea_flt_mmp(ha_abuf_t *ab, overlap_region_alloc* ol, Candi
 
     if(!(srt->n)) {
         gen_ff_hpc(hpz, qu->seq, qu->length, HPC_RR_Q, HPC_CC_Q);
-        tot_b = gen_hc_r_alin_adp_mmp(ol, cl, rref, qu, tu, exz, aux_o, e_rate, wl, rid, khit, move_gap, buf, chem_drop, align_gap_rate, align_gap_max, sec_aln_win, sec_aln_cov, sec_aln_err_rate, sec_aln_max, srt, ocw, hpz->a, 
+        tot_b = gen_hc_r_alin_adp_mmp_1(ol, cl, rref, qu, tu, exz, aux_o, e_rate, wl, rid, khit, move_gap, buf, chem_drop, align_gap_rate, align_gap_max, sec_aln_win, sec_aln_cov, sec_aln_err_rate, sec_aln_max, srt, ocw, hpz->a, 
             v32, bp, max_n_chain>0?max_n_chain:1, max_n_chain_f>0?max_n_chain_f:1, chain_cutoff, ((asm_opt.hom_cov*HC_AV_MIN)>0)?(asm_opt.hom_cov*HC_AV_MIN):(1), 1);
     } else {
         kv_resize(uint64_t, *srt, (srt->n + ol->length));
@@ -3401,7 +3401,7 @@ uint64_t gen_hc_r_alin_ea_flt_mmp(ha_abuf_t *ab, overlap_region_alloc* ol, Candi
 
         if(on > nec) {
             gen_ff_hpc(hpz, qu->seq, qu->length, HPC_RR_Q, HPC_CC_Q);
-            tot_b = gen_hc_r_alin_adp_mmp(ol, cl, rref, qu, tu, exz, aux_o, e_rate, wl, rid, khit, move_gap, buf, chem_drop, align_gap_rate, align_gap_max, sec_aln_win, sec_aln_cov, sec_aln_err_rate, sec_aln_max, srt, ocw, hpz->a, 
+            tot_b = gen_hc_r_alin_adp_mmp_1(ol, cl, rref, qu, tu, exz, aux_o, e_rate, wl, rid, khit, move_gap, buf, chem_drop, align_gap_rate, align_gap_max, sec_aln_win, sec_aln_cov, sec_aln_err_rate, sec_aln_max, srt, ocw, hpz->a, 
                 v32, bp, max_n_chain>0?max_n_chain:1, max_n_chain_f>0?max_n_chain_f:1, chain_cutoff, ((asm_opt.hom_cov*HC_AV_MIN)>0)?(asm_opt.hom_cov*HC_AV_MIN):(1), 0);
         }
     }
@@ -4211,7 +4211,7 @@ static void worker_hap_ec(void *data, long i, int tid)
 
     // if(i != 339646) return;
     // if(i!=854835) return;
-    // if(i != 533) return;
+    // if(i != 1) return;
     
     
     // if(i % 100000 == 0) fprintf(stderr, "-a-[M::%s-beg] rid->%ld\n", __func__, i);
@@ -8045,7 +8045,7 @@ static void update_scb0(void *data, long i, int tid)
 
     if(!scc.f[i]) return;
 
-    ma_hit_t_alloc *ov, *os; uint64_t k, kr, qn, tn, ql, tl, qs, qe, ts, te; ma_hit_t *z, *r;
+    ma_hit_t_alloc *ov, *os; uint64_t k, kr, qn, tn, ql, tl, qs, qe, ts, te; ma_hit_t *z, *r = NULL;
     uint64_t ck; uint16_t op, bq, bt; uint32_t cl;
     
     ov = &(R_INF.paf[i]);
