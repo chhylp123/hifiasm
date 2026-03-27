@@ -3368,8 +3368,8 @@ uint64_t gen_hc_r_alin_ea_flt_mmp(ha_abuf_t *ab, overlap_region_alloc* ol, Candi
     }
 
     if(!(srt->n)) {
-        gen_ff_hpc(hpz, qu->seq, qu->length, HPC_RR_Q, HPC_CC_Q);
-        tot_b = gen_hc_r_alin_adp_mmp_1(ol, cl, rref, qu, tu, exz, aux_o, e_rate, wl, rid, khit, move_gap, buf, chem_drop, align_gap_rate, align_gap_max, sec_aln_win, sec_aln_cov, sec_aln_err_rate, sec_aln_max, srt, ocw, hpz->a, 
+        // gen_ff_hpc(hpz, qu->seq, qu->length, HPC_RR_Q, HPC_CC_Q);
+        tot_b = gen_hc_r_alin_adp_mmp_1(ol, cl, rref, qu, tu, exz, aux_o, e_rate, wl, rid, khit, move_gap, buf, chem_drop, align_gap_rate, align_gap_max, sec_aln_win, sec_aln_cov, sec_aln_err_rate, sec_aln_max, srt, ocw, NULL/**hpz->a**/, 
             v32, bp, max_n_chain>0?max_n_chain:1, max_n_chain_f>0?max_n_chain_f:1, chain_cutoff, ((asm_opt.hom_cov*HC_AV_MIN)>0)?(asm_opt.hom_cov*HC_AV_MIN):(1), 1);
     } else {
         kv_resize(uint64_t, *srt, (srt->n + ol->length));
@@ -3400,8 +3400,8 @@ uint64_t gen_hc_r_alin_ea_flt_mmp(ha_abuf_t *ab, overlap_region_alloc* ol, Candi
         }
 
         if(on > nec) {
-            gen_ff_hpc(hpz, qu->seq, qu->length, HPC_RR_Q, HPC_CC_Q);
-            tot_b = gen_hc_r_alin_adp_mmp_1(ol, cl, rref, qu, tu, exz, aux_o, e_rate, wl, rid, khit, move_gap, buf, chem_drop, align_gap_rate, align_gap_max, sec_aln_win, sec_aln_cov, sec_aln_err_rate, sec_aln_max, srt, ocw, hpz->a, 
+            // gen_ff_hpc(hpz, qu->seq, qu->length, HPC_RR_Q, HPC_CC_Q);
+            tot_b = gen_hc_r_alin_adp_mmp_1(ol, cl, rref, qu, tu, exz, aux_o, e_rate, wl, rid, khit, move_gap, buf, chem_drop, align_gap_rate, align_gap_max, sec_aln_win, sec_aln_cov, sec_aln_err_rate, sec_aln_max, srt, ocw, NULL/**hpz->a**/, 
                 v32, bp, max_n_chain>0?max_n_chain:1, max_n_chain_f>0?max_n_chain_f:1, chain_cutoff, ((asm_opt.hom_cov*HC_AV_MIN)>0)?(asm_opt.hom_cov*HC_AV_MIN):(1), 0);
         }
     }
@@ -3428,8 +3428,8 @@ uint64_t gen_hc_r_alin_ea(overlap_region_alloc* ol, Candidates_list *cl, All_rea
     }
 
     if(!(srt->n)) {
-        gen_ff_hpc(hpz, qu->seq, qu->length, HPC_RR_Q, HPC_CC_Q);
-        tot_b = gen_hc_r_alin(ol, cl, rref, qu, tu, exz, aux_o, e_rate, wl, rid, khit, move_gap, buf, chem_drop, align_gap_rate, align_gap_max, sec_aln_win, sec_aln_cov, sec_aln_err_rate, sec_aln_max, kp, hpz->a);
+        // gen_ff_hpc(hpz, qu->seq, qu->length, HPC_RR_Q, HPC_CC_Q);
+        tot_b = gen_hc_r_alin(ol, cl, rref, qu, tu, exz, aux_o, e_rate, wl, rid, khit, move_gap, buf, chem_drop, align_gap_rate, align_gap_max, sec_aln_win, sec_aln_cov, sec_aln_err_rate, sec_aln_max, kp, NULL/**hpz->a**/);
     } else {
         ///debug for memory
         // snprintf(NULL, 0, "dwn::%u\tdcn::%u", (uint32_t)aux_o->w_list.n, (uint32_t)aux_o->w_list.c.n);
@@ -3464,8 +3464,8 @@ uint64_t gen_hc_r_alin_ea(overlap_region_alloc* ol, Candidates_list *cl, All_rea
         // snprintf(NULL, 0, "dwn::%u\tdcn::%u", (uint32_t)aux_o->w_list.n, (uint32_t)aux_o->w_list.c.n);
 
         if(on > nec) {
-            gen_ff_hpc(hpz, qu->seq, qu->length, HPC_RR_Q, HPC_CC_Q);
-            tot_b = gen_hc_r_alin_nec(ol, cl, rref, qu, tu, exz, aux_o, e_rate, wl, rid, khit, move_gap, buf, chem_drop, align_gap_rate, align_gap_max, sec_aln_win, sec_aln_cov, sec_aln_err_rate, sec_aln_max, kp, hpz->a);
+            // gen_ff_hpc(hpz, qu->seq, qu->length, HPC_RR_Q, HPC_CC_Q);
+            tot_b = gen_hc_r_alin_nec(ol, cl, rref, qu, tu, exz, aux_o, e_rate, wl, rid, khit, move_gap, buf, chem_drop, align_gap_rate, align_gap_max, sec_aln_win, sec_aln_cov, sec_aln_err_rate, sec_aln_max, kp, NULL/**hpz->a**/);
         }
 
         // fprintf(stderr, "[M::%s] srt->n::%u, nec::%lu, on::%lu\n", __func__, (uint32_t)srt->n, nec, on);
@@ -4347,6 +4347,251 @@ static void worker_hap_ec(void *data, long i, int tid)
         tt1 = yak_realtime_0();
         dbg_a[i].cns_tm = tt1 - tt0;
         tt0 = tt1;
+    }
+
+
+    push_nec_re(aux_o, &(scc.a[i]));
+    push_nec_re(aux_o, &(scb.a[i]));
+
+    // if((asm_opt.is_ont) && is_chemical_r_qual(&b->olist, &b->v64, qlen, 1, 16, &(b->v8q), i)/**(is_uncorrected_read(&b->olist, &b->v64, qlen, 1600))**/) {
+    //     // b->olist.length = 0;
+    //     fprintf(stderr, "[M::%s] rid::%ld\t%.*s\n\n", __func__, i, (int)Get_NAME_LENGTH(R_INF, i), Get_NAME(R_INF, i));
+    // }
+
+    push_ne_ovlp(&(R_INF.paf[i]), &b->olist, 1, &R_INF, &(scc.a[i])/**, i, &b->self_read, &b->ovlp_read**/);
+    push_ne_ovlp(&(R_INF.reverse_paf[i]), &b->olist, 2, &R_INF, NULL/**, i, NULL, NULL**/);
+
+
+    check_well_cal(&(scc.a[i]), &b->v64, &(R_INF.paf[i].is_fully_corrected), &(R_INF.paf[i].is_abnormal), qlen, (MIN_COVERAGE_THRESHOLD*2), &(R_INF.paf[i]));
+    R_INF.trio_flag[i] = AMBIGU;
+
+    // uint32_t k;
+    // for (k = 0; k < b->olist.length; k++) {
+    //     if(b->olist.list[k].is_match == 1) b->num_recorrect_base++;
+    // }
+    ///for debug indel
+    // exit(1);
+    
+    
+
+    // prt_chain(&b->olist);
+
+    // ul_map_lchain(b->abl, (uint32_t)-1, s->seq[i], s->len[i], s->opt->w, s->opt->k, s->uu, &b->olist, &b->clist, s->opt->bw_thres, 
+    //         s->opt->max_n_chain, 1, NULL, &(b->tmp_region), NULL, &(b->sp), &high_occ, NULL, 0, 1, 0.2/**0.75**/, 2, 3);
+
+    /**
+	int fully_cov, abnormal;
+    // if(i != 12578) return;
+    // fprintf(stderr, "[M::%s-beg] rid->%ld\n", __func__, i);
+    // if (memcmp("7897e875-76e5-42c8-bc37-94b370c4cc8d", Get_NAME((R_INF), i), Get_NAME_LENGTH((R_INF),i)) == 0) {
+    //     fprintf(stderr, "[M::%s-beg] rid->%ld\n", __func__, i);
+    // } else {
+    //     return;
+    // }
+
+    ha_get_candidates_interface(b->ab, i, &b->self_read, &b->olist, &b->olist_hp, &b->clist, 
+    0.02, asm_opt.max_n_chain, 1, NULL, &b->r_buf, &(R_INF.paf[i]), &(R_INF.reverse_paf[i]), &(b->tmp_region), NULL, &(b->sp));
+
+	clear_Cigar_record(&b->cigar1);
+	clear_Round2_alignment(&b->round2);
+
+	correct_overlap(&b->olist, &R_INF, &b->self_read, &b->correct, &b->ovlp_read, &b->POA_Graph, &b->DAGCon,
+			&b->cigar1, &b->hap, &b->round2, &b->r_buf, &(b->tmp_region.w_list), 0, 1, &fully_cov, &abnormal);
+
+	b->num_read_base += b->self_read.length;
+	b->num_correct_base += b->correct.corrected_base;
+	b->num_recorrect_base += b->round2.dumy.corrected_base;
+
+	push_cigar(R_INF.cigars, i, &b->cigar1);
+	push_cigar(R_INF.second_round_cigar, i, &b->round2.cigar);
+
+	R_INF.paf[i].is_fully_corrected = 0;
+	if (fully_cov) {
+		if (get_cigar_errors(&b->cigar1) == 0 && get_cigar_errors(&b->round2.cigar) == 0)
+			R_INF.paf[i].is_fully_corrected = 1;
+	}
+	R_INF.paf[i].is_abnormal = abnormal;
+
+    R_INF.trio_flag[i] = AMBIGU;
+    
+    ///need to be fixed in r305
+    // if(ha_idx_hp == NULL)
+    // {
+    //     R_INF.trio_flag[i] += collect_hp_regions(&b->olist, &R_INF, &(b->k_flag), RESEED_HP_RATE, Get_READ_LENGTH(R_INF, i), NULL);
+    // }
+
+    if (R_INF.trio_flag[i] != AMBIGU || b->save_ov) {
+		int is_rev = (asm_opt.number_of_round % 2 == 0);
+		push_overlaps(&(R_INF.paf[i]), &b->olist, 1, &R_INF, is_rev);
+		push_overlaps(&(R_INF.reverse_paf[i]), &b->olist, 2, &R_INF, is_rev);
+	}
+
+    if(het_cnt) het_cnt[i] = get_het_cnt(&b->hap);
+    // fprintf(stderr, "[M::%s-end] rid->%ld\n", __func__, i);
+    **/
+    // exit(1);
+    refresh_ec_ovec_buf_t0(b, REFRESH_N);
+
+    /**
+    fprintf(stderr, "%ld\t---\n", i);
+    **/
+    //fprintf(stderr, "-[M::%s]\trid::%ld\t%.*s\n", __func__, i, (int)Get_NAME_LENGTH(R_INF, i), Get_NAME(R_INF, i));
+}
+
+// void dbg_gen_ovlp_lst()
+// {
+//     ;
+// } 
+
+void worker_hap_ec_back_dbg(void *data, long i, int tid)
+{
+	ec_ovec_buf_t0 *b = &(((ec_ovec_buf_t*)data)->a[tid]);
+    uint32_t high_occ = asm_opt.hom_cov * (2.0 - HA_KMER_GOOD_RATIO);
+    uint32_t low_occ = asm_opt.hom_cov * HA_KMER_GOOD_RATIO; int64_t het_a, hom_a; ///gen_hc_aln_t ez; 
+    overlap_region *aux_o = NULL/**, *rse_o = NULL**/; asg64_v buf0; uint32_t qlen = 0, qw = 0; uint64_t tot_b = 0; double tt0 = 0, tt1 = 0;
+    b->v8q.n = b->v8t.n = 0; set_ec_cov(asm_opt.het_cov, asm_opt.hom_cov, asm_opt.het_cov_set, asm_opt.polyploidy, het_a, hom_a);
+
+    // if(i != 0) return;
+
+    if(DBG_TIME && dbg_a) {
+        dbg_a[i].chn_tm = dbg_a[i].aln_tm = dbg_a[i].phs_tm = dbg_a[i].cns_tm = 0;
+    }
+
+
+    // debug_retrive_bqual(D, &b->v8t, i, 256); return;
+    if(DBG_TIME && dbg_a) {
+        if(DBG_TIME == 1) {
+            tt0 = yak_realtime_0();
+        }
+    }
+    recover_UC_Read(&b->self_read, &R_INF, i); qlen = b->self_read.length; 
+    qw = ((qlen < (COV_W_AC<<1))?(qlen>>1):(COV_W_AC)); if(!qw) qw = 1;
+    // if(qlen <= 0) return;
+    
+    /**
+    h_ec_lchain(b->ab, i, b->self_read.seq, b->self_read.length, asm_opt.mz_win, asm_opt.k_mer_length, &R_INF, &b->olist, &b->clist, ((asm_opt.is_ont)?(0.05):(0.02)), asm_opt.max_n_chain, 1, NULL, NULL, &(b->sp), &high_occ, &low_occ, 1, 1, 3, 0.7, 2, 32, COV_W, 1);///ONT high error
+    **/
+    h_ec_lchain(b->ab, i, b->self_read.seq, b->self_read.length, asm_opt.mz_win, asm_opt.k_mer_length, &R_INF, &b->olist, &b->clist, ((asm_opt.is_ont)?(0.05):(0.02)), asm_opt.max_n_chain, 1, NULL, NULL, &(b->sp), &high_occ, &low_occ, 1, 1, 3, 0.7, 2, 32, COV_W, 0);///ONT high error
+    // b->num_read_base += b->olist.length;
+    b->cnt[0] += b->self_read.length;
+
+    aux_o = fetch_aux_ovlp(&b->olist, NULL/**&rse_o**/);///must be here
+    if(DBG_TIME && dbg_a) {
+        if(DBG_TIME == 1) {
+            tt1 = yak_realtime_0();
+            dbg_a[i].chn_tm = tt1 - tt0;
+            tt0 = tt1;
+        } else if(DBG_TIME == 2) {
+            dbg_a[i].fbs = b->olist.length;
+        }
+    }
+
+    // stderr_phase_ovlp(&b->olist);
+
+    ///debug for memory
+    // snprintf(NULL, 0, "dwn::%u\tdcn::%u", (uint32_t)aux_o->w_list.n, (uint32_t)aux_o->w_list.c.n);
+    ///mz1_ha_sketch(rs, rl, mz_w, mz_k, 0, !(asm_opt.flag & HA_F_NO_HPC), &ab->mz, ha_flt_tab, asm_opt.mz_sample_dist, k_flag, dbg_ct, NULL, -1, asm_opt.dp_min_len, -1, sp, asm_opt.mz_rewin, 0, NULL);
+    // if((asm_opt.is_ont) && (b->olist.length)) get_mz1(qu->seq, qu->length, RES_W, RES_K, 0, !(asm_opt.flag & HA_F_NO_HPC), b->ab, NULL, NULL, asm_opt.mz_sample_dist, NULL, NULL, NULL, -1, asm_opt.dp_min_len, -1, &(b->sp), asm_opt.mz_rewin, 0, NULL, 0);
+
+    // fprintf(stderr, "\n+[M::%s]\trid::%ld\t%.*s\n", __func__, i, (int)Get_NAME_LENGTH(R_INF, i), Get_NAME(R_INF, i));
+    
+    
+    ///r769: kp (gen_hc_r_alin_ea) -> NULL; site_sc (rphase_hc) -> 0
+    ///r770: kp (gen_hc_r_alin_ea) -> buf0; site_sc (rphase_hc) -> 0
+    ///r789: kp (gen_hc_r_alin_ea) -> NULL; site_sc (rphase_hc) -> 0
+    ///r791: kp (gen_hc_r_alin_ea) -> buf0; site_sc (rphase_hc) -> 0
+    /**
+    copy_asg_arr(buf0, b->sp); 
+    // tot_b = gen_hc_r_alin_ea_flt(b->ab, &b->olist, &b->clist, &R_INF, &b->self_read, &b->ovlp_read, &b->exz, aux_o, asm_opt.max_n_chain, asm_opt.max_n_chain*HC_MF_R, asm_opt.chn_occ, asm_opt.max_ov_diff_ec, (asm_opt.is_ont)?(WINDOW_OHC):(WINDOW_HC), i, E_KHIT, 
+    // 1, &b->v16, &b->v64, &(R_INF.paf[i]), asm_opt.is_ont, (asm_opt.is_ont)?(0.006):(-1), (asm_opt.is_ont)?(64):(-1), (asm_opt.is_ont)?(512):(0), (asm_opt.is_ont)?(6):(0), (asm_opt.is_ont)?(1.5):(-1), (asm_opt.is_ont)?(0.1):(-1), &buf0, qw, &b->v8q, &b->v32, 1);
+    tot_b = gen_hc_r_alin_ea_flt_mmp(b->ab, &b->olist, &b->clist, &R_INF, &b->self_read, &b->ovlp_read, &b->exz, aux_o, asm_opt.max_n_chain, asm_opt.max_n_chain*HC_MF_R, asm_opt.chn_occ, asm_opt.max_ov_diff_ec, (asm_opt.is_ont)?(WINDOW_OHC):(WINDOW_HC), i, E_KHIT, 
+    1, &b->v16, &b->v64, &(R_INF.paf[i]), asm_opt.is_ont, (asm_opt.is_ont)?(0.006):(-1), (asm_opt.is_ont)?(64):(-1), (asm_opt.is_ont)?(512):(0), (asm_opt.is_ont)?(6):(0), (asm_opt.is_ont)?(1.5):(-1), (asm_opt.is_ont)?(0.1):(-1), &buf0, qw, &b->v8q, &b->v32);
+    copy_asg_arr(b->sp, buf0); 
+    **/
+
+    // exit(1);
+    copy_asg_arr(buf0, b->sp); 
+    //kp: r763 -> r765: buf0 -> NULL
+    //kp: r766 -> r767: NULL -> buf0
+    tot_b = gen_hc_r_alin_ea(&b->olist, &b->clist, &R_INF, &b->self_read, &b->ovlp_read, &b->exz, aux_o, asm_opt.max_ov_diff_ec, (asm_opt.is_ont)?(WINDOW_OHC):(WINDOW_HC), i, E_KHIT, 
+    1, &b->v16, &b->v64, &(R_INF.paf[i]), asm_opt.is_ont, (asm_opt.is_ont)?(0.006):(-1), (asm_opt.is_ont)?(64):(-1), (asm_opt.is_ont)?(512):(0), (asm_opt.is_ont)?(6):(0), 
+    (asm_opt.is_ont)?(1.5):(-1), (asm_opt.is_ont)?(0.1):(-1), /**(asm_opt.is_ont)?(&buf0):**/(NULL), &b->v8q);
+    copy_asg_arr(b->sp, buf0);
+
+    // init_gen_hc_aln_t(&ez, &b->olist, &b->clist, &R_INF, &b->self_read, &b->ovlp_read, &b->exz, aux_o, 
+    //     asm_opt.max_ov_diff_ec, asm_opt.max_ov_diff_ec, (asm_opt.is_ont)?(WINDOW_OHC):(WINDOW_HC), (asm_opt.is_ont)?(WINDOW_OHC):(WINDOW_HC), i, E_KHIT, 1, &b->v16, &b->v64, &(R_INF.paf[i]),
+    //     asm_opt.is_ont, asm_opt.is_ont, (asm_opt.is_ont)?(0.006):(-1), (asm_opt.is_ont)?(0.006):(-1), (asm_opt.is_ont)?(64):(-1), (asm_opt.is_ont)?(64):(-1), 
+    //     (asm_opt.is_ont)?(512):(0), (asm_opt.is_ont)?(6):(0), (asm_opt.is_ont)?(1.5):(-1), (asm_opt.is_ont)?(0.1):(-1), (asm_opt.is_ont)?(&buf0):(NULL), (uint64_t)-1);
+    // gen_hc_r_alin_ea_adv(&ez);
+    
+    
+
+   if(DBG_TIME && dbg_a) {
+        if(DBG_TIME == 1) {
+            tt1 = yak_realtime_0();
+            dbg_a[i].aln_tm = tt1 - tt0;
+            tt0 = tt1;
+
+            dbg_a[i].faln = cal_aln_bs(&b->olist);
+            dbg_a[i].fbs = tot_b;
+        } else if(DBG_TIME == 2) {
+            dbg_a[i].faln = b->olist.length;
+        }
+    }
+
+    // fprintf(stderr, "-[M::%s] rid::%ld\n", __func__, i);
+    //for debug indel
+    // prt_ovlp_sam(&b->olist, &b->ovlp_read, b->self_read.seq, b->self_read.length);
+    // stderr_phase_ovlp(&b->olist);
+
+
+    // fprintf(stderr, "\n[M::%s] rid::%ld\t%.*s\tlen::%lld\tocc::%lu\n", __func__, i, (int)Get_NAME_LENGTH(R_INF, i), Get_NAME(R_INF, i), b->self_read.length, b->olist.length);
+
+    // fprintf(stderr, "[M::%s] rid::%ld\n", __func__, i);
+    // debug_mm_exact_cigar(&b->olist, i, &b->self_read, &b->ovlp_read);
+
+    // b->num_correct_base += b->olist.length;
+    /**
+     * ///r779: enable this
+    copy_asg_arr(buf0, b->sp); 
+    gen_reseed_re(&b->olist, &b->clist, aux_o, rse_o, &R_INF, &b->self_read, &b->ovlp_read, &b->exz, &b->pidx, &b->v64, &buf0, 0, asm_opt.mz_win, 19, i, asm_opt.max_ov_diff_ec, asm_opt.max_ov_diff_ec, &b->v16, R_INF.tqn, b->v8q.a);
+    copy_asg_arr(b->sp, buf0);
+    **/
+
+    copy_asg_arr(buf0, b->sp); 
+    //site_sc: r765 -> r766: 1 -> 0
+    rphase_hc(&b->olist, &R_INF, &b->hap, &b->self_read, &b->ovlp_read, &b->pidx, &b->v64, &buf0, 0, WINDOW_MAX_SIZE, b->self_read.length, 1/**, 0**/, i, (asm_opt.is_ont)?HPC_PL:0, asm_opt.is_ont, ((asm_opt.is_ont)?&(b->clist.chainDP):NULL), ((asm_opt.is_sc)?&(b->v8q):NULL), /**((asm_opt.is_sc)?&(b->v8t):NULL)**/&(b->v8t), (asm_opt.is_ont)?1:0, ((uint64_t)-1), 0, HC0_W, &b->v32,
+    asm_opt.s_hap_cov, asm_opt.infor_cov, het_a, hom_a, asm_opt.polyploidy, -1.0);
+    copy_asg_arr(b->sp, buf0);
+    ///for debug indel
+    // stderr_phase_ovlp(&b->olist);
+
+    // est_rep_err_rate(&b->olist, &b->v64, &b->pidx, qlen, (asm_opt.is_ont)?(WINDOW_OHC):(WINDOW_HC), NULL);
+
+    if(DBG_TIME && dbg_a) {
+        if(DBG_TIME == 1) {
+            tt1 = yak_realtime_0();
+            dbg_a[i].phs_tm = tt1 - tt0;
+            tt0 = tt1;
+        }
+    }
+
+
+    dedup_chains(&b->olist);
+
+
+
+    copy_asg_arr(buf0, b->sp);
+    b->cnt[1] += wcns_gen(&b->olist, &R_INF, i, &b->self_read, &b->ovlp_read, &b->exz, &b->pidx, &b->v64, &buf0, 0, 512, b->self_read.length, 3, 0.500001, aux_o, &b->v32, &b->cns, 256, i, ((uint64_t)-1), 
+    R_INF.tr[0], R_INF.tr[1], asm_opt.ont_rate, asm_opt.hf_rate, asm_opt.hf_rate_max, NULL);
+    copy_asg_arr(b->sp, buf0);
+
+    if(DBG_TIME && dbg_a) {
+        if(DBG_TIME == 1) {
+            tt1 = yak_realtime_0();
+            dbg_a[i].cns_tm = tt1 - tt0;
+            tt0 = tt1;
+        }
     }
 
 
@@ -8279,19 +8524,43 @@ dbg_cnt_ss* fetch_dbg_cnt_ss(char *in, int64_t n_a, dbg_cnt_ss *in_p)
     return p;
 }
 
-void prt_dbg_stats(dbg_cnt_ss *p, uint64_t n_a, char *fn_n, uint64_t rr)
+void prt_dbg_stats(dbg_cnt_ss *p, uint64_t n_a, char *fn_n, uint64_t rr, uint8_t stat_only)
 {
-    uint64_t k;
-    char* ga_n = (char*)malloc(strlen(fn_n)+64);
-    sprintf(ga_n, "%s.%lu.run.stat.log", fn_n, rr);
-    FILE *fn = fopen(ga_n, "w");
-    free(ga_n);
+    uint64_t k; char *ga_n = NULL; FILE *fn = NULL; double chn_tm = 0, aln_tm = 0, phs_tm = 0, cns_tm = 0;
+    uint64_t fbs = 0, faln = 0;
+    if(!stat_only) {
+        ga_n = (char*)malloc(strlen(fn_n)+64);
+        sprintf(ga_n, "%s.%lu.run.stat.log", fn_n, rr);
+        fn = fopen(ga_n, "w");
+        free(ga_n);
+    }
+    
 
     for (k = 0; k < n_a; k++) {
-        fprintf(fn, "rid::%lu\ttot_bs::%lu\taln_bs::%lu\tchn_tm::%f\taln_tm::%f\tphs_tm::%f\tcns_tm::%f\n", k, p[k].fbs, p[k].faln, p[k].chn_tm, p[k].aln_tm, p[k].phs_tm, p[k].cns_tm);
+        if(!stat_only) {
+            if(DBG_TIME == 1) {
+                fprintf(fn, "rid::%lu\ttot_bs::%lu\taln_bs::%lu\tchn_tm::%f\taln_tm::%f\tphs_tm::%f\tcns_tm::%f\n", k, p[k].fbs, p[k].faln, p[k].chn_tm, p[k].aln_tm, p[k].phs_tm, p[k].cns_tm);
+            } else {
+                fprintf(fn, "rid::%lu\ttot_bs::%lu\taln_bs::%lu\n", k, p[k].fbs, p[k].faln);
+            }   
+            
+        }
+        chn_tm += p[k].chn_tm; 
+        aln_tm += p[k].aln_tm;
+        phs_tm += p[k].phs_tm; 
+        cns_tm += p[k].cns_tm;
+        fbs += p[k].fbs;
+        faln += p[k].faln;
     }
 
-    fclose(fn);
+    if(!stat_only) {
+        fprintf(stderr, "[M::%s] chn_tm::%f, aln_tm:%f, phs_tm:%f, cns_tm:%f, fbs::%lu, faln::%lu\n", __func__, chn_tm, aln_tm, phs_tm, cns_tm, fbs, faln);
+        fclose(fn);
+        exit(1);
+    } else {
+        fprintf(stderr, "[M::%s] chn_tm::%f, aln_tm:%f, phs_tm:%f, cns_tm:%f, fbs::%lu, faln::%lu\n", __func__, chn_tm, aln_tm, phs_tm, cns_tm, fbs, faln);
+        exit(1);
+    }
 }
 
 
@@ -8912,7 +9181,7 @@ void cal_ec_r(uint64_t n_thre, uint64_t round, uint64_t n_round, uint64_t n_a, u
     }
     
     if(DBG_TIME && dbg_a) {
-        prt_dbg_stats(dbg_a, n_a, asm_opt.output_file_name, round);
+        prt_dbg_stats(dbg_a, n_a, asm_opt.output_file_name, round, 0);
         free(dbg_a); dbg_a = NULL;
     }
     sl_ec_r(n_thre, n_a);

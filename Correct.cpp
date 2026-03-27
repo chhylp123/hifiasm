@@ -32001,6 +32001,8 @@ void reassign_gaps(overlap_region *z, overlap_region *aux, char* qstr, int64_t q
     if(rr) update_overlap_region(z, aux, ql, ((rref)?(Get_READ_LENGTH((*rref), z->y_id)):(tl)));
     z->non_homopolymer_errors -= re;
 
+    if(!qhpf) return;
+
     // if(z->x_id == 142 && z->y_id == 207) {
     //     fprintf(stderr, "-c-[M::%s::]\tqid::%u\ttid::%u\t%.*s\tq::[%u,%u)\tt::[%u,%u)\tis_match::%u\terr::%u\trr::%ld\tre::%ld\tw_err::%d\n", __func__, z->x_id,
     //         z->y_id, (int)Get_NAME_LENGTH(R_INF, z->y_id), Get_NAME(R_INF, z->y_id), 
@@ -35287,9 +35289,6 @@ uint8_t hc_aln_simd(overlap_region* ol, uint64_t *ffa, uint32_t *ia, uint64_t in
         }
         
         
-        // for (k = 0; k < mm_k; k++) {
-        //     ed_band_cal_semi_64_w_absent_diag(tstr[k], bt_pri_l[k], qstr, wql, thre, baux_beg[k], exz); ez_er[k] = exz->err; ez_pe[k] = exz->pe;
-        // }
         if(mm_k > 1) {
             ed_band_cal_semi_64_w_absent_diag_avx8(tstr, bt_pri_l, qstr, wql, thre,  baux_beg, ez_er, ez_pe);
         } else {
@@ -35334,9 +35333,6 @@ uint64_t gen_hc_r_alin_adp_mmp_1(overlap_region_alloc* ol, Candidates_list *cl, 
 
     for (i = 0; i < wsrt_n; i++) {
         z = &(ol->list[(uint32_t)wsrt[i]]);
-        // if(z->x_id == 63 && z->y_id == 9) {
-        //     fprintf(stderr, "-a-[M::%s]\tqid::%u\ttid::%u\tqa::[%u,%u)\tta::[%u,%u)\n", __func__, z->x_id, z->y_id, z->x_pos_s, z->x_pos_e + 1, z->y_pos_s, z->y_pos_e + 1);
-        // }
         if(z->is_match == 0) {
             z->w_list.n = 0; z->align_length = 0;
         }
