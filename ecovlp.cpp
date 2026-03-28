@@ -3686,6 +3686,73 @@ void gen_hc_r_alin_ea_adv_flt(gen_hc_aln_t *ez)
 }
 
 
+void gen_hc_r_alin_ea_adv_flt_mmp(gen_hc_aln_t *ez)
+{
+    if(ez->ol->length <= 0) return;
+
+    uint64_t i, k, m, *ei, en, *oi, on, tid, trev, nec; overlap_region *z; ma_hit_t *p;
+    ez->v32->n = ez->ol->length<<1; kv_resize(uint32_t, *(ez->v32), ez->v32->n); 
+    for (i = 0; i < ez->ol->length; i++) {
+        ez->v32->a[i] = ez->ol->list[i].align_length;
+        ez->v32->a[i+ez->ol->length] = ez->ol->list[i].shared_seed;
+        ez->ol->list[i].align_length = 0;
+    }
+
+    // uint64_t k, i, m, *ei, en, *oi, on, tid, trev, nec; overlap_region *z; ma_hit_t *p;
+    for (k = ez->srt->n = 0; k < ez->in->length; k++) {
+        if(ez->in->buffer[k].el) {
+            m = ez->in->buffer[k].tn; m <<= 1; m |= ez->in->buffer[k].rev; 
+            m <<= 32; m |= k; kv_push(uint64_t, (*(ez->srt)), m);
+        }
+    }
+
+    if(!(ez->srt->n)) {
+        // gen_hc_r_alin_adv_adp_smp(ez, a_cu, a_ci, ocn, osc, idx_cu, n_cu, 1);
+        gen_hc_r_alin_adv_adp_smp_1(ez, 1);
+    } else {
+        ///debug for memory
+        // snprintf(NULL, 0, "dwn::%u\tdcn::%u", (uint32_t)aux_o->w_list.n, (uint32_t)aux_o->w_list.c.n);
+        kv_resize(uint64_t, *(ez->srt), (ez->srt->n + ez->ol->length));
+        ei = ez->srt->a; en = ez->srt->n; oi = ez->srt->a + ez->srt->n; on = ez->ol->length;
+        for (k = 0; k < on; k++) {
+            z = &(ez->ol->list[k]); z->is_match = z->strong = z->without_large_indel = 0;
+            oi[k] = z->y_id; oi[k] <<= 1; oi[k] |= z->y_pos_strand;
+            oi[k] <<= 32; oi[k] |= k;
+        }
+
+        radix_sort_ec64(ei, ei + en); radix_sort_ec64(oi, oi + on);
+        for (k = i = nec = 0; k < on; k++) {
+            z = &(ez->ol->list[(uint32_t)oi[k]]); tid = z->y_id; trev = z->y_pos_strand;
+            for (; (i < en) && ((ei[i]>>32) < ((tid<<1)|trev)); i++);
+            if((i < en) && ((ei[i]>>32) == ((tid<<1)|trev))) {
+                p = &(ez->in->buffer[(uint32_t)ei[i]]);
+                if((z->x_pos_s == ((uint32_t)p->qns)) && (z->x_pos_e + 1 == p->qe) && 
+                            (z->y_pos_s == p->ts) && (z->y_pos_e + 1 == p->te)) {
+                    resize_UC_Read(ez->tu, p->te - p->ts); recover_UC_Read_sub_region(ez->tu->seq, p->ts, p->te - p->ts, trev, ez->rref, tid);
+                    if(exact_ec_check(ez->qu->seq, ez->qu->length, ez->tu->seq, p->te - p->ts, ((uint32_t)p->qns), p->qe, 0, p->te - p->ts)) {
+                        z->is_match = 1; z->shared_seed = z->non_homopolymer_errors;///for index
+                        z->non_homopolymer_errors = 0; z->strong = z->without_large_indel = 0;
+                        set_exact_exz(ez->exz, z->x_pos_s, z->x_pos_e + 1, z->y_pos_s, z->y_pos_e + 1); push_alnw(z, ez->exz);
+                        nec++;
+                    }
+                }
+            }
+        }
+        ///debug for memory
+        // snprintf(NULL, 0, "dwn::%u\tdcn::%u", (uint32_t)aux_o->w_list.n, (uint32_t)aux_o->w_list.c.n);
+
+        if(on > nec) {
+            // gen_hc_r_alin_adv_adp_smp(ez, a_cu, a_ci, ocn, osc, idx_cu, n_cu, 0);
+            gen_hc_r_alin_adv_adp_smp_1(ez, 0);
+        }
+        // fprintf(stderr, "[M::%s] srt->n::%u, nec::%lu, on::%lu\n", __func__, (uint32_t)srt->n, nec, on);
+        ///debug for memory
+        // snprintf(NULL, 0, "dwn::%u\tdcn::%u", (uint32_t)aux_o->w_list.n, (uint32_t)aux_o->w_list.c.n);
+    }
+}
+
+
+
 void prt_ovlp_sam_0(char *cm, FILE *fp, char *ref_id, int32_t ref_id_n, char *qry_id, int32_t qry_id_n, char *qry_seq, uint64_t qry_seq_n, uint64_t rs, uint64_t re, uint64_t qs, uint64_t qe, uint64_t flag, uint64_t err0, bit_extz_t *ez)
 {
     uint64_t ci = 0, err1 = 0; uint16_t c; uint32_t cl, cl0 = 0; char c0 = (char)-1;
@@ -5129,14 +5196,15 @@ static void worker_hap_ec_hybrid(void *data, long i, int tid)
     aux_o = fetch_aux_ovlp(&b->olist, NULL/**&rse_o**/);///must be here
 
     copy_asg_arr(buf0, b->sp); 
-    init_gen_hc_aln_t(&ez, &b->olist, &b->clist, &R_INF, &b->self_read, &b->ovlp_read, &b->exz, aux_o, rse_o, &b->v8q,
+    init_gen_hc_aln_t(&ez, &b->olist, &b->clist, &R_INF, &b->self_read, &b->ovlp_read, &b->exz, aux_o, rse_o, /**&b->v8q**/NULL,
         e_l, e_h, (qid < R_INF.tqn)?(WINDOW_OHC):(WINDOW_HC), WINDOW_OHC, i, E_KHIT, 1, &b->v16, &b->v64, &(R_INF.paf[i]),
         ((qid < R_INF.tqn)?(1):(0)), 1, (qid < R_INF.tqn)?(0.006):(-1), 0.006, (qid < R_INF.tqn)?(64):(-1), 64, 
         (qid < R_INF.tqn)?(512):(0), (qid < R_INF.tqn)?(6):(0), (qid < R_INF.tqn)?(1.5):(-1), (qid < R_INF.tqn)?(0.1):(-1), NULL, 
         &(b->v32), &buf0, b->ab, (asm_opt.max_n_chain>0)?(asm_opt.max_n_chain):(1), ((asm_opt.max_n_chain*HC_MF_R)>0)?(asm_opt.max_n_chain*HC_MF_R):1, 
         asm_opt.chn_occ, ((asm_opt.hom_cov*HC_AV_MIN)>0)?(asm_opt.hom_cov*HC_AV_MIN):(1), qw, R_INF.tqn, asm_opt.hom_cov); 
         // gen_hc_r_alin_ea_adv(&ez);
-    gen_hc_r_alin_ea_adv_flt(&ez);
+    // gen_hc_r_alin_ea_adv_flt(&ez);
+    gen_hc_r_alin_ea_adv_flt_mmp(&ez);
     copy_asg_arr(b->sp, buf0);
 
     // fprintf(stderr, "-c-[M::%s] rid::%ld\n", __func__, i);

@@ -35989,6 +35989,192 @@ void gen_hc_r_alin_adv_adp_smp(gen_hc_aln_t *ez, uint32_t *a_cu, uint32_t *a_ci,
 
 
 
+void gen_hc_r_alin_adv_adp_smp_0(gen_hc_aln_t *ez, uint8_t set_match)
+{
+    uint64_t i, bs, k, w, ql = ez->qu->length, *wsrt = NULL, wsrt_n = 0, spn0 = 0, tot_b = 0; double err, e_max, align_gap_max, align_gap_rate, chem_drop; overlap_region t, *z; asg64_v *sp = ez->srt;
+    ez->ol->mapped_overlaps_length = 0; uint32_t *ocn = ez->v32->a, *osc = ez->v32->a + ez->ol->length; 
+    if(ez->ol->length <= 0) return;
+
+    ///base alignment
+    bs = (MAX(ez->wl[0], ez->wl[1]))+(THRESHOLD_MAX_SIZE<<1)+1;
+    resize_UC_Read(ez->tu, bs<<1); spn0 = sp->n; 
+
+    wsrt = mmp_chn_select(ez->ol, ez->cl, sp, ez->ocw, ocn, osc, ql, &wsrt_n, set_match, ez->max_n_chain, ez->max_n_chain_f, ez->chain_cutoff, ez->ave_cov_min, 0.333333, 16, 16);
+
+    for (i = 0; i < wsrt_n; i++) {
+        z = &(ez->ol->list[(uint32_t)wsrt[i]]); 
+
+        if(z->y_id < ez->t_cut) {
+            err = ez->e_rate[1]; w = ez->wl[1]; align_gap_max = ez->align_gap_max[1]; align_gap_rate = ez->align_gap_rate[1]; chem_drop = ez->chem_drop[1];
+        } else {
+            err = ez->e_rate[0]; w = ez->wl[0]; align_gap_max = ez->align_gap_max[0]; align_gap_rate = ez->align_gap_rate[0]; chem_drop = ez->chem_drop[0];
+        }
+        e_max = err * 1.5;
+
+
+        if((z->is_match == 0) && (!gen_hc_r_alin_flt_1_smp(z, ez->cl, ez->rref, ez->qu, ez->tu, ez->exz, ez->aux_o, err, e_max, err, w, ql, ez->rid, ez->khit, chem_drop, align_gap_rate, align_gap_max, NULL/**ez->hpz->a**/, ez->buf, 0, &tot_b))) {
+            continue;
+        }
+
+        z->is_match = 1; z->strong = z->without_large_indel = 0;
+    }
+
+    for (i = k = 0; i < ez->ol->length; i++) {///primary chain
+        z = &(ez->ol->list[i]); 
+        if(z->is_match == 0) continue;
+        if(k != i) {
+            t = ez->ol->list[k];
+            ez->ol->list[k] = ez->ol->list[i];
+            ez->ol->list[i] = t;
+        }
+        k++;
+    }
+
+    ez->ol->length = k; sp->n = spn0; 
+}
+
+void batch_simd_ck(gen_hc_aln_t *ez, uint64_t *wsrt, uint64_t wsrt_n, uint64_t ql, double err, uint64_t w, double align_gap_max, double align_gap_rate, double chem_drop)
+{
+    if(!wsrt_n) return;
+    uint8_t rr; uint64_t fi[AVX_GS]; int32_t aux_beg[AVX_GS], aux_end[AVX_GS], t_s[AVX_GS], t_pri_l[AVX_GS];
+    uint64_t i, k, zk, in0, s, e, q[2], os, oe; overlap_region *z;
+
+    radix_sort_bc64(wsrt, wsrt + wsrt_n);
+    for (k = 1, i = 0; k <= wsrt_n; k++) {
+        if (k == wsrt_n || (wsrt[k]>>32) != (wsrt[i]>>32)) {
+            if(k - i > 1) {
+                for (zk = i; zk < k; zk++) {
+                    wsrt[zk] = (((uint64_t)(ez->ol->list[(uint32_t)wsrt[zk]].x_pos_e + 1))<<32)|((uint32_t)wsrt[zk]);
+                }
+                radix_sort_bc64(wsrt + i, wsrt + k);
+            }
+            i = k;
+        }
+    }
+
+    ez->v32->n = (ez->ol->length<<1); in0 = ez->v32->n;
+    i = 0; s = 0; e = w; e = ((e<=ql)?e:ql); rr = 0;
+    for (; s < ql; ) {///[s, e)
+        if(rr) {
+            for (k = zk = in0; k < ez->v32->n; k++) {
+                if((wsrt[ez->v32->a[k]]>>32) == UINT32_MAX) continue;///passed
+                z = &(ez->ol->list[(uint32_t)wsrt[ez->v32->a[k]]]);
+                q[0] = z->x_pos_s;
+                q[1] = z->x_pos_e + 1;
+                ///[s, e) && [q[0], q[1])
+                os = MAX(q[0], s); oe = MIN(q[1], e);
+                if(oe > os) ez->v32->a[zk++] = ez->v32->a[k];
+            }
+            ez->v32->n = zk;
+        }
+
+        for (; i < wsrt_n; ++i) {
+            z = &(ez->ol->list[(uint32_t)wsrt[i]]);
+            q[0] = z->x_pos_s;
+            q[1] = z->x_pos_e + 1;
+            if(q[0] >= e) break;
+            if(z->is_match == 0) {
+                os = MAX(q[0], s); oe = MIN(q[1], e);
+                if(oe > os) kv_push(uint32_t, *(ez->v32), i);
+            }
+        }
+
+        rr = hc_aln_simd(ez->ol->list, wsrt, ez->v32->a + in0, ez->v32->n - in0, s, e, w, err, ez->rref, ez->qu->seq, ez->tu, fi, aux_beg, aux_end, t_s, t_pri_l, ez->exz, OVERLAP_THRESHOLD_HIFI_FILTER, 0, NULL/**&tot_b**/);            
+        s += w; e += w; e = ((e<=ql)?e:ql);
+    }
+}
+
+void gen_hc_r_alin_adv_adp_smp_1(gen_hc_aln_t *ez, uint8_t set_match)
+{
+    uint64_t i, bs, k, w, ql = ez->qu->length, nol_1, *wsrt = NULL, wsrt_n = 0, spn0 = 0; double err, e_max, align_gap_max, align_gap_rate, chem_drop; overlap_region t, *z; asg64_v *sp = ez->srt;
+    ez->ol->mapped_overlaps_length = 0; uint32_t *ocn = ez->v32->a, *osc = ez->v32->a + ez->ol->length; 
+    if(ez->ol->length <= 0) return;
+
+    ///base alignment
+    bs = (MAX(ez->wl[0], ez->wl[1]))+(THRESHOLD_MAX_SIZE<<1)+1;
+    resize_UC_Read(ez->tu, bs<<1); spn0 = sp->n; 
+
+    wsrt = mmp_chn_select(ez->ol, ez->cl, sp, ez->ocw, ocn, osc, ql, &wsrt_n, set_match, ez->max_n_chain, ez->max_n_chain_f, ez->chain_cutoff, ez->ave_cov_min, 0.333333, 16, 16);
+
+
+    for (i = nol_1 = 0; i < wsrt_n; i++) {
+        z = &(ez->ol->list[(uint32_t)wsrt[i]]);
+        if(z->is_match == 0) {
+            z->w_list.n = 0; z->align_length = 0;
+        }
+        wsrt[i] = ((((uint64_t)z->x_pos_s))<<32)|((uint32_t)wsrt[i]);
+
+        if(z->y_id < ez->t_cut) {
+            if(nol_1 != i) {
+                bs = wsrt[i]; wsrt[i] = wsrt[nol_1]; wsrt[nol_1] = bs;
+            }
+            nol_1++;
+        }  
+    }
+
+    batch_simd_ck(ez, wsrt, nol_1, ql, ez->e_rate[1], ez->wl[1], ez->align_gap_max[1], ez->align_gap_rate[1], ez->chem_drop[1]);
+    batch_simd_ck(ez, wsrt + nol_1, wsrt_n - nol_1, ql, ez->e_rate[0], ez->wl[0], ez->align_gap_max[0], ez->align_gap_rate[0], ez->chem_drop[0]);
+    ocn = ez->v32->a; osc = ez->v32->a + ez->ol->length;
+
+    for (i = 0; i < wsrt_n; i++) {
+        if((wsrt[i]>>32) == UINT32_MAX) {
+            continue;
+        }
+        z = &(ez->ol->list[(uint32_t)wsrt[i]]); 
+
+        if(z->y_id < ez->t_cut) {
+            err = ez->e_rate[1]; w = ez->wl[1]; align_gap_max = ez->align_gap_max[1]; align_gap_rate = ez->align_gap_rate[1]; chem_drop = ez->chem_drop[1];
+        } else {
+            err = ez->e_rate[0]; w = ez->wl[0]; align_gap_max = ez->align_gap_max[0]; align_gap_rate = ez->align_gap_rate[0]; chem_drop = ez->chem_drop[0];
+        }
+        e_max = err * 1.5;
+
+        if(z->is_match == 0) {
+            if((!pass_qovlp(z->x_pos_e+1-z->x_pos_s, z->align_length, OVERLAP_THRESHOLD_HIFI_FILTER)) || (!gen_hc_r_alin_flt_1_smp(z, ez->cl, ez->rref, ez->qu, ez->tu, ez->exz, ez->aux_o, err, e_max, err, w, ql, ez->rid, ez->khit, chem_drop, 
+                align_gap_rate, align_gap_max, NULL/**ez->hpz->a**/, ez->buf, 1, NULL/**&tot_b**/))) {
+                continue;
+            }
+        }
+        // if((z->is_match == 0) && (!gen_hc_r_alin_flt_1_smp(z, ez->cl, ez->rref, ez->qu, ez->tu, ez->exz, ez->aux_o, err, e_max, err, w, ql, ez->rid, ez->khit, chem_drop, align_gap_rate, align_gap_max, NULL/**ez->hpz->a**/, ez->buf, 0, &tot_b))) {
+        //     continue;
+        // }
+
+        z->is_match = 1; z->strong = z->without_large_indel = 0;
+    }
+
+    /**
+    // uint64_t kqs, kqe, kts, kte, kerr;
+    for (i = 0; i < wsrt_n; i++) {
+        if((wsrt[i]>>32) == UINT32_MAX) {
+            continue;
+        }
+        z = &(ol->list[(uint32_t)wsrt[i]]); 
+
+        if(z->is_match == 0) {
+            if((!pass_qovlp(z->x_pos_e+1-z->x_pos_s, z->align_length, OVERLAP_THRESHOLD_HIFI_FILTER)) || (!gen_hc_r_alin_flt_1_smp(z, cl, rref, qu, tu, exz, aux_o, err, e_max, 
+                    e_rate, w.window_length, ql, rid, khit, chem_drop, align_gap_rate, align_gap_max, hpf, buf, 1, &tot_b))) {
+                continue;
+            }
+        }
+
+        z->is_match = 1; z->strong = z->without_large_indel = 0;
+    }
+    **/
+
+    for (i = k = 0; i < ez->ol->length; i++) {///primary chain
+        z = &(ez->ol->list[i]); 
+        if(z->is_match == 0) continue;
+        if(k != i) {
+            t = ez->ol->list[k];
+            ez->ol->list[k] = ez->ol->list[i];
+            ez->ol->list[i] = t;
+        }
+        k++;
+    }
+
+    ez->ol->length = k; sp->n = spn0; 
+}
+
 
 uint64_t gen_hc_r_alin_nec(overlap_region_alloc* ol, Candidates_list *cl, All_reads *rref, UC_Read* qu, UC_Read* tu, bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t wl, int64_t rid, int64_t khit, int64_t move_gap, asg16_v* buf, uint8_t chem_drop, double align_gap_rate, int64_t align_gap_max, uint64_t sec_aln_win, uint64_t sec_aln_cov, double sec_aln_err_rate, double sec_aln_max, asg64_v *kp, uint8_t *hpf)
 {
