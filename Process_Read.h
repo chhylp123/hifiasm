@@ -8,6 +8,7 @@
 #include <zlib.h>
 #include "Overlaps.h"
 #include "CommandLines.h"
+#include "Levenshtein_distance.h"
 ///#include "Hash_Table.h"
 
 #define READ_INIT_NUMBER 1000
@@ -151,6 +152,9 @@ typedef struct
 
 extern All_reads R_INF;
 
+typedef struct {size_t n, m; asg16_v *a; uint8_t *f; uint16_t *er; uint64_t bid;} cc_v;
+extern cc_v scb;
+
 typedef struct
 {
 	char* seq;
@@ -240,6 +244,8 @@ void destory_UC_Read(UC_Read* r);
 void reverse_complement(char* pattern, uint64_t length);
 void write_All_reads(All_reads* r, char* read_file_name);
 int load_All_reads(All_reads* r, char* read_file_name);
+uint8_t load_cc_v(cc_v* r, char* read_file_name);
+void write_cc_v(cc_v* r, char* read_file_name);
 int append_All_reads(All_reads* r, char *idx, uint32_t id);
 void destory_All_reads(All_reads* r);
 int destory_read_bin(All_reads* r);

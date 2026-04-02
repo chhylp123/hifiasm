@@ -13918,6 +13918,10 @@ ma_hit_t_alloc* sources, R_to_U* ruIndex, int max_hang, int min_ovlp)
     ug = ma_ug_gen(sg);
     ma_ug_seq(ug, sg, coverage_cut, sources, &new_rtg_edges, max_hang, min_ovlp, 0, 1);
 
+    // if(asm_opt.dbg_bam) {
+    //     gen_gfa_bam(ug);
+    // }
+
     fprintf(stderr, "Writing raw unitig GFA to disk... \n");
     char* gfa_name = (char*)malloc(strlen(output_file_name)+25);
     sprintf(gfa_name, "%s.r_utg.gfa", output_file_name);
@@ -23743,6 +23747,11 @@ void write_all_data_to_disk(ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sou
 	sprintf(gfa_name, "%s.ovlp.reverse", output_file_name);
 	write_ma_hit_ts(reverse_sources, RNF->total_reads, gfa_name);
 
+    if(asm_opt.dbg_bam) {
+        sprintf(gfa_name, "%s.rec", output_file_name);
+        write_cc_v(&scb, gfa_name);
+    }
+
 	free(gfa_name);
     fprintf(stderr, "bin files have been written.\n");
     if(asm_opt.bin_only) exit(0);
@@ -23767,8 +23776,7 @@ int load_all_data_from_disk(ma_hit_t_alloc **sources, ma_hit_t_alloc **reverse_s
         }
     }
 
-    if((asm_opt.flag & HA_F_VERBOSE_GFA) && load_debug_graph(NULL, NULL, NULL, output_file_name, NULL, NULL, NULL))
-    {
+    if((asm_opt.flag & HA_F_VERBOSE_GFA) && load_debug_graph(NULL, NULL, NULL, output_file_name, NULL, NULL, NULL)) {
         (*sources) = NULL;
         (*reverse_sources) = NULL;
         free(gfa_name);
@@ -23785,6 +23793,11 @@ int load_all_data_from_disk(ma_hit_t_alloc **sources, ma_hit_t_alloc **reverse_s
 		free(gfa_name);
 		return 0;
 	}
+    
+    if(asm_opt.dbg_bam) {
+        sprintf(gfa_name, "%s.rec", output_file_name);
+        load_cc_v(&scb, gfa_name); ///write_ec_reads("lec.raw.fa", &scb, 0);
+    }
 	free(gfa_name);
 
     if(asm_opt.write_pos_idx) {

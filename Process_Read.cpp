@@ -247,6 +247,55 @@ int load_All_reads(All_reads* r, char* read_file_name)
 	return 1;
 }
 
+
+void write_cc_v(cc_v* r, char* read_file_name)
+{
+    fprintf(stderr, "Writing raw reads to disk... \n");
+    char* index_name = (char*)malloc(strlen(read_file_name)+32);
+    sprintf(index_name, "%s.bin", read_file_name);
+    FILE* fp = fopen(index_name, "w"); free(index_name); 
+
+	///typedef struct {size_t n, m; asg16_v *a; uint8_t *f; uint16_t *er; uint64_t bid;} cc_v;
+	asg16_v *z;
+	uint64_t k, rn = r->n; uint32_t zn; fwrite(&rn, sizeof(rn), 1, fp);
+	for (k = 0; k < r->n; k++) {
+		z = &(r->a[k]);
+		zn = z->n;
+		fwrite(&zn, sizeof(zn), 1, fp);
+		fwrite(z->a, sizeof((*(z->a))), zn, fp);
+	}
+	   
+	fflush(fp); fclose(fp);
+    fprintf(stderr, "Raw reads has been written.\n");
+}
+
+uint8_t load_cc_v(cc_v* r, char* read_file_name)
+{
+    fprintf(stderr, "Loading raw reads... \n");
+    char* index_name = (char*)malloc(strlen(read_file_name)+32);
+    sprintf(index_name, "%s.bin", read_file_name);
+    FILE* fp = fopen(index_name, "r"); free(index_name); 
+	if (!fp) {
+		fprintf(stderr, "No raw read bin.\n");
+        return 0;
+    }
+
+	///typedef struct {size_t n, m; asg16_v *a; uint8_t *f; uint16_t *er; uint64_t bid;} cc_v;
+	asg16_v *z; int f_flag = 0;
+	uint64_t k, rn; uint32_t zn; f_flag += fread(&rn, sizeof(rn), 1, fp);
+	r->n = r->m = rn; MALLOC(r->a, r->n);
+	for (k = 0; k < r->n; k++) {
+		z = &(r->a[k]);
+		f_flag += fread(&zn, sizeof(zn), 1, fp);
+		z->n = z->m = zn; MALLOC(z->a, z->n);
+		f_flag += fread(z->a, sizeof((*(z->a))), zn, fp);
+	}
+	   
+	fflush(fp); fclose(fp);
+    fprintf(stderr, "Raw reads has been loaded.\n");
+	return 1;
+}
+
 void read_ma(ma_hit_t* x, FILE* fp)
 {
     int f_flag;

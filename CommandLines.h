@@ -5,7 +5,7 @@
 #include <pthread.h>
 #include <stdint.h>
 
-#define HA_VERSION "0.25.1-r878"
+#define HA_VERSION "0.25.1-r891"
 
 #define VERBOSE 0
 
@@ -168,7 +168,7 @@ typedef struct {
     
     uint64_t is_ont;
     uint64_t is_sc;
-    uint64_t chemical_cov;
+    int64_t chemical_cov;
     uint64_t chemical_flank;
 
     int64_t rl_cut;
@@ -199,6 +199,10 @@ typedef struct {
     int32_t hyb_syn;
 
     int64_t step_rd;
+
+    uint8_t dbg_bam;
+
+    int8_t simd_mm;
 } hifiasm_opt_t;
 
 extern hifiasm_opt_t asm_opt;

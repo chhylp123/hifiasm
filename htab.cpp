@@ -1138,12 +1138,35 @@ void *ha_ft_ul_gen(const hifiasm_opt_t *asm_opt, ma_utg_v *us, int k, int w, int
 	return (void*)flt_tab;
 }
 
-void *ha_ft_ug_gen(const hifiasm_opt_t *asm_opt, ma_utg_v *us, int is_HPC, int k, int w, int min_freq, int max_freq)
+// int64_t ha_ct_ug_cutoff(ha_ct_t *h, int64_t num_thre, double cut_rate, double cut_an_rate)
+// {
+// 	int64_t cnt[YAK_N_COUNTS], k, tot_n = 0, tot_cutn = 0, tot_an = 0, tot_cut_an = 0, tot_k = 0, tot_ak = 0;
+// 	ha_ct_hist(h, cnt, num_thre);
+// 	for (k = tot_n = tot_an = 0; k < YAK_N_COUNTS; k++) {
+// 		tot_n += cnt[k]; tot_an += cnt[k]*k;
+// 	}
+
+// 	tot_cutn = tot_n - (tot_n*cut_rate);
+// 	tot_cut_an = tot_an - (tot_an*cut_an_rate);
+
+
+	
+// }
+
+void *ha_ft_ug_gen(hifiasm_opt_t *asm_opt, ma_utg_v *us, int is_HPC, int k, int w, int min_freq, int max_freq)
 {
-	yak_ft_t *flt_tab;
-	ha_ct_t *h;
+	yak_ft_t *flt_tab; 
+	ha_ct_t *h; ///int32_t b0; 
+	// if(min_freq < 0 || max_freq < 0) {
+	// 	b0 = asm_opt->bf_shift; asm_opt->bf_shift = 0;
+	// }
 	///HAF_COUNT_EXACT ---> no bf; HAF_COUNT_ALL ---> no minimizer
 	h = ha_count(asm_opt, HAF_COUNT_ALL|HAF_UG_READ|HAF_COUNT_EXACT, is_HPC, k, w, NULL, NULL, NULL, us, 0, NULL, 0);
+	// if(min_freq < 0 || max_freq < 0) {
+	// 	asm_opt->bf_shift = b0;
+		
+	// }
+
 	ha_ct_shrink(h, min_freq, max_freq>YAK_MAX_COUNT-1?YAK_MAX_COUNT-1:max_freq, asm_opt->thread_num);
 	flt_tab = gen_hh(h, YAK_MAX_COUNT);
 	ha_ct_destroy(h);

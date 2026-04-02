@@ -1,11 +1,11 @@
 CXX=		g++
 CC=			gcc
-CXXFLAGS=	-g -O3 -mavx512f -msse4.2 -mpopcnt -fomit-frame-pointer -Wall
+CXXFLAGS=	-g -O3 -msse4.2 -mpopcnt -fomit-frame-pointer -Wall
 CFLAGS=		$(CXXFLAGS)
 CPPFLAGS=
 INCLUDES=
 OBJS=		CommandLines.o Process_Read.o Assembly.o Hash_Table.o \
-			POA.o Correct.o Levenshtein_distance.o Overlaps.o Trio.o kthread.o Purge_Dups.o \
+			POA.o Correct.o Levenshtein_distance.o Levenshtein_avx2.o Levenshtein_avx512.o Overlaps.o Trio.o kthread.o Purge_Dups.o \
 			htab.o hist.o sketch.o anchor.o extract.o sys.o hic.o rcut.o horder.o ecovlp.o\
 			tovlp.o inter.o kalloc.o gfa_ut.o gchain_map.o
 EXE=		hifiasm
@@ -19,13 +19,22 @@ endif
 .SUFFIXES:.cpp .c .o
 .PHONY:all clean depend
 
+all:$(EXE)
+
 .cpp.o:
 		$(CXX) -c $(CXXFLAGS) $(CPPFLAGS) $(INCLUDES) $< -o $@
 
 .c.o:
 		$(CC) -c $(CFLAGS) $(CPPFLAGS) $(INCLUDES) $< -o $@
 
-all:$(EXE)
+# compiled only with AVX2
+Levenshtein_avx2.o: Levenshtein_avx2.cpp Levenshtein_distance.h
+		$(CXX) -c $(CXXFLAGS) -mavx2 $(CPPFLAGS) $(INCLUDES) $< -o $@
+
+# compiled only with AVX512
+Levenshtein_avx512.o: Levenshtein_avx512.cpp Levenshtein_distance.h
+		$(CXX) -c $(CXXFLAGS) -mavx512f $(CPPFLAGS) $(INCLUDES) $< -o $@
+
 
 $(EXE):$(OBJS) main.o
 		$(CXX) $(CXXFLAGS) $^ -o $@ $(LIBS)

@@ -62,6 +62,32 @@ int main(int argc, char *argv[])
 	// ed_band_cal_global((char*)"ACTTTTTT", 8, (char*)"AATTTT", 6, 3),
 	// ed_band_cal_global_128bit((char*)"ACTTTTTT", 8, (char*)"AATTTT", 6, 3));
 	// exit(1);
+	
+	int8_t simd_auto = 0;
+	#if defined(__x86_64__) || defined(__i386__)
+		__builtin_cpu_init();
+		if (__builtin_cpu_supports("avx512f")) simd_auto = 2;
+		else if (__builtin_cpu_supports("avx2")) simd_auto = 1;
+		else simd_auto = 0;
+	#endif
+
+	if (simd_auto) {
+		fprintf(stderr, "[M::%s::auto] detected CPU support for %s\n", __func__, (simd_auto == 2) ? "AVX-512" : "AVX2");
+	} else {
+		fprintf(stderr, "[M::%s::auto] no supported SIMD extension detected; falling back to non-SIMD\n", __func__);
+	}
+	
+	if (asm_opt.simd_mm == 0 || asm_opt.simd_mm == 1 || asm_opt.simd_mm == 2) {
+		fprintf(stderr, "[M::%s::user] user requested %s mode\n", __func__, (asm_opt.simd_mm == 2) ? "AVX-512" : ((asm_opt.simd_mm == 1) ? "AVX2" : "non-SIMD"));
+		if(asm_opt.simd_mm > simd_auto) asm_opt.simd_mm = simd_auto;
+	} else {
+		asm_opt.simd_mm = simd_auto; 
+		if(asm_opt.simd_mm >= 1) asm_opt.simd_mm = 1; ///use avx2 rather than avx512, looks like avx512 still has issues right now
+	}
+	
+	fprintf(stderr, "[M::%s::final] using %s mode\n", __func__, (asm_opt.simd_mm == 2) ? "AVX-512" : ((asm_opt.simd_mm == 1) ? "AVX2" : "non-SIMD"));
+
+
 	if(asm_opt.sec_in) ret = ha_assemble_pair();
 	else if(asm_opt.dbg_ovec_cal) ret = ha_ec_dbg();
 	else ret = ha_assemble();
@@ -71,6 +97,6 @@ int main(int argc, char *argv[])
 	fprintf(stderr, "[M::%s] CMD:", __func__);
 	for (i = 0; i < argc; ++i)
 		fprintf(stderr, " %s", argv[i]);
-	fprintf(stderr, "\n[M::%s] Real time: %.3f sec; CPU: %.3f sec; Peak RSS: %.3f GB\n", __func__, yak_realtime(), yak_cputime(), yak_peakrss_in_gb());
+	fprintf(stderr, "\n[M::%s] Real time: %.3f sec; CPU: %.3f sec; Peak RSS: %.3f GB; SIMD: %u\n", __func__, yak_realtime(), yak_cputime(), yak_peakrss_in_gb(), asm_opt.simd_mm);
     return ret;
 }

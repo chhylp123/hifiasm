@@ -35114,7 +35114,7 @@ uint64_t gen_hc_r_alin_adp_mmp_0(overlap_region_alloc* ol, Candidates_list *cl, 
 
 
 ///[ws, we)
-uint8_t hc_aln_simd(overlap_region* ol, uint64_t *ffa, uint32_t *ia, uint64_t in, int64_t ws, int64_t we, int64_t wl, double e_rate, All_reads *rref, char *qu, UC_Read* tu,
+uint8_t hc_aln_simd_avx512(overlap_region* ol, uint64_t *ffa, uint32_t *ia, uint64_t in, int64_t ws, int64_t we, int64_t wl, double e_rate, All_reads *rref, char *qu, UC_Read* tu,
     uint64_t *fi, int32_t *baux_beg, int32_t *baux_end, int32_t *bt_s, int32_t *bt_pri_l, bit_extz_t *exz, double ovlp_cut, int64_t force_aln, uint64_t *tot_b)
 {
     uint64_t k, mm_k = 0, *msk = NULL; uint8_t rr = 0, fr = 0; overlap_region *z; int64_t bl = we - ws, bthre, thre, q[2], wqs, wqe, wql, wts, wte, aux_beg, aux_end, aln_l, t_tot_l, t_pri_l, mbl = 0;
@@ -35311,6 +35311,156 @@ uint8_t hc_aln_simd(overlap_region* ol, uint64_t *ffa, uint32_t *ia, uint64_t in
     return ((rr || fr)?1:0);
 }
 
+///[ws, we)
+uint8_t hc_aln_simd_avx2(overlap_region* ol, uint64_t *ffa, uint32_t *ia, uint64_t in, int64_t ws, int64_t we, int64_t wl, double e_rate, All_reads *rref, char *qu, UC_Read* tu,
+    uint64_t *fi, int32_t *baux_beg, int32_t *baux_end, int32_t *bt_s, int32_t *bt_pri_l, bit_extz_t *exz, double ovlp_cut, int64_t force_aln, uint64_t *tot_b)
+{
+    uint64_t k, mm_k = 0, *msk = NULL; uint8_t rr = 0, fr = 0; overlap_region *z; int64_t bl = we - ws, bthre, thre, q[2], wqs, wqe, wql, wts, wte, aux_beg, aux_end, aln_l, t_tot_l, t_pri_l, mbl = 0;
+    char *qstr = NULL, *tstr[AVX_GS2]; int64_t ez_er[AVX_GS2], ez_pe[AVX_GS2];
+
+    mbl = wl+(THRESHOLD_MAX_SIZE<<1)+1; resize_UC_Read(tu, mbl<<1); 
+    bthre = bl*e_rate; bthre = Adjust_Threshold(bthre, bl);
+    if(bthre > THRESHOLD_MAX_SIZE) bthre = THRESHOLD_MAX_SIZE;
+
+    for (k = mbl = mm_k = 0; k < in; k++) {
+        z = &(ol[(uint32_t)ffa[ia[k]]]); 
+        q[0] = z->x_pos_s; q[1] = z->x_pos_e + 1;
+        if(q[1] <= we) rr = 1;
+        wqs = MAX(q[0], ws); wqe = MIN(q[1], we);
+        if(wqe <= wqs) continue;
+
+        wql = wqe - wqs; aux_beg = aux_end = 0; 
+        thre = wql*e_rate; thre = Adjust_Threshold(thre, wql);
+        if(thre > THRESHOLD_MAX_SIZE) thre = THRESHOLD_MAX_SIZE;
+
+        wts = (wqs - z->x_pos_s) + z->y_pos_s;
+        wts += y_start_offset(wqs, &(z->f_cigar));
+
+        aln_l = wql + (thre<<1); t_tot_l = Get_READ_LENGTH((*rref), z->y_id); 
+        if(init_waln(thre, wts, t_tot_l, aln_l, &aux_beg, &aux_end, &wts, &t_pri_l)) {
+            if(wql == bl) {
+                fi[mm_k] = ia[k]; baux_beg[mm_k] = aux_beg; baux_end[mm_k] = aux_end;
+                bt_s[mm_k] = wts; bt_pri_l[mm_k] = t_pri_l; mm_k++; mbl += t_pri_l;
+
+                if(mm_k == AVX_GS2) {
+                    qstr = qu + wqs; 
+                    if(mbl > tu->size) resize_UC_Read(tu, mbl); 
+
+                    // fprintf(stderr, "[M::%s]\tw::[%ld,%ld)\twq::[%ld,%ld)\tmbl::%ld\tbt_pri_l[0]::%ld\tbt_pri_l[1]::%ld\tbt_pri_l[2]::%ld\tbt_pri_l[3]::%ld\tbt_pri_l[4]::%ld\tbt_pri_l[5]::%ld\tbt_pri_l[6]::%ld\tbt_pri_l::%ld\n", __func__, ws, we, wqs, wqe, mbl, 
+                    //     bt_pri_l[0], bt_pri_l[1], bt_pri_l[2], bt_pri_l[3], bt_pri_l[4], bt_pri_l[5], bt_pri_l[6], bt_pri_l[7]);
+
+
+                    tstr[0] = tu->seq; recover_UC_Read_sub_region(tstr[0], bt_s[0], bt_pri_l[0], ol[(uint32_t)ffa[fi[0]]].y_pos_strand, rref, ol[(uint32_t)ffa[fi[0]]].y_id); 
+                    tstr[1] = tstr[0] + bt_pri_l[0]; recover_UC_Read_sub_region(tstr[1], bt_s[1], bt_pri_l[1], ol[(uint32_t)ffa[fi[1]]].y_pos_strand, rref, ol[(uint32_t)ffa[fi[1]]].y_id); 
+                    tstr[2] = tstr[1] + bt_pri_l[1]; recover_UC_Read_sub_region(tstr[2], bt_s[2], bt_pri_l[2], ol[(uint32_t)ffa[fi[2]]].y_pos_strand, rref, ol[(uint32_t)ffa[fi[2]]].y_id); 
+                    tstr[3] = tstr[2] + bt_pri_l[2]; recover_UC_Read_sub_region(tstr[3], bt_s[3], bt_pri_l[3], ol[(uint32_t)ffa[fi[3]]].y_pos_strand, rref, ol[(uint32_t)ffa[fi[3]]].y_id); 
+
+                    ///same thre due to the same wql 
+                    ed_band_cal_semi_64_w_absent_diag_avx4(tstr, bt_pri_l, qstr, wql, thre,  baux_beg, ez_er, ez_pe);
+
+                    // ed_band_cal_semi_64_w_absent_diag(tstr[0], bt_pri_l[0], qstr, wql, thre, baux_beg[0], exz); ez_er[0] = exz->err; ez_pe[0] = exz->pe;
+                    // ed_band_cal_semi_64_w_absent_diag(tstr[1], bt_pri_l[1], qstr, wql, thre, baux_beg[1], exz); ez_er[1] = exz->err; ez_pe[1] = exz->pe;
+                    // ed_band_cal_semi_64_w_absent_diag(tstr[2], bt_pri_l[2], qstr, wql, thre, baux_beg[2], exz); ez_er[2] = exz->err; ez_pe[2] = exz->pe;
+                    // ed_band_cal_semi_64_w_absent_diag(tstr[3], bt_pri_l[3], qstr, wql, thre, baux_beg[3], exz); ez_er[3] = exz->err; ez_pe[3] = exz->pe;
+
+                    exz->ps = exz->pe = -1; exz->ts = 0; exz->te = wql-1;
+
+                    init_base_ed((*exz), thre, bt_pri_l[0], wql); exz->err = ez_er[0]; exz->pe = ez_pe[0]; z = &(ol[(uint32_t)ffa[fi[0]]]); 
+                    wts = bt_s[0]; wte = bt_s[0] + exz->pe; t_tot_l = Get_READ_LENGTH((*rref), z->y_id); 
+                    aux_beg = baux_beg[0]; aux_end = baux_end[0]; msk = &(ffa[fi[0]]);
+                    // if(z->x_id == 1 && z->y_id == 24) {
+                    //     fprintf(stderr, "-0-[M::%s]\tw::[%ld,%ld)\twq::[%ld,%ld)\tzql::%u\talign_length::%u\tthre::%ld\taln::%u\n", __func__, ws, we, wqs, wqe, z->x_pos_e+1-z->x_pos_s, z->align_length, thre, (is_align(*exz)));
+                    // }
+                    if ((is_align(*exz)) && (!push_hc_wlst_exz(NULL, NULL, rref, z, qu, tu->seq, exz, THRESHOLD_MAX_SIZE, wqs, wqe-1, wts, wte, t_tot_l, aux_beg, aux_end, e_rate, wl, ovlp_cut, force_aln, tot_b, 0))) {
+                        (*msk) |= (((uint64_t)UINT32_MAX)<<32); fr = 1; ///disable this chain
+                    }
+
+                    init_base_ed((*exz), thre, bt_pri_l[1], wql); exz->err = ez_er[1]; exz->pe = ez_pe[1]; z = &(ol[(uint32_t)ffa[fi[1]]]); 
+                    wts = bt_s[1]; wte = bt_s[1] + exz->pe; t_tot_l = Get_READ_LENGTH((*rref), z->y_id); 
+                    aux_beg = baux_beg[1]; aux_end = baux_end[1]; msk = &(ffa[fi[1]]);
+                    // if(z->x_id == 1 && z->y_id == 24) {
+                    //     fprintf(stderr, "-1-[M::%s]\tw::[%ld,%ld)\twq::[%ld,%ld)\tzql::%u\talign_length::%u\tthre::%ld\taln::%u\n", __func__, ws, we, wqs, wqe, z->x_pos_e+1-z->x_pos_s, z->align_length, thre, (is_align(*exz)));
+                    // }
+                    if ((is_align(*exz)) && (!push_hc_wlst_exz(NULL, NULL, rref, z, qu, tu->seq, exz, THRESHOLD_MAX_SIZE, wqs, wqe-1, wts, wte, t_tot_l, aux_beg, aux_end, e_rate, wl, ovlp_cut, force_aln, tot_b, 0))) {
+                        (*msk) |= (((uint64_t)UINT32_MAX)<<32); fr = 1; ///disable this chain
+                    }
+
+                    init_base_ed((*exz), thre, bt_pri_l[2], wql); exz->err = ez_er[2]; exz->pe = ez_pe[2]; z = &(ol[(uint32_t)ffa[fi[2]]]); 
+                    wts = bt_s[2]; wte = bt_s[2] + exz->pe; t_tot_l = Get_READ_LENGTH((*rref), z->y_id); 
+                    aux_beg = baux_beg[2]; aux_end = baux_end[2]; msk = &(ffa[fi[2]]);
+                    // if(z->x_id == 1 && z->y_id == 24) {
+                    //     fprintf(stderr, "-2-[M::%s]\tw::[%ld,%ld)\twq::[%ld,%ld)\tzql::%u\talign_length::%u\tthre::%ld\taln::%u\n", __func__, ws, we, wqs, wqe, z->x_pos_e+1-z->x_pos_s, z->align_length, thre, (is_align(*exz)));
+                    // }
+                    if ((is_align(*exz)) && (!push_hc_wlst_exz(NULL, NULL, rref, z, qu, tu->seq, exz, THRESHOLD_MAX_SIZE, wqs, wqe-1, wts, wte, t_tot_l, aux_beg, aux_end, e_rate, wl, ovlp_cut, force_aln, tot_b, 0))) {
+                        (*msk) |= (((uint64_t)UINT32_MAX)<<32); fr = 1; ///disable this chain
+                    }
+
+                    init_base_ed((*exz), thre, bt_pri_l[3], wql); exz->err = ez_er[3]; exz->pe = ez_pe[3]; z = &(ol[(uint32_t)ffa[fi[3]]]); 
+                    wts = bt_s[3]; wte = bt_s[3] + exz->pe; t_tot_l = Get_READ_LENGTH((*rref), z->y_id); 
+                    aux_beg = baux_beg[3]; aux_end = baux_end[3]; msk = &(ffa[fi[3]]);
+                    // if(z->x_id == 1 && z->y_id == 24) {
+                    //     fprintf(stderr, "-3-[M::%s]\tw::[%ld,%ld)\twq::[%ld,%ld)\tzql::%u\talign_length::%u\tthre::%ld\taln::%u\n", __func__, ws, we, wqs, wqe, z->x_pos_e+1-z->x_pos_s, z->align_length, thre, (is_align(*exz)));
+                    // }
+                    if ((is_align(*exz)) && (!push_hc_wlst_exz(NULL, NULL, rref, z, qu, tu->seq, exz, THRESHOLD_MAX_SIZE, wqs, wqe-1, wts, wte, t_tot_l, aux_beg, aux_end, e_rate, wl, ovlp_cut, force_aln, tot_b, 0))) {
+                        (*msk) |= (((uint64_t)UINT32_MAX)<<32); fr = 1; ///disable this chain
+                    }
+
+                    mm_k = mbl = 0;
+                }
+
+            } else {
+                qstr = qu + wqs; 
+                recover_UC_Read_sub_region(tu->seq, wts, t_pri_l, z->y_pos_strand, rref, z->y_id); 
+                ed_band_cal_semi_64_w_absent_diag(tu->seq, t_pri_l, qstr, wql, thre, aux_beg, exz); 
+                wte = wts + exz->pe; msk = &(ffa[ia[k]]);
+                // if(z->x_id == 1 && z->y_id == 24) {
+                //     fprintf(stderr, "-s-[M::%s]\tw::[%ld,%ld)\twq::[%ld,%ld)\tzql::%u\talign_length::%u\tthre::%ld\taln::%u\twql::%ld\te_rate::%f\n", __func__, ws, we, wqs, wqe, z->x_pos_e+1-z->x_pos_s, z->align_length, 
+                //         thre, (is_align(*exz)), wql, e_rate);
+                // }
+                if ((is_align(*exz)) && (!push_hc_wlst_exz(NULL, NULL, rref, z, qu, tu->seq, exz, THRESHOLD_MAX_SIZE, wqs, wqe-1, wts, wte, t_tot_l, aux_beg, aux_end, e_rate, wl, ovlp_cut, force_aln, tot_b, 0))) {
+                    (*msk) |= (((uint64_t)UINT32_MAX)<<32); fr = 1; ///disable this chain
+                }
+            }
+        }
+    }
+
+    if(mm_k > 0) {
+        wqs = ws; wqe = we; wql = bl; thre = bthre;
+        qstr = qu + wqs; 
+        if(mbl > tu->size) resize_UC_Read(tu, mbl); 
+
+        for (k = mbl = 0; k < mm_k; k++) {
+            tstr[k] = tu->seq + mbl; 
+            recover_UC_Read_sub_region(tstr[k], bt_s[k], bt_pri_l[k], ol[(uint32_t)ffa[fi[k]]].y_pos_strand, rref, ol[(uint32_t)ffa[fi[k]]].y_id); 
+            mbl += bt_pri_l[k];
+        }
+        for (; k < AVX_GS2; k++) {
+            tstr[k] = NULL; bt_pri_l[k] = 0; baux_beg[k] = 0;
+        }
+        
+        
+        if(mm_k > 1) {
+            ed_band_cal_semi_64_w_absent_diag_avx4(tstr, bt_pri_l, qstr, wql, thre,  baux_beg, ez_er, ez_pe);
+        } else {
+            ed_band_cal_semi_64_w_absent_diag(tstr[0], bt_pri_l[0], qstr, wql, thre, baux_beg[0], exz); ez_er[0] = exz->err; ez_pe[0] = exz->pe;
+        } 
+
+        for (k = 0; k < mm_k; k++) {
+            init_base_ed((*exz), thre, bt_pri_l[k], wql); exz->err = ez_er[k]; exz->pe = ez_pe[k];  z = &(ol[(uint32_t)ffa[fi[k]]]); 
+            wts = bt_s[k]; wte = bt_s[k] + exz->pe; t_tot_l = Get_READ_LENGTH((*rref), z->y_id); 
+            aux_beg = baux_beg[k]; aux_end = baux_end[k]; msk = &(ffa[fi[k]]);
+            // if(z->x_id == 1 && z->y_id == 24) {
+            //     fprintf(stderr, "-mm_k::%lu-[M::%s]\tw::[%ld,%ld)\twq::[%ld,%ld)\tzql::%u\talign_length::%u\tthre::%ld\taln::%u\n", mm_k, __func__, ws, we, wqs, wqe, z->x_pos_e+1-z->x_pos_s, z->align_length, thre, (is_align(*exz)));
+            // }
+            if ((is_align(*exz)) && (!push_hc_wlst_exz(NULL, NULL, rref, z, qu, tu->seq, exz, THRESHOLD_MAX_SIZE, wqs, wqe-1, wts, wte, t_tot_l, aux_beg, aux_end, e_rate, wl, ovlp_cut, force_aln, tot_b, 0))) {
+                (*msk) |= (((uint64_t)UINT32_MAX)<<32); fr = 1; ///disable this chain
+            }
+        }
+    }
+
+    return ((rr || fr)?1:0);
+}
+
 uint64_t gen_hc_r_alin_adp_mmp_1(overlap_region_alloc* ol, Candidates_list *cl, All_reads *rref, UC_Read* qu, UC_Read* tu, bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t wl0, int64_t rid, int64_t khit, int64_t move_gap, asg16_v* buf, uint8_t chem_drop, double align_gap_rate, int64_t align_gap_max, uint64_t sec_aln_win, uint64_t sec_aln_cov, double sec_aln_err_rate, double sec_aln_max, 
     asg64_v *sp, uint64_t ocw, uint8_t *hpf, asg32_v *v32, asg64_v *bp, uint64_t max_n_chain, uint64_t max_n_chain_f, uint64_t chain_cutoff, uint64_t ave_cov_min, uint8_t set_match)
 {
@@ -35353,37 +35503,73 @@ uint64_t gen_hc_r_alin_adp_mmp_1(overlap_region_alloc* ol, Candidates_list *cl, 
 
     v32->n = (ol->length<<1); in0 = v32->n;
     i = 0; s = 0; e = nwl; e = ((e<=ql)?e:ql); rr = 0;
-    for (; s < ql; ) {///[s, e)
-        if(rr) {
-            for (k = zk = in0; k < v32->n; k++) {
-                if((wsrt[v32->a[k]]>>32) == UINT32_MAX) continue;///passed
-                z = &(ol->list[(uint32_t)wsrt[v32->a[k]]]);
+
+    if(asm_opt.simd_mm == 2) {
+        for (; s < ql; ) {///[s, e)
+            if(rr) {
+                for (k = zk = in0; k < v32->n; k++) {
+                    if((wsrt[v32->a[k]]>>32) == UINT32_MAX) continue;///passed
+                    z = &(ol->list[(uint32_t)wsrt[v32->a[k]]]);
+                    q[0] = z->x_pos_s;
+                    q[1] = z->x_pos_e + 1;
+                    ///[s, e) && [q[0], q[1])
+                    os = MAX(q[0], s); oe = MIN(q[1], e);
+                    if(oe > os) v32->a[zk++] = v32->a[k];
+                }
+                v32->n = zk;
+            }
+
+            for (; i < wsrt_n; ++i) {
+                z = &(ol->list[(uint32_t)wsrt[i]]);
                 q[0] = z->x_pos_s;
                 q[1] = z->x_pos_e + 1;
-                ///[s, e) && [q[0], q[1])
-                os = MAX(q[0], s); oe = MIN(q[1], e);
-                if(oe > os) v32->a[zk++] = v32->a[k];
+                if(q[0] >= e) break;
+                if(z->is_match == 0) {
+                    os = MAX(q[0], s); oe = MIN(q[1], e);
+                    if(oe > os) kv_push(uint32_t, *v32, i);
+                }
             }
-            v32->n = zk;
-        }
 
-        for (; i < wsrt_n; ++i) {
-            z = &(ol->list[(uint32_t)wsrt[i]]);
-            q[0] = z->x_pos_s;
-            q[1] = z->x_pos_e + 1;
-            if(q[0] >= e) break;
-            if(z->is_match == 0) {
-                os = MAX(q[0], s); oe = MIN(q[1], e);
-                if(oe > os) kv_push(uint32_t, *v32, i);
+            rr = hc_aln_simd_avx512(ol->list, wsrt, v32->a + in0, v32->n - in0, s, e, nwl, err, rref, qu->seq, tu, fi, aux_beg, aux_end, t_s, t_pri_l, exz, OVERLAP_THRESHOLD_HIFI_FILTER, 0, &tot_b);            
+            // hc_est_robust_rr(ol->list, ql, ix->a + srt_n, ix->n - srt_n, ix->a + ix->n, ix->a + ix->n + ix->n - srt_n, s, e, 2.0, c_idx->a, &est_bd, &est_e, min_dp, 0);
+            // fprintf(stderr, "[M::%s-0-]\tq::[%ld,%ld)\test_bd::%ld\test_e::%ld\n", __func__, s, e, est_bd, est_e);
+
+            s += nwl; e += nwl; e = ((e<=ql)?e:ql);
+        }
+    } else if (asm_opt.simd_mm == 1) {
+        for (; s < ql; ) {///[s, e)
+            if(rr) {
+                for (k = zk = in0; k < v32->n; k++) {
+                    if((wsrt[v32->a[k]]>>32) == UINT32_MAX) continue;///passed
+                    z = &(ol->list[(uint32_t)wsrt[v32->a[k]]]);
+                    q[0] = z->x_pos_s;
+                    q[1] = z->x_pos_e + 1;
+                    ///[s, e) && [q[0], q[1])
+                    os = MAX(q[0], s); oe = MIN(q[1], e);
+                    if(oe > os) v32->a[zk++] = v32->a[k];
+                }
+                v32->n = zk;
             }
+
+            for (; i < wsrt_n; ++i) {
+                z = &(ol->list[(uint32_t)wsrt[i]]);
+                q[0] = z->x_pos_s;
+                q[1] = z->x_pos_e + 1;
+                if(q[0] >= e) break;
+                if(z->is_match == 0) {
+                    os = MAX(q[0], s); oe = MIN(q[1], e);
+                    if(oe > os) kv_push(uint32_t, *v32, i);
+                }
+            }
+
+            rr = hc_aln_simd_avx2(ol->list, wsrt, v32->a + in0, v32->n - in0, s, e, nwl, err, rref, qu->seq, tu, fi, aux_beg, aux_end, t_s, t_pri_l, exz, OVERLAP_THRESHOLD_HIFI_FILTER, 0, &tot_b);            
+            // hc_est_robust_rr(ol->list, ql, ix->a + srt_n, ix->n - srt_n, ix->a + ix->n, ix->a + ix->n + ix->n - srt_n, s, e, 2.0, c_idx->a, &est_bd, &est_e, min_dp, 0);
+            // fprintf(stderr, "[M::%s-0-]\tq::[%ld,%ld)\test_bd::%ld\test_e::%ld\n", __func__, s, e, est_bd, est_e);
+
+            s += nwl; e += nwl; e = ((e<=ql)?e:ql);
         }
-
-        rr = hc_aln_simd(ol->list, wsrt, v32->a + in0, v32->n - in0, s, e, nwl, err, rref, qu->seq, tu, fi, aux_beg, aux_end, t_s, t_pri_l, exz, OVERLAP_THRESHOLD_HIFI_FILTER, 0, &tot_b);            
-        // hc_est_robust_rr(ol->list, ql, ix->a + srt_n, ix->n - srt_n, ix->a + ix->n, ix->a + ix->n + ix->n - srt_n, s, e, 2.0, c_idx->a, &est_bd, &est_e, min_dp, 0);
-        // fprintf(stderr, "[M::%s-0-]\tq::[%ld,%ld)\test_bd::%ld\test_e::%ld\n", __func__, s, e, est_bd, est_e);
-
-        s += nwl; e += nwl; e = ((e<=ql)?e:ql);
     }
+
     ocn = v32->a; osc = v32->a + ol->length;
 
     // fprintf(stderr, "\n\n\n");
@@ -36054,33 +36240,65 @@ void batch_simd_ck(gen_hc_aln_t *ez, uint64_t *wsrt, uint64_t wsrt_n, uint64_t q
 
     ez->v32->n = (ez->ol->length<<1); in0 = ez->v32->n;
     i = 0; s = 0; e = w; e = ((e<=ql)?e:ql); rr = 0;
-    for (; s < ql; ) {///[s, e)
-        if(rr) {
-            for (k = zk = in0; k < ez->v32->n; k++) {
-                if((wsrt[ez->v32->a[k]]>>32) == UINT32_MAX) continue;///passed
-                z = &(ez->ol->list[(uint32_t)wsrt[ez->v32->a[k]]]);
+
+    if(asm_opt.simd_mm == 2) {
+        for (; s < ql; ) {///[s, e)
+            if(rr) {
+                for (k = zk = in0; k < ez->v32->n; k++) {
+                    if((wsrt[ez->v32->a[k]]>>32) == UINT32_MAX) continue;///passed
+                    z = &(ez->ol->list[(uint32_t)wsrt[ez->v32->a[k]]]);
+                    q[0] = z->x_pos_s;
+                    q[1] = z->x_pos_e + 1;
+                    ///[s, e) && [q[0], q[1])
+                    os = MAX(q[0], s); oe = MIN(q[1], e);
+                    if(oe > os) ez->v32->a[zk++] = ez->v32->a[k];
+                }
+                ez->v32->n = zk;
+            }
+
+            for (; i < wsrt_n; ++i) {
+                z = &(ez->ol->list[(uint32_t)wsrt[i]]);
                 q[0] = z->x_pos_s;
                 q[1] = z->x_pos_e + 1;
-                ///[s, e) && [q[0], q[1])
-                os = MAX(q[0], s); oe = MIN(q[1], e);
-                if(oe > os) ez->v32->a[zk++] = ez->v32->a[k];
+                if(q[0] >= e) break;
+                if(z->is_match == 0) {
+                    os = MAX(q[0], s); oe = MIN(q[1], e);
+                    if(oe > os) kv_push(uint32_t, *(ez->v32), i);
+                }
             }
-            ez->v32->n = zk;
-        }
 
-        for (; i < wsrt_n; ++i) {
-            z = &(ez->ol->list[(uint32_t)wsrt[i]]);
-            q[0] = z->x_pos_s;
-            q[1] = z->x_pos_e + 1;
-            if(q[0] >= e) break;
-            if(z->is_match == 0) {
-                os = MAX(q[0], s); oe = MIN(q[1], e);
-                if(oe > os) kv_push(uint32_t, *(ez->v32), i);
+            rr = hc_aln_simd_avx512(ez->ol->list, wsrt, ez->v32->a + in0, ez->v32->n - in0, s, e, w, err, ez->rref, ez->qu->seq, ez->tu, fi, aux_beg, aux_end, t_s, t_pri_l, ez->exz, OVERLAP_THRESHOLD_HIFI_FILTER, 0, NULL/**&tot_b**/);            
+            s += w; e += w; e = ((e<=ql)?e:ql);
+        }
+    } else if (asm_opt.simd_mm == 1) {
+        for (; s < ql; ) {///[s, e)
+            if(rr) {
+                for (k = zk = in0; k < ez->v32->n; k++) {
+                    if((wsrt[ez->v32->a[k]]>>32) == UINT32_MAX) continue;///passed
+                    z = &(ez->ol->list[(uint32_t)wsrt[ez->v32->a[k]]]);
+                    q[0] = z->x_pos_s;
+                    q[1] = z->x_pos_e + 1;
+                    ///[s, e) && [q[0], q[1])
+                    os = MAX(q[0], s); oe = MIN(q[1], e);
+                    if(oe > os) ez->v32->a[zk++] = ez->v32->a[k];
+                }
+                ez->v32->n = zk;
             }
-        }
 
-        rr = hc_aln_simd(ez->ol->list, wsrt, ez->v32->a + in0, ez->v32->n - in0, s, e, w, err, ez->rref, ez->qu->seq, ez->tu, fi, aux_beg, aux_end, t_s, t_pri_l, ez->exz, OVERLAP_THRESHOLD_HIFI_FILTER, 0, NULL/**&tot_b**/);            
-        s += w; e += w; e = ((e<=ql)?e:ql);
+            for (; i < wsrt_n; ++i) {
+                z = &(ez->ol->list[(uint32_t)wsrt[i]]);
+                q[0] = z->x_pos_s;
+                q[1] = z->x_pos_e + 1;
+                if(q[0] >= e) break;
+                if(z->is_match == 0) {
+                    os = MAX(q[0], s); oe = MIN(q[1], e);
+                    if(oe > os) kv_push(uint32_t, *(ez->v32), i);
+                }
+            }
+
+            rr = hc_aln_simd_avx2(ez->ol->list, wsrt, ez->v32->a + in0, ez->v32->n - in0, s, e, w, err, ez->rref, ez->qu->seq, ez->tu, fi, aux_beg, aux_end, t_s, t_pri_l, ez->exz, OVERLAP_THRESHOLD_HIFI_FILTER, 0, NULL/**&tot_b**/);            
+            s += w; e += w; e = ((e<=ql)?e:ql);
+        }
     }
 }
 

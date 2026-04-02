@@ -16,5 +16,8 @@ void handle_chemical_r(uint64_t n_thre, uint64_t n_a);
 void handle_chemical_arc(uint64_t n_thre, uint64_t n_a);
 uint8_t* gen_chemical_arc_rf(uint64_t n_thre, uint64_t n_a);
 void cal_ec_r_dbg(uint64_t n_thre, uint64_t n_a);
+void write_ec_reads(const char *suffix_ou, cc_v *cvt, uint8_t is_rev);
+void destroy_cc_v(cc_v *z);
+void gen_gfa_bam(ma_ug_t *ug);
 
 #endif

@@ -92,6 +92,7 @@ static ko_longopt_t long_options[] = {
     { "dbg-in2",     ko_required_argument, 374},
     { "ec-only",     ko_no_argument, 375},
     { "hyb-syn",     ko_required_argument, 376},
+    { "simd-m",     ko_required_argument, 377},
     // { "path-round",     ko_required_argument, 348},
 	{ 0, 0, 0 }
 };
@@ -136,6 +137,8 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "    --chn-occ    INT\n");
     fprintf(stderr, "                 discard overlaps supported by <INT minimizers [%ld]\n", asm_opt->chn_occ);
     fprintf(stderr, "    --ec-only    error correction only; disable overlapping and assembly\n");
+    fprintf(stderr, "    --simd-m     use SIMD acceleration when supported: AVX-512 (2), AVX2 (1), or non-SIMD (0)\n");
+    
     fprintf(stderr, "  Assembly:\n");
     fprintf(stderr, "    -a INT       round of assembly cleaning [%d]\n", asm_opt->clean_round);
     fprintf(stderr, "    -m INT       pop bubbles of <INT in size in contig graphs [%lld]\n", asm_opt->large_pop_bubble_size);
@@ -247,7 +250,8 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "    --ont        assemble ONT Simplex reads in fastq format\n");
     // fprintf(stderr, "    --sc-n       consider base qual value for assembly\n");
     fprintf(stderr, "    --chem-c     INT\n");
-    fprintf(stderr, "                 detect chimeric reads with <=INT other reads support [%lu]\n", asm_opt->chemical_cov);
+    // fprintf(stderr, "                 detect chimeric reads with <=INT other reads support [%lu]\n", asm_opt->chemical_cov);
+    fprintf(stderr, "                 detect chimeric reads with <=INT other reads support [auto]\n");
     fprintf(stderr, "    --chem-f     INT\n");
     fprintf(stderr, "                 length of flanking regions for chimeric read detection [%lu]\n", asm_opt->chemical_flank);
     fprintf(stderr, "    --rl-cut     INT\n");
@@ -396,7 +400,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
 
     asm_opt->is_ont = 0;
     asm_opt->is_sc = 0;
-    asm_opt->chemical_cov = 1;
+    asm_opt->chemical_cov = -1/**1**/;
     asm_opt->chemical_flank = 256;
     asm_opt->ul_mod = 0;
 
@@ -416,7 +420,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
 
     asm_opt->hf_cutoff = -1;
 
-    asm_opt->write_pos_idx = 1;
+    asm_opt->write_pos_idx = 0/**1**/;
 
     asm_opt->hom_cov_0 = -1;
     asm_opt->het_cov_0 = -1;
@@ -433,6 +437,10 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->ec_only = 0;
     asm_opt->hyb_syn = 1;
     asm_opt->step_rd = -1/**128**/;
+
+    asm_opt->dbg_bam = 0/**1**/;
+
+    asm_opt->simd_mm = -1;
 }   
 
 void destory_enzyme(enzyme* f)
@@ -1106,6 +1114,8 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
             asm_opt->ec_only = 1;
         } else if (c == 376) {
             asm_opt->hyb_syn = atoi(opt.arg);
+        } else if (c == 377) {
+            asm_opt->simd_mm = atoi(opt.arg);
         } else if (c == 'l') {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
             asm_opt->purge_level_primary = asm_opt->purge_level_trio = atoi(opt.arg);
         }

@@ -2135,7 +2135,9 @@ int ha_assemble(void)
         fprintf(stderr, "[M::%s::%.3f*%.2f@%.3fGB] ==> found overlaps for the final round\n", __func__, yak_realtime(), yak_cpu_usage(), yak_peakrss_in_gb());
 		// fprintf(stderr, "\n[M::%s::%.3f*%.2f@%.3fGB] ==> found overlaps for the final round\n", __func__, yak_realtime(), yak_cpu_usage(), yak_peakrss_in_gb());
 		// ha_print_ovlp_stat(R_INF.paf, R_INF.reverse_paf, R_INF.total_reads);
-		if(!(asm_opt.write_pos_idx)) ha_ft_destroy(ha_flt_tab);
+		if(!(asm_opt.write_pos_idx)) {
+            ha_ft_destroy(ha_flt_tab); ha_flt_tab = NULL;
+        }
 		if (asm_opt.flag & HA_F_WRITE_PAF) Output_PAF();
 		ha_triobin(&asm_opt);
 
@@ -2147,7 +2149,7 @@ int ha_assemble(void)
     build_string_graph_without_clean(asm_opt.min_overlap_coverage, R_INF.paf, R_INF.reverse_paf, 
         R_INF.total_reads, R_INF.read_length, asm_opt.min_overlap_Len, asm_opt.max_hang_Len, asm_opt.clean_round, 
         asm_opt.gap_fuzz, asm_opt.min_drop_rate, asm_opt.max_drop_rate, asm_opt.output_file_name, asm_opt.large_pop_bubble_size, 0, !ovlp_loaded);
-	destory_All_reads(&R_INF);
+	destory_All_reads(&R_INF); if(asm_opt.dbg_bam) destroy_cc_v(&scb);
 	return 0;
 }
 
