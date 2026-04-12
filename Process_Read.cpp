@@ -1843,6 +1843,62 @@ void retrieve_u_seq(UC_Read* i_r, char* i_s, ma_utg_t *u, uint8_t strand, int64_
 	}
 }
 
+void retrieve_u_seq_fast(UC_Read* i_r, char* i_s, ma_utg_t *u, uint8_t strand, int64_t s, int64_t l, void *km)
+{
+	if(u->m == 0 || u->n == 0) return;
+	if(l < 0) l = u->len;
+	char *r = NULL, *a = NULL;
+	int64_t e = s + l, ssp, sep, rs, re, des_i;
+	uint64_t k, rId, ori, r_l;
+	if(i_r) {
+        i_r->length = l; i_r->RID = 0;
+        if(i_r->length > i_r->size) {
+            i_r->size = i_r->length;
+			if(!km) REALLOC(i_r->seq, i_r->size);
+			else KREALLOC(km, i_r->seq, i_r->size);
+            // i_r->seq = (char*)realloc(i_r->seq,sizeof(char)*(i_r->size));
+        }
+        r = i_r->seq;
+    }
+    if(i_s) r = i_s;
+
+	if(u->s) {
+		memcpy(r, u->s + s, l * sizeof((*(u->s))));
+	} else {
+		if(strand == 1) {
+			sep = u->len - s; 
+			ssp = u->len - e;
+			s = ssp; e = sep; 
+		}
+		for (k = l = des_i = 0; k < u->n; k++) {
+			rId = u->a[k]>>33;
+			ori = u->a[k]>>32&1;
+			r_l = (uint32_t)u->a[k];
+			if(r_l == 0) continue;
+			ssp = l; sep = l + r_l;
+			l += r_l;
+			if(sep <= s) continue;
+			if(ssp >= e) break;
+			rs = MAX(ssp, s); re = MIN(sep, e); 
+			a = r + des_i; des_i += re - rs;
+			recover_UC_Read_sub_region(a, rs-ssp, re-rs, ori, &R_INF, rId);
+		}
+	}
+
+	if(strand == 1) {
+		char t;
+		re = (e - s);
+		l = re>>1; 
+		for (k = 0; k < (uint64_t)l; k++) {
+			des_i = re - k - 1;
+			t = r[des_i];
+			r[des_i] = RC_CHAR(r[k]);
+			r[k] = RC_CHAR(t);
+		}
+		if(re&1) r[l] = RC_CHAR(r[l]);
+	}
+}
+
 uint32_t retrieve_u_cov(const ul_idx_t *ul, uint64_t id, uint8_t strand, uint64_t pos, uint8_t dir, int64_t *pi)
 {
 	uint64_t *a = ul->cc->interval.a + ul->cc->idx[id], cc = 0, ff = 0;

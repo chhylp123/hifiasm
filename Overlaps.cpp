@@ -13918,9 +13918,9 @@ ma_hit_t_alloc* sources, R_to_U* ruIndex, int max_hang, int min_ovlp)
     ug = ma_ug_gen(sg);
     ma_ug_seq(ug, sg, coverage_cut, sources, &new_rtg_edges, max_hang, min_ovlp, 0, 1);
 
-    // if(asm_opt.dbg_bam) {
-    //     gen_gfa_bam(ug);
-    // }
+    if(asm_opt.dbg_bam) {
+        gen_gfa_bam(ug, R_INF.total_reads);
+    }
 
     fprintf(stderr, "Writing raw unitig GFA to disk... \n");
     char* gfa_name = (char*)malloc(strlen(output_file_name)+25);
@@ -40260,6 +40260,7 @@ long long bubble_dist, int read_graph, int write)
                 for (j = 0; j < reverse_sources[i].length; j++) reverse_sources[i].buffer[j].del = 0;
             }
             if(asm_opt.is_ont) cmk = gen_chemical_arc_rf(asm_opt.thread_num, R_INF.total_reads);
+            if(asm_opt.del_hf) clean_arc_rf(asm_opt.thread_num, R_INF.total_reads);
         }
         try_rescue_overlaps(sources, reverse_sources, n_read, 4, asm_opt.is_ont); 
         

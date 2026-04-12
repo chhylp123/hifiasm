@@ -5,7 +5,7 @@
 #include <pthread.h>
 #include <stdint.h>
 
-#define HA_VERSION "0.25.1-r891"
+#define HA_VERSION "0.25.1-r897"
 
 #define VERBOSE 0
 
@@ -203,6 +203,7 @@ typedef struct {
     uint8_t dbg_bam;
 
     int8_t simd_mm;
+    int8_t del_hf;
 } hifiasm_opt_t;
 
 extern hifiasm_opt_t asm_opt;

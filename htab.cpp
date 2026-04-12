@@ -1120,13 +1120,26 @@ void debug_ct_index(void* q_ct_idx, void* r_ct_idx)
 /*************************
  * High-level interfaces *
  *************************/
-void *ha_ft_ul_gen(const hifiasm_opt_t *asm_opt, ma_utg_v *us, int k, int w, int cutoff)
+
+ int64_t ha_ct_ug_cutoff(ha_ct_t *h, int64_t num_thre, double cut_rate)
 {
-	yak_ft_t *flt_tab;
-    ha_ct_t *h;
+	int64_t cnt[YAK_N_COUNTS], k, tot_n = 0, tot_cutn = 0;
+	ha_ct_hist(h, cnt, num_thre);
+	for (k = tot_n = 0; k < YAK_N_COUNTS; k++) tot_n += cnt[k]; 
+	tot_cutn = tot_n - (tot_n*cut_rate);
+
+	for (k = tot_n = 0; k < YAK_N_COUNTS && tot_n < tot_cutn; k++) tot_n += cnt[k]; 
+	return k;
+}
+
+void *ha_ft_ul_gen(const hifiasm_opt_t *asm_opt, ma_utg_v *us, int k, int w, int cutoff, int max_cutoff)
+{
+	yak_ft_t *flt_tab; ha_ct_t *h;
 	///HAF_COUNT_EXACT ---> no bf; HAF_COUNT_ALL ---> no minimizer
 	h = ha_count(asm_opt, HAF_COUNT_ALL|HAF_UG_READ, !(asm_opt->flag&HA_F_NO_HPC), k, w, NULL, NULL, NULL, us, 0, NULL, 0);
-	
+
+	if(cutoff < 0) cutoff = ha_ct_ug_cutoff(h, asm_opt->thread_num, 0.0002);
+	if(cutoff > max_cutoff) cutoff = max_cutoff;
 	// cutoff = (int)(asm_opt->hom_cov * asm_opt->high_factor);
     if (cutoff > YAK_MAX_COUNT - 1) cutoff = YAK_MAX_COUNT - 1;
 	// fprintf(stderr, "[M::%s::] cutoff->%d\n\n", __func__, cutoff);
@@ -1137,21 +1150,6 @@ void *ha_ft_ul_gen(const hifiasm_opt_t *asm_opt, ma_utg_v *us, int k, int w, int
             yak_realtime(), yak_cpu_usage(), yak_peakrss_in_gb(), (long)kh_size(flt_tab), cutoff);
 	return (void*)flt_tab;
 }
-
-// int64_t ha_ct_ug_cutoff(ha_ct_t *h, int64_t num_thre, double cut_rate, double cut_an_rate)
-// {
-// 	int64_t cnt[YAK_N_COUNTS], k, tot_n = 0, tot_cutn = 0, tot_an = 0, tot_cut_an = 0, tot_k = 0, tot_ak = 0;
-// 	ha_ct_hist(h, cnt, num_thre);
-// 	for (k = tot_n = tot_an = 0; k < YAK_N_COUNTS; k++) {
-// 		tot_n += cnt[k]; tot_an += cnt[k]*k;
-// 	}
-
-// 	tot_cutn = tot_n - (tot_n*cut_rate);
-// 	tot_cut_an = tot_an - (tot_an*cut_an_rate);
-
-
-	
-// }
 
 void *ha_ft_ug_gen(hifiasm_opt_t *asm_opt, ma_utg_v *us, int is_HPC, int k, int w, int min_freq, int max_freq)
 {

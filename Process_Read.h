@@ -268,6 +268,7 @@ int64_t load_compress_base_disk(FILE *fp, uint64_t *ul_rid, char *dest, uint32_t
 scaf_res_t *init_scaf_res_t(uint32_t n);
 void destroy_scaf_res_t(scaf_res_t *p);
 void read_ma(ma_hit_t* x, FILE* fp);
+void retrieve_u_seq_fast(UC_Read* i_r, char* i_s, ma_utg_t *u, uint8_t strand, int64_t s, int64_t l, void *km);
 
 const uint64_t sc_tb[8] = { 
 	10, 20, 30, 40, 50, 60, 70, 80

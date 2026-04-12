@@ -2350,6 +2350,7 @@ inline char *return_str_seq(char *buf, int64_t s, int64_t pri_l, uint8_t rev, hp
     if(!hpc_g) {
         memset(buf, 'N', aux_beg);
         retrieve_u_seq(NULL, buf+aux_beg, &(uref->ug->u.a[id]), rev, s, pri_l, NULL);
+        // retrieve_u_seq_fast(NULL, buf, &(uref->ug->u.a[id]), rev, s, pri_l, NULL);
         memset(buf+aux_beg+pri_l, 'N', aux_end);
         return buf;
     } else {
@@ -2369,6 +2370,7 @@ inline char *return_str_seq_exz(char *buf, int64_t s, int64_t pri_l, uint8_t rev
 {
     if(!hpc_g) {
         retrieve_u_seq(NULL, buf, &(uref->ug->u.a[id]), rev, s, pri_l, NULL);
+        // retrieve_u_seq_fast(NULL, buf, &(uref->ug->u.a[id]), rev, s, pri_l, NULL);
         return buf;
     } else {
         return hpc_str(*hpc_g, id, rev) + s;
@@ -10732,8 +10734,9 @@ void generate_haplotypes_sv(haplotype_evdience_alloc* hap, overlap_region_alloc*
 
 
 
-inline int64_t comput_sc_rphase(SnpStats *ai, uint64_t id, SnpStats *aj, uint64_t jd, haplotype_evdience *za, uint64_t occ0_cut)
+inline int64_t comput_sc_rphase(SnpStats *ai, uint64_t id, SnpStats *aj, uint64_t jd, haplotype_evdience *za, uint64_t occ0_cut, uint32_t *oid, uint8_t *oph)
 {
+    (*oid) = ((uint32_t)-1); (*oph) = ((uint8_t)-1);
     if(ai->site == aj->site) return INT64_MIN;
     // if(ai->occ_0 < occ0_cut || aj->occ_0 < occ0_cut) return INT64_MIN;
     haplotype_evdience *iz = NULL, *jz = NULL; int64_t in, jn, ik, jk, nn[2]; uint8_t fi, fj;
@@ -10750,6 +10753,7 @@ inline int64_t comput_sc_rphase(SnpStats *ai, uint64_t id, SnpStats *aj, uint64_
             } else if(iz[ik].overlapSite == id){
                 fi = 1;
             }
+            (*oph) = fi;
 
             fj = 2;
             if(hh_tp(jz[jk]) == 0) {
@@ -10763,7 +10767,12 @@ inline int64_t comput_sc_rphase(SnpStats *ai, uint64_t id, SnpStats *aj, uint64_
             }
 
             if(fi == 2 || fj == 2) return INT64_MIN;
-            if(fi != fj) return INT64_MIN;
+            if(fi != fj) {
+                if(((*oph) == 0) || ((*oph) == 1)) {
+                    (*oid) = iz[ik].overlapID;
+                }
+                return INT64_MIN;
+            }
             nn[fi]++;
         }
     }
@@ -10873,7 +10882,7 @@ void gen_rphase_dp0_multiple_path(SnpStats *a, int64_t an, haplotype_evdience *z
     for (i = 0; i < an; ++i) {
         max_f = 1; ch_n = idx->n;
         for (j = i - 1; j >= 0; --j) {
-            sc = comput_sc_rphase(&a[i], i, &a[j], j, za, 0);
+            sc = comput_sc_rphase(&a[i], i, &a[j], j, za, 0, NULL, NULL);
             if (sc == INT64_MIN) continue;
             sc += f[j];
             if (sc > max_f) {
@@ -11000,7 +11009,7 @@ void gen_rphase_dp0_single_path(SnpStats *a, int64_t an, haplotype_evdience *za,
         max_f = 1; max_j = -1; 
         st = 0; ///if(a[i].occ_0 < cc) st = i;
         for (j = i - 1; j >= st; --j) {
-            sc = comput_sc_rphase(&a[i], i, &a[j], j, za, 0/**cc**/);
+            sc = comput_sc_rphase(&a[i], i, &a[j], j, za, 0/**cc**/, NULL, NULL);
             if (sc == INT64_MIN) continue;
             sc += f[j];
             if (sc > max_f) {
@@ -11392,11 +11401,35 @@ void gen_rphase_dp0_single_path_hybrid_0_multi(SnpStats *a, int64_t an, haplotyp
     }
 }
 
+void label_skip_mm(SnpStats *a, uint32_t oid, uint8_t hf, uint32_t **oidx, uint32_t **o_a, int32_t *ma, int32_t mm, uint32_t mek, int32_t max_n, int32_t rid)
+{
+    uint32_t sn = oidx[hf][oid+1] - oidx[hf][oid], *sa = o_a[hf] + oidx[hf][oid], k; int32_t i;
+    
+    if(hf) {
+        for (k = 0; k < sn; k++) {
+            if(sa[k] == ((uint32_t)-1)) continue;
+            if((sa[k] >= mek) && (a[sa[k]].site > a[mek].site)) break;
+            ma[sa[k]] = mm;
+        }
+    } else {
+        for (k = 0; k < sn; k++) {
+            if(sa[k] == ((uint32_t)-1)) continue;
+            if((sa[k] >= mek) && (a[sa[k]].site > a[mek].site)) break;
+            for (i = sa[k]; (i >= 0) && (a[sa[k]].site == a[i].site); i--) {
+                // if(i < 0 || i >= max_n) {
+                //     /**if(rid == 307)**/ fprintf(stderr, "[M::%s::]\ti::%d\tmax_n::%d\trid::%d\toid::%u\n", __func__, i, max_n, rid, oid);
+                // }
+                
+                ma[i] = mm;
+            }
+        }
+    }
+}
 
-void gen_rphase_dp0_single_path_multi(SnpStats *a, int64_t an, haplotype_evdience *za, Chain_Data *dp, asg64_v *idx, int64_t het_cov, int64_t hom_cov, int64_t n_hap, double cut_rate, uint64_t cut_bd, asg64_v *res, uint8_t *qual_a, uint8_t site_sc, int64_t hap_cov_match, int64_t hap_cov_unmatch)
+void gen_rphase_dp0_single_path_multi(overlap_region_alloc *ol, SnpStats *a, int64_t an, haplotype_evdience *za, Chain_Data *dp, asg64_v *idx, int64_t het_cov, int64_t hom_cov, int64_t n_hap, double cut_rate, uint64_t cut_bd, asg64_v *res, uint8_t *qual_a, uint8_t site_sc, int64_t hap_cov_match, int64_t hap_cov_unmatch, uint32_t **oidx, uint32_t **o_a)
 {
     if(an <= 0) return;
-    int64_t *p, ri, rj, st, max_f, max_j, sc, plus = 0; int32_t *f, *ii; uint64_t cc = 0, cci, cc_min;
+    int64_t *p, ri, rj, st, s0, max_f, max_j, /**sc,**/ plus = 0; int32_t *f, *ii; uint64_t cc = 0, cci, cc_min; uint32_t rid; uint8_t rh;
     resize_Chain_Data(dp, an, NULL); idx->n = res->n = 0;
     f = dp->score; p = dp->pre; ii = dp->occ;
     cc = ((het_cov > 0)?(het_cov):(hom_cov/n_hap)); cc *= cut_rate; if(cc < cut_bd) cc = cut_bd; 
@@ -11405,12 +11438,13 @@ void gen_rphase_dp0_single_path_multi(SnpStats *a, int64_t an, haplotype_evdienc
     // fprintf(stderr, "\n\n\n[M::%s]\tcc::%lu\n\n\n", __func__, cc);
     // fprintf(stderr, "[M::%s]\tan::%ld\n", __func__, an);
 
+    /**
     for (ri = 0; ri < an; ++ri) {
         // fprintf(stderr, "[M::%s::i->%ld]\tsite::%u\tocc0::%u\tocc1::%u\tocc2::%u\n", __func__, ri, a[ri].site, a[ri].occ_0, a[ri].occ_1, a[ri].occ_2);
         max_f = 1; max_j = -1; 
         st = 0; ///if(a[i].occ_0 < cc) st = i;
         for (rj = ri - 1; rj >= st; --rj) {
-            sc = comput_sc_rphase(&a[ri], ri, &a[rj], rj, za, 0/**cc**/);
+            sc = comput_sc_rphase(&a[ri], ri, &a[rj], rj, za, 0);
             if (sc == INT64_MIN) continue;
             sc += f[rj];
             if (sc > max_f) {
@@ -11421,6 +11455,37 @@ void gen_rphase_dp0_single_path_multi(SnpStats *a, int64_t an, haplotype_evdienc
         f[ri] = max_f; p[ri] = max_j; ii[ri] = 0;
         if(f[ri] < plus) plus = f[ri];
     }
+    **/
+   for (ri = 0; ri < an; ++ri) {
+        max_f = 1; max_j = -1; st = 0; ii[ri] = 0;
+
+        s0 = ol->list[za[a[ri].non_homopolymer_num].overlapID].x_pos_s;
+        for (rj = ri - 1; (rj >= st) && (a[rj].site >= s0); --rj) {
+            if (f[rj] + 1 <= max_f) continue;
+            if (ii[rj] == ri) continue;
+        
+            if (comput_sc_rphase(&a[ri], ri, &a[rj], rj, za, 0, &rid, &rh) == INT64_MIN) {
+                if(rid != ((uint32_t)-1)) {
+                    label_skip_mm(a, rid, 1 - rh, oidx, o_a, ii, ri, rj, an, ol->list[0].x_id);
+                }
+                continue;
+            }
+            
+            ///f[rj] + 1 > max_f
+            max_f = f[rj] + 1; max_j = rj;
+            
+            ///f[rj] <= rj + 1
+            ///f[max_f - 1] <= max_f -> f[st] <= max_f -> max(f[st]) = max_f
+            st = (max_f>=1)?(max_f-1):(0);
+        }
+
+        // fprintf(stderr, "[M::%s::]\tst::%ld\trj::%ld\n", __func__, st, rj);
+
+        f[ri] = max_f; p[ri] = max_j; ii[ri] = 0;
+        if(f[ri] < plus) plus = f[ri];
+   }
+
+    return;
 
     kv_resize(uint64_t, *res, ((uint64_t)an));
     gen_rphase_dp0_single_path_hybrid_0_multi(a, an, za, f, p, ii, qual_a, res->a, idx, plus, cc, cci, cc_min, NULL, ((uint64_t)-1), ((uint64_t)-1), 0, n_hap, cut_rate, cut_bd, site_sc, hap_cov_match, hap_cov_unmatch);
@@ -11535,12 +11600,16 @@ void get_wqual(uint64_t zid, uint64_t zpos, uint64_t zrev, asg8_v *v, uint8_t *v
 }
 
 
-void call_rphase_sc(haplotype_evdience_alloc *hl, overlap_region_alloc *ol, double st_rate, uint64_t st_max, asg64_v *idx, asg64_v *res, uint64_t rid, uint8_t *qa, uint64_t tcut, int64_t hap_cov_match, int64_t hap_cov_unmatch)
+void call_rphase_sc(haplotype_evdience_alloc *hl, overlap_region_alloc *ol, double st_rate, uint64_t st_max, asg64_v *idx, asg64_v *res, uint64_t rid, uint8_t *qa, uint64_t tcut, int64_t hap_cov_match, int64_t hap_cov_unmatch, asg32_v *b32, 
+    uint32_t **ro_idx, uint32_t **ro_a)
 {
+    ro_idx[0] = ro_idx[1] = ro_a[0] = ro_a[1] = NULL;
     if(hl->length <= 0) return;
 
     uint64_t k, l, i, i0, o, ii, m_snp_stat, m_snp_stat0, m_list, m1, c0, c1, rev_n, tqual, wqual, hq_cut = 2; uint32_t hq[5], hp[4], is_st; SnpStats *s; haplotype_evdience ev; char mc;
-    uint16_t fl = ((res && idx)?(1):(0));
+    uint16_t fl = ((res && idx)?(1):(0)); uint32_t *r_idx[2], *r_a[2], *rc = NULL, *rz = NULL, *rs = NULL, rl[2]; rl[0] = rl[1] = 0;
+    b32->n = (ol->length + 1)<<1; kv_resize(uint32_t, *b32, b32->n); memset(b32->a, 0, sizeof((*(b32->a)))*b32->n);
+    r_idx[0] = b32->a; r_idx[1] = b32->a + ol->length + 1;
 
     
     if(fl) {
@@ -11553,13 +11622,24 @@ void call_rphase_sc(haplotype_evdience_alloc *hl, overlap_region_alloc *ol, doub
             assert(i < hl->length && hl->list[i].site == hl->snp_stat.a[l].site);
             for (o = l, m1 = 0; o < k; o++) {
                 s = &(hl->snp_stat.a[o]);
+                // if(rid == 307 && hl->snp_stat.a[l].site == 3592) {
+                //     fprintf(stderr, "s[M::%s]\tsite::%u\tn0::%u\tn1::%u\tbs::%u\n", __func__, 
+                //         s->site, s->occ_0, s->occ_1, is_st_bs((*s), st_rate, st_max));
+                // }
                 // fprintf(stderr, "+[M::%s]\tsite::%u\tn0::%u\tn1::%u\n", __func__, s->site, s->occ_0, s->occ_1);
                 if((s->occ_0 < 2 || s->occ_1 < 2) || (is_st_bs((*s), st_rate, st_max)) || (!(s->occ_0 >= hap_cov_match && s->occ_1 >= hap_cov_unmatch))) {
                     continue;
                 }
+                // if(rid == 307 && hl->snp_stat.a[l].site == 3592) {
+                //     fprintf(stderr, "b[M::%s]\tsite::%u\tn0::%u\tn1::%u\tbs::%u\n", __func__, 
+                //         s->site, s->occ_0, s->occ_1, is_st_bs((*s), st_rate, st_max));
+                // }
                 // fprintf(stderr, "-[M::%s]\tsite::%u\tn0::%u\tn1::%u\n", __func__, s->site, s->occ_0, s->occ_1);
                 m1++;
             }
+            // if(rid == 307 && hl->snp_stat.a[l].site == 3592) {
+            //     fprintf(stderr, "+[M::%s]\tsite::%u\tn0::%u\tn1::%u\tm1::%lu\n", __func__, hl->snp_stat.a[l].site, hl->snp_stat.a[l].occ_0, hl->snp_stat.a[l].occ_1, m1);
+            // }
 
             if(m1) {
                 hq[0] = hq[1] = hq[2] = hq[3] = hq[4] = 0; hp[0] = hp[1] = hp[2] = hp[3] = ((uint32_t)-1); 
@@ -11582,22 +11662,22 @@ void call_rphase_sc(haplotype_evdience_alloc *hl, overlap_region_alloc *ol, doub
                 }
                 assert(i0 > i);
                 if(qa) {
-                    if(hp[0] != ((uint32_t)-1) && hq[0] < hq_cut) {
+                    if(hp[0] != ((uint32_t)-1) && hq[0] < hq_cut) {///disable SNP
                         // fprintf(stderr, "-[M::%s]\tsite::%u\tn0::%u\tn1::%u\n", __func__, hl->snp_stat.a[hp[0]].site, hl->snp_stat.a[hp[0]].occ_0, hl->snp_stat.a[hp[0]].occ_1);
                         hl->snp_stat.a[hp[0]].occ_1 = 0;
                     }
 
-                    if(hp[1] != ((uint32_t)-1) && hq[1] < hq_cut) {
+                    if(hp[1] != ((uint32_t)-1) && hq[1] < hq_cut) {///disable SNP
                         // fprintf(stderr, "-[M::%s]\tsite::%u\tn0::%u\tn1::%u\n", __func__, hl->snp_stat.a[hp[1]].site, hl->snp_stat.a[hp[1]].occ_0, hl->snp_stat.a[hp[1]].occ_1);
                         hl->snp_stat.a[hp[1]].occ_1 = 0;
                     }
 
-                    if(hp[2] != ((uint32_t)-1) && hq[2] < hq_cut) {
+                    if(hp[2] != ((uint32_t)-1) && hq[2] < hq_cut) {///disable SNP
                         // fprintf(stderr, "-[M::%s]\tsite::%u\tn0::%u\tn1::%u\n", __func__, hl->snp_stat.a[hp[2]].site, hl->snp_stat.a[hp[2]].occ_0, hl->snp_stat.a[hp[2]].occ_1);
                         hl->snp_stat.a[hp[2]].occ_1 = 0;
                     }
 
-                    if(hp[3] != ((uint32_t)-1) && hq[3] < hq_cut) {
+                    if(hp[3] != ((uint32_t)-1) && hq[3] < hq_cut) {///disable SNP
                         // fprintf(stderr, "-[M::%s]\tsite::%u\tn0::%u\tn1::%u\n", __func__, hl->snp_stat.a[hp[3]].site, hl->snp_stat.a[hp[3]].occ_0, hl->snp_stat.a[hp[3]].occ_1);
                         hl->snp_stat.a[hp[3]].occ_1 = 0;
                     }
@@ -11615,11 +11695,23 @@ void call_rphase_sc(haplotype_evdience_alloc *hl, overlap_region_alloc *ol, doub
                 // fprintf(stderr, "-[M::%s]\tsite::%u\tn0::%u\tn1::%u\thq[0]::%u\thq[1]::%u\thq[2]::%u\thq[3]::%u\thq[4]::%u\thq_cut::%lu\n", __func__, s->site, s->occ_0, s->occ_1, hq[0], hq[1], hq[2], hq[3], hq[4], hq_cut);
 
                 if((hq[4] >= hq_cut) && (hq[0] >= hq_cut || hq[1] >= hq_cut || hq[2] >= hq_cut || hq[3] >= hq_cut)) {
+                    // if(rid == 307 && hl->snp_stat.a[l].site == 3592) {
+                    //     fprintf(stderr, "-[M::%s]\tsite::%u\tn0::%u\tn1::%u\tbs::%u\thq[0]::%u\thq[1]::%u\thq[2]::%u\thq[3]::%u\thq[4]::%u\thq_cut::%lu\n", __func__, hl->snp_stat.a[l].site, hl->snp_stat.a[l].occ_0, hl->snp_stat.a[l].occ_1, is_st_bs(hl->snp_stat.a[l], st_rate, st_max), 
+                    //     hq[0], hq[1], hq[2], hq[3], hq[4], hq_cut);
+                    // }
                     for (o = l, m_snp_stat0 = m_snp_stat; o < k; o++) {
                         s = &(hl->snp_stat.a[o]);
+                        // if(rid == 307 && hl->snp_stat.a[l].site == 3592) {
+                        //     fprintf(stderr, "+[M::%s]\tsite::%u\tn0::%u\tn1::%u\tbs::%u\n", __func__, 
+                        //         s->site, s->occ_0, s->occ_1, is_st_bs((*s), st_rate, st_max));
+                        // }
                         if((s->occ_0 < 2 || s->occ_1 < 2) || (is_st_bs((*s), st_rate, st_max)) || (!(s->occ_0 >= hap_cov_match && s->occ_1 >= hap_cov_unmatch))) {
                             continue;
                         }
+                        // if(rid == 307 && hl->snp_stat.a[l].site == 3592) {
+                        //     fprintf(stderr, ">[M::%s]\tsite::%u\tn0::%u\tn1::%u\tbs::%u\tm_snp_stat::%lu\n", __func__, 
+                        //         s->site, s->occ_0, s->occ_1, is_st_bs((*s), st_rate, st_max), m_snp_stat);
+                        // }
                         
                         hl->snp_stat.a[m_snp_stat] = *s; 
                         for (ii = i, c1 = 0; ii < i0; ii++) {
@@ -11637,22 +11729,31 @@ void call_rphase_sc(haplotype_evdience_alloc *hl, overlap_region_alloc *ol, doub
                         hl->snp_stat.a[m_snp_stat++].score = -1;
                     }
 
-                    for (ii = i, m1 = m_list; ii < i0; ii++) {
-                        if((hl->list[ii].site == ((uint32_t)-1))) {
-                            hl->list[ii].overlapSite = ((uint32_t)-1);
-                            hl->list[ii].site = hl->snp_stat.a[l].site;
+                    if(m_snp_stat > m_snp_stat0) {
+                        for (ii = i, m1 = m_list; ii < i0; ii++) {
+                            if((hl->list[ii].site == ((uint32_t)-1))) {
+                                hl->list[ii].overlapSite = ((uint32_t)-1);
+                                hl->list[ii].site = hl->snp_stat.a[l].site;
+                            }
+                            if(fl) fill_incom(res, hl->list[ii].overlapID, hl->list[ii].site, idx->a, idx->n, ol->list[0].x_id);
+                            if(hh_tp(hl->list[ii]) == 0 || hh_tp(hl->list[ii]) == 1) {
+                                // if(rid == 307 && hl->list[ii].overlapID == 111 && hh_tp(hl->list[ii]) == 0) {
+                                //     fprintf(stderr, "-0-[M::%s]\ti::%lu\tsite::%u\thtp::%u\tsnp_stat->site::%u\n", __func__, m_list, hl->list[ii].site, hh_tp(hl->list[ii]), hl->snp_stat.a[l].site);
+                                //     // fprintf(stderr, "-0-[M::%s]\tsite::%u\n", __func__, hl->list[ii].site);
+                                // }
+                                r_idx[hh_tp(hl->list[ii])][hl->list[ii].overlapID]++; rl[hh_tp(hl->list[ii])]++;
+                            }
+                            hl->list[m_list++] = hl->list[ii];
                         }
-                        if(fl) fill_incom(res, hl->list[ii].overlapID, hl->list[ii].site, idx->a, idx->n, ol->list[0].x_id);
-                        hl->list[m_list++] = hl->list[ii];
-                    }
-                    radix_sort_haplotype_evdience_id_srt(hl->list + m1, hl->list + m_list);
-                    for (ii = m_snp_stat0; ii < m_snp_stat; ii++) {
-                        hl->snp_stat.a[ii].homopolymer_num = m_list;
-                    }
-                    
-                    i = i0;
+                        radix_sort_haplotype_evdience_id_srt(hl->list + m1, hl->list + m_list);
+                        for (ii = m_snp_stat0; ii < m_snp_stat; ii++) {
+                            hl->snp_stat.a[ii].homopolymer_num = m_list;
+                        }
+                        
+                        i = i0;
 
-                    if(fl) kv_push(uint64_t, *idx, hl->snp_stat.a[l].site);
+                        if(fl) kv_push(uint64_t, *idx, hl->snp_stat.a[l].site);
+                    }
                 }
             }
 
@@ -11662,7 +11763,18 @@ void call_rphase_sc(haplotype_evdience_alloc *hl, overlap_region_alloc *ol, doub
     hl->snp_stat.n = m_snp_stat; hl->length = m_list;
     if(hl->snp_stat.n == 0 || hl->length == 0) return;
 
-
+    // if(rid == 307) {
+    //     for (ii = 0; ii < hl->length; ii++) {
+    //         if(hl->list[ii].overlapID == 111) {
+    //             fprintf(stderr, "-a-[M::%s]\ti::%lu\tsite::%u\thtp::%u\n", __func__, m_list, hl->list[ii].site, hh_tp(hl->list[ii]));
+    //             // fprintf(stderr, "-0-[M::%s]\tsite::%u\n", __func__, hl->list[ii].site);
+    //         }
+    //     }
+    //     for (ii = 0; ii < hl->snp_stat.n; ++ii) {
+    //         fprintf(stderr, "-x-[M::%s]\tsite::%u\tocc_0::%u\tocc_1::%u\n", __func__, hl->snp_stat.a[ii].site, hl->snp_stat.a[ii].occ_0, hl->snp_stat.a[ii].occ_1);
+    //     }
+    // }
+    
     // fprintf(stderr, "+[M::%s]\tres->n::%lu\tol->length::%lu\tsnp_stat.n::%lu\n", __func__, (uint64_t)res->n, ol->length, (uint64_t)hl->snp_stat.n);
     ///fill incomplete values
     if((fl) && (res->n > ol->length)) {
@@ -11676,6 +11788,11 @@ void call_rphase_sc(haplotype_evdience_alloc *hl, overlap_region_alloc *ol, doub
             ev.cov = 1;
             addHaplotypeEvdience(hl, &ev, NULL);
             // fprintf(stderr, "[M::%s]\toid::%u\tsite::%u\n", __func__, ev.overlapID, ev.site);
+            r_idx[hh_tp(ev)][ev.overlapID]++;
+            rl[hh_tp(ev)]++;
+            // if(rid == 307 && ev.overlapID == 111 && hh_tp(ev) == 0) {
+            //     fprintf(stderr, "-0-[M::%s]\tsite::%u\tsup\n", __func__, ev.site);
+            // }
         }
         radix_sort_haplotype_evdience_srt(hl->list, hl->list + hl->length);
 
@@ -11705,6 +11822,7 @@ void call_rphase_sc(haplotype_evdience_alloc *hl, overlap_region_alloc *ol, doub
                 for (ii = i, is_st = 1; ii < i0; ii++) {
                     if(hh_tp(hl->list[ii]) == 0) {
                         assert(hl->list[ii].overlapSite == ((uint32_t)-1) || hl->list[ii].overlapSite == m1);
+                        // if(rid == 307) fprintf(stderr, "-1-[M::%s]\tm1::%lu\n", __func__, m1);
                         hl->list[ii].overlapSite = m1; hl->list[ii].misBase = mc;
                     }
                     if((ii > i) && (hl->list[ii].overlapID <= hl->list[ii-1].overlapID)) {
@@ -11734,6 +11852,76 @@ void call_rphase_sc(haplotype_evdience_alloc *hl, overlap_region_alloc *ol, doub
                 l = k;
             }
         }
+    }
+
+    // if(rid == 307) {
+    //     for (ii = 0; ii < hl->length; ii++) {
+    //         if(hl->list[ii].overlapID == 111) {
+    //             fprintf(stderr, "-b-[M::%s]\ti::%lu\tsite::%u\thtp::%u\n", __func__, m_list, hl->list[ii].site, hh_tp(hl->list[ii]));
+    //             // fprintf(stderr, "-0-[M::%s]\tsite::%u\n", __func__, hl->list[ii].site);
+    //         }
+    //     }
+    //     for (ii = 0; ii < hl->snp_stat.n; ++ii) {
+    //         fprintf(stderr, "-y-[M::%s]\tsite::%u\tocc_0::%u\tocc_1::%u\n", __func__, hl->snp_stat.a[ii].site, hl->snp_stat.a[ii].occ_0, hl->snp_stat.a[ii].occ_1);
+    //     }
+    // }
+
+    if(ol->length > 0) {
+        b32->n += rl[0] + rl[1]; kv_resize(uint32_t, *b32, b32->n);
+        r_idx[0] = b32->a; r_idx[1] = r_idx[0] + ol->length + 1; 
+        r_a[0] = r_idx[1] + ol->length + 1; r_a[1] = r_a[0] + rl[0];
+
+        for (k = l = o = 0; k < ol->length; k++) {
+            o = r_idx[0][k];
+            if(o > 0) r_a[0][l + o - 1] = 0;
+            r_idx[0][k] = l; l += o;
+        }
+        r_idx[0][k] = l; assert(l == rl[0]);
+
+        for (k = l = o = 0; k < ol->length; k++) {
+            o = r_idx[1][k];
+            if(o > 0) r_a[1][l + o - 1] = 0;
+            r_idx[1][k] = l; l += o;
+        }
+        r_idx[1][k] = l; assert(l == rl[1]);
+
+        uint64_t sbn[2] = {0, 0};
+
+        for (k = 1, l = 0, i = m_snp_stat = m_list = 0; k <= hl->snp_stat.n; ++k) {///filter snps
+            if(k == hl->snp_stat.n || hl->snp_stat.a[k].site != hl->snp_stat.a[l].site) {
+                for (; i < hl->length && hl->list[i].site != hl->snp_stat.a[l].site; i++);
+                assert(i < hl->length && hl->list[i].site == hl->snp_stat.a[l].site);
+                for (; i < hl->length && hl->list[i].site == hl->snp_stat.a[l].site; i++) {
+                    if((hh_tp(hl->list[i]) != 0) && (hh_tp(hl->list[i]) != 1)) continue;
+
+                    // if(rid == 307 && hl->list[i].overlapID == 111 && hh_tp(hl->list[i]) == 0) {
+                    //     fprintf(stderr, "-2-[M::%s]\ti::%lu\tzss::%u\thtp::%u\tsnp_stat->site::%u\n", __func__, i, hl->list[i].site, hh_tp(hl->list[i]), hl->snp_stat.a[l].site);
+                    //     // fprintf(stderr, "-2-[M::%s]\tsite::%u\n", __func__, hl->list[i].site);
+                    // }
+
+                    rc = r_idx[hh_tp(hl->list[i])]; rz = r_a[hh_tp(hl->list[i])];
+                    o = rc[hl->list[i].overlapID + 1] - rc[hl->list[i].overlapID];
+                    assert(o > 0);
+                    rs = &(rz[rc[hl->list[i].overlapID] + o - 1]);
+                    assert((*rs) < o);
+                    if(o - (*rs) > 1) {
+                        rz[rc[hl->list[i].overlapID] + (*rs)] = hl->list[i].overlapSite;
+                        // if(rz[rc[hl->list[i].overlapID] + (*rs)] == ((uint32_t)-1)) rz[rc[hl->list[i].overlapID] + (*rs)] = k - 1;
+                        (*rs)++;
+                    } else {
+                        (*rs) = hl->list[i].overlapSite;
+                        // if((*rs) == ((uint32_t)-1)) (*rs) = k - 1;
+                    }
+                    sbn[hh_tp(hl->list[i])]++;
+                }
+                l = k;
+            }
+        }
+
+        ro_idx[0] = r_idx[0]; ro_idx[1] = r_idx[1]; 
+        ro_a[0] = r_a[0]; ro_a[1] = r_a[1];
+
+        // if(rid == 307) fprintf(stderr, "-1-[M::%s] rl[0]::%u, rl[1]::%u, sbn[0]::%lu, sbn[1]::%lu\n", __func__, rl[0], rl[1], sbn[0], sbn[1]);
     }
 }
 
@@ -11811,19 +11999,19 @@ void recal_rphase(All_reads *rref, haplotype_evdience_alloc *hl, overlap_region_
 
 
 void gen_rphase_dp_adv(haplotype_evdience_alloc *hl, overlap_region_alloc *ol, UC_Read* g_read, double st_rate, uint64_t st_max, Chain_Data *dp, asg64_v *idx, asg64_v *res, uint64_t rid, uint8_t *qa, uint64_t tcut, uint64_t site_sc,
-    int64_t hap_cov_match, int64_t hap_cov_unmatch, int64_t n_hap, int64_t het_c, int64_t hom_c, double hf_rate)
+    int64_t hap_cov_match, int64_t hap_cov_unmatch, int64_t n_hap, int64_t het_c, int64_t hom_c, double hf_rate, asg32_v *b32)
 {
     if(hl->length <= 0) return;
-    uint64_t k, l, i, i0, o, ii, m_snp_stat, m_snp_stat0, m_list /**m_off**/, m1, c0, c1, rev_n; SnpStats *s; 
+    uint64_t k, l, i, i0, o, ii, m_snp_stat, m_snp_stat0, m_list /**m_off**/, m1, c0, c1, rev_n; SnpStats *s; uint32_t *oidx[2], *o_a[2];
 
-    call_rphase_sc(hl, ol, st_rate, st_max, idx, res, rid, qa, tcut, hap_cov_match, hap_cov_unmatch);
+    call_rphase_sc(hl, ol, st_rate, st_max, idx, res, rid, qa, tcut, hap_cov_match, hap_cov_unmatch, b32, oidx, o_a);
 
     // fprintf(stderr, "+[M::%s]\tyid::%u\thap_cov_match::%ld\thap_cov_unmatch::%ld\tn_hap::%ld\thet_c::%ld\thom_c::%ld\thf_rate::%f\n",
     //          __func__, ol->list[0].y_id, hap_cov_match, hap_cov_unmatch, n_hap, het_c, hom_c, hf_rate);
     
     if(tcut == ((uint64_t)-1)) {
         // gen_rphase_dp0_single_path(hl->snp_stat.a, hl->snp_stat.n, hl->list, dp, idx, het_a, hom_a, n_hap, 0.7, 6, res, qv->a, site_sc);
-        gen_rphase_dp0_single_path_multi(hl->snp_stat.a, hl->snp_stat.n, hl->list, dp, idx, het_c, hom_c, n_hap, 0.6/**0.7**/, 6, res, qa, site_sc, hap_cov_match, hap_cov_unmatch);
+        gen_rphase_dp0_single_path_multi(ol, hl->snp_stat.a, hl->snp_stat.n, hl->list, dp, idx, het_c, hom_c, n_hap, 0.6/**0.7**/, 6, res, qa, site_sc, hap_cov_match, hap_cov_unmatch, oidx, o_a);
     } else {
         gen_rphase_dp0_single_path_hybrid(hl->snp_stat.a, hl->snp_stat.n, hl->list, dp, idx, het_c, hom_c, n_hap, 0.6/**0.7**/, 0.4, 6, res, qa, ol, rid, tcut, site_sc, hap_cov_match, hap_cov_unmatch, hf_rate);
     }
@@ -11899,7 +12087,7 @@ void gen_rphase_dp(haplotype_evdience_alloc *hl, overlap_region_alloc *ol, UC_Re
 {
     if(hl->length <= 0) return;
 
-    uint64_t k, l, i, i0, o, ii, m_snp_stat, m_snp_stat0, m_list /**m_off**/, m1, c0, c1, rev_n, tqual, wqual, hq_cut = 2; uint32_t hq[5], hp[4], is_st; SnpStats *s; haplotype_evdience ev; char mc;
+    uint64_t k, l, i, i0, o, ii, m_snp_stat, m_snp_stat0, m_list /**m_off**/, m1, c0, c1, rev_n, tqual, wqual, hq_cut = 2; uint32_t hq[5], hp[4], is_st; SnpStats *s; haplotype_evdience ev; char mc; uint32_t *oidx[2], *o_a[2];
     if(rid < tcut) {
         retrive_bqual(qv, NULL, rid, -1, -1, 0, sc_bn);
     } else {
@@ -12103,7 +12291,7 @@ void gen_rphase_dp(haplotype_evdience_alloc *hl, overlap_region_alloc *ol, UC_Re
    
     if(tcut == ((uint64_t)-1)) {
         // gen_rphase_dp0_single_path(hl->snp_stat.a, hl->snp_stat.n, hl->list, dp, idx, het_a, hom_a, n_hap, 0.7, 6, res, qv->a, site_sc);
-        gen_rphase_dp0_single_path_multi(hl->snp_stat.a, hl->snp_stat.n, hl->list, dp, idx, het_c, hom_c, n_hap, 0.7, 6, res, qv->a, site_sc, hap_cov_match, hap_cov_unmatch);
+        gen_rphase_dp0_single_path_multi(ol, hl->snp_stat.a, hl->snp_stat.n, hl->list, dp, idx, het_c, hom_c, n_hap, 0.7, 6, res, qv->a, site_sc, hap_cov_match, hap_cov_unmatch, oidx, o_a);
     } else {
         gen_rphase_dp0_single_path_hybrid(hl->snp_stat.a, hl->snp_stat.n, hl->list, dp, idx, het_c, hom_c, n_hap, 0.7, 0.4, 6, res, qv->a, ol, rid, tcut, site_sc, hap_cov_match, hap_cov_unmatch, hf_rate);
     }
@@ -15354,6 +15542,50 @@ uint32_t align_hc_ed_post_extz(overlap_region *z, All_reads *rref, char* qstr, c
     return 1;
 }
 
+
+uint32_t align_gc_ed_post_extz(overlap_region *z, ul_idx_t *uref, char* qstr, char *tstr, bit_extz_t *exz, double e_rate, int64_t w_l, double ovlp_cut, int64_t force_aln, uint64_t *tot_b)
+{
+    int64_t q_s, q_e, nw, k, q_l, t_l, t_tot_l, aux_beg, aux_end, t_s, thre, aln_l, t_pri_l; ///uint64_t tot_b0 = 0;
+    char *q_string, *t_string; 
+    z->w_list.n = 0; z->is_match = 0; z->align_length = 0;
+    nw = get_num_wins(z->x_pos_s, z->x_pos_e+1, w_l);
+    get_win_se_by_normalize_xs(z, (z->x_pos_s/w_l)*w_l, w_l, &q_s, &q_e);
+    
+    for (k = 0; k < nw; k++) {
+        aux_beg = aux_end = 0; q_l = 1 + q_e - q_s;
+        thre = q_l*e_rate; thre = Adjust_Threshold(thre, q_l);
+        if(thre > THRESHOLD_MAX_SIZE) thre = THRESHOLD_MAX_SIZE;
+        ///offset of y
+        t_s = (q_s - z->x_pos_s) + z->y_pos_s;
+        t_s += y_start_offset(q_s, &(z->f_cigar));
+
+        aln_l = q_l + (thre<<1); t_tot_l = uref->ug->u.a[z->y_id].len;; 
+        if(init_waln(thre, t_s, t_tot_l, aln_l, &aux_beg, &aux_end, &t_s, &t_pri_l)) {
+            q_string = qstr+q_s; 
+
+            t_string = return_str_seq_exz(tstr, t_s, t_pri_l, z->y_pos_strand, NULL, uref, z->y_id);
+            t_l = t_pri_l;
+
+            ed_band_cal_semi_64_w_absent_diag(t_string, t_l, q_string, q_l, thre, aux_beg, exz);
+
+            if(tot_b) (*tot_b) += q_l;
+
+            if (is_align(*exz)) {
+                ///t_s do not have aux_beg, while t_s + t_end (aka, te) has 
+                if(!push_hc_wlst_exz(uref, NULL, NULL, z, qstr, tstr, exz, THRESHOLD_MAX_SIZE, q_s, q_e, t_s, t_s + exz->pe, 
+                                        t_tot_l, aux_beg, aux_end, e_rate, w_l, ovlp_cut, force_aln, tot_b, 0)) {
+                    return 0;
+                }
+            }
+        }
+        q_s = q_e + 1; q_e = q_s + w_l - 1; 
+        if(q_e >= (int64_t)z->x_pos_e) q_e = z->x_pos_e;
+    }
+
+    if((!force_aln) && (!pass_qovlp(z->x_pos_e+1-z->x_pos_s, z->align_length, ovlp_cut))) return 0;
+    return 1;
+}
+
 uint32_t align_hc_ed_post_extz_cut(overlap_region *z, overlap_region *zr, /**overlap_region *zuf,**/ All_reads *rref, char* qstr, char *tstr, bit_extz_t *exz, double e_rate, int64_t w_l, double ovlp_cut, int64_t force_aln, uint32_t *e_win, double nhit_cut, uint64_t *tot_b)
 {
     int64_t q_s, q_e, nw, k, kr = 0, nr = 0, /**nuf = 0, fqs = -1, fqe = -1,**/ q_l, t_l, t_tot_l, aux_beg, aux_end, t_s, thre, aln_l, t_pri_l, zol = z->x_pos_e+1-z->x_pos_s, zal, rual = 0; 
@@ -18064,6 +18296,7 @@ All_reads *rref, int64_t id)
         }
         if(uref) {
             retrieve_u_seq(NULL, str, &(uref->ug->u.a[id]), rev, ss, sl, NULL);
+            // retrieve_u_seq_fast(NULL, str, &(uref->ug->u.a[id]), rev, ss, sl, NULL);
         } else if(rref) {
             recover_UC_Read_sub_region(str, ss, sl, rev, rref, id);
         }
@@ -20221,6 +20454,89 @@ bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t ql, int64_t tl, u
     }
 }
 
+void gc_ovlp_base_direct(overlap_region *z, k_mer_hit *ch_a, int64_t ch_n, int64_t wl, ul_idx_t *udb, char* qstr, UC_Read *tu, 
+bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t ql, int64_t tl, uint64_t rid, int64_t pre_mode)
+{
+    int64_t i, l, mode, q[2], t[2], qr, tr, is_done, zn, si, ei;
+
+    if((pre_mode < 0) && (z->non_homopolymer_errors == 0) && (z->w_list.n)) {
+        zn = z->w_list.n;
+        for (i = 1; i < zn; i++) {
+            if((z->w_list.a[i].error == 0 && z->w_list.a[i-1].error == 0) && (z->w_list.a[i].x_start == z->w_list.a[i-1].x_end + 1) && 
+                (z->w_list.a[i].y_end == (z->w_list.a[i-1].y_end + (z->w_list.a[i].x_end-z->w_list.a[i-1].x_end)))) {
+                    continue;
+            }
+            break;
+        }
+        if(i >= zn) {
+            q[0] = z->w_list.a[0].x_start; q[1] = z->w_list.a[z->w_list.n-1].x_end;  
+            t[1] = z->w_list.a[z->w_list.n-1].y_end; t[0] = z->w_list.a[0].y_end - (z->w_list.a[0].x_end-z->w_list.a[0].x_start); 
+
+            if(q[0] <= t[0]) {
+                t[0] -= q[0]; q[0] = 0;
+            } else {
+                q[0] -= t[0]; t[0] = 0;
+            }
+
+            qr = ql-q[1]-1; tr = tl-t[1]-1;
+            if(qr <= tr) {
+                q[1] = ql-1; t[1] += qr;        
+            } else {
+                t[1] = tl-1; q[1] += tr; 
+            }
+
+            if(q[0] == z->w_list.a[0].x_start && q[1] == z->w_list.a[z->w_list.n-1].x_end) {
+                // fprintf(stderr, "[M::%s::%u->%u::%c] ovlp::%u, w_list.n::%u\n", __func__, z->x_id, z->y_id+1, "+-"[z->y_pos_strand], z->x_pos_e+1-z->x_pos_s, (uint32_t)z->w_list.n);
+                set_exact_exz(exz, q[0], q[1] + 1, t[0], t[1] + 1); push_alnw(aux_o, exz);
+                return;
+            }
+        }
+    }
+
+    si = 0; ei = ch_n;
+    if(pre_mode == 0) {
+        si = 1; ei = ch_n - 1;
+    } else if(pre_mode == 1) {
+        si = 1;
+    } else if(pre_mode == 2) {
+        ei = ch_n - 1;
+    }
+
+    for (l = si - 1, i = si; i <= ei; i++) {
+        q[0] = q[1] = t[0] = t[1] = mode = -1; is_done = 0;
+        if(l >= 0) {
+            q[0] = ch_a[l].self_offset; t[0] = ch_a[l].offset;
+        } else {
+            q[0] = 0;
+        }
+
+        if(i < ch_n) {
+            q[1] = ch_a[i].self_offset; t[1] = ch_a[i].offset;
+        } else {
+            q[1] = ql;
+        }
+
+        if((t[0] != -1) && (t[1] != -1)) {
+            mode = 0;//global
+        } else if((t[0] != -1) && (t[1] == -1)) {
+            mode = 1;///forward extension
+        } else if((t[0] == -1) && (t[1] != -1)) {
+            mode = 2;///backward extension
+        } else {
+            mode = 3;///no primary hit within [ibeg, iend] 
+        }
+
+        if(mode == 1 || mode == 2) adjust_ext_offset(&(q[0]), &(q[1]), &(t[0]), &(t[1]), ql, tl, 0, mode);
+        is_done = hc_aln_exz_adv_hc(z, udb, NULL, NULL, qstr, tu, q[0], q[1], t[0], t[1], mode, wl, exz, ql, e_rate, 
+        MAX_SIN_L, MAX_SIN_E, FORCE_SIN_L, -1, aux_o);
+                
+        if(!is_done) {///postprocess
+            push_unmap_alnw(aux_o, q[0], q[1]-1, t[0], t[1]-1, mode);
+        }
+        l = i;
+    }
+}
+
 
 void hc_ovlp_base_direct(overlap_region *z, k_mer_hit *ch_a, int64_t ch_n, int64_t wl, All_reads *rref, char* qstr, UC_Read *tu, 
 bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t ql, int64_t tl, uint64_t rid, int64_t pre_mode)
@@ -20457,6 +20773,78 @@ UC_Read *tu, bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t ql, 
     // }
 }
 
+void rechain_aln_gc(overlap_region *z, Candidates_list *cl, overlap_region *aux_o, int64_t aux_i, int64_t wl, 
+    ul_idx_t *udb, char* qstr, UC_Read *tu, bit_extz_t *exz, double e_rate, int64_t ql, int64_t tl, int64_t h_khit, int64_t rid)
+{
+    int64_t rcn = cl->length, ch_n, qs, qe, ts, te, mode, an0, an, todo; 
+    k_mer_hit *ch_a; uint8_t q[2], t[2]; ///ul_ov_t idx; 
+    ///[qs, qe) && [ts, te)
+    qs = aux_o->w_list.a[aux_i].x_start; qe = aux_o->w_list.a[aux_i].x_end+1;
+    ts = aux_o->w_list.a[aux_i].y_start; te = aux_o->w_list.a[aux_i].y_end+1;
+    if(qe - qs < FORCE_SIN_L || te - ts < FORCE_SIN_L) return;
+    mode = aux_o->w_list.a[aux_i].error_threshold;
+    ch_n = gen_win_chain(z, cl, qs, qe, ts, te, wl, udb, NULL, NULL, qstr, tu, exz, ql, tl, e_rate, h_khit, mode, rid, 1);
+    ch_a = cl->list + rcn;
+    if(ch_n) {
+        todo = 1; ///idx.ts = idx.te = (uint32_t)-1; idx.qs = 0; idx.qe = ql; 
+        if(mode == 0) {//global
+            // idx.qn = 0; idx.tn = ch_n - 1;
+            // idx.qs = ch_a[idx.qn].self_offset;
+            // idx.ts = ch_a[idx.qn].offset;
+            // idx.qe = ch_a[idx.tn].self_offset;
+            // idx.te = ch_a[idx.tn].offset;
+            assert(ch_a[0].self_offset == qs && ch_a[0].offset == ts);
+            assert(ch_a[ch_n-1].self_offset == qe && ch_a[ch_n-1].offset == te);
+            if(ch_n <= 2) todo = 0;
+        } else if(mode == 1) {//forward ext
+            // idx.qn = 0; idx.tn = ch_n;
+            // idx.qs = ch_a[idx.qn].self_offset;
+            // idx.ts = ch_a[idx.qn].offset;
+            // idx.qe = ql; 
+            assert(ch_a[0].self_offset == qs && ch_a[0].offset == ts);
+            if(ch_n <= 1) todo = 0;
+        } else if(mode == 2) {///backward ext
+            // idx.qn = (uint32_t)-1; idx.tn = ch_n-1;
+            // idx.qs = 0; 
+            // idx.qe = ch_a[idx.tn].self_offset;
+            // idx.te = ch_a[idx.tn].offset;
+            assert(ch_a[ch_n-1].self_offset == qe && ch_a[ch_n-1].offset == te);
+            if(ch_n <= 1) todo = 0;
+        }
+        if(todo) {
+            an0 = aux_o->w_list.n;
+            // if(z->x_id == 29033 && z->y_id == 21307) {
+            //     fprintf(stderr, "[M::%s]\tan0::%ld\tq::[%u,\t%u)\tt::[%u,\t%u)\tlw::%u\trw::%u\n", __func__, an0,
+            //     idx.qs, idx.qe, idx.ts, idx.te, idx.qn, idx.tn);
+            // }
+            // ovlp_base_aln(z, ch_a, ch_n, &idx, wl, uref, hpc_g, rref, qstr, tu, exz, aux_o, e_rate, ql, tl, (uint64_t)-1);
+            gc_ovlp_base_direct(z, ch_a, ch_n, wl, udb, qstr, tu, exz, aux_o, e_rate, ql, tl, (uint64_t)-1, mode);
+            an = aux_o->w_list.n; q[0] = q[1] = t[0] = t[1] = 0; todo = 0;
+            // if(z->x_id == 29033 && z->y_id == 21307) {
+            //     fprintf(stderr, "[M::%s]\tan::%ld\n", __func__, an);
+            // }
+            // fprintf(stderr, "[M::%s::] awn0::%ld, awn::%lu\n", __func__, an0, an);
+            ///old unaligned window could be replaced by the new aligned window
+            if((an == (an0 + 1)) && (!(is_ualn_win(aux_o->w_list.a[an-1])))) {
+                if(aux_o->w_list.a[aux_i].x_start == aux_o->w_list.a[an-1].x_start) q[0] = 1;
+                if(aux_o->w_list.a[aux_i].x_end == aux_o->w_list.a[an-1].x_end) q[1] = 1;
+                if(aux_o->w_list.a[aux_i].y_start == aux_o->w_list.a[an-1].y_start) t[0] = 1;
+                if(aux_o->w_list.a[aux_i].y_end == aux_o->w_list.a[an-1].y_end) t[1] = 1;
+                if((mode == 0) && q[0] && q[1] && t[0] && t[1]) todo = 1;
+                if((mode == 1) && q[0] && t[0]) todo = 1;
+                if((mode == 2) && q[1] && t[1]) todo = 1;
+                if(todo) {
+                    aux_o->w_list.a[aux_i] = aux_o->w_list.a[an-1]; aux_o->w_list.n--;
+                }
+            }
+            // if(an > an0) {///should always > 0 as there are unmapped windows
+            // }
+            // aux_o->w_list.n = an0;
+        }
+    }
+    cl->length = rcn;///must reset!!!!
+}
+
 void rechain_aln_hc(overlap_region *z, Candidates_list *cl, overlap_region *aux_o, int64_t aux_i, int64_t wl, 
 All_reads *rref, char* qstr, UC_Read *tu, bit_extz_t *exz, double e_rate, int64_t ql, int64_t tl, int64_t h_khit, int64_t rid)
 {
@@ -20618,6 +21006,78 @@ void push_trace_iter(asg16_v *exz, uint16_t c, uint32_t l)
 }
 **/
 
+/**
+uint64_t gen_gc_fast_cigar0(overlap_region *z, Candidates_list *cl, uint64_t wl, ul_idx_t *udb, char* qstr, UC_Read *tu, bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t ql, uint64_t rid, int64_t h_khit, int64_t *re)
+{
+    return_t_chain(z, cl);
+    int64_t ch_idx = z->shared_seed, ch_n;
+    int64_t i, tl, id = z->y_id, m, tot_e, aln, xe, ye; 
+    k_mer_hit *ch_a = cl->list + ch_idx; *re = INT64_MAX;
+    tl = udb->ug->u.a[id].len;
+    for (i = ch_idx; i < cl->length && cl->list[i].readID == cl->list[ch_idx].readID; i++){;} ch_n = i-ch_idx;
+    if(ch_n <= 0) return 0;
+    
+    aux_o->w_list.n = aux_o->w_list.c.n = 0; 
+    aux_o->y_id = z->y_id; aux_o->y_pos_strand = z->y_pos_strand;
+    aux_o->x_pos_s = z->x_pos_s; aux_o->x_pos_e = z->x_pos_e;
+    aux_o->y_pos_s = z->y_pos_s; aux_o->y_pos_e = z->y_pos_e;
+
+    gc_ovlp_base_direct(z, ch_a, ch_n, wl, udb, qstr, tu, exz, aux_o, e_rate, ql, tl, rid, -1);
+
+    int64_t aux_n = aux_o->w_list.n;
+    if(z->w_list.n == 0) aux_n = 0;
+    for (i = 0; i < aux_n; i++) {
+        if(!(is_ualn_win(aux_o->w_list.a[i]))) continue;
+        //will overwrite ch_a; does not matter
+        rechain_aln_gc(z, cl, aux_o, i, wl, udb, qstr, tu, exz, e_rate, ql, tl, h_khit, rid);
+    }
+
+    if(((int64_t)aux_o->w_list.n) > aux_n) {
+        for (i = m = 0; i < ((int64_t)aux_o->w_list.n); i++) {
+            if((i < aux_n) && (is_ualn_win(aux_o->w_list.a[i]))) continue;
+            aux_o->w_list.a[m++] = aux_o->w_list.a[i];
+        }
+        aux_o->w_list.n = m;
+        radix_sort_window_list_xs_srt(aux_o->w_list.a, aux_o->w_list.a+aux_o->w_list.n);
+    }
+
+    ///update z by aux_o
+    update_overlap_region(z, aux_o, ql, tl);
+
+    aux_n = z->w_list.n;
+    for (i = tot_e = aln = 0; i < aux_n; i++) {
+        if(is_ualn_win(z->w_list.a[i])) {
+            xe = z->w_list.a[i].x_end + 1 - z->w_list.a[i].x_start; 
+            ye = z->w_list.a[i].y_end + 1 - z->w_list.a[i].y_start;
+            tot_e += ((xe >= ye)?(xe):(ye));
+        } else {
+            tot_e += z->w_list.a[i].error; aln += z->w_list.a[i].x_end + 1 - z->w_list.a[i].x_start;
+        }
+    }
+    *re = tot_e;
+    // fprintf(stderr, "[M::%s::%u->%u::%c] ovlp::%u, aln::%ld, tot_e::%ld, w_list.n::%u, ch_n::%ld\n", 
+    // __func__, z->x_id, z->y_id+1, "+-"[z->y_pos_strand], z->x_pos_e+1-z->x_pos_s, aln, tot_e, (uint32_t)z->w_list.n, ch_n);
+
+    // debug_overlap_region(aux_o, qstr, tu, NULL, NULL, rref);
+
+
+    // ch_a = cl->list + ch_idx; //update
+    // for (i = 0; i < wn; i++) z->w_list.a[i].clen = 0;///clean cigar
+    // if(on > 1) {
+    //     fprintf(stderr, "[M::%s::] rid::%lu, on::%ld\n", __func__, rid, on);
+    // }
+    // if(z->y_id == 126) prt_k_mer_hit(ch_a, ch_n);
+    // for (i = ch_i = 0; i < on; i++) {
+    //     assert((i<=0)||(ov[i].qs > ov[i-1].qe));
+    //     ov[i].sec = 16;///do not know the aln type
+    //     ch_i = sub_base_aln(z, dp, ch_a, ch_n, pe, ov[i].qs, ov[i].qe, wl, uref, hpc_g, rref, qstr, tu, exz, e_rate, ql, tl, ch_i, rid);
+    //     pe = ov[i].qe;
+    // }
+    
+   return 1;
+}
+**/
+
 uint64_t gen_hc_fast_cigar0(overlap_region *z, Candidates_list *cl, uint64_t wl, All_reads *rref, char* qstr, UC_Read *tu, bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t ql, uint64_t rid, int64_t h_khit, int64_t *re)
 {
     int64_t ch_idx = z->shared_seed, ch_n;
@@ -20707,11 +21167,11 @@ uint64_t gen_hc_fast_cigar0(overlap_region *z, Candidates_list *cl, uint64_t wl,
 }
 
 
-uint64_t gen_hc_fast_non_retrieve_cigar0(overlap_region *z, Candidates_list *cl, uint64_t wl, char* qstr, int64_t ql, char* tstr, int64_t tl, bit_extz_t *exz, overlap_region *aux_o, double e_rate, uint64_t rid, int64_t h_khit)
+uint64_t gen_hc_fast_non_retrieve_cigar0(overlap_region *z, Candidates_list *cl, uint64_t wl, char* qstr, int64_t ql, char* tstr, int64_t tl, bit_extz_t *exz, overlap_region *aux_o, double e_rate, uint64_t rid, int64_t h_khit, int64_t *re)
 {
     int64_t ch_idx = z->shared_seed, ch_n;
-    int64_t i, m, tot_e, aln; 
-    k_mer_hit *ch_a = cl->list + ch_idx;
+    int64_t i, m, tot_e, aln, xe, ye; 
+    k_mer_hit *ch_a = cl->list + ch_idx; *re = INT64_MAX;
     for (i = ch_idx; i < cl->length && cl->list[i].readID == cl->list[ch_idx].readID; i++){;} ch_n = i-ch_idx;
     if(ch_n <= 0) return 0;
     
@@ -20756,11 +21216,14 @@ uint64_t gen_hc_fast_non_retrieve_cigar0(overlap_region *z, Candidates_list *cl,
     aux_n = z->w_list.n;
     for (i = tot_e = aln = 0; i < aux_n; i++) {
         if(is_ualn_win(z->w_list.a[i])) {
-            tot_e += z->w_list.a[i].x_end + 1 - z->w_list.a[i].x_start;
+            xe = z->w_list.a[i].x_end + 1 - z->w_list.a[i].x_start; 
+            ye = z->w_list.a[i].y_end + 1 - z->w_list.a[i].y_start;
+            tot_e += ((xe >= ye)?(xe):(ye));
         } else {
             tot_e += z->w_list.a[i].error; aln += z->w_list.a[i].x_end + 1 - z->w_list.a[i].x_start;
         }
     }
+    *re = tot_e;
     // fprintf(stderr, "[M::%s::%u->%u::%c] ovlp::%u, aln::%ld, tot_e::%ld, w_list.n::%u, ch_n::%ld\n", 
     // __func__, z->x_id, z->y_id+1, "+-"[z->y_pos_strand], z->x_pos_e+1-z->x_pos_s, aln, tot_e, (uint32_t)z->w_list.n, ch_n);
 
@@ -24507,6 +24970,7 @@ void rphase_hc(overlap_region_alloc* ol, All_reads *rref, haplotype_evdience_all
     }
     hp->length = t;
 
+
     if(q8) gen_qvec_hvec(rref, q8, &qhf, ((dp)?(&qual):(NULL)), rid, tcut);
 
     //r829
@@ -24520,7 +24984,9 @@ void rphase_hc(overlap_region_alloc* ol, All_reads *rref, haplotype_evdience_all
         // generate_haplotypes_naive(hap, overlap_list, R_INF, g_read->length, force_repeat);
     } else {
         // gen_rphase_dp(hp, ol, qu, ((std_bs)?(0.05):(0)), ((std_bs)?(2):((uint64_t)-1)), dp, idx, buf, rid, q8, tcut, site_sc);
-        gen_rphase_dp_adv(hp, ol, qu, ((std_bs)?(0.05):(0)), ((std_bs)?(2):((uint64_t)-1)), dp, idx, buf, rid, qual, tcut, site_sc, hap_cov_match, hap_cov_unmatch, n_hap, het_cov_a, hom_cov_a, hf_rate);
+        gen_rphase_dp_adv(hp, ol, qu, ((std_bs)?(0.05):(0)), ((std_bs)?(2):((uint64_t)-1)), dp, idx, buf, rid, qual, tcut, site_sc, hap_cov_match, hap_cov_unmatch, n_hap, het_cov_a, hom_cov_a, hf_rate, b32);
+
+        return;
         // if(!site_sc) generate_haplotypes_naive_HiFi_adv(hp, ol, 0.04, qu, ((std_bs)?(0.05):(0)), ((std_bs)?(2):((uint64_t)-1)), b32, rid);//r835
         if(!site_sc) generate_haplotypes_naive_HiFi_adv_hc(hp, ol, 0.04, qu, ((std_bs)?(0.05):(0)), ((std_bs)?(2):((uint64_t)-1)), b32, rid, hap_cov_match, hap_cov_unmatch);///r835
         else generate_haplotypes_weight(hp, ol, 0.04, qu, ((std_bs)?(0):(1)), ((std_bs)?(0.05):(0)), ((std_bs)?(2):((uint64_t)-1)), 32, 2, hap_cov_match, hap_cov_unmatch);
@@ -29857,7 +30323,6 @@ void ul_rid_lalign_adv(overlap_region_alloc* ol, Candidates_list *cl, const ul_i
     }
 }
 
-
 uint64_t gen_hc_fast_cigar(overlap_region *z, Candidates_list *cl, All_reads *rref, int64_t wl, char *qstr, UC_Read* tu, bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t ql, int64_t rid, int64_t khit, int64_t *re)
 {
     return_t_chain(z, cl);
@@ -29865,10 +30330,10 @@ uint64_t gen_hc_fast_cigar(overlap_region *z, Candidates_list *cl, All_reads *rr
     return 1;
 }
 
-uint64_t gen_hc_fast_non_retrieve_cigar(overlap_region *z, Candidates_list *cl, int64_t wl, char *qstr, int64_t ql, char *tstr, int64_t tl, bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t rid, int64_t khit)
+uint64_t gen_hc_fast_non_retrieve_cigar(overlap_region *z, Candidates_list *cl, int64_t wl, char *qstr, int64_t ql, char *tstr, int64_t tl, bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t rid, int64_t khit, int64_t *re)
 {
     return_t_chain(z, cl);
-    gen_hc_fast_non_retrieve_cigar0(z, cl, wl, qstr, ql, tstr, tl, exz, aux_o, e_rate, rid, khit);
+    gen_hc_fast_non_retrieve_cigar0(z, cl, wl, qstr, ql, tstr, tl, exz, aux_o, e_rate, rid, khit, re);
     return 1;
 }
 
@@ -32108,6 +32573,7 @@ void reassign_gaps(overlap_region *z, overlap_region *aux, char* qstr, int64_t q
 
 }
 
+
 uint32_t is_ovlp_debug(int64_t s, int64_t e, int64_t ws, int64_t we, int64_t op)
 {
     int64_t os, oe, ovlp;
@@ -33628,8 +34094,7 @@ uint8_t inline gen_hc_r_alin_flt_1_smp(overlap_region *z, Candidates_list *cl, A
             //     z->is_match, z->non_homopolymer_errors, rr, err, re, f);
         // }
     }
-
-
+    
 
     if(f) {
         // if(z->y_id == 3621141) {
@@ -33683,6 +34148,57 @@ uint8_t inline gen_hc_r_alin_flt_1_smp(overlap_region *z, Candidates_list *cl, A
 
     // z->is_match = 1; z->strong = z->without_large_indel = 0;
     // if(fc) update_mm_wins(z, wcut, wcut_n, ocw, ql, 0, 0.15, 16, 0, 1);
+}
+
+
+uint8_t inline gen_gc_r_alin_flt_1_smp(overlap_region *z, Candidates_list *cl, char *qstr, int64_t ql, char *tstr, int64_t tl, bit_extz_t *exz, overlap_region *aux_o, 
+    double err, double e_max, double e_rate, int64_t wsl, int64_t rid, int64_t khit, uint8_t chem_drop, double align_gap_rate, int64_t align_gap_max, uint8_t *hpf, asg16_v* buf, uint8_t pre_win)
+{
+    uint8_t f = 1; double rr; int64_t re; 
+
+    z->non_homopolymer_errors = UINT32_MAX - 1;///primary chain that needs to be verfied
+
+    if(pre_win == 0) {
+        f = align_hc_ed_post_non_retrieve_extz(z, qstr, ql, tstr, tl, exz, err, wsl, OVERLAP_THRESHOLD_HIFI_FILTER, 0, NULL);
+        // f = align_gc_ed_post_extz(z, uref, qu->seq, tu->seq, exz, err, wsl, OVERLAP_THRESHOLD_HIFI_FILTER, 0, tot_b);    
+    }
+
+    if(f) {
+        rr = gen_extend_err_non_retrieve_exz(z, qstr, tstr, tl, exz, NULL, wsl, -1, err, (e_max+0.000001), THRESHOLD_MAX_SIZE, 0, &re);
+        // rr = gen_extend_err_exz(z, uref, NULL, NULL, qu->seq, tu->seq, exz, NULL, wsl, -1, err, (e_max+0.000001), THRESHOLD_MAX_SIZE, 0, &re);
+        z->is_match = 0; 
+        if (rr > err) f = 0;
+    }
+
+    if(f) {
+        z->non_homopolymer_errors = re;
+        // if(!gen_hc_fast_cigar(z, cl, rref, wsl, qu->seq, tu, exz, aux_o, e_rate, ql, rid, khit, &re))
+        if(!gen_hc_fast_non_retrieve_cigar(z, cl, wsl, qstr, ql, tstr, tl, exz, aux_o, e_rate, rid, khit, &re)) {
+        // if(!gen_gc_fast_cigar0(z, cl, wsl, uref, qu->seq, tu, exz, aux_o, e_rate, ql, rid, khit, &re)) {
+            f = 0;
+        } else {
+            z->non_homopolymer_errors = re;
+        }
+    }
+
+    if(f) {
+        if((align_gap_max >= 0) && (!ff_lunalign(z, err, align_gap_rate, align_gap_max))) f = 0;
+    }
+    
+
+    if(f) {
+        if(chem_drop && ff_tend(z, 384, 2000, 0.1, (((e_rate*10)<0.36)?(e_rate*10):(0.36)), 128)) f = 0;
+    }
+
+    if(f) {
+        reassign_gaps(z, aux_o, qstr, ql, NULL, tstr, tl, NULL, NULL, buf, exz);
+    }
+
+    if((!f)) {
+        z->w_list.n = z->w_list.c.n = 0;
+    }
+
+    return f;
 }
 
 
@@ -35110,6 +35626,66 @@ uint64_t gen_hc_r_alin_adp_mmp_0(overlap_region_alloc* ol, Candidates_list *cl, 
     sp->n = spn0; 
     // if(ol->length <= 0) return tot_b;
     return tot_b;
+}
+
+
+uint64_t gen_gc_r_alin_adp_mmp_0(overlap_region_alloc* ol, Candidates_list *cl, ul_idx_t *uref, UC_Read* qu, UC_Read* tu, bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t wl, int64_t rid, int64_t khit, int64_t move_gap, asg16_v* buf, uint8_t chem_drop, double align_gap_rate, int64_t align_gap_max, uint64_t sec_aln_win, uint64_t sec_aln_cov, double sec_aln_err_rate, double sec_aln_max, 
+    asg64_v *sp, uint64_t ocw, uint8_t *hpf, asg32_v *v32, asg64_v *bp, uint64_t max_n_chain, uint64_t max_n_chain_f, uint64_t chain_cutoff, uint64_t ave_cov_min, uint8_t set_match)
+{
+    
+    uint64_t i, k, bs, ql = qu->length, *wsrt = NULL, wsrt_n = 0, spn0 = 0, tot_b = 0; Window_Pool w; double err, e_max; 
+    overlap_region *z, t; ol->mapped_overlaps_length = 0;
+    if(ol->length <= 0 || ql <= 0) return tot_b;
+
+    v32->n = ol->length<<1; kv_resize(uint32_t, *v32, v32->n); 
+    for (i = 0; i < ol->length; i++) {
+        v32->a[i] = ol->list[i].align_length;
+        v32->a[i+ol->length] = ol->list[i].shared_seed;
+        ol->list[i].align_length = 0;
+    }
+
+    uint32_t *ocn = v32->a, *osc = v32->a + ol->length; 
+
+    // prt_chain_cluster(ol, cl, a_cu, a_ci, ocn, osc, idx_cu, n_cu, 0, NULL);
+
+    ///base alignment
+    err = e_rate; e_max = err * 1.5;
+    init_Window_Pool(&w, ql, wl, (int)(1.0/err));
+    bs = (w.window_length)+(THRESHOLD_MAX_SIZE<<1)+1;
+    resize_UC_Read(tu, bs<<1); spn0 = sp->n; 
+
+    wsrt = mmp_chn_select(ol, cl, sp, ocw, ocn, osc, ql, &wsrt_n, set_match, max_n_chain, max_n_chain_f, chain_cutoff, ave_cov_min, 0.333333, 16, 16);
+
+    for (i = 0; i < wsrt_n; i++) {
+        z = &(ol->list[(uint32_t)wsrt[i]]); 
+        if((z->is_match == 0) && (!gen_gc_r_alin_flt_1_smp(z, cl, qu->seq, ql, uref->ug->u.a[z->y_id].s, uref->ug->u.a[z->y_id].len, exz, aux_o, err, e_max, e_rate, w.window_length, rid, khit, chem_drop, align_gap_rate, align_gap_max, hpf, buf, 0))) {
+            continue;
+        } 
+        z->is_match = 1; z->strong = z->without_large_indel = 0;
+    }
+    
+
+    for (i = k = 0; i < ol->length; i++) {///primary chain
+        z = &(ol->list[i]); 
+        if(z->is_match == 0) continue;
+        if(k != i) {
+            t = ol->list[k];
+            ol->list[k] = ol->list[i];
+            ol->list[i] = t;
+        }
+        k++;
+    }
+    // print_mm_wins_all(wcut, wcut_n, ocw, ql, 0);
+    // print_mm_wins_all(wcut, wcut_n, ocw, ql, 1);
+
+    ol->length = k;
+    // prt_chain_cluster(ol, cl, a_cu, a_ci, ocn, osc, idx_cu, n_cu, 1, NULL);
+    // fprintf(stderr, "-[M::%s]\trid::%ld\ttot_b::%lu\tql::%lu\tmax_n_chain::%ld\ttot_b_cov:::%ld\n", __func__, rid, tot_b, ql, max_n_chain, tot_b/ql);
+    // exit(1);
+    sp->n = spn0; 
+    // if(ol->length <= 0) return tot_b;
+    return tot_b;
+    
 }
 
 
@@ -36598,7 +37174,7 @@ uint64_t gen_hc_r_alin_re(overlap_region* z, Candidates_list *cl, char* qstr, ui
 
     // if(z->x_id == 3196 && z->y_id == 3199) fprintf(stderr, "-0-[M::%s] tid::%u\t%.*s\trr::%f\tre::%ld\n", __func__, z->y_id, (int)Get_NAME_LENGTH(R_INF, z->y_id), Get_NAME(R_INF, z->y_id), rr, re);
 
-    if(!gen_hc_fast_non_retrieve_cigar(z, cl, wl, qstr, ql, tstr, tl, exz, aux_o, e_rate, rid, khit)) return 0;
+    if(!gen_hc_fast_non_retrieve_cigar(z, cl, wl, qstr, ql, tstr, tl, exz, aux_o, e_rate, rid, khit, &re)) return 0;
 
     // if(z->x_id == 3196 && z->y_id == 3199) fprintf(stderr, "-1-[M::%s] tid::%u\t%.*s\trr::%f\tre::%ld\n", __func__, z->y_id, (int)Get_NAME_LENGTH(R_INF, z->y_id), Get_NAME(R_INF, z->y_id), rr, re);
 

@@ -514,7 +514,7 @@ double diff_ec_ul, double diff_ec_ul_low, double diff_ec_ul_hpc, int ec_ul_round
 
 void uidx_l_build(ma_ug_t *ug, mg_idxopt_t *opt, int cutoff)
 {
-    ha_flt_tab = ha_ft_ul_gen(&asm_opt, &(ug->u), opt->k, opt->w, cutoff);
+    ha_flt_tab = ha_ft_ul_gen(&asm_opt, &(ug->u), opt->k, opt->w, cutoff, -1);
     ha_idx = ha_pt_ul_gen(&asm_opt, ha_flt_tab, &(ug->u), opt->k, opt->w, cutoff);	
 	fprintf(stderr, "[M::%s] Index has been built.\n", __func__);
 }
