@@ -3864,6 +3864,8 @@ void gen_hc_r_alin_ea_adv_flt_mmp(gen_hc_aln_t *ez)
         ///debug for memory
         // snprintf(NULL, 0, "dwn::%u\tdcn::%u", (uint32_t)aux_o->w_list.n, (uint32_t)aux_o->w_list.c.n);
     }
+
+    if(ez->ol->length) srt_olst(ez->ol);
 }
 
 
@@ -4388,13 +4390,12 @@ static void worker_hap_ec(void *data, long i, int tid)
     // if(i != 25765) return;
     // if(i != 898) return;
     // if(i != 6843) return;
-    // if(i != 14627) return;
+    // if(i != 307) return;
 
     // if(i != 7148) return;
 
     // if(i != 339646) return;
     // if(i!=854835) return;
-    // if(i != 1) return;
     
     
     // if(i % 100000 == 0) fprintf(stderr, "-a-[M::%s-beg] rid->%ld\n", __func__, i);
@@ -4510,7 +4511,7 @@ static void worker_hap_ec(void *data, long i, int tid)
     ///for debug indel
     // stderr_phase_ovlp(&b->olist);
 
-    return;
+    // return;
 
     // est_rep_err_rate(&b->olist, &b->v64, &b->pidx, qlen, (asm_opt.is_ont)?(WINDOW_OHC):(WINDOW_HC), NULL);
 
@@ -5352,6 +5353,7 @@ static void worker_hap_ec_hybrid(void *data, long i, int tid)
     }
     b->v8q.n = b->v8t.n = 0; set_ec_cov(asm_opt.het_cov, asm_opt.hom_cov, asm_opt.het_cov_set, asm_opt.polyploidy, het_a, hom_a);
 
+    // if(i != 937) return;
     // if(i != 5966) return;
 
     // fprintf(stderr, "-a-[M::%s] rid::%ld\n", __func__, i);
@@ -5438,6 +5440,7 @@ static void worker_hap_ec_hybrid(void *data, long i, int tid)
     copy_asg_arr(b->sp, buf0);
     ///for debug indel
     // if(i == 23863) stderr_phase_ovlp(&b->olist);
+    // exit(1);
 
     dedup_chains(&b->olist);
 
@@ -9246,7 +9249,7 @@ uint64_t cal_ec_multiple(ec_ovec_buf_t *b, uint64_t n_thre, uint64_t n_a, uint64
     // fprintf(stderr, "[M::%s] # corrected bases->%lu\n", __func__, num_correct);
     // fprintf(stderr, "[M::%s::%.3f] running time\n", __func__, yak_realtime_0()-tt0);
     fprintf(stderr, "[M::pec::%.3f] # bases: %lu; # corrected bases: %lu\n", yak_realtime_0()-tt0, num_base, num_correct);
-    exit(1);
+    // exit(1);
 
     (*r_base) = num_base;
     return num_correct;
