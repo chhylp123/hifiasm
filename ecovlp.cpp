@@ -5353,7 +5353,7 @@ static void worker_hap_ec_hybrid(void *data, long i, int tid)
     }
     b->v8q.n = b->v8t.n = 0; set_ec_cov(asm_opt.het_cov, asm_opt.hom_cov, asm_opt.het_cov_set, asm_opt.polyploidy, het_a, hom_a);
 
-    // if(i != 937) return;
+    // if((i%16) != 0) return;
     // if(i != 5966) return;
 
     // fprintf(stderr, "-a-[M::%s] rid::%ld\n", __func__, i);

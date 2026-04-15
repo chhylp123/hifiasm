@@ -10781,7 +10781,7 @@ inline int64_t comput_sc_rphase(SnpStats *ai, uint64_t id, SnpStats *aj, uint64_
     return INT64_MIN;
 }
 
-inline void comput_sc_rphase_hybrid(SnpStats *ai, uint64_t id, SnpStats *aj, uint64_t jd, haplotype_evdience *za, uint64_t occ0_cut, uint8_t hf_only, int64_t *sca, int64_t *sch, uint32_t *oid, uint8_t *oph, uint8_t *ohf)
+inline void comput_sc_rphase_hybrid(SnpStats *ai, uint64_t id, SnpStats *aj, uint64_t jd, haplotype_evdience *za, uint64_t occ0_cut, uint8_t enable_hf, uint8_t enable_ont, int64_t *sca, int64_t *sch, uint32_t *oid, uint8_t *oph, uint8_t *ohf)
 {
     (*sca) = (*sch) = INT64_MIN; (*oid) = ((uint32_t)-1); (*oph) = ((uint8_t)-1); (*ohf) = 0;
     if(ai->site == aj->site) return;
@@ -10791,83 +10791,84 @@ inline void comput_sc_rphase_hybrid(SnpStats *ai, uint64_t id, SnpStats *aj, uin
     jz = za + aj->non_homopolymer_num; jn = aj->homopolymer_num - aj->non_homopolymer_num;
     na[0] = na[1] = nh[0] = nh[1] = 0;
 
-    (*ohf) = 1;
-    for (ik = jk = 0; (ik < in) && (iz[ik].overlapID&HQ_MASK) && (jk < jn) && (jz[jk].overlapID&HQ_MASK); ik++) {
-        for (; (jk < jn) && (jz[jk].overlapID < iz[ik].overlapID) && (jz[jk].overlapID&HQ_MASK); jk++);
-        if((jk < jn) && (jz[jk].overlapID == iz[ik].overlapID)) {
+    if(enable_hf) {
+        (*ohf) = 1; (*sch) = INT64_MIN;
+        for (ik = jk = 0; (ik < in) && (iz[ik].overlapID&HQ_MASK) && (jk < jn) && (jz[jk].overlapID&HQ_MASK); ik++) {
+            for (; (jk < jn) && (jz[jk].overlapID < iz[ik].overlapID) && (jz[jk].overlapID&HQ_MASK); jk++);
+            if((jk < jn) && (jz[jk].overlapID == iz[ik].overlapID)) {
 
-            fi = 2;
-            if(hh_tp(iz[ik]) == 0) {
-                fi = 0;
-            } else if(iz[ik].overlapSite == id){
-                fi = 1;
-            }
-            (*oph) = fi;
-
-            fj = 2;
-            if(hh_tp(jz[jk]) == 0) {
-                fj = 0;
-            } else if(jz[jk].overlapSite == jd){
-                fj = 1;
-            }
-
-            if((fi == 2) && (fj == 2) && (iz[ik].overlapSite != ((uint32_t)-1)) && (jz[jk].overlapSite != ((uint32_t)-1))) {///for rare cases
-                fi = fj = 0;
-            }
-
-            if(fi == 2 || fj == 2) return;
-
-            if(fi != fj) {
-                if(((*oph) == 0) || ((*oph) == 1)) {
-                    (*oid) = (iz[ik].overlapID)&(~HQ_MASK); (*ohf) = 1;
+                fi = 2;
+                if(hh_tp(iz[ik]) == 0) {
+                    fi = 0;
+                } else if(iz[ik].overlapSite == id){
+                    fi = 1;
                 }
-                return;
+                (*oph) = fi;
+
+                fj = 2;
+                if(hh_tp(jz[jk]) == 0) {
+                    fj = 0;
+                } else if(jz[jk].overlapSite == jd){
+                    fj = 1;
+                }
+
+                if((fi == 2) && (fj == 2) && (iz[ik].overlapSite != ((uint32_t)-1)) && (jz[jk].overlapSite != ((uint32_t)-1))) {///for rare cases
+                    fi = fj = 0;
+                }
+
+                if(fi == 2 || fj == 2) return;
+
+                if(fi != fj) {
+                    if(((*oph) == 0) || ((*oph) == 1)) {
+                        (*oid) = (iz[ik].overlapID)&(~HQ_MASK); (*ohf) = 1;
+                    }
+                    return;
+                }
+                nh[fi]++; 
             }
-            nh[fi]++; 
         }
+        na[0] = nh[0]; na[1] = nh[1];
     }
-    na[0] = nh[0]; na[1] = nh[1];
     if((nh[0] > 0) && (nh[1] > 0)) (*sch) = 1;
     if((na[0] > 0) && (na[1] > 0)) (*sca) = 1;
 
-    if(hf_only) return;
-
-    (*ohf) = 0; (*sca) = INT64_MIN;
-    for (ik = in - 1, jk = jn - 1; (ik >= 0) && (!(iz[ik].overlapID&HQ_MASK)) && (jk >= 0) && (!(jz[jk].overlapID&HQ_MASK)); ik--) {
-        for (; (jk >= 0) && (jz[jk].overlapID < iz[ik].overlapID) && (!(jz[jk].overlapID&HQ_MASK)); jk--);
-        if((jk >= 0) && (jz[jk].overlapID == iz[ik].overlapID)) {
-            fi = 2;
-            if(hh_tp(iz[ik]) == 0) {
-                fi = 0;
-            } else if(iz[ik].overlapSite == id){
-                fi = 1;
-            }
-            (*oph) = fi;
-
-            fj = 2;
-            if(hh_tp(jz[jk]) == 0) {
-                fj = 0;
-            } else if(jz[jk].overlapSite == jd){
-                fj = 1;
-            }
-
-            if((fi == 2) && (fj == 2) && (iz[ik].overlapSite != ((uint32_t)-1)) && (jz[jk].overlapSite != ((uint32_t)-1))) {///for rare cases
-                fi = fj = 0;
-            }
-
-            if(fi == 2 || fj == 2) return;
-
-            if(fi != fj) {
-                if(((*oph) == 0) || ((*oph) == 1)) {
-                    (*oid) = (iz[ik].overlapID)&(~HQ_MASK); (*ohf) = 0;
+    if(enable_ont) {
+        (*ohf) = 0; (*sca) = INT64_MIN;
+        for (ik = in - 1, jk = jn - 1; (ik >= 0) && (!(iz[ik].overlapID&HQ_MASK)) && (jk >= 0) && (!(jz[jk].overlapID&HQ_MASK)); ik--) {
+            for (; (jk >= 0) && (jz[jk].overlapID < iz[ik].overlapID) && (!(jz[jk].overlapID&HQ_MASK)); jk--);
+            if((jk >= 0) && (jz[jk].overlapID == iz[ik].overlapID)) {
+                fi = 2;
+                if(hh_tp(iz[ik]) == 0) {
+                    fi = 0;
+                } else if(iz[ik].overlapSite == id){
+                    fi = 1;
                 }
-                return;
-            }
-            na[fi]++;
-        }
-    }
+                (*oph) = fi;
 
-    if((na[0] > 0) && (na[1] > 0)) (*sca) = 1;
+                fj = 2;
+                if(hh_tp(jz[jk]) == 0) {
+                    fj = 0;
+                } else if(jz[jk].overlapSite == jd){
+                    fj = 1;
+                }
+
+                if((fi == 2) && (fj == 2) && (iz[ik].overlapSite != ((uint32_t)-1)) && (jz[jk].overlapSite != ((uint32_t)-1))) {///for rare cases
+                    fi = fj = 0;
+                }
+
+                if(fi == 2 || fj == 2) return;
+
+                if(fi != fj) {
+                    if(((*oph) == 0) || ((*oph) == 1)) {
+                        (*oid) = (iz[ik].overlapID)&(~HQ_MASK); (*ohf) = 0;
+                    }
+                    return;
+                }
+                na[fi]++;
+            }
+        }
+        if((na[0] > 0) && (na[1] > 0)) (*sca) = 1;
+    }
 }
 
 /**
@@ -11814,7 +11815,7 @@ void gen_rphase_dp0_single_path_hybrid(SnpStats *a, int64_t an, haplotype_evdien
 
                 if(ch && ca) continue;;
 
-                comput_sc_rphase_hybrid(&a[i], i, &a[j], j, za, 0, ((ca)||(a[j].site < sa0))?1:0, &sc_a, &sc_h, &srid, &rh, &rhf);
+                comput_sc_rphase_hybrid(&a[i], i, &a[j], j, za, 0, (a[j].site>=sh0)?1:0/**((ca)||(a[j].site < sa0))?1:0,**/, ((a[j].site>=sa0)&&(!ca))?1:0, &sc_a, &sc_h, &srid, &rh, &rhf);
                 if(srid != ((uint32_t)-1)) {
                     label_skip_mmb_fast(1 - rh, osi[srid], omm + oss[srid], oss[srid+1] - oss[srid], rhf?ii_h:ii_a, i, j);
                 }
@@ -11824,7 +11825,7 @@ void gen_rphase_dp0_single_path_hybrid(SnpStats *a, int64_t an, haplotype_evdien
                     sth = (max_f_h>=1)?(max_f_h-1):(0);///f[max_f - 1] <= max_f -> f[st] <= max_f -> max(f[st]) = max_f
                 }
                 if ((sc_a != INT64_MIN) && (f_a[j] + 1 > max_f_a)) {
-                    if(!ca) {
+                    if(!ca) {///need check ca; in some case, comput_sc_rphase_hybrid only checked HF overlaps
                         max_f_a = f_a[j] + 1; max_j_a = j;
                         sta = (max_f_a>=1)?(max_f_a-1):(0);///f[max_f - 1] <= max_f -> f[st] <= max_f -> max(f[st]) = max_f
                     }
@@ -25619,8 +25620,8 @@ void rphase_hc(overlap_region_alloc* ol, All_reads *rref, haplotype_evdience_all
 
     //r829
     // if(qhf) recal_rphase(rref, hp, ol, qu, ((std_bs)?(0.05):(0)), ((std_bs)?(2):((uint64_t)-1)), dp, idx, buf, b32, rid, qual, tcut, site_sc);
-    
 
+    
     if(!dp) {
         // generate_haplotypes_naive_advance(hap, overlap_list, NULL);
         generate_haplotypes_naive_HiFi(hp, ol, 0.04, qu, ((std_bs)?(0):(1)), ((std_bs)?(0.05):(0)), ((std_bs)?(2):((uint64_t)-1)), hap_cov_match, hap_cov_unmatch);
