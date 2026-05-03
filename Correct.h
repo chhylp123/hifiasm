@@ -1456,8 +1456,9 @@ void gen_hc_r_alin_adv(gen_hc_aln_t *ez);
 uint64_t gen_hc_r_alin_nec(overlap_region_alloc* ol, Candidates_list *cl, All_reads *rref, UC_Read* qu, UC_Read* tu, bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t wl, int64_t rid, int64_t khit, int64_t move_gap, asg16_v* buf, uint8_t chem_drop, double align_gap_rate, int64_t align_gap_max, uint64_t sec_aln_win, uint64_t sec_aln_cov, double sec_aln_err_rate, double sec_aln_max, asg64_v *kp, uint8_t *hpf);
 void gen_hc_r_alin_nec_adv(gen_hc_aln_t *ez);
 uint64_t gen_hc_r_alin_re(overlap_region* z, Candidates_list *cl, char* qstr, uint64_t ql, char* tstr, uint64_t tl, bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t wl, int64_t rid, int64_t khit, int64_t move_gap, asg16_v* buf);
-void rphase_hc(overlap_region_alloc* ol, All_reads *rref, haplotype_evdience_alloc* hp, UC_Read* qu, UC_Read* tu, kv_ul_ov_t *c_idx, asg64_v* idx, asg64_v* buf, int64_t bd, int64_t wl, int64_t ql, uint8_t occ_thres/**, uint8_t is_dbg**/, uint64_t rid, uint64_t hpc_len, uint64_t std_bs, Chain_Data *dp, asg8_v *q8, asg8_v *t8, uint8_t lindel, uint64_t tcut, uint64_t site_sc, int64_t h0_w, asg32_v *b32, 
-    int64_t hap_cov_match, int64_t hap_cov_unmatch, int64_t het_cov_a, int64_t hom_cov_a, int64_t n_hap, double hf_rate);
+uint64_t gen_hc_r_alin_self(overlap_region* z, Candidates_list *cl, char* qstr, uint64_t ql, char* tstr, uint64_t tl, bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t wl, int64_t rid, int64_t khit, int64_t move_gap, asg16_v* buf, asg16_v* scc);
+void rphase_hc(overlap_region_alloc* ol, All_reads *rref, haplotype_evdience_alloc* hp, UC_Read* qu, asg16_v *qc0, UC_Read* tu, kv_ul_ov_t *c_idx, asg64_v* idx, asg64_v* buf, int64_t bd, int64_t wl, int64_t ql, uint8_t occ_thres/**, uint8_t is_dbg**/, uint64_t rid, uint64_t hpc_len, uint64_t std_bs, Chain_Data *dp, asg8_v *q8, asg8_v *t8, uint8_t lindel, uint64_t tcut, uint64_t site_sc, int64_t h0_w, asg32_v *b32, 
+    int64_t hap_cov_match, int64_t hap_cov_unmatch, int64_t het_cov_a, int64_t hom_cov_a, int64_t n_hap, double hf_rate, overlap_region *rchn, int64_t rref_len);
 void set_exact_exz(bit_extz_t *exz, int64_t qs, int64_t qe, int64_t ts, int64_t te);
 void push_alnw(overlap_region *aux_o, bit_extz_t *exz);
 void cal_exz_global(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t thre, bit_extz_t *ez);

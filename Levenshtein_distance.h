@@ -712,19 +712,30 @@ inline uint32_t pop_trace_bp_f(asg16_v *res, uint32_t i, uint16_t *c, uint16_t *
 
 inline int64_t pop_trace_bp_rev_f(asg16_v *res, int64_t i, uint16_t *c, uint16_t *bq, uint16_t *bt, uint32_t *len)
 {
-	(*c) = (res->a[i]>>14); (*bq) = (*bt) = (uint16_t)-1;
-	if((*c) == 2 || (*c) == 3) {
-		(*bt) = ((res->a[i]>>12)&3); 
-		(*len) = (res->a[i]&(0xfff));
-	} else if((*c) == 1) {
-		(*bt) = ((res->a[i]>>12)&3);
-		(*bq) = ((res->a[i]>>10)&3);
-		(*len) = (res->a[i]&(0x3ff));
-	} else {
-		(*len) = (res->a[i]&(0x3fff));
+	uint32_t sl = 1; 
+	(*c) = (*bq) = (*bt) = (uint16_t)-1; (*len) = 0;
+	if(i >= ((int64_t)res->n)) {
+		i = ((int64_t)res->n) - 1; sl = 0;
+	}
+	if(i >= 0) {
+		(*c) = (res->a[i]>>14); 
+		(*bq) = (*bt) = (uint16_t)-1;
+		if((*c) == 2 || (*c) == 3) {
+			(*bt) = ((res->a[i]>>12)&3); 
+			(*len) = (res->a[i]&(0xfff));
+		} else if((*c) == 1) {
+			(*bt) = ((res->a[i]>>12)&3);
+			(*bq) = ((res->a[i]>>10)&3);
+			(*len) = (res->a[i]&(0x3ff));
+		} else {
+			(*len) = (res->a[i]&(0x3fff));
+		}
+	}
+	if(sl == 0) {
+		(*len) = 0; i = res->n;
 	}
 
-	uint32_t sl; uint16_t sbq, sbt;
+	uint16_t sbq, sbt;
 	for (i--; (i >= 0) && ((*c) == (res->a[i]>>14)); i--) {
 		sbq = sbt = (uint16_t)-1;
 		if((*c) == 2 || (*c) == 3) {

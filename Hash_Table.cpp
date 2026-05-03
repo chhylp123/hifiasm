@@ -1540,6 +1540,63 @@ inline int32_t comput_sc_ch_ec(const k_mer_hit *ai, const k_mer_hit *aj, double 
     return sc;
 }
 
+inline int32_t comput_sc_ch_ec_global(const k_mer_hit *ai, const k_mer_hit *aj, double bw_rate, double chn_pen_gap, double chn_pen_skip, int64_t sl, int64_t ol, uint8_t no_adj)
+{
+    ///ai is the suffix of aj
+    int32_t dq, dr, dd, dg, q_span, sc; double dg_of;
+    dq = (int64_t)(ai->self_offset) - (int64_t)(aj->self_offset);
+    dr = (int64_t)(ai->offset) - (int64_t)(aj->offset);
+    if((dq < 0) || (dr < 0)) return INT32_MIN;
+    if((no_adj) && ((dq == 0) || (dr == 0))) return INT32_MIN;
+
+    dd = dr > dq? dr - dq : dq - dr;//gap
+    if((dd > 16) && (dd > cal_bw(ai, aj, bw_rate, sl, ol))) return INT32_MIN;
+
+    dg = dr < dq? dr : dq;//len
+    q_span = ai->cnt&(0xffu); 
+    sc = q_span < dg? q_span : dg;
+    sc = normal_w(sc, ((int32_t)(ai->cnt>>8)));
+    if (dd || (dg > q_span && dg > 0)) {
+        double lin_pen, a_pen;
+        lin_pen = (chn_pen_gap*(double)dd);
+        dg_of = (dg>0)?((double)dg):(0.333333);
+        a_pen = ((double)(sc))*((((double)dd)/dg_of)/bw_rate);
+        ///for long gap
+        // if(lin_pen > a_pen) lin_pen = a_pen;
+        if(dd < 4) lin_pen = ((lin_pen > a_pen)?(a_pen):(lin_pen));
+        else lin_pen = ((lin_pen < a_pen)?(a_pen):(lin_pen));
+        lin_pen += (chn_pen_skip*dg_of);
+        sc -= (int32_t)lin_pen;
+    }
+    return sc;
+}
+
+inline int32_t comput_sc_ff_adv(const k_mer_hit *ai, const k_mer_hit *aj, double bw_rate, double chn_pen_gap, double chn_pen_skip, int64_t sl, int64_t ol)
+{
+    ///ai is the suffix of aj
+    int32_t dq, dr, dd, dg, q_span, sc; 
+    dq = (int64_t)(ai->self_offset) - (int64_t)(aj->self_offset);
+    if(dq < 0) return INT32_MIN;
+    dr = (int64_t)(ai->offset) - (int64_t)(aj->offset);
+    if(dr < 0) return INT32_MIN;
+    dd = dr > dq? dr - dq : dq - dr;//gap
+    // if((dd > 16) && (dd > cal_bw(ai, aj, bw_rate, sl, ol))) return INT32_MIN;
+    dg = dr < dq? dr : dq;//len
+    if(dg <= 0) return INT32_MIN;
+    q_span = ai->cnt&(0xffu); 
+    sc = q_span < dg? q_span : dg;
+    sc = normal_w(sc, ((int32_t)(ai->cnt>>8)));
+    if (dd || (dg > q_span && dg > 0)) {
+        double lin_pen, a_pen;
+        lin_pen = (chn_pen_gap*(double)dd);
+        a_pen = ((double)(sc))*((((double)dd)/((double)dg))/bw_rate);
+        if(lin_pen > a_pen) lin_pen = a_pen;
+        lin_pen += (chn_pen_skip*(double)dg);
+        sc -= (int32_t)lin_pen;
+    }
+    return sc;
+}
+
 inline int32_t comput_sc_ff(const k_mer_hit *ai, const k_mer_hit *aj, double bw_rate, double chn_pen_gap, double chn_pen_skip, int64_t sl, int64_t ol)
 {
     ///ai is the suffix of aj
@@ -2283,6 +2340,315 @@ uint64_t lchain_qdp_mcopy_fast(Candidates_list *cl, int64_t a_idx, int64_t a_n, 
 }
 
 
+/**
+void quick_ck_lchain_global(k_mer_hit* a, int64_t a_n, int64_t xl, int64_t yl, double chn_pen_gap, double chn_pen_skip, double bw_rate, 
+int64_t *p, int64_t *t, int32_t *f, int32_t *ii, int32_t *gf, int64_t *gp, int64_t *si, int64_t *ei)
+{
+    *si = 0; *ei = a_n; gf[0] = gf[1] = gp[0] = gp[1] = INT32_MIN;
+    if((a_n <= 0) || (xl <= 0) || (yl <= 0)) return;
+    int64_t l, k, is_srt = 1, z; k_mer_hit *ai, *aj, ft, fz;
+    int64_t dq, dr, dd, dg, q_span, sc, csc, ddt; uint8_t ff; double lin_pen, a_pen, dg_of;
+    ft.cnt = fz.cnt = 0xFFFFFF00u; ft.readID = fz.readID = a[0].readID; 
+    ft.offset = ft.self_offset = 0; fz.offset = yl-1; fz.self_offset = xl-1;
+
+    for (k = 1, l = 0; k <= a_n; k++) {
+        if(k == a_n || a[k].strand != a[l].strand) {
+            t[k-1] = 0; ii[k-1] = 0;
+            
+            if(is_srt) {
+                ddt = 0; ff = 0; p[l] = f[l] = INT32_MIN; 
+
+                ft.strand = a[l].strand; 
+                aj = &ft; z = l; ai = &a[z]; 
+                dq = (int64_t)(ai->self_offset) - (int64_t)(aj->self_offset);
+                dr = (int64_t)(ai->offset) - (int64_t)(aj->offset);
+                dd = dr > dq? dr - dq : dq - dr;//gap
+                if((dd > 16) && (dd > cal_bw(ai, aj, bw_rate, xl, yl))) ff = 1;
+                if(!ff) {
+                    dg = dr < dq? dr : dq;//len
+                    q_span = ai->cnt&(0xffu); 
+                    sc = q_span < dg? q_span : dg;
+                    sc = normal_w(sc, ((int32_t)(ai->cnt>>8)));
+                    if (dd || (dg > q_span && dg > 0)) {
+                        lin_pen = (chn_pen_gap*(double)dd);
+                        dg_of = ((dg>0)?(dg):(0.333333)); 
+                        a_pen = ((double)(sc))*((((double)dd)/dg_of)/bw_rate);
+                        ///for long gap
+                        // if(lin_pen > a_pen) lin_pen = a_pen;
+                        if(dd < 4) lin_pen = ((lin_pen > a_pen)?(a_pen):(lin_pen));
+                        else lin_pen = ((lin_pen < a_pen)?(a_pen):(lin_pen));
+                        lin_pen += (chn_pen_skip*dg_of);
+                        sc -= (int32_t)lin_pen;
+                    }
+
+                    csc = a[z].cnt&(0xffu); if(sc < csc) ff = 1;
+                    if(!ff) {
+                        p[z] = -1; f[z] = sc; ddt += dd; 
+                    }
+                }
+
+                if(!ff) {
+                    for (z = l + 1; z < k; z++) {
+                        ///roughly same to comput_sc_ch(&a[z], &a[z-1])
+                        ai = &a[z]; aj = &a[z-1];
+                        dq = (int64_t)(ai->self_offset) - (int64_t)(aj->self_offset);
+                        if(dq <= 0) break;
+                        dr = (int64_t)(ai->offset) - (int64_t)(aj->offset);
+                        if(dr <= 0) break;
+                        dd = dr > dq? dr - dq : dq - dr;//gap
+                        
+                        if((dd > 16) && (dd > cal_bw(&(a[z]), &(a[z-1]), bw_rate, xl, yl))) break;
+                        dg = dr < dq? dr : dq;//len
+                        q_span = ai->cnt&(0xffu); 
+                        sc = q_span < dg? q_span : dg;
+                        sc = normal_w(sc, ((int32_t)(ai->cnt>>8)));
+                        if (dd || (dg > q_span && dg > 0)) {
+                            lin_pen = (chn_pen_gap*(double)dd);
+                            dg_of = ((dg>0)?(dg):(0.333333)); 
+                            a_pen = ((double)(sc))*((((double)dd)/dg_of)/bw_rate);
+                            ///for long gap
+                            // if(lin_pen > a_pen) lin_pen = a_pen;
+                            if(dd < 4) lin_pen = ((lin_pen > a_pen)?(a_pen):(lin_pen));
+                            else lin_pen = ((lin_pen < a_pen)?(a_pen):(lin_pen));
+                            lin_pen += (chn_pen_skip*dg_of);
+                            sc -= (int32_t)lin_pen;
+                        }
+    
+                        sc += f[z-1]; csc = a[z].cnt&(0xffu); if(sc < csc) break;
+                        p[z] = z - 1; f[z] = sc; ddt += dd; 
+                    }
+                    if(z < k) ff = 1;
+                }
+
+                if(!ff) {
+                    fz.strand = a[l].strand; 
+                    ai = &fz; aj = &(a[k-1]);
+                    dq = (int64_t)(ai->self_offset) - (int64_t)(aj->self_offset);
+                    dr = (int64_t)(ai->offset) - (int64_t)(aj->offset);
+                    dd = dr > dq? dr - dq : dq - dr;//gap
+                    if(((dd > 16) && (dd > cal_bw(ai, aj, bw_rate, xl, yl)))||
+                        (((ddt + dd) > 16) && ((ddt + dd) > cal_bw(&fz, &ft, bw_rate, xl, yl)))) {
+                        ff = 1;
+                    } else {
+                        dg = dr < dq? dr : dq;//len
+                        sc = q_span = 0; 
+                        if (dd || (dg > q_span && dg > 0)) {
+                            lin_pen = (chn_pen_gap*(double)dd);
+                            dg_of = ((dg>0)?(dg):(0.333333)); 
+                            a_pen = ((double)(sc))*((((double)dd)/dg_of)/bw_rate);
+                            ///for long gap
+                            // if(lin_pen > a_pen) lin_pen = a_pen;
+                            if(dd < 4) lin_pen = ((lin_pen > a_pen)?(a_pen):(lin_pen));
+                            else lin_pen = ((lin_pen < a_pen)?(a_pen):(lin_pen));
+                            lin_pen += (chn_pen_skip*dg_of);
+                            sc -= (int32_t)lin_pen;
+                        }
+                        sc += f[k-1]; ///csc = a[z].cnt&(0xffu); if(sc < csc) break;
+                        gp[fz.strand] = k-1; gf[fz.strand] = sc; ///ddt += dd; 
+                        if((*ei) > k) {
+                            (*si) = k;
+                        } else {
+                            (*ei) = l;
+                        }
+                    }
+                }
+            }
+            l = k; is_srt = 1;
+        } else {
+            if((a[k].self_offset <= a[k-1].self_offset) || (a[k].offset <= a[k-1].offset)) is_srt = 0;
+            t[k-1] = 0; ii[k-1] = 0;
+        }
+    }
+}
+
+
+uint64_t lchain_qdp_global_fast(Candidates_list *cl, int64_t a_idx, int64_t a_n, int64_t des_idx, 
+              Chain_Data* dp, overlap_region_alloc* res, int64_t max_skip, int64_t max_iter, 
+              int64_t max_dis, double chn_pen_gap, double chn_pen_skip, double bw_rate, 
+              uint32_t xid, int64_t xl, int64_t yl, int64_t quick_check, uint32_t apend_be, 
+              int64_t gen_cigar, int64_t khit_n)
+{
+    if(a_n <= 0) return 0;
+    int64_t *p, *t, *gp, max_f, n_skip, st, max_j, end_j, sc, max_ii, ovl, min_sc, ch_n, si, ei; 
+    int32_t *f, max, tmp, *ii, *gf; int64_t i, k, j, cL = 0; k_mer_hit* a; k_mer_hit* des; k_mer_hit *swap, ft; overlap_region *z;
+    resize_Chain_Data(dp, a_n + 2, NULL); ch_n = 1; 
+    t = dp->tmp; f = dp->score; p = dp->pre; ii = dp->occ; gp = p + a_n; gf = f + a_n; gf[0] = gf[1] = gp[0] = gp[1] = INT32_MIN; 
+    
+    a = cl->list + a_idx; des = cl->list + des_idx;
+    if(quick_check) {
+        quick_ck_lchain_global(a, a_n, xl, yl, chn_pen_gap, chn_pen_skip, bw_rate, p, t, f, ii, gf, gp, &si, &ei);
+    } else {
+        si = 0; ei = a_n; memset(t, 0, (a_n*sizeof((*t))));
+    }
+    
+    ft.cnt = 0xFFFFFF00u; ft.readID = a[0].readID; ft.strand = 0; ft.offset = ft.self_offset = 0; 
+    for (i = st = si, max_ii = -1; i < ei; ++i) {
+        ///max_f = a[i].cnt&(0xffu); 
+        ft.strand = a[i].strand;
+
+
+        n_skip = 0; max_j = end_j = -1;
+        if ((i-st) > max_iter) st = i-max_iter;
+        while (a[i].strand != a[st].strand) ++st;
+
+        for (j = i - 1; j >= st; --j) {
+            sc = comput_sc_ch_ec_global(&a[i], &a[j], bw_rate, chn_pen_gap, chn_pen_skip, xl, yl);
+            if (sc == INT32_MIN) continue;
+            sc += f[j];
+            if (sc > max_f) {
+                max_f = sc, max_j = j;
+                if (n_skip > 0) --n_skip;
+            } else if (t[j] == (int32_t)i) {
+                if (++n_skip > max_skip)
+                    break;
+            }
+            if (p[j] >= 0) t[p[j]] = i;
+        }
+        end_j = j;
+
+        if ((max_ii<0) || (a[i].self_offset>a[max_ii].self_offset+max_dis) || (a[i].strand!=a[max_ii].strand)) {
+            max = INT32_MIN; max_ii = -1;
+            for (j=i-1; (j>=st) && (a[i].self_offset<=max_dis+a[j].self_offset)&&(a[i].strand==a[j].strand); --j) {
+                if (max < f[j]) {
+                    max = f[j], max_ii = j;
+                }
+            }
+        }
+
+        if ((max_ii >= 0) && (max_ii < end_j) && (a[i].strand == a[max_ii].strand)) {///just have a try with a[i]<->a[max_ii]
+            tmp = comput_sc_ch_ec(&a[i], &a[max_ii], bw_rate, chn_pen_gap, chn_pen_skip, xl, yl);
+            if (tmp != INT32_MIN && max_f < tmp + f[max_ii])
+                max_f = tmp + f[max_ii], max_j = max_ii;
+        }
+        f[i] = max_f; p[i] = max_j;
+        if ((max_ii < 0) || ((a[i].self_offset<=max_dis+a[max_ii].self_offset)&&(a[i].strand==a[max_ii].strand)&&(f[max_ii]<f[i]))) {
+            max_ii = i;
+        }
+        if(f[i] >= msc) {
+            ovl = get_chainLen(a[i].self_offset, a[i].self_offset, xl, a[i].offset, a[i].offset, yl);
+            if(f[i] > msc || ovl < movl) {
+                msc = f[i]; msc_i = i; movl = ovl;
+            }
+        }
+        if(f[i] < plus) plus = f[i];
+        ii[i] = 0;///for mcopy, not here
+        // if(a_n && (a[0].readID == 27105 || a[0].readID == 7603)) {///r833
+        //     fprintf(stderr, "i::%ld[M::%s::rid->%u::%c] q::%u, t::%u, st::%ld, max_ii::%ld, f[i]::%d, p[i]::%ld, msc_i::%ld, msc::%ld, movl::%ld\n", 
+        //                     i, __func__, a[i].readID, "+-"[a[i].strand], 
+        //                     a[i].self_offset, a[i].offset, st, max_ii, f[i], p[i], msc_i, msc, movl);
+        // }
+    }
+
+    for (i = msc_i, cL = 0; i >= 0; i = p[i]) { ii[i] = 1; t[cL++] = i;}///label the best chain
+
+    if(mcopy_num > 1) {
+        // if(a[0].readID == 4412344) {
+        //     fprintf(stderr, "[M::%s::] msc::%ld, cL::%ld\n", __func__, msc, cL);
+        // }
+        if(cL >= mcopy_khit_cutoff) {///if there are too few k-mers, disable mcopy
+            msc -= plus; min_sc = msc*mcopy_rate; ii[msc_i] = 0;
+            for (i = ch_n = 0; i < a_n; ++i) {///make all f[] positive
+                f[i] -= plus; if(i >= ch_n) t[i] = 0;
+                if((!(ii[i])) && (f[i] >= min_sc)) {///!(ii[i]): skip the best chain
+                    t[ch_n] = ((uint64_t)f[i])<<32; t[ch_n] += (i<<1); ch_n++;
+                }
+            }
+            // if(a[0].readID == 4412344) {
+            //     fprintf(stderr, "[M::%s::] msc::%ld, min_sc::%ld, cL::%ld, ch_n::%ld, mcopy_num::%ld\n", __func__, msc, min_sc, cL, ch_n, mcopy_num);
+            // }
+            if(ch_n > 1) {
+                int64_t n_v, n_v0, ni, n_u, n_u0 = res->length; 
+                radix_sort_hc64i(t, t + ch_n);
+                for (k = ch_n-1, n_v = n_u = 0; k >= 0 && n_u < mcopy_num; --k) {
+                    n_v0 = n_v;
+                    for (i = ((uint32_t)t[k])>>1; i >= 0 && (t[i]&1) == 0; ) {
+                        ii[n_v++] = i; t[i] |= 1; i = p[i];
+                    }
+                    if(n_v0 == n_v) continue;
+                    sc = (i<0?(t[k]>>32):((t[k]>>32)-f[i]));
+                    // if(a[0].readID == 4412344) {
+                    //     fprintf(stderr, "+[M::%s::] sc::%ld, n_a::%ld\n", __func__, sc, n_v-n_v0);
+                    // }
+                    if(sc >= min_sc) {
+                        kv_pushp_ol(overlap_region, (*res), &z);
+                        push_ovlp_chain_qgen(z, xid, xl, yl, sc+plus, &(a[ii[n_v-1]]), &(a[ii[n_v0]]));
+                        // if(a[0].readID == 4412344) {
+                        //     fprintf(stderr, "-[M::%s::] sc::%ld, n_a::%ld, q::[%u,%u), t::[%u,%u), %c\n", __func__, sc, n_v-n_v0, z->x_pos_s, z->x_pos_e + 1, z->y_pos_s, z->y_pos_e + 1, "+-"[z->y_pos_strand]);
+                        // }
+                        ///mcopy_khit_cutoff <= 1: disable the mcopy_khit_cutoff filtering, for the realignment
+                        // if((mcopy_khit_cutoff <= 1) || ((z->x_pos_e+1-z->x_pos_s) <= (movl<<2))) {
+                        if((!n_u) || (n_v - n_v0 > 1)) {
+                            z->align_length = n_v-n_v0; z->x_id = n_v0;
+                            n_u++;
+                        } else {///non-best is tiny
+                            res->length--; n_v = n_v0;
+                        }
+                    } else {
+                        n_v = n_v0;
+                    }
+                }
+
+                // if(n_u > 1) ks_introsort_or_sss(n_u, res->list + n_u0); 
+                // res->length = n_u0 + filter_non_ovlp_xchains(res->list + n_u0, n_u, &n_v);
+                n_u = res->length;
+                if(n_u > n_u0 + 1) {
+                    kv_resize_cl(k_mer_hit, (*cl), (n_v+cl->length));
+                    a = cl->list + a_idx; des = cl->list + des_idx; swap = cl->list + cl->length; 
+                    for (k = n_u0, i = n_v0 = n_v = 0; k < n_u; k++) {
+                        z = &(res->list[k]);
+                        z->non_homopolymer_errors = des_idx + i;
+                        n_v0 = z->x_id; ni = z->align_length;
+                        for (j = 0; j < ni; j++, i++) {
+                            ///k0 + (ni - j - 1)
+                            swap[i] = a[ii[n_v0 + (ni- j - 1)]]; 
+                            swap[i].readID = k; 
+                        }
+                        z->x_id = xid; 
+                        if(gen_cigar) gen_fake_cigar(&(z->f_cigar), z, apend_be, swap+i-ni, ni);
+                        if(!khit_n) z->align_length = 0; 
+                    }
+                    memcpy(des, swap, i*sizeof((*swap))); //assert(i == ch_n);
+                    
+                    // fprintf(stderr, "[M::%s::msc->%ld] msc_k_hits::%u, cL::%ld, min_sc::%ld, best_sc::%ld, n_u0_sc::%d, mcopy_rate::%f, # chains::%ld\n", 
+                    // __func__, msc, res->list[n_u0].align_length, cL, min_sc, msc+plus, res->list[n_u0].shared_seed,
+                    // mcopy_rate, n_u-n_u0);
+                } else if(n_u == n_u0 + 1) {
+                    z = &(res->list[n_u0]); k = n_u0; i = 0;
+                    z->non_homopolymer_errors = des_idx + i;
+                    n_v0 = z->x_id; ni = z->align_length;
+                    for (j = 0; j < ni; j++, i++) {
+                        ///k0 + (ni - j - 1)
+                        des[i] = a[ii[n_v0 + (ni- j - 1)]]; 
+                        des[i].readID = k; 
+                    }
+                    z->x_id = xid; 
+                    if(gen_cigar) gen_fake_cigar(&(z->f_cigar), z, apend_be, des+i-ni, ni);
+                    if(!khit_n) z->align_length = 0; 
+                }
+                return i;
+            } else {
+                msc += plus; i = msc_i; cL = 0; 
+                while (i >= 0) {t[cL++] = i; i = p[i];}
+            }
+        }
+    }
+
+
+
+    ///a[] has been sorted by self_offset
+    // i = msc_i; cL = 0; 
+    // while (i >= 0) {t[cL++] = i; i = p[i];}
+    kv_pushp_ol(overlap_region, (*res), &z);
+    push_ovlp_chain_qgen(z, xid, xl, yl, msc, &(a[t[cL-1]]), &(a[t[0]]));
+    for (i = 0; i < cL; i++) {des[i] = a[t[cL-i-1]]; des[i].readID = res->length-1;}
+    z->non_homopolymer_errors = des_idx;
+    if(gen_cigar) gen_fake_cigar(&(z->f_cigar), z, apend_be, des, cL);
+    if(khit_n) z->align_length = cL;
+    return cL;
+}
+**/
+
+
 #define rev_khit(an, xl, yl) do {	\
 		(an).self_offset = (xl)-1-((an).self_offset+1-((an).cnt&((uint32_t)(0xffu))));	\
 		(an).offset = (yl)-1-((an).offset+1-((an).cnt&((uint32_t)(0xffu))));\
@@ -2451,6 +2817,121 @@ uint64_t lchain_qdp_fix(k_mer_hit* a, int64_t a_n, Chain_Data* dp, int64_t max_s
     // }
     return cL;
 }
+
+
+uint64_t lchain_qdp_fix_adv(k_mer_hit *a, int64_t a_n, Chain_Data* dp, int64_t max_skip, 
+                int64_t max_iter, int64_t max_dis, double chn_pen_gap, double chn_pen_skip, 
+                double bw_rate, int64_t xl, int64_t yl, int64_t quick_check, 
+                int64_t left_fix, int64_t right_fix, k_mer_hit *res)
+{
+    if(a_n <= 0) return 0;
+
+    int64_t *p, *t, max_f, n_skip, st, max_j, end_j, sc, msc, msc_i, bw, max_ii, ovl, movl; 
+    int32_t *f, max, tmp; int64_t i, j, ret, cL = 0; 
+    resize_Chain_Data(dp, a_n, NULL);
+    t = dp->tmp; f = dp->score; p = dp->pre;
+    bw = ((xl < yl)?xl:yl); bw *= bw_rate;
+    msc = msc_i = -1; movl = INT32_MAX;
+
+    if(quick_check) {
+        ret = lchain_qcheck(a, a_n, dp, bw_rate);
+        if (ret > 0) {
+            a_n = ret; msc_i = a_n-1; msc = f[msc_i];
+            goto skip_ldp;
+        }
+    }
+
+    memset(t, 0, (a_n*sizeof((*t))));
+    for (i = st = 0, max_ii = -1; i < a_n; ++i) {
+        max_f = a[i].cnt&(0xffu); if(left_fix && i > 0) max_f = INT32_MIN;
+        n_skip = 0; max_j = end_j = -1;
+        if ((i-st) > max_iter) st = i-max_iter;
+
+        for (j = i - 1; j >= 0; --j) {
+            if(left_fix && f[j] == INT32_MIN)continue;
+            sc = comput_sc_ff_adv(&a[i], &a[j], bw_rate, chn_pen_gap, chn_pen_skip, xl, yl);
+            if (sc == INT32_MIN) continue;
+            sc += f[j];
+            if (sc > max_f) {
+                max_f = sc, max_j = j;
+                if (n_skip > 0) --n_skip;
+            } else if (t[j] == (int32_t)i) {
+                if ((++n_skip) > max_skip) {
+                    if((max_j != -1) || (left_fix == 0)) break;
+                } 
+            }
+            if (p[j] >= 0) t[p[j]] = i;
+            ///put it here will allow at least one prefix no matter max_dis
+            ///this is special for gap filling, not for chaining
+            if (a[i].self_offset > (max_dis + a[j].self_offset)) {
+                if((max_j != -1)) break;
+            }
+            if (j < st) {
+                if((max_j != -1) || (left_fix == 0)) break;
+            }
+        }
+        end_j = j;
+
+        if (max_ii < 0 || ((int64_t)a[i].self_offset) - ((int64_t)a[max_ii].self_offset) > max_dis) {
+            max = INT32_MIN; max_ii = -1;
+            for (j = i - 1; (j >= st) && ((((int64_t)a[i].self_offset)-((int64_t)a[j].self_offset))<=max_dis); --j) {
+                if ((f[j] != INT32_MIN) && (max < f[j])) {
+                    max = f[j], max_ii = j;
+                }
+            }
+        }
+
+        if ((max_ii >= 0) && (max_ii < end_j) && (f[max_ii] != INT32_MIN)) {///just have a try with a[i]<->a[max_ii]
+            tmp = comput_sc_ff_adv(&a[i], &a[max_ii], bw_rate, chn_pen_gap, chn_pen_skip, xl, yl);
+            if (tmp != INT32_MIN && max_f < tmp + f[max_ii])
+                max_f = tmp + f[max_ii], max_j = max_ii;
+        }
+
+        p[i] = max_j; f[i] = max_f; 
+        
+        if ((max_ii < 0) || (((((int64_t)a[i].self_offset)-((int64_t)a[max_ii].self_offset))<=max_dis) && (f[max_ii]<f[i]))) {
+            max_ii = i;
+        }
+        
+        if(f[i] >= msc) {
+            ovl = get_chainLen(a[i].self_offset, a[i].self_offset, xl, a[i].offset, a[i].offset, yl);
+            if(f[i] > msc || ovl < movl) {
+                msc = f[i]; msc_i = i; movl = ovl;
+            }
+        }
+    }
+    
+    skip_ldp:
+    if(right_fix && f[a_n-1] == INT32_MIN) return 0;
+    if(right_fix) msc_i = a_n-1;
+    ///a[] has been sorted by self_offset
+    i = msc_i; cL = 0; 
+    while (i >= 0) {
+        t[cL++] = i; msc_i = i; i = p[i];
+    }
+
+    n_skip = cL>>1;
+    for (i = 0; i < n_skip; i++) {
+        msc_i = t[i]; t[i] = t[cL-i-1]; t[cL-i-1] = msc_i;
+    }
+
+    if((cL > 0) && (right_fix) && (t[cL-1] != (a_n-1))) {
+        cL = 0;
+    }
+    
+    if((cL > 0) && (left_fix) && (t[0] != 0)) {
+        cL = 0;
+    }
+
+    if(cL > 0 && res) {
+        for (i = 0; i < cL; i++) {
+            res[i] = a[t[i]];
+        }
+    }
+    
+    return cL;
+}
+
 
 
 uint64_t lchain_refine(k_mer_hit* a, int64_t a_n, k_mer_hit* des, Chain_Data* dp, 

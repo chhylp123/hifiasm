@@ -23747,7 +23747,7 @@ void write_all_data_to_disk(ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sou
 	sprintf(gfa_name, "%s.ovlp.reverse", output_file_name);
 	write_ma_hit_ts(reverse_sources, RNF->total_reads, gfa_name);
 
-    if(asm_opt.dbg_bam) {
+    /**if(asm_opt.dbg_bam)**/ {
         sprintf(gfa_name, "%s.rec", output_file_name);
         write_cc_v(&scb, gfa_name);
     }
@@ -23794,7 +23794,7 @@ int load_all_data_from_disk(ma_hit_t_alloc **sources, ma_hit_t_alloc **reverse_s
 		return 0;
 	}
     
-    if(asm_opt.dbg_bam) {
+    /**if(asm_opt.dbg_bam)**/ {
         sprintf(gfa_name, "%s.rec", output_file_name);
         load_cc_v(&scb, gfa_name); ///write_ec_reads("lec.raw.fa", &scb, 0);
     }

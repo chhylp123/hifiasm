@@ -13,6 +13,7 @@
 #define del_cns_arc(z, arc_i) ((z).arc.a[(arc_i)].v == CNS_DEL_E)
 #define CNS_DEL_V (0x1fffffffu)
 #define del_cns_nn(z, nn_i) ((z).a[(nn_i)].sc == CNS_DEL_V)
+#define is_cns_bb(z, nn_i) ((nn_i) >= (z).bb0 && (nn_i) < (z).bb1)
 #define REFRESH_N 128 
 #define COV_W 3072
 #define COV_W_AC 512
@@ -242,6 +243,8 @@ uint64_t get_mz1(const char *str, int len, int w, int k, uint32_t rid, int is_hp
 void get_pi_ec_chain(ha_abuf_t *ab, uint64_t rid, uint64_t rl, uint32_t tid, char* ts, uint64_t tl, uint64_t mz_w, uint64_t mz_k, overlap_region_alloc *overlap_list, Candidates_list *cl, double bw_thres, 
 								int apend_be, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct, st_mt_t *sp, uint32_t *high_occ, uint32_t *low_occ, /**uint32_t is_accurate,**/ uint32_t gen_off, int64_t enable_mcopy, double mcopy_rate, uint32_t mcopy_khit_cut, 
 								int64_t max_skip, int64_t max_iter, int64_t max_dis, int64_t quick_check, double chn_pen_gap, double chn_pen_skip);
+void gen_self_global_chain(ha_abuf_t *ab, Candidates_list *cl, uint32_t rid, uint64_t rl, uint32_t tid, char *ts, uint64_t tl, uint64_t mz_w, uint64_t mz_k, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct, st_mt_t *sp, uint32_t *high_occ, uint32_t *low_occ, asg64_v *ix, 
+	uint8_t is_accurate, double bw_thres, int apend_be, uint32_t gen_off, int64_t enable_mcopy, double mcopy_rate, uint32_t mcopy_khit_cut, overlap_region_alloc *ores);
 void set_lchain_dp_op(uint32_t is_accurate, uint32_t mz_k, int64_t *max_skip, int64_t *max_iter, int64_t *max_dis, double *chn_pen_gap, double *chn_pen_skip, int64_t *quick_check);
 void h_ec_lchain_re_gen_srt(ha_abuf_t *ab, ha_pt_t *ha_idx, overlap_region_alloc *olst, Candidates_list *cl);
 uint64_t h_ec_lchain_re_gen_qry(ha_abuf_t *ab, uint64_t *k, uint64_t *l, uint64_t *i, uint64_t *idx_a, uint64_t idx_n, uint64_t *tid, uint64_t *trev);
@@ -1430,7 +1433,174 @@ void del_cns_g_nn(cns_gfa *cns, uint32_t v)
 
 
     cns->a[v].arc.n = cns->a[v].arc.nou = 0;
-    cns->a[v].c = cns->a[v].f = 0; cns->a[v].sc = CNS_DEL_V;
+    /**cns->a[v].c =**/ cns->a[v].f = 0; cns->a[v].sc = CNS_DEL_V;
+}
+
+void merge_cns_g_in_adv(cns_gfa *cns, uint32_t v0, asg32_v* b32)
+{
+    cns_t *av, *aw; uint32_t v, bp, vk, wk, wka, w, wn, nn, mn, wh, mn_k[2];
+
+    b32->n = 0;
+    kv_push(uint32_t, *b32, v0);
+    while (b32->n) {
+        v = b32->a[--b32->n];
+        if(del_cns_nn((*cns), v)) continue;
+
+        av = &((*cns).a[v]);
+        for (bp = 0; bp < 4; bp++) {
+            //nn: number of node; wh: weight
+            nn = wh = 0; mn = mn_k[0] = mn_k[1] = wka = (uint32_t)-1;
+            for (vk = av->arc.nou; vk < av->arc.n; vk++) {///in-edge of v
+                if(del_cns_arc((*av), vk)) continue;
+                w = av->arc.a[vk].v; aw = &((*cns).a[w]);
+                if(aw->c != bp) continue;
+                if(w == cns->si || w == cns->ei) continue;
+
+                for (wk = wn = 0; wk < aw->arc.nou; wk++) {///out-edge of w
+                    if(del_cns_arc((*aw), wk)) continue;
+                    wn++; wka = wk; if(wn > 1) break;
+                }
+
+                if(wn != 1) continue;   
+                assert(aw->arc.a[wka].v == v);
+
+                ///deal with out-edge of w
+                if((nn == 0) || is_cns_bb((*cns), w)) {///this is still risky as there might be multiple backbone
+                    mn = w; mn_k[0] = vk; mn_k[1] = wka;
+                    ///not sure if we should set these edges as visited
+                    // av->arc.a[vk].f = 1; aw->arc.a[wka].f = 1;
+                } 
+                wh += aw->arc.a[wka].sc;
+                nn++;
+            }
+
+
+            if(nn > 1) {
+                for (vk = av->arc.nou; vk < av->arc.n; vk++) {///in-edge of v
+                    if(del_cns_arc((*av), vk)) continue;
+                    w = av->arc.a[vk].v; aw = &((*cns).a[w]);
+                    if(aw->c != bp) continue;
+                    if(w == cns->si || w == cns->ei) continue;
+    
+                    for (wk = wn = 0; wk < aw->arc.nou; wk++) {///out-edge of w
+                        if(del_cns_arc((*aw), wk)) continue;
+                        wn++; wka = wk; if(wn > 1) break;
+                    }
+    
+                    if(wn != 1) continue;
+                    assert(aw->arc.a[wka].v == v);
+
+                    ///deal with in-edge of w
+                    ///all edges to w, should be move to mn
+                    if(mn != w) {///not sure if we should set these edges as visited; affect when nn == 0
+                        for (wk = aw->arc.nou; wk < aw->arc.n; wk++) {
+                            if(del_cns_arc((*aw), wk)) continue;
+                            ///previously, aw->arc.a[wk].v -> w
+                            ///currently, aw->arc.a[wk].v -> mn
+                            /// if(nn == 0), then mn = w
+                            gen_mm_cns_arc(cns, aw->arc.a[wk].v, mn, aw->arc.a[wk].sc/**(nn?(aw->arc.a[wk].sc):(0))**/, aw->arc.a[wk].f);///not sure if we should set these edges as visited
+                        }
+                        del_cns_g_nn(cns, w);
+                    }
+                }
+            }
+
+            if(nn) {
+                aw = &((*cns).a[mn]);
+                av->arc.a[mn_k[0]].sc = aw->arc.a[mn_k[1]].sc = wh;
+                // merge_cns_g_in(cns_gfa *cns, uint32_t v, asg32_v* b32)
+                kv_push(uint32_t, *b32, mn);
+            }
+        }
+    }
+}
+
+void merge_cns_g_ou_adv(cns_gfa *cns, uint32_t v0, asg32_v* b32)
+{
+    cns_t *av, *aw; uint32_t v, bp, vk, wk, wka, w, wn, nn, mn, wh, mn_k[2];
+
+    b32->n = 0;
+    kv_push(uint32_t, *b32, v0);
+    while (b32->n) {
+        v = b32->a[--b32->n];
+        if(del_cns_nn((*cns), v)) continue;
+    
+        av = &((*cns).a[v]);
+        for (bp = 0; bp < 4; bp++) {
+            //nn: number of node; wh: weight
+            nn = wh = 0; mn = mn_k[0] = mn_k[1] = wka = (uint32_t)-1;
+            for (vk = 0; vk < av->arc.nou; vk++) {///ou-edge of v
+                if(del_cns_arc((*av), vk)) continue;
+                w = av->arc.a[vk].v; aw = &((*cns).a[w]);
+                if(aw->c != bp) continue;
+                if(w == cns->si || w == cns->ei) continue;
+
+                for (wk = aw->arc.nou, wn = 0; wk < aw->arc.n; wk++) {///in-edge of w
+                    if(del_cns_arc((*aw), wk)) continue;
+                    wn++; wka = wk; if(wn > 1) break;
+                }
+
+                if(wn != 1) continue;
+                
+                assert(aw->arc.a[wka].v == v);
+
+                ///deal with out-edge of w
+                if((nn == 0) || is_cns_bb((*cns), w)) {///this is still risky as there might be multiple backbone
+                    mn = w; mn_k[0] = vk; mn_k[1] = wka;
+                    ///not sure if we should set these edges as visited
+                    // av->arc.a[vk].f = 1; aw->arc.a[wka].f = 1;
+                } 
+                wh += aw->arc.a[wka].sc;
+                nn++;
+            }
+
+
+            if(nn > 1) {
+                for (vk = 0; vk < av->arc.nou; vk++) {///ou-edge of v
+                    if(del_cns_arc((*av), vk)) continue;
+                    w = av->arc.a[vk].v; aw = &((*cns).a[w]);
+                    if(aw->c != bp) continue;
+                    if(w == cns->si || w == cns->ei) continue;
+    
+                    for (wk = aw->arc.nou, wn = 0; wk < aw->arc.n; wk++) {///in-edge of w
+                        if(del_cns_arc((*aw), wk)) continue;
+                        wn++; wka = wk; if(wn > 1) break;
+                    }
+    
+                    if(wn != 1) continue;
+                    
+                    assert(aw->arc.a[wka].v == v);
+
+
+
+
+                    ///deal with in-edge of w
+                    ///all edges to w, should be move to mn
+                    if(mn != w) {///not sure if we should set these edges as visited; affect when nn == 0
+                        for (wk = 0; wk < aw->arc.nou; wk++) {
+                            if(del_cns_arc((*aw), wk)) continue;
+                            ///previously, w -> aw->arc.a[wk].v
+                            ///currently, mn -> aw->arc.a[wk].v 
+                            /// if(nn == 0), then mn = w
+                            gen_mm_cns_arc(cns, mn, aw->arc.a[wk].v, aw->arc.a[wk].sc/**(nn?(aw->arc.a[wk].sc):(0))**/, aw->arc.a[wk].f);///not sure if we should set these edges as visited
+                        }    
+                        del_cns_g_nn(cns, w);
+                    }
+                }
+            }
+
+            if(nn) {
+                aw = &((*cns).a[mn]);
+                // fprintf(stderr, "\n[M::%s] nn::%u, mn::%u\n", __func__, nn, mn);
+                // fprintf(stderr, "[M::%s] vi::%u, vn::%u\n", __func__, mn_k[0], (uint32_t)av->arc.n);
+                // fprintf(stderr, "[M::%s] wi::%u, wn::%u\n", __func__, mn_k[1], (uint32_t)aw->arc.n);
+
+                av->arc.a[mn_k[0]].sc = aw->arc.a[mn_k[1]].sc = wh;
+                // merge_cns_g_in(cns_gfa *cns, uint32_t v, asg32_v* b32)
+                kv_push(uint32_t, *b32, mn);
+            }
+        }
+    }
 }
 
 void merge_cns_g_in(cns_gfa *cns, uint32_t v0, asg32_v* b32)
@@ -1936,6 +2106,9 @@ uint64_t push_correct1_fhc_indel_exz(asg16_v *sc, int64_t sc0, window_list *idx,
 
 uint64_t push_correct1_fhc(window_list *idx, window_list_alloc *res, cns_gfa *cns, char* qstr, UC_Read* tu, bit_extz_t *exz, asg32_v *rc, uint32_t bl, uint32_t rid)
 {
+    // if(rid == 11206 && bl == 6) {
+    //     fprintf(stderr, "[M::%s]\trc->n::%u\tbl::%u\trid::%u\n", __func__, (uint32_t)rc->n, bl, rid);
+    // }
     // fprintf(stderr, "[M::%s]\trc->n::%u\tbl::%u\n", __func__, (uint32_t)rc->n, bl);
     uint64_t nec = 0; uint32_t k, l, i, ff, sl, sk, bs = cns->off, be = bl + cns->off, bend = cns->off, is_i = 0, sc0 = res->c.n;///[bs, be)
     if(rc->n) {///it is possible that rc->n == 0, which means there is a deletion
@@ -1983,13 +2156,17 @@ uint64_t push_correct1_fhc(window_list *idx, window_list_alloc *res, cns_gfa *cn
             l = k;
         }
     } 
-    
+
+    // if(rid == 11206 && bl == 6) {
+    //     fprintf(stderr, "[M::%s]\trc->n::%u\tbl::%u\trid::%u\tbend::%u\tbe::%u\n", __func__, (uint32_t)rc->n, bl, rid, bend, be);
+    // }
     ///push remaining deletion
     if(be > bend) {
         if(is_i && exz) {
             nec += push_correct1_fhc_indel_exz(((asg16_v *)(&(res->c))), sc0, idx, cns, qstr, tu, exz, cns->off, 3, be - bend, bend-cns->off);
         } else {
             for (i = bend; i < be; i++) {
+                // fprintf(stderr, "%c(%u)\n", s_H[cns->a[i].c], i);
                 push_trace_bp_f(((asg16_v *)(&(res->c))), 3, cns->a[i].c, (uint16_t)-1, 1, ((idx->clen>0)?1:0));
                 idx->clen = res->c.n - idx->cidx; nec++;
             }
@@ -2016,6 +2193,23 @@ uint64_t cns_gen_full0(overlap_region* ol, All_reads *rref, uint64_t s, uint64_t
         else hw = o_rate;
     }
     init_cns_g(cns, qstr + s, e - s, hw, rid);
+
+
+    // uint64_t dk = 0;
+    // if(s <= 29788 && e > 29788) {
+    //     fprintf(stderr, "[M::%s]\tqid::%u\tq::[%lu, %lu)\n", __func__, rid, s, e);
+    //     fprintf(stderr, "-z-[M::%s]\toriginal::", __func__);
+    //     for (dk = s; dk < e; dk++) {
+    //         fprintf(stderr, "%c", qstr[dk]);
+    //     }
+    //     fprintf(stderr, "\n");
+
+    //     fprintf(stderr, "-a-[M::%s]\tGraph::\t\t\t", __func__);
+    //     for (dk = 2; dk < (*cns).n; dk++) {
+    //         fprintf(stderr, "%c", s_H[(*cns).a[dk].c]);
+    //     }
+    //     fprintf(stderr, "\n");
+    // }
 
     id_n = iter_cc_idx_t(ol, idx, s, e, idx->rr, ((s==e)?1:0), &id_a);
     // debug_inter0(ol, idx->c_idx, idx->idx->a + idx->i0, idx->srt_n - idx->i0, id_a, id_n, s, e, ((s==e)?1:0), 0, "-1-");
@@ -2049,15 +2243,41 @@ uint64_t cns_gen_full0(overlap_region* ol, All_reads *rref, uint64_t s, uint64_t
         }
     }
 
+    // if(s <= 29788 && e > 29788) {
+    //     fprintf(stderr, "-b-[M::%s]\tGraph::\t\t\t", __func__);
+    //     for (dk = 2; dk < (*cns).n; dk++) {
+    //         fprintf(stderr, "%c(del::%u)", s_H[(*cns).a[dk].c], del_cns_nn((*cns), dk));
+    //     }
+    //     fprintf(stderr, "\n");
+    // }
+
     // fprintf(stderr, "-2-[M::%s] cns->n::%u\n", __func__, (uint32_t)cns->n);
 
     // return;
 
     refine_cns_g(cns, b32);
 
+
+    // if(s <= 29788 && e > 29788) {
+    //     fprintf(stderr, "-c-[M::%s]\tGraph::\t\t\t", __func__);
+    //     for (dk = 2; dk < (*cns).n; dk++) {
+    //         fprintf(stderr, "%c(del::%u)", s_H[(*cns).a[dk].c], del_cns_nn((*cns), dk));
+    //     }
+    //     fprintf(stderr, "\n");
+    // }
+
     // fprintf(stderr, "-3-[M::%s] cns->n::%u\n", __func__, (uint32_t)cns->n);
 
     gseq_cns_g(cns, b32, e - s);
+
+
+    // if(s <= 29788 && e > 29788) {
+    //     fprintf(stderr, "-d-[M::%s]\tGraph::\t\t\t", __func__);
+    //     for (dk = 2; dk < (*cns).n; dk++) {
+    //         fprintf(stderr, "%c(del::%u)", s_H[(*cns).a[dk].c], del_cns_nn((*cns), dk));
+    //     }
+    //     fprintf(stderr, "\n");
+    // }
 
     // fprintf(stderr, "-4-[M::%s] cns->n::%u\n", __func__, (uint32_t)cns->n);
 
@@ -2392,7 +2612,7 @@ uint64_t wcns_vote(overlap_region* ol, All_reads *rref, uint64_t q_hf, char* qst
             }
             ///a) pass coverage check; b) no enough coverage
             if((((oc[0] > (oc[1]*occ_exact)) && (oc[0] > (oc[1]-oc[0])) && (oc[1] >= occ_tot) && (oc[0] > 1) && ((!hf_idx) || ((ow[0] > (ow[1]*occ_exact)) && (ow[0] > (ow[1] - ow[0])))))) || (oc[1] < occ_tot)) {
-                fI = 0;
+                fI = 0;///keep q itself
             }
 
             if(fI) {
@@ -2433,8 +2653,6 @@ uint64_t wcns_vote(overlap_region* ol, All_reads *rref, uint64_t q_hf, char* qst
     }
     return rr;
 }
-
-
 
 void print_debug_ovlp_cigar(overlap_region_alloc* ol, asg64_v* idx, kv_ul_ov_t *c_idx)
 {
@@ -2533,7 +2751,7 @@ uint64_t wcns_gen(overlap_region_alloc* ol, All_reads *rref, uint64_t qid, UC_Re
 
     int64_t srt_n = idx->n, s, e, t, rr; i = 0;
     radix_sort_ec64(idx->a, idx->a+idx->n);
-    for (k = 1, i = 0; k < srt_n; k++) {
+    for (k = 1, i = 0; k <= srt_n; k++) {
         if (k == srt_n || (idx->a[k]>>32) != (idx->a[i]>>32)) {
             if(k - i > 1) {
                 for (t = i; t < k; t++) {
@@ -2555,10 +2773,11 @@ uint64_t wcns_gen(overlap_region_alloc* ol, All_reads *rref, uint64_t qid, UC_Re
     ///second index
     kv_resize(ul_ov_t, *c_idx, (c_idx->n<<1));
     ul_ov_t *idx_a = NULL, *idx_b = NULL;
-    idx_a = c_idx->a; idx_b = c_idx->a;
+    idx_a = c_idx->a; idx_b = c_idx->a + c_idx->n;///update here?
     memcpy(idx_b, idx_a, c_idx->n * (sizeof((*(idx_a)))));
 
     kv_resize(uint64_t, *buf, ((wl<<1) + idx->n)); buf->n = ((wl<<1) + idx->n);
+    ///buf->a[wl<<1, idx->n): this is for sorted index
     memcpy(buf->a + (wl<<1), idx->a, idx->n * (sizeof((*(idx->a)))));
     memset(buf->a, 0, (wl<<1)*(sizeof((*(idx->a)))));
     if(hf_idx) {
@@ -4340,14 +4559,156 @@ static void worker_init_ec_step(void *data, long i, int tid)
 
 void update_scb(All_reads *R_INF, asg16_v *scc, asg16_v *scb, asg16_v *scb_res, UC_Read *qu, UC_Read *tu, asg64_v *srt, bit_extz_t *exz, uint64_t rid);
 
+uint64_t gen_ori_seq0(char *tstr, uint64_t tl, UC_Read *qu, asg16_v *sc, uint64_t rid);
+
+uint8_t refresh_check_scc(overlap_region *z, int64_t sc_e, int64_t ql, int64_t tl, int64_t gap_bd, double gap_rate, double err_rate, int64_t err_diff_bd, double err_diff_rate)
+{
+    int64_t k, wn = z->w_list.n, tot_g = 0, tot_e = 0, wq, wt;
+    if(wn <= 0) return 0;
+
+    tot_g += z->w_list.a[0].x_start; tot_g += ql - z->w_list.a[wn-1].x_end - 1;
+    tot_g += z->w_list.a[0].y_start; tot_g += tl - z->w_list.a[wn-1].y_end - 1;
+    
+    for (k = 0; k < wn; k++) {
+        if(is_ualn_win(z->w_list.a[k])) {
+            if(z->w_list.a[k].extra_begin == -1 && z->w_list.a[k].extra_end == -1) {
+                return 0;
+            }
+            tot_e += (z->w_list.a[k].extra_begin*(-1)) - 1;
+            // fprintf(stderr, "+[M::%s]\tq::[%u,%u)\tt::[%u,%u)\ttot_e::%ld\n", __func__, z->w_list.a[k].x_start, z->w_list.a[k].x_end + 1, z->w_list.a[k].y_start, z->w_list.a[k].y_end + 1, tot_e);
+        } else {
+            tot_e += z->w_list.a[k].error; 
+            // fprintf(stderr, "-[M::%s]\tq::[%u,%u)\tt::[%u,%u)\ttot_e::%ld\n", __func__, z->w_list.a[k].x_start, z->w_list.a[k].x_end + 1, z->w_list.a[k].y_start, z->w_list.a[k].y_end + 1, tot_e);
+        }
+    }
+
+    // fprintf(stderr, "[M::%s]\tq::[%u,%u)\tt::[%u,%u)\ttot_e::%ld\trtot_g::%ld\n", __func__, z->x_pos_s, z->x_pos_e + 1, z->y_pos_s, z->y_pos_e + 1, tot_e, tot_g);
+
+    if((tot_g > 0) && (tot_g > gap_bd)) {
+        if(tot_g > (ql*gap_rate)) return 0;
+        if(tot_g > (tl*gap_rate)) return 0;
+    }
+
+    
+    wq = (z->w_list.a[wn-1].x_end+1) - z->w_list.a[0].x_start;
+    wt = (z->w_list.a[wn-1].y_end+1) - z->w_list.a[0].y_start;
+    if((tot_e > 0) && ((tot_e > (wq*err_rate)) || (tot_e > (wt*err_rate)))) return 0;
+
+    // tot_e += tot_g;
+    if((tot_e > 0) && ((tot_e > (ql*err_rate)) || (tot_e > (tl*err_rate)))) return 0;
+
+    if((tot_e > sc_e) && ((tot_e - sc_e) > err_diff_bd) && ((tot_e - sc_e) > (sc_e*err_diff_rate))) return 0;
+
+    return 1;
+
+}
+
+
+void dbg_prt_asg16_v_sc(uint64_t rid, asg16_v *sc)
+{
+    uint64_t ck, qk, tk, tot_e = 0; uint32_t len; uint16_t c, bq, bt; 
+    
+    fprintf(stderr, "[M::%s]\trid::%lu\trlen::%lu\n", __func__, rid, Get_READ_LENGTH(R_INF, rid));
+    ck = qk = tk = 0;
+    while (ck < sc->n) {
+        ck = pop_trace_bp_f(sc, ck, &c, &bq, &bt, &len);
+        if(c != 2) qk += len;
+        if(c != 3) tk += len;
+        if(c!=0) tot_e += len;
+        // fprintf(stderr, "%u(%c)\t", len, "MSID"[c]);
+    }
+    // fprintf(stderr, "\n");
+    fprintf(stderr, "[M::%s]\trid::%lu\t#\talter::%lu\n", __func__, rid, tot_e);
+}
+
+uint8_t regen_scb(ha_abuf_t *ab, Candidates_list *cl, uint32_t rid, asg16_v *sc, UC_Read *ia, UC_Read *ob, asg64_v *srt, 
+    uint64_t mz_w, uint64_t mz_k, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct, st_mt_t *sp, uint32_t *high_occ, uint32_t *low_occ, 
+    uint8_t is_accurate, double bw_thres, int apend_be, uint32_t gen_off, overlap_region_alloc *ol, bit_extz_t *exz, double erate, uint64_t wl, asg16_v *buf, 
+    overlap_region **r_aux_o, overlap_region **rchn, int64_t *rref_len)
+{
+    // return 0;
+    // dbg_prt_asg16_v_sc(rid, sc);
+    uint64_t oln0 = ol->length, e0; (*rchn) = NULL; (*rref_len) = -1;
+    e0 = gen_ori_seq0(ia->seq, ia->length, ob, sc, rid); 
+    // fprintf(stderr, "[M::%s]\tinitial\tlength::%ld\n", __func__, (int64_t)ob->length);
+    // fprintf(stderr, "\n[M::%s]\trid::%u\trlen::%ld\te0::%ld\n", __func__, rid, (int64_t)ia->length, e0);
+    if(e0 == 0) return 0;
+    cl->length = 0;
+    gen_self_global_chain(ab, cl, rid, ia->length, rid/**((uint32_t)-1)**/, ob->seq, ob->length, mz_w, mz_k, k_flag, dbg_ct, sp, high_occ, low_occ, srt, is_accurate, bw_thres, apend_be, gen_off, 1, -1, UINT32_MAX, ol);
+    (*r_aux_o) = fetch_aux_ovlp(ol, NULL);///refresh
+    if(ol->length > oln0) {
+        assert(ol->length == oln0 + 1);
+        if(gen_hc_r_alin_self(&(ol->list[oln0]), cl, ia->seq, ia->length, ob->seq, ob->length, exz, (*r_aux_o), erate, wl, rid, E_KHIT, 1, buf, sc)) {
+            if(refresh_check_scc(&(ol->list[oln0]), e0, ia->length, ob->length, 32, 0.012, 0.1, 32, 0.2)) {
+                (*rchn) = &(ol->list[oln0]); (*rref_len) = ob->length;
+                resize_UC_Read(ia, ia->length + ob->length); memcpy(ia->seq + ia->length, ob->seq, sizeof((*(ob->seq)))*ob->length);
+                ol->length = oln0;
+                return 1;
+            }
+        }
+    }
+    ol->length = oln0; 
+    return 0;
+}
+
+void cmp_smp_ac(UC_Read *ref, asg16_v *scz, UC_Read *res, uint64_t rid)
+{
+    uint64_t qn = ref->length; uint16_t c, bq, bt; uint32_t len, ck, qk, tk, tn, wq[2], wt[2], k/**, Nn = 0**/; char *qsr = NULL, *tsr = NULL;
+
+    ck = qk = tk = 0; 
+    while (ck < scz->n) {
+        ck = pop_trace_bp_f(scz, ck, &c, &bq, &bt, &len);
+        if(c != 3) tk += len;
+    }
+    tn = tk; resize_UC_Read(ref, qn + tn);
+
+    qsr = ref->seq; tsr = ref->seq + qn;
+
+    ck = qk = tk = 0; 
+    while (ck < scz->n) {
+        wq[0] = qk; wt[0] = tk;
+        ck = pop_trace_bp_f(scz, ck, &c, &bq, &bt, &len);
+        if(c != 2) qk += len;
+        if(c != 3) tk += len;
+        wq[1] = qk; wt[1] = tk;
+        // fprintf(stderr, "%u(%c)\tq::[%u,%u)\tbq::%u\tt::[%u,%u)\tbt::%u\n", len, "MSID"[c], wq[0], wq[1], bq, wt[0], wt[1], bt);
+        if(c == 0) {
+            for (; wq[0] < wq[1]; wq[0]++, wt[0]++) {
+                tsr[wt[0]] = qsr[wq[0]];
+                // if(p->a[wy[0]] == 'N') Nn++;
+            }
+        } else if(c == 1 || c == 2) {
+            for (k = wt[0]; k < wt[1]; k++) {
+                tsr[k] = s_H[bt]; 
+                // if(p->a[k] == 'N') Nn++;
+            }
+        }
+    }
+
+    gen_ori_seq0(tsr, tn, res, scz, rid); 
+
+    assert(res->length == ((int64_t)qn));
+    if(memcmp(qsr, res->seq, qn) != 0) {
+        fprintf(stderr, "[M::%s]\trid::%lu(%.*s)\tres->length::%ld\tqn::%lu\n", __func__, rid, (int)Get_NAME_LENGTH(R_INF, rid), Get_NAME(R_INF, rid), (int64_t)res->length, qn);
+        for (k = 0; k < qn; k++) {
+            if(res->seq[k] != qsr[k]) {
+                fprintf(stderr, "[M::%s]\tk::%u\tqsr[%u]::%c\tres->seq[%u]::%c\n", __func__, k, k, qsr[k], k, res->seq[k]);
+            }
+        }
+        
+    }
+    // assert(memcmp(qsr, res->seq, qn) == 0);
+}
+
 
 static void worker_hap_ec(void *data, long i, int tid)
 {
 	ec_ovec_buf_t0 *b = &(((ec_ovec_buf_t*)data)->a[tid]);
     uint32_t high_occ = asm_opt.hom_cov * (2.0 - HA_KMER_GOOD_RATIO);
-    uint32_t low_occ = asm_opt.hom_cov * HA_KMER_GOOD_RATIO; int64_t het_a, hom_a; ///gen_hc_aln_t ez; 
-    overlap_region *aux_o = NULL/**, *rse_o = NULL**/; asg64_v buf0; uint32_t qlen = 0, qw = 0; uint64_t tot_b = 0; double tt0 = 0, tt1 = 0;
+    uint32_t low_occ = asm_opt.hom_cov * HA_KMER_GOOD_RATIO; int64_t het_a, hom_a, rl0 = -1; ///gen_hc_aln_t ez; 
+    overlap_region *aux_o = NULL/**, *rse_o = NULL**/, *rcc = NULL; asg64_v buf0; uint32_t qlen = 0, qw = 0; uint64_t tot_b = 0; double tt0 = 0, tt1 = 0;
     b->v8q.n = b->v8t.n = 0; set_ec_cov(asm_opt.het_cov, asm_opt.hom_cov, asm_opt.het_cov_set, asm_opt.polyploidy, het_a, hom_a);
+
 
     // if((i != 733166) && (i != 858708) && (i != 858732) && (i != 859819) && (i != 859899) && (i != 863486) && (i != 872165) && (i != 899887) && (i != 902298) && 
     //    (i != 906808) && (i != 946173) && (i != 952685) && (i != 983977) && (i != 1000227) && (i != 1011228) && (i != 1042858) && (i != 1045860) && (i != 1118558) && 
@@ -4502,11 +4863,15 @@ static void worker_hap_ec(void *data, long i, int tid)
     gen_reseed_re(&b->olist, &b->clist, aux_o, rse_o, &R_INF, &b->self_read, &b->ovlp_read, &b->exz, &b->pidx, &b->v64, &buf0, 0, asm_opt.mz_win, 19, i, asm_opt.max_ov_diff_ec, asm_opt.max_ov_diff_ec, &b->v16, R_INF.tqn, b->v8q.a);
     copy_asg_arr(b->sp, buf0);
     **/
+   if(scb.a[i].n) {
+        regen_scb(b->ab, &b->clist, i, &(scb.a[i]), &b->self_read, &b->ovlp_read, &b->v64, asm_opt.mz_win, asm_opt.k_mer_length, NULL, NULL, &(b->sp), &high_occ, &low_occ, 
+        1, ((asm_opt.is_ont)?(0.05):(0.02)), 1, 1, &b->olist, &b->exz, ((asm_opt.max_ov_diff_ec>0.1)?(asm_opt.max_ov_diff_ec):(0.1)), (asm_opt.is_ont)?(WINDOW_OHC):(WINDOW_HC), &b->v16, &aux_o, &rcc, &rl0);
+   }
 
     copy_asg_arr(buf0, b->sp); 
     //site_sc: r765 -> r766: 1 -> 0
-    rphase_hc(&b->olist, &R_INF, &b->hap, &b->self_read, &b->ovlp_read, &b->pidx, &b->v64, &buf0, 0, WINDOW_MAX_SIZE, b->self_read.length, 1/**, 0**/, i, (asm_opt.is_ont)?HPC_PL:0, asm_opt.is_ont, ((asm_opt.is_ont)?&(b->clist.chainDP):NULL), ((asm_opt.is_sc)?&(b->v8q):NULL), ((asm_opt.is_sc)?&(b->v8t):NULL)/**&(b->v8t)**/, (asm_opt.is_ont)?1:0, ((uint64_t)-1), 0, HC0_W, &b->v32,
-    asm_opt.s_hap_cov, asm_opt.infor_cov, het_a, hom_a, asm_opt.polyploidy, -1.0);
+    rphase_hc(&b->olist, &R_INF, &b->hap, &b->self_read, &(scb.a[i]), &b->ovlp_read, &b->pidx, &b->v64, &buf0, 0, WINDOW_MAX_SIZE, b->self_read.length, 1/**, 0**/, i, (asm_opt.is_ont)?HPC_PL:0, asm_opt.is_ont, ((asm_opt.is_ont)?&(b->clist.chainDP):NULL), ((asm_opt.is_sc)?&(b->v8q):NULL), ((asm_opt.is_sc)?&(b->v8t):NULL)/**&(b->v8t)**/, (asm_opt.is_ont)?1:0, ((uint64_t)-1), 0, HC0_W, &b->v32,
+    asm_opt.s_hap_cov, asm_opt.infor_cov, het_a, hom_a, asm_opt.polyploidy, -1.0, rcc, rl0);
     copy_asg_arr(b->sp, buf0);
     ///for debug indel
     // stderr_phase_ovlp(&b->olist);
@@ -4540,7 +4905,7 @@ static void worker_hap_ec(void *data, long i, int tid)
 
     push_nec_re(aux_o, &(scc.a[i]));
     // push_nec_re(aux_o, &(scb.a[i]));
-    if(asm_opt.dbg_bam) {
+    /**if(asm_opt.dbg_bam)**/ {
         update_scb(&R_INF, &(scc.a[i]), &(scb.a[i]), &(b->v16), &b->self_read, &b->ovlp_read, &b->v64, &b->exz, i); 
         kv_resize(uint16_t, scb.a[i], b->v16.n); scb.a[i].n = b->v16.n; memcpy(scb.a[i].a, b->v16.a, b->v16.n*sizeof(*(scb.a[i].a)));
     }
@@ -4630,7 +4995,6 @@ static void worker_hap_ec(void *data, long i, int tid)
     //fprintf(stderr, "-[M::%s]\trid::%ld\t%.*s\n", __func__, i, (int)Get_NAME_LENGTH(R_INF, i), Get_NAME(R_INF, i));
 }
 
-void gen_ori_seq0(char *tstr, uint64_t tl, UC_Read *qu, asg16_v *sc, uint64_t rid);
 
 static void worker_gfa_ec(void *data, long i, int tid)
 {
@@ -4698,7 +5062,6 @@ static void worker_gfa_ec(void *data, long i, int tid)
 
     refresh_gc_ovec_buf_t0(b, REFRESH_N);
 }
-
 
 void worker_hap_ec_back_dbg(void *data, long i, int tid)
 {
@@ -4817,8 +5180,8 @@ void worker_hap_ec_back_dbg(void *data, long i, int tid)
 
     copy_asg_arr(buf0, b->sp); 
     //site_sc: r765 -> r766: 1 -> 0
-    rphase_hc(&b->olist, &R_INF, &b->hap, &b->self_read, &b->ovlp_read, &b->pidx, &b->v64, &buf0, 0, WINDOW_MAX_SIZE, b->self_read.length, 1/**, 0**/, i, (asm_opt.is_ont)?HPC_PL:0, asm_opt.is_ont, ((asm_opt.is_ont)?&(b->clist.chainDP):NULL), ((asm_opt.is_sc)?&(b->v8q):NULL), /**((asm_opt.is_sc)?&(b->v8t):NULL)**/&(b->v8t), (asm_opt.is_ont)?1:0, ((uint64_t)-1), 0, HC0_W, &b->v32,
-    asm_opt.s_hap_cov, asm_opt.infor_cov, het_a, hom_a, asm_opt.polyploidy, -1.0);
+    rphase_hc(&b->olist, &R_INF, &b->hap, &b->self_read, NULL, &b->ovlp_read, &b->pidx, &b->v64, &buf0, 0, WINDOW_MAX_SIZE, b->self_read.length, 1/**, 0**/, i, (asm_opt.is_ont)?HPC_PL:0, asm_opt.is_ont, ((asm_opt.is_ont)?&(b->clist.chainDP):NULL), ((asm_opt.is_sc)?&(b->v8q):NULL), /**((asm_opt.is_sc)?&(b->v8t):NULL)**/&(b->v8t), (asm_opt.is_ont)?1:0, ((uint64_t)-1), 0, HC0_W, &b->v32,
+    asm_opt.s_hap_cov, asm_opt.infor_cov, het_a, hom_a, asm_opt.polyploidy, -1.0, NULL, -1);
     copy_asg_arr(b->sp, buf0);
     ///for debug indel
     // stderr_phase_ovlp(&b->olist);
@@ -4939,8 +5302,6 @@ void worker_hap_ec_back_dbg(void *data, long i, int tid)
     **/
     //fprintf(stderr, "-[M::%s]\trid::%ld\t%.*s\n", __func__, i, (int)Get_NAME_LENGTH(R_INF, i), Get_NAME(R_INF, i));
 }
-
-
 
 static void worker_hap_ec_step(void *data, long i, int tid)
 {
@@ -5085,8 +5446,8 @@ static void worker_hap_ec_step(void *data, long i, int tid)
 
     copy_asg_arr(buf0, b->sp); 
     //site_sc: r765 -> r766: 1 -> 0
-    rphase_hc(&b->olist, &R_INF, &b->hap, &b->self_read, &b->ovlp_read, &b->pidx, &b->v64, &buf0, 0, WINDOW_MAX_SIZE, b->self_read.length, 1/**, 0**/, i, (asm_opt.is_ont)?HPC_PL:0, asm_opt.is_ont, ((asm_opt.is_ont)?&(b->clist.chainDP):NULL), ((asm_opt.is_sc)?&(b->v8q):NULL), /**((asm_opt.is_sc)?&(b->v8t):NULL)**/&(b->v8t), (asm_opt.is_ont)?1:0, ((uint64_t)-1), 0, HC0_W, &b->v32,
-    asm_opt.s_hap_cov, asm_opt.infor_cov, het_a, hom_a, asm_opt.polyploidy, -1.0);
+    rphase_hc(&b->olist, &R_INF, &b->hap, &b->self_read, NULL, &b->ovlp_read, &b->pidx, &b->v64, &buf0, 0, WINDOW_MAX_SIZE, b->self_read.length, 1/**, 0**/, i, (asm_opt.is_ont)?HPC_PL:0, asm_opt.is_ont, ((asm_opt.is_ont)?&(b->clist.chainDP):NULL), ((asm_opt.is_sc)?&(b->v8q):NULL), /**((asm_opt.is_sc)?&(b->v8t):NULL)**/&(b->v8t), (asm_opt.is_ont)?1:0, ((uint64_t)-1), 0, HC0_W, &b->v32,
+    asm_opt.s_hap_cov, asm_opt.infor_cov, het_a, hom_a, asm_opt.polyploidy, -1.0, NULL, -1);
     copy_asg_arr(b->sp, buf0);
     ///for debug indel
     // stderr_phase_ovlp(&b->olist);
@@ -5207,9 +5568,6 @@ static void worker_hap_ec_step(void *data, long i, int tid)
     //fprintf(stderr, "-[M::%s]\trid::%ld\t%.*s\n", __func__, i, (int)Get_NAME_LENGTH(R_INF, i), Get_NAME(R_INF, i));
 }
 
-
-
-
 static void worker_hap_ec_ss(void *data, long i, int tid)
 {
 	ec_ovec_buf_t0 *b = &(((ec_ovec_buf_t*)data)->a[tid]);
@@ -5303,8 +5661,8 @@ static void worker_hap_ec_ss(void *data, long i, int tid)
 
     copy_asg_arr(buf0, b->sp); 
     //site_sc: r765 -> r766: 1 -> 0
-    rphase_hc(&b->olist, &R_INF, &b->hap, &b->self_read, &b->ovlp_read, &b->pidx, &b->v64, &buf0, 0, WINDOW_MAX_SIZE, b->self_read.length, 1/**, 0**/, i, (asm_opt.is_ont)?HPC_PL:0, asm_opt.is_ont, ((asm_opt.is_ont)?&(b->clist.chainDP):NULL), ((asm_opt.is_sc)?&(b->v8q):NULL), /**((asm_opt.is_sc)?&(b->v8t):NULL)**/&(b->v8t), (asm_opt.is_ont)?1:0, ((uint64_t)-1), 0, HC0_W, &b->v32,
-    asm_opt.s_hap_cov, asm_opt.infor_cov, het_a, hom_a, asm_opt.polyploidy, -1.0);
+    rphase_hc(&b->olist, &R_INF, &b->hap, &b->self_read, NULL, &b->ovlp_read, &b->pidx, &b->v64, &buf0, 0, WINDOW_MAX_SIZE, b->self_read.length, 1/**, 0**/, i, (asm_opt.is_ont)?HPC_PL:0, asm_opt.is_ont, ((asm_opt.is_ont)?&(b->clist.chainDP):NULL), ((asm_opt.is_sc)?&(b->v8q):NULL), /**((asm_opt.is_sc)?&(b->v8t):NULL)**/&(b->v8t), (asm_opt.is_ont)?1:0, ((uint64_t)-1), 0, HC0_W, &b->v32,
+    asm_opt.s_hap_cov, asm_opt.infor_cov, het_a, hom_a, asm_opt.polyploidy, -1.0, NULL, -1);
     copy_asg_arr(b->sp, buf0);
     ///for debug indel
     // stderr_phase_ovlp(&b->olist);
@@ -5335,13 +5693,12 @@ static void worker_hap_ec_ss(void *data, long i, int tid)
 
 }
 
-
 static void worker_hap_ec_hybrid(void *data, long i, int tid)
 {
 	ec_ovec_buf_t0 *b = &(((ec_ovec_buf_t*)data)->a[tid]);
     uint32_t high_occ = asm_opt.hom_cov * (2.0 - HA_KMER_GOOD_RATIO); int64_t het_a, hom_a;
-    uint32_t low_occ = asm_opt.hom_cov * HA_KMER_GOOD_RATIO; double bw_h, bw_l, e_h, e_l;
-    gen_hc_aln_t ez; overlap_region *aux_o = NULL, *rse_o = NULL; asg64_v buf0, buf1; uint64_t qlen = 0, qw = 0, qid = i; //uint64_t sk[2], ek[2], fn, qid = i, nec;
+    uint32_t low_occ = asm_opt.hom_cov * HA_KMER_GOOD_RATIO; double bw_h, bw_l, e_h, e_l; int64_t rl0 = -1;
+    gen_hc_aln_t ez; overlap_region *aux_o = NULL, *rse_o = NULL, *rcc = NULL; asg64_v buf0, buf1; uint64_t qlen = 0, qw = 0, qid = i; //uint64_t sk[2], ek[2], fn, qid = i, nec;
     if(qid < R_INF.tqn) {///ont
         bw_h = 0.05; bw_l = 0.035; e_h = asm_opt.max_ov_diff_ec; e_l = (asm_opt.max_ov_diff_ec + asm_opt.max_ov_diff_ec_sec)/2;
     } else { ///HiFi
@@ -5353,16 +5710,20 @@ static void worker_hap_ec_hybrid(void *data, long i, int tid)
     }
     b->v8q.n = b->v8t.n = 0; set_ec_cov(asm_opt.het_cov, asm_opt.hom_cov, asm_opt.het_cov_set, asm_opt.polyploidy, het_a, hom_a);
 
+    // if(i != 10) return;
+
     // if((i%16) != 0) return;
-    // if(i != 5966) return;
+    // if(i != 11206) return;
 
     // fprintf(stderr, "-a-[M::%s] rid::%ld\n", __func__, i);
 
     //id:i:21102
     // if (memcmp("a59fab4a-892b-4ab7-bf4b-926bed57865b_1", Get_NAME((R_INF), i), Get_NAME_LENGTH((R_INF),i)) == 0) {
     //id:i:3504
-    // if (memcmp("485f7963-eeb4-4745-ab74-1be4d61460c3", Get_NAME((R_INF), i), Get_NAME_LENGTH((R_INF),i)) == 0) {
-    //     fprintf(stderr, "-a-[M::%s-beg] rid->%ld, rlen->%lu\n", __func__, i, Get_READ_LENGTH((R_INF),i));
+    
+
+    // if (memcmp("c7ecbd6b-e09d-4042-93ac-2400839feaf6", Get_NAME((R_INF), i), Get_NAME_LENGTH((R_INF),i)) == 0) {
+    //     fprintf(stderr, "-a-[M::%s-beg] rid->%ld, rlen->%lu, scb.a[i].n::%u\n", __func__, i, Get_READ_LENGTH((R_INF),i), (uint32_t)scb.a[i].n);
     // } else {
     //     return;
     // }
@@ -5434,12 +5795,24 @@ static void worker_hap_ec_hybrid(void *data, long i, int tid)
     ///for debug indel
     // prt_ovlp_sam(&b->olist, &b->ovlp_read, b->self_read.seq, b->self_read.length);
 
+    if(scb.a[i].n) {
+        regen_scb(b->ab, &b->clist, i, &(scb.a[i]), &b->self_read, &b->ovlp_read, &b->v64, asm_opt.mz_win, asm_opt.k_mer_length, NULL, NULL, &(b->sp), &high_occ, &low_occ, 
+        1, bw_h, 1, 1, &b->olist, &b->exz, ((e_h>0.1)?(e_h):(0.1)), (qid < R_INF.tqn)?(WINDOW_OHC):(WINDOW_HC), &b->v16, &aux_o, &rcc, &rl0);
+        // if(rcc) {
+        //     fprintf(stderr, "[M::%s]\t%.*s(qid::%u)\tql::%ld\tq::[%u,\t%u)\t%c\t%.*s(tid::%u)\ttl::%ld\tt::[%u,\t%u)\terr::%u\n", __func__,
+        //         (int32_t)Get_NAME_LENGTH(R_INF, rcc->x_id), Get_NAME(R_INF, rcc->x_id), rcc->x_id, (int64_t)b->self_read.length, rcc->x_pos_s, rcc->x_pos_e + 1, "+-"[rcc->y_pos_strand], 
+        //         (int32_t)Get_NAME_LENGTH(R_INF, rcc->y_id), Get_NAME(R_INF, rcc->y_id), rcc->y_id, rl0, rcc->y_pos_s, rcc->y_pos_e + 1, rcc->non_homopolymer_errors);
+        // } else {
+        //     fprintf(stderr, "[M::%s]\tunalined\n", __func__);
+        // }
+    }
+
     copy_asg_arr(buf0, b->sp); 
-    rphase_hc(&b->olist, &R_INF, &b->hap, &b->self_read, &b->ovlp_read, &b->pidx, &b->v64, &buf0, 0, WINDOW_MAX_SIZE, b->self_read.length, 1/**, 0**/, i, (asm_opt.is_ont)?HPC_PL:0, asm_opt.is_ont, ((asm_opt.is_ont)?&(b->clist.chainDP):NULL), /**((asm_opt.is_sc)?&(b->v8q):NULL)**/&(b->v8q), ((asm_opt.is_sc)?&(b->v8t):NULL), (asm_opt.is_ont)?1:0, R_INF.tqn, 0/**1**/, HC0_W, &b->v32,
-    asm_opt.s_hap_cov, asm_opt.infor_cov, het_a, hom_a, asm_opt.polyploidy, (((double)R_INF.tr[1])/((double)(R_INF.tr[0] + R_INF.tr[1]))));
+    rphase_hc(&b->olist, &R_INF, &b->hap, &b->self_read, &(scb.a[i]), &b->ovlp_read, &b->pidx, &b->v64, &buf0, 0, WINDOW_MAX_SIZE, b->self_read.length, 1/**, 0**/, i, (asm_opt.is_ont)?HPC_PL:0, asm_opt.is_ont, ((asm_opt.is_ont)?&(b->clist.chainDP):NULL), /**((asm_opt.is_sc)?&(b->v8q):NULL)**/&(b->v8q), ((asm_opt.is_sc)?&(b->v8t):NULL), (asm_opt.is_ont)?1:0, R_INF.tqn, 0/**1**/, HC0_W, &b->v32,
+    asm_opt.s_hap_cov, asm_opt.infor_cov, het_a, hom_a, asm_opt.polyploidy, (((double)R_INF.tr[1])/((double)(R_INF.tr[0] + R_INF.tr[1]))), rcc, rl0);
     copy_asg_arr(b->sp, buf0);
     ///for debug indel
-    // if(i == 23863) stderr_phase_ovlp(&b->olist);
+    // stderr_phase_ovlp(&b->olist);
     // exit(1);
 
     dedup_chains(&b->olist);
@@ -5449,11 +5822,17 @@ static void worker_hap_ec_hybrid(void *data, long i, int tid)
         R_INF.tr[0], R_INF.tr[1], asm_opt.ont_rate, asm_opt.hf_rate, asm_opt.hf_rate_max, &buf1);
     copy_asg_arr(b->sp, buf0); copy_asg_arr(b->hap.snp_srt, buf1);
 
-    push_nec_re(aux_o, &(scc.a[i]));
+    // if(DBG_TIME && dbg_a) {
+    //     dbg_a[i].faln = b->cnt[1];
+    // }
+
+    push_nec_re(aux_o, &(scc.a[i])); 
+    // cmp_smp_ac(&b->self_read, &(scc.a[i]), &b->ovlp_read, i);///for debug
     // push_nec_re(aux_o, &(scb.a[i]));
-    if(asm_opt.dbg_bam) {
+    /**if(asm_opt.dbg_bam)**/ {
         update_scb(&R_INF, &(scc.a[i]), &(scb.a[i]), &(b->v16), &b->self_read, &b->ovlp_read, &b->v64, &b->exz, i); 
-        kv_resize(uint16_t, scb.a[i], b->v16.n); memcpy(scb.a[i].a, b->v16.a, b->v16.n);
+        kv_resize(uint16_t, scb.a[i], b->v16.n); memcpy(scb.a[i].a, b->v16.a, b->v16.n * sizeof((*(b->v16.a)))); scb.a[i].n = b->v16.n;
+        // fprintf(stderr, "-b-[M::%s-beg] rid->%ld, rlen->%lu, scb.a[i].n::%u\n", __func__, i, Get_READ_LENGTH((R_INF),i), (uint32_t)scb.a[i].n);
     }
 
     // if((asm_opt.is_ont) && is_chemical_r_qual(&b->olist, &b->v64, qlen, 1, 16, &(b->v8q), i)/**(is_uncorrected_read(&b->olist, &b->v64, qlen, 1600))**/) {
@@ -5607,8 +5986,8 @@ static void worker_hap_ec_hybrid_sync(void *data, long i, int tid)
 
 
     copy_asg_arr(buf0, b->sp); 
-    rphase_hc(&b->olist, &R_INF, &b->hap, &b->self_read, &b->ovlp_read, &b->pidx, &b->v64, &buf0, 0, WINDOW_MAX_SIZE, b->self_read.length, 1/**, 0**/, i, (asm_opt.is_ont)?HPC_PL:0, asm_opt.is_ont, ((asm_opt.is_ont)?&(b->clist.chainDP):NULL), /**((asm_opt.is_sc)?&(b->v8q):NULL)**/&(b->v8q), ((asm_opt.is_sc)?&(b->v8t):NULL), (asm_opt.is_ont)?1:0, R_INF.tqn, 0/**1**/, HC0_W, &b->v32, 
-    asm_opt.s_hap_cov, asm_opt.infor_cov, het_a, hom_a, asm_opt.polyploidy, hf_rate);
+    rphase_hc(&b->olist, &R_INF, &b->hap, &b->self_read, NULL, &b->ovlp_read, &b->pidx, &b->v64, &buf0, 0, WINDOW_MAX_SIZE, b->self_read.length, 1/**, 0**/, i, (asm_opt.is_ont)?HPC_PL:0, asm_opt.is_ont, ((asm_opt.is_ont)?&(b->clist.chainDP):NULL), /**((asm_opt.is_sc)?&(b->v8q):NULL)**/&(b->v8q), ((asm_opt.is_sc)?&(b->v8t):NULL), (asm_opt.is_ont)?1:0, R_INF.tqn, 0/**1**/, HC0_W, &b->v32, 
+    asm_opt.s_hap_cov, asm_opt.infor_cov, het_a, hom_a, asm_opt.polyploidy, hf_rate, NULL, -1);
     copy_asg_arr(b->sp, buf0);
     ///for debug indel
     // if(i == 23863) stderr_phase_ovlp(&b->olist);
@@ -8090,9 +8469,9 @@ overlap_region* h_ec_lchain_re3(ha_abuf_t *ab, uint32_t rid, UC_Read *qu, UC_Rea
 }
 
 
-void gen_ori_seq0(char *tstr, uint64_t tl, UC_Read *qu, asg16_v *sc, uint64_t rid)
+uint64_t gen_ori_seq0(char *tstr, uint64_t tl, UC_Read *qu, asg16_v *sc, uint64_t rid)
 {
-    uint64_t ck, qk, tk, k, wq[2], wt[2]; uint32_t len; uint16_t c, bq, bt; char *qstr = NULL;
+    uint64_t ck, qk, tk, k, wq[2], wt[2], tot_e = 0; uint32_t len; uint16_t c, bq, bt; char *qstr = NULL;
     
     ck = qk = tk = 0;
     while (ck < sc->n) {
@@ -8101,7 +8480,14 @@ void gen_ori_seq0(char *tstr, uint64_t tl, UC_Read *qu, asg16_v *sc, uint64_t ri
         if(c != 2) qk += len;
         if(c != 3) tk += len;
         wq[1] = qk; wt[1] = tk;
+        if(c!=0) tot_e += len;
+        // if(rid == 24) {
+        //     fprintf(stderr, "%u(%c)\t", len, "MSID"[c]);
+        // }
     }
+    // if(rid == 24) {
+    //     fprintf(stderr, "\n");
+    // }
     // if(!(tk == tl)) {
     //     if(rid == 8) {
     //         fprintf(stderr, "[M::%s] rid::%lu, tk::%lu, tl::%lu\n", __func__, rid, tk, tl);
@@ -8116,6 +8502,9 @@ void gen_ori_seq0(char *tstr, uint64_t tl, UC_Read *qu, asg16_v *sc, uint64_t ri
     //         }
     //     }
         
+    // }
+    // if((!(tk == tl)) && (rid == 24)) {
+    //     fprintf(stderr, "[M::%s]\trid::%lu\tqk::%lu\ttk::%lu\ttl::%lu\n", __func__, rid, qk, tk, tl);
     // }
     assert(tk == tl);
 
@@ -8135,6 +8524,8 @@ void gen_ori_seq0(char *tstr, uint64_t tl, UC_Read *qu, asg16_v *sc, uint64_t ri
         }
         // fprintf(stderr, "%u%c(%c)(x::[%lu,%ld))(y::[%lu,%ld))\n", len, cm[c], ((c==1)||(c==2))?(cc[bt]):('*'), wx[0], wx[1], wy[0], wy[1]); // s_H
     }
+
+    return tot_e;
 }
 
 void gen_cc_fly(asg16_v *sc, char *qstr, uint64_t ql, char *tstr, uint64_t tl, bit_extz_t *exz, double e_rate, uint64_t maxn, uint64_t maxe)
@@ -8259,6 +8650,10 @@ void cal_updated_trace_len(asg16_v *sc, uint64_t *ql, uint64_t *tl)
     *ql = qk; *tl = tk;
 }
 
+///qstr:: latest; tstr:: original; there is an intermidate string I between qstr and tstr 
+///tcc:: tstr -> I; 
+///qcc:: I -> qstr;
+///tcc_res:: tstr -> qstr
 void gen_updated_trace(asg16_v *qcc, asg16_v *tcc, asg16_v *tcc_res, char *qstr, uint64_t ql, char *tstr, uint64_t tl, asg64_v *srt, bit_extz_t *exz, uint64_t rid)
 {
     uint64_t k, ck, qk, tk, wq[2], wt[2], old_dp, dp, s, e, srt_n, si, ei, so, os, oe, *qd, *td, qs, qe, ts, te, q0, t0; 
@@ -8466,8 +8861,8 @@ void update_scb(All_reads *R_INF, asg16_v *scc, asg16_v *scb, asg16_v *scb_res, 
             // if(i == 700) fprintf(stderr, "|%u%c(%c)(x::%u)(y::%u)", len, cm[c], ((c==1)||(c==2))?(cc[b]):('*'), wx[1], wy[1]); // s_H
         }
 
-        qstr = tstr; ql = tl;
-        tstr = tu->seq; tl = tu->length;
+        qstr = tstr; ql = tl;///latest version
+        tstr = tu->seq; tl = tu->length;///orginal version
 
         // fprintf(stderr, "\n[M::%s] ql::%lu, tl::%lu, rid::%lu\n", __func__, ql, tl, rid);
 
@@ -8575,8 +8970,8 @@ static void worker_hap_dc_ec0(void *data, long i, int tid)
     b->cnt[0] += b->self_read.length;
 
     copy_asg_arr(buf0, b->sp); 
-    rphase_hc(&b->olist, &R_INF, &b->hap, &b->self_read, &b->ovlp_read, &b->pidx, &b->v64, &buf0, 0, WINDOW_MAX_SIZE, b->self_read.length, 1/**, 1**/, i, (asm_opt.is_ont)?HPC_PL:0, asm_opt.is_ont, ((asm_opt.is_ont)?&(b->clist.chainDP):NULL), /**((asm_opt.is_sc)?&(b->v8q):NULL)**/&(b->v8q), ((asm_opt.is_sc)?&(b->v8t):NULL), (asm_opt.is_ont)?1:0, ((uint64_t)-1), 0, HC0_W, &b->v32, 
-    asm_opt.s_hap_cov, asm_opt.infor_cov, het_a, hom_a, asm_opt.polyploidy, -1);
+    rphase_hc(&b->olist, &R_INF, &b->hap, &b->self_read, NULL, &b->ovlp_read, &b->pidx, &b->v64, &buf0, 0, WINDOW_MAX_SIZE, b->self_read.length, 1/**, 1**/, i, (asm_opt.is_ont)?HPC_PL:0, asm_opt.is_ont, ((asm_opt.is_ont)?&(b->clist.chainDP):NULL), /**((asm_opt.is_sc)?&(b->v8q):NULL)**/&(b->v8q), ((asm_opt.is_sc)?&(b->v8t):NULL), (asm_opt.is_ont)?1:0, ((uint64_t)-1), 0, HC0_W, &b->v32, 
+    asm_opt.s_hap_cov, asm_opt.infor_cov, het_a, hom_a, asm_opt.polyploidy, -1, NULL, -1);
     copy_asg_arr(b->sp, buf0); 
 
     copy_asg_arr(buf0, b->sp);
@@ -9299,7 +9694,7 @@ uint64_t cal_ec_multiple_step(ec_ovec_buf_t *b, uint64_t n_thre, uint64_t n_a, u
     // fprintf(stderr, "[M::%s] # corrected bases->%lu\n", __func__, num_correct);
     // fprintf(stderr, "[M::%s::%.3f] running time\n", __func__, yak_realtime_0()-tt0);
     fprintf(stderr, "[M::pec::%.3f] # bases: %lu; # corrected bases: %lu\n", yak_realtime_0()-tt0, num_base, num_correct);
-    exit(1);
+    // exit(1);
 
     (*r_base) = num_base;
     return num_correct;
@@ -9567,7 +9962,7 @@ void cal_ec_r(uint64_t n_thre, uint64_t round, uint64_t n_round, uint64_t n_a, u
     // prt_nel_ovlp(R_INF.paf, n_a);
     // exit(1);
 
-    // dbg_write_ec_reads("ec12.fa", round, &scb, is_cr);
+    // dbg_write_ec_reads("ec12.fa", round, &scb, 0/**is_cr**/);
 
     if((!is_sv) || (is_sv && is_cr)) {
         kt_for(n_thre, worker_hap_post_rev, b, n_a);
@@ -9582,7 +9977,7 @@ void cal_ec_r(uint64_t n_thre, uint64_t round, uint64_t n_round, uint64_t n_a, u
 
     fprintf(stderr, "-4-[M::%s]\t# tqn::%lu, Ont base::%lu, # HiFi bases::%lu\n", __func__, R_INF.tqn, R_INF.tr[0], R_INF.tr[1]);
 
-    // dbg_write_ec_reads("ec16.fa", round, &scb, !is_cr);
+    // dbg_write_ec_reads("ec16.fa", round, &scb, 0/**!is_cr**/);
     // exit(1);
 
     // uint64_t z;
@@ -9753,12 +10148,12 @@ void cal_ov_r(uint64_t n_thre, uint64_t n_a, uint64_t new_idx)
     b = gen_ec_ovec_buf_t(n_thre);
     if(new_idx) {
         // kt_for(n_thre, worker_hap_dc_ec, b, n_a);///update overlaps
-        destroy_cc_v(&scc); if(!asm_opt.dbg_bam) destroy_cc_v(&scb); destroy_cc_v(&sca);
+        destroy_cc_v(&scc); /**if(!asm_opt.dbg_bam) destroy_cc_v(&scb);**/ destroy_cc_v(&sca);
         
         ha_print_ovlp_stat_0(b, n_thre, n_a);
     } else {
         ha_print_ovlp_stat_1(b, n_thre, n_a);
-        destroy_cc_v(&scc); if(!asm_opt.dbg_bam) destroy_cc_v(&scb); destroy_cc_v(&sca);
+        destroy_cc_v(&scc); /**if(!asm_opt.dbg_bam) destroy_cc_v(&scb);**/ destroy_cc_v(&sca);
     }
 
     destroy_ec_ovec_buf_t(b);

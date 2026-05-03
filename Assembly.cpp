@@ -1026,7 +1026,7 @@ void ha_ec(int64_t round, int num_pround, int des_idx, uint64_t *tot_b, uint64_t
         write_pt_index(ha_flt_tab, ha_idx, &R_INF, &asm_opt, asm_opt.output_file_name);
         if((asm_opt.flag & HA_F_VERBOSE_GFA) && (asm_opt.bin_only == 1)) exit(1);///just for debug
     }
-    if (w_tmp) tmp_pt_pro(&ha_flt_tab, &ha_idx, &R_INF, &asm_opt, asm_opt.output_file_name, round, asm_opt.number_of_round, 0);
+    if (w_tmp) tmp_pt_pro(&ha_flt_tab, &ha_idx, &R_INF, &scb, &asm_opt, asm_opt.output_file_name, round, asm_opt.number_of_round, 0);
 
     // Output_corrected_fastq();
 
@@ -2077,7 +2077,7 @@ int ha_assemble(void)
     // quick_debug_phasing(MC_NAME);
 	extern void ha_extract_print_list(const All_reads *rs, int n_rounds, const char *o);
 	int r, r0 = -1, hom_cov = -1, ovlp_loaded = 0; uint64_t tot_b, tot_e;
-	if (asm_opt.load_index_from_disk && load_all_data_from_disk(&R_INF.paf, &R_INF.reverse_paf, asm_opt.output_file_name)) {
+	if ((asm_opt.load_index_from_disk) && (asm_opt.dbg_ec_rr < 0) && load_all_data_from_disk(&R_INF.paf, &R_INF.reverse_paf, asm_opt.output_file_name)) {
 		ovlp_loaded = 1;
 		fprintf(stderr, "[M::%s::%.3f*%.2f] ==> loaded corrected reads and overlaps from disk\n", __func__, yak_realtime(), yak_cpu_usage());
 		if (asm_opt.extract_list) {
@@ -2096,11 +2096,17 @@ int ha_assemble(void)
         if((asm_opt.flag & HA_F_VERBOSE_GFA)) load_pt_index(&ha_flt_tab, &ha_idx, &R_INF, &asm_opt, asm_opt.output_file_name), load_ct_index(&ha_ct_table, asm_opt.output_file_name);
         r = ha_idx?asm_opt.number_of_round-1:0;
         if((!ha_idx) && (asm_opt.restart)) {
-            for (r = asm_opt.number_of_round - 1; r >= 0; --r) {
-                if(tmp_pt_pro(&ha_flt_tab, &ha_idx, &R_INF, &asm_opt, asm_opt.output_file_name, r, asm_opt.number_of_round, 1)) {
+            r = asm_opt.number_of_round - 1;
+            if(asm_opt.dbg_ec_rr >= 0) r = asm_opt.dbg_ec_rr;
+            for (; r >= 0; --r) {
+                if(tmp_pt_pro(&ha_flt_tab, &ha_idx, &R_INF, &scb, &asm_opt, asm_opt.output_file_name, r, asm_opt.number_of_round, 1)) {
                     load_ct_index(&ha_ct_table, asm_opt.output_file_name); r0 = r;
                     break;
                 }
+            }
+            if((asm_opt.dbg_ec_rr >= 0) && (asm_opt.dbg_ec_rr != r)) {
+                fprintf(stderr, "[E::%s] no matching debug error-correction bins found\n", __func__);
+                exit(1);
             }
             if(r < 0) r = 0;
         }
@@ -2123,6 +2129,7 @@ int ha_assemble(void)
 			// fprintf(stderr, "[M::%s] # bases: %lld; # corrected bases: %lld; # recorrected bases: %lld\n", __func__,
 			// 		asm_opt.num_bases, asm_opt.num_corrected_bases, asm_opt.num_recorrected_bases);
 			// fprintf(stderr, "[M::%s] size of buffer: %.3fGB\n", __func__, asm_opt.mem_buf / 1073741824.0);
+            if(asm_opt.dbg_ec_rr >= 0) exit(1);
 		}
 		if (asm_opt.flag & HA_F_WRITE_EC) {
             if(asm_opt.is_sc) Output_corrected_fastq();
@@ -2149,7 +2156,7 @@ int ha_assemble(void)
     build_string_graph_without_clean(asm_opt.min_overlap_coverage, R_INF.paf, R_INF.reverse_paf, 
         R_INF.total_reads, R_INF.read_length, asm_opt.min_overlap_Len, asm_opt.max_hang_Len, asm_opt.clean_round, 
         asm_opt.gap_fuzz, asm_opt.min_drop_rate, asm_opt.max_drop_rate, asm_opt.output_file_name, asm_opt.large_pop_bubble_size, 0, !ovlp_loaded);
-	destory_All_reads(&R_INF); if(asm_opt.dbg_bam) destroy_cc_v(&scb);
+	destory_All_reads(&R_INF); /**if(asm_opt.dbg_bam)**/ destroy_cc_v(&scb);
 	return 0;
 }
 

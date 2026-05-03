@@ -4014,6 +4014,156 @@ void get_pi_ec_chain(ha_abuf_t *ab, uint64_t rid, uint64_t rl, uint32_t tid, cha
 }
 
 
+uint64_t gen_srt_chain(ha_abuf_t *ab, ha_mz1_t *rfa, uint64_t *rfi, uint64_t rfn, ha_mz1_t *qra, uint64_t *qri, uint64_t qrn, uint32_t *high_occ, uint32_t *low_occ, Candidates_list *cl, uint32_t qrid)
+{
+	uint64_t i, k, l, max_cnt = UINT32_MAX, min_cnt = 0, ri, qi, sn, x, rz, qz, n_a0, l0, k0, i0; anchor1_t *an; k_mer_hit *p; 
+	if(high_occ) {
+		max_cnt = (*high_occ);
+		if(max_cnt < 2) max_cnt = 2;
+	}
+	if(low_occ) {
+		min_cnt = (*low_occ);
+		if(min_cnt < 2) min_cnt = 2;
+	}
+
+	radix_sort_anc64(rfi, rfi + rfn);
+	radix_sort_anc64(qri, qri + qrn);
+	i = ab->n_a = 0; n_a0 = l0 = i0 = 0; k0 = 1;
+	for (k = 1, l = 0; k <= rfn; ++k) {
+		if (k == rfn || (rfi[k]>>32) != (rfi[l]>>32)) {
+			x = rfi[l]>>32;
+			for (; i < qrn && (qri[i]>>32) < x; i++);
+			if(ab->n_a < ab->m_a) {
+				n_a0 = ab->n_a; l0 = l; i0 = i; k0 = k;
+			}
+			if(i < qrn && (qri[i]>>32) == x) {
+				// sn = 0;
+				// if(ab->n_a < ab->m_a) sn = ab->seed[l].n;///ha_pt_cnt(ha_idx, ra[l].x);		
+				for (qi = i; qi < qrn && (qri[qi]>>32) == x; qi++) {
+					qz = (uint32_t)qri[qi];
+					for (ri = l; ri < k; ri++) {
+						rz = (uint32_t)rfi[ri];
+						if(qra[qz].rev != rfa[rz].rev) continue;
+						if(ab->n_a < ab->m_a) {
+							an = &(ab->a[ab->n_a++]); 
+							an->other_off = qra[qz].pos;
+							an->self_off = rfa[rz].pos;
+							///an->cnt: cnt<<8|span
+							an->cnt = ab->seed[rz].n; if(an->cnt > ((uint32_t)(0xffffffu))) an->cnt = 0xffffffu;
+							an->cnt <<= 8; an->cnt |= ((rfa[rz].span <= ((uint32_t)(0xffu)))?rfa[rz].span:((uint32_t)(0xffu)));
+							an->srt = (((uint64_t)(an->self_off))<<32)|((uint64_t)(an->other_off));
+						} else {
+							ab->n_a++;
+						}
+					}
+				}
+				i = qi;
+			}
+			l = k; 
+		}
+	}
+
+	if (ab->n_a > ab->m_a) {
+		ab->m_a = ab->n_a; REALLOC(ab->a, ab->m_a);
+		k = k0; i = i0; l = l0; ab->n_a = n_a0;
+
+		for (; k <= rfn; ++k) {
+			if (k == rfn || (rfi[k]>>32) != (rfi[l]>>32)) {
+				x = rfi[l]>>32;
+				for (; i < qrn && (qri[i]>>32) < x; i++);
+				if(ab->n_a < ab->m_a) {
+					n_a0 = ab->n_a; l0 = l; i0 = i; k0 = k;
+				}
+				if(i < qrn && (qri[i]>>32) == x) {
+					// sn = 0;
+					// if(ab->n_a < ab->m_a) sn = ab->seed[l].n;///ha_pt_cnt(ha_idx, ra[l].x);		
+					for (qi = i; qi < qrn && (qri[qi]>>32) == x; qi++) {
+						qz = (uint32_t)qri[qi];
+						for (ri = l; ri < k; ri++) {
+							rz = (uint32_t)rfi[ri];
+							if(qra[qz].rev != rfa[rz].rev) continue;
+							if(ab->n_a < ab->m_a) {
+								an = &(ab->a[ab->n_a++]); 
+								an->other_off = qra[qz].pos;
+								an->self_off = rfa[rz].pos;
+								///an->cnt: cnt<<8|span
+								an->cnt = ab->seed[rz].n; if(an->cnt > ((uint32_t)(0xffffffu))) an->cnt = 0xffffffu;
+								an->cnt <<= 8; an->cnt |= ((rfa[rz].span <= ((uint32_t)(0xffu)))?rfa[rz].span:((uint32_t)(0xffu)));
+								an->srt = (((uint64_t)(an->self_off))<<32)|((uint64_t)(an->other_off));
+							} else {
+								ab->n_a++;
+							}
+						}
+					}
+					i = qi;
+				}
+				l = k; 
+			}
+		}
+	}
+
+	// copy over to _cl_
+	sn = ab->n_a + cl->length;
+	if (sn > (uint64_t)cl->size) {
+		cl->size = sn;
+		REALLOC(cl->list, cl->size);
+	}
+
+	radix_sort_ha_an1(ab->a, ab->a + ab->n_a);
+	for (i = 0; i < ab->n_a; i++) {
+		p = &cl->list[cl->length++];
+		p->readID = qrid;
+		p->strand = 0;
+		p->offset = ab->a[i].other_off;
+		p->self_offset = ab->a[i].self_off;
+
+		if(((ab->a[i].cnt>>8) < max_cnt) && ((ab->a[i].cnt>>8) > min_cnt)){
+			p->cnt = 1;
+		} else if((ab->a[i].cnt>>8) <= min_cnt) {
+			p->cnt = 2;
+		} else{
+			p->cnt = 1 + (((ab->a[i].cnt>>8) + (max_cnt<<1) - 1)/(max_cnt<<1));
+			p->cnt = pow(p->cnt, 1.1);
+		}
+		if(p->cnt > ((uint32_t)(0xffffffu))) p->cnt = 0xffffffu;
+		p->cnt <<= 8; p->cnt |= (((uint32_t)(0xffu))&(ab->a[i].cnt));
+	}
+	// cl->length = ab->n_a;
+	return ab->n_a;
+}
+
+void gen_self_global_chain(ha_abuf_t *ab, Candidates_list *cl, uint32_t rid, uint64_t rl, uint32_t tid, char *ts, uint64_t tl, uint64_t mz_w, uint64_t mz_k, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct, st_mt_t *sp, uint32_t *high_occ, uint32_t *low_occ, asg64_v *ix, 
+	uint8_t is_accurate, double bw_thres, int apend_be, uint32_t gen_off, int64_t enable_mcopy, double mcopy_rate, uint32_t mcopy_khit_cut, overlap_region_alloc *ores)
+{
+	extern void *ha_flt_tab;
+	uint64_t k, rn = ab->mz.n, m = cl->length;
+	
+	mz1_ha_sketch(ts, tl, mz_w, mz_k, 0, !(asm_opt.flag & HA_F_NO_HPC), &ab->mz, ha_flt_tab, asm_opt.mz_sample_dist, k_flag, dbg_ct, NULL, -1, asm_opt.dp_min_len, -1, sp, asm_opt.mz_rewin, 0, NULL);
+
+	kv_resize(uint64_t, *ix, ab->mz.n);
+	for (k = 0; k < rn; k++) {
+		ix->a[k] = ab->mz.a[k].x; 
+		ix->a[k] <<= 32; ix->a[k] |= k;
+	}
+
+	for (; k < ab->mz.n; k++) {
+		ix->a[k] = ab->mz.a[k].x; 
+		ix->a[k] <<= 32; ix->a[k] |= (k-rn);
+	}
+	ix->n = ab->mz.n;
+	
+	if(gen_srt_chain(ab, ab->mz.a, ix->a, rn, ab->mz.a + rn, ix->a + rn, ab->mz.n - rn, high_occ, low_occ, cl, tid)) {
+		int64_t max_skip, max_iter, max_dis, quick_check; double chn_pen_gap, chn_pen_skip; 
+		set_lchain_dp_op(is_accurate, mz_k, &max_skip, &max_iter, &max_dis, &chn_pen_gap, &chn_pen_skip, &quick_check);
+
+		m += lchain_qdp_mcopy_fast(cl, m, cl->length - m, m, &(cl->chainDP), ores, max_skip, max_iter, max_dis, chn_pen_gap, chn_pen_skip, bw_thres, 
+		rid, rl, tl, quick_check, apend_be, gen_off, enable_mcopy, mcopy_rate, mcopy_khit_cut, 1);
+		cl->length = m;
+	}
+	ab->mz.n = rn;
+}
+
+
 int64_t ug_map_lchain(ha_abufl_t *ab, uint32_t rid, char* rs, uint64_t rl, uint64_t mz_w, uint64_t mz_k, const ul_idx_t *uref, overlap_region_alloc *overlap_list, Candidates_list *cl, double bw_thres, double bw_thres_sec,
 								 int max_n_chain, int apend_be, kvec_t_u8_warp* k_flag, overlap_region* f_cigar, kvec_t_u64_warp* dbg_ct, st_mt_t *sp, uint32_t *high_occ, uint32_t *low_occ, uint32_t is_accurate, 
 								 uint32_t gen_off, double mcopy_rate, uint32_t mcopy_khit_cut, uint32_t is_hpc, ha_mzl_t *res, uint64_t res_n, ha_mzl_t *idx, uint64_t idx_n, uint64_t mzl_cutoff, uint64_t chain_cutoff, kv_u_trans_t *kov)

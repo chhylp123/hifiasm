@@ -94,6 +94,7 @@ static ko_longopt_t long_options[] = {
     { "hyb-syn",     ko_required_argument, 376},
     { "simd-m",     ko_required_argument, 377},
     { "del-hf",     ko_no_argument, 378},
+    { "dbg-rr",     ko_required_argument, 379},
     // { "path-round",     ko_required_argument, 348},
 	{ 0, 0, 0 }
 };
@@ -444,6 +445,8 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->simd_mm = -1;
 
     asm_opt->del_hf = 0;
+
+    asm_opt->dbg_ec_rr = -1;
 }   
 
 void destory_enzyme(enzyme* f)
@@ -1121,6 +1124,8 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
             asm_opt->simd_mm = atoi(opt.arg);
         } else if (c == 378) {
             asm_opt->del_hf = 1;
+        } else if (c == 379) {
+            asm_opt->dbg_ec_rr = atoi(opt.arg);
         } else if (c == 'l') {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
             asm_opt->purge_level_primary = asm_opt->purge_level_trio = atoi(opt.arg);
         }

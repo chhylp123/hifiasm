@@ -3053,13 +3053,14 @@ double ou_drop_rate, int64_t max_tip, int64_t gap_fuzz, bub_label_t *b_mask_t, i
     // fprintf(stderr, "%.*s\tid::%u\tis_c::%u\n", 
     //         (int)Get_NAME_LENGTH(R_INF, 10819), Get_NAME(R_INF, 10819), 10819, is_contain_r((*rI), 10819));
     // debug_info_of_specfic_node("m64011_190830_220126/47516220/ccs", sg, rI, "beg-0");
-    // debug_info_of_specfic_node("bcb40bcc-d9cf-48e6-88ee-47ac3dde22ff", sg, rI, "beg-0");
+    // debug_info_of_specfic_node("c7ecbd6b-e09d-4042-93ac-2400839feaf6", sg, rI, "beg-0");
 
     if(asm_opt.is_ont) asg_arc_cut_weak(sg, &bu, max_tip, 0.975, 0, is_ou, 0, 1, 16, UL_COV_THRES-1, 0, rev, NULL, NULL);
 
 	asg_arc_cut_tips(sg, max_tip, &bu, is_ou, is_ou?rI:NULL, uopt->te);///p_telo
     // fprintf(stderr, "[M::%s] count_edges_v_w(sg, 49778, 49847)->%ld\n", __func__, count_edges_v_w(sg, 49778, 49847));
     // if(is_ou) dedup_contain_g(uopt, sg);
+    // debug_info_of_specfic_node("c7ecbd6b-e09d-4042-93ac-2400839feaf6", sg, rI, "beg-1");
     for (i = 0; i < clean_round; i++, drop += step) {
         if(drop > max_ovlp_drop_ratio) drop = max_ovlp_drop_ratio;
         if(is_ou) {

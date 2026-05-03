@@ -9,6 +9,7 @@
 #include "ksort.h"
 #include "htab.h"
 #include "Process_Read.h"
+#include "ecovlp.h"
 
 #define YAK_COUNTER_BITS 12
 #define YAK_N_COUNTS     (1<<YAK_COUNTER_BITS)
@@ -1627,11 +1628,10 @@ void refresh_pt_idx(void **flt_tab, ha_pt_t **ha_idx, All_reads *r, hifiasm_opt_
 }
 
 
-uint64_t tmp_pt_pro(void **r_flt_tab, ha_pt_t **r_ha_idx, All_reads *r, hifiasm_opt_t *opt, char *file_name, uint64_t rr, uint64_t tot_rr, uint64_t is_load)
+uint64_t tmp_pt_pro(void **r_flt_tab, ha_pt_t **r_ha_idx, All_reads *r, cc_v* rcc, hifiasm_opt_t *opt, char *file_name, uint64_t rr, uint64_t tot_rr, uint64_t is_load)
 {
 	char* gfa_name = (char*)malloc(strlen(file_name)+64);
 	FILE *fp = NULL; int f_flag = 0; uint64_t rr0 = (uint64_t)-1, tot_rr0 = (uint64_t)-1;
-
 
 	if(is_load) {
 		sprintf(gfa_name, "%s.r%lu.ht.bin", file_name, rr);
@@ -1648,18 +1648,32 @@ uint64_t tmp_pt_pro(void **r_flt_tab, ha_pt_t **r_ha_idx, All_reads *r, hifiasm_
 			return 0;
 		}
 
-
-
 		sprintf(gfa_name, "%s.r%lu", file_name, rr);
 		if(!load_pt_index(r_flt_tab, r_ha_idx, r, opt, gfa_name)) {
+			destory_All_reads(r); 
+			ha_pt_destroy(*r_ha_idx); (*r_ha_idx) = NULL;
+			ha_ft_destroy(*r_flt_tab); (*r_flt_tab) = NULL;
 			free(gfa_name); 
 			return 0;
 		}
+
+		sprintf(gfa_name, "%s.r%lu.rec", file_name, rr);
+        if(!load_cc_v(rcc, gfa_name)) {
+			destory_All_reads(r); 
+			ha_pt_destroy(*r_ha_idx); (*r_ha_idx) = NULL;
+			ha_ft_destroy(*r_flt_tab); (*r_flt_tab) = NULL;
+			destroy_cc_v(rcc);
+			free(gfa_name); 
+			return 0;
+		}
+
+		fprintf(stderr, "[M::%s] restarting from round %lu\n", __func__, rr0);
 	} else {
+		sprintf(gfa_name, "%s.r%lu.rec", file_name, rr);
+		write_cc_v(rcc, gfa_name);
+
 		sprintf(gfa_name, "%s.r%lu", file_name, rr);
 		write_pt_index(*r_flt_tab, *r_ha_idx, r, opt, gfa_name);
-
-
 
 		sprintf(gfa_name, "%s.r%lu.ht.bin", file_name, rr);
 		fp = fopen(gfa_name, "w");

@@ -125,6 +125,11 @@ void write_All_reads(All_reads* r, char* read_file_name)
 		}
 	}
 
+	mm = 3;
+	fwrite(&mm, sizeof(mm), 1, fp);
+	fwrite(&(r->tr[0]), sizeof(r->tr[0]), 1, fp);
+	fwrite(&(r->tr[1]), sizeof(r->tr[1]), 1, fp);
+
     free(index_name);    
 	fflush(fp);
     fclose(fp);
@@ -235,9 +240,16 @@ int load_All_reads(All_reads* r, char* read_file_name)
 				MALLOC(r->rsc[i], (r->read_length[i]/sc_bn) + ((r->read_length[i]%sc_bn)?1:0));
 				f_flag += fread(r->rsc[i], sizeof(uint8_t), (r->read_length[i]/sc_bn) + ((r->read_length[i]%sc_bn)?1:0), fp);
 			}
+
+			mm = 0;
+			if(!feof(fp)) fread(&mm, sizeof(mm), 1, fp);
+		}
+
+		if(mm == 3) {
+			fread(&(r->tr[0]), sizeof(r->tr[0]), 1, fp);
+			fread(&(r->tr[1]), sizeof(r->tr[1]), 1, fp);
 		}
 	}
-
 
 
     free(index_name);    
@@ -283,12 +295,17 @@ uint8_t load_cc_v(cc_v* r, char* read_file_name)
 	///typedef struct {size_t n, m; asg16_v *a; uint8_t *f; uint16_t *er; uint64_t bid;} cc_v;
 	asg16_v *z; int f_flag = 0;
 	uint64_t k, rn; uint32_t zn; f_flag += fread(&rn, sizeof(rn), 1, fp);
-	r->n = r->m = rn; MALLOC(r->a, r->n);
-	for (k = 0; k < r->n; k++) {
-		z = &(r->a[k]);
-		f_flag += fread(&zn, sizeof(zn), 1, fp);
-		z->n = z->m = zn; MALLOC(z->a, z->n);
-		f_flag += fread(z->a, sizeof((*(z->a))), zn, fp);
+	r->n = r->m = rn; 
+	if(rn == 0) {
+		free(r->a); r->a = NULL;
+	} else {
+		MALLOC(r->a, r->n);
+		for (k = 0; k < r->n; k++) {
+			z = &(r->a[k]);
+			f_flag += fread(&zn, sizeof(zn), 1, fp);
+			z->n = z->m = zn; MALLOC(z->a, z->n);
+			f_flag += fread(z->a, sizeof((*(z->a))), zn, fp);
+		}
 	}
 	   
 	fflush(fp); fclose(fp);
