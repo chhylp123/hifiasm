@@ -1023,10 +1023,10 @@ void ha_ec(int64_t round, int num_pround, int des_idx, uint64_t *tot_b, uint64_t
     if(round == asm_opt.number_of_round-1 && asm_opt.is_dbg_het_cnt) CALLOC(het_cnt, R_INF.total_reads);
 
     if (r_out) {
-        write_pt_index(ha_flt_tab, ha_idx, &R_INF, &asm_opt, asm_opt.output_file_name);
+        write_pt_index(ha_flt_tab, ha_idx, &R_INF, &asm_opt, asm_opt.output_file_name, 0);
         if((asm_opt.flag & HA_F_VERBOSE_GFA) && (asm_opt.bin_only == 1)) exit(1);///just for debug
     }
-    if (w_tmp) tmp_pt_pro(&ha_flt_tab, &ha_idx, &R_INF, &scb, &asm_opt, asm_opt.output_file_name, round, asm_opt.number_of_round, 0);
+    if (w_tmp) tmp_pt_pro(&ha_flt_tab, &ha_idx, &R_INF, &scb, &asm_opt, asm_opt.output_file_name, round, asm_opt.number_of_round, 0, 0);
 
     // Output_corrected_fastq();
 
@@ -1112,7 +1112,7 @@ void ha_overlap_and_correct(int round)
     // fprintf(stderr, "[M::%s::%.3f] ==> chaining\n", __func__, yak_realtime_0()-tt0);
     // exit(1);
     
-    if (r_out) write_pt_index(ha_flt_tab, ha_idx, &R_INF, &asm_opt, asm_opt.output_file_name);
+    if (r_out) write_pt_index(ha_flt_tab, ha_idx, &R_INF, &asm_opt, asm_opt.output_file_name, 0);
 	ha_pt_destroy(ha_idx);
 	ha_idx = NULL;
 
@@ -1727,6 +1727,7 @@ void Output_PAF()
     fclose(output_file);
 
     fprintf(stderr, "PAF has been written.\n");
+    exit(1);
 }
 
 
@@ -1952,12 +1953,12 @@ void ha_overlap_final(void)
     asm_opt.het_cov = het_cov;
 }
 
-void ha_ec_ff(int renew_idx)
+void ha_ec_ff(int renew_idx, int8_t pre_load_idx, uint64_t w_tmp)
 {
 	int hom_cov, het_cov;
     ha_flt_tab_hp = ha_idx_hp = NULL;
 
-    if(ha_idx && renew_idx) {
+    if((ha_idx) && (renew_idx) && (!pre_load_idx)) {
         ha_pt_destroy(ha_idx); ha_idx = NULL;
     }
 
@@ -1965,6 +1966,8 @@ void ha_ec_ff(int renew_idx)
         ha_idx = ha_pt_gen(&asm_opt, ha_flt_tab, 1, 0, &R_INF, &hom_cov, &het_cov); // build the index
         asm_opt.hom_cov = hom_cov; asm_opt.het_cov = het_cov;
     }
+
+    if (w_tmp) tmp_pt_pro(&ha_flt_tab, &ha_idx, &R_INF, &scb, &asm_opt, asm_opt.output_file_name, asm_opt.number_of_round, asm_opt.number_of_round, 0, 1);
 
     cal_ov_r(asm_opt.thread_num, R_INF.total_reads, renew_idx);
 
@@ -2076,7 +2079,7 @@ int ha_assemble(void)
     // debug_mc_gg_t(MC_NAME, 0, 0);
     // quick_debug_phasing(MC_NAME);
 	extern void ha_extract_print_list(const All_reads *rs, int n_rounds, const char *o);
-	int r, r0 = -1, hom_cov = -1, ovlp_loaded = 0; uint64_t tot_b, tot_e;
+	int r, r0 = -1, hom_cov = -1, ovlp_loaded = 0; uint64_t tot_b, tot_e; int8_t pre_load_ff = 0;
 	if ((asm_opt.load_index_from_disk) && (asm_opt.dbg_ec_rr < 0) && load_all_data_from_disk(&R_INF.paf, &R_INF.reverse_paf, asm_opt.output_file_name)) {
 		ovlp_loaded = 1;
 		fprintf(stderr, "[M::%s::%.3f*%.2f] ==> loaded corrected reads and overlaps from disk\n", __func__, yak_realtime(), yak_cpu_usage());
@@ -2093,13 +2096,13 @@ int ha_assemble(void)
 	}
 	if (!ovlp_loaded) {
         ha_flt_tab = ha_idx = NULL;
-        if((asm_opt.flag & HA_F_VERBOSE_GFA)) load_pt_index(&ha_flt_tab, &ha_idx, &R_INF, &asm_opt, asm_opt.output_file_name), load_ct_index(&ha_ct_table, asm_opt.output_file_name);
+        if((asm_opt.flag & HA_F_VERBOSE_GFA)) load_pt_index(&ha_flt_tab, &ha_idx, &R_INF, &asm_opt, asm_opt.output_file_name, 0), load_ct_index(&ha_ct_table, asm_opt.output_file_name);
         r = ha_idx?asm_opt.number_of_round-1:0;
         if((!ha_idx) && (asm_opt.restart)) {
-            r = asm_opt.number_of_round - 1;
+            r = asm_opt.number_of_round/** - 1**/;
             if(asm_opt.dbg_ec_rr >= 0) r = asm_opt.dbg_ec_rr;
             for (; r >= 0; --r) {
-                if(tmp_pt_pro(&ha_flt_tab, &ha_idx, &R_INF, &scb, &asm_opt, asm_opt.output_file_name, r, asm_opt.number_of_round, 1)) {
+                if(tmp_pt_pro(&ha_flt_tab, &ha_idx, &R_INF, &scb, &asm_opt, asm_opt.output_file_name, r, asm_opt.number_of_round, 1, ((r==asm_opt.number_of_round)?(1):(0)))) {
                     load_ct_index(&ha_ct_table, asm_opt.output_file_name); r0 = r;
                     break;
                 }
@@ -2108,7 +2111,11 @@ int ha_assemble(void)
                 fprintf(stderr, "[E::%s] no matching debug error-correction bins found\n", __func__);
                 exit(1);
             }
-            if(r < 0) r = 0;
+            if(r < 0) {
+                r = 0;
+            } else if(r == asm_opt.number_of_round) {
+                pre_load_ff = 1;
+            }
         }
 
 		// construct hash table for high occurrence k-mers
@@ -2138,8 +2145,9 @@ int ha_assemble(void)
 		// overlap between corrected reads
 		ha_opt_reset_to_round(&asm_opt, asm_opt.number_of_round);
 		// ha_overlap_final();
-        ha_ec_ff(1/**0**/);
+        ha_ec_ff(1/**0**/, pre_load_ff, ((r > r0) && (asm_opt.restart))?1:0);
         fprintf(stderr, "[M::%s::%.3f*%.2f@%.3fGB] ==> found overlaps for the final round\n", __func__, yak_realtime(), yak_cpu_usage(), yak_peakrss_in_gb());
+        if(asm_opt.dbg_ec_rr >= 0) exit(1);
 		// fprintf(stderr, "\n[M::%s::%.3f*%.2f@%.3fGB] ==> found overlaps for the final round\n", __func__, yak_realtime(), yak_cpu_usage(), yak_peakrss_in_gb());
 		// ha_print_ovlp_stat(R_INF.paf, R_INF.reverse_paf, R_INF.total_reads);
 		if(!(asm_opt.write_pos_idx)) {
@@ -2193,7 +2201,7 @@ int ha_assemble_pair(void)
         // Output_corrected_reads(); exit(0);
 
         ha_flt_tab = ha_idx = NULL; r = asm_opt.number_of_round - 1;
-        if((asm_opt.flag & HA_F_VERBOSE_GFA)) load_pt_index(&ha_flt_tab, &ha_idx, &R_INF, &asm_opt, asm_opt.output_file_name), load_ct_index(&ha_ct_table, asm_opt.output_file_name);
+        if((asm_opt.flag & HA_F_VERBOSE_GFA)) load_pt_index(&ha_flt_tab, &ha_idx, &R_INF, &asm_opt, asm_opt.output_file_name, 0), load_ct_index(&ha_ct_table, asm_opt.output_file_name);
 
         // construct hash table for high occurrence k-mers
         if (!(asm_opt.flag & HA_F_NO_KMER_FLT) && ha_flt_tab == NULL) {

@@ -1420,7 +1420,7 @@ int load_ct_index(void **i_ct_idx, char* file_name)
 	return 1;
 }
 
-int write_pt_index(void *flt_tab, ha_pt_t *ha_idx, All_reads* r, hifiasm_opt_t* opt, char* file_name)
+int write_pt_index(void *flt_tab, ha_pt_t *ha_idx, All_reads* r, hifiasm_opt_t* opt, char* file_name, uint8_t force_rpaf_load)
 {
     char* gfa_name = (char*)malloc(strlen(file_name)+64);
     if(r) sprintf(gfa_name, "%s.pt_flt", file_name);
@@ -1479,6 +1479,19 @@ int write_pt_index(void *flt_tab, ha_pt_t *ha_idx, All_reads* r, hifiasm_opt_t* 
 			fwrite(&(r->paf[k].length), sizeof(r->paf[k].length), 1, fp);
 			fwrite(r->paf[k].buffer, sizeof((*(r->paf[k].buffer))), r->paf[k].length, fp);
 		}
+
+
+		int8_t rff = opt->post_syn; 
+		if(force_rpaf_load) rff = 1;
+		fwrite(&rff, sizeof(rff), 1, fp);
+		if(rff) {
+			for (k = 0; k < r->total_reads; k++) {
+				fwrite(&(r->reverse_paf[k].is_fully_corrected), sizeof(r->reverse_paf[k].is_fully_corrected), 1, fp);
+				fwrite(&(r->reverse_paf[k].is_abnormal), sizeof(r->reverse_paf[k].is_abnormal), 1, fp);
+				fwrite(&(r->reverse_paf[k].length), sizeof(r->reverse_paf[k].length), 1, fp);
+				fwrite(r->reverse_paf[k].buffer, sizeof((*(r->reverse_paf[k].buffer))), r->reverse_paf[k].length, fp);
+			}
+		}
 	}
 
 	fprintf(stderr, "[M::%s] Index has been written.\n", __func__);
@@ -1487,7 +1500,7 @@ int write_pt_index(void *flt_tab, ha_pt_t *ha_idx, All_reads* r, hifiasm_opt_t* 
 	return 1;
 }
 
-int load_pt_index(void **r_flt_tab, ha_pt_t **r_ha_idx, All_reads *r, hifiasm_opt_t* opt, char* file_name)
+int load_pt_index(void **r_flt_tab, ha_pt_t **r_ha_idx, All_reads *r, hifiasm_opt_t* opt, char* file_name, uint8_t force_rpaf_load)
 {
 	char* gfa_name = (char*)malloc(strlen(file_name)+64);
 	if(r) sprintf(gfa_name, "%s.pt_flt", file_name);
@@ -1604,6 +1617,27 @@ int load_pt_index(void **r_flt_tab, ha_pt_t **r_ha_idx, All_reads *r, hifiasm_op
 			r->paf[k].buffer = (ma_hit_t*)malloc(sizeof(ma_hit_t)*r->paf[k].length);
 			fread(r->paf[k].buffer, sizeof((*(r->paf[k].buffer))), r->paf[k].length, fp);
 		}
+
+		int8_t rff = 0; 
+		f_flag += fread(&rff, sizeof(rff), 1, fp);
+		if(!force_rpaf_load) {
+			opt->post_syn = rff;
+			fprintf(stderr, "[M::%s] overwritten post_syn to::%u\n", __func__, (uint32_t)opt->post_syn);
+		}
+		if(rff) {
+			for (k = 0; k < r->total_reads; k++) {
+				f_flag += fread(&(r->reverse_paf[k].is_fully_corrected), sizeof(r->reverse_paf[k].is_fully_corrected), 1, fp);
+				f_flag += fread(&(r->reverse_paf[k].is_abnormal), sizeof(r->reverse_paf[k].is_abnormal), 1, fp);
+				f_flag += fread(&(r->reverse_paf[k].length), sizeof(r->reverse_paf[k].length), 1, fp);
+				r->reverse_paf[k].size = r->reverse_paf[k].length;
+
+				r->reverse_paf[k].buffer = NULL;
+				if(r->reverse_paf[k].length == 0) continue;
+				
+				r->reverse_paf[k].buffer = (ma_hit_t*)malloc(sizeof(ma_hit_t)*r->reverse_paf[k].length);
+				fread(r->reverse_paf[k].buffer, sizeof((*(r->reverse_paf[k].buffer))), r->reverse_paf[k].length, fp);
+			}
+		} 
 	}
 	fclose(fp);
 
@@ -1619,16 +1653,16 @@ void refresh_pt_idx(void **flt_tab, ha_pt_t **ha_idx, All_reads *r, hifiasm_opt_
     sprintf(gfa_name, "%s.ad", file_name);
 
 	if(is_w) {
-		write_pt_index(*flt_tab, *ha_idx, NULL, opt, gfa_name);
+		write_pt_index(*flt_tab, *ha_idx, NULL, opt, gfa_name, 0);
 	} else {
-		load_pt_index(flt_tab, ha_idx, NULL, opt, gfa_name);
+		load_pt_index(flt_tab, ha_idx, NULL, opt, gfa_name, 0);
 	}
 
 	free(gfa_name);
 }
 
 
-uint64_t tmp_pt_pro(void **r_flt_tab, ha_pt_t **r_ha_idx, All_reads *r, cc_v* rcc, hifiasm_opt_t *opt, char *file_name, uint64_t rr, uint64_t tot_rr, uint64_t is_load)
+uint64_t tmp_pt_pro(void **r_flt_tab, ha_pt_t **r_ha_idx, All_reads *r, cc_v* rcc, hifiasm_opt_t *opt, char *file_name, uint64_t rr, uint64_t tot_rr, uint64_t is_load, uint8_t force_rpaf_load)
 {
 	char* gfa_name = (char*)malloc(strlen(file_name)+64);
 	FILE *fp = NULL; int f_flag = 0; uint64_t rr0 = (uint64_t)-1, tot_rr0 = (uint64_t)-1;
@@ -1649,7 +1683,7 @@ uint64_t tmp_pt_pro(void **r_flt_tab, ha_pt_t **r_ha_idx, All_reads *r, cc_v* rc
 		}
 
 		sprintf(gfa_name, "%s.r%lu", file_name, rr);
-		if(!load_pt_index(r_flt_tab, r_ha_idx, r, opt, gfa_name)) {
+		if(!load_pt_index(r_flt_tab, r_ha_idx, r, opt, gfa_name, force_rpaf_load)) {
 			destory_All_reads(r); 
 			ha_pt_destroy(*r_ha_idx); (*r_ha_idx) = NULL;
 			ha_ft_destroy(*r_flt_tab); (*r_flt_tab) = NULL;
@@ -1673,7 +1707,7 @@ uint64_t tmp_pt_pro(void **r_flt_tab, ha_pt_t **r_ha_idx, All_reads *r, cc_v* rc
 		write_cc_v(rcc, gfa_name);
 
 		sprintf(gfa_name, "%s.r%lu", file_name, rr);
-		write_pt_index(*r_flt_tab, *r_ha_idx, r, opt, gfa_name);
+		write_pt_index(*r_flt_tab, *r_ha_idx, r, opt, gfa_name, force_rpaf_load);
 
 		sprintf(gfa_name, "%s.r%lu.ht.bin", file_name, rr);
 		fp = fopen(gfa_name, "w");

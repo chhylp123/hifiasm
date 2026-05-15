@@ -411,6 +411,153 @@ void init_integer_ml_t(integer_ml_t *x, ul_resolve_t *u, uint64_t n_thread)
 
 int32_t if_sup_chimeric(ma_hit_t_alloc* src, uint64_t rLen, asg64_v *b, int if_exact);
 
+typedef struct {
+    const char *nn;
+    uint64_t nid;
+} dbg_prt_t;
+
+static void qry_nn_id(void *data, long i, int tid) // callback for kt_for()
+{
+    dbg_prt_t *sl = (dbg_prt_t *)data; uint64_t ri = sl[i].nid, rl = 0; const char *nn = sl[i].nn;
+    rl = strlen(nn);
+    if((ri < R_INF.total_reads) && (Get_NAME_LENGTH((R_INF), ri) == rl) && (memcmp(nn, Get_NAME((R_INF), ri), Get_NAME_LENGTH((R_INF), ri)) == 0)) return;
+
+    for (ri = 0; ri < R_INF.total_reads; ri++) {
+        if((Get_NAME_LENGTH((R_INF), ri) == rl) && (memcmp(nn, Get_NAME((R_INF), ri), Get_NAME_LENGTH((R_INF), ri)) == 0)) {
+            sl[i].nid = ri;
+            return;
+        }
+    }
+    sl[i].nid = (uint64_t)-1;
+}
+
+void hc_dbg_prt_ma_hit_t(const char *ids0[], uint64_t n0, const uint64_t iids0[], uint64_t ni0, const char* cmd, ma_hit_t_alloc *paf, R_to_U* ruIndex, ma_sub_t* cov, asg_t* g)
+{
+    if((!paf) && (!ruIndex) && (!cov) && (!g)) return;
+    uint64_t k, z, n, ni, rid, uri, n_thre = asm_opt.thread_num; dbg_prt_t *ri = NULL; const char **ids = NULL; const uint64_t *iids = NULL;
+    if (cmd == NULL) cmd = "";
+    fprintf(stderr, "\n[M::%s::%s]\t********************************\n", __func__, cmd);
+    const char *ids1[] = {
+        ///"m84039_230928_213653_s3/181277190/ccs",///tip 0, contained read issue
+
+        ///"7e61bf83-7f09-49df-88b9-2a864587b19f", ///tip1 -> 916fced8-524e-4a65-b04d-5b5ea6937e6e(qn::199123)
+        ///phasing error -> ONT specific bias && HPC intoduce fake SNPs
+
+        ///"43691917-c944-4102-8a01-d63a9c635dc3",///tip3 -> 29ee66bc-ef49-42ae-b7b4-15c37d46beac(qn::3373007) overcorrected in the first round 
+        //when only 2 reads supported (the read itself has high sequencing error rate so hard to be aligned)
+        //we may also consider increase the error rate threshold
+
+        ///"21b83ce9-9b94-445d-93b0-b9e83aaa4326",///tip3
+        
+        "6f240062-2451-4212-a22d-abecc73ae0d9",///tip4->63a321ea-1103-4ca5-97e1-531e55f6bc84(qn::3646295) 
+        ///phasing error -> ONT specific bias && HPC intoduce fake SNPs && the DP was to nice for the following SNPs, which we need to fix as high-sequencing depth we have more such cases
+        // +[M::gen_rphase_dp0_single_path_hybrid_0_multi] rn::2   hf_only::0
+        // +[M::gen_rphase_dp0_single_path_hybrid_0_multi] site::175009    sc::2   n0::57  n1::3   rn::2   krn::2  b0l::16 b0h::41 b1l::0  b1h::3
+        // +[M::gen_rphase_dp0_single_path_hybrid_0_multi] site::82558     sc::-1  n0::80  n1::4   rn::2   krn::2  b0l::4  b0h::76 b1l::2  b1h::2
+
+        "a72d3f7f-d74f-48ab-a3f7-5ecc74ad08ff",///tip5, contained read issue
+    };
+    if(ids0) {
+        ids = ids0; n = n0;
+    } else {
+        ids = ids1; n = sizeof(ids1) / sizeof(ids1[0]);
+    }
+
+    const uint64_t iids1[] = {
+        ///5038496,///tip 0, contained read issue
+        ///3799659,///tip 1, contained read issue
+        ///3313150,///tip 2, contained read issue
+        ///4192664,///tip3, contained read issue
+        508213,///tip4
+        3203512,///tip5
+        };
+    if(iids0) {
+        iids = iids0; ni = ni0;
+    } else {
+        iids = iids1; ni = sizeof(iids1) / sizeof(iids1[0]);
+    }
+    CALLOC(ri, n);
+
+    for (k = uri = 0; k < n; k++) {
+        rid = ((k<ni)?(iids[k]):((uint64_t)-1));
+        if(rid < R_INF.total_reads) {
+            if ((Get_NAME_LENGTH((R_INF), rid) != strlen(ids[k])) || (memcmp(ids[k], Get_NAME((R_INF), rid), Get_NAME_LENGTH((R_INF), rid)))) {
+                rid = (uint64_t)-1;
+            }
+        }
+        if(rid >= R_INF.total_reads) uri++;
+        ri[k].nid = rid; ri[k].nn = ids[k];
+    }
+    if(uri) {
+        if(n_thre > n) n_thre = n;
+        kt_for(n_thre, qry_nn_id, ri, n);
+    }
+
+    ma_hit_t *h = NULL; uint64_t nv, v, w; asg_arc_t *av; uint32_t cid, is_u;
+    for (k = 0; k < n; k++) {
+        if(ri[k].nid != ((uint64_t)-1)) {
+            fprintf(stderr, "\n[M::%s::%s]\trid::%lu\t%.*s\trlen::%lu\n", __func__, cmd, ri[k].nid, (int)Get_NAME_LENGTH(R_INF, ri[k].nid), Get_NAME(R_INF, ri[k].nid), Get_READ_LENGTH(R_INF, ri[k].nid));
+            if(paf) {
+                fprintf(stderr, "[M::%s::%s]\tpaf::(abnm->%u\tfcor->%u)\n", __func__, cmd, paf[ri[k].nid].is_abnormal, paf[ri[k].nid].is_fully_corrected);
+                for (z = 0; z < paf[ri[k].nid].length; z++) {
+                    h = &(paf[ri[k].nid].buffer[z]);
+                    fprintf(stderr, "[%s::paf]\t%.*s(qn::%u)\t%u\t%u\t%u\t%c\t%.*s(tn::%u)\t%u\t%u\t%u\tml::%u\tbl::%u\tel::%u\tdel::%u\tnl_idl::%u", cmd, (int)Get_NAME_LENGTH(R_INF, Get_qn(*h)), Get_NAME((R_INF), Get_qn(*h)), Get_qn(*h), (uint32_t)Get_READ_LENGTH(R_INF, Get_qn(*h)), Get_qs(*h), Get_qe(*h), "+-"[h->rev], 
+                    (int)Get_NAME_LENGTH(R_INF, Get_tn(*h)), Get_NAME((R_INF), Get_tn(*h)), Get_tn(*h), (uint32_t)Get_READ_LENGTH(R_INF, Get_tn(*h)), Get_ts(*h), Get_te(*h), h->ml, h->bl, 
+                    h->el, h->del, h->no_l_indel);
+                    if(ruIndex) {
+                        get_R_to_U(ruIndex, Get_tn(*h), &cid, &is_u);
+                        if((is_u != (uint32_t)-1) && (is_u == 0)) {
+                            fprintf(stderr, "\tis_contain::1\tis_cr::1(crid->::%u::%.*s)", cid, (int)Get_NAME_LENGTH(R_INF, cid), Get_NAME(R_INF, cid));
+                        }
+                    }
+                    fprintf(stderr, "\n");
+                }
+            }
+            if(g) {
+                fprintf(stderr, "[M::%s::%s]\tsg::(del->%u\tc->%u)\n", __func__, cmd, g->seq[ri[k].nid].del, g->seq[ri[k].nid].c);
+                v = ri[k].nid<<1; 
+                nv = asg_arc_n(g, v); av = asg_arc_a(g, v);
+                for (z = 0; z < nv; ++z) {
+                    w = av[z].v;
+                    fprintf(stderr, "[M::%s::sg]\t%.*s(%c)\t%.*s(%c)\tol::%u\tel::%u\tdel::%u\tstrong::%u\tnl_idl::%u\n", __func__,
+                                (int)Get_NAME_LENGTH(R_INF, (v>>1)), Get_NAME(R_INF, (v>>1)), "+-"[v&1],
+                                (int)Get_NAME_LENGTH(R_INF, (w>>1)), Get_NAME(R_INF, (w>>1)), "+-"[w&1], av[z].ol, av[z].el, av[z].del, av[z].strong, av[z].no_l_indel);
+                }
+
+                v = (ri[k].nid<<1) + 1; 
+                nv = asg_arc_n(g, v); av = asg_arc_a(g, v);
+                for (z = 0; z < nv; ++z) {
+                    w = av[z].v;
+                    fprintf(stderr, "[M::%s::sg]\t%.*s(%c)\t%.*s(%c)\tol::%u\tel::%u\tdel::%u\tstrong::%u\tnl_idl::%u\n", __func__,
+                                (int)Get_NAME_LENGTH(R_INF, (v>>1)), Get_NAME(R_INF, (v>>1)), "+-"[v&1],
+                                (int)Get_NAME_LENGTH(R_INF, (w>>1)), Get_NAME(R_INF, (w>>1)), "+-"[w&1], av[z].ol, av[z].el, av[z].del, av[z].strong, av[z].no_l_indel);
+                }
+            }
+
+            if(cov) {
+                fprintf(stderr, "[M::%s::%s]\tcov::(del->%u\tc->%u)\n", __func__, cmd, cov[ri[k].nid].del, cov[ri[k].nid].c);
+            }
+
+            if(ruIndex) {
+                fprintf(stderr, "[M::%s::%s]\t", __func__, cmd);
+                get_R_to_U(ruIndex, ri[k].nid, &cid, &is_u);
+                if((is_u != (uint32_t)-1) && (is_u == 0)) {
+                    fprintf(stderr, "is_contain::1\tis_cr::1(rid->::%u::%.*s)\tis_cu::0\n", cid, (int)Get_NAME_LENGTH(R_INF, cid), Get_NAME(R_INF, cid));
+                } else if(is_u != (uint32_t)-1) {
+                    fprintf(stderr, "is_contain::1\tis_cr::0\tis_cu::1(uid->::%u)\n", cid);
+                } else {
+                    fprintf(stderr, "is_contain::0\tis_cr::0\tis_cu::0\n");
+                }
+            }
+
+        } else {
+            fprintf(stderr, "\n[M::%s::%s]\trid::-1\t%.*s\n", __func__, cmd, (int)strlen(ri[k].nn), ri[k].nn);
+        }
+    }
+
+    free(ri);
+}
+
 void print_edge(asg_arc_t *t, const char *cmd)
 {
     uint32_t v = t->ul>>32, w = t->v;
@@ -3057,41 +3204,53 @@ double ou_drop_rate, int64_t max_tip, int64_t gap_fuzz, bub_label_t *b_mask_t, i
 
     if(asm_opt.is_ont) asg_arc_cut_weak(sg, &bu, max_tip, 0.975, 0, is_ou, 0, 1, 16, UL_COV_THRES-1, 0, rev, NULL, NULL);
 
+    // hc_dbg_prt_ma_hit_t(NULL, 0, NULL, 0, "clen_a", NULL, rI, NULL, sg);
+
 	asg_arc_cut_tips(sg, max_tip, &bu, is_ou, is_ou?rI:NULL, uopt->te);///p_telo
     // fprintf(stderr, "[M::%s] count_edges_v_w(sg, 49778, 49847)->%ld\n", __func__, count_edges_v_w(sg, 49778, 49847));
     // if(is_ou) dedup_contain_g(uopt, sg);
     // debug_info_of_specfic_node("c7ecbd6b-e09d-4042-93ac-2400839feaf6", sg, rI, "beg-1");
+    // hc_dbg_prt_ma_hit_t(NULL, 0, NULL, 0, "clen_b", NULL, rI, NULL, sg);
     for (i = 0; i < clean_round; i++, drop += step) {
         if(drop > max_ovlp_drop_ratio) drop = max_ovlp_drop_ratio;
         if(is_ou) {
             if(drop <= 0.500001) min_diff = step_diff>>1;
             else min_diff = step_diff;
         }
+        // fprintf(stderr, "\n(0):i->%ld, drop->%f\n", i, drop);
 
         if(asm_opt.is_ont) {
             asg_arc_cut_weak(sg, &bu, max_tip, 0.975, 0, is_ou, 0, 1, 16, UL_COV_THRES-1, 0, rev, NULL, NULL);
+            // hc_dbg_prt_ma_hit_t(NULL, 0, NULL, 0, "clen_c_0", NULL, rI, NULL, sg);
             asg_arc_cut_tips(sg, max_tip, &bu, is_ou, is_ou?rI:NULL, uopt->te);
+            // hc_dbg_prt_ma_hit_t(NULL, 0, NULL, 0, "clen_c_1", NULL, rI, NULL, sg);
         }
-        // fprintf(stderr, "(0):i->%ld, drop->%f\n", i, drop);
         // prt_specfic_sge(sg, 22708, 22646, "--0--");
 
         // print_vw_edge(sg, 34156, 34090, "0");
         // stats_chimeric(sg, src, &bu);
         if(!is_ou) asg_iterative_semi_circ(sg, src, &bu, max_tip, 1, uopt->te);///p_telo
+        // hc_dbg_prt_ma_hit_t(NULL, 0, NULL, 0, "clen_c_3", NULL, rI, NULL, sg);
         asg_arc_identify_simple_bubbles_multi(sg, b_mask_t, 1);
         asg_arc_cut_chimeric(sg, src, &bu, is_ou?ou_thres:(uint32_t)-1, uopt->te);///p_telo
+        // hc_dbg_prt_ma_hit_t(NULL, 0, NULL, 0, "clen_c_4", NULL, rI, NULL, sg);
 
         asg_arc_cut_tips(sg, max_tip, &bu, is_ou, is_ou?rI:NULL, uopt->te);
+        // hc_dbg_prt_ma_hit_t(NULL, 0, NULL, 0, "clen_c_5", NULL, rI, NULL, sg);
         // prt_specfic_sge(sg, 22708, 22646, "--1--");
         asg_arc_identify_simple_bubbles_multi(sg, b_mask_t, 0);
         asg_arc_cut_inexact(sg, src, &bu, max_tip, is_ou, is_trio, min_diff, ou_drop_rate/**, NULL**//**&dbg**/);
+        // hc_dbg_prt_ma_hit_t(NULL, 0, NULL, 0, "clen_c_6", NULL, rI, NULL, sg);
         // debug_edges(&dbg, d, 2);
         asg_arc_cut_tips(sg, max_tip, &bu, is_ou, is_ou?rI:NULL, uopt->te);
+        // hc_dbg_prt_ma_hit_t(NULL, 0, NULL, 0, "clen_c_7", NULL, rI, NULL, sg);
         // prt_specfic_sge(sg, 22708, 22646, "--2--");
 
         asg_arc_identify_simple_bubbles_multi(sg, b_mask_t, 1);
         asg_arc_cut_length(sg, &bu, max_tip, drop, ou_drop_rate, is_ou, is_trio, 1, min_diff, 1, NULL, NULL, NULL);
+        // hc_dbg_prt_ma_hit_t(NULL, 0, NULL, 0, "clen_c_8", NULL, rI, NULL, sg);
         asg_arc_cut_tips(sg, max_tip, &bu, is_ou, is_ou?rI:NULL, uopt->te);
+        // hc_dbg_prt_ma_hit_t(NULL, 0, NULL, 0, "clen_c_9", NULL, rI, NULL, sg);
 
         // if(i == 0) {
         //     print_debug_gfa(sg, NULL, uopt->coverage_cut, "UL.dirty3.debug", uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 1, 0, 0);
@@ -3107,11 +3266,14 @@ double ou_drop_rate, int64_t max_tip, int64_t gap_fuzz, bub_label_t *b_mask_t, i
 
         asg_arc_identify_simple_bubbles_multi(sg, b_mask_t, 1);
         asg_arc_cut_bub_links(sg, &bu, HARD_OL_DROP, HARD_OL_SEC_DROP, HARD_OU_DROP, is_ou, asm_opt.large_pop_bubble_size, rev, rI, max_tip);
+        // hc_dbg_prt_ma_hit_t(NULL, 0, NULL, 0, "clen_c_10", NULL, rI, NULL, sg);
         // prt_specfic_sge(sg, 22708, 22646, "--4--");
 
         asg_arc_identify_simple_bubbles_multi(sg, b_mask_t, 1);
         asg_arc_cut_complex_bub_links(sg, &bu, HARD_OL_DROP, HARD_OU_DROP, is_ou, b_mask_t);
+        // hc_dbg_prt_ma_hit_t(NULL, 0, NULL, 0, "clen_c_11", NULL, rI, NULL, sg);
         asg_arc_cut_tips(sg, max_tip, &bu, is_ou, is_ou?rI:NULL, uopt->te);
+        // hc_dbg_prt_ma_hit_t(NULL, 0, NULL, 0, "clen_c_12", NULL, rI, NULL, sg);
         // prt_specfic_sge(sg, 22708, 22646, "--5--");
 
         /**
@@ -3133,7 +3295,9 @@ double ou_drop_rate, int64_t max_tip, int64_t gap_fuzz, bub_label_t *b_mask_t, i
 
     if(asm_opt.is_ont) {
         asg_arc_cut_weak(sg, &bu, max_tip, 0.975, 0, is_ou, 0, 1, 16, UL_COV_THRES-1, 0, rev, NULL, NULL);
+        // hc_dbg_prt_ma_hit_t(NULL, 0, NULL, 0, "clen_d_0", NULL, rI, NULL, sg);
         asg_arc_cut_tips(sg, max_tip, &bu, is_ou, is_ou?rI:NULL, uopt->te);
+        // hc_dbg_prt_ma_hit_t(NULL, 0, NULL, 0, "clen_d_1", NULL, rI, NULL, sg);
     }
 
     if(is_ou) min_diff = step_diff;
@@ -3147,6 +3311,7 @@ double ou_drop_rate, int64_t max_tip, int64_t gap_fuzz, bub_label_t *b_mask_t, i
         if(clean_contain_g(uopt, sg, 1)) update_sg_uo(sg, src);
     }
     if(!is_ou) asg_iterative_semi_circ(sg, src, &bu, max_tip, 1, uopt->te);
+    // hc_dbg_prt_ma_hit_t(NULL, 0, NULL, 0, "clen_d_2", NULL, rI, NULL, sg);
 
     // prt_specfic_sge(sg, 22708, 22646, "--sb-0---");
 
@@ -3155,23 +3320,29 @@ double ou_drop_rate, int64_t max_tip, int64_t gap_fuzz, bub_label_t *b_mask_t, i
 
     asg_arc_identify_simple_bubbles_multi(sg, b_mask_t, 0);
     asg_cut_large_indel(sg, &bu, max_tip, HARD_OU_DROP, is_ou, min_diff);///shoule we ignore ou here?
+    // hc_dbg_prt_ma_hit_t(NULL, 0, NULL, 0, "clen_d_3", NULL, rI, NULL, sg);
     asg_arc_cut_tips(sg, max_tip, &bu, is_ou, is_ou?rI:NULL, uopt->te);
+    // hc_dbg_prt_ma_hit_t(NULL, 0, NULL, 0, "clen_d_4", NULL, rI, NULL, sg);
 
     // prt_specfic_sge(sg, 22708, 22646, "--sb-1---");
 
-    // print_debug_gfa(sg, NULL, uopt->coverage_cut, "UL.dirty6.debug", uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 1, 0, 0);
+    // print_debug_gfa(sg, NULL, uopt->coverage_cut, "hybrid.dirty6.debug", uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 1, 0, 0);
 
     if(!is_ou) {
         ///asg_arc_del_triangular_directly might be unnecessary
         asg_arc_identify_simple_bubbles_multi(sg, b_mask_t, 0);
         asg_arc_cut_length(sg, &bu, max_tip, HARD_ORTHOLOGY_DROP/**min_ovlp_drop_ratio**/, ou_drop_rate, is_ou, 0/**is_trio**/, is_ou?1:0, min_diff, 1, rev, rI, NULL);
+        // hc_dbg_prt_ma_hit_t(NULL, 0, NULL, 0, "clen_d_5", NULL, rI, NULL, sg);
         asg_arc_cut_tips(sg, max_tip, &bu, is_ou, is_ou?rI:NULL, uopt->te);
+        // hc_dbg_prt_ma_hit_t(NULL, 0, NULL, 0, "clen_d_6", NULL, rI, NULL, sg);
 
         // print_debug_gfa(sg, NULL, uopt->coverage_cut, "UL.dirty7.debug", uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 1, 0, 0);
 
         asg_arc_identify_simple_bubbles_multi(sg, b_mask_t, 0);
         asg_arc_cut_length(sg, &bu, max_tip, min_ovlp_drop_ratio, ou_drop_rate, is_ou, 0/**is_trio**/, is_ou?1:0, min_diff, 1, rev, rI, &l_drop);
+        // hc_dbg_prt_ma_hit_t(NULL, 0, NULL, 0, "clen_d_7", NULL, rI, NULL, sg);
         asg_arc_cut_tips(sg, max_tip, &bu, is_ou, is_ou?rI:NULL, uopt->te);
+        // hc_dbg_prt_ma_hit_t(NULL, 0, NULL, 0, "clen_d_8", NULL, rI, NULL, sg);
     } else {
         min_diff = step_diff; l_drop = 6000;
         asg_arc_identify_simple_bubbles_multi(sg, b_mask_t, 0);
@@ -3184,6 +3355,7 @@ double ou_drop_rate, int64_t max_tip, int64_t gap_fuzz, bub_label_t *b_mask_t, i
     // print_debug_gfa(sg, NULL, uopt->coverage_cut, "UL.dirty8.debug", uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 1, 0, 0);
 
     if(!is_ou) asg_cut_semi_circ(sg, LIM_LEN, 1);
+    // hc_dbg_prt_ma_hit_t(NULL, 0, NULL, 0, "clen_d_9", NULL, rI, NULL, sg);
 
     // prt_specfic_sge(sg, 22708, 22646, "--sb-3---");
     /**
@@ -3198,10 +3370,12 @@ double ou_drop_rate, int64_t max_tip, int64_t gap_fuzz, bub_label_t *b_mask_t, i
     rescue_bubble_by_chain(sg, uopt->coverage_cut, src, rev, (asm_opt.max_short_tip*2), 0.15, 3, rI, 0.05, 0.9, uopt->max_hang, uopt->min_ovlp, 10, uopt->gap_fuzz, b_mask_t);
     **/
     post_rescue(uopt, sg, src, rev, rI, b_mask_t, is_ou, cmk);
+    // hc_dbg_prt_ma_hit_t(NULL, 0, NULL, 0, "clen_d_10", NULL, rI, NULL, sg);
 
     // prt_specfic_sge(sg, 22708, 22646, "--sb-4---");
     
     ug_ext_gfa(uopt, sg, ug_ext_len);
+    // hc_dbg_prt_ma_hit_t(NULL, 0, NULL, 0, "clen_d_11", NULL, rI, NULL, sg);
 
     // if(is_ou) dedup_contain_g(uopt, sg);
 

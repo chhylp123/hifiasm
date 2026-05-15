@@ -12,6 +12,11 @@
 KSEQ_INIT(gzFile, gzread)
 
 #define DEFAULT_OUTPUT "hifiasm.asm"
+#define RER_H_HiFi 0.06 
+#define RER_H_ONT 0.08 
+#define RER_N_HiFi 0.03 
+#define RER_N_ONT 0.05 
+#define MIN_R_COV 3
 
 hifiasm_opt_t asm_opt;
 
@@ -94,7 +99,14 @@ static ko_longopt_t long_options[] = {
     { "hyb-syn",     ko_required_argument, 376},
     { "simd-m",     ko_required_argument, 377},
     { "del-hf",     ko_no_argument, 378},
-    { "dbg-rr",     ko_required_argument, 379},
+    { "dbg-rr",     ko_required_argument, 379},///start from 0/1/2 step of correction
+    { "re-aln",     ko_required_argument, 380},
+    { "syn",     ko_required_argument, 381},
+    { "rec",     ko_required_argument, 382},
+    { "ref",     ko_required_argument, 383},
+    { "h_rec",     ko_required_argument, 384},
+    { "h_ref",     ko_required_argument, 385},
+    { "ret",     ko_no_argument, 386},
     // { "path-round",     ko_required_argument, 348},
 	{ 0, 0, 0 }
 };
@@ -105,6 +117,7 @@ double Get_T(void)
   gettimeofday(&t, NULL);
   return t.tv_sec+t.tv_usec/1000000.0;
 }
+
 
 void Print_H(hifiasm_opt_t* asm_opt)
 {
@@ -140,7 +153,34 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "                 discard overlaps supported by <INT minimizers [%ld]\n", asm_opt->chn_occ);
     fprintf(stderr, "    --ec-only    error correction only; disable overlapping and assembly\n");
     fprintf(stderr, "    --simd-m     use SIMD acceleration when supported: AVX-512 (2), AVX2 (1), or non-SIMD (0)\n");
+    fprintf(stderr, "    --re-aln     keep raw reads for error correction [%d]\n", asm_opt->realn_raw);
+    fprintf(stderr, "    --syn        rescue overlaps for error correction [%d]\n", asm_opt->post_syn);
+
+
     
+    fprintf(stderr, "  Recurrent sequencing-error filtering:\n");
+    fprintf(stderr, "    --ret        enable recurrent sequencing-error filtering; disabled by default\n");
+    fprintf(stderr, "                 thresholds are controlled by --rec/--ref and --h_rec/--h_ref\n");
+    fprintf(stderr, "                 --rec/--ref and --h_rec/--h_ref are ignored unless --ret is set\n");
+    fprintf(stderr, "    --rec        INT\n");
+    fprintf(stderr, "                 discard candidate variants supported by <INT reads [%ld]\n",
+                    asm_opt->recurrent_err_normal_min);
+    fprintf(stderr, "    --ref        FLOAT\n");
+    fprintf(stderr, "                 discard candidate variants supported by <FLOAT*coverage reads; -1 to disable\n");
+    fprintf(stderr, "                 coverage = min(local read coverage, homozygous coverage);\n");
+    fprintf(stderr, "                 default: %.3g for ONT, %.3g for HiFi\n",
+                    RER_N_ONT, RER_N_HiFi);
+
+    fprintf(stderr, "    --h_rec      INT\n");
+    fprintf(stderr, "                 discard candidate variants near homopolymers if supported by <INT reads [%ld]\n",
+                    asm_opt->recurrent_err_hpc_min);
+    fprintf(stderr, "    --h_ref      FLOAT\n");
+    fprintf(stderr, "                 discard candidate variants near homopolymers if supported by <FLOAT*coverage reads; -1 to disable\n");
+    fprintf(stderr, "                 coverage = min(local read coverage, homozygous coverage);\n");
+    fprintf(stderr, "                 default: %.3g for ONT, %.3g for HiFi\n",
+                    RER_H_ONT, RER_H_HiFi);
+
+
     fprintf(stderr, "  Assembly:\n");
     fprintf(stderr, "    -a INT       round of assembly cleaning [%d]\n", asm_opt->clean_round);
     fprintf(stderr, "    -m INT       pop bubbles of <INT in size in contig graphs [%lld]\n", asm_opt->large_pop_bubble_size);
@@ -365,8 +405,8 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->dp_e = 0.0025;
     asm_opt->hg_size = -1;
     asm_opt->kpt_rate = -1;
-    asm_opt->infor_cov = 3;
-    asm_opt->s_hap_cov = 3;
+    asm_opt->infor_cov = MIN_R_COV;
+    asm_opt->s_hap_cov = MIN_R_COV;
     asm_opt->ul_error_rate = 0.2/**0.15**/;
     asm_opt->ul_error_rate_low = 0.1;
     asm_opt->ul_error_rate_hpc = 0.2;
@@ -447,6 +487,22 @@ void init_opt(hifiasm_opt_t* asm_opt)
     asm_opt->del_hf = 0;
 
     asm_opt->dbg_ec_rr = -1;
+
+    asm_opt->realn_raw = 0;
+    asm_opt->post_syn = 1;
+
+    asm_opt->recurrent_err_normal_min = MIN_R_COV;
+    asm_opt->recurrent_err_normal_min_set = -1;
+    asm_opt->recurrent_err_normal_rat = RER_N_HiFi;
+    asm_opt->recurrent_err_normal_rat_set = -1;
+
+    asm_opt->recurrent_err_hpc_min = MIN_R_COV;
+    asm_opt->recurrent_err_hpc_min_set = -1;
+    asm_opt->recurrent_err_hpc_rat = RER_H_HiFi;
+    asm_opt->recurrent_err_hpc_rat_set = -1;
+
+    asm_opt->recurrent_err_test = 0;
+    
 }   
 
 void destory_enzyme(enzyme* f)
@@ -837,6 +893,26 @@ int check_option(hifiasm_opt_t* asm_opt)
         return 0;
     }
 
+    if((asm_opt->realn_raw != 0) && (asm_opt->realn_raw != 1)) {
+        fprintf(stderr, "[ERROR] [--re-aln] must be 0/1\n");
+        return 0;
+    }
+
+    if((asm_opt->post_syn != 0) && (asm_opt->post_syn != 1)) {
+        fprintf(stderr, "[ERROR] [--syn] must be 0/1\n");
+        return 0;
+    }
+
+    if(asm_opt->recurrent_err_normal_rat > 1.0) {
+        fprintf(stderr, "[ERROR] [--ref] must be >= 0 && <= 1.0; -1 to disable\n");
+        return 0;
+    }
+
+    if(asm_opt->recurrent_err_hpc_rat > 1.0) {
+        fprintf(stderr, "[ERROR] [--h_ref] must be >= 0 && <= 1.0; -1 to disable\n");
+        return 0;
+    }
+
     return 1;
 }
 
@@ -1126,6 +1202,24 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
             asm_opt->del_hf = 1;
         } else if (c == 379) {
             asm_opt->dbg_ec_rr = atoi(opt.arg);
+        } else if (c == 380) {
+            asm_opt->realn_raw = atoi(opt.arg);
+        } else if (c == 381) {
+            asm_opt->post_syn = atoi(opt.arg);
+        } else if (c == 382) {
+            asm_opt->recurrent_err_normal_min = atoi(opt.arg);
+            asm_opt->recurrent_err_normal_min_set = 1;
+        } else if (c == 383) {
+            asm_opt->recurrent_err_normal_rat = atof(opt.arg);
+            asm_opt->recurrent_err_normal_rat_set = 1;
+        } else if (c == 384) {
+            asm_opt->recurrent_err_hpc_min = atoi(opt.arg);
+            asm_opt->recurrent_err_hpc_min_set = 1;
+        } else if (c == 385) {
+            asm_opt->recurrent_err_hpc_rat = atof(opt.arg);
+            asm_opt->recurrent_err_hpc_rat_set = 1;
+        } else if (c == 386) {
+            asm_opt->recurrent_err_test = 1;
         } else if (c == 'l') {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
             asm_opt->purge_level_primary = asm_opt->purge_level_trio = atoi(opt.arg);
         }
@@ -1165,6 +1259,36 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
     // exit(1);
     if(!(asm_opt->is_ont)) {
         asm_opt->rl_cut = -1; asm_opt->sc_cut = 1;
+    }
+
+    if(asm_opt->recurrent_err_normal_min_set != 1) {
+        asm_opt->recurrent_err_normal_min = MIN_R_COV;
+    }
+    if(asm_opt->recurrent_err_normal_rat_set != 1) {
+        asm_opt->recurrent_err_normal_rat = ((asm_opt->is_ont)?(RER_N_ONT):(RER_N_HiFi));
+    }
+    if(asm_opt->recurrent_err_hpc_min_set != 1) {
+        asm_opt->recurrent_err_hpc_min = MIN_R_COV;
+    }
+    if(asm_opt->recurrent_err_hpc_rat_set != 1) {
+        asm_opt->recurrent_err_hpc_rat = ((asm_opt->is_ont)?(RER_H_ONT):(RER_H_HiFi));
+    }
+
+    if(asm_opt->recurrent_err_normal_min < 0) asm_opt->recurrent_err_normal_min = -1;
+    if(asm_opt->recurrent_err_normal_rat < 0) asm_opt->recurrent_err_normal_rat = -1;
+    if(asm_opt->recurrent_err_hpc_min < 0) asm_opt->recurrent_err_hpc_min = -1;
+    if(asm_opt->recurrent_err_hpc_rat < 0) asm_opt->recurrent_err_hpc_rat = -1;
+
+    if(asm_opt->recurrent_err_test == 0) {
+        asm_opt->recurrent_err_normal_min = -1;
+        asm_opt->recurrent_err_normal_min_set = -1;
+        asm_opt->recurrent_err_normal_rat = -1;
+        asm_opt->recurrent_err_normal_rat_set = -1;
+
+        asm_opt->recurrent_err_hpc_min = -1;
+        asm_opt->recurrent_err_hpc_min_set = -1;
+        asm_opt->recurrent_err_hpc_rat = -1;
+        asm_opt->recurrent_err_hpc_rat_set = -1;
     }
 
     return check_option(asm_opt);

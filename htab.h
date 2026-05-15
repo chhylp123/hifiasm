@@ -86,15 +86,15 @@ const ha_idxpos_t *ha_pt_get(const ha_pt_t *h, uint64_t hash, int *n);
 const ha_idxposl_t *ha_ptl_get(const ha_pt_t *h, uint64_t hash, int *n);
 const int ha_pt_cnt(const ha_pt_t *h, uint64_t hash);
 
-int write_pt_index(void *flt_tab, ha_pt_t *ha_idx, All_reads* r, hifiasm_opt_t* opt, char* file_name);
-int load_pt_index(void **r_flt_tab, ha_pt_t **r_ha_idx, All_reads* r, hifiasm_opt_t* opt, char* file_name);
+int write_pt_index(void *flt_tab, ha_pt_t *ha_idx, All_reads* r, hifiasm_opt_t* opt, char* file_name, uint8_t force_rpaf_load);
+int load_pt_index(void **r_flt_tab, ha_pt_t **r_ha_idx, All_reads* r, hifiasm_opt_t* opt, char* file_name, uint8_t force_rpaf_load);
 void refresh_pt_idx(void **flt_tab, ha_pt_t **ha_idx, All_reads *r, hifiasm_opt_t *opt, char *file_name, uint8_t is_w);
 int uidx_write(void *flt_tab, ha_pt_t *ha_idx, char* file_name, ma_ug_t *ug);
 int uidx_load(void **r_flt_tab, ha_pt_t **r_ha_idx, char* file_name, ma_ug_t *ug);
 int write_ct_index(void *ct_idx, char* file_name);
 int load_ct_index(void **ct_idx, char* file_name);
 int query_ct_index(void* ct_idx, uint64_t hash);
-uint64_t tmp_pt_pro(void **r_flt_tab, ha_pt_t **r_ha_idx, All_reads *r, cc_v* rcc, hifiasm_opt_t *opt, char *file_name, uint64_t rr, uint64_t tot_rr, uint64_t is_load);
+uint64_t tmp_pt_pro(void **r_flt_tab, ha_pt_t **r_ha_idx, All_reads *r, cc_v* rcc, hifiasm_opt_t *opt, char *file_name, uint64_t rr, uint64_t tot_rr, uint64_t is_load, uint8_t force_rpaf_load);
 
 ha_abuf_t *ha_abuf_init_buf(void *km);
 ha_abufl_t *ha_abufl_init_buf(void *km);

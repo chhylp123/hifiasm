@@ -178,6 +178,12 @@ typedef struct {
     int64_t min_sc, penalty, max_drop;
 } telo_end_pip_t;
 
+typedef struct {
+    ma_hit_t_alloc* src;
+    ma_hit_t_alloc* rec;
+    int64_t n_thread, n_a;
+} rclean_aux;
+
 ///this value has been updated at the first line of build_string_graph_without_clean
 long long min_thres;
 
@@ -187,6 +193,24 @@ int asg_pop_bubble_primary_trio(ma_ug_t *ug, uint64_t* i_max_dist, uint32_t posi
 kv_u_trans_t *get_utg_ovlp(ma_ug_t **ug, asg_t* read_g, ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, ma_sub_t* coverage_cut, 
 R_to_U* ruIndex, int max_hang, int min_ovlp, kvec_asg_arc_t_warp* new_rtg_edges, bub_label_t* b_mask_t, uint8_t* r_het);
 void delete_useless_nodes(ma_ug_t **ug);
+
+static void reset_ma_hit_t_0(void *data, long i, int tid) // callback for kt_for()
+{
+    rclean_aux *p = (rclean_aux *)data; uint64_t k;
+    for (k = 0; k < p->src[i].length; k++) {
+        p->src[i].buffer[k].del = 0;
+    }
+    for (k = 0; k < p->rec[i].length; k++) {
+        p->rec[i].buffer[k].del = 0;
+    }
+}
+
+void inital_ovlap(ma_hit_t_alloc *src, ma_hit_t_alloc *rec, int64_t n_a, int64_t n_thre)
+{
+    rclean_aux p; memset(&p, 0, sizeof(p));
+    p.n_thread = n_thre; p.src = src; p.rec = rec; p.n_a = n_a;
+    kt_for(p.n_thread, reset_ma_hit_t_0, &p, p.n_a);
+}
 
 static void mark_telo_ends(void *data, long i, int tid) // callback for kt_for()
 {
@@ -23758,7 +23782,7 @@ void write_all_data_to_disk(ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sou
 }
 
 int load_debug_graph(asg_t** sg, ma_hit_t_alloc** sources, ma_sub_t** coverage_cut, 
-char* output_file_name, ma_hit_t_alloc** reverse_sources, R_to_U* ruIndex, all_ul_t *ul_r_inf);
+char* output_file_name, ma_hit_t_alloc** reverse_sources, R_to_U* ruIndex, all_ul_t *ul_r_inf, uint8_t **cmk);
 int load_all_data_from_disk(ma_hit_t_alloc **sources, ma_hit_t_alloc **reverse_sources, char* output_file_name)
 {
 	char* gfa_name = (char*)malloc(strlen(output_file_name)+25);
@@ -23776,7 +23800,7 @@ int load_all_data_from_disk(ma_hit_t_alloc **sources, ma_hit_t_alloc **reverse_s
         }
     }
 
-    if((asm_opt.flag & HA_F_VERBOSE_GFA) && load_debug_graph(NULL, NULL, NULL, output_file_name, NULL, NULL, NULL)) {
+    if((asm_opt.flag & HA_F_VERBOSE_GFA) && load_debug_graph(NULL, NULL, NULL, output_file_name, NULL, NULL, NULL, NULL)) {
         (*sources) = NULL;
         (*reverse_sources) = NULL;
         free(gfa_name);
@@ -32191,6 +32215,42 @@ int load_coverage_cut(ma_sub_t** coverage_cut, char* read_file_name)
 }
 
 
+int write_cmk(uint8_t* cmk, char* read_file_name, uint64_t n_read)
+{
+    char* index_name = (char*)malloc(strlen(read_file_name)+15);
+    sprintf(index_name, "%s.bin", read_file_name);
+    FILE* fp = fopen(index_name, "w");
+    fwrite(&n_read, sizeof(n_read), 1, fp);
+    fwrite(cmk, sizeof((*(cmk))), n_read, fp);
+    free(index_name);    
+    fflush(fp);
+    fclose(fp);
+
+    return 1;
+}
+
+int load_cmk(uint8_t** cmk, char* read_file_name)
+{
+    char* index_name = (char*)malloc(strlen(read_file_name)+15);
+    sprintf(index_name, "%s.bin", read_file_name);
+    FILE* fp = fopen(index_name, "r");
+    if(!fp)
+    {
+        return 0;
+    }
+    int f_flag = 0;
+    uint64_t n_read;
+    f_flag += fread(&n_read, sizeof(n_read), 1, fp);
+    (*cmk) = (uint8_t*)malloc(sizeof((*(*(cmk))))*n_read);
+
+    fread((*cmk), sizeof((*((*cmk)))), n_read, fp);
+
+    free(index_name);    
+    fflush(fp);
+    fclose(fp);
+    return 1;
+}
+
 int write_coverage_cut(ma_sub_t* coverage_cut, char* read_file_name, uint64_t n_read)
 {
     char* index_name = (char*)malloc(strlen(read_file_name)+15);
@@ -32441,7 +32501,7 @@ int load_asg_t(asg_t **sg, char* read_file_name)
 }
 
 int write_debug_graph(asg_t *sg, ma_hit_t_alloc* sources, ma_sub_t* coverage_cut, 
-char* output_file_name, ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, all_ul_t *ul_r_inf)
+char* output_file_name, ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, all_ul_t *ul_r_inf, uint8_t *cmk)
 {
 
     char* gfa_name = (char*)malloc(strlen(output_file_name)+55);
@@ -32465,6 +32525,10 @@ char* output_file_name, ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, all_ul
         sprintf(gfa_name, "%s.all.debug.ul.rinfor", output_file_name);
         write_all_ul_t(ul_r_inf, gfa_name, NULL);
     }
+    if(cmk) {
+        sprintf(gfa_name, "%s.all.debug.cmk", output_file_name);
+        write_cmk(cmk, gfa_name, R_INF.total_reads);
+    }
     free(gfa_name);
     fprintf(stderr, "debug_graph has been written.\n");
     return 1;
@@ -32472,7 +32536,7 @@ char* output_file_name, ma_hit_t_alloc* reverse_sources, R_to_U* ruIndex, all_ul
 
 
 int load_debug_graph(asg_t** sg, ma_hit_t_alloc** sources, ma_sub_t** coverage_cut, 
-char* output_file_name, ma_hit_t_alloc** reverse_sources, R_to_U* ruIndex, all_ul_t *ul_r_inf)
+char* output_file_name, ma_hit_t_alloc** reverse_sources, R_to_U* ruIndex, all_ul_t *ul_r_inf, uint8_t **cmk)
 {
     FILE* fp = NULL;
     char* gfa_name = (char*)malloc(strlen(output_file_name)+55);
@@ -32492,6 +32556,11 @@ char* output_file_name, ma_hit_t_alloc** reverse_sources, R_to_U* ruIndex, all_u
     }
     if(ul_r_inf) {
         sprintf(gfa_name, "%s.all.debug.ul.rinfor.ul.ovlp.bin", output_file_name);
+        fp = fopen(gfa_name, "r"); if(!fp) return 0; fclose(fp);
+    }
+
+    if(cmk) {
+        sprintf(gfa_name, "%s.all.debug.cmk.bin", output_file_name);
         fp = fopen(gfa_name, "r"); if(!fp) return 0; fclose(fp);
     }
     
@@ -32565,6 +32634,11 @@ char* output_file_name, ma_hit_t_alloc** reverse_sources, R_to_U* ruIndex, all_u
     if(ul_r_inf) {
         sprintf(gfa_name, "%s.all.debug.ul.rinfor", output_file_name);
         if(!load_all_ul_t(ul_r_inf, gfa_name, &R_INF, NULL)) return 0;
+    }
+
+    if(cmk) {
+        sprintf(gfa_name, "%s.all.debug.cmk", output_file_name);
+        if(!load_cmk(cmk, gfa_name)) return 0;
     }
 
     R_INF.paf = (*sources); R_INF.reverse_paf = (*reverse_sources);
@@ -39767,19 +39841,24 @@ ma_hit_t_alloc* src, uint64_t* readLen, R_to_U* ruIndex, bub_label_t *b_mask_t, 
     // prt_dbg_rid_ovlp(src, -1, (char*)"c85c2e91-0490-438b-977b-b7d056973996", "2");
     ma_hit_sub(min_dp, src, n_read, readLen, mini_overlap_length, cov);
     // prt_dbg_rid_ovlp(src, -1, (char*)"c85c2e91-0490-438b-977b-b7d056973996", "3");
+    // hc_dbg_prt_ma_hit_t(NULL, 0, NULL, 0, "init_0", src, NULL, NULL, NULL);
     detect_chimeric_reads(src, n_read, readLen, *cov, asm_opt.max_ov_diff_final*2.0, ul, UL_COV_THRES);
     // prt_dbg_rid_ovlp(src, -1, (char*)"c85c2e91-0490-438b-977b-b7d056973996", "4");
+    // hc_dbg_prt_ma_hit_t(NULL, 0, NULL, 0, "init_1", src, NULL, *cov, NULL);
     ma_hit_cut(src, n_read, readLen, mini_overlap_length, cov);
     // prt_dbg_rid_ovlp(src, -1, (char*)"c85c2e91-0490-438b-977b-b7d056973996", "5");
     ma_hit_flt(src, n_read, *cov, max_hang_length, mini_overlap_length);
     // prt_dbg_rid_ovlp(src, -1, (char*)"c85c2e91-0490-438b-977b-b7d056973996", "6");
     ma_hit_contained_advance(src, n_read, *cov, ruIndex, max_hang_length, mini_overlap_length);
+    // hc_dbg_prt_ma_hit_t(NULL, 0, NULL, 0, "init_2", src, ruIndex, *cov, NULL);
     // prt_dbg_rid_ovlp(src, -1, (char*)"7b70a587-f56c-48ac-adf8-b98a67365063_2", "7");
 
     if(!ul) {
         sg = ma_sg_gen(src, n_read, *cov, max_hang_length, mini_overlap_length);
-        if(asm_opt.prt_dbg_gfa) prt_dbg_gfa(sg, "raw", *cov, src, ruIndex, max_hang_length, mini_overlap_length);        
+        if(asm_opt.prt_dbg_gfa) prt_dbg_gfa(sg, "raw", *cov, src, ruIndex, max_hang_length, mini_overlap_length);    
+        // hc_dbg_prt_ma_hit_t(NULL, 0, NULL, 0, "init_3", NULL, ruIndex, NULL, sg);    
         asg_arc_del_trans(sg, gap_fuzz);
+        // hc_dbg_prt_ma_hit_t(NULL, 0, NULL, 0, "init_4", NULL, ruIndex, NULL, sg);  
     } else {
         ug_opt_t uopt; 
         sg = ma_sg_gen_ul(src, n_read, *cov, ruIndex, max_hang_length, mini_overlap_length, UL_COV_THRES);
@@ -39871,6 +39950,17 @@ float min_ovlp_drop_ratio, float max_ovlp_drop_ratio, char* output_file_name,
 long long bubble_dist, int read_graph, R_to_U* ruIndex, asg_t **sg_ptr, 
 ma_sub_t **coverage_cut_ptr, uint8_t *cmk, int debug_g)
 {
+    // const char *dbg_ids[] = {
+    //     "6152e53b-a2ec-4f23-898f-462c9dee8e0f",
+    //     "c5bbf86e-3146-4757-9882-55a5baebf770",
+    // };
+    // const uint64_t dbg_ids_n[] = {
+    //     3177240,
+    //     2198541,
+    // };
+
+    // hc_dbg_prt_ma_hit_t(dbg_ids, sizeof(dbg_ids)/sizeof(dbg_ids[0]), dbg_ids_n, sizeof(dbg_ids_n)/sizeof(dbg_ids_n[0]), "test_0", sources, NULL, NULL, NULL);
+
     char *o_file = get_outfile_name(output_file_name);
 	ma_sub_t *coverage_cut = *coverage_cut_ptr;
 	asg_t *sg = *sg_ptr;
@@ -39894,8 +39984,10 @@ ma_sub_t **coverage_cut_ptr, uint8_t *cmk, int debug_g)
     ///normalize_ma_hit_t_single_side(sources, n_read);
 
     normalize_ma_hit_t_single_side_advance(sources, n_read, asm_opt.is_ont, cmk);
+    // hc_dbg_prt_ma_hit_t(dbg_ids, sizeof(dbg_ids)/sizeof(dbg_ids[0]), dbg_ids_n, sizeof(dbg_ids_n)/sizeof(dbg_ids_n[0]), "test_1", sources, NULL, NULL, NULL);
     // normalize_ma_hit_t_single_side_advance_mult(sources, n_read, asm_opt.thread_num);
     normalize_ma_hit_t_single_side_advance(reverse_sources, n_read, 0, cmk);
+    // hc_dbg_prt_ma_hit_t(dbg_ids, sizeof(dbg_ids)/sizeof(dbg_ids[0]), dbg_ids_n, sizeof(dbg_ids_n)/sizeof(dbg_ids_n[0]), "test_2", sources, NULL, NULL, NULL);
     // normalize_ma_hit_t_single_side_advance_mult(reverse_sources, n_read, asm_opt.thread_num);
 
     if (ha_opt_triobin(&asm_opt))
@@ -39925,6 +40017,21 @@ ma_sub_t **coverage_cut_ptr, uint8_t *cmk, int debug_g)
     // prt_dbg_rid_ovlp(sources, 27087, NULL, "0-b");
     // prt_specific_overlap(sources, 22233, 22235, "0-c");
     // prt_specific_overlap(sources, 22235, 22233, "0-c");
+
+
+
+    ///@brief debug
+    if (asm_opt.flag & HA_F_VERBOSE_GFA) {
+        write_debug_graph(sg, sources, coverage_cut, output_file_name, reverse_sources, ruIndex, &UL_INF, cmk);
+        debug_gfa:;
+    }
+
+
+    
+    // hc_dbg_prt_ma_hit_t(dbg_ids, sizeof(dbg_ids)/sizeof(dbg_ids[0]), dbg_ids_n, sizeof(dbg_ids_n)/sizeof(dbg_ids_n[0]), "ini_s", sources, NULL, NULL, NULL);
+    // hc_dbg_prt_ma_hit_t(dbg_ids, sizeof(dbg_ids)/sizeof(dbg_ids[0]), dbg_ids_n, sizeof(dbg_ids_n)/sizeof(dbg_ids_n[0]), "ini_r", reverse_sources, NULL, NULL, NULL);
+    // exit(1);
+
     sg = gen_init_sg(min_dp, n_read, mini_overlap_length, max_hang_length, gap_fuzz, sources, readLen, ruIndex, 
     &b_mask_t, &coverage_cut, asm_opt.ar?&UL_INF:NULL, te);
     // if(asm_opt.ar) exit(1);
@@ -39955,24 +40062,29 @@ ma_sub_t **coverage_cut_ptr, uint8_t *cmk, int debug_g)
         free(unlean_name);
     }
 
-
-    // if (asm_opt.flag & HA_F_VERBOSE_GFA) {
-    //     write_debug_graph(sg, sources, coverage_cut, output_file_name, reverse_sources, ruIndex, &UL_INF);
-    //     debug_gfa:;
-    // }
+    /**
+    ///@brief debug
+    if (asm_opt.flag & HA_F_VERBOSE_GFA) {
+        write_debug_graph(sg, sources, coverage_cut, output_file_name, reverse_sources, ruIndex, &UL_INF, cmk);
+        debug_gfa:;
+    }
+    **/
+    // hc_dbg_prt_ma_hit_t(NULL, 0, NULL, 0, "clen_z", sources, ruIndex, coverage_cut, sg);
     
     gen_ug_opt_t(&uopt, sources, reverse_sources, max_hang_length, mini_overlap_length, gap_fuzz, min_dp, readLen, coverage_cut, ruIndex, 
             (asm_opt.max_short_tip*2), 0.15, 3, 0.05, 0.9, &b_mask_t, te);
     ul_clean_gfa(&uopt, sg, sources, reverse_sources, ruIndex, clean_round, min_ovlp_drop_ratio, max_ovlp_drop_ratio, 
     0.6, asm_opt.max_short_tip, gap_fuzz, &b_mask_t, !!asm_opt.ar, ha_opt_triobin(&asm_opt), UL_COV_THRES, cmk, o_file);
+    /**
     ///@brief debug
     if (asm_opt.flag & HA_F_VERBOSE_GFA) {
-        write_debug_graph(sg, sources, coverage_cut, output_file_name, reverse_sources, ruIndex, &UL_INF);
+        write_debug_graph(sg, sources, coverage_cut, output_file_name, reverse_sources, ruIndex, &UL_INF, cmk);
         debug_gfa:;
         gen_ug_opt_t(&uopt, sources, reverse_sources, max_hang_length, mini_overlap_length, gap_fuzz, min_dp, readLen, coverage_cut, ruIndex, 
                 (asm_opt.max_short_tip*2), 0.15, 3, 0.05, 0.9, &b_mask_t, te);
         // set_hom_global_coverage(&asm_opt, sg, coverage_cut, sources, reverse_sources, ruIndex, max_hang_length, mini_overlap_length);
     }
+    **/
 
     if(asm_opt.ar) {
         gradually_renew_g(&sources, &reverse_sources, &n_read, &readLen, &coverage_cut, ruIndex, 
@@ -40229,7 +40341,7 @@ long long bubble_dist, int read_graph, int write)
     min_thres = asm_opt.max_short_tip + 1;
     if (asm_opt.flag & HA_F_VERBOSE_GFA)
     {
-        if(load_debug_graph(/**NULL**/&sg, &sources, /**NULL**/&coverage_cut, output_file_name, &reverse_sources, &ruIndex, &UL_INF))
+        if(load_debug_graph(NULL/**&sg**/, &sources, NULL/**&coverage_cut**/, output_file_name, &reverse_sources, &ruIndex, &UL_INF, (asm_opt.is_ont)?(&cmk):(NULL)))
         {
             fprintf(stderr, "debug gfa has been loaded\n");
             
@@ -40249,20 +40361,39 @@ long long bubble_dist, int read_graph, int write)
     }
     ///debug_info_of_specfic_read("m64011_190830_220126/31720629/ccs", sources, reverse_sources, -1, "beg");
 
+    // const char *dbg_ids[] = {
+    //     "6152e53b-a2ec-4f23-898f-462c9dee8e0f",
+    //     "c5bbf86e-3146-4757-9882-55a5baebf770",
+    // };
+    // const uint64_t dbg_ids_n[] = {
+    //     3177240,
+    //     2198541,
+    // };
+
+
     if (!(asm_opt.flag & HA_F_BAN_ASSEMBLY))
     {
         // if(asm_opt.is_ont) handle_chemical_r(asm_opt.thread_num, R_INF.total_reads);
         if(asm_opt.is_ont) {
-            uint64_t i = 0, j = 0;
+            // uint64_t i = 0, j = 0;
             memset(ruIndex.index, -1, sizeof(uint32_t)*(ruIndex.len));
-            for (i = 0; i < n_read; i++) {
-                for (j = 0; j < sources[i].length; j++) sources[i].buffer[j].del = 0;
-                for (j = 0; j < reverse_sources[i].length; j++) reverse_sources[i].buffer[j].del = 0;
-            }
+            inital_ovlap(sources, reverse_sources, n_read, asm_opt.thread_num);
+
+
+            // hc_dbg_prt_ma_hit_t(dbg_ids, sizeof(dbg_ids)/sizeof(dbg_ids[0]), dbg_ids_n, sizeof(dbg_ids_n)/sizeof(dbg_ids_n[0]), "ttst_0", sources, NULL, NULL, NULL);
+            // hc_dbg_prt_ma_hit_t(dbg_ids, sizeof(dbg_ids)/sizeof(dbg_ids[0]), dbg_ids_n, sizeof(dbg_ids_n)/sizeof(dbg_ids_n[0]), "trev_0", reverse_sources, NULL, NULL, NULL);
+
             if(asm_opt.is_ont) cmk = gen_chemical_arc_rf(asm_opt.thread_num, R_INF.total_reads);
+
+            // hc_dbg_prt_ma_hit_t(dbg_ids, sizeof(dbg_ids)/sizeof(dbg_ids[0]), dbg_ids_n, sizeof(dbg_ids_n)/sizeof(dbg_ids_n[0]), "ttst_1", sources, NULL, NULL, NULL);
+
             if(asm_opt.del_hf) clean_arc_rf(asm_opt.thread_num, R_INF.total_reads);
+
+            // hc_dbg_prt_ma_hit_t(dbg_ids, sizeof(dbg_ids)/sizeof(dbg_ids[0]), dbg_ids_n, sizeof(dbg_ids_n)/sizeof(dbg_ids_n[0]), "ttst_2", sources, NULL, NULL, NULL);
         }
         try_rescue_overlaps(sources, reverse_sources, n_read, 4, asm_opt.is_ont); 
+
+        // hc_dbg_prt_ma_hit_t(dbg_ids, sizeof(dbg_ids)/sizeof(dbg_ids[0]), dbg_ids_n, sizeof(dbg_ids_n)/sizeof(dbg_ids_n[0]), "ttst_3", sources, NULL, NULL, NULL);
         
         clean_graph(min_dp, sources, reverse_sources, n_read, readLen, mini_overlap_length, 
         max_hang_length, clean_round, gap_fuzz, min_ovlp_drop_ratio, max_ovlp_drop_ratio, 

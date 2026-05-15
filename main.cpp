@@ -87,6 +87,14 @@ int main(int argc, char *argv[])
 	
 	fprintf(stderr, "[M::%s::final] using %s mode\n", __func__, (asm_opt.simd_mm == 2) ? "AVX-512" : ((asm_opt.simd_mm == 1) ? "AVX2" : "non-SIMD"));
 
+	fprintf(stderr, "[M::%s::]\traw_aln::%d\tpost_syn::%d\n", __func__, asm_opt.realn_raw, asm_opt.post_syn);
+
+	if(asm_opt.recurrent_err_test) {
+		fprintf(stderr, "[M::%s::] Enable recurrent sequencing-error filtering\n", __func__);
+	} else {
+		fprintf(stderr, "[M::%s::] Disable recurrent sequencing-error filtering\n", __func__);
+	}
+
 
 	if(asm_opt.sec_in) ret = ha_assemble_pair();
 	else if(asm_opt.dbg_ovec_cal) ret = ha_ec_dbg();

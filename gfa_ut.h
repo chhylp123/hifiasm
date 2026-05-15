@@ -41,5 +41,6 @@ void ug_ext_gfa(ug_opt_t *uopt, asg_t *sg, uint32_t max_len);
 void update_sg_uo(asg_t *g, ma_hit_t_alloc *src);
 uint32_t get_arcs(asg_t *g, uint32_t v, uint32_t* idx, uint32_t idx_n);
 uint64_t ug_occ_w(uint64_t is, uint64_t ie, ma_utg_t *u);
+void hc_dbg_prt_ma_hit_t(const char *ids0[], uint64_t n0, const uint64_t iids0[], uint64_t ni0, const char* cmd, ma_hit_t_alloc *paf, R_to_U* ruIndex, ma_sub_t* cov, asg_t* g);
 
 #endif

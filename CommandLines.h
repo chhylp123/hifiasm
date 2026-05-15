@@ -5,7 +5,7 @@
 #include <pthread.h>
 #include <stdint.h>
 
-#define HA_VERSION "0.25.1-r920"
+#define HA_VERSION "0.25.1-r933"
 
 #define VERBOSE 0
 
@@ -206,6 +206,24 @@ typedef struct {
     int8_t del_hf;
 
     int64_t dbg_ec_rr;
+
+    int8_t realn_raw;
+    int8_t post_syn;
+
+    int64_t recurrent_err_normal_min;
+    int8_t recurrent_err_normal_min_set;
+
+    double recurrent_err_normal_rat;
+    int8_t recurrent_err_normal_rat_set;
+    
+    int64_t recurrent_err_hpc_min;
+    int8_t recurrent_err_hpc_min_set;
+
+    double recurrent_err_hpc_rat;
+    int8_t recurrent_err_hpc_rat_set;
+
+    int8_t recurrent_err_test;
+
 } hifiasm_opt_t;
 
 extern hifiasm_opt_t asm_opt;
