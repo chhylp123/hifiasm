@@ -26,6 +26,7 @@
 
 void p_ec_lchain(ha_abufl_t *ab, uint32_t rid, char* rs, uint64_t rl, uint64_t mz_w, uint64_t mz_k, ul_idx_t *uref, overlap_region_alloc *ol, Candidates_list *cl, double bw_thres, 
     int apend_be, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct, st_mt_t *sp, uint32_t *high_occ, uint32_t *low_occ, uint32_t is_accurate, uint32_t gen_off, int64_t mcopy_num, double mcopy_rate, uint32_t mcopy_khit_cut);
+void cp_anchor1_t_v(anchor1_t_v *z, ha_abuf_t *p, uint8_t p2z);
 
 typedef struct {
 	uint64_t fbs, faln;
@@ -4393,15 +4394,15 @@ void stderr_phase_ovlp(overlap_region_alloc* ol)
     int64_t on = ol->length, k; overlap_region *z;
     if(!on) return;
     uint64_t qry_n = 0, rid, ref_n, qid;
-    rid = ol->list[0].x_id; ref_n = Get_NAME_LENGTH(R_INF, rid);
+    rid = ol->list[0].x_id; ref_n = Get_READ_LENGTH(R_INF, rid);
     
     for (k = 0; k < on; k++) {
         z = &(ol->list[k]); qid = ol->list[k].y_id; 
-        qry_n = Get_NAME_LENGTH(R_INF, qid); 
+        qry_n = Get_READ_LENGTH(R_INF, qid); 
 
-        fprintf(stderr, "%.*s(qid::%lu)\tql::%lu\tq::[%u,\t%u)\t%c\t%.*s(tid::%lu)\ttl::%lu\tt::[%u,\t%u)\ttrans::%u\terr::%u\n", 
+        fprintf(stderr, "%.*s(qid::%lu)\tql::%lu\tq::[%u,\t%u)\t%c\t%.*s(tid::%lu)\ttl::%lu\tt::[%u,\t%u)\ttrans::%u\terr::%u\taln::%u\n", 
         (int32_t)Get_NAME_LENGTH(R_INF, rid), Get_NAME(R_INF, rid), rid, ref_n, z->x_pos_s, z->x_pos_e + 1, "+-"[z->y_pos_strand], 
-        (int32_t)Get_NAME_LENGTH(R_INF, qid), Get_NAME(R_INF, qid), qid, qry_n, z->y_pos_s, z->y_pos_e + 1, ((z->is_match==1)?(0):(1)), z->non_homopolymer_errors);
+        (int32_t)Get_NAME_LENGTH(R_INF, qid), Get_NAME(R_INF, qid), qid, qry_n, z->y_pos_s, z->y_pos_e + 1, ((z->is_match==1)?(0):(1)), z->non_homopolymer_errors, ((z->is_match==0)?(0):(1)));
     }
 }
 
@@ -4948,7 +4949,7 @@ static void worker_hap_ec(void *data, long i, int tid)
     // if(i != 3799659) return;
     // if(i !=3373007) return;
     // if(i != 508213) return;
-    // if(i != 3177240) return;
+    // if(i != 4088285) return;
     // if((i != 733166) && (i != 858708) && (i != 858732) && (i != 859819) && (i != 859899) && (i != 863486) && (i != 872165) && (i != 899887) && (i != 902298) && 
     //    (i != 906808) && (i != 946173) && (i != 952685) && (i != 983977) && (i != 1000227) && (i != 1011228) && (i != 1042858) && (i != 1045860) && (i != 1118558) && 
     //    (i != 1143886) && (i != 1155956) && (i != 1159490) && (i != 1179151) && (i != 1180199) && (i != 1230524) && (i != 1232338) && (i != 1244031) && (i != 1268467) && 
@@ -5106,6 +5107,7 @@ static void worker_hap_ec(void *data, long i, int tid)
 
     copy_asg_arr(buf0, b->sp); 
     //site_sc: r765 -> r766: 1 -> 0
+    /**rphase_hc_hpc**/
     rphase_hc(&b->olist, &R_INF, &b->hap, &b->self_read, &(scb.a[i]), &b->ovlp_read, &b->pidx, &b->v64, &buf0, 0, WINDOW_MAX_SIZE, b->self_read.length, 1/**, 0**/, i, (asm_opt.is_ont)?HPC_PL:0, asm_opt.is_ont, ((asm_opt.is_ont)?&(b->clist.chainDP):NULL), ((asm_opt.is_sc)?&(b->v8q):NULL), ((asm_opt.is_sc)?&(b->v8t):NULL)/**&(b->v8t)**/, (asm_opt.is_ont)?1:0, ((uint64_t)-1), 0, HC0_W, &b->v32,
     asm_opt.s_hap_cov, asm_opt.infor_cov, het_a, hom_a, asm_opt.polyploidy, -1.0, rcc, rl0, ((asm_opt.post_syn)?(5):(INT64_MAX)), 
     asm_opt.recurrent_err_normal_min, asm_opt.recurrent_err_normal_rat, asm_opt.recurrent_err_hpc_min, asm_opt.recurrent_err_hpc_rat, asm_opt.recurrent_err_test);
@@ -6049,7 +6051,7 @@ static void select_sync_ovlp(void *data, long i, int tid)
 static void worker_hap_ec_hybrid(void *data, long i, int tid)
 {
 	ec_ovec_buf_t0 *b = &(((ec_ovec_buf_t*)data)->a[tid]);
-    uint32_t high_occ = asm_opt.hom_cov * (2.0 - HA_KMER_GOOD_RATIO); int64_t het_a, hom_a;
+    uint32_t high_occ = asm_opt.hom_cov * (2.0 - HA_KMER_GOOD_RATIO); int64_t het_a, hom_a; ///anchor1_t_v hchn;
     uint32_t low_occ = asm_opt.hom_cov * HA_KMER_GOOD_RATIO; double bw_h, bw_l, e_h, e_l; int64_t rl0 = -1;
     gen_hc_aln_t ez; overlap_region *aux_o = NULL, *rse_o = NULL, *rcc = NULL; asg64_v buf0, buf1; uint64_t qlen = 0, qw = 0, qid = i; //uint64_t sk[2], ek[2], fn, qid = i, nec;
     if(qid < R_INF.tqn) {///ont
@@ -6067,10 +6069,13 @@ static void worker_hap_ec_hybrid(void *data, long i, int tid)
     // if(i != 3646295) return;
     // if(i != 3373007) return;
     // if(i != 508213) return;
-    // if(i != 3177240) return;
+    // if(i != 508213) return;
+    // if(i != 641038) return;
+    // if(i != 2643471) return;
+    // if(i != 717328) return;
     // e_h = e_l = 0.1;///this is for debug
 
-    // if(i != 10) return;
+    // if(i != 64) return;
 
     // if((i%16) != 0) return;
     // if(i != 11206) return;
@@ -6156,6 +6161,13 @@ static void worker_hap_ec_hybrid(void *data, long i, int tid)
 
     ///for debug indel
     // prt_ovlp_sam(&b->olist, &b->ovlp_read, b->self_read.seq, b->self_read.length);
+    /**
+    cp_anchor1_t_v(&hchn, b->ab, 1);
+    fflat_lhpc_chn(&b->olist, i, &R_INF, aux_o, &b->self_read, &b->ovlp_read, &b->pidx, &b->v64, &buf0, &b->clist, 5, 4, &hchn, bw_h);
+    cp_anchor1_t_v(&hchn, b->ab, 0);
+    **/
+
+    
 
     if(scb.a[i].n && asm_opt.realn_raw) {
         regen_scb(b->ab, &b->clist, i, &(scb.a[i]), &b->self_read, &b->ovlp_read, &b->v64, asm_opt.mz_win, asm_opt.k_mer_length, NULL, NULL, &(b->sp), &high_occ, &low_occ, 
@@ -6163,6 +6175,7 @@ static void worker_hap_ec_hybrid(void *data, long i, int tid)
     }
 
     copy_asg_arr(buf0, b->sp); 
+    /**rphase_hc_hpc**/
     rphase_hc(&b->olist, &R_INF, &b->hap, &b->self_read, &(scb.a[i]), &b->ovlp_read, &b->pidx, &b->v64, &buf0, 0, WINDOW_MAX_SIZE, b->self_read.length, 1/**, 0**/, i, (asm_opt.is_ont)?HPC_PL:0, asm_opt.is_ont, ((asm_opt.is_ont)?&(b->clist.chainDP):NULL), /**((asm_opt.is_sc)?&(b->v8q):NULL)**/&(b->v8q), ((asm_opt.is_sc)?&(b->v8t):NULL), (asm_opt.is_ont)?1:0, R_INF.tqn, 0/**1**/, HC0_W, &b->v32,
     asm_opt.s_hap_cov, asm_opt.infor_cov, het_a, hom_a, asm_opt.polyploidy, (((double)R_INF.tr[1])/((double)(R_INF.tr[0] + R_INF.tr[1]))), rcc, rl0, ((asm_opt.post_syn)?(5):(INT64_MAX)), 
     asm_opt.recurrent_err_normal_min, asm_opt.recurrent_err_normal_rat, asm_opt.recurrent_err_hpc_min, asm_opt.recurrent_err_hpc_rat, asm_opt.recurrent_err_test);
@@ -6174,6 +6187,12 @@ static void worker_hap_ec_hybrid(void *data, long i, int tid)
     dedup_chains(&b->olist);
 
     copy_asg_arr(buf0, b->sp); copy_asg_arr(buf1, b->hap.snp_srt);
+    /**
+    int64_t ncc = wcns_gen(&b->olist, &R_INF, i, &b->self_read, &b->ovlp_read, &b->exz, &b->pidx, &b->v64, &buf0, 0, 512, b->self_read.length, 3, 0.500001, aux_o, &b->v32, &b->cns, 256, i, R_INF.tqn, 
+        R_INF.tr[0], R_INF.tr[1], asm_opt.ont_rate, asm_opt.hf_rate, asm_opt.hf_rate_max, &buf1, ((asm_opt.post_syn)?(0):(1)));
+    b->cnt[1] += ncc;
+    fprintf(stderr, "id::%ld\tncc::%ld\n", (int64_t)i, ncc);
+    **/
     b->cnt[1] += wcns_gen(&b->olist, &R_INF, i, &b->self_read, &b->ovlp_read, &b->exz, &b->pidx, &b->v64, &buf0, 0, 512, b->self_read.length, 3, 0.500001, aux_o, &b->v32, &b->cns, 256, i, R_INF.tqn, 
         R_INF.tr[0], R_INF.tr[1], asm_opt.ont_rate, asm_opt.hf_rate, asm_opt.hf_rate_max, &buf1, ((asm_opt.post_syn)?(0):(1)));
     copy_asg_arr(b->sp, buf0); copy_asg_arr(b->hap.snp_srt, buf1);

@@ -39951,12 +39951,14 @@ long long bubble_dist, int read_graph, R_to_U* ruIndex, asg_t **sg_ptr,
 ma_sub_t **coverage_cut_ptr, uint8_t *cmk, int debug_g)
 {
     // const char *dbg_ids[] = {
-    //     "6152e53b-a2ec-4f23-898f-462c9dee8e0f",
-    //     "c5bbf86e-3146-4757-9882-55a5baebf770",
+    //     "19af141e-d049-4229-a8b4-58aab021cca1",
+    //     "fb9370c5-2932-468c-a431-c141ca2d3787",
+    //     "e36a655f-984d-4f1d-8092-4404a7f99313",
     // };
     // const uint64_t dbg_ids_n[] = {
-    //     3177240,
-    //     2198541,
+    //     3163025,
+    //     3727972,
+    //     3567631
     // };
 
     // hc_dbg_prt_ma_hit_t(dbg_ids, sizeof(dbg_ids)/sizeof(dbg_ids[0]), dbg_ids_n, sizeof(dbg_ids_n)/sizeof(dbg_ids_n[0]), "test_0", sources, NULL, NULL, NULL);
@@ -40069,12 +40071,13 @@ ma_sub_t **coverage_cut_ptr, uint8_t *cmk, int debug_g)
         debug_gfa:;
     }
     **/
-    // hc_dbg_prt_ma_hit_t(NULL, 0, NULL, 0, "clen_z", sources, ruIndex, coverage_cut, sg);
+    // hc_dbg_prt_ma_hit_t(dbg_ids, sizeof(dbg_ids)/sizeof(dbg_ids[0]), dbg_ids_n, sizeof(dbg_ids_n)/sizeof(dbg_ids_n[0]), "clen_z", sources, ruIndex, coverage_cut, sg);
     
     gen_ug_opt_t(&uopt, sources, reverse_sources, max_hang_length, mini_overlap_length, gap_fuzz, min_dp, readLen, coverage_cut, ruIndex, 
             (asm_opt.max_short_tip*2), 0.15, 3, 0.05, 0.9, &b_mask_t, te);
     ul_clean_gfa(&uopt, sg, sources, reverse_sources, ruIndex, clean_round, min_ovlp_drop_ratio, max_ovlp_drop_ratio, 
     0.6, asm_opt.max_short_tip, gap_fuzz, &b_mask_t, !!asm_opt.ar, ha_opt_triobin(&asm_opt), UL_COV_THRES, cmk, o_file);
+    // exit(1);
     /**
     ///@brief debug
     if (asm_opt.flag & HA_F_VERBOSE_GFA) {

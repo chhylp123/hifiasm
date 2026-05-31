@@ -449,13 +449,16 @@ void hc_dbg_prt_ma_hit_t(const char *ids0[], uint64_t n0, const uint64_t iids0[]
 
         ///"21b83ce9-9b94-445d-93b0-b9e83aaa4326",///tip3
         
-        "6f240062-2451-4212-a22d-abecc73ae0d9",///tip4->63a321ea-1103-4ca5-97e1-531e55f6bc84(qn::3646295) 
+        // "6f240062-2451-4212-a22d-abecc73ae0d9",///tip4->63a321ea-1103-4ca5-97e1-531e55f6bc84(qn::3646295) 
         ///phasing error -> ONT specific bias && HPC intoduce fake SNPs && the DP was to nice for the following SNPs, which we need to fix as high-sequencing depth we have more such cases
         // +[M::gen_rphase_dp0_single_path_hybrid_0_multi] rn::2   hf_only::0
         // +[M::gen_rphase_dp0_single_path_hybrid_0_multi] site::175009    sc::2   n0::57  n1::3   rn::2   krn::2  b0l::16 b0h::41 b1l::0  b1h::3
         // +[M::gen_rphase_dp0_single_path_hybrid_0_multi] site::82558     sc::-1  n0::80  n1::4   rn::2   krn::2  b0l::4  b0h::76 b1l::2  b1h::2
 
-        "a72d3f7f-d74f-48ab-a3f7-5ecc74ad08ff",///tip5, contained read issue
+        // "a72d3f7f-d74f-48ab-a3f7-5ecc74ad08ff",///tip5, contained read issue
+        "19af141e-d049-4229-a8b4-58aab021cca1",
+        "fb9370c5-2932-468c-a431-c141ca2d3787",
+        "e36a655f-984d-4f1d-8092-4404a7f99313",
     };
     if(ids0) {
         ids = ids0; n = n0;
@@ -468,8 +471,11 @@ void hc_dbg_prt_ma_hit_t(const char *ids0[], uint64_t n0, const uint64_t iids0[]
         ///3799659,///tip 1, contained read issue
         ///3313150,///tip 2, contained read issue
         ///4192664,///tip3, contained read issue
-        508213,///tip4
-        3203512,///tip5
+        // 508213,///tip4
+        // 3203512,///tip5
+        3163025,
+        3727972,
+        3567631
         };
     if(iids0) {
         iids = iids0; ni = ni0;
@@ -3183,6 +3189,20 @@ double ou_drop_rate, int64_t max_tip, int64_t gap_fuzz, bub_label_t *b_mask_t, i
     double drop = min_ovlp_drop_ratio;
     int64_t i; asg64_v bu = {0,0,0}, ba = {0,0,0}; uint32_t l_drop = 2000; flex_asg_t *fg = NULL; uint32_t min_diff = 0, step_diff = 2000;
     if(is_ou) fg = init_flex_asg_t(sg, uopt->sources, uopt->min_ovlp, uopt->max_hang, asm_opt.max_hang_rate, gap_fuzz);
+
+    /**
+    const char *dbg_ids[] = {
+        "19af141e-d049-4229-a8b4-58aab021cca1",
+        "fb9370c5-2932-468c-a431-c141ca2d3787",
+        "e36a655f-984d-4f1d-8092-4404a7f99313",
+    };
+    const uint64_t dbg_ids_n[] = {
+        3163025,
+        3727972,
+        3567631
+    };
+    **/
+
     // prt_specfic_sge(sg, 22708, 22646, "--sa--");
     // if(is_ou) update_sg_uo(sg, src);///do not do it here
     // print_debug_gfa(sg, NULL, uopt->coverage_cut, "UL.dirty.debug", uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 1, 0, 0);
@@ -3231,9 +3251,15 @@ double ou_drop_rate, int64_t max_tip, int64_t gap_fuzz, bub_label_t *b_mask_t, i
         // stats_chimeric(sg, src, &bu);
         if(!is_ou) asg_iterative_semi_circ(sg, src, &bu, max_tip, 1, uopt->te);///p_telo
         // hc_dbg_prt_ma_hit_t(NULL, 0, NULL, 0, "clen_c_3", NULL, rI, NULL, sg);
-        asg_arc_identify_simple_bubbles_multi(sg, b_mask_t, 1);
-        asg_arc_cut_chimeric(sg, src, &bu, is_ou?ou_thres:(uint32_t)-1, uopt->te);///p_telo
-        // hc_dbg_prt_ma_hit_t(NULL, 0, NULL, 0, "clen_c_4", NULL, rI, NULL, sg);
+        // if(i == 0) {
+        //     print_debug_gfa(sg, NULL, uopt->coverage_cut, "UL.dirty3.debug", uopt->sources, uopt->ruIndex, uopt->max_hang, uopt->min_ovlp, 1, 0, 0);
+        //     exit(1);
+        // }
+        if(!(asm_opt.is_ont)) {
+            asg_arc_identify_simple_bubbles_multi(sg, b_mask_t, 1);
+            asg_arc_cut_chimeric(sg, src, &bu, is_ou?ou_thres:(uint32_t)-1, uopt->te);///p_telo
+            // hc_dbg_prt_ma_hit_t(NULL, 0, NULL, 0, "clen_c_4", NULL, rI, NULL, sg);
+        }
 
         asg_arc_cut_tips(sg, max_tip, &bu, is_ou, is_ou?rI:NULL, uopt->te);
         // hc_dbg_prt_ma_hit_t(NULL, 0, NULL, 0, "clen_c_5", NULL, rI, NULL, sg);

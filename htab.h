@@ -5,6 +5,15 @@
 #include "Process_Read.h"
 #include "CommandLines.h"
 
+typedef struct { // this struct is not strictly necessary; we can use k_mer_pos instead, with modifications
+	uint64_t srt;
+	uint32_t self_off;
+	uint32_t other_off;
+	uint32_t cnt;
+} anchor1_t;
+
+typedef struct {uint32_t n, m; anchor1_t *a;} anchor1_t_v;
+
 typedef struct {
 	size_t n, m;
 	uint64_t *a;

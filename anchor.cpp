@@ -13,13 +13,6 @@
 #define CH_OCC 4
 #define CH_SC 16
 
-typedef struct { // this struct is not strictly necessary; we can use k_mer_pos instead, with modifications
-	uint64_t srt;
-	uint32_t self_off;
-	uint32_t other_off;
-	uint32_t cnt;
-} anchor1_t;
-
 #define an_key1(a) ((a).srt)
 #define an_key2(a) ((a).self_off)
 #define an_key3(a) ((a).other_off)
@@ -82,6 +75,24 @@ uint64_t sf##_mem(const HType *ab){\
 
 HA_ABUF_INIT(ha_abuf_s, ha_mz1_t, seed1_t, ha_abuf)
 HA_ABUF_INIT(ha_abufl_s, ha_mzl_t, seedl_t, ha_abufl)
+
+void cp_anchor1_t_v(anchor1_t_v *z, ha_abuf_t *p, uint8_t p2z)
+{
+	if(p2z) {
+		z->a = p->a; z->n = p->n_a; z->m = p->m_a;
+	} else {
+		p->a = z->a; p->n_a = z->n; p->m_a = z->m;
+	}
+}
+
+void srt_radix_sort_ha_an1(anchor1_t *a, uint64_t a_n, uint8_t is_other_offset)
+{
+	if(!is_other_offset) {
+		radix_sort_ha_an1(a, a + a_n);
+	} else {
+		radix_sort_ha_an3(a, a + a_n);
+	}
+}
 
 int ha_ov_type(const overlap_region *r, uint32_t len)
 {
@@ -4141,12 +4152,12 @@ void gen_self_global_chain(ha_abuf_t *ab, Candidates_list *cl, uint32_t rid, uin
 	mz1_ha_sketch(ts, tl, mz_w, mz_k, 0, !(asm_opt.flag & HA_F_NO_HPC), &ab->mz, ha_flt_tab, asm_opt.mz_sample_dist, k_flag, dbg_ct, NULL, -1, asm_opt.dp_min_len, -1, sp, asm_opt.mz_rewin, 0, NULL);
 
 	kv_resize(uint64_t, *ix, ab->mz.n);
-	for (k = 0; k < rn; k++) {
+	for (k = 0; k < rn; k++) {///minimizers of q
 		ix->a[k] = ab->mz.a[k].x; 
 		ix->a[k] <<= 32; ix->a[k] |= k;
 	}
 
-	for (; k < ab->mz.n; k++) {
+	for (; k < ab->mz.n; k++) {///minimizers of t
 		ix->a[k] = ab->mz.a[k].x; 
 		ix->a[k] <<= 32; ix->a[k] |= (k-rn);
 	}

@@ -1459,6 +1459,8 @@ uint64_t gen_hc_r_alin_re(overlap_region* z, Candidates_list *cl, char* qstr, ui
 uint64_t gen_hc_r_alin_self(overlap_region* z, Candidates_list *cl, char* qstr, uint64_t ql, char* tstr, uint64_t tl, bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t wl, int64_t rid, int64_t khit, int64_t move_gap, asg16_v* buf, asg16_v* scc);
 void rphase_hc(overlap_region_alloc* ol, All_reads *rref, haplotype_evdience_alloc* hp, UC_Read* qu, asg16_v *qc0, UC_Read* tu, kv_ul_ov_t *c_idx, asg64_v* idx, asg64_v* buf, int64_t bd, int64_t wl, int64_t ql, uint8_t occ_thres/**, uint8_t is_dbg**/, uint64_t rid, uint64_t hpc_len, uint64_t std_bs, Chain_Data *dp, asg8_v *q8, asg8_v *t8, uint8_t lindel, uint64_t tcut, uint64_t site_sc, int64_t h0_w, asg32_v *b32, 
     int64_t hap_cov_match, int64_t hap_cov_unmatch, int64_t het_cov_a, int64_t hom_cov_a, int64_t n_hap, double hf_rate, overlap_region *rchn, int64_t rref_len, int64_t flag_hf_ov_cut, int64_t min_re_cut, double min_re_rt, int64_t min_hpc_re_cut, double min_hpc_re_rt, int8_t is_hpc_flt);
+void rphase_hc_hpc(overlap_region_alloc* ol, All_reads *rref, haplotype_evdience_alloc* hp, UC_Read* qu, asg16_v *qc0, UC_Read* tu, kv_ul_ov_t *c_idx, asg64_v* idx, asg64_v* buf, int64_t bd, int64_t wl, int64_t ql, uint8_t occ_thres/**, uint8_t is_dbg**/, uint64_t rid, uint64_t hpc_len, uint64_t std_bs, Chain_Data *dp, asg8_v *q8, asg8_v *t8, uint8_t lindel, uint64_t tcut, uint64_t site_sc, int64_t h0_w, asg32_v *b32, 
+    int64_t hap_cov_match, int64_t hap_cov_unmatch, int64_t het_cov_a, int64_t hom_cov_a, int64_t n_hap, double hf_rate, overlap_region *rchn, int64_t rref_len, int64_t flag_hf_ov_cut, int64_t min_re_cut, double min_re_rt, int64_t min_hpc_re_cut, double min_hpc_re_rt, int8_t is_hpc_flt);
 void set_exact_exz(bit_extz_t *exz, int64_t qs, int64_t qe, int64_t ts, int64_t te);
 void push_alnw(overlap_region *aux_o, bit_extz_t *exz);
 void cal_exz_global(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t thre, bit_extz_t *ez);
@@ -1472,6 +1474,9 @@ inline uint64_t exact_ec_check(char *qstr, uint64_t ql, char *tstr, uint64_t tl,
 }
 // void est_rep_err_rate(overlap_region_alloc* ol, asg64_v *ix, kv_ul_ov_t *c_idx, int64_t ql, int64_t wl, uint64_t *ou_a, uint64_t min_dp, int64_t ph_cov, uint8_t flg_ov, double flg_ov_sec_rate, double flg_cov_rate, uint64_t *ave_e, uint64_t *bd_e, uint64_t *tot_cov);
 void est_rep_err_rate(overlap_region_alloc* ol, asg64_v *ix, kv_ul_ov_t *c_idx, int64_t ql, int64_t wl, uint64_t *ou_a, uint64_t min_dp, int64_t ph_cov, uint8_t flg_ov, double flg_ov_sec_rate, double flg_cov_rate, uint64_t *ave_e, uint64_t *bd_e, uint64_t *tot_cov);
+// void fflat_lhpc_chn(overlap_region_alloc* ol, All_reads *rref, overlap_region *aux, UC_Read* qu, UC_Read* tu, kv_ul_ov_t *c_idx, asg64_v* idx, asg64_v* buf, Candidates_list *cl, int64_t hpc_rmax, int64_t hpc_cutoff, anchor1_t_v *hchn);
+void fflat_lhpc_chn(overlap_region_alloc* ol, int64_t qid, All_reads *rref, overlap_region *aux, UC_Read* qu, UC_Read* tu, kv_ul_ov_t *c_idx, asg64_v* idx, asg64_v* buf, Candidates_list *cl, int64_t hpc_rmax, int64_t hpc_cutoff, anchor1_t_v *hchn, double bw_rate);
+
 #define ovlp_id(x) ((x).tn)
 #define ovlp_min_wid(x) ((x).ts)
 #define ovlp_max_wid(x) ((x).te)
