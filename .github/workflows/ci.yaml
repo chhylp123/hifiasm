@@ -1,21 +1,101 @@
 name: CI
 
+# Build hifiasm across x86 and ARM64 targets (Linux + macOS) and run a small
+# assembly smoke test. Proves the native ARM64/NEON (SIMDe) support builds and
+# runs, and that the x86_64 and aarch64 builds produce an identical graph.
+
 on:
   push:
-    branches:
-    - master
+    branches: [ master, arm64-neon-simde ]
   pull_request:
+  workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    name: build (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
-        compiler: [gcc]
-
+        include:
+          - { name: linux-x86_64,  os: ubuntu-latest }
+          - { name: linux-aarch64, os: ubuntu-24.04-arm }
+          - { name: macos-x86_64,  os: macos-13 }
+          - { name: macos-arm64,   os: macos-14 }
     steps:
-    - name: Checkout minimap2
-      uses: actions/checkout@v2
+      - uses: actions/checkout@v4
 
-    - name: Compile with ${{ matrix.compiler }}
-      run:  make CC=${{ matrix.compiler }}
+      - name: Install zlib (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y zlib1g-dev
+
+      - name: Toolchain / arch
+        run: |
+          uname -m
+          g++ --version | head -1
+
+      - name: make
+        run: make -j2
+
+      - name: Binary runs
+        run: ./hifiasm --version
+
+  smoke:
+    name: smoke assembly (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-x86_64,  os: ubuntu-latest }
+          - { name: linux-aarch64, os: ubuntu-24.04-arm }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install zlib
+        run: sudo apt-get update && sudo apt-get install -y zlib1g-dev
+
+      - name: make
+        run: make -j2
+
+      - name: Generate deterministic synthetic HiFi reads
+        run: python3 test/gen_hifi_reads.py reads.fq.gz
+
+      # -f0 disables the 16 GiB default bloom filter (irrelevant for a tiny
+      # input) so the job fits in a standard runner's RAM.
+      - name: Assemble
+        run: ./hifiasm -o test -t2 -f0 reads.fq.gz 2> hifiasm.log
+
+      - name: A non-empty primary-contig GFA was produced
+        run: |
+          ls -l test.bp.p_ctg.gfa
+          test -s test.bp.p_ctg.gfa
+          echo "segments: $(grep -c '^S' test.bp.p_ctg.gfa)"
+
+      - name: Normalize graph for cross-arch comparison
+        run: LC_ALL=C sort test.bp.p_ctg.gfa > graph.sorted.gfa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: graph-${{ matrix.name }}
+          path: graph.sorted.gfa
+
+  determinism:
+    name: cross-arch graph determinism (x86_64 vs aarch64)
+    needs: smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: artifacts }
+      - name: Graphs must be byte-identical across architectures
+        run: |
+          x=artifacts/graph-linux-x86_64/graph.sorted.gfa
+          a=artifacts/graph-linux-aarch64/graph.sorted.gfa
+          ls -l "$x" "$a"
+          if diff -q "$x" "$a"; then
+            echo "OK: x86_64 and aarch64 assembly graphs are identical."
+          else
+            echo "MISMATCH between x86_64 and aarch64 graphs:"
+            diff "$x" "$a" | head -40
+            exit 1
+          fi
