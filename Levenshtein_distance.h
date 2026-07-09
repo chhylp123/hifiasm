@@ -3,10 +3,24 @@
 
 #define __STDC_LIMIT_MACROS
 #include <stdint.h>
-#include "emmintrin.h"
-#include "nmmintrin.h"
-#include "smmintrin.h"
-#include <immintrin.h>
+#if defined(__aarch64__) || defined(__arm__)
+/* ARM/NEON: translate the x86 SSE/AVX intrinsics used below via SIMDe.
+ * sse4.2.h covers emmintrin/nmmintrin/smmintrin; avx2.h covers <immintrin.h>. */
+#  define SIMDE_ENABLE_NATIVE_ALIASES
+#  include "simde/x86/sse4.2.h"
+#  include "simde/x86/avx2.h"
+/* GCC's x86 _mm_srli_epi32 tolerates a runtime (non-constant) shift count and
+ * emits the register-count psrld. SIMDe/NEON maps _mm_srli_epi32 to vshrq_n_u32,
+ * whose count must be a compile-time constant. Route the two variable-count uses
+ * below through the variable-count shift instead; result is identical. */
+#  define HA_SRLI_EPI32_VAR(a, i) simde_mm_srl_epi32((a), simde_mm_cvtsi32_si128((int)(i)))
+#else
+#  include "emmintrin.h"
+#  include "nmmintrin.h"
+#  include "smmintrin.h"
+#  include <immintrin.h>
+#  define HA_SRLI_EPI32_VAR(a, i) _mm_srli_epi32((a), (i))
+#endif
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -4708,12 +4722,12 @@ inline int Reserve_Banded_BPM_4_SSE_only(char *pattern1, char *pattern2, char *p
 	while (i < available_i)
 	{
 		///err = err + ((VP >> i)&(Word_32)1);
-		tmp_process = _mm_srli_epi32(VP, i);
+		tmp_process = HA_SRLI_EPI32_VAR(VP, i);
 		tmp_process = _mm_and_si128(tmp_process, err_mask);
 		Err_4 = _mm_add_epi32(Err_4, tmp_process);
 
 		///err = err - ((VN >> i)&(Word_32)1);
-		tmp_process1 = _mm_srli_epi32(VN, i);
+		tmp_process1 = HA_SRLI_EPI32_VAR(VN, i);
 		tmp_process1 = _mm_and_si128(tmp_process1, err_mask);
 		Err_4 = _mm_sub_epi32(Err_4, tmp_process1);
 		++i;
