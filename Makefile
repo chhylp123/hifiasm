@@ -1,9 +1,21 @@
 CXX=		g++
 CC=			gcc
-CXXFLAGS=	-g -O3 -msse4.2 -mpopcnt -fomit-frame-pointer -Wall
+CXXFLAGS=	-g -O3 $(ARCH_FLAGS) -fomit-frame-pointer -Wall
 CFLAGS=		$(CXXFLAGS)
 CPPFLAGS=
-INCLUDES=
+
+# --- Target architecture detection (ARM64/NEON via SIMDe vs x86 SSE) ---
+# Override ARCH_FLAGS to tune (e.g. make ARCH_FLAGS="-mcpu=neoverse-v2") or set
+# ARCH explicitly for cross builds (e.g. make ARCH=aarch64).
+ARCH ?= $(shell uname -m)
+ifneq ($(filter aarch64 arm64,$(ARCH)),)
+  # aarch64 / Apple Silicon: NEON is baseline; -msse4.2/-mpopcnt are invalid here.
+  ARCH_FLAGS ?= -march=armv8-a+simd
+  INCLUDES = -Ithird_party/simde
+else
+  ARCH_FLAGS ?= -msse4.2 -mpopcnt
+  INCLUDES =
+endif
 OBJS=		CommandLines.o Process_Read.o Assembly.o Hash_Table.o \
 			POA.o Correct.o Levenshtein_distance.o Overlaps.o Trio.o kthread.o Purge_Dups.o \
 			htab.o hist.o sketch.o anchor.o extract.o sys.o hic.o rcut.o horder.o ecovlp.o\

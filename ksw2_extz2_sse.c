@@ -2,15 +2,34 @@
 #include <assert.h>
 #include "ksw2.h"
 
+#if defined(__aarch64__) || defined(__arm__)
+/* ARM/NEON: provide the SSE2/SSE4.1 kernels via SIMDe. The body below is
+ * guarded by __SSE2__/__SSE4_1__, so define them to make it compile on ARM.
+ * This file is currently not compiled by the Makefile (its only caller is
+ * commented out), but is ported so it links cleanly if ever re-enabled. */
+#  define SIMDE_ENABLE_NATIVE_ALIASES
+#  include "simde/x86/sse4.1.h"
+#  ifndef __SSE2__
+#    define __SSE2__ 1
+#  endif
+#  ifndef __SSE4_1__
+#    define __SSE4_1__ 1
+#  endif
+#endif
+
 #ifdef __SSE2__
+#if !(defined(__aarch64__) || defined(__arm__))
 #include <emmintrin.h>
+#endif
 
 #ifdef KSW_SSE2_ONLY
 #undef __SSE4_1__
 #endif
 
 #ifdef __SSE4_1__
+#if !(defined(__aarch64__) || defined(__arm__))
 #include <smmintrin.h>
+#endif
 #endif
 
 #ifdef KSW_CPU_DISPATCH
