@@ -1011,12 +1011,12 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
         else if (c == ':') 
         {
 			fprintf(stderr, "[ERROR] missing option argument in \"%s\"\n", argv[opt.i - 1]);
-			return 1;
+			return 0;
 		} 
         else if (c == '?') 
         {
 			fprintf(stderr, "[ERROR] unknown option in \"%s\"\n", argv[opt.i - 1]);
-			return 1;
+			return 0;
 		}
     }
     
