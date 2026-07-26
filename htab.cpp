@@ -1133,6 +1133,41 @@ void *ha_ft_ug_gen(const hifiasm_opt_t *asm_opt, ma_utg_v *us, int is_HPC, int k
 	return (void*)flt_tab;
 }
 
+int ha_auto_bf_shift(int default_bf_shift, const hifiasm_opt_t *asm_opt)
+{
+	if (default_bf_shift <= 0) return 0;
+	if (asm_opt->is_ont) return default_bf_shift;
+
+	double bf_size_gb = (1ULL << default_bf_shift) / 8.0 / (1024.0 * 1024.0 * 1024.0);
+	double mem_avail = yak_available_mem_gb();
+
+	if (mem_avail > 0) {
+		double safety = bf_size_gb + 8.0;
+		if (mem_avail < safety) {
+			fprintf(stderr, "[M::%s] available memory %.1fGB < bloom filter %.1fGB + 8GB safety margin; disabling bloom filter\n",
+					__func__, mem_avail, bf_size_gb);
+			return 0;
+		}
+	}
+
+	ha_read_stats_t rs = ha_scan_read_stats(asm_opt->read_file_names, asm_opt->num_reads, 10000,
+			!(asm_opt->is_ont) ? asm_opt->rl_cut : -1);
+	if (rs.sample_count > 0) {
+		fprintf(stderr, "[M::%s] read stats: sample=%ld, avg_len=%.0f, N50=%lu, min=%lu, max=%lu\n",
+				__func__, (long)rs.sample_count, rs.avg_length, (unsigned long)rs.n50,
+				(unsigned long)rs.min_length, (unsigned long)rs.max_length);
+	}
+
+	if (rs.sample_count > 0 && rs.avg_length > 8000 && rs.n50 > 8000) {
+		fprintf(stderr, "[M::%s] detected HiFi-like data (avg=%.0f, N50=%lu); bloom filter unnecessary, disabling\n",
+				__func__, rs.avg_length, (unsigned long)rs.n50);
+		return 0;
+	}
+
+	fprintf(stderr, "[M::%s] keeping bloom filter with bf_shift=%d\n", __func__, default_bf_shift);
+	return default_bf_shift;
+}
+
 void *ha_ft_gen(const hifiasm_opt_t *asm_opt, All_reads *rs, int *hom_cov, int is_hp_mode, int read_from_store)
 {
 	yak_ft_t *flt_tab;

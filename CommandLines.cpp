@@ -81,6 +81,7 @@ static ko_longopt_t long_options[] = {
     { "ul-m",     ko_required_argument, 363},
     { "rl-cut",     ko_required_argument, 364},
     { "sc-cut",     ko_required_argument, 365},
+    { "auto-bf",    ko_no_argument, 366},
     // { "path-round",     ko_required_argument, 348},
 	{ 0, 0, 0 }
 };
@@ -107,6 +108,7 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "    -k INT       k-mer length (must be <64) [%d]\n", asm_opt->k_mer_length);
 	fprintf(stderr, "    -w INT       minimizer window size [%d]\n", asm_opt->mz_win);
 	fprintf(stderr, "    -f INT       number of bits for bloom filter; 0 to disable [%d]\n", asm_opt->bf_shift);
+	fprintf(stderr, "    --auto-bf    auto-detect bloom filter usage based on memory and data type\n");
 	fprintf(stderr, "    -D FLOAT     drop k-mers occurring >FLOAT*coverage times [%.1f]\n", asm_opt->high_factor);
 	fprintf(stderr, "    -N INT       consider up to max(-D*coverage,-N) overlaps for each oriented read [%d]\n", asm_opt->max_n_chain);
     fprintf(stderr, "    -r INT       round of correction [%d]\n", asm_opt->number_of_round);
@@ -373,6 +375,7 @@ void init_opt(hifiasm_opt_t* asm_opt)
 
     asm_opt->rl_cut = 1000;
     asm_opt->sc_cut = 10;
+    asm_opt->auto_bf = 0;
 }   
 
 void destory_enzyme(enzyme* f)
@@ -1003,6 +1006,8 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
             asm_opt->rl_cut = atol(opt.arg);
         } else if (c == 365) {
             asm_opt->sc_cut = atol(opt.arg);
+        } else if (c == 366) {
+            asm_opt->auto_bf = 1;
         } else if (c == 'l') {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
             asm_opt->purge_level_primary = asm_opt->purge_level_trio = atoi(opt.arg);
         }

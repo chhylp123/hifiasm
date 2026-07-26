@@ -164,23 +164,51 @@ void *kcalloc(void *_km, size_t count, size_t size)
 	return p;
 }
 
-void *krealloc(void *_km, void *ap, size_t n_bytes) // TODO: this can be made more efficient in principle
+void *krealloc(void *_km, void *ap, size_t n_bytes)
 {
 	kmem_t *km = (kmem_t*)_km;
-	size_t cap, *p, *q;
+	size_t cap, n_units, *p;
+	header_t *bp, *next, *prev_free;
 
-	if (n_bytes == 0) {
-		kfree(km, ap); return 0;
-	}
+	if (n_bytes == 0) { kfree(km, ap); return 0; }
 	if (km == NULL) return realloc(ap, n_bytes);
 	if (ap == NULL) return kmalloc(km, n_bytes);
 	p = (size_t*)ap - 1;
+	bp = (header_t*)p;
+	n_units = (n_bytes + sizeof(size_t) + sizeof(header_t) - 1) / sizeof(header_t);
 	cap = (*p) * sizeof(header_t) - sizeof(size_t);
-	if (cap >= n_bytes) return ap; /* TODO: this prevents shrinking */
-	q = (size_t*)kmalloc(km, n_bytes);
-	memcpy(q, ap, cap);
+	if (*p >= n_units) return ap;
+
+	next = bp + *p;
+	prev_free = NULL;
+	if (km->loop_head) {
+		header_t *q;
+		for (q = km->loop_head; ; q = q->ptr) {
+			if (q->ptr == next) { prev_free = q; break; }
+			if (q->ptr == km->loop_head) break;
+		}
+	}
+	if (prev_free && (*p + next->size) >= n_units) {
+		size_t combined = *p + next->size;
+		if (combined > n_units) {
+			bp->size = n_units; *p = n_units;
+			header_t *rem = bp + n_units;
+			rem->size = combined - n_units;
+			rem->ptr = next->ptr;
+			prev_free->ptr = rem;
+			if (km->loop_head == next) km->loop_head = rem;
+		} else {
+			bp->size = combined; *p = combined;
+			prev_free->ptr = next->ptr;
+			if (km->loop_head == next) km->loop_head = prev_free->ptr;
+		}
+		return ap;
+	}
+
+	void *new_ap = kmalloc(km, n_bytes);
+	memcpy(new_ap, ap, cap);
 	kfree(km, ap);
-	return q;
+	return new_ap;
 }
 
 void km_stat(const void *_km, km_stat_t *s)

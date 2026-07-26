@@ -1,5 +1,7 @@
 #include <sys/resource.h>
 #include <sys/time.h>
+#include <stdio.h>
+#include <string.h>
 #include "htab.h"
 
 int yak_verbose = 3;
@@ -56,4 +58,25 @@ double yak_peakrss_in_gb(void)
 double yak_cpu_usage(void)
 {
 	return (yak_cputime() + 1e-9) / (yak_realtime() + 1e-9);
+}
+
+double yak_available_mem_gb(void)
+{
+#ifdef __linux__
+	FILE *fp;
+	char buf[256];
+	double avail = -1.0;
+	fp = fopen("/proc/meminfo", "r");
+	if (!fp) return -1.0;
+	while (fgets(buf, sizeof(buf), fp)) {
+		if (strncmp(buf, "MemAvailable:", 13) == 0) {
+			avail = atof(buf + 13) / 1048576.0;
+			break;
+		}
+	}
+	fclose(fp);
+	return avail;
+#else
+	return -1.0;
+#endif
 }

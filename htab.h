@@ -112,6 +112,7 @@ double yak_realtime_0(void);
 double yak_realtime(void);
 long yak_peakrss(void);
 double yak_peakrss_in_gb(void);
+double yak_available_mem_gb(void);
 double yak_cpu_usage(void);
 
 void ha_triobin(const hifiasm_opt_t *opt);
@@ -124,6 +125,7 @@ int ha_analyze_count(int n_cnt, int start_cnt, int m_peak_hom, const int64_t *cn
 int adj_m_peak_hom(int m_peak_hom, int max_i, int max2_i, int max3_i, int *peak_het);
 void print_hist_lines(int n_cnt, int start_cnt, const int64_t *cnt);
 void debug_adapter(const hifiasm_opt_t *asm_opt, All_reads *rs);
+int ha_auto_bf_shift(int default_bf_shift, const hifiasm_opt_t *asm_opt);
 
 
 inline int mz_low_b(int peak_hom, int peak_het)

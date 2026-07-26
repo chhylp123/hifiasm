@@ -382,7 +382,7 @@ All_reads* R_INF)
 void verify_window(long long window_start, long long window_end, overlap_region_alloc* overlap_list,Correct_dumy* dumy, All_reads* R_INF,
 char* r_string)
 {
-    long long i;
+    long long i, j;
     long long currentID;
     long long x_start, y_start, o_len;
     long long Window_Len = WINDOW + (THRESHOLD << 1);
@@ -402,15 +402,12 @@ char* r_string)
     int extra_begin;
     int extra_end;
 
-    ///here are overlaps fully covered by WINDOW
     for (i = 0; i < (long long)dumy->length; i++)
     {
         extra_begin = extra_end = 0;
-        ///if the window has been fully covered, the interval at x is [window_start, window_end]
         x_len = WINDOW;
         currentID = dumy->overlapID[i];
         x_start = window_start;
-        ///offset of y
         y_start = (x_start - overlap_list->list[currentID].x_pos_s) + overlap_list->list[currentID].y_pos_s;
         /****************************may have bugs********************************/
         y_start += y_start_offset(x_start, &(overlap_list->list[currentID].f_cigar));
@@ -436,46 +433,31 @@ char* r_string)
 
         if (groupLen == GROUP_SIZE)
         {
-            Reserve_Banded_BPM_4_SSE_only(dumy->overlap_region_group[0], dumy->overlap_region_group[1], 
-            dumy->overlap_region_group[2], dumy->overlap_region_group[3], Window_Len, x_string, WINDOW,
-                return_sites, return_sites_error, THRESHOLD, dumy->Peq_SSE);
+            if(has_avx2()) {
+                Reserve_Banded_BPM_8_AVX2_only(dumy->overlap_region_group[0], dumy->overlap_region_group[1], 
+                dumy->overlap_region_group[2], dumy->overlap_region_group[3],
+                dumy->overlap_region_group[4], dumy->overlap_region_group[5],
+                dumy->overlap_region_group[6], dumy->overlap_region_group[7],
+                Window_Len, x_string, WINDOW,
+                    return_sites, return_sites_error, THRESHOLD, dumy->Peq_AVX2);
+            } else {
+                Reserve_Banded_BPM_4_SSE_only(dumy->overlap_region_group[0], dumy->overlap_region_group[1], 
+                dumy->overlap_region_group[2], dumy->overlap_region_group[3], Window_Len, x_string, WINDOW,
+                    return_sites, return_sites_error, THRESHOLD, dumy->Peq_SSE);
+                Reserve_Banded_BPM_4_SSE_only(dumy->overlap_region_group[4], dumy->overlap_region_group[5], 
+                dumy->overlap_region_group[6], dumy->overlap_region_group[7], Window_Len, x_string, WINDOW,
+                    return_sites+4, return_sites_error+4, THRESHOLD, dumy->Peq_SSE);
+            }
             groupLen = 0;
 
-            
-            if (return_sites_error[0]!=(unsigned int)-1) {
-                overlap_list->list[overlapID[0]].align_length += x_len;
-
-                append_window_list(&overlap_list->list[overlapID[0]], window_start, window_end, 
-                            y_startGroup[0], y_startGroup[0] + return_sites[0], (int)return_sites_error[0],
-                            y_extra_begin[0], y_extra_end[0], error_threshold[0], WINDOW, NULL);
+            for (j = 0; j < GROUP_SIZE; j++) {
+                if (return_sites_error[j]!=(unsigned int)-1) {
+                    overlap_list->list[overlapID[j]].align_length += x_len;
+                    append_window_list(&overlap_list->list[overlapID[j]], window_start, window_end, 
+                                y_startGroup[j], y_startGroup[j] + return_sites[j], (int)return_sites_error[j],
+                                y_extra_begin[j], y_extra_end[j], error_threshold[j], WINDOW, NULL);
+                }
             }
-            
-
-            if (return_sites_error[1]!=(unsigned int)-1) {
-                overlap_list->list[overlapID[1]].align_length += x_len;
-
-                append_window_list(&overlap_list->list[overlapID[1]], window_start, window_end, 
-                            y_startGroup[1], y_startGroup[1] + return_sites[1], (int)return_sites_error[1],
-                            y_extra_begin[1], y_extra_end[1], error_threshold[1], WINDOW, NULL);
-            }
-            
-
-            if (return_sites_error[2]!=(unsigned int)-1) {
-                overlap_list->list[overlapID[2]].align_length += x_len;
-
-                append_window_list(&overlap_list->list[overlapID[2]], window_start, window_end, 
-                            y_startGroup[2], y_startGroup[2] + return_sites[2], (int)return_sites_error[2],
-                            y_extra_begin[2], y_extra_end[2], error_threshold[2], WINDOW, NULL);
-            }
-            
-
-            if (return_sites_error[3]!=(unsigned int)-1) {
-                overlap_list->list[overlapID[3]].align_length += x_len;
-
-                append_window_list(&overlap_list->list[overlapID[3]], window_start, window_end, 
-                            y_startGroup[3], y_startGroup[3] + return_sites[3], (int)return_sites_error[3],
-                            y_extra_begin[3], y_extra_end[3], error_threshold[3], WINDOW, NULL);
-            }  
         }
     }
 
@@ -493,17 +475,56 @@ char* r_string)
     }
     else if (groupLen > 1)
     {
-        Reserve_Banded_BPM_4_SSE_only(dumy->overlap_region_group[0], dumy->overlap_region_group[1], 
-                dumy->overlap_region_group[2], dumy->overlap_region_group[3], Window_Len, x_string, WINDOW,
+        if(has_avx2() && groupLen >= 4) {
+            for (j = groupLen; j < GROUP_SIZE; j++) {
+                memcpy(dumy->overlap_region_group[j], dumy->overlap_region_group[0], Window_Len);
+            }
+            Reserve_Banded_BPM_8_AVX2_only(dumy->overlap_region_group[0], dumy->overlap_region_group[1], 
+            dumy->overlap_region_group[2], dumy->overlap_region_group[3],
+            dumy->overlap_region_group[4], dumy->overlap_region_group[5],
+            dumy->overlap_region_group[6], dumy->overlap_region_group[7],
+            Window_Len, x_string, WINDOW,
+                return_sites, return_sites_error, THRESHOLD, dumy->Peq_AVX2);
+            for (j = 0; j < groupLen; j++) {
+                if (return_sites_error[j]!=(unsigned int)-1) {
+                    overlap_list->list[overlapID[j]].align_length += x_len;
+                    append_window_list(&overlap_list->list[overlapID[j]], window_start, window_end, 
+                                y_startGroup[j], y_startGroup[j] + return_sites[j], (int)return_sites_error[j],
+                                y_extra_begin[j], y_extra_end[j], error_threshold[j], WINDOW, NULL);
+                }
+            }
+        } else if(groupLen >= 4) {
+            Reserve_Banded_BPM_4_SSE_only(dumy->overlap_region_group[0], dumy->overlap_region_group[1], 
+                    dumy->overlap_region_group[2], dumy->overlap_region_group[3], Window_Len, x_string, WINDOW,
+                    return_sites, return_sites_error, THRESHOLD, dumy->Peq_SSE);
+            for (j = 0; j < 4; j++) {
+                if (return_sites_error[j]!=(unsigned int)-1) {
+                    overlap_list->list[overlapID[j]].align_length += x_len;
+                    append_window_list(&overlap_list->list[overlapID[j]], window_start, window_end, 
+                                y_startGroup[j], y_startGroup[j] + return_sites[j], (int)return_sites_error[j],
+                                y_extra_begin[j], y_extra_end[j], error_threshold[j], WINDOW, NULL);
+                }
+            }
+            for (j = 4; j < groupLen; j++) {
+                end_site = Reserve_Banded_BPM(dumy->overlap_region_group[j], Window_Len, x_string, WINDOW, THRESHOLD, &error);
+                if (error!=(unsigned int)-1) {
+                    overlap_list->list[overlapID[j]].align_length += x_len;
+                    append_window_list(&overlap_list->list[overlapID[j]], window_start, window_end, 
+                                y_startGroup[j], y_startGroup[j] + end_site, (int)error,
+                                y_extra_begin[j], y_extra_end[j], error_threshold[j], WINDOW, NULL);
+                }
+            }
+        } else {
+            Reserve_Banded_BPM_4_SSE_only(dumy->overlap_region_group[0], dumy->overlap_region_group[1], 
+                    dumy->overlap_region_group[2], dumy->overlap_region_group[3], Window_Len, x_string, WINDOW,
 			        return_sites, return_sites_error, THRESHOLD, dumy->Peq_SSE);
-
-        for (i = 0; i < groupLen; i++)
-        {
-            if (return_sites_error[i]!=(unsigned int)-1) {
-                overlap_list->list[overlapID[i]].align_length += x_len;
-                append_window_list(&overlap_list->list[overlapID[i]], window_start, window_end, 
-                                y_startGroup[i], y_startGroup[i] + return_sites[i], (int)return_sites_error[i],
-                                y_extra_begin[i], y_extra_end[i], error_threshold[i], WINDOW, NULL);
+            for (j = 0; j < groupLen; j++) {
+                if (return_sites_error[j]!=(unsigned int)-1) {
+                    overlap_list->list[overlapID[j]].align_length += x_len;
+                    append_window_list(&overlap_list->list[overlapID[j]], window_start, window_end, 
+                                y_startGroup[j], y_startGroup[j] + return_sites[j], (int)return_sites_error[j],
+                                y_extra_begin[j], y_extra_end[j], error_threshold[j], WINDOW, NULL);
+                }
             }
         }
 
@@ -513,7 +534,6 @@ char* r_string)
     long long reverse_i = dumy->size - 1;
     int threshold;
     
-    ///here are overlaps partially covered by WINDOW
     for (i = 0; i < (long long)dumy->lengthNT; i++)
     {
         extra_begin = extra_end = 0;
@@ -521,7 +541,6 @@ char* r_string)
         x_start = MAX(window_start, (long long)overlap_list->list[currentID].x_pos_s);
         x_end = MIN(window_end, (long long)overlap_list->list[currentID].x_pos_e);
 
-        ///overlap length between [window_start, window_end]
         x_len = x_end - x_start + 1;
         threshold = x_len * asm_opt.max_ov_diff_ec;
         /****************************may have bugs********************************/
@@ -529,7 +548,6 @@ char* r_string)
         if(threshold > THRESHOLD_MAX_SIZE) threshold = THRESHOLD_MAX_SIZE;
         /****************************may have bugs********************************/
         
-        ///offset of y
         y_start = (x_start - overlap_list->list[currentID].x_pos_s) + overlap_list->list[currentID].y_pos_s;
         /****************************may have bugs********************************/
         y_start += y_start_offset(x_start, &(overlap_list->list[currentID].f_cigar));
@@ -562,7 +580,7 @@ char* r_string)
 void verify_ul_window(long long window_start, long long window_end, overlap_region_alloc* overlap_list,Correct_dumy* dumy, const ul_idx_t *uref,
 char* r_string, double max_ov_diff_ec, long long blockLen, long long max_error, void *km)
 {
-    long long i;
+    long long i, j;
     long long currentID;
     long long x_start, y_start, o_len;
     long long Window_Len = blockLen + (max_error << 1);
@@ -582,15 +600,12 @@ char* r_string, double max_ov_diff_ec, long long blockLen, long long max_error, 
     int extra_begin;
     int extra_end;
 
-    ///here are overlaps fully covered by blockLen
     for (i = 0; i < (long long)dumy->length; i++)
     {
         extra_begin = extra_end = 0;
-        ///if the window has been fully covered, the interval at x is [window_start, window_end]
         x_len = blockLen;
         currentID = dumy->overlapID[i];
         x_start = window_start;
-        ///offset of y
         y_start = (x_start - overlap_list->list[currentID].x_pos_s) + overlap_list->list[currentID].y_pos_s;
         /****************************may have bugs********************************/
         y_start += y_start_offset(x_start, &(overlap_list->list[currentID].f_cigar));
@@ -601,11 +616,6 @@ char* r_string, double max_ov_diff_ec, long long blockLen, long long max_error, 
         &extra_begin, &extra_end, &y_start, &o_len)) {
             continue;
         }
-
-        // if(overlap_list->list[currentID].y_id == 4) {
-        //     fprintf(stderr, "[M::%s] q_s::%lld, t_s::%lld, t_pri_l::%lld, aux_beg::%d, aux_end::%d, aln_l::%lld\n", __func__, 
-        //         x_start, y_start, o_len, extra_begin, extra_end, Window_Len);
-        // }
 
         fill_subregion_ul(dumy->overlap_region_group[groupLen], y_start, o_len, overlap_list->list[currentID].y_pos_strand, 
         uref, overlap_list->list[currentID].y_id, extra_begin, extra_end);
@@ -621,57 +631,31 @@ char* r_string, double max_ov_diff_ec, long long blockLen, long long max_error, 
 
         if (groupLen == GROUP_SIZE)
         {
-            // Reserve_Banded_BPM_4_SSE_only(dumy->overlap_region_group[0], dumy->overlap_region_group[1], 
-            // dumy->overlap_region_group[2], dumy->overlap_region_group[3], Window_Len, x_string, blockLen,
-            //     return_sites, return_sites_error, max_error, dumy->Peq_SSE);
-            return_sites[0] = 
-                    Reserve_Banded_BPM(dumy->overlap_region_group[0], Window_Len, x_string, blockLen, max_error, &return_sites_error[0]);
-            return_sites[1] = 
-                    Reserve_Banded_BPM(dumy->overlap_region_group[1], Window_Len, x_string, blockLen, max_error, &return_sites_error[1]);
-            return_sites[2] = 
-                    Reserve_Banded_BPM(dumy->overlap_region_group[2], Window_Len, x_string, blockLen, max_error, &return_sites_error[2]);
-            return_sites[3] = 
-                    Reserve_Banded_BPM(dumy->overlap_region_group[3], Window_Len, x_string, blockLen, max_error, &return_sites_error[3]);
-            
-
-
-
-
+            if(has_avx2()) {
+                Reserve_Banded_BPM_8_AVX2_only(dumy->overlap_region_group[0], dumy->overlap_region_group[1],
+                dumy->overlap_region_group[2], dumy->overlap_region_group[3],
+                dumy->overlap_region_group[4], dumy->overlap_region_group[5],
+                dumy->overlap_region_group[6], dumy->overlap_region_group[7],
+                Window_Len, x_string, blockLen,
+                    return_sites, return_sites_error, max_error, dumy->Peq_AVX2);
+            } else {
+                Reserve_Banded_BPM_4_SSE_only(dumy->overlap_region_group[0], dumy->overlap_region_group[1], 
+                dumy->overlap_region_group[2], dumy->overlap_region_group[3], Window_Len, x_string, blockLen,
+                    return_sites, return_sites_error, max_error, dumy->Peq_SSE);
+                Reserve_Banded_BPM_4_SSE_only(dumy->overlap_region_group[4], dumy->overlap_region_group[5], 
+                dumy->overlap_region_group[6], dumy->overlap_region_group[7], Window_Len, x_string, blockLen,
+                    return_sites+4, return_sites_error+4, max_error, dumy->Peq_SSE);
+            }
             groupLen = 0;
             
-            if (return_sites_error[0]!=(unsigned int)-1) {
-                overlap_list->list[overlapID[0]].align_length += x_len;
-
-                append_window_list(&overlap_list->list[overlapID[0]], window_start, window_end, 
-                            y_startGroup[0], y_startGroup[0] + return_sites[0], (int)return_sites_error[0],
-                            y_extra_begin[0], y_extra_end[0], error_threshold[0], blockLen, km);
+            for (j = 0; j < GROUP_SIZE; j++) {
+                if (return_sites_error[j]!=(unsigned int)-1) {
+                    overlap_list->list[overlapID[j]].align_length += x_len;
+                    append_window_list(&overlap_list->list[overlapID[j]], window_start, window_end, 
+                                y_startGroup[j], y_startGroup[j] + return_sites[j], (int)return_sites_error[j],
+                                y_extra_begin[j], y_extra_end[j], error_threshold[j], blockLen, km);
+                }
             }
-            
-
-            if (return_sites_error[1]!=(unsigned int)-1) {
-                overlap_list->list[overlapID[1]].align_length += x_len;
-                append_window_list(&overlap_list->list[overlapID[1]], window_start, window_end, 
-                            y_startGroup[1], y_startGroup[1] + return_sites[1], (int)return_sites_error[1],
-                            y_extra_begin[1], y_extra_end[1], error_threshold[1], blockLen, km);
-            }
-            
-
-            if (return_sites_error[2]!=(unsigned int)-1) {
-                overlap_list->list[overlapID[2]].align_length += x_len;
-
-                append_window_list(&overlap_list->list[overlapID[2]], window_start, window_end, 
-                            y_startGroup[2], y_startGroup[2] + return_sites[2], (int)return_sites_error[2],
-                            y_extra_begin[2], y_extra_end[2], error_threshold[2], blockLen, km);
-            }
-            
-
-            if (return_sites_error[3]!=(unsigned int)-1) {
-                overlap_list->list[overlapID[3]].align_length += x_len;
-
-                append_window_list(&overlap_list->list[overlapID[3]], window_start, window_end, 
-                            y_startGroup[3], y_startGroup[3] + return_sites[3], (int)return_sites_error[3],
-                            y_extra_begin[3], y_extra_end[3], error_threshold[3], blockLen, km);
-            } 
         }
     }
 
@@ -689,19 +673,35 @@ char* r_string, double max_ov_diff_ec, long long blockLen, long long max_error, 
     }
     else if (groupLen > 1)
     {
-        // Reserve_Banded_BPM_4_SSE_only(dumy->overlap_region_group[0], dumy->overlap_region_group[1], 
-        //         dumy->overlap_region_group[2], dumy->overlap_region_group[3], Window_Len, x_string, blockLen,
-        //             return_sites, return_sites_error, max_error, dumy->Peq_SSE);
+        if(has_avx2() && groupLen >= 4) {
+            for (j = groupLen; j < GROUP_SIZE; j++) {
+                memcpy(dumy->overlap_region_group[j], dumy->overlap_region_group[0], Window_Len);
+            }
+            Reserve_Banded_BPM_8_AVX2_only(dumy->overlap_region_group[0], dumy->overlap_region_group[1],
+            dumy->overlap_region_group[2], dumy->overlap_region_group[3],
+            dumy->overlap_region_group[4], dumy->overlap_region_group[5],
+            dumy->overlap_region_group[6], dumy->overlap_region_group[7],
+            Window_Len, x_string, blockLen,
+                return_sites, return_sites_error, max_error, dumy->Peq_AVX2);
+            for (j = 0; j < groupLen; j++) {
+                if (return_sites_error[j]!=(unsigned int)-1) {
+                    overlap_list->list[overlapID[j]].align_length += x_len;
+                    append_window_list(&overlap_list->list[overlapID[j]], window_start, window_end, 
+                                y_startGroup[j], y_startGroup[j] + return_sites[j], (int)return_sites_error[j],
+                                y_extra_begin[j], y_extra_end[j], error_threshold[j], blockLen, km);
+                }
+            }
+        } else {
+            for (j = 0; j < groupLen; j++)
+            {
+                return_sites[j] = Reserve_Banded_BPM(dumy->overlap_region_group[j], Window_Len, x_string, blockLen, max_error, &return_sites_error[j]);
 
-        for (i = 0; i < groupLen; i++)
-        {
-            return_sites[i] = Reserve_Banded_BPM(dumy->overlap_region_group[i], Window_Len, x_string, blockLen, max_error, &return_sites_error[i]);
-
-            if (return_sites_error[i]!=(unsigned int)-1) {
-                overlap_list->list[overlapID[i]].align_length += x_len;
-                append_window_list(&overlap_list->list[overlapID[i]], window_start, window_end, 
-                                y_startGroup[i], y_startGroup[i] + return_sites[i], (int)return_sites_error[i],
-                                y_extra_begin[i], y_extra_end[i], error_threshold[i], blockLen, km);
+                if (return_sites_error[j]!=(unsigned int)-1) {
+                    overlap_list->list[overlapID[j]].align_length += x_len;
+                    append_window_list(&overlap_list->list[overlapID[j]], window_start, window_end, 
+                                    y_startGroup[j], y_startGroup[j] + return_sites[j], (int)return_sites_error[j],
+                                    y_extra_begin[j], y_extra_end[j], error_threshold[j], blockLen, km);
+                }
             }
         }
 
@@ -13671,7 +13671,7 @@ int64_t gen_affine_traceback_dp(Candidates_list *ac, int64_t max_skip, int64_t m
     t[0] = 0; p[0] = -1; f[0] = a[0].cnt;
     msc_i = msc = -1; i = 0;
 
-    memset(t, 0, (a_n*sizeof((*t))));
+    dp->gen++; if(dp->gen == 0) { memset(t, 0, (a_n*sizeof((*t)))); dp->gen = 1; }
     for (i = st = 0, max_ii = -1; i < a_n; ++i) {
         max_f = a[i].cnt; n_skip = 0; max_j = end_j = -1;
         if ((i-st) > max_iter) st = i-max_iter;
@@ -13683,11 +13683,11 @@ int64_t gen_affine_traceback_dp(Candidates_list *ac, int64_t max_skip, int64_t m
             if (sc > max_f) {
 				max_f = sc, max_j = j;
 				if (n_skip > 0) --n_skip;
-			} else if (t[j] == (int32_t)i) {
+			} else if (t[j] == dp->gen) {
 				if (++n_skip > max_skip)
 					break;
 			}
-			if (p[j] >= 0) t[p[j]] = i;
+			if (p[j] >= 0) t[p[j]] = dp->gen;
         }
         end_j = j;
 
@@ -15487,6 +15487,9 @@ void cal_exz_global(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t thre
         ed_band_cal_global_64_w_trace(pstr, pn, tstr, tn, thre, ez);
     } else if(nword == 2) {
         ed_band_cal_global_128_w_trace(pstr, pn, tstr, tn, thre, ez);
+    } else if(nword <= 4) {
+        if(has_avx2()) ed_band_cal_global_avx2_w_trace(pstr, pn, tstr, tn, thre, ez);
+        else ed_band_cal_global_256_w_trace(pstr, pn, tstr, tn, thre, ez);
     } else {
         ed_band_cal_global_infi_w_trace(pstr, pn, tstr, tn, thre, &nword, ez);
     }
@@ -15501,6 +15504,9 @@ void cal_exz_global_simi(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t
         ed_band_cal_global_64_w(pstr, pn, tstr, tn, thre, ez);
     } else if(nword == 2) {
         ed_band_cal_global_128_w(pstr, pn, tstr, tn, thre, ez);
+    } else if(nword <= 4) {
+        if(has_avx2()) ed_band_cal_global_avx2_w(pstr, pn, tstr, tn, thre, ez);
+        else ed_band_cal_global_256_w(pstr, pn, tstr, tn, thre, ez);
     } else {
         ed_band_cal_global_infi_w(pstr, pn, tstr, tn, thre, &nword, ez);
     }
@@ -15515,6 +15521,9 @@ void cal_exz_extension_0(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t
         ed_band_cal_extension_64_0_w_trace(pstr, pn, tstr, tn, thre, ez);
     } else if(nword == 2) {
         ed_band_cal_extension_128_0_w_trace(pstr, pn, tstr, tn, thre, ez);
+    } else if(nword <= 4) {
+        if(has_avx2()) ed_band_cal_extension_avx2_0_w_trace(pstr, pn, tstr, tn, thre, ez);
+        else ed_band_cal_extension_256_0_w_trace(pstr, pn, tstr, tn, thre, ez);
     } else {
         ed_band_cal_extension_infi_0_w_trace(pstr, pn, tstr, tn, thre, &nword, ez);
     }
@@ -15529,6 +15538,9 @@ void cal_exz_extension_0_simi(char *pstr, int32_t pn, char *tstr, int32_t tn, in
         ed_band_cal_extension_64_0_w(pstr, pn, tstr, tn, thre, ez);
     } else if(nword == 2) {
         ed_band_cal_extension_128_0_w(pstr, pn, tstr, tn, thre, ez);
+    } else if(nword <= 4) {
+        if(has_avx2()) ed_band_cal_extension_avx2_0_w(pstr, pn, tstr, tn, thre, ez);
+        else ed_band_cal_extension_256_0_w(pstr, pn, tstr, tn, thre, ez);
     } else {
         ed_band_cal_extension_infi_0_w(pstr, pn, tstr, tn, thre, &nword, ez);
     }
@@ -15543,6 +15555,9 @@ void cal_exz_extension_1(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t
         ed_band_cal_extension_64_1_w_trace(pstr, pn, tstr, tn, thre, ez);
     } else if(nword == 2) {
         ed_band_cal_extension_128_1_w_trace(pstr, pn, tstr, tn, thre, ez);
+    } else if(nword <= 4) {
+        if(has_avx2()) ed_band_cal_extension_avx2_1_w_trace(pstr, pn, tstr, tn, thre, ez);
+        else ed_band_cal_extension_256_1_w_trace(pstr, pn, tstr, tn, thre, ez);
     } else {
         ed_band_cal_extension_infi_1_w_trace(pstr, pn, tstr, tn, thre, &nword, ez);
     }
@@ -15557,6 +15572,9 @@ void cal_exz_extension_1_simi(char *pstr, int32_t pn, char *tstr, int32_t tn, in
         ed_band_cal_extension_64_1_w(pstr, pn, tstr, tn, thre, ez);
     } else if(nword == 2) {
         ed_band_cal_extension_128_1_w(pstr, pn, tstr, tn, thre, ez);
+    } else if(nword <= 4) {
+        if(has_avx2()) ed_band_cal_extension_avx2_1_w(pstr, pn, tstr, tn, thre, ez);
+        else ed_band_cal_extension_256_1_w(pstr, pn, tstr, tn, thre, ez);
     } else {
         ed_band_cal_extension_infi_1_w(pstr, pn, tstr, tn, thre, &nword, ez);
     }
@@ -15571,6 +15589,9 @@ void cal_exz_semi(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t thre, 
         ed_band_cal_semi_64_w_absent_diag_trace(pstr, pn, tstr, tn, thre, aux_beg, ez);
     } else if(nword == 2) {
         ed_band_cal_semi_128_w_absent_diag_trace(pstr, pn, tstr, tn, thre, aux_beg, ez);
+    } else if(nword <= 4) {
+        if(has_avx2()) ed_band_cal_semi_avx2_w_absent_diag_trace(pstr, pn, tstr, tn, thre, aux_beg, ez);
+        else ed_band_cal_semi_256_w_absent_diag_trace(pstr, pn, tstr, tn, thre, aux_beg, ez);
     } else {
         ed_band_cal_semi_infi_w_absent_diag_trace(pstr, pn, tstr, tn, thre, aux_beg, &nword, ez);
     }
@@ -15585,6 +15606,9 @@ void cal_exz_semi_simi(char *pstr, int32_t pn, char *tstr, int32_t tn, int32_t t
         ed_band_cal_semi_64_w_absent_diag(pstr, pn, tstr, tn, thre, aux_beg, ez);
     } else if(nword == 2) {
         ed_band_cal_semi_128_w_absent_diag(pstr, pn, tstr, tn, thre, aux_beg, ez);
+    } else if(nword <= 4) {
+        if(has_avx2()) ed_band_cal_semi_avx2_w_absent_diag(pstr, pn, tstr, tn, thre, aux_beg, ez);
+        else ed_band_cal_semi_256_w_absent_diag(pstr, pn, tstr, tn, thre, aux_beg, ez);
     } else {
         ed_band_cal_semi_infi_w_absent_diag(pstr, pn, tstr, tn, thre, aux_beg, &nword, ez);
     }
