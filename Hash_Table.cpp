@@ -914,7 +914,7 @@ long long chain_DP(k_mer_hit* a, long long a_n, Chain_Data* dp, overlap_region* 
 	}
 
     // fill the score and backtrack arrays
-	for (i = 0; i < a_n; ++i) dp->tmp[i] = -1;
+	dp->gen++; if(dp->gen == 0) { for (i = 0; i < a_n; ++i) dp->tmp[i] = 0; dp->gen = 1; }
 	for (i = 0; i < a_n; ++i) 
     {
 		int n_chn_skip = 0;
@@ -973,12 +973,12 @@ long long chain_DP(k_mer_hit* a, long long a_n, Chain_Data* dp, overlap_region* 
 			} else {
 				if (++n_max_skip > max_skip)
 					break;
-				if (dp->tmp[j] == i) {
+				if (dp->tmp[j] == dp->gen) {
 					if (++n_chn_skip > max_skip)
 						break;
 				}
 			}
-			if (dp->pre[j] >= 0) dp->tmp[dp->pre[j]] = i;
+			if (dp->pre[j] >= 0) dp->tmp[dp->pre[j]] = dp->gen;
         }
 
         dp->score[i] = max_score;
@@ -1199,7 +1199,7 @@ void test_single_list(Candidates_list* candidates, k_mer_pos* n_list, uint64_t n
 
 void init_Chain_Data(Chain_Data* x)
 {
-	memset(x, 0, sizeof(Chain_Data));
+	memset(x, 0, sizeof(Chain_Data)); x->gen = 1;
 }
 
 void clear_Chain_Data(Chain_Data* x)
@@ -1584,7 +1584,7 @@ uint64_t lchain_dp(k_mer_hit* a, int64_t a_n, k_mer_hit* des, Chain_Data* dp, ov
         }
     }
 
-    memset(t, 0, (a_n*sizeof((*t))));
+    dp->gen++; if(dp->gen == 0) { memset(t, 0, (a_n*sizeof((*t)))); dp->gen = 1; }
 	for (i = st = 0, max_ii = -1; i < a_n; ++i) {
         max_f = a[i].cnt&(0xffu); 
         n_skip = 0; max_j = end_j = -1;
@@ -1597,11 +1597,11 @@ uint64_t lchain_dp(k_mer_hit* a, int64_t a_n, k_mer_hit* des, Chain_Data* dp, ov
 			if (sc > max_f) {
 				max_f = sc, max_j = j;
 				if (n_skip > 0) --n_skip;
-			} else if (t[j] == (int32_t)i) {
+			} else if (t[j] == dp->gen) {
 				if (++n_skip > max_skip)
 					break;
 			}
-			if (p[j] >= 0) t[p[j]] = i;
+			if (p[j] >= 0) t[p[j]] = dp->gen;
 		}
         end_j = j;
 
@@ -1672,7 +1672,7 @@ uint64_t lchain_qdp(k_mer_hit* a, int64_t a_n, k_mer_hit* des, Chain_Data* dp, o
         }
     }
 
-    memset(t, 0, (a_n*sizeof((*t))));
+    dp->gen++; if(dp->gen == 0) { memset(t, 0, (a_n*sizeof((*t)))); dp->gen = 1; }
     for (i = st = 0, max_ii = -1; i < a_n; ++i) {
         max_f = a[i].cnt&(0xffu); 
         n_skip = 0; max_j = end_j = -1;
@@ -1685,11 +1685,11 @@ uint64_t lchain_qdp(k_mer_hit* a, int64_t a_n, k_mer_hit* des, Chain_Data* dp, o
             if (sc > max_f) {
                 max_f = sc, max_j = j;
                 if (n_skip > 0) --n_skip;
-            } else if (t[j] == (int32_t)i) {
+            } else if (t[j] == dp->gen) {
                 if (++n_skip > max_skip)
                     break;
             }
-            if (p[j] >= 0) t[p[j]] = i;
+            if (p[j] >= 0) t[p[j]] = dp->gen;
         }
         end_j = j;
 
@@ -1858,7 +1858,7 @@ uint64_t lchain_qdp_mcopy(Candidates_list *cl, int64_t a_idx, int64_t a_n, int64
     //                     __func__, (int32_t)a[0].readID+1, "+-"[a[0].strand]);
     // }
 
-    memset(t, 0, (a_n*sizeof((*t))));
+    dp->gen++; if(dp->gen == 0) { memset(t, 0, (a_n*sizeof((*t)))); dp->gen = 1; }
     for (i = st = plus = 0, max_ii = -1; i < a_n; ++i) {
         max_f = a[i].cnt&(0xffu); 
         n_skip = 0; max_j = end_j = -1;
@@ -1872,11 +1872,11 @@ uint64_t lchain_qdp_mcopy(Candidates_list *cl, int64_t a_idx, int64_t a_n, int64
             if (sc > max_f) {
                 max_f = sc, max_j = j;
                 if (n_skip > 0) --n_skip;
-            } else if (t[j] == (int32_t)i) {
+            } else if (t[j] == dp->gen) {
                 if (++n_skip > max_skip)
                     break;
             }
-            if (p[j] >= 0) t[p[j]] = i;
+            if (p[j] >= 0) t[p[j]] = dp->gen;
         }
         end_j = j;
 
@@ -2116,7 +2116,7 @@ uint64_t lchain_qdp_mcopy_fast(Candidates_list *cl, int64_t a_idx, int64_t a_n, 
         quick_ck_lchain(a, a_n, xl, yl, chn_pen_gap, chn_pen_skip, bw_rate, p, t, f, ii, &plus, &msc, &msc_i, &movl, &si, &ei);
     } else {
         msc = msc_i = INT32_MIN; movl = INT32_MAX; plus = 0; si = 0; ei = a_n;
-        memset(t, 0, (a_n*sizeof((*t))));
+        dp->gen++; if(dp->gen == 0) { memset(t, 0, (a_n*sizeof((*t)))); dp->gen = 1; }
     }   
     // if(a_n && a[0].readID == 4412344) {
     //     fprintf(stderr, "[M::%s::] si::%ld, ei::%ld, a_n::%ld\n", __func__, si, ei, a_n);
@@ -2134,11 +2134,11 @@ uint64_t lchain_qdp_mcopy_fast(Candidates_list *cl, int64_t a_idx, int64_t a_n, 
             if (sc > max_f) {
                 max_f = sc, max_j = j;
                 if (n_skip > 0) --n_skip;
-            } else if (t[j] == (int32_t)i) {
+            } else if (t[j] == dp->gen) {
                 if (++n_skip > max_skip)
                     break;
             }
-            if (p[j] >= 0) t[p[j]] = i;
+            if (p[j] >= 0) t[p[j]] = dp->gen;
         }
         end_j = j;
 
@@ -2310,7 +2310,7 @@ uint64_t lchain_qdp_fix(k_mer_hit* a, int64_t a_n, Chain_Data* dp, int64_t max_s
         }
     }
 
-    memset(t, 0, (a_n*sizeof((*t))));
+    dp->gen++; if(dp->gen == 0) { memset(t, 0, (a_n*sizeof((*t)))); dp->gen = 1; }
     if((right_fix) && (!left_fix)) {
         // fprintf(stderr, "\n[M::%s::] a_n::%ld\n", __func__, a_n);
         // for (i = 0; i < a_n; ++i) {
@@ -2355,12 +2355,12 @@ uint64_t lchain_qdp_fix(k_mer_hit* a, int64_t a_n, Chain_Data* dp, int64_t max_s
             if (sc > max_f) {
                 max_f = sc, max_j = j;
                 if (n_skip > 0) --n_skip;
-            } else if (t[j] == (int32_t)i) {
+            } else if (t[j] == dp->gen) {
                 if ((++n_skip) > max_skip) {
                     if((max_j != -1) || (must_p == 0)) break;
                 } 
             }
-            if (p[j] >= 0) t[p[j]] = i;
+            if (p[j] >= 0) t[p[j]] = dp->gen;
             ///put it here will allow at least one prefix no matter max_dis
             ///this is special for gap filling, not for chaining
             if (a[i].self_offset > (max_dis + a[j].self_offset)) {
@@ -2477,7 +2477,7 @@ uint64_t lchain_refine(k_mer_hit* a, int64_t a_n, k_mer_hit* des, Chain_Data* dp
     if(i >= a_n) goto ss_kip;
     
 
-    memset(t, 0, (a_n*sizeof((*t))));
+    dp->gen++; if(dp->gen == 0) { memset(t, 0, (a_n*sizeof((*t)))); dp->gen = 1; }
     f[0] = 0; p[0] = -1;
 
     for (i = 1, st = 0; i < a_n; ++i) {
@@ -2493,7 +2493,7 @@ uint64_t lchain_refine(k_mer_hit* a, int64_t a_n, k_mer_hit* des, Chain_Data* dp
         if (sc > max_f) {
             max_f = sc, max_j = j;
         } 
-        if (p[j] >= 0) t[p[j]] = i;
+        if (p[j] >= 0) t[p[j]] = dp->gen;
         
         ///[st, i-2]
         for (--j; (j >= st) && (a[i].self_offset <= (max_dis + a[j].self_offset)); --j) {
@@ -2505,11 +2505,11 @@ uint64_t lchain_refine(k_mer_hit* a, int64_t a_n, k_mer_hit* des, Chain_Data* dp
             if (sc > max_f) {
                 max_f = sc, max_j = j;
                 if (n_skip > 0) --n_skip;
-            } else if (t[j] == (int32_t)i) {
+            } else if (t[j] == dp->gen) {
                 if (++n_skip > max_skip)
                     break;
             }
-            if (p[j] >= 0) t[p[j]] = i;
+            if (p[j] >= 0) t[p[j]] = dp->gen;
         }
 
         f[i] = max_f; p[i] = max_j;
@@ -2560,7 +2560,7 @@ uint64_t lchain_simple(k_mer_hit* a, int64_t a_n, k_mer_hit* des, Chain_Data* dp
     }
     if(i >= a_n) goto ss_kip;
     
-    memset(t, 0, (a_n*sizeof((*t))));
+    dp->gen++; if(dp->gen == 0) { memset(t, 0, (a_n*sizeof((*t)))); dp->gen = 1; }
     f[0]=a[0].cnt; p[0]=-1; msc = f[0]; msc_i = 0;
 
     for (i = 1, st = 0; i < a_n; ++i) {
@@ -2573,11 +2573,11 @@ uint64_t lchain_simple(k_mer_hit* a, int64_t a_n, k_mer_hit* des, Chain_Data* dp
                 if (sc > max_f) {
                     max_f = sc, max_j = j;
                     if (n_skip > 0) --n_skip;
-                } else if (t[j] == (int32_t)i) {
+                } else if (t[j] == dp->gen) {
                     if (++n_skip > max_skip)
                         break;
                 }
-                if (p[j] >= 0) t[p[j]] = i;
+                if (p[j] >= 0) t[p[j]] = dp->gen;
             }
         }
         f[i] = max_f; p[i] = max_j;

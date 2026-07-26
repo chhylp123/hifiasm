@@ -2231,3 +2231,50 @@ void destroy_scaf_res_t(scaf_res_t *p)
 		free(p);
 	}
 }
+
+#include "kseq.h"
+KSEQ_INIT(gzFile, gzread)
+
+static int cmp_uint64(const void *a, const void *b)
+{
+	uint64_t x = *(const uint64_t*)a, y = *(const uint64_t*)b;
+	return (x > y) - (x < y);
+}
+
+ha_read_stats_t ha_scan_read_stats(char **fn_list, int n_fn, int64_t max_sample, int64_t rl_cut)
+{
+	ha_read_stats_t stats;
+	memset(&stats, 0, sizeof(ha_read_stats_t));
+	int64_t i, n = 0;
+	kvec_t(uint64_t) lens = {0,0,0};
+	for (i = 0; i < n_fn; ++i) {
+		gzFile fp = gzopen(fn_list[i], "r");
+		if (!fp) continue;
+		kseq_t *ks = kseq_init(fp);
+		while (kseq_read(ks) >= 0) {
+			int64_t l = (int64_t)ks->seq.l;
+			if (rl_cut > 0 && l < rl_cut) continue;
+			kv_push(uint64_t, lens, l);
+			stats.total_bases += l;
+			n++;
+			if (n >= max_sample) break;
+		}
+		kseq_destroy(ks);
+		gzclose(fp);
+		if (n >= max_sample) break;
+	}
+	stats.sample_count = n;
+	if (n == 0) { free(lens.a); return stats; }
+	stats.avg_length = (double)stats.total_bases / n;
+	uint64_t *a = lens.a;
+	qsort(a, n, sizeof(uint64_t), cmp_uint64);
+	stats.min_length = a[0];
+	stats.max_length = a[n-1];
+	uint64_t half = stats.total_bases / 2, cum = 0;
+	for (i = n - 1; i >= 0; --i) {
+		cum += a[i];
+		if (cum >= half) { stats.n50 = a[i]; break; }
+	}
+	free(lens.a);
+	return stats;
+}

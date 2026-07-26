@@ -2080,6 +2080,13 @@ int ha_assemble(void)
 		// construct hash table for high occurrence k-mers
 		if (!(asm_opt.flag & HA_F_NO_KMER_FLT) && ha_flt_tab == NULL) 
         {
+			if (asm_opt.auto_bf && asm_opt.bf_shift > 0) {
+				int new_bf = ha_auto_bf_shift(asm_opt.bf_shift, &asm_opt);
+				if (new_bf != asm_opt.bf_shift) {
+					fprintf(stderr, "[M::%s] auto-bf: bf_shift changed from %d to %d\n", __func__, asm_opt.bf_shift, new_bf);
+					asm_opt.bf_shift = new_bf;
+				}
+			}
 			ha_flt_tab = ha_ft_gen(&asm_opt, &R_INF, &hom_cov, 0, 0);
 			ha_opt_update_cov(&asm_opt, hom_cov);
 		}

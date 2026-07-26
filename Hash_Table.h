@@ -31,7 +31,7 @@
 #define WINDOW_UL_BOUND 48
 #define WINDOW_UL_BOUND_RATE 0.55
 
-#define GROUP_SIZE 4
+#define GROUP_SIZE 8
 ///the max cigar likes 10M10D10M10D10M
 ///#define CIGAR_MAX_LENGTH THRESHOLD*2+2
 #define CIGAR_MAX_LENGTH 31*2+4
@@ -126,6 +126,7 @@ typedef struct {
 	int32_t *self_length;
     int32_t *occ;
 	int64_t *tmp; // MUST BE 64-bit integer
+	int64_t gen;
 	int64_t length;
 	int64_t size;
 } Chain_Data;

@@ -4,7 +4,7 @@
 #include "Correct.h"
 #include "Process_Read.h"
 #define INIT_EDGE_SIZE 50
-#define INCREASE_EDGE_SIZE 5
+#define INCREASE_EDGE_SIZE_MIN 8
 #define INIT_NODE_SIZE 16000
 
 /********
@@ -40,7 +40,8 @@ void append_Edge_alloc(Edge_alloc* list,  uint64_t in_node, uint64_t out_node, u
 {
 	if (list->length + 1 > list->size) {
 		uint64_t old_size = list->size;
-		list->size = list->size + INCREASE_EDGE_SIZE;
+		uint64_t new_size = old_size < INCREASE_EDGE_SIZE_MIN ? INCREASE_EDGE_SIZE_MIN : old_size * 2;
+		list->size = new_size;
 		list->list = (Edge*)realloc(list->list, sizeof(Edge)*list->size);
 		memset(&list->list[old_size], 0, (list->size - old_size) * sizeof(Edge));
 	}

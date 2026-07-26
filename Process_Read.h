@@ -272,4 +272,15 @@ int64_t retrive_bqual(asg8_v *dv, uint8_t *ds, uint64_t id, int64_t s, int64_t e
 void print_fastq(FILE *fp, char *id, char *bs, char *qual, uint64_t bitu, uint64_t sc_off);
 void ha_compress_qual_bit(uint8_t* dest, char* src, uint64_t src_l, uint64_t bitn);
 
+typedef struct {
+	int64_t sample_count;
+	int64_t total_bases;
+	double avg_length;
+	uint64_t n50;
+	uint64_t min_length;
+	uint64_t max_length;
+} ha_read_stats_t;
+
+ha_read_stats_t ha_scan_read_stats(char **fn_list, int n_fn, int64_t max_sample, int64_t rl_cut);
+
 #endif

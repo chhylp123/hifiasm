@@ -167,8 +167,9 @@ typedef struct {
     uint64_t chemical_cov;
     uint64_t chemical_flank;
 
-    int64_t rl_cut;
+	int64_t rl_cut;
     int64_t sc_cut;
+    int auto_bf;
 
 } hifiasm_opt_t;
 

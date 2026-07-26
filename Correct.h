@@ -1092,7 +1092,12 @@ typedef struct
 
     int path_length;
     __m128i Peq_SSE[256];
+    __m256i Peq_AVX2[256];
 } Correct_dumy;
+
+static inline int has_avx2() {
+    return __builtin_cpu_supports("avx2");
+}
 
 typedef struct
 {

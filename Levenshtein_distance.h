@@ -1141,6 +1141,42 @@ inline void gen_trace(bit_extz_t *ez, int32_t ptrim, int32_t reverse)///ptrim = 
 
 #define w_256_copy(x, y) ((x).a[0]=(y).a[0], (x).a[1]=(y).a[1], (x).a[2]=(y).a[2], (x).a[3]=(y).a[3])
 
+/***********************AVX2 256-bit word operations***********************/
+#define w_avx2_clear(x) (_mm256_storeu_si256((__m256i*)(x).a, _mm256_setzero_si256()))
+#define w_avx2_word (4)
+#define w_avx2_self_not(x) do { __m256i v = _mm256_loadu_si256((__m256i*)(x).a); v = _mm256_xor_si256(v, _mm256_set1_epi64x((int64_t)-1)); _mm256_storeu_si256((__m256i*)(x).a, v); } while(0)
+#define w_avx2_self_or(x, y) do { __m256i vx = _mm256_loadu_si256((__m256i*)(x).a); __m256i vy = _mm256_loadu_si256((__m256i*)(y).a); _mm256_storeu_si256((__m256i*)(x).a, _mm256_or_si256(vx, vy)); } while(0)
+#define w_avx2_or(r, x, y) do { __m256i vx = _mm256_loadu_si256((__m256i*)(x).a); __m256i vy = _mm256_loadu_si256((__m256i*)(y).a); _mm256_storeu_si256((__m256i*)(r).a, _mm256_or_si256(vx, vy)); } while(0)
+#define w_avx2_and(r, x, y) do { __m256i vx = _mm256_loadu_si256((__m256i*)(x).a); __m256i vy = _mm256_loadu_si256((__m256i*)(y).a); _mm256_storeu_si256((__m256i*)(r).a, _mm256_and_si256(vx, vy)); } while(0)
+#define w_avx2_self_xor(x, y) do { __m256i vx = _mm256_loadu_si256((__m256i*)(x).a); __m256i vy = _mm256_loadu_si256((__m256i*)(y).a); _mm256_storeu_si256((__m256i*)(x).a, _mm256_xor_si256(vx, vy)); } while(0)
+#define w_avx2_self_lsft_1(x) do { \
+    __m256i v = _mm256_loadu_si256((__m256i*)(x).a); \
+    __m256i v_shifted = _mm256_slli_epi64(v, 1); \
+    __m256i carry = _mm256_srli_epi64(_mm256_permute4x64_epi64(v, _MM_SHUFFLE(2,1,0,3)), 63); \
+    carry = _mm256_blend_epi32(carry, _mm256_setzero_si256(), 0x03); \
+    _mm256_storeu_si256((__m256i*)(x).a, _mm256_or_si256(v_shifted, carry)); \
+} while(0)
+#define w_avx2_self_rsft_1(x) do { \
+    __m256i v = _mm256_loadu_si256((__m256i*)(x).a); \
+    __m256i v_shifted = _mm256_srli_epi64(v, 1); \
+    __m256i carry = _mm256_slli_epi64(_mm256_permute4x64_epi64(v, _MM_SHUFFLE(0,3,2,1)), 63); \
+    carry = _mm256_blend_epi32(carry, _mm256_setzero_si256(), 0xc0); \
+    _mm256_storeu_si256((__m256i*)(x).a, _mm256_or_si256(v_shifted, carry)); \
+} while(0)
+#define w_avx2_rsft_1(x, y) do { \
+    __m256i v = _mm256_loadu_si256((__m256i*)(y).a); \
+    __m256i v_shifted = _mm256_srli_epi64(v, 1); \
+    __m256i carry = _mm256_slli_epi64(_mm256_permute4x64_epi64(v, _MM_SHUFFLE(0,3,2,1)), 63); \
+    carry = _mm256_blend_epi32(carry, _mm256_setzero_si256(), 0xc0); \
+    _mm256_storeu_si256((__m256i*)(x).a, _mm256_or_si256(v_shifted, carry)); \
+} while(0)
+#define w_avx2_self_add(x, y, c) ((x).a[0]+=(y).a[0], c=((x).a[0]<(y).a[0]),\
+                                (x).a[1]+=c, c=((x).a[1]<c), (x).a[1]+=(y).a[1], c|=((x).a[1]<(y).a[1]),\
+                                (x).a[2]+=c, c=((x).a[2]<c), (x).a[2]+=(y).a[2], c|=((x).a[2]<(y).a[2]),\
+                                (x).a[3]+=c, (x).a[3]+=(y).a[3])
+#define w_avx2_set_bit_lsub(x, l) w_256_set_bit_lsub(x, l)
+#define w_avx2_copy(x, y) _mm256_storeu_si256((__m256i*)(x).a, _mm256_loadu_si256((__m256i*)(y).a))
+
 #define cmp_Word(des, src, dd, ws) {\
 	for ((dd)=0;(dd)<64;dd+=bitwbit){\
 		if((((des)>>dd)&((w_sig)-1))!=(src).a[dd>>bitw]) break;\
@@ -2129,6 +2165,7 @@ inline void ed_band_cal_semi_##sf##_w_absent_diag_trace(char *pstr, int32_t pn, 
 HA_ED_INIT(128)
 HA_ED_INIT(192)
 HA_ED_INIT(256)
+HA_ED_INIT(avx2)
 
 
 #define w_infi_clear(x, nw) (memset((x).a, 0, sizeof(*((x).a))*(nw)))
@@ -4781,6 +4818,231 @@ inline int Reserve_Banded_BPM_4_SSE_only(char *pattern1, char *pattern2, char *p
 	return 1;
 }
 
+
+inline int Reserve_Banded_BPM_8_AVX2_only(char *p1, char *p2, char *p3, char *p4, char *p5, char *p6, char *p7, char *p8,
+	int p_length, char *text, int t_length,
+	int* return_sites, unsigned int* return_sites_error,
+	unsigned short errthold, __m256i* Peq_AVX2)
+
+{
+	memset(return_sites, -1, sizeof(int)* 8);
+	memset(return_sites_error, -1, sizeof(unsigned int)* 8);
+
+	Word_32 Peq[256][8];
+	int band_length = (errthold << 1) + 1;
+
+	int i;
+	Word_32 tmp_Peq_1 = 1;
+
+	memset(Peq[(uint8_t)'A'], 0, sizeof(Word_32)* 8);
+	memset(Peq[(uint8_t)'C'], 0, sizeof(Word_32)* 8);
+	memset(Peq[(uint8_t)'G'], 0, sizeof(Word_32)* 8);
+	memset(Peq[(uint8_t)'T'], 0, sizeof(Word_32)* 8);
+
+	for (i = 0; i<band_length; i++)
+	{
+		Peq[(uint8_t)p1[i]][0] = Peq[(uint8_t)p1[i]][0] | tmp_Peq_1;
+		Peq[(uint8_t)p2[i]][1] = Peq[(uint8_t)p2[i]][1] | tmp_Peq_1;
+		Peq[(uint8_t)p3[i]][2] = Peq[(uint8_t)p3[i]][2] | tmp_Peq_1;
+		Peq[(uint8_t)p4[i]][3] = Peq[(uint8_t)p4[i]][3] | tmp_Peq_1;
+		Peq[(uint8_t)p5[i]][4] = Peq[(uint8_t)p5[i]][4] | tmp_Peq_1;
+		Peq[(uint8_t)p6[i]][5] = Peq[(uint8_t)p6[i]][5] | tmp_Peq_1;
+		Peq[(uint8_t)p7[i]][6] = Peq[(uint8_t)p7[i]][6] | tmp_Peq_1;
+		Peq[(uint8_t)p8[i]][7] = Peq[(uint8_t)p8[i]][7] | tmp_Peq_1;
+
+		tmp_Peq_1 = tmp_Peq_1 << 1;
+	}
+
+	Peq_AVX2[(uint8_t)'A'] = _mm256_set_epi32(Peq[(uint8_t)'A'][7], Peq[(uint8_t)'A'][6], Peq[(uint8_t)'A'][5], Peq[(uint8_t)'A'][4],
+		Peq[(uint8_t)'A'][3], Peq[(uint8_t)'A'][2], Peq[(uint8_t)'A'][1], Peq[(uint8_t)'A'][0]);
+	Peq_AVX2[(uint8_t)'C'] = _mm256_set_epi32(Peq[(uint8_t)'C'][7], Peq[(uint8_t)'C'][6], Peq[(uint8_t)'C'][5], Peq[(uint8_t)'C'][4],
+		Peq[(uint8_t)'C'][3], Peq[(uint8_t)'C'][2], Peq[(uint8_t)'C'][1], Peq[(uint8_t)'C'][0]);
+	Peq_AVX2[(uint8_t)'G'] = _mm256_set_epi32(Peq[(uint8_t)'G'][7], Peq[(uint8_t)'G'][6], Peq[(uint8_t)'G'][5], Peq[(uint8_t)'G'][4],
+		Peq[(uint8_t)'G'][3], Peq[(uint8_t)'G'][2], Peq[(uint8_t)'G'][1], Peq[(uint8_t)'G'][0]);
+	Peq_AVX2[(uint8_t)'T'] = _mm256_set_epi32(Peq[(uint8_t)'T'][7], Peq[(uint8_t)'T'][6], Peq[(uint8_t)'T'][5], Peq[(uint8_t)'T'][4],
+		Peq[(uint8_t)'T'][3], Peq[(uint8_t)'T'][2], Peq[(uint8_t)'T'][1], Peq[(uint8_t)'T'][0]);
+
+	Word_32 Mask = ((Word_32)1 << (errthold << 1));
+
+	__m256i Mask1 = _mm256_set_epi32(0, 0, 0, 0, 0, 0, 0, Mask);
+	__m256i Mask2 = _mm256_set_epi32(0, 0, 0, 0, 0, 0, Mask, 0);
+	__m256i Mask3 = _mm256_set_epi32(0, 0, 0, 0, 0, Mask, 0, 0);
+	__m256i Mask4 = _mm256_set_epi32(0, 0, 0, 0, Mask, 0, 0, 0);
+	__m256i Mask5 = _mm256_set_epi32(0, 0, 0, Mask, 0, 0, 0, 0);
+	__m256i Mask6 = _mm256_set_epi32(0, 0, Mask, 0, 0, 0, 0, 0);
+	__m256i Mask7 = _mm256_set_epi32(0, Mask, 0, 0, 0, 0, 0, 0);
+	__m256i Mask8 = _mm256_set_epi32(Mask, 0, 0, 0, 0, 0, 0, 0);
+
+	__m256i VP = _mm256_setzero_si256();
+	__m256i VN = _mm256_setzero_si256();
+	__m256i X = _mm256_setzero_si256();
+	__m256i D0 = _mm256_setzero_si256();
+	__m256i HN = _mm256_setzero_si256();
+	__m256i HP = _mm256_setzero_si256();
+	__m256i tmp_process;
+	__m256i tmp_process1;
+
+	__m256i Err_8 = _mm256_setzero_si256();
+	__m256i err_mask = _mm256_set_epi32(1, 1, 1, 1, 1, 1, 1, 1);
+	__m256i for_not = _mm256_set1_epi32(-1);
+	__m256i err_arry;
+	__m256i cmp_result;
+
+	int i_bd = (errthold << 1);
+	int last_high = (errthold << 1);
+	int t_length_1 = t_length - 1;
+	int err[8];
+
+	__m256i pre_end = _mm256_set_epi32(
+		last_high + errthold, last_high + errthold, last_high + errthold, last_high + errthold,
+		last_high + errthold, last_high + errthold, last_high + errthold, last_high + errthold);
+	i = 0;
+
+	while (i<t_length_1)
+	{
+		X = _mm256_or_si256(Peq_AVX2[(uint8_t)text[i]], VN);
+
+		tmp_process1 = _mm256_and_si256(X, VP);
+		tmp_process = _mm256_add_epi32(tmp_process1, VP);
+		tmp_process = _mm256_xor_si256(tmp_process, VP);
+		D0 = _mm256_or_si256(tmp_process, X);
+
+		HN = _mm256_and_si256(D0, VP);
+
+		tmp_process = _mm256_or_si256(D0, VP);
+		tmp_process = _mm256_andnot_si256(tmp_process, for_not);
+		HP = _mm256_or_si256(tmp_process, VN);
+
+		X = _mm256_srli_epi32(D0, 1);
+		VN = _mm256_and_si256(X, HP);
+		tmp_process = _mm256_or_si256(X, HP);
+		tmp_process = _mm256_andnot_si256(tmp_process, for_not);
+		VP = _mm256_or_si256(HN, tmp_process);
+
+		err_arry = _mm256_and_si256(D0, err_mask);
+		Err_8 = _mm256_add_epi32(Err_8, err_mask);
+		Err_8 = _mm256_sub_epi32(Err_8, err_arry);
+
+		cmp_result = _mm256_cmpgt_epi32(Err_8, pre_end);
+
+		if (_mm256_extract_epi32(cmp_result, 0) && _mm256_extract_epi32(cmp_result, 1)
+			&& _mm256_extract_epi32(cmp_result, 2) && _mm256_extract_epi32(cmp_result, 3)
+			&& _mm256_extract_epi32(cmp_result, 4) && _mm256_extract_epi32(cmp_result, 5)
+			&& _mm256_extract_epi32(cmp_result, 6) && _mm256_extract_epi32(cmp_result, 7))
+			return 1;
+
+		Peq_AVX2[(uint8_t)'A'] = _mm256_srli_epi32(Peq_AVX2[(uint8_t)'A'], 1);
+		Peq_AVX2[(uint8_t)'T'] = _mm256_srli_epi32(Peq_AVX2[(uint8_t)'T'], 1);
+		Peq_AVX2[(uint8_t)'G'] = _mm256_srli_epi32(Peq_AVX2[(uint8_t)'G'], 1);
+		Peq_AVX2[(uint8_t)'C'] = _mm256_srli_epi32(Peq_AVX2[(uint8_t)'C'], 1);
+
+		++i;
+		++i_bd;
+
+		Peq_AVX2[(uint8_t)p1[i_bd]] = _mm256_or_si256(Mask1, Peq_AVX2[(uint8_t)p1[i_bd]]);
+		Peq_AVX2[(uint8_t)p2[i_bd]] = _mm256_or_si256(Mask2, Peq_AVX2[(uint8_t)p2[i_bd]]);
+		Peq_AVX2[(uint8_t)p3[i_bd]] = _mm256_or_si256(Mask3, Peq_AVX2[(uint8_t)p3[i_bd]]);
+		Peq_AVX2[(uint8_t)p4[i_bd]] = _mm256_or_si256(Mask4, Peq_AVX2[(uint8_t)p4[i_bd]]);
+		Peq_AVX2[(uint8_t)p5[i_bd]] = _mm256_or_si256(Mask5, Peq_AVX2[(uint8_t)p5[i_bd]]);
+		Peq_AVX2[(uint8_t)p6[i_bd]] = _mm256_or_si256(Mask6, Peq_AVX2[(uint8_t)p6[i_bd]]);
+		Peq_AVX2[(uint8_t)p7[i_bd]] = _mm256_or_si256(Mask7, Peq_AVX2[(uint8_t)p7[i_bd]]);
+		Peq_AVX2[(uint8_t)p8[i_bd]] = _mm256_or_si256(Mask8, Peq_AVX2[(uint8_t)p8[i_bd]]);
+	}
+
+	X = _mm256_or_si256(Peq_AVX2[(uint8_t)text[i]], VN);
+
+	tmp_process1 = _mm256_and_si256(X, VP);
+	tmp_process = _mm256_add_epi32(tmp_process1, VP);
+	tmp_process = _mm256_xor_si256(tmp_process, VP);
+	D0 = _mm256_or_si256(tmp_process, X);
+
+	HN = _mm256_and_si256(D0, VP);
+
+	tmp_process = _mm256_or_si256(D0, VP);
+	tmp_process = _mm256_andnot_si256(tmp_process, for_not);
+	HP = _mm256_or_si256(tmp_process, VN);
+
+	X = _mm256_srli_epi32(D0, 1);
+	VN = _mm256_and_si256(X, HP);
+	tmp_process = _mm256_or_si256(X, HP);
+	tmp_process = _mm256_andnot_si256(tmp_process, for_not);
+	VP = _mm256_or_si256(HN, tmp_process);
+
+	err_arry = _mm256_and_si256(D0, err_mask);
+	Err_8 = _mm256_add_epi32(Err_8, err_mask);
+	Err_8 = _mm256_sub_epi32(Err_8, err_arry);
+
+	cmp_result = _mm256_cmpgt_epi32(Err_8, pre_end);
+
+	if (_mm256_extract_epi32(cmp_result, 0) && _mm256_extract_epi32(cmp_result, 1)
+		&& _mm256_extract_epi32(cmp_result, 2) && _mm256_extract_epi32(cmp_result, 3)
+		&& _mm256_extract_epi32(cmp_result, 4) && _mm256_extract_epi32(cmp_result, 5)
+		&& _mm256_extract_epi32(cmp_result, 6) && _mm256_extract_epi32(cmp_result, 7))
+		return 1;
+
+	int site = t_length - 1;
+	err[0] = _mm256_extract_epi32(Err_8, 0);
+	err[1] = _mm256_extract_epi32(Err_8, 1);
+	err[2] = _mm256_extract_epi32(Err_8, 2);
+	err[3] = _mm256_extract_epi32(Err_8, 3);
+	err[4] = _mm256_extract_epi32(Err_8, 4);
+	err[5] = _mm256_extract_epi32(Err_8, 5);
+	err[6] = _mm256_extract_epi32(Err_8, 6);
+	err[7] = _mm256_extract_epi32(Err_8, 7);
+
+	for (int k = 0; k < 8; k++) {
+		if ((err[k] <= (int)errthold) && ((unsigned int)err[k] <= return_sites_error[k])) {
+			return_sites[k] = site;
+			return_sites_error[k] = err[k];
+		}
+	}
+
+	i = 0;
+	unsigned int ungap_error[8];
+	for (int k = 0; k < 8; k++) ungap_error[k] = (unsigned int)-1;
+
+	int available_i = p_length - t_length;
+
+	while (i < available_i)
+	{
+		tmp_process = _mm256_srli_epi32(VP, i);
+		tmp_process = _mm256_and_si256(tmp_process, err_mask);
+		Err_8 = _mm256_add_epi32(Err_8, tmp_process);
+
+		tmp_process1 = _mm256_srli_epi32(VN, i);
+		tmp_process1 = _mm256_and_si256(tmp_process1, err_mask);
+		Err_8 = _mm256_sub_epi32(Err_8, tmp_process1);
+		++i;
+
+		err[0] = _mm256_extract_epi32(Err_8, 0);
+		err[1] = _mm256_extract_epi32(Err_8, 1);
+		err[2] = _mm256_extract_epi32(Err_8, 2);
+		err[3] = _mm256_extract_epi32(Err_8, 3);
+		err[4] = _mm256_extract_epi32(Err_8, 4);
+		err[5] = _mm256_extract_epi32(Err_8, 5);
+		err[6] = _mm256_extract_epi32(Err_8, 6);
+		err[7] = _mm256_extract_epi32(Err_8, 7);
+
+		for (int k = 0; k < 8; k++) {
+			if ((err[k] <= (int)errthold) && ((unsigned int)err[k] <= return_sites_error[k])) {
+				return_sites[k] = site + i;
+				return_sites_error[k] = err[k];
+			}
+		}
+
+		if(i == (int)errthold) {
+			for (int k = 0; k < 8; k++) ungap_error[k] = err[k];
+		}
+	}
+
+	for (int k = 0; k < 8; k++) {
+		if((ungap_error[k]<=errthold) && (ungap_error[k] == return_sites_error[k])) {
+			return_sites[k] = site + errthold;
+		}
+	}
+
+	return 1;
+}
 
 // void move_trace_gap(uint16_t *trace, int32_t trace_n, int32_t trace_i, 
 // char *pstr, int32_t pi, char *tstr, int32_t ti, int32_t *err)
