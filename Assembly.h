@@ -1,5 +1,5 @@
-#ifndef __ASSEMBLY__
-#define __ASSEMBLY__
+#ifndef __HIFIASM_ASSEMBLY_H__
+#define __HIFIASM_ASSEMBLY_H__
 #include "CommandLines.h"
 #include "Overlaps.h"
 #include "Process_Read.h"
