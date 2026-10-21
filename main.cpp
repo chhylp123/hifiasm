@@ -66,6 +66,7 @@ int main(int argc, char *argv[])
 	else ret = ha_assemble();
 	
     destory_opt(&asm_opt);
+	HA_MEMSTAT_AT("exit");
 	fprintf(stderr, "[M::%s] Version: %s\n", __func__, HA_VERSION);
 	fprintf(stderr, "[M::%s] CMD:", __func__);
 	for (i = 0; i < argc; ++i)

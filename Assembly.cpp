@@ -879,6 +879,7 @@ static void worker_ec_save(void *data, long i, int tid)
 	}
 	R_INF.read_length[i] = new_read_length;
 	ha_compress_base(Get_READ(R_INF, i), new_read, new_read_length, &R_INF.N_site[i], N_occ);
+	ha_rd_mark(i);
 }
 
 void Output_corrected_reads()
@@ -1956,6 +1957,7 @@ void ha_ec_ff(int renew_idx)
     cal_ov_r(asm_opt.thread_num, R_INF.total_reads, renew_idx);
 
 	ha_pt_destroy(ha_idx); ha_idx = NULL;
+	ha_mzc_release();///the final overlaps were the last queries: the cache is not in the graph stage
 }
 
 static void worker_ov_utg(void *data, long i, int tid)
@@ -2092,6 +2094,7 @@ int ha_assemble(void)
             ha_ec(r, asm_opt.number_of_pround, (r<asm_opt.number_of_round-1)?1:0, &tot_b, &tot_e);
 			fprintf(stderr, "[M::%s::%.3f*%.2f@%.3fGB] ==> corrected reads for round %d\n", __func__, yak_realtime(),
 					yak_cpu_usage(), yak_peakrss_in_gb(), r + 1);
+			HA_MEMSTAT_AT("round end");
             fprintf(stderr, "[M::%s] # bases: %lu; # corrected bases: %lu\n", __func__, tot_b, tot_e);
 			// fprintf(stderr, "[M::%s] # bases: %lld; # corrected bases: %lld; # recorrected bases: %lld\n", __func__,
 			// 		asm_opt.num_bases, asm_opt.num_corrected_bases, asm_opt.num_recorrected_bases);
@@ -2106,6 +2109,7 @@ int ha_assemble(void)
 		// ha_overlap_final();
         ha_ec_ff(1/**0**/);
         fprintf(stderr, "[M::%s::%.3f*%.2f@%.3fGB] ==> found overlaps for the final round\n", __func__, yak_realtime(), yak_cpu_usage(), yak_peakrss_in_gb());
+		HA_MEMSTAT_AT("final overlaps end");
 		// fprintf(stderr, "\n[M::%s::%.3f*%.2f@%.3fGB] ==> found overlaps for the final round\n", __func__, yak_realtime(), yak_cpu_usage(), yak_peakrss_in_gb());
 		// ha_print_ovlp_stat(R_INF.paf, R_INF.reverse_paf, R_INF.total_reads);
 		ha_ft_destroy(ha_flt_tab);

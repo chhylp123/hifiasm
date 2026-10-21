@@ -225,6 +225,7 @@ extern all_ul_t ULG_INF;
 
 void init_All_reads(All_reads* r);
 void malloc_All_reads(All_reads* r);
+void malloc_All_reads2(All_reads* r, int alloc_seq);
 void ha_insert_read_len(All_reads *r, int read_len, int name_len);
 void ha_compress_base(uint8_t* dest, char* src, uint64_t src_l, uint64_t** N_site_lis, uint64_t N_site_occ);
 void ha_compress_qual(uint8_t* dest, char* src, uint64_t src_l, uint64_t bitn, uint64_t sc_off);
@@ -238,6 +239,7 @@ void write_All_reads(All_reads* r, char* read_file_name);
 int load_All_reads(All_reads* r, char* read_file_name);
 int append_All_reads(All_reads* r, char *idx, uint32_t id);
 void destory_All_reads(All_reads* r);
+void ha_ec_bin_wait(void);///the background write of asm.ec.bin reads the store: call before a store changes
 int destory_read_bin(All_reads* r);
 void init_Debug_reads(Debug_reads* x, const char* file);
 void destory_Debug_reads(Debug_reads* x);

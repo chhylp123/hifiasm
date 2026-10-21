@@ -983,11 +983,134 @@ double* Match, double* Total)
     (*Total) = min_count;
 }
 
+///an overlap of a read of the x unitig that passes all the checks of the candidate scan of
+///hap_alignment_advance_worker() that do not depend on the candidate y unitig
+typedef struct {
+    asg_arc_t t; uint32_t k, rId, v; uint8_t hhc;
+} hap_xe_t;
+
+///the key of an x overlap in the buckets by candidate unitig: y, then the index i in xe (the order of the scan)
+typedef struct {
+    uint32_t y; uint64_t i;
+} hap_xk_t;
+#define hap_xk_lt(a, b) ((a).y < (b).y || ((a).y == (b).y && (a).i < (b).i))
+KSORT_INIT(hap_xk, hap_xk_t, hap_xk_lt)
+
+///the match cache of one candidate pair (x, y) of hap_alignment_advance_worker(): for each read of
+///x, the positions in y of the reads of y that it overlaps (the logic of check_hap_match()), and the same
+///for each read of y against x. get_pair_hap_similarity() and check_hap_match() read it for these
+///reads and targets and scan the overlaps for all other queries. One per thread; on only while the
+///chains of one candidate pair are checked (the overlaps, read_g and ruIndex do not change then).
+///It also holds the bucket of y: the x overlaps to y (xe[xk[b0..b1)]), in the order of the full scan,
+///for get_base_boundary_chain().
+typedef struct {
+    uint32_t on, uid[2], n[2];
+    ma_utg_t *u[2]; uint64_t *pi; R_to_U *ru;
+    kvec_t(uint64_t) s[2]; kvec_t(uint32_t) p[2];///s: 2 per read (first position, count); p: the positions
+    const hap_xe_t *xe; const hap_xk_t *xk; uint64_t b0, b1;
+} hap_mc_t;
+static __thread hap_mc_t hap_mc = {0, {0, 0}, {0, 0}, {NULL, NULL}, NULL, NULL, {{0,0,0},{0,0,0}}, {{0,0,0},{0,0,0}}, NULL, NULL, 0, 0};
+
+static void hap_mc_side(hap_mc_t *c, int sd, uint32_t target, ma_hit_t_alloc* reverse_sources, asg_t *read_g)
+{
+    uint32_t k, j, qn, tn, uId, is_Unitig;
+    c->s[sd].n = c->p[sd].n = 0;
+    for (k = 0; k < c->u[sd]->n; k++) {
+        qn = c->u[sd]->a[k]>>33;
+        kv_push(uint64_t, c->s[sd], c->p[sd].n);
+        for (j = 0; j < reverse_sources[qn].length; j++) {
+            tn = Get_tn(reverse_sources[qn].buffer[j]);
+            if(read_g->seq[tn].del == 1)
+            {
+                get_R_to_U(c->ru, tn, &tn, &is_Unitig);
+                if(tn == (uint32_t)-1 || is_Unitig == 1 || read_g->seq[tn].del == 1) continue;
+            }
+            get_R_to_U(c->ru, tn, &uId, &is_Unitig);
+            if(uId!=(uint32_t)-1 && is_Unitig == 1 && uId == target) kv_push(uint32_t, c->p[sd], (uint32_t)(c->pi[tn]));
+        }
+        kv_push(uint64_t, c->s[sd], c->p[sd].n - c->s[sd].a[c->s[sd].n-1]);
+    }
+    c->n[sd] = c->u[sd]->n;
+}
+
+static void hap_mc_set(uint32_t xUid, ma_utg_t *xReads, uint32_t yUid, ma_utg_t *yReads, uint64_t *position_index,
+ma_hit_t_alloc* reverse_sources, asg_t *read_g, R_to_U* ruIndex)
+{
+    hap_mc_t *c = &hap_mc;
+    c->uid[0] = xUid; c->uid[1] = yUid; c->u[0] = xReads; c->u[1] = yReads; c->pi = position_index; c->ru = ruIndex;
+    hap_mc_side(c, 0, yUid, reverse_sources, read_g);
+    hap_mc_side(c, 1, xUid, reverse_sources, read_g);
+    c->on = 1;
+}
+
+///1 if the cache holds the positions of the read qn against target (*p, *n)
+static inline int hap_mc_get(uint32_t qn, uint32_t target, const uint32_t **p, uint32_t *n)
+{
+    hap_mc_t *c = &hap_mc; uint32_t u, is_Unitig, k; int sd;
+    if (!c->on) return 0;
+    if (target == c->uid[1]) sd = 0;
+    else if (target == c->uid[0]) sd = 1;
+    else return 0;
+    get_R_to_U(c->ru, qn, &u, &is_Unitig);
+    if (is_Unitig != 1 || u != c->uid[sd]) return 0;
+    k = (uint32_t)(c->pi[qn]);
+    if (k >= c->n[sd] || (c->u[sd]->a[k]>>33) != qn) return 0;
+    *n = c->s[sd].a[((uint64_t)k<<1)+1];
+    *p = c->p[sd].a + c->s[sd].a[(uint64_t)k<<1];
+    return 1;
+}
+
+#ifdef HA_PD_CHECK
+static uint64_t ha_mc_chk_n = 0, ha_mc_chk_d = 0;
+static void ha_mc_chk_report(void) { fprintf(stderr, "[M::ha_mc_check] cached answers: %lu; different: %lu\n", (unsigned long)ha_mc_chk_n, (unsigned long)ha_mc_chk_d); }
+static int ha_mc_chk_report_set = atexit(ha_mc_chk_report);
+#endif
+
+///1 if the read qn overlaps a read of the unitig target at a position in [beg, end] (the scan of
+///check_hap_match() and get_pair_hap_similarity())
+static inline uint32_t hap_read_match_scan(uint32_t qn, uint32_t target, uint32_t beg, uint32_t end,
+ma_hit_t_alloc* reverse_sources, asg_t *read_g, R_to_U* ruIndex, uint64_t *position_index)
+{
+    uint32_t j, tn, uId, is_Unitig, offset;
+    for (j = 0; j < reverse_sources[qn].length; j++)
+    {
+        tn = Get_tn(reverse_sources[qn].buffer[j]);
+        if(read_g->seq[tn].del == 1)
+        {
+            get_R_to_U(ruIndex, tn, &tn, &is_Unitig);
+            if(tn == (uint32_t)-1 || is_Unitig == 1 || read_g->seq[tn].del == 1) continue;
+        }
+        get_R_to_U(ruIndex, tn, &uId, &is_Unitig);
+        if(uId!=(uint32_t)-1 && is_Unitig == 1 && uId == target)
+        {
+            if(!position_index) return 1;
+            offset = (uint32_t)(position_index[tn]);
+            if(offset >= beg && offset <= end) return 1;
+        }
+    }
+    return 0;
+}
+
+///hap_read_match_scan() with the match cache when it holds the read; position_index NULL: any position
+static inline uint32_t hap_read_match(uint32_t qn, uint32_t target, uint32_t beg, uint32_t end,
+ma_hit_t_alloc* reverse_sources, asg_t *read_g, R_to_U* ruIndex, uint64_t *position_index)
+{
+    const uint32_t *p; uint32_t n, k, r = 0;
+    if (!hap_mc_get(qn, target, &p, &n)) return hap_read_match_scan(qn, target, beg, end, reverse_sources, read_g, ruIndex, position_index);
+    if (!position_index) r = n > 0;
+    else for (k = 0; k < n && !r; k++) r = (p[k] >= beg && p[k] <= end);
+#ifdef HA_PD_CHECK
+    __sync_fetch_and_add(&ha_mc_chk_n, 1);
+    if (r != hap_read_match_scan(qn, target, beg, end, reverse_sources, read_g, ruIndex, position_index)) __sync_fetch_and_add(&ha_mc_chk_d, 1);
+#endif
+    return r;
+}
+
 void get_pair_hap_similarity(uint64_t* readIDs, uint32_t Len, uint32_t target_uId, 
 ma_hit_t_alloc* reverse_sources, asg_t *read_g, R_to_U* ruIndex, double* Match, double* Total)
 {
     #define CUTOFF_THRES 1000
-    uint32_t i, j, qn, tn, is_Unitig, uId, min_count = 0, max_count = 0, cutoff = 0;;
+    uint32_t i, j, qn, min_count = 0, max_count = 0, cutoff = 0;;
     for (i = 0; i < Len; i++)
     {
         if(cutoff > CUTOFF_THRES && cutoff > (Len>>1))
@@ -999,23 +1122,8 @@ ma_hit_t_alloc* reverse_sources, asg_t *read_g, R_to_U* ruIndex, double* Match, 
         qn = readIDs[i]>>33;
         if(reverse_sources[qn].length > 0) min_count++;
         if(reverse_sources[qn].length == 0) continue;
-        for (j = 0; j < reverse_sources[qn].length; j++)
-        {
-            tn = Get_tn(reverse_sources[qn].buffer[j]);
-            if(read_g->seq[tn].del == 1)
-            {
-                get_R_to_U(ruIndex, tn, &tn, &is_Unitig);
-                if(tn == (uint32_t)-1 || is_Unitig == 1 || read_g->seq[tn].del == 1) continue;
-            }
-
-
-            get_R_to_U(ruIndex, tn, &uId, &is_Unitig);
-            if(uId!=(uint32_t)-1 && is_Unitig == 1 && uId == target_uId)
-            {
-                max_count++;
-                break;
-            }
-        }
+        if (hap_read_match(qn, target_uId, 0, (uint32_t)-1, reverse_sources, read_g, ruIndex, NULL)) max_count++, j = 0;
+        else j = reverse_sources[qn].length;
 
         //means no match
         if(j == reverse_sources[qn].length)
@@ -1089,31 +1197,9 @@ ma_hit_t_alloc* reverse_sources, asg_t *read_g, R_to_U* ruIndex, double* Match, 
 inline void check_hap_match(uint32_t qn, uint32_t targetBeg, uint32_t targetEnd, uint32_t targetID, 
 uint64_t* position_index, ma_hit_t_alloc* reverse_sources, asg_t *read_g, R_to_U* ruIndex, uint32_t* is_found, uint32_t* is_match)
 {
-    uint32_t j, tn, uId, is_Unitig, offset;
     (*is_found) = (*is_match) = 0;
     if(reverse_sources[qn].length > 0) (*is_found) = 1;
-    for (j = 0; j < reverse_sources[qn].length; j++)
-    {
-        tn = Get_tn(reverse_sources[qn].buffer[j]);
-        if(read_g->seq[tn].del == 1)
-        {
-            get_R_to_U(ruIndex, tn, &tn, &is_Unitig);
-            if(tn == (uint32_t)-1 || is_Unitig == 1 || read_g->seq[tn].del == 1) continue;
-        }
-
-
-        get_R_to_U(ruIndex, tn, &uId, &is_Unitig);
-        if(uId!=(uint32_t)-1 && is_Unitig == 1 && uId == targetID)
-        {
-            offset = (uint32_t)(position_index[tn]);
-            if(offset >= targetBeg && offset <= targetEnd)
-            {
-                (*is_match) = 1;
-                break;
-            }                    
-        }
-    }
-
+    (*is_match) = hap_read_match(qn, targetID, targetBeg, targetEnd, reverse_sources, read_g, ruIndex, position_index);
 }
 
 /**
@@ -2132,6 +2218,12 @@ void get_idx_by_base(ma_utg_t *x, asg_t *read_g, long long beg_base, long long e
     }
 }
 
+#ifdef HA_PD_CHECK
+static uint64_t ha_bb_chk_n = 0, ha_bb_chk_d = 0;
+static void ha_bb_chk_report(void) { fprintf(stderr, "[M::ha_bb_check] boundary scans from the bucket: %lu; different: %lu\n", (unsigned long)ha_bb_chk_n, (unsigned long)ha_bb_chk_d); }
+static int ha_bb_chk_report_set = atexit(ha_bb_chk_report);
+#endif
+
 int get_base_boundary_chain(R_to_U* ruIndex, ma_hit_t_alloc* reverse_sources, ma_sub_t *coverage_cut, 
 asg_t *read_g, uint64_t* position_index, int max_hang, int min_ovlp, ma_utg_t *xReads, ma_utg_t *yReads,
 uint32_t xUid, uint32_t yUid, long long xBegIndex, long long xEndIndex, long long yBegIndex, long long yEndIndex, 
@@ -2147,6 +2239,39 @@ uint32_t rev, kvec_asg_arc_t_offset* u_buffer, kvec_t_i32_warp* tailIndex, kvec_
     uint64_t tmp;
     asg_arc_t_offset t_offset;
     u_buffer->a.n = 0;
+    if (hap_mc.on && hap_mc.xe && hap_mc.uid[0] == xUid && hap_mc.uid[1] == yUid && hap_mc.u[0] == xReads) {
+        ///the bucket of y has the overlaps of the x reads that pass the checks up to (position_index[v>>1] == k)
+        uint64_t e0 = hap_mc.b0, e1 = hap_mc.b1, e;
+        while (e0 < e1) {///the first one with k >= xBegIndex (the bucket is sorted by k)
+            e = (e0 + e1)>>1;
+            if ((long long)hap_mc.xe[hap_mc.xk[e].i].k < xBegIndex) e0 = e + 1; else e1 = e;
+        }
+        for (e = e0; e < hap_mc.b1; e++) {
+            const hap_xe_t *xe = &(hap_mc.xe[hap_mc.xk[e].i]);
+            if ((long long)xe->k > xEndIndex) break;
+            t = xe->t; rId = xe->rId; v = xe->v;
+            w = (yReads->a[(uint32_t)(position_index[rId])])>>32;
+            v_dir = ((t.ul>>32)==v)?1:0;
+            w_dir = (t.v == w)?1:0;
+            if(rev == 0 && v_dir != w_dir) continue;
+            if(rev == 1 && v_dir == w_dir) continue;
+            offset = (uint32_t)(position_index[rId]);
+            if(offset < yBegIndex || offset > yEndIndex) continue;
+            tmp = get_xy_pos(read_g, &t, v, w, xReads->len, yReads->len, position_index, &(t.el));
+            if(((tmp>>32) == (uint32_t)-1) || (((uint32_t)tmp) == (uint32_t)-1)) continue;
+            t_offset.Off = tmp;
+            t_offset.x = t;
+            t_offset.weight = 1;
+            kv_push(asg_arc_t_offset, u_buffer->a, t_offset);
+        }
+    }
+#ifndef HA_PD_CHECK
+    else
+#else
+    static __thread kvec_asg_arc_t_offset bchk = {{0,0,0},0};
+    int bc = hap_mc.on && hap_mc.xe && hap_mc.uid[0] == xUid && hap_mc.uid[1] == yUid && hap_mc.u[0] == xReads;
+    if (bc) { kvec_asg_arc_t_offset sw = bchk; bchk = *u_buffer; *u_buffer = sw; u_buffer->a.n = 0; }
+#endif
     for (k = xBegIndex; k <= xEndIndex; k++)
     {
         xR = &(reverse_sources[xReads->a[k]>>33]);
@@ -2198,6 +2323,19 @@ uint32_t rev, kvec_asg_arc_t_offset* u_buffer, kvec_t_i32_warp* tailIndex, kvec_
             kv_push(asg_arc_t_offset, u_buffer->a, t_offset);      
         }
     }
+#ifdef HA_PD_CHECK
+    if (bc) {///u_buffer: the full scan; bchk: the bucket
+        uint64_t z, d = (bchk.a.n != u_buffer->a.n);
+        for (z = 0; !d && z < bchk.a.n; z++) {
+            asg_arc_t_offset *p0 = &(bchk.a.a[z]), *p1 = &(u_buffer->a.a[z]);
+            d = p0->Off != p1->Off || p0->weight != p1->weight || p0->x.ul != p1->x.ul || p0->x.v != p1->x.v ||
+                p0->x.ol != p1->x.ol || p0->x.del != p1->x.del || p0->x.strong != p1->x.strong ||
+                p0->x.no_l_indel != p1->x.no_l_indel || p0->x.el != p1->x.el;
+        }
+        __sync_fetch_and_add(&ha_bb_chk_n, 1);
+        if (d) __sync_fetch_and_add(&ha_bb_chk_d, 1);
+    }
+#endif
     if(u_buffer->a.n == 0) return 0;
 
     qsort(u_buffer->a.a, u_buffer->a.n, sizeof(asg_arc_t_offset), cmp_hap_alignment_chaining);
@@ -2961,6 +3099,12 @@ void filter_secondary_ovlp(kvec_hap_overlaps *x, kvec_t_u64_warp *a, float sim_f
     x->a.n = m;
 }
 
+#ifdef HA_PD_CHECK
+static uint64_t ha_pd_chk_n = 0, ha_pd_chk_d = 0;
+static void ha_pd_chk_report(void) { fprintf(stderr, "[M::ha_pd_check] candidate scans: %lu; different: %lu\n", (unsigned long)ha_pd_chk_n, (unsigned long)ha_pd_chk_d); }
+static int ha_pd_chk_report_set = atexit(ha_pd_chk_report);
+#endif
+
 static void hap_alignment_advance_worker(void *_data, long eid, int tid)
 {
     hap_alignment_struct_pip* hap_buf = (hap_alignment_struct_pip*)_data;
@@ -3003,6 +3147,11 @@ static void hap_alignment_advance_worker(void *_data, long eid, int tid)
     asg_arc_t_offset t_offset;
     hap_overlaps hap_align;
     hap_overlaps *hap_align_x = NULL;
+    static __thread kvec_t(hap_xe_t) xe_v = {0,0,0}; static __thread kvec_t(hap_xk_t) xk = {0,0,0};
+    hap_xe_t *xe; hap_xk_t *xkp; uint64_t e0, e1;
+#ifdef HA_PD_CHECK
+    static __thread kvec_asg_arc_t_offset chk = {{0,0,0},0};
+#endif
     xUid = Input_uId;
     if(nsg->seq[xUid].del || nsg->seq[xUid].c == ALTER_LABLE) return;
     memset(vote_counting, 0, sizeof(uint64_t)*nsg->n_seq);
@@ -3055,6 +3204,46 @@ static void hap_alignment_advance_worker(void *_data, long eid, int tid)
     if(u_vecs->a.n == 0) return;
     sort_kvec_t_u64_warp(u_vecs, 1);
 
+    ///the checks of the candidate scan that do not depend on the candidate, once for all candidates
+    xe_v.n = xk.n = 0;
+    xReads = &(ug->u.a[xUid]);
+    for (k = 0; k < xReads->n; k++)
+    {
+        xR = &(reverse_sources[xReads->a[k]>>33]);
+        hhc = hh[xReads->a[k]>>33];
+        for (j = 0; j < xR->length; j++)
+        {
+            h = &(xR->buffer[j]);
+            sq = &(coverage_cut[Get_qn(*h)]);
+            st = &(coverage_cut[Get_tn(*h)]);
+            if(st->del || read_g->seq[Get_tn(*h)].del) continue;
+
+            r = ma_hit2arc(h, sq->e - sq->s, st->e - st->s, max_hang, 
+                            asm_opt.max_hang_rate, min_ovlp, &t);
+            ///if it is a contained overlap, skip
+            if(r < 0) continue;
+
+            rId = t.v>>1;
+            if(read_g->seq[rId].del == 1) continue;
+            get_R_to_U(ruIndex, rId, &Hap_uId, &is_Unitig);
+            if(is_Unitig == 0 || Hap_uId == (uint32_t)-1) continue;
+            if(Hap_uId == xUid || vote_counting[Hap_uId] == 0) continue;///not a candidate
+            yUid = Hap_uId;
+
+            v = xReads->a[k]>>32;
+            get_R_to_U(ruIndex, v>>1, &Hap_uId, &is_Unitig);
+            if(is_Unitig == 0 || Hap_uId == (uint32_t)-1) continue;
+            if(Hap_uId != xUid) continue;
+            if((uint32_t)(position_index[v>>1]) != k) continue;
+
+            kv_pushp(hap_xe_t, xe_v, &xe);
+            xe->t = t; xe->k = k; xe->rId = rId; xe->v = v; xe->hhc = hhc;
+            kv_pushp(hap_xk_t, xk, &xkp);
+            xkp->y = yUid; xkp->i = xe_v.n - 1;
+        }
+    }
+    ks_introsort_hap_xk(xk.n, xk.a);
+
 
     ///scan each candidate unitig
     for (i = 0; i < u_vecs->a.n; i++)
@@ -3064,6 +3253,39 @@ static void hap_alignment_advance_worker(void *_data, long eid, int tid)
         xReads = &(ug->u.a[xUid]);
         yReads = &(ug->u.a[yUid]);
         u_buffer->a.n = 0;
+
+        ///the overlaps of the x reads to yUid, in the order of the full scan (k, then j)
+        for (e0 = 0, e1 = xk.n; e0 < e1; ) {
+            uint64_t mid = (e0 + e1)>>1;
+            if(xk.a[mid].y < yUid) e0 = mid + 1; else e1 = mid;
+        }
+        for (e1 = e0, k = (uint32_t)-1; e1 < xk.n && xk.a[e1].y == yUid; e1++)
+        {
+            hap_xe_t *xe = &(xe_v.a[xk.a[e1].i]);
+            if(xe->k != k && k != (uint32_t)-1) deduplicate_edge(u_buffer);
+            k = xe->k; t = xe->t; rId = xe->rId; v = xe->v;
+
+            if(asm_opt.purge_level_primary <= 2 &&
+                (prefilter((uint32_t)(position_index[v>>1]), (uint32_t)(position_index[rId]), 
+                xReads->n, yReads->n, 0, Hap_rate, seedOcc)==NON_PLOID) && 
+               (prefilter((uint32_t)(position_index[v>>1]), (uint32_t)(position_index[rId]), 
+                xReads->n, yReads->n, 1, Hap_rate, seedOcc)==NON_PLOID))
+            {
+                continue;
+            }
+        
+            t_offset.Off = get_xy_pos(read_g, &t, v, (yReads->a[(uint32_t)(position_index[rId])])>>32, 
+            xReads->len, yReads->len, position_index, &(t.el));
+            if(((t_offset.Off>>32) == (uint32_t)-1) || (((uint32_t)t_offset.Off) == (uint32_t)-1)) continue;
+
+            t_offset.x = t;
+            t_offset.weight = xe->hhc;
+
+            kv_push(asg_arc_t_offset, u_buffer->a, t_offset);
+        }
+        deduplicate_edge(u_buffer);///the last x read (a second call on a deduplicated run changes nothing)
+#ifdef HA_PD_CHECK
+        chk.a.n = 0;
 
         for (k = 0; k < xReads->n; k++)
         {
@@ -3112,11 +3334,23 @@ static void hap_alignment_advance_worker(void *_data, long eid, int tid)
                 t_offset.x = t;
                 t_offset.weight = hhc;
 
-                kv_push(asg_arc_t_offset, u_buffer->a, t_offset);
+                kv_push(asg_arc_t_offset, chk.a, t_offset);
             }
 
-            deduplicate_edge(u_buffer);
+            deduplicate_edge(&chk);
         }
+        {
+            uint64_t z, d = (chk.a.n != u_buffer->a.n);
+            for (z = 0; !d && z < chk.a.n; z++) {
+                asg_arc_t_offset *p0 = &(chk.a.a[z]), *p1 = &(u_buffer->a.a[z]);
+                d = p0->Off != p1->Off || p0->weight != p1->weight || p0->x.ul != p1->x.ul || p0->x.v != p1->x.v ||
+                    p0->x.ol != p1->x.ol || p0->x.del != p1->x.del || p0->x.strong != p1->x.strong ||
+                    p0->x.no_l_indel != p1->x.no_l_indel || p0->x.el != p1->x.el;
+            }
+            __sync_fetch_and_add(&ha_pd_chk_n, 1);
+            if (d) __sync_fetch_and_add(&ha_pd_chk_d, 1);
+        }
+#endif
 
         if(u_buffer->a.n == 0) continue;
 
@@ -3127,6 +3361,8 @@ static void hap_alignment_advance_worker(void *_data, long eid, int tid)
         if(u_can->a.n == 0) continue;
         
         qsort(u_can->a.a, u_can->a.n, sizeof(hap_candidates), cmp_hap_candidates);
+        hap_mc_set(xUid, xReads, yUid, yReads, position_index, reverse_sources, read_g, ruIndex);
+        hap_mc.xe = xe_v.a; hap_mc.xk = xk.a; hap_mc.b0 = e0; hap_mc.b1 = e1;
 
         memset(&hap_align, 0, sizeof(hap_overlaps));    
         m = all_ovlp->x[xUid].a.n;     
@@ -3173,6 +3409,7 @@ static void hap_alignment_advance_worker(void *_data, long eid, int tid)
             hap_align.s = sim;
             kv_push(hap_overlaps, all_ovlp->x[hap_align.xUid].a, hap_align);
         }
+        hap_mc.on = 0;
         /**
         ///chains with same xUid && yUid
         for (k = m; k < all_ovlp->x[xUid].a.n; k++)

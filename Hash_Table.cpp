@@ -1525,8 +1525,11 @@ inline int32_t comput_sc_ch_ec(const k_mer_hit *ai, const k_mer_hit *aj, double 
     dg = dr < dq? dr : dq;//len
     q_span = ai->cnt&(0xffu); 
     sc = q_span < dg? q_span : dg;
-    sc = normal_w(sc, ((int32_t)(ai->cnt>>8)));
-    if (dd || (dg > q_span && dg > 0)) {
+    if ((ai->cnt>>8) == 1) sc = sc >= 1? sc : 1;///normal_w(sc, 1) without the division
+    else sc = normal_w(sc, ((int32_t)(ai->cnt>>8)));
+    if (dd == 0) {///then lin_pen = a_pen = 0 below (sc >= 1, dg > 0): only the skip penalty, without the divisions
+        if (dg > q_span) sc -= (int32_t)(chn_pen_skip*(double)dg);
+    } else {
         double lin_pen, a_pen;
         lin_pen = (chn_pen_gap*(double)dd);
         a_pen = ((double)(sc))*((((double)dd)/((double)dg))/bw_rate);

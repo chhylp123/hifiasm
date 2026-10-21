@@ -439,7 +439,9 @@ void sf##_refine_sketch(VType *p, ha_pt_t *pt, int32_t rlen, int32_t dp_min_len,
 	}\
 	/**if(p->n != sn) fprintf(stderr, "[M::%s::] ==> #########21#########, p->n: %u, sn: %d\n", __func__, p->n, sn);**/\
 	p->n = sn;\
-}\
+}
+
+#define HA_SKETCH_INIT(sf, HType, VType, RidBits, PosBits, Name, Old)\
 /**\
  * Find symmetric (w,k)-minimizers on a DNA sequence\
  *\
@@ -451,7 +453,7 @@ void sf##_refine_sketch(VType *p, ha_pt_t *pt, int32_t rlen, int32_t dp_min_len,
  * @param is_hpc homopolymer-compressed or not\
  * @param p      minimizers\
  */\
-void sf##_ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, VType *p, const void *hf, int sample_dist, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct, ha_pt_t *pt, int min_freq, int32_t dp_min_len, float dp_e, st_mt_t *mt, int32_t ws, int32_t is_unique, void *km)\
+void Name(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, VType *p, const void *hf, int sample_dist, kvec_t_u8_warp* k_flag, kvec_t_u64_warp* dbg_ct, ha_pt_t *pt, int min_freq, int32_t dp_min_len, float dp_e, st_mt_t *mt, int32_t ws, int32_t is_unique, void *km)\
 {   /**in default, w = 51, k = 51, is_hpc = 1**/\
     extern void *ha_ct_table;\
     static const HType dummy = { UINT64_MAX, (((uint64_t)1)<<RidBits) - 1, 0, 0, 0};\
@@ -459,7 +461,7 @@ void sf##_ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is
     int i, j, l, tl = 0, buf_pos, min_pos, kmer_span = 0;\
     HType buf[256], min = dummy;\
     uint32_t buf_p[256], min_s = (uint32_t)-1;\
-    tiny_queue_t tq;\
+    tiny_queue_t tq; int run[64], run_pos = 0, run_n = 0;\
     assert(len > 0 && (int64_t)(len) < (int64_t)((((uint64_t)1)<<PosBits)) && (int64_t)(rid) < (int64_t)((((uint64_t)1)<<RidBits)) && (w > 0 && w < 256) && (k > 0 && k <= 63));\
 	if (dbg_ct != NULL) dbg_ct->a.n = 0;\
     if (k_flag != NULL) {\
@@ -485,11 +487,16 @@ void sf##_ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is
                             break;\
                     i += skip_len - 1; /**put $i at the end of the current homopolymer run**/\
                 }\
-                tq_push(&tq, skip_len);\
                 kmer_span += skip_len;\
-                /**how many bases that are covered by this HPC k-mer\
-                kmer_span includes at most k HPC elements**/\
-                if (tq.count > k) kmer_span -= tq_shift(&tq);\
+                if (Old) {\
+                    tq_push(&tq, skip_len);\
+                    if (tq.count > k) kmer_span -= tq_shift(&tq);\
+                } else { /**one cursor replaces the oldest of the last k run lengths**/\
+                    if (run_n == k) kmer_span -= run[run_pos];\
+                    else ++run_n;\
+                    run[run_pos] = skip_len;\
+                    if (++run_pos == k) run_pos = 0;\
+                }\
             } else kmer_span = l + 1 < k? l + 1 : k;\
             /**kmer_span should be used for HPC k-mer\
             non-HPC k-mer, kmer_span should be k\
@@ -505,7 +512,9 @@ void sf##_ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is
             if (l >= k && kmer_span < 256) {\
                 uint64_t y;\
                 int32_t cnt, filtered;\
-                y = yak_hash64_64(kmer[z<<1|0]) + yak_hash64_64(kmer[z<<1|1]);\
+                if (Old) y = yak_hash64_64(kmer[z<<1|0]) + yak_hash64_64(kmer[z<<1|1]);\
+                /**fixed indices let the compiler keep the rolling k-mers in registers**/\
+                else y = yak_hash64_64(z? kmer[2] : kmer[0]) + yak_hash64_64(z? kmer[3] : kmer[1]);\
                 cnt = hf? ha_ft_cnt(hf, y) : 0;\
 				filtered = (cnt >= 1<<28);\
                 if(is_unique && (!filtered)) {\
@@ -517,7 +526,7 @@ void sf##_ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is
                 if (k_flag != NULL) k_flag->a.a[i]++;\
                 if (k_flag != NULL && filtered > 0) k_flag->a.a[i]++;\
             }\
-        } else l = 0, tq.count = tq.front = 0, kmer_span = 0;\
+        } else l = 0, tq.count = tq.front = run_n = run_pos = 0, kmer_span = 0;\
         buf[buf_pos] = info; /**need to do this here as appropriate buf_pos and buf[buf_pos] are needed below**/\
         buf_p[buf_pos] = l;\
         if (l == w + k - 1 && min.x != UINT64_MAX) { /**special case for the first window - because identical k-mers are not stored yet**/\
@@ -580,3 +589,46 @@ void sf##_ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is
 
 HA_SC_INIT(mz1, ha_mz1_t, ha_mz1_v, 28, 27)
 HA_SC_INIT(mz2, ha_mzl_t, ha_mzl_v, 31, 32)
+
+#ifdef HA_SKREG_CHECK
+#define HA_SKETCH_NAME(sf) sf##_ha_sketch_reg
+#else
+#define HA_SKETCH_NAME(sf) sf##_ha_sketch
+#endif
+HA_SKETCH_INIT(mz1, ha_mz1_t, ha_mz1_v, 28, 27, HA_SKETCH_NAME(mz1), 0)
+HA_SKETCH_INIT(mz2, ha_mzl_t, ha_mzl_v, 31, 32, HA_SKETCH_NAME(mz2), 0)
+
+#ifdef HA_SKREG_CHECK
+HA_SKETCH_INIT(mz1, ha_mz1_t, ha_mz1_v, 28, 27, mz1_ha_sketch_old, 1)
+HA_SKETCH_INIT(mz2, ha_mzl_t, ha_mzl_v, 31, 32, mz2_ha_sketch_old, 1)
+static uint64_t ha_skreg_calls, ha_skreg_bases, ha_skreg_mz, ha_skreg_bad;
+static void ha_skreg_report(void)
+{
+	fprintf(stderr, "[M::HA_SKREG_CHECK] calls=%lu bases=%lu minimizers=%lu different=%lu\n", (unsigned long)ha_skreg_calls, (unsigned long)ha_skreg_bases, (unsigned long)ha_skreg_mz, (unsigned long)ha_skreg_bad);
+}
+static int ha_skreg_registered = atexit(ha_skreg_report);
+#define HA_SKREG_WRAP(sf, HType, VType)\
+void sf##_ha_sketch(const char *str, int len, int w, int k, uint32_t rid, int is_hpc, VType *p, const void *hf, int sample_dist, kvec_t_u8_warp *k_flag, kvec_t_u64_warp *dbg_ct, ha_pt_t *pt, int min_freq, int32_t dp_min_len, float dp_e, st_mt_t *mt, int32_t ws, int32_t is_unique, void *km)\
+{\
+	VType ref = {0,0,0}; st_mt_t mm = {0,0,0};\
+	kvec_t_u8_warp flag = {0}; kvec_t_u64_warp dbg = {0};\
+	uint32_t i; int bad = 0;\
+	if (p->n) kv_copy_km(NULL, HType, ref, *p);\
+	if (mt->n) kv_copy_km(NULL, uint64_t, mm, *mt);\
+	sf##_ha_sketch_reg(str, len, w, k, rid, is_hpc, p, hf, sample_dist, k_flag, dbg_ct, pt, min_freq, dp_min_len, dp_e, mt, ws, is_unique, km);\
+	sf##_ha_sketch_old(str, len, w, k, rid, is_hpc, &ref, hf, sample_dist, k_flag? &flag : NULL, dbg_ct? &dbg : NULL, pt, min_freq, dp_min_len, dp_e, &mm, ws, is_unique, NULL);\
+	if (p->n != ref.n) bad = 1;\
+	else for (i = 0; i < p->n; ++i) {\
+		HType *a = &p->a[i], *b = &ref.a[i];\
+		if (a->x != b->x || a->rid != b->rid || a->pos != b->pos || a->rev != b->rev || a->span != b->span) bad = 1;\
+	}\
+	if (mt->n != mm.n || (mt->n && memcmp(mt->a, mm.a, mt->n * sizeof(*mt->a)))) bad = 1;\
+	if (k_flag && (k_flag->a.n != flag.a.n || memcmp(k_flag->a.a, flag.a.a, flag.a.n))) bad = 1;\
+	if (dbg_ct && (dbg_ct->a.n != dbg.a.n || (dbg.a.n && memcmp(dbg_ct->a.a, dbg.a.a, dbg.a.n * sizeof(*dbg.a.a))))) bad = 1;\
+	free(ref.a); free(mm.a); free(flag.a.a); free(dbg.a.a);\
+	__sync_fetch_and_add(&ha_skreg_calls, 1); __sync_fetch_and_add(&ha_skreg_bases, len);\
+	__sync_fetch_and_add(&ha_skreg_mz, p->n); __sync_fetch_and_add(&ha_skreg_bad, bad);\
+}
+HA_SKREG_WRAP(mz1, ha_mz1_t, ha_mz1_v)
+HA_SKREG_WRAP(mz2, ha_mzl_t, ha_mzl_v)
+#endif

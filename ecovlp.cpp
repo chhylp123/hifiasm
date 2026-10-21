@@ -17,6 +17,42 @@
 #define RES_K 19
 #define RES_W 19
 
+#ifdef HA_FPACK_EQ_CHECK
+///the check build HA_FPACK_EQ_CHECK: each packed compare of the final pass also runs the decoded
+///compare (exact_ec_check); the counts are printed at exit
+static uint64_t ff_eq_n = 0, ff_eq_bad = 0, ff_eq_bases = 0, ff_eq_fallback = 0;
+static void ff_eq_report(void)
+{
+    fprintf(stderr, "[M::HA_FPACK_EQ_CHECK] checks %lu; different %lu; bases %lu; decoded fallbacks %lu\n",
+        (unsigned long)ff_eq_n, (unsigned long)ff_eq_bad, (unsigned long)ff_eq_bases,
+        (unsigned long)ff_eq_fallback);
+}
+static int ff_eq_report_set = atexit(ff_eq_report);
+#endif
+
+#ifdef HA_EA_PACK_CHECK
+static uint64_t ea_pack_n = 0, ea_pack_bad = 0, ea_pack_equal = 0, ea_pack_bases = 0;
+static void ea_pack_report(void)
+{
+    fprintf(stderr, "[M::HA_EA_PACK_CHECK] checks %lu; different %lu; equal %lu; packed bases %lu\n",
+        (unsigned long)ea_pack_n, (unsigned long)ea_pack_bad,
+        (unsigned long)ea_pack_equal, (unsigned long)ea_pack_bases);
+}
+static int ea_pack_report_set = atexit(ea_pack_report);
+#endif
+
+#ifdef HA_HAP_MM_RANGE_CHECK
+static uint64_t mm_range_votes = 0, mm_range_calls = 0, mm_range_bad = 0;
+static uint64_t mm_range_cells = 0, mm_range_runs = 0, mm_range_nonzero = 0;
+static void mm_range_report(void)
+{
+    fprintf(stderr, "[M::HA_HAP_MM_RANGE_CHECK] votes %lu; calls %lu; different %lu; old cells %lu; runs %lu; nonzero input %lu\n",
+        (unsigned long)mm_range_votes, (unsigned long)mm_range_calls, (unsigned long)mm_range_bad,
+        (unsigned long)mm_range_cells, (unsigned long)mm_range_runs, (unsigned long)mm_range_nonzero);
+}
+static int mm_range_report_set = atexit(mm_range_report);
+#endif
+
 KDQ_INIT(uint32_t)
 
 typedef struct {
@@ -280,9 +316,13 @@ typedef struct {
 
 
 ///[s, e)
-int64_t extract_sub_cigar_mm(overlap_region *z, int64_t s, int64_t e, ul_ov_t *p, uint64_t *ct)
+template<bool range>
+int64_t extract_sub_cigar_mm(overlap_region *z, int64_t s, int64_t e, ul_ov_t *p, uint64_t *ct, int64_t ct_n)
 {
     int64_t wk = ovlp_cur_wid(*p), xk = ovlp_cur_xoff(*p), yk = ovlp_cur_yoff(*p), ck = ovlp_cur_coff(*p), os, oe, t;
+#ifdef HA_HAP_MM_RANGE_CHECK
+    uint64_t cells = 0, runs = 0;
+#endif
     bit_extz_t ez; int64_t bd = ovlp_bd(*p), s0, e0; 
     s0 = ((int64_t)(z->w_list.a[wk].x_start)) + bd; 
     e0 = ((int64_t)(z->w_list.a[wk].x_end)) + 1 - bd;
@@ -323,7 +363,25 @@ int64_t extract_sub_cigar_mm(overlap_region *z, int64_t s, int64_t e, ul_ov_t *p
         }
         
 
-        if(op == 0) {
+#ifdef HA_HAP_MM_RANGE_CHECK
+        if(!range) { cells += ((op != 2)? ((oe-os)*2-(os == ws)):1); runs++; }
+#endif
+        if(range) {
+            if(op != 2) {
+                uint64_t d = ((op == 0)? (uint64_t)0x100000001ULL:1);
+                int64_t end = (oe-s)<<1;
+                t = (os-s)<<1; ct[t] += d;
+                if(end < ct_n) ct[end] -= d;
+                t += 1 + ((os == ws)?2:0);
+                if(t < end) {
+                    ct[t] += d;
+                    if(end+1 < ct_n) ct[end+1] -= d;
+                }
+            } else {
+                t = ((ws-s)<<1)+1; ct[t]++;
+                if(t+2 < ct_n) ct[t+2]--;
+            }
+        } else if(op == 0) {
             for (t = os + 1; t < oe; t++) {
                 ct[(t-s)<<1]++; ct[(t-s)<<1] += ((uint64_t)(0x100000000));
                 ct[((t-s)<<1)+1]++; ct[((t-s)<<1)+1] += ((uint64_t)(0x100000000));
@@ -355,6 +413,12 @@ int64_t extract_sub_cigar_mm(overlap_region *z, int64_t s, int64_t e, ul_ov_t *p
     }
 
     ovlp_cur_xoff(*p) = xk; ovlp_cur_yoff(*p) = yk; ovlp_cur_coff(*p) = ck; ovlp_cur_ylen(*p) = 0;
+#ifdef HA_HAP_MM_RANGE_CHECK
+    if(!range) {
+        __sync_fetch_and_add(&mm_range_cells, cells);
+        __sync_fetch_and_add(&mm_range_runs, runs);
+    }
+#endif
     
     return 1;
 }
@@ -2185,6 +2249,11 @@ void prt_correct0_dbg(overlap_region *in)
 uint64_t wcns_vote(overlap_region* ol, All_reads *rref, char* qstr, uint64_t ql, UC_Read* tu, bit_extz_t *exz, uint64_t *id_a, uint64_t id_n, uint64_t s, uint64_t e, ul_ov_t *c_idx, cc_idx_t *occ, uint64_t occ_tot, double occ_exact, overlap_region *aux_o, asg32_v* b32, cns_gfa *cns, uint32_t rid, uint64_t *nec)
 {
     uint64_t k, q[2], rr = 0, os, oe, wl, oc[2], fI; ul_ov_t *p, *gp; overlap_region *z; 
+    wl = e - s;
+#ifdef HA_HAP_MM_RANGE_CHECK
+    uint64_t *old_ct = (uint64_t*)calloc(wl<<1, sizeof(uint64_t)), bad = 0, nonzero = 0, calls = 0;
+    for(k = 0; k < (wl<<1); k++) nonzero += (occ->idx->a[k] != 0);
+#endif
     // uint64_t *ct = occ->idx->a;///occ->idx->a[0, wl<<1)
     for (k = 0; k < id_n; k++) {
         p = &(c_idx[id_a[k]]); z = &(ol[ovlp_id(*p)]); 
@@ -2200,11 +2269,31 @@ uint64_t wcns_vote(overlap_region* ol, All_reads *rref, char* qstr, uint64_t ql,
             // assert(ovlp_id(*p) == ovlp_id(*gp));
             // fprintf(stderr, "[M::%s] tid::%u\t%.*s\twid::%u\tq::[%u, %u)\tos::%lu\toe::%lu\n", __func__, ol[ovlp_id(*p)].y_id, (int)Get_NAME_LENGTH(R_INF, ol[ovlp_id(*p)].y_id), Get_NAME(R_INF, ol[ovlp_id(*p)].y_id),
             // ovlp_cur_wid(*p), ol[ovlp_id(*p)].w_list.a[ovlp_cur_wid(*p)].x_start, ol[ovlp_id(*p)].w_list.a[ovlp_cur_wid(*p)].x_end+1, os, oe);
-            extract_sub_cigar_mm(z, os, oe, p, occ->idx->a + os - s);
+#ifdef HA_HAP_MM_RANGE_CHECK
+            ul_ov_t old_p = *p;
+            int64_t old_r = extract_sub_cigar_mm<false>(z, os, oe, &old_p, old_ct + os - s, 0);
+            int64_t new_r = extract_sub_cigar_mm<true>(z, os, oe, p, occ->idx->a + os - s, (wl<<1)-(os-s));
+            bad += (old_r != new_r || memcmp(&old_p, p, sizeof(old_p)) != 0); calls++;
+#else
+            extract_sub_cigar_mm<true>(z, os, oe, p, occ->idx->a + os - s, (wl<<1)-(os-s));
+#endif
         }
     }
 
-    wl = e - s;
+    ///The caller starts with zero counters. Preserve its unscaled os-s offset, including odd offsets.
+    uint64_t c0 = 0, c1 = 0;
+    for(k = 0; k < wl; k++) {
+        c0 += occ->idx->a[k<<1]; c1 += occ->idx->a[(k<<1)+1];
+        occ->idx->a[k<<1] = c0; occ->idx->a[(k<<1)+1] = c1;
+    }
+#ifdef HA_HAP_MM_RANGE_CHECK
+    for(k = 0; k < (wl<<1); k++) bad += (occ->idx->a[k] != old_ct[k]);
+    free(old_ct);
+    __sync_fetch_and_add(&mm_range_votes, 1);
+    __sync_fetch_and_add(&mm_range_calls, calls);
+    __sync_fetch_and_add(&mm_range_bad, bad);
+    __sync_fetch_and_add(&mm_range_nonzero, nonzero);
+#endif
     os = occ->mms; oe = occ->mme;
 
     // fprintf(stderr, "[M::%s] s::%lu\te::%lu\n", __func__, s, e);
@@ -2807,6 +2896,8 @@ inline uint64_t exact_ec_check(char *qstr, uint64_t ql, char *tstr, uint64_t tl,
     return 0;
 }
 
+static uint64_t exact_ec_check_packed(All_reads *rref, UC_Read *qu, UC_Read *tu, const overlap_region *z);
+
 void gen_hc_r_alin_ea(overlap_region_alloc* ol, Candidates_list *cl, All_reads *rref, UC_Read* qu, UC_Read* tu, bit_extz_t *exz, overlap_region *aux_o, double e_rate, int64_t wl, int64_t rid, int64_t khit, int64_t move_gap, asg16_v *buf, asg64_v *srt, ma_hit_t_alloc *in, uint8_t chem_drop, double align_gap_rate, int64_t align_gap_max)
 {
     if(ol->length <= 0) return;
@@ -2844,8 +2935,18 @@ void gen_hc_r_alin_ea(overlap_region_alloc* ol, Candidates_list *cl, All_reads *
                 p = &(in->buffer[(uint32_t)ei[i]]);
                 if((z->x_pos_s == ((uint32_t)p->qns)) && (z->x_pos_e + 1 == p->qe) && 
                             (z->y_pos_s == p->ts) && (z->y_pos_e + 1 == p->te)) {
+                    ///Both callers decoded the forward query from rref; the target chars are scratch.
+                    uint64_t eq = exact_ec_check_packed(rref, qu, tu, z);
+#ifdef HA_EA_PACK_CHECK
                     resize_UC_Read(tu, p->te - p->ts); recover_UC_Read_sub_region(tu->seq, p->ts, p->te - p->ts, trev, rref, tid);
-                    if(exact_ec_check(qu->seq, qu->length, tu->seq, p->te - p->ts, ((uint32_t)p->qns), p->qe, 0, p->te - p->ts)) {
+                    uint64_t old = exact_ec_check(qu->seq, qu->length, tu->seq, p->te - p->ts, ((uint32_t)p->qns), p->qe, 0, p->te - p->ts);
+                    __sync_fetch_and_add(&ea_pack_n, 1);
+                    __sync_fetch_and_add(&ea_pack_equal, eq);
+                    if (!rref->N_site[qu->RID] && !rref->N_site[tid] && Get_READ((*rref), qu->RID) && Get_READ((*rref), tid))
+                        __sync_fetch_and_add(&ea_pack_bases, p->te-p->ts);
+                    if (eq != old) __sync_fetch_and_add(&ea_pack_bad, 1);
+#endif
+                    if(eq) {
                         z->is_match = 1; z->shared_seed = z->non_homopolymer_errors;///for index
                         z->non_homopolymer_errors = 0; z->strong = z->without_large_indel = 0;
                         set_exact_exz(exz, z->x_pos_s, z->x_pos_e + 1, z->y_pos_s, z->y_pos_e + 1); push_alnw(z, exz);
@@ -3886,6 +3987,7 @@ static void worker_hap_post_rev(void *data, long i, int tid)
 
     flip_paf_rc(i, &(R_INF.paf[i]), &R_INF);
     flip_paf_rc(i, &(R_INF.reverse_paf[i]), &R_INF);
+    ha_rd_mark(i);
 
     recover_UC_Read(&b->self_read, &R_INF, i); 
     l = b->self_read.length; kl = l>>1; a = b->self_read.seq;
@@ -5044,12 +5146,81 @@ overlap_region* h_ec_lchain_fast(ha_abuf_t *ab, uint32_t rid, UC_Read *qu, UC_Re
     return aux_o;
 }
 
+// Load exactly 32 packed bases; the last byte is needed only for an unaligned base offset.
+static inline uint64_t ff_pack32(const uint8_t *s, uint64_t pos)
+{
+    uint64_t v; const uint8_t *p = s + (pos>>2); unsigned shift = (pos&3)<<1;
+    memcpy(&v, p, sizeof(v));
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+    v = __builtin_bswap64(v);
+#elif !defined(__BYTE_ORDER__) || __BYTE_ORDER__ != __ORDER_BIG_ENDIAN__
+    v = 0; for (unsigned i = 0; i < 8; i++) v = (v<<8) | p[i];
+#endif
+    if(shift) v = (v<<shift) | (p[8]>>(8-shift));
+    return v;
+}
+
+///1 if the query bases [x_pos_s, x_pos_e] equal the target bases [y_pos_s, y_pos_e] (on the strand
+///of z), compared in the 2-bit store, 32 bases at a time: no decode of the target region
+static uint64_t ff_pack_eq(All_reads *rref, uint64_t qid, const overlap_region *z)
+{
+    uint64_t tid = z->y_id, qs = z->x_pos_s, ts = z->y_pos_s, n = z->y_pos_e+1, rev = z->y_pos_strand;
+    n -= ts;
+    const uint8_t *q = Get_READ((*rref), qid), *t = Get_READ((*rref), tid);
+    uint64_t i, x, y, te = Get_READ_LENGTH((*rref), tid)-ts;
+    for (; n >= 32; qs += 32, ts += 32, te -= 32, n -= 32) {
+        x = ff_pack32(q, qs);
+        y = ff_pack32(t, rev? te-32 : ts);
+        if(rev) {
+            y = ((y&0x3333333333333333ULL)<<2) | ((y>>2)&0x3333333333333333ULL);
+            y = ((y&0x0f0f0f0f0f0f0f0fULL)<<4) | ((y>>4)&0x0f0f0f0f0f0f0f0fULL);
+            y = ~__builtin_bswap64(y);
+        }
+        if(x != y) return 0;
+    }
+    for (i = 0; i < n; i++) {
+        x = (q[(qs+i)>>2]>>(6-(((qs+i)&3)<<1)))&3;
+        uint64_t tp = rev? te-i-1 : ts+i;
+        y = (t[tp>>2]>>(6-((tp&3)<<1)))&3;
+        if(rev) y ^= 3;
+        if(x != y) return 0;
+    }
+    return 1;
+}
+
+///exact_ec_check() of the query (qu, the forward read) and the target region of z, without the decode
+///of the target; reads with N bases (N_site) take the decoded path
+static uint64_t exact_ec_check_packed(All_reads *rref, UC_Read *qu, UC_Read *tu, const overlap_region *z)
+{
+    uint64_t rid = qu->RID, tid = z->y_id, rev = z->y_pos_strand;
+    uint64_t qs = z->x_pos_s, qe = z->x_pos_e+1, ts = z->y_pos_s, te = z->y_pos_e+1;
+    uint64_t n = te-ts, eq;
+    // qu->RID keeps the stored query ID without the 32-bit conversion used by the chains.
+    // N positions and scaffold bases are not represented by the packed bases alone.
+    if(qe-qs == n && (rref->N_site[rid] || rref->N_site[tid] ||
+        !Get_READ((*rref), rid) || !Get_READ((*rref), tid))) {
+#ifdef HA_FPACK_EQ_CHECK
+        __sync_fetch_and_add(&ff_eq_fallback, 1);
+#endif
+        resize_UC_Read(tu, n); recover_UC_Read_sub_region(tu->seq, ts, n, rev, rref, tid);
+        return exact_ec_check(qu->seq, qu->length, tu->seq, n, qs, qe, 0, n);
+    }
+    eq = qe-qs == n? ff_pack_eq(rref, rid, z) : 0;
+#ifdef HA_FPACK_EQ_CHECK
+    resize_UC_Read(tu, n); recover_UC_Read_sub_region(tu->seq, ts, n, rev, rref, tid);
+    uint64_t old = exact_ec_check(qu->seq, qu->length, tu->seq, n, qs, qe, 0, n);
+    __sync_fetch_and_add(&ff_eq_n, 1); __sync_fetch_and_add(&ff_eq_bases, n);
+    if(eq != old) __sync_fetch_and_add(&ff_eq_bad, 1);
+#endif
+    return eq;
+}
+
 void h_ec_lchain_fast_new(ha_abuf_t *ab, uint32_t rid, UC_Read *qu, UC_Read *tu, All_reads *rref, overlap_region_alloc *ol, Candidates_list *cl, bit_extz_t *exz, asg16_v *buf, asg64_v *srt_i, ma_hit_t_alloc *in0, ma_hit_t_alloc *in1, double sh)
 {
     // fprintf(stderr, "-0-[M::%s]\tnew_n::%lu\told_n::%u\n", __func__, ol->length, in0->length + in1->length);
     // fprintf(stderr, "-mm-[M::%s]\tchain_cutoff::%u\n", __func__, chain_cutoff);
     uint64_t on = 0, k, i, l, m, m0, tid, trev, is_match, is_usrt = 0; ma_hit_t *oa = NULL, *p = NULL; overlap_region *z = NULL, t; 
-    char* rs = qu->seq; uint64_t rl = qu->length; int64_t om; uint64_t aq[2], at[2], bq[2], bt[2], ovlp, os, oe;
+    int64_t om; uint64_t aq[2], at[2], bq[2], bt[2], ovlp, os, oe;
     
 
     
@@ -5101,9 +5272,7 @@ void h_ec_lchain_fast_new(ha_abuf_t *ab, uint32_t rid, UC_Read *qu, UC_Read *tu,
 
             if(om) {
                 if(is_match == 1 && p->el == 1) p->el = 0;
-                resize_UC_Read(tu, bt[1] - bt[0]);
-                recover_UC_Read_sub_region(tu->seq, bt[0], bt[1] - bt[0], trev, rref, tid);
-                if(exact_ec_check(rs, rl, tu->seq, bt[1] - bt[0], bq[0], bq[1], 0, bt[1] - bt[0])) {
+                if(exact_ec_check_packed(rref, qu, tu, z)) {
                     if(is_match == 2) {
                         z->strong = 0; z->without_large_indel = 1;
                     }
@@ -5113,11 +5282,7 @@ void h_ec_lchain_fast_new(ha_abuf_t *ab, uint32_t rid, UC_Read *qu, UC_Read *tu,
             }
         } else {
             om = 0;
-            bq[0] = z->x_pos_s; bq[1] = z->x_pos_e + 1;
-            bt[0] = z->y_pos_s; bt[1] = z->y_pos_e + 1;
-            resize_UC_Read(tu, bt[1] - bt[0]);
-            recover_UC_Read_sub_region(tu->seq, bt[0], bt[1] - bt[0], trev, rref, tid);
-            if(exact_ec_check(rs, rl, tu->seq, bt[1] - bt[0], bq[0], bq[1], 0, bt[1] - bt[0])) {
+            if(exact_ec_check_packed(rref, qu, tu, z)) {
                 z->strong = 0; z->without_large_indel = 1;
                 z->shared_seed = 1; z->is_match = 1; om = 1;
             }
@@ -5962,6 +6127,28 @@ void dbg_rsc(char *str0, uint64_t l0, char *str1, uint64_t l1, asg16_v *sc, char
 
 }
 
+#ifdef HA_RND_STAT
+/* the check build HA_RND_STAT: for each round, the reads that change, and the clean reads (the read
+ * and all targets of its overlaps unchanged in the round); in the next round, the clean reads that
+ * change */
+static uint8_t *ha_rs_chg, *ha_rs_cln; static uint64_t ha_rs_n;
+static void ha_rs_round(uint64_t n_a, uint64_t round)
+{
+    uint64_t i, j, n_chg = 0, n_cln = 0, b_cln = 0, b_all = 0, n_cln_chg = 0, n_prev = 0;
+    for (i = 0; i < n_a; i++) {
+        uint32_t l = Get_READ_LENGTH(R_INF, i); int ok = !ha_rs_chg[i];
+        b_all += l; n_chg += ha_rs_chg[i];
+        if (ha_rs_cln[i]) { n_prev++; n_cln_chg += ha_rs_chg[i]; }
+        for (j = 0; ok && j < R_INF.paf[i].length; j++)
+            if (ha_rs_chg[Get_tn(R_INF.paf[i].buffer[j])]) ok = 0;
+        ha_rs_cln[i] = ok; n_cln += ok; if (ok) b_cln += l;
+    }
+    fprintf(stderr, "[M::ha_rnd_stat] round %lu: reads %lu, changed %lu, clean %lu (bases %.4f); clean after the last round: %lu, of them changed now: %lu\n",
+            (unsigned long)round, (unsigned long)n_a, (unsigned long)n_chg, (unsigned long)n_cln, b_all? (double)b_cln / b_all : 0.0, (unsigned long)n_prev, (unsigned long)n_cln_chg);
+    memset(ha_rs_chg, 0, n_a);
+}
+#endif
+
 static void worker_sl_ec(void *data, long i, int tid)
 {
     // if(i != 0) return;
@@ -5979,6 +6166,10 @@ static void worker_sl_ec(void *data, long i, int tid)
         // fprintf(stderr, "|%u%c(%c)", len, cm[c], ((c==1)||(c==2))?(cc[b]):('*')); // s_H
     }
     if(tot_e == 0) return;///no change
+    ha_rd_mark(i);
+#ifdef HA_RND_STAT
+    ha_rs_chg[i] = 1;
+#endif
 
     yn = yk; yk++; kv_resize(char, (*p), yk); p->a[yn] = '\0';
     recover_UC_Read(&p->z, &R_INF, i); ///b->z.length
@@ -6276,8 +6467,14 @@ void cal_ec_r(uint64_t n_thre, uint64_t round, uint64_t n_round, uint64_t n_a, u
 
 
     b = gen_ec_ovec_buf_t(n_thre);
+#ifdef HA_RND_STAT
+    if (ha_rs_n != n_a) { free(ha_rs_chg); free(ha_rs_cln); CALLOC(ha_rs_chg, n_a); CALLOC(ha_rs_cln, n_a); ha_rs_n = n_a; }
+#endif
     (*tot_e) += cal_ec_multiple(b, n_thre, n_a, tot_b); ///exit(1);
     sl_ec_r(n_thre, n_a);
+#ifdef HA_RND_STAT
+    ha_rs_round(n_a, round);
+#endif
 
     for (k = 0; k < n_round; k++) {
         (*tot_e) += cal_sec_ec_multiple(b, n_thre, n_a, k);

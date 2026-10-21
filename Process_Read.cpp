@@ -46,6 +46,7 @@ void init_All_reads(All_reads* r)
 void destory_All_reads(All_reads* r)
 {
 	uint64_t i = 0;
+	ha_ec_bin_wait();
 	for (i = 0; i < r->total_reads; i++) {
 		if (r->N_site[i]) free(r->N_site[i]);
 		if (r->read_sperate[i]) free(r->read_sperate[i]);
@@ -259,6 +260,7 @@ void read_ma(ma_hit_t* x, FILE* fp)
 
 int append_All_reads(All_reads* r, char *idx, uint32_t id)
 {
+	ha_ec_bin_wait();
 	char *gfa_name = NULL; MALLOC(gfa_name, (strlen(idx)+100));
 	FILE *fp = NULL, *fpo = NULL;
 
@@ -385,6 +387,7 @@ int append_All_reads(All_reads* r, char *idx, uint32_t id)
 
 int destory_read_bin(All_reads* r)
 {
+	ha_ec_bin_wait();
 
 	uint64_t i = 0;
 	for (i = 0; i < r->total_reads; i++)
@@ -431,6 +434,12 @@ void ha_insert_read_len(All_reads *r, int read_len, int name_len)
 
 void malloc_All_reads(All_reads* r)
 {
+	malloc_All_reads2(r, 1);
+}
+
+///alloc_seq 0: read_sperate[i] stays unset (the caller sets each one)
+void malloc_All_reads2(All_reads* r, int alloc_seq)
+{
 	r->read_size = (uint64_t*)malloc(sizeof(uint64_t)*r->total_reads);
 	memcpy(r->read_size, r->read_length, sizeof(uint64_t)*r->total_reads);
 
@@ -440,7 +449,7 @@ void malloc_All_reads(All_reads* r)
 	long long i = 0;
 	for (i = 0; i < (long long)r->total_reads; i++)
 	{
-		r->read_sperate[i] = (uint8_t*)malloc(sizeof(uint8_t)*(r->read_length[i]/4+1));
+		if (alloc_seq) r->read_sperate[i] = (uint8_t*)malloc(sizeof(uint8_t)*(r->read_length[i]/4+1));
 		if(r->rsc) MALLOC(r->rsc[i], (r->read_length[i]/sc_bn) + ((r->read_length[i]%sc_bn)?1:0));
 	}
 
@@ -521,7 +530,44 @@ void init_UC_Read(UC_Read* r)
 }
 
 
-void recover_UC_Read_sub_region(char* r, int64_t start_pos, int64_t length, uint8_t strand, All_reads* R_INF, int64_t ID)
+#if defined(__SSSE3__) || defined(__ARM_NEON)
+#if defined(__SSSE3__)
+#include <tmmintrin.h>
+#endif
+///decode 16 bytes of 2-bit bases to 64 chars with SSSE3; the same bytes as the loops over
+///bit_t_seq_table (rc == 0) and bit_t_seq_table_rc (rc == 1): the lookup bytes come from these tables.
+///rc == 0: the bytes src[0..15] in order; rc == 1: the bytes src[15], src[14], ..., src[0]
+static inline void ha_decode16(char *r, const uint8_t *src, int rc)
+{
+	__m128i lut, x = _mm_loadu_si128((const __m128i*)src), m3 = _mm_set1_epi8(3), v[4], a, b;
+	if (rc) {
+		lut = _mm_setr_epi8(bit_t_seq_table_rc[0][0], bit_t_seq_table_rc[1][0], bit_t_seq_table_rc[2][0], bit_t_seq_table_rc[3][0], 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+		x = _mm_shuffle_epi8(x, _mm_setr_epi8(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0));
+		v[3] = _mm_shuffle_epi8(lut, _mm_and_si128(_mm_srli_epi16(x, 6), m3));
+		v[2] = _mm_shuffle_epi8(lut, _mm_and_si128(_mm_srli_epi16(x, 4), m3));
+		v[1] = _mm_shuffle_epi8(lut, _mm_and_si128(_mm_srli_epi16(x, 2), m3));
+		v[0] = _mm_shuffle_epi8(lut, _mm_and_si128(x, m3));
+	} else {
+		lut = _mm_setr_epi8(bit_t_seq_table[0][3], bit_t_seq_table[1][3], bit_t_seq_table[2][3], bit_t_seq_table[3][3], 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+		v[0] = _mm_shuffle_epi8(lut, _mm_and_si128(_mm_srli_epi16(x, 6), m3));
+		v[1] = _mm_shuffle_epi8(lut, _mm_and_si128(_mm_srli_epi16(x, 4), m3));
+		v[2] = _mm_shuffle_epi8(lut, _mm_and_si128(_mm_srli_epi16(x, 2), m3));
+		v[3] = _mm_shuffle_epi8(lut, _mm_and_si128(x, m3));
+	}
+	a = _mm_unpacklo_epi8(v[0], v[1]); b = _mm_unpacklo_epi8(v[2], v[3]);
+	_mm_storeu_si128((__m128i*)r, _mm_unpacklo_epi16(a, b));
+	_mm_storeu_si128((__m128i*)(r + 16), _mm_unpackhi_epi16(a, b));
+	a = _mm_unpackhi_epi8(v[0], v[1]); b = _mm_unpackhi_epi8(v[2], v[3]);
+	_mm_storeu_si128((__m128i*)(r + 32), _mm_unpacklo_epi16(a, b));
+	_mm_storeu_si128((__m128i*)(r + 48), _mm_unpackhi_epi16(a, b));
+}
+#endif
+
+#ifdef HA_DEC_CHECK
+uint64_t ha_dec_n_check = 0, ha_dec_n_bad = 0;
+static void ha_dec_report(void) { fprintf(stderr, "[M::ha_dec_check] decoded regions: %lu; different: %lu\n", (unsigned long)ha_dec_n_check, (unsigned long)ha_dec_n_bad); }
+static int ha_dec_report_set = atexit(ha_dec_report);
+static void recover_UC_Read_sub_region_ref(char* r, int64_t start_pos, int64_t length, uint8_t strand, All_reads* R_INF, int64_t ID)
 {
 	int64_t readLen = Get_READ_LENGTH((*R_INF), ID);
 	int64_t end_pos = start_pos + length - 1, begLen, tailLen, offset, mn, src_i, des_i, i;
@@ -612,6 +658,126 @@ void recover_UC_Read_sub_region(char* r, int64_t start_pos, int64_t length, uint
 			}
 		}
 	}
+}
+#endif
+
+void recover_UC_Read_sub_region(char* r, int64_t start_pos, int64_t length, uint8_t strand, All_reads* R_INF, int64_t ID)
+{
+#ifdef HA_DEC_CHECK
+	int64_t start_pos0 = start_pos;
+#endif
+	int64_t readLen = Get_READ_LENGTH((*R_INF), ID);
+	int64_t end_pos = start_pos + length - 1, begLen, tailLen, offset, mn, src_i, des_i, i;
+	uint8_t* src = Get_READ((*R_INF), ID);
+
+	if(strand == 0) {
+		offset = start_pos&3;
+		begLen = 4-offset;
+		if(begLen > length) begLen = length;
+		tailLen = (length-begLen)&3;
+		mn = (length - begLen - tailLen)>>2;
+		src_i = start_pos; des_i = 0; i = 0;
+
+		if(begLen > 0) {
+			memcpy(r+des_i, bit_t_seq_table[src[src_i>>2]]+offset, begLen);
+			des_i += begLen; src_i += begLen;
+		}
+
+		i = 0;
+#if defined(__SSSE3__)
+		for (; i + 16 <= mn; i += 16) {
+			ha_decode16(r+des_i, src+(src_i>>2), 0);
+			des_i += 64; src_i += 64;
+		}
+#endif
+		for (; i < mn; i++) {
+			memcpy(r+des_i, bit_t_seq_table[src[src_i>>2]], 4);
+			des_i += 4; src_i += 4;
+		}
+
+		if(tailLen > 0) {
+			memcpy(r+des_i, bit_t_seq_table[src[src_i>>2]], tailLen);
+			des_i += tailLen; src_i += tailLen;
+		}
+
+		if (R_INF->N_site[ID]) {
+			for (i = 1; i <= (long long)R_INF->N_site[ID][0]; i++) {
+				if ((long long)R_INF->N_site[ID][i] >= start_pos && (long long)R_INF->N_site[ID][i] <= end_pos) {
+					r[R_INF->N_site[ID][i] - start_pos] = 'N';
+				}
+				else if((long long)R_INF->N_site[ID][i] > end_pos) {
+					break;
+				}
+			}
+		}
+	}
+	else {
+		start_pos = readLen - start_pos - 1;
+		end_pos = readLen - end_pos - 1;
+
+		begLen = (start_pos+1)&3;
+		offset = 4 - begLen;
+		if(begLen > length) begLen = length;
+		tailLen = (length-begLen)&3;
+		mn = (length - begLen - tailLen)>>2;
+		src_i = start_pos; des_i = 0; i = 0;
+
+		if(begLen > 0) {
+			memcpy(r+des_i, bit_t_seq_table_rc[src[src_i>>2]]+offset, begLen);
+			des_i += begLen; src_i -= begLen;
+		}
+
+		i = 0;
+#if defined(__SSSE3__)
+		for (; i + 16 <= mn; i += 16) {
+			ha_decode16(r+des_i, src+(src_i>>2)-15, 1);
+			des_i += 64; src_i -= 64;
+		}
+#endif
+		for (; i < mn; i++) {
+			memcpy(r+des_i, bit_t_seq_table_rc[src[src_i>>2]], 4);
+			des_i += 4; src_i -= 4;
+		}
+
+		if(tailLen > 0) {
+			memcpy(r+des_i, bit_t_seq_table_rc[src[src_i>>2]], tailLen);
+			des_i += tailLen; src_i -= tailLen;
+		}
+
+		/**
+		if (R_INF->N_site[ID]) {
+			offset = readLen - start_pos - 1;
+			for (i = 1; i <= (long long)R_INF->N_site[ID][0]; i++) {
+				if ((long long)R_INF->N_site[ID][i] >= end_pos && (long long)R_INF->N_site[ID][i] <= start_pos) {
+					r[readLen - R_INF->N_site[ID][i] - 1 - offset] = 'N';
+				}
+				else if((long long)R_INF->N_site[ID][i] > start_pos) {
+					break;
+				}
+			}
+		}
+		**/
+		if (R_INF->N_site[ID]) {
+			start_pos = readLen - start_pos - 1; end_pos = readLen - end_pos - 1;
+			for (i = 1; i <= (long long)R_INF->N_site[ID][0]; i++) {
+				offset = readLen - R_INF->N_site[ID][i] - 1;
+				if(offset >= start_pos && offset <= end_pos) {
+					r[offset - start_pos] = 'N';
+				} else if(offset < start_pos) {
+					break;
+				}
+			}
+		}
+	}
+#ifdef HA_DEC_CHECK
+	{
+		char *t = (char*)malloc(length + 1);
+		recover_UC_Read_sub_region_ref(t, start_pos0, length, strand, R_INF, ID);
+		__sync_fetch_and_add(&ha_dec_n_check, 1);
+		if (memcmp(t, r, length)) __sync_fetch_and_add(&ha_dec_n_bad, 1);
+		free(t);
+	}
+#endif
 }
 
 
@@ -713,6 +879,42 @@ void recover_UC_sub_Read(UC_Read* i_r, long long start_pos, long long length, ui
 
 
 
+#ifdef HA_READ_DECODE_CHECK
+static uint64_t ha_read_dec_n = 0, ha_read_dec_rc = 0, ha_read_dec_bad = 0, ha_read_dec_bases = 0;
+static void ha_read_dec_report(void)
+{
+	fprintf(stderr, "[M::HA_READ_DECODE_CHECK] reads %lu; reverse %lu; different %lu; bases %lu\n",
+		(unsigned long)ha_read_dec_n, (unsigned long)ha_read_dec_rc,
+		(unsigned long)ha_read_dec_bad, (unsigned long)ha_read_dec_bases);
+}
+static int ha_read_dec_report_set = atexit(ha_read_dec_report);
+static void ha_read_dec_check(const UC_Read *r, const All_reads *rref, uint64_t id, int rc)
+{
+	const uint8_t *src = Get_READ((*rref), id);
+	int64_t i, j, tail = r->length&3, n = src && !rc? ((r->length+3)>>2)<<2 : r->length;
+	char *s = (char*)malloc(n+1);
+	if (!src) memset(s, 'N', n);
+	else {
+		if (!rc) {
+			for (i = 0; i < r->length; i += 4) memcpy(s+i, bit_t_seq_table[src[i>>2]], 4);
+		} else {
+			i = (r->length>>2)-1+(tail != 0); j = 0;
+			if (tail) { memcpy(s, bit_t_seq_table_rc[src[i--]]+4-tail, tail); j = tail; }
+			for (; i >= 0; i--, j += 4) memcpy(s+j, bit_t_seq_table_rc[src[i]], 4);
+		}
+		if (rref->N_site[id]) {
+			for (i = 1; i <= (int64_t)rref->N_site[id][0]; i++)
+				s[rc? r->length-rref->N_site[id][i]-1 : rref->N_site[id][i]] = 'N';
+		}
+	}
+	__sync_fetch_and_add(&ha_read_dec_n, 1);
+	__sync_fetch_and_add(&ha_read_dec_rc, rc != 0);
+	__sync_fetch_and_add(&ha_read_dec_bases, n);
+	if (memcmp(s, r->seq, n)) __sync_fetch_and_add(&ha_read_dec_bad, 1);
+	free(s);
+}
+#endif
+
 void recover_UC_Read(UC_Read* r, const All_reads *R_INF, uint64_t ID)
 {
 	r->length = Get_READ_LENGTH((*R_INF), ID);
@@ -726,6 +928,9 @@ void recover_UC_Read(UC_Read* r, const All_reads *R_INF, uint64_t ID)
 	uint64_t i = 0;
 
 	if(src) {
+#if defined(__SSSE3__) || defined(__ARM_NEON)
+		for (; i+64 <= (uint64_t)r->length; i += 64) ha_decode16(r->seq+i, src+(i>>2), 0);
+#endif
 		while ((long long)i < r->length) {
 			memcpy(r->seq+i, bit_t_seq_table[src[i>>2]], 4);
 			i = i + 4;
@@ -739,6 +944,9 @@ void recover_UC_Read(UC_Read* r, const All_reads *R_INF, uint64_t ID)
 	}
 
 	r->RID = ID;	
+#ifdef HA_READ_DECODE_CHECK
+	ha_read_dec_check(r, R_INF, ID, 0);
+#endif
 }
 
 void recover_UC_Read_RC(UC_Read* r, All_reads* R_INF, uint64_t ID)
@@ -762,6 +970,9 @@ void recover_UC_Read_RC(UC_Read* r, All_reads* R_INF, uint64_t ID)
 			i--;
 		}
 
+#if defined(__SSSE3__) || defined(__ARM_NEON)
+		for (; i >= 15; i -= 16, index += 64) ha_decode16(r->seq+index, src+i-15, 1);
+#endif
 		while (i >= 0) {
 			memcpy(r->seq + index, bit_t_seq_table_rc[src[i]], 4);
 			i--;
@@ -777,7 +988,9 @@ void recover_UC_Read_RC(UC_Read* r, All_reads* R_INF, uint64_t ID)
 		memset(r->seq, 'N', r->length);
 	}
 
-	
+#ifdef HA_READ_DECODE_CHECK
+	ha_read_dec_check(r, R_INF, ID, 1);
+#endif
 }
 
 #define COMPRESS_BASE {c = seq_nt6_table[(uint8_t)src[i]];\

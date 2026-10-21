@@ -14663,6 +14663,7 @@ uint64_t *rmap, ma_ug_t *raw_g)
 void realloc_rdb_adv(All_reads* rdb, all_ul_t *x, ma_sub_t **cov, R_to_U *ruI, uint64_t *rmap, 
 uint64_t rid_n, uint64_t scaf_len, char *scaf_id, asg_t *ng, ug_opt_t *uopt, ma_ug_t *raw_g, usc_t *a)
 {
+    ha_ec_bin_wait();
     uint64_t i, rid_n0 = rdb->total_reads, tname, cname; usc_t *z; 
     uint64_t scaf_id_len = strlen(scaf_id); char *des, *src; int64_t nlen, ff;
     UC_Read g_read; init_UC_Read(&g_read);
@@ -16981,6 +16982,7 @@ ma_ug_t* output_trio_unitig_graph_ul(ug_opt_t *uopt, ul_resolve_t *uidx, char* o
 void realloc_rdb(All_reads* rdb, ma_sub_t **cov, R_to_U *ruI, uint64_t *rmap, uint64_t rid_n, uint64_t scaf_len, char *scaf_id, 
 asg_t *ng, ug_opt_t *uopt)
 {
+    ha_ec_bin_wait();
     uint64_t i, rid_n0 = rdb->total_reads, tname, cname;
     uint64_t scaf_id_len = strlen(scaf_id); char *des, *src;
     rdb->total_reads = rid_n;
