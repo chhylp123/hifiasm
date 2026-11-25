@@ -7,17 +7,22 @@ INCLUDES=
 OBJS=		CommandLines.o Process_Read.o Assembly.o Hash_Table.o \
 			POA.o Correct.o Levenshtein_distance.o Overlaps.o Trio.o kthread.o Purge_Dups.o \
 			htab.o hist.o sketch.o anchor.o extract.o sys.o hic.o rcut.o horder.o ecovlp.o\
-			tovlp.o inter.o kalloc.o gfa_ut.o gchain_map.o
+			tovlp.o inter.o kalloc.o gfa_ut.o gchain_map.o StreamStore.o
 EXE=		hifiasm
 LIBS=		-lz -lpthread -lm
 
 ifneq ($(asan),)
-	CXXFLAGS+=-fsanitize=address
+	CXXFLAGS+=-fsanitize=address -fno-omit-frame-pointer
 	LIBS+=-fsanitize=address
 endif
 
+ifneq ($(sanitize),)
+	CXXFLAGS+=-fsanitize=address,undefined -fno-omit-frame-pointer
+	LIBS+=-fsanitize=address,undefined
+endif
+
 .SUFFIXES:.cpp .c .o
-.PHONY:all clean depend
+.PHONY:all clean depend test
 
 .cpp.o:
 		$(CXX) -c $(CXXFLAGS) $(CPPFLAGS) $(INCLUDES) $< -o $@
@@ -30,6 +35,14 @@ all:$(EXE)
 $(EXE):$(OBJS) main.o
 		$(CXX) $(CXXFLAGS) $^ -o $@ $(LIBS)
 
+test:
+		@mkdir -p "$${TMPDIR:-/tmp}"
+		$(CXX) -g -O2 -Wall -fsanitize=address,undefined -fno-omit-frame-pointer \
+			tests/test_stream_store.cpp StreamStore.cpp kthread.cpp \
+			-o "$${TMPDIR:-/tmp}/test_stream_store" $(LIBS)
+		TMPDIR="$${TMPDIR:-/tmp}" "$${TMPDIR:-/tmp}/test_stream_store"
+		rm -f "$${TMPDIR:-/tmp}/test_stream_store"
+
 clean:
 		rm -fr gmon.out *.o a.out $(EXE) *~ *.a *.dSYM
 
@@ -41,7 +54,7 @@ depend:
 Assembly.o: Assembly.h CommandLines.h Process_Read.h Overlaps.h kvec.h kdq.h
 Assembly.o: Hash_Table.h htab.h POA.h Correct.h Levenshtein_distance.h
 Assembly.o: kthread.h ecovlp.h
-CommandLines.o: CommandLines.h ketopt.h
+CommandLines.o: CommandLines.h StreamStore.h ketopt.h kseq.h
 Correct.o: Correct.h Hash_Table.h htab.h Process_Read.h Overlaps.h kvec.h
 Correct.o: kdq.h CommandLines.h Levenshtein_distance.h POA.h Assembly.h
 Correct.o: ksort.h
@@ -67,13 +80,13 @@ extract.o: Process_Read.h Overlaps.h kvec.h kdq.h CommandLines.h khashl.h
 extract.o: kseq.h
 hist.o: htab.h Process_Read.h Overlaps.h kvec.h kdq.h CommandLines.h
 htab.o: kthread.h khashl.h kseq.h ksort.h htab.h Process_Read.h Overlaps.h
-htab.o: kvec.h kdq.h CommandLines.h
+htab.o: kvec.h kdq.h CommandLines.h StreamStore.h
 kthread.o: kthread.h
 main.o: CommandLines.h Process_Read.h Overlaps.h kvec.h kdq.h Assembly.h
 main.o: Levenshtein_distance.h htab.h
 sketch.o: kvec.h htab.h Process_Read.h Overlaps.h kdq.h CommandLines.h
 sys.o: htab.h Process_Read.h Overlaps.h kvec.h kdq.h CommandLines.h
-hic.o: hic.h
+hic.o: hic.h StreamStore.h
 rcut.o: rcut.h
 horder.o: horder.h
 tovlp.o: tovlp.h
@@ -81,3 +94,4 @@ inter.o: inter.h Process_Read.h
 kalloc.o: kalloc.h
 gfa_ut.o: Overlaps.h
 gchain_map.o: gchain_map.h
+StreamStore.o: StreamStore.h kthread.h

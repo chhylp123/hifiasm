@@ -21514,6 +21514,7 @@ int32_t load_emask_t(idx_emask_t **z, char* file_name, ma_ug_t *ug)
 
 int32_t write_emask_t(idx_emask_t *x, char* file_name, ma_ug_t *ug)
 {
+	if (asm_opt.no_write_bin || !asm_opt.write_index_to_disk) return 0;
 	char* gfa_name = NULL; MALLOC(gfa_name, strlen(file_name)+50);
     sprintf(gfa_name, "%s.ul.msk.bin", file_name);
     FILE* fp = fopen(gfa_name, "w"); free(gfa_name);
@@ -21598,6 +21599,7 @@ void init_uldat_t(uldat_t *sl, void *ha_flt_tab, void *ha_idx, mg_idxopt_t *opt,
 
 int32_t write_all_ul_t(all_ul_t *x, char* file_name, ma_ug_t *ug)
 {
+	if (asm_opt.no_write_bin || !asm_opt.write_index_to_disk) return 0;
 	char* gfa_name = NULL; MALLOC(gfa_name, strlen(file_name)+50);
 	sprintf(gfa_name, "%s.ul.ovlp.bin", file_name);
 	FILE* fp = fopen(gfa_name, "w"); free(gfa_name);

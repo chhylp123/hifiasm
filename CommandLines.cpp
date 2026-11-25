@@ -6,6 +6,7 @@
 #include <limits.h>
 #include <sys/time.h>
 #include "CommandLines.h"
+#include "StreamStore.h"
 #include "ketopt.h"
 #include "kseq.h"
 
@@ -81,6 +82,9 @@ static ko_longopt_t long_options[] = {
     { "ul-m",     ko_required_argument, 363},
     { "rl-cut",     ko_required_argument, 364},
     { "sc-cut",     ko_required_argument, 365},
+    { "no-write-bin",  ko_no_argument, 366},
+    { "stream-ram-gb", ko_required_argument, 367},
+    { "stream",        ko_no_argument, 368},
     // { "path-round",     ko_required_argument, 348},
 	{ 0, 0, 0 }
 };
@@ -101,6 +105,11 @@ void Print_H(hifiasm_opt_t* asm_opt)
     fprintf(stderr, "    -t INT       number of threads [%d]\n", asm_opt->thread_num);
     fprintf(stderr, "    -h           show help information\n");
     fprintf(stderr, "    --version    show version number\n");
+    fprintf(stderr, "    --stream     ingest input reads in a single pass via StreamStore\n");
+    fprintf(stderr, "    --stream-ram-gb FLOAT\n");
+    fprintf(stderr, "                 max RAM in GiB for StreamStore before O_TMPFILE spool (0 for pure spool) [%.1f]\n", asm_opt->stream_ram_gb);
+    fprintf(stderr, "    --no-write-bin\n");
+    fprintf(stderr, "                 suppress writing intermediate *.bin checkpoint files\n");
     fprintf(stderr, "  Preset options:\n");
     fprintf(stderr, "    --ont        assemble Oxford Nanopore reads\n");
 	fprintf(stderr, "  Overlap/Error correction:\n");
@@ -373,6 +382,9 @@ void init_opt(hifiasm_opt_t* asm_opt)
 
     asm_opt->rl_cut = 1000;
     asm_opt->sc_cut = 10;
+    asm_opt->no_write_bin = 0;
+    asm_opt->stream_input = 0;
+    asm_opt->stream_ram_gb = 64.0;
 }   
 
 void destory_enzyme(enzyme* f)
@@ -392,11 +404,13 @@ void destory_enzyme(enzyme* f)
 
 void destory_opt(hifiasm_opt_t* asm_opt)
 {
+    ha_stream_global_destroy();
     if(asm_opt->read_file_names != NULL) free(asm_opt->read_file_names);
     if(asm_opt->hic_enzymes != NULL) destory_enzyme(asm_opt->hic_enzymes);
     if(asm_opt->hic_reads[0] != NULL) destory_enzyme(asm_opt->hic_reads[0]);
     if(asm_opt->hic_reads[1] != NULL) destory_enzyme(asm_opt->hic_reads[1]);
     if(asm_opt->ar != NULL) destory_enzyme(asm_opt->ar);
+    if(asm_opt->sec_in != NULL) destory_enzyme(asm_opt->sec_in);
 }
 
 void ha_opt_reset_to_round(hifiasm_opt_t* asm_opt, int round)
@@ -427,21 +441,7 @@ void ha_opt_update_cov_min(hifiasm_opt_t *opt, int hom_cov, int min_chain)
 
 static int check_file(char* name, const char* opt)
 {
-    if(!name)
-    {
-        fprintf(stderr, "[ERROR] file does not exist (-%s)\n", opt);
-        return 0;
-    } 
-    FILE* is_exist = NULL;
-    is_exist = fopen(name,"r");
-    if(!is_exist)
-    {
-        fprintf(stderr, "[ERROR] %s does not exist (-%s)\n", name, opt);
-        return 0;
-    } 
-
-    fclose(is_exist);
-    return 1;
+    return ha_check_input_readable(name, opt);
 }
 
 static int check_hic_reads(enzyme* f, const char* opt)
@@ -461,8 +461,12 @@ static int check_fq_files(enzyme* f, const char* opt, int32_t is_fq)
             fprintf(stderr, "[ERROR] input file does not exist (%s)\n", opt);
             return 0;
         }
+        if (ha_is_stream_path(f->a[i])) {
+            if (!ha_check_input_readable(f->a[i], opt)) return 0;
+            continue;
+        }
 
-        dfp = gzopen(f->a[i], "r");
+        dfp = ha_gzopen_read(f->a[i]);
         if (dfp == 0) {
             fprintf(stderr, "[ERROR] Cannot find the input file: %s (%s)\n", f->a[i], opt);
             return 0;
@@ -752,6 +756,11 @@ int check_option(hifiasm_opt_t* asm_opt)
         }
     }
 
+    if (asm_opt->stream_ram_gb < 0.0) {
+        fprintf(stderr, "[ERROR] [--stream-ram-gb] must be >= 0\n");
+        return 0;
+    }
+
     return 1;
 }
 
@@ -768,7 +777,14 @@ void get_queries(int argc, char *argv[], ketopt_t* opt, hifiasm_opt_t* asm_opt)
     gzFile dfp; kseq_t *ks = NULL;
     for (i = 0; i < asm_opt->num_reads; i++) {
         asm_opt->read_file_names[i] = argv[i + opt->ind];
-        dfp = gzopen(asm_opt->read_file_names[i], "r");
+        if (ha_is_stream_path(asm_opt->read_file_names[i])) {
+            if (!ha_check_input_readable(asm_opt->read_file_names[i], "input")) {
+                exit(0);
+            }
+            asm_opt->stream_input = 1;
+            continue;
+        }
+        dfp = ha_gzopen_read(asm_opt->read_file_names[i]);
         if (dfp == 0) {
             fprintf(stderr, "[ERROR] Cannot find the input read file: %s\n", 
                     asm_opt->read_file_names[i]);
@@ -1003,6 +1019,13 @@ int CommandLine_process(int argc, char *argv[], hifiasm_opt_t* asm_opt)
             asm_opt->rl_cut = atol(opt.arg);
         } else if (c == 365) {
             asm_opt->sc_cut = atol(opt.arg);
+        } else if (c == 366) {
+            asm_opt->no_write_bin = 1;
+            asm_opt->write_index_to_disk = 0;
+        } else if (c == 367) {
+            asm_opt->stream_ram_gb = atof(opt.arg);
+        } else if (c == 368) {
+            asm_opt->stream_input = 1;
         } else if (c == 'l') {   ///0: disable purge_dup; 1: purge containment; 2: purge overlap
             asm_opt->purge_level_primary = asm_opt->purge_level_trio = atoi(opt.arg);
         }

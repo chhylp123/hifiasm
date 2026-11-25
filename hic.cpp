@@ -2,6 +2,7 @@
 #include "float.h"
 #include <math.h>
 #include "hic.h"
+#include "StreamStore.h"
 #include "htab.h"
 #include "assert.h"
 #include "Overlaps.h"
@@ -497,6 +498,7 @@ void hc_pt_t_gen_single(hc_pt1_t* pt, uint64_t* up_bound, uint64_t* low_bound)
 
 int write_hc_pt_index(ha_ug_index* idx, char* file_name)
 {
+    if (asm_opt.no_write_bin || !asm_opt.write_index_to_disk) return 0;
     char* gfa_name = (char*)malloc(strlen(file_name)+25);
     sprintf(gfa_name, "%s.hic.tlb.bin", file_name);
     FILE* fp = fopen(gfa_name, "w");
@@ -1983,6 +1985,7 @@ static void *worker_pipeline(void *data, int step, void *in) // callback for kt_
 		stepdat_t *s;
 		CALLOC(s, 1);
         s->idx = p->idx; s->id = p->total_pair; s->t_ch = p->t_ch;
+        int hit_limit = 0;
         while (((ret1 = kseq_read(p->ks1)) >= 0)&&((ret2 = kseq_read(p->ks2)) >= 0)) 
         {
             if (p->ks1->seq.l < p->idx->k || p->ks2->seq.l < p->idx->k) continue;
@@ -1999,7 +2002,10 @@ static void *worker_pipeline(void *data, int step, void *in) // callback for kt_
             memcpy(s->seq[s->n]+l1, p->ks2->seq.s, l2);
             s->len[s->n++] = (uint64_t)(l1<<32)|(uint64_t)l2;
 
-            if (s->sum_len >= p->chunk_size) break;            
+            if (s->sum_len >= p->chunk_size) { hit_limit = 1; break; }            
+        }
+        if (!hit_limit && ret1 < 0) {
+            while (kseq_read(p->ks2) >= 0) {}
         }
         p->total_pair += s->n;
         if (s->sum_len == 0) free(s);
@@ -2217,7 +2223,7 @@ void destory_bubbles(bubble_type* bub)
 void get_bubbles(bubble_type* bub, uint64_t id, uint32_t* beg, uint32_t* sink, uint32_t** a, uint32_t* n, uint64_t* pathBase)
 {
     if(a) (*a) = bub->list.a + bub->num.a[id] + 2;
-    if(n) (*n) = bub->num.a[id+1] - bub->num.a[id] - 2;
+    if(n) (*n) = ((id + 1 < bub->num.n) ? bub->num.a[id+1] : (uint32_t)bub->list.n) - bub->num.a[id] - 2;
     if(beg) (*beg) = bub->list.a[bub->num.a[id]];
     if(sink) (*sink) = bub->list.a[bub->num.a[id] + 1];
     if(pathBase) (*pathBase) = bub->pathLen.a[id];
@@ -5170,6 +5176,7 @@ void collect_hc_reverse_links(hc_links* link, ma_ug_t* ug, bubble_type* bub)
 
 void write_hc_links(hc_links* link, const char *fn)
 {
+    if (asm_opt.no_write_bin || !asm_opt.write_index_to_disk) return;
     uint64_t k;
     char *buf = (char*)calloc(strlen(fn) + 25, 1);
 	sprintf(buf, "%s.hic.link.bin", fn);
@@ -5235,6 +5242,7 @@ int load_hc_links(hc_links* link, const char *fn)
 
 void write_hc_hits(kvec_pe_hit* hits, ma_ug_t* ug, const char *fn)
 {
+    if (asm_opt.no_write_bin || !asm_opt.write_index_to_disk) return;
     char *buf = (char*)calloc(strlen(fn) + 25, 1);
     sprintf(buf, "%s.hic.lk.bin", fn);
     FILE* fp = fopen(buf, "w");
@@ -15269,8 +15277,8 @@ int alignment_worker_pipeline(sldat_t* sl, const enzyme *fn1, const enzyme *fn2)
     for (i = 0; i < fn1->n && i < fn2->n; i++)
     {
         gzFile fp1, fp2;
-        if ((fp1 = gzopen(fn1->a[i], "r")) == 0) return 0;
-        if ((fp2 = gzopen(fn2->a[i], "r")) == 0) return 0;
+        if ((fp1 = ha_gzopen_read(fn1->a[i])) == 0) return 0;
+        if ((fp2 = ha_gzopen_read(fn2->a[i])) == 0) { gzclose(fp1); return 0; }
         sl->ks1 = kseq_init(fp1);
         sl->ks2 = kseq_init(fp2);
 
@@ -17304,6 +17312,7 @@ int load_psg_t(psg_t **sg, const char *fn)
 
 void write_psg_t(psg_t *sg, const char *fn)
 {
+    if (asm_opt.no_write_bin || !asm_opt.write_index_to_disk) return;
     char *buf = (char*)calloc(strlen(fn) + 25, 1);
     sprintf(buf, "%s.hic.pst.bin", fn);
     FILE* fp = fopen(buf, "w");

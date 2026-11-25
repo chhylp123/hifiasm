@@ -9,6 +9,14 @@
 #include "ksort.h"
 #include "htab.h"
 #include "Process_Read.h"
+#include "StreamStore.h"
+
+static ha_stream_store_t *g_stream_store = NULL;
+
+void ha_stream_global_destroy(void)
+{
+	ha_stream_store_destroy(&g_stream_store);
+}
 
 #define YAK_COUNTER_BITS 12
 #define YAK_N_COUNTS     (1<<YAK_COUNTER_BITS)
@@ -587,6 +595,11 @@ typedef struct { // global data structure for kt_pipeline()
 	const All_reads *rs_in;
 	All_reads *rs_out;
 	const ma_utg_v *us_in;
+	ha_stream_store_t *stream_store;
+	int stream_file_idx;
+	int stream_mode;
+	const char *stream_fn;
+	int checked_sc_fq;
 } pl_data_t;
 
 #define MZ_TEST_INIT(sf, HType, VType, IType, Ia) \
@@ -670,7 +683,7 @@ int sf##_ha_pt_insert_list(ha_pt_t *h, int n, const HType *a)\
 	return n_ins;\
 }\
 /** data structure for each step in kt_pipeline()**/\
-typedef struct {pl_data_t *p;uint64_t n_seq0; int n_seq, m_seq, sum_len, nk, uq, *len; char **seq; VType *mz_buf; VType *mz;sf##_ch_buf_t *buf;st_mt_t *mt;} sf##_st_data_t;\
+typedef struct {pl_data_t *p;uint64_t n_seq0; int n_seq, m_seq, sum_len, nk, uq, *len; char **seq; VType *mz_buf; VType *mz;sf##_ch_buf_t *buf;st_mt_t *mt; ha_stream_raw_rec_t *raw_recs;} sf##_st_data_t;\
 static void sf##_worker_for_insert(void *data, long i, int tid) /** callback for kt_for()**/\
 {\
 	sf##_st_data_t *s = (sf##_st_data_t*)data;\
@@ -757,8 +770,53 @@ static void *sf##_worker_count(void *data, int step, void *in) /** callback for 
 				if (s->sum_len >= p->opt->chunk_size)\
 					break;\
 			}\
+		} else if (p->stream_store && p->stream_mode >= 2) {\
+			ha_stream_decoded_batch_t db;\
+			if (ha_stream_store_replay_batch(p->stream_store, p->stream_file_idx, (p->stream_mode == 3), p->opt->n_thread, &db)) {\
+				int r_i;\
+				s->n_seq = (int)db.n_seq;\
+				s->m_seq = (int)db.n_seq;\
+				s->len = db.seq_lens;\
+				s->seq = db.seqs;\
+				for (r_i = 0; r_i < s->n_seq; ++r_i) {\
+					int l = s->len[r_i];\
+					const char *r_name = db.names_buf + db.name_offs[r_i];\
+					uint32_t r_name_l = db.name_lens[r_i];\
+					const char *r_qual = (db.has_qual[r_i] && db.quals_buf) ? (db.quals_buf + db.qual_offs[r_i]) : NULL;\
+					if (p->rs_out) {\
+						if (p->flag & HAF_RS_WRITE_LEN) {\
+							assert(p->n_seq == p->rs_out->total_reads);\
+							ha_insert_read_len(p->rs_out, l, (int)r_name_l);\
+						} else if (p->flag & HAF_RS_WRITE_SEQ) {\
+							int j_n, n_N;\
+							assert(l == (int)p->rs_out->read_length[p->n_seq]);\
+							for (j_n = n_N = 0; j_n < l; ++j_n)\
+								if (seq_nt4_table[(uint8_t)s->seq[r_i][j_n]] >= 4)\
+									++n_N;\
+							ha_compress_base(Get_READ(*p->rs_out, p->n_seq), s->seq[r_i], l, &p->rs_out->N_site[p->n_seq], n_N);\
+							if (r_name_l > 0) memcpy(&p->rs_out->name[p->rs_out->name_index[p->n_seq]], r_name, r_name_l);\
+							if (p->rs_out->rsc) {\
+								assert(r_qual != NULL);\
+								ha_compress_qual(Get_QUAL(*p->rs_out, p->n_seq), (char*)r_qual, l, sc_bn, 33);\
+							}\
+						}\
+					}\
+					++p->n_seq;\
+					s->sum_len += l;\
+					s->nk += l >= p->opt->k? l - p->opt->k + 1 : 0;\
+				}\
+				ha_stream_decoded_batch_free_aux(&db);\
+			}\
 		} else {\
 			while ((ret = kseq_read(p->ks)) >= 0) {\
+				if (asm_opt.is_sc && !p->checked_sc_fq) {\
+					p->checked_sc_fq = 1;\
+					if ((p->ks->qual.l == 0) || (p->ks->qual.s == NULL)) {\
+						fprintf(stderr, "[ERROR] %s is in fasta format rather than fastq format\n", p->stream_fn ? p->stream_fn : "input");\
+						asm_opt.is_sc = 0;\
+						exit(0);\
+					}\
+				}\
 				int l = (int)(p->ks->seq.l) - (int)(p->opt->adaLen) - (int)(p->opt->adaLen);\
 				if((l <= 0) || (l < asm_opt.rl_cut)) continue;\
 				if((asm_opt.is_sc) && (asm_opt.sc_cut > 0) && (!flt_quals(p->ks->qual.s+p->opt->adaLen, l, 33, asm_opt.sc_cut))) continue;\
@@ -778,16 +836,9 @@ static void *sf##_worker_count(void *data, int step, void *in) /** callback for 
 							if (seq_nt4_table[(uint8_t)p->ks->seq.s[i+p->opt->adaLen]] >= 4)\
 								++n_N;\
 						ha_compress_base(Get_READ(*p->rs_out, p->n_seq), p->ks->seq.s+p->opt->adaLen, l, &p->rs_out->N_site[p->n_seq], n_N);\
-						memcpy(&p->rs_out->name[p->rs_out->name_index[p->n_seq]], p->ks->name.s, p->ks->name.l);\
+						if (p->ks->name.l > 0) memcpy(&p->rs_out->name[p->rs_out->name_index[p->n_seq]], p->ks->name.s, p->ks->name.l);\
 						if(p->rs_out->rsc) {\
 							ha_compress_qual(Get_QUAL(*p->rs_out, p->n_seq), p->ks->qual.s+p->opt->adaLen, l, sc_bn, 33);\
-							/**print_fastq(NULL, p->ks->name.s, p->ks->seq.s, p->ks->qual.s, (1<<sc_bn), 33);**/\
-							/**if(l <= 1000000) {\
-								convert_qual(src_a, p->ks->qual.s+p->opt->adaLen, l, (1<<sc_bn), 0, 33);\
-								retrive_bqual(NULL, des_a, p->n_seq, -1, -1, 0, sc_bn);\
-								if(memcmp(src_a, des_a, l)!=0) fprintf(stderr, "ERROR: incorrect qual values\n");\
-								else fprintf(stderr, "Correct: correct qual values\n");\
-							}**/\
 						}\
 					}\
 				}\
@@ -795,9 +846,26 @@ static void *sf##_worker_count(void *data, int step, void *in) /** callback for 
 					s->m_seq = s->m_seq < 16? 16 : s->m_seq + (s->m_seq>>1);\
 					REALLOC(s->len, s->m_seq);\
 					REALLOC(s->seq, s->m_seq);\
+					if (p->stream_mode == 1) REALLOC(s->raw_recs, s->m_seq);\
 				}\
 				MALLOC(s->seq[s->n_seq], l);\
 				memcpy(s->seq[s->n_seq], p->ks->seq.s+p->opt->adaLen, l);\
+				if (p->stream_mode == 1) {\
+					uint32_t nl = (uint32_t)p->ks->name.l;\
+					s->raw_recs[s->n_seq].name_len = nl;\
+					s->raw_recs[s->n_seq].name = nl ? (char*)malloc(nl) : NULL;\
+					if (nl) memcpy(s->raw_recs[s->n_seq].name, p->ks->name.s, nl);\
+					if (p->ks->qual.s != NULL && p->ks->qual.l >= (size_t)(p->opt->adaLen + l)) {\
+						s->raw_recs[s->n_seq].has_qual = 1;\
+						s->raw_recs[s->n_seq].qual_len = (uint32_t)l;\
+						s->raw_recs[s->n_seq].qual = (char*)malloc((size_t)l);\
+						memcpy(s->raw_recs[s->n_seq].qual, p->ks->qual.s + p->opt->adaLen, (size_t)l);\
+					} else {\
+						s->raw_recs[s->n_seq].has_qual = 0;\
+						s->raw_recs[s->n_seq].qual_len = 0;\
+						s->raw_recs[s->n_seq].qual = NULL;\
+					}\
+				}\
 				s->len[s->n_seq++] = l;\
 				++p->n_seq;\
 				s->sum_len += l;\
@@ -813,6 +881,15 @@ static void *sf##_worker_count(void *data, int step, void *in) /** callback for 
 		/**s is the block of reads**/\
 		sf##_st_data_t *s = (sf##_st_data_t*)in;\
 		int i, n_pre = 1<<p->opt->pre, m;\
+		if (p->stream_mode == 1 && s->raw_recs) {\
+			ha_stream_store_append_batch(p->stream_store, p->stream_file_idx, s->n_seq, s->seq, s->len, s->raw_recs, p->opt->n_thread);\
+			for (i = 0; i < s->n_seq; ++i) {\
+				free(s->raw_recs[i].name);\
+				free(s->raw_recs[i].qual);\
+			}\
+			free(s->raw_recs);\
+			s->raw_recs = NULL;\
+		}\
 		/**allocate the k-mer buffer**/\
 		CALLOC(s->buf, n_pre);\
 		m = (int)(s->nk * 1.2 / n_pre) + 1;\
@@ -927,7 +1004,7 @@ void debug_adapter(const hifiasm_opt_t *asm_opt, All_reads *rs)
 	exit(1);
 }
 
-static ha_ct_t *yak_count(const yak_copt_t *opt, const char *fn, int flag, ha_pt_t *p0, ha_ct_t *c0, const void *flt_tab, All_reads *rs, ma_utg_v *us, int64_t *n_seq)
+static ha_ct_t *yak_count(const yak_copt_t *opt, const char *fn, int flag, ha_pt_t *p0, ha_ct_t *c0, const void *flt_tab, All_reads *rs, ma_utg_v *us, int64_t *n_seq, int file_idx, int stream_mode)
 {
 	///for 0-th counting, flag = HAF_COUNT_ALL|HAF_RS_WRITE_LEN|HAF_CREATE_NEW
 	int read_rs = (rs && (flag & HAF_RS_READ));
@@ -941,9 +1018,21 @@ static ha_ct_t *yak_count(const yak_copt_t *opt, const char *fn, int flag, ha_pt
 	} else if (read_rs) {
 		pl.rs_in = rs;
 		init_UC_Read(&pl.ucr);
+	} else if (stream_mode >= 2 && g_stream_store) {
+		pl.stream_store = g_stream_store;
+		pl.stream_file_idx = file_idx;
+		pl.stream_mode = stream_mode;
+		pl.stream_fn = fn;
+		ha_stream_store_rewind_file(g_stream_store, file_idx);
 	} else {///for 0-th counting, go into here
-		if ((fp = gzopen(fn, "r")) == 0) return 0;
+		if ((fp = ha_gzopen_read(fn)) == 0) return 0;
 		pl.ks = kseq_init(fp);
+		pl.stream_fn = fn;
+		if (stream_mode == 1 && g_stream_store) {
+			pl.stream_store = g_stream_store;
+			pl.stream_file_idx = file_idx;
+			pl.stream_mode = 1;
+		}
 	}
 	///for 0-th counting, read all reads into pl.rs_out
 	if (rs && (flag & (HAF_RS_WRITE_LEN|HAF_RS_WRITE_SEQ)))
@@ -971,9 +1060,12 @@ static ha_ct_t *yak_count(const yak_copt_t *opt, const char *fn, int flag, ha_pt
 	else kt_pipeline(3, mz1_worker_count, &pl, 3);
 	if (read_rs) {
 		destory_UC_Read(&pl.ucr);
-	} else if(!read_rs && !ug_rs) {
+	} else if(!read_rs && !ug_rs && !(stream_mode >= 2 && g_stream_store)) {
 		kseq_destroy(pl.ks);
 		gzclose(fp);
+		if (stream_mode == 1 && g_stream_store) {
+			ha_stream_store_mark_captured(g_stream_store, file_idx);
+		}
 	}
 	*n_seq = pl.n_seq;
 	if (pl.opt->w > 1) fprintf(stderr, "[M::%s] collected %ld minimizers\n", __func__, (long)pl.n_mz);
@@ -987,6 +1079,8 @@ ha_ct_t *ha_count(const hifiasm_opt_t *asm_o, int flag, int HPC, int k, int w, h
 	uint64_t n_bs = 0;
 	yak_copt_t opt;
 	ha_ct_t *h = 0;
+	int is_raw_pass = (!us && !(rs && (flag & HAF_RS_READ)));
+	int captured_now = 0;
 	assert(!(flag & HAF_RS_WRITE_LEN) || !(flag & HAF_RS_WRITE_SEQ)); // not both
 	///for 0-th counting, flag = HAF_COUNT_ALL|HAF_RS_WRITE_LEN
 	if (rs) {
@@ -1008,19 +1102,37 @@ ha_ct_t *ha_count(const hifiasm_opt_t *asm_o, int flag, int HPC, int k, int w, h
 	opt.min_rcnt = (low_freq?*low_freq:-1);
 	opt.uq = (unique_only?1:0);
 	
+	if (is_raw_pass && asm_o->stream_input && g_stream_store == NULL) {
+		g_stream_store = ha_stream_store_create(asm_o->num_reads, asm_o->stream_ram_gb, asm_o->output_file_name);
+	}
+
 	n_bs = 0;
-	///pending for integration
-	/**
-	if(rs && asm_o->ar && asm_o->ul_mod) {
-		for (i = 0; i < asm_o->ar->n; ++i){
-			h = yak_count(&opt, asm_o->ar->a[i], flag|HAF_CREATE_NEW, p0, h, flt_tab, rs, us, &n_seq);
-			if(h) n_bs += h->bs;
-		}
-	}**/
 	///asm_opt->num_reads is the number of fastq files
 	for (i = 0; i < (us?1:asm_o->num_reads); ++i){
-		h = yak_count(&opt, asm_o->read_file_names[i], flag|HAF_CREATE_NEW, p0, h, flt_tab, rs, us, &n_seq);
+		int smode = 0;
+		if (is_raw_pass && asm_o->stream_input && g_stream_store) {
+			if (!ha_stream_store_is_captured(g_stream_store, i)) {
+				smode = 1;
+				captured_now = 1;
+			} else if (flag & HAF_RS_WRITE_SEQ) {
+				smode = 3;
+			} else {
+				smode = 2;
+			}
+		}
+		h = yak_count(&opt, us ? NULL : asm_o->read_file_names[i], flag|HAF_CREATE_NEW, p0, h, flt_tab, rs, us, &n_seq, i, smode);
 		if(h) n_bs += h->bs;
+	}
+	if (captured_now && g_stream_store) {
+		fprintf(stderr, "[M::%s] StreamStore captured %lu reads (%lu bp) peak_ram=%.4f GB spilled_disk=%.4f GB\n",
+				__func__,
+				(unsigned long)ha_stream_store_total_records(g_stream_store),
+				(unsigned long)ha_stream_store_total_bases(g_stream_store),
+				(double)ha_stream_store_peak_ram_bytes(g_stream_store) / 1073741824.0,
+				(double)ha_stream_store_disk_bytes(g_stream_store) / 1073741824.0);
+	}
+	if (is_raw_pass && (flag & HAF_RS_WRITE_SEQ) && g_stream_store) {
+		ha_stream_store_destroy(&g_stream_store);
 	}
 	if(h) h->bs = n_bs;	
 	if (h && opt.bf_shift > 0)
@@ -1297,6 +1409,7 @@ int query_ct_index(void* ct_idx, uint64_t hash)
 
 int write_ct_index(void *i_ct_idx, char* file_name)
 {
+	if (asm_opt.no_write_bin || !asm_opt.write_index_to_disk) return 0;
 	char* gfa_name = (char*)malloc(strlen(file_name)+25);
     sprintf(gfa_name, "%s.ct_flt", file_name);
     FILE* fp = fopen(gfa_name, "w");
@@ -1366,6 +1479,7 @@ int load_ct_index(void **i_ct_idx, char* file_name)
 
 int write_pt_index(void *flt_tab, ha_pt_t *ha_idx, All_reads* r, hifiasm_opt_t* opt, char* file_name)
 {
+    if (asm_opt.no_write_bin || !asm_opt.write_index_to_disk) return 0;
     char* gfa_name = (char*)malloc(strlen(file_name)+64);
     sprintf(gfa_name, "%s.pt_flt", file_name);
     FILE* fp = fopen(gfa_name, "w");
@@ -1557,6 +1671,7 @@ int load_pt_index(void **r_flt_tab, ha_pt_t **r_ha_idx, All_reads *r, hifiasm_op
 
 int uidx_write(void *flt_tab, ha_pt_t *ha_idx, char* file_name, ma_ug_t *ug)
 {
+	if (asm_opt.no_write_bin || !asm_opt.write_index_to_disk) return 0;
 	char* gfa_name = (char*)malloc(strlen(file_name)+25);
     sprintf(gfa_name, "%s.uidx.bin", file_name);
     FILE* fp = fopen(gfa_name, "w");
