@@ -68,6 +68,7 @@ void destory_All_reads(All_reads* r)
 
 void write_All_reads(All_reads* r, char* read_file_name)
 {
+    if (asm_opt.no_write_bin || !asm_opt.write_index_to_disk) return;
     fprintf(stderr, "Writing reads to disk... \n");
     char* index_name = (char*)malloc(strlen(read_file_name)+15);
     sprintf(index_name, "%s.bin", read_file_name);

@@ -1,3 +1,5 @@
 .*.swp
 *.o
 *.json
+/hifiasm
+__pycache__/

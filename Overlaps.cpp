@@ -16375,6 +16375,7 @@ long long gap_fuzz, bub_label_t* b_mask_t, ug_opt_t *opt)
 
 uint64_t dump_trans_ovlp(trans_chain* t_ch, const char *fn, ma_ug_t *ug)
 {
+    if (asm_opt.no_write_bin || !asm_opt.write_index_to_disk) return 0;
     char* gfa_name = NULL; MALLOC(gfa_name, strlen(fn)+50);
     sprintf(gfa_name, "%s.trans.bin", fn);
     FILE* fp = fopen(gfa_name, "w"); free(gfa_name);
@@ -19502,16 +19503,16 @@ ma_ug_t* copy_untig_graph(ma_ug_t *src)
     ug->g->r_seq = src->g->r_seq;
     ug->g->m_seq = ug->g->n_seq = src->g->n_seq;
     ug->g->seq = (asg_seq_t*)malloc(ug->g->n_seq * sizeof(asg_seq_t));
-    memcpy(ug->g->seq, src->g->seq, sizeof(asg_seq_t)*ug->g->n_seq);
+    if (ug->g->n_seq > 0 && src->g->seq) memcpy(ug->g->seq, src->g->seq, sizeof(asg_seq_t)*ug->g->n_seq);
 
     ug->g->m_arc = ug->g->n_arc = src->g->n_arc;
     ug->g->arc = (asg_arc_t*)malloc(ug->g->n_arc*sizeof(asg_arc_t));
-    memcpy(ug->g->arc, src->g->arc, sizeof(asg_arc_t)*ug->g->n_arc);
+    if (ug->g->n_arc > 0 && src->g->arc) memcpy(ug->g->arc, src->g->arc, sizeof(asg_arc_t)*ug->g->n_arc);
 
     ug->g->is_srt = src->g->is_srt;
     ug->g->is_symm = src->g->is_symm;
     ug->g->idx = (uint64_t*)malloc(ug->g->n_seq*2*8);
-    memcpy(ug->g->idx, src->g->idx, ug->g->n_seq*2*8); 
+    if (ug->g->n_seq > 0 && src->g->idx) memcpy(ug->g->idx, src->g->idx, ug->g->n_seq*2*8); 
     asg_cleanup(ug->g);
 
 
@@ -19530,7 +19531,7 @@ ma_ug_t* copy_untig_graph(ma_ug_t *src)
         ug_u->m = ug_u->n = src_u->n;
 
         ug_u->a = (uint64_t*)malloc(8 * ug_u->n);
-        memcpy(ug_u->a, src_u->a, 8*ug_u->n);
+        if (ug_u->n > 0 && src_u->a) memcpy(ug_u->a, src_u->a, 8*ug_u->n);
     }
 
     /**
@@ -19549,11 +19550,11 @@ asg_t* copy_read_graph(asg_t *src)
     dest->r_seq = src->r_seq;
     dest->m_seq = dest->n_seq = src->n_seq;
     dest->seq = (asg_seq_t*)malloc(dest->n_seq * sizeof(asg_seq_t));
-    memcpy(dest->seq, src->seq, sizeof(asg_seq_t)*dest->n_seq);
+    if (dest->n_seq > 0 && src->seq) memcpy(dest->seq, src->seq, sizeof(asg_seq_t)*dest->n_seq);
 
     dest->m_arc = dest->n_arc = src->n_arc;
     dest->arc = (asg_arc_t*)malloc(dest->n_arc*sizeof(asg_arc_t));
-    memcpy(dest->arc, src->arc, sizeof(asg_arc_t)*dest->n_arc);
+    if (dest->n_arc > 0 && src->arc) memcpy(dest->arc, src->arc, sizeof(asg_arc_t)*dest->n_arc);
 
     dest->is_srt = src->is_srt;
     dest->is_symm = src->is_symm;
@@ -19565,7 +19566,7 @@ asg_t* copy_read_graph(asg_t *src)
     if(src->seq_vis)
     {
         dest->seq_vis = (uint8_t*)malloc(dest->n_seq*2*sizeof(uint8_t));
-        memcpy(dest->seq_vis, src->seq_vis, dest->n_seq*2*sizeof(uint8_t));
+        if (dest->n_seq > 0) memcpy(dest->seq_vis, src->seq_vis, dest->n_seq*2*sizeof(uint8_t));
     }
 
     if(src->n_F_seq > 0 && src->F_seq)
@@ -23500,6 +23501,7 @@ void write_debug_ma_hit_ts(ma_hit_t_alloc* x, long long n_read, char* read_file_
 
 void write_yak_binning(char *ou, char *fn_bin_yak1, char *fn_bin_yak2)
 {
+    if (asm_opt.no_write_bin || !asm_opt.write_index_to_disk) return;
     fprintf(stderr, "Writing binning to disk ...... \n");
     char* paf_name = (char*)malloc(strlen(ou)+50);
     sprintf(paf_name, "%s.hap1.phase.bin", ou);
@@ -23566,6 +23568,7 @@ uint32_t load_yak_binning(hifiasm_opt_t *opt, char *ou)///asm_opt
 
 void write_all_data_to_disk(ma_hit_t_alloc* sources, ma_hit_t_alloc* reverse_sources, All_reads *RNF, char* output_file_name)
 {   
+    if (asm_opt.no_write_bin || !asm_opt.write_index_to_disk) return;
 	char* gfa_name = (char*)malloc(strlen(output_file_name)+25);
 	sprintf(gfa_name, "%s.ec", output_file_name);
 	write_All_reads(RNF, gfa_name);

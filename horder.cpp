@@ -4304,7 +4304,7 @@ double min_cut, double max_cut, uint64_t cut_round)
         sp->w = sg->g->arc[k].nw; sp->x = k;
     }
     // fprintf(stderr, "sm.n::%lu\n", (uint64_t)sm.n);
-    qsort(sm.a, sm.n, sizeof(mc_edge_t), cmp_mc_edge_t_w);
+    if (sm.n > 1) qsort(sm.a, sm.n, sizeof(mc_edge_t), cmp_mc_edge_t_w);
 
 
 

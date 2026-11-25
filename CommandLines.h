@@ -170,6 +170,10 @@ typedef struct {
     int64_t rl_cut;
     int64_t sc_cut;
 
+    uint8_t no_write_bin;
+    uint8_t stream_input;
+    double stream_ram_gb;
+
 } hifiasm_opt_t;
 
 extern hifiasm_opt_t asm_opt;
